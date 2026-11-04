@@ -6,7 +6,7 @@ Data: 04/11/2026. A implementação é uma versão inicial de código aberto. **
 
 | Área | Evidência | Resultado |
 |---|---|---|
-| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | Suíte automatizada passa; provedores externos simulados |
+| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 27 testes passam; provedores externos simulados |
 | API remota | `scripts/smoke.mjs` contra Worker de staging | 20 verificações HTTP, dados fictícios; sem canal conectado |
 | Credenciais | Testes de hash, criptografia, expiração e revogação | Chaves inválidas recusadas; credenciais não ficam no frontend |
 | Autorizações | Testes de perfis, bots e namespaces de aplicações | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
@@ -22,6 +22,8 @@ Data: 04/11/2026. A implementação é uma versão inicial de código aberto. **
 | Repositório | Quevenapp/Wabotia público, MIT | Actions desativado antes do primeiro push; sem workflows |
 
 Resultados remotos sanitizados: [API](reference/live-validation.json), [exemplos](reference/examples-validation.json) e [restauração](reference/restore-validation.json). Os arquivos não contêm chaves nem dados de clientes.
+
+O formulário oficial Deploy to Cloudflare reconheceu o repositório, D1, R2, os dois secrets e os comandos build/deploy. A publicação executada foi manual por Wrangler, incluindo provisionamento e migrações. Não foi criada uma segunda instalação via botão. O site e a configuração inicial estão publicados em https://wabotia.queven.app.
 
 ## Matriz para homologar seus canais
 

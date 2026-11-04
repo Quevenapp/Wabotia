@@ -23,7 +23,7 @@ As telas do [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.
 4. Confira os recursos sugeridos: banco D1, bucket R2 e Durable Object. O provisionamento é automático. Mantenha o bucket privado.
 5. Preencha os secrets `MASTER_KEY` e `SETUP_TOKEN` com os valores que guardou. Eles são secrets do Worker; não são variáveis `VITE_*` nem arquivos para enviar ao GitHub.
 6. Em **Build command**, mantenha `npm run build`. Em **Deploy command**, mantenha `npm run deploy`. Esse comando publica e aplica as migrações do banco usando a ligação `DB`.
-7. Clique em publicar e aguarde a indicação de sucesso. Guarde a URL `https://seu-projeto.sua-conta.workers.dev`.
+7. Desative Enable Preview builds até configurar recursos isolados para testes. Clique em publicar e aguarde a indicação de sucesso. Guarde a URL `https://seu-projeto.sua-conta.workers.dev`.
 8. Em Workers & Pages > seu Worker > Settings > Variables and Secrets, confira apenas a existência dos dois secrets. Se a tela inicial não os solicitou, adicione-os com tipo **Secret** e publique a alteração.
 9. Abra **a URL da sua instalação**, acrescente `/app` e continue na etapa 3.
 
