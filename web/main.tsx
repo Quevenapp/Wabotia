@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { HermesInstall } from "./hermes-install";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -403,8 +404,20 @@ const installSteps = [
 ];
 function Install() {
   useEffect(() => {
-    if (location.hash === "#vincular-contas")
-      document.getElementById("vincular-contas")?.scrollIntoView();
+    const showStep = () => {
+      if (
+        ["#vincular-contas", "#hermes", "#cloudflare-hermes"].includes(
+          location.hash,
+        )
+      ) {
+        const target = document.getElementById(location.hash.slice(1));
+        if (target instanceof HTMLDetailsElement) target.open = true;
+        target?.scrollIntoView();
+      }
+    };
+    showStep();
+    window.addEventListener("hashchange", showStep);
+    return () => window.removeEventListener("hashchange", showStep);
   }, []);
   return (
     <div className="guide-page">
@@ -504,6 +517,18 @@ function Install() {
           </a>
         </div>
         <InstallKeys />
+        <aside className="account-return">
+          <strong>O deploy falhou ou a URL não abriu?</strong>
+          <p>
+            Se a criação do R2 falhar, crie um bucket privado em R2 e
+            selecione-o ao tentar o deploy novamente. Depois da publicação,
+            confira no Worker, em Settings → Domains &amp; Routes, se a URL
+            workers.dev está habilitada. O PDF mostra essas verificações.
+          </p>
+          <a href="#hermes">
+            Wabotia já instalado? Conectar Hermes e Cloudflare ↓
+          </a>
+        </aside>
         <div className="guide-grid">
           {installSteps.map(([title, desc], i) => (
             <article key={title}>
@@ -519,6 +544,7 @@ function Install() {
             </article>
           ))}
         </div>
+        <HermesInstall />
         <aside className="callout">
           <ShieldCheck />
           <div>

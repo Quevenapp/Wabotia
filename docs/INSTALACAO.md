@@ -2,7 +2,7 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-As telas do [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) usam dados fictícios. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta é a versão inicial 0.1.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta é a versão inicial 0.1.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
 ## 1. Primeiro, vincule a Cloudflare ao GitHub
 
@@ -38,17 +38,17 @@ O gerador é para uma **nova instalação**. Se já instalou, preserve as chaves
 4. Confira os recursos sugeridos: banco D1, bucket R2 e Durable Object. O provisionamento é automático. Mantenha o bucket privado.
 5. Preencha os secrets `MASTER_KEY` e `SETUP_TOKEN` com os valores que guardou. Eles são secrets do Worker; não são variáveis `VITE_*` nem arquivos para enviar ao GitHub.
 6. Em **Build command**, mantenha `npm run build`. Em **Deploy command**, mantenha `npm run deploy`. Esse comando publica e aplica as migrações do banco usando a ligação `DB`.
-7. Desative Enable Preview builds até configurar recursos isolados para testes. Clique em publicar e aguarde a indicação de sucesso. Guarde a URL `https://seu-projeto.sua-conta.workers.dev`.
+7. Desative Enable Preview builds até configurar recursos isolados para testes. Clique em publicar e aguarde a indicação de sucesso. Guarde a URL `https://seu-projeto.sua-conta.workers.dev`. Se ela não abrir, vá ao Worker > Settings > Domains & Routes (Domínios e rotas) e habilite o endereço `workers.dev` de produção se estiver desativado.
 8. Em Workers & Pages > seu Worker > Settings > Variables and Secrets, confira apenas a existência dos dois secrets. Se a tela inicial não os solicitou, adicione-os com tipo **Secret** e publique a alteração.
 9. Abra **a URL da sua instalação**, acrescente `/app` e continue na etapa 3.
 
 O botão usa Cloudflare Builds. Não precisa de GitHub Actions. Na cópia do repositório, você também pode abrir Settings > Actions > General e selecionar **Disable actions**. O repositório original Quevenapp/Wabotia já mantém Actions desativado.
 
-Se o deploy informar falta de R2, habilite o serviço na conta e repita. Se o banco estiver vazio porque o comando de deploy foi alterado, use a opção B ou, numa cópia local da configuração com os IDs do seu Worker, rode `npx wrangler d1 migrations apply DB --remote`. Não crie um segundo atendimento para resolver uma migração pendente.
+O botão foi validado com uma instalação real, incluindo banco, mídias, migrações e primeiro administrador. Se o assistente falhar ao provisionar R2, abra Armazenamento e bancos de dados > R2 > Criar bucket, crie `wabotia-media` privado e volte ao deploy para selecionar o bucket existente. Se houver erro interno antes de criar qualquer recurso, confira a vinculação GitHub, volte ao botão e tente novamente usando o R2 já preparado; um erro interno isolado não permite determinar sua causa. Se o banco estiver vazio porque o comando de deploy foi alterado, use a opção B ou, numa cópia local da configuração com os IDs do seu Worker, rode `npx wrangler d1 migrations apply DB --remote`. Não crie um segundo atendimento para resolver uma migração pendente.
 
 ### Opção B - Instalador pelo terminal
 
-É a alternativa validada integralmente nesta versão. Os comandos são iguais em Linux, macOS e Windows/WSL2.
+É outra forma de publicação validada nesta versão. Os comandos são iguais em Linux, macOS e Windows/WSL2.
 
 1. Instale [Node.js LTS](https://nodejs.org/) (22.13 ou superior; preferencialmente 24 LTS) e [Git](https://git-scm.com/downloads).
 2. Windows: abra o Ubuntu no WSL2; macOS: abra Terminal; Ubuntu/Linux: abra Terminal. No Windows também é possível usar PowerShell com Node e Git instalados.
@@ -79,45 +79,35 @@ Não execute novamente o instalador sobre uma implantação feita pelo botão co
 4. Mantenha o atendimento pausado enquanto prepara os serviços.
 5. Em **Pessoas**, adicione uma conta para cada atendente e marque os perfis autorizados. Evite compartilhar uma única conta. A edição permite alterar nome, perfis, identidade Telegram e senha; a desativação encerra o acesso.
 
-## 4. Prepare as APIs do Hermes
+## 4. Ligue a API do Hermes, mesmo se estiver desligada
 
-O Wabotia usa dois serviços nativos: backend administrativo para descobrir perfis (`/api/profiles`) e API Server para executar bots (`/v1/capabilities`, `/v1/runs`). A compatibilidade foi examinada na revisão `0e427d788d253630d38a3a51cd76849e73cd6925`. Instalações antigas ou que só oferecem chat completions precisam de atualização compatível.
+Siga o [roteiro completo Hermes + Cloudflare](HERMES-CLOUDFLARE.md). Ele mostra onde abrir o terminal, como criar o perfil `wabotia`, gerar e guardar as chaves, habilitar a API, iniciar os serviços e testar. Há caminhos separados para **Ubuntu/Linux/WSL2/macOS nativo** e **VPS Ubuntu com Docker**, preservando o Hermes existente.
 
-1. No Hermes, identifique o nome de cada perfil. Não crie outro perfil se o bot já existir.
-2. No ambiente/configuração **do perfil correto**, habilite a API Server e configure uma chave forte. Exemplo dos campos, sem valores reais:
+O assistente `python3 scripts/prepare-hermes.py --profile wabotia --create-profile` faz backup e configura a API nativa. Ele não inicia serviços sozinho. O manual mostra os comandos de início, reinício e diagnóstico, inclusive quando a API é desligada depois. Dois serviços precisam responder: backend administrativo na 9119 e API dos bots na 8642, ambos autenticados e restritos ao loopback. Use `--check` para verificar os dois antes de abrir um túnel.
 
-```ini
-API_SERVER_ENABLED=true
-API_SERVER_KEY=COLE_A_CHAVE_ALEATORIA_DO_PERFIL
-```
+As chaves Hermes geradas ficam em `~/.config/wabotia/hermes/chaves.local.txt`. Elas são adicionais às chaves de instalação do Wabotia. Não substitua MASTER_KEY/SETUP_TOKEN. Não copie credenciais dos canais de outro bot.
 
-3. Reinicie o gateway do Hermes pelo método que já utiliza. Confirme a porta no log; o padrão da API é **8642**. Não abra uma segunda instância sobre as mesmas portas.
-4. Para descoberta, use o backend administrativo autenticado. O padrão usado pelo assistente é **9119**; confirme a porta na sua instalação. Uma instalação headless pode usar `hermes serve --host 127.0.0.1 --port 9119`, desde que não exista outro backend nessa porta. Configure `HERMES_DASHBOARD_SESSION_TOKEN` no ambiente desse processo com uma chave forte e estável.
-5. Um dashboard público configurado para login/OAuth não aceita necessariamente esse Bearer. O Wabotia não faz login interativo nele: use uma API administrativa compatível e protegida, ou ajuste a implantação com seu administrador. Não desative a autenticação de um dashboard público.
-6. No Docker, mantenha volumes persistentes dos perfis. Exponha portas do contêiner somente no loopback do host, ou use cloudflared na mesma rede Docker privada. As portas e o processo administrativo dependem da imagem Hermes que você usa.
+## 5. Configure a Cloudflare para alcançar o Hermes
 
-Nunca use a porta de desenvolvimento do frontend Hermes como URL da API. As ferramentas, aprovações e credenciais dos bots continuam sob o controle do Hermes.
+O [roteiro ilustrado, etapas C a E](HERMES-CLOUDFLARE.md#c-cloudflare-domínio-e-zero-trust), detalha a sequência:
 
-## 5. Hermes em computador local, VPS ou rede privada
+1. Confirmar domínio ativo e ativar Zero Trust, caso ainda não esteja disponível.
+2. Criar Service Token e guardar o par Client ID/Client Secret.
+3. Criar duas aplicações Access Self-hosted, com política Service Auth limitada a esse token.
+4. Criar um túnel novo, instalar cloudflared na máquina do Hermes e aguardar o estado Íntegro.
+5. Publicar somente `/api/profiles` no hostname administrativo e `/p/wabotia/v1/…` no hostname dos bots, com portas e HTTP Host Header conforme a tabela do roteiro.
+6. Conferir os registros DNS criados, testar a proteção e cadastrar as URLs e chaves no Wabotia.
 
-Se já há HTTPS autenticado acessível ao Worker, vá à etapa 6. Se o Hermes só responde em localhost/rede privada, use Cloudflare Tunnel com Access:
+O manual também explica como instalar um serviço cloudflared separado se já existir outro túnel na máquina. Não sobrescreva o túnel existente. Não abra portas no roteador e não publique todas as rotas do painel Hermes.
 
-1. No computador que alcança o Hermes, na pasta Wabotia, execute `node scripts/connect-hermes.mjs`.
-2. Informe dois endereços do seu domínio: `hermes.seudominio.com` e `api-hermes.seudominio.com`. Confirme as portas reais e escolha um nome novo para o túnel.
-3. O assistente gera um arquivo `connection.NOME.local.md` com os comandos e `tunnel.NOME.local.yml` com a configuração. Ele não modifica seus bots.
-4. Na Cloudflare Zero Trust, abra **Access > Applications**. Crie uma aplicação **Self-hosted** para cada um dos dois hostnames. A política deve ser **Service Auth**.
-5. Em **Access > Service Auth > Service Tokens**, crie um Service Token. Guarde o Client ID e o Client Secret; inclua esse token nas políticas dos dois hostnames.
-6. Instale [cloudflared](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) e siga os comandos do arquivo gerado: login, criação do túnel e das duas rotas DNS.
-7. No YAML, substitua o UUID e o caminho do arquivo de credenciais. O `httpHostHeader` do backend loopback é ajustado pelo assistente para a validação de Host do Hermes; o Access continua obrigatório no endereço externo.
-8. Inicie o túnel conforme o guia gerado. No painel Wabotia, preencha Client ID/Secret do Access junto com as chaves Hermes.
-9. Configure cloudflared para iniciar com o sistema. Em Windows/WSL2, o ambiente precisa permanecer ligado; no macOS, use o serviço conforme a documentação oficial. Em Docker, mantenha rede privada, volume de credenciais e política de reinício.
+O assistente alternativo `node scripts/connect-hermes.mjs` gera um YAML para túnel gerenciado localmente. Ele não liga a API. Use esse caminho somente se preferir administrar o YAML; não misture os comandos de túnel local com o túnel gerenciado pelo dashboard.
 
-O túnel não substitui o Hermes: se o computador dormir, os bots param de executar. O Wabotia continua disponível e os atendentes podem usar os canais ainda conectados.
+O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele dormir, o painel Wabotia continua disponível, mas os bots ficam offline; o atendimento humano permanece nos canais ainda conectados.
 
 ## 6. Conecte e escolha a Equipe Bot
 
 1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, dê um nome e preencha as URLs HTTPS administrativa e da API.
-2. Cole o token administrativo e a `API_SERVER_KEY` de cada perfil. Para vários perfis, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 perfis por conexão.
+2. Cole o token administrativo e a `API_SERVER_KEY` de cada perfil. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários perfis, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 perfis por conexão.
 3. Salve, clique **Testar conexão** e **Descobrir bots**. A verificação exige idempotência durável anunciada pelo Hermes.
 4. Ative a conexão. Em **Equipe Bot**, habilite os bots autorizados e selecione o **Atendente**.
 5. Crie ações de especialistas: informe qual bot consultar, em que condição e qual ação ele pode executar. Os perfis não recebem permissão para chamar outros especialistas livremente.

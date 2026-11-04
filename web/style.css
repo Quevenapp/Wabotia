@@ -2187,3 +2187,54 @@ td .text-link {
 .sidebar-bottom {
   flex-shrink: 0;
 }
+
+/* Installation instructions remain readable on desktop and mobile. */
+.hermes-guide {
+  scroll-margin-top: 24px;
+}
+.hermes-guide details {
+  border-top: 1px solid var(--line, #dfe6d7);
+  padding: 18px 0;
+}
+.hermes-guide summary {
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.hermes-guide .guide-detail {
+  padding-top: 14px;
+}
+.hermes-guide p {
+  line-height: 1.7;
+}
+.hermes-guide pre {
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.hermes-guide code {
+  overflow-wrap: anywhere;
+}
+.guide-table-scroll {
+  overflow-x: auto;
+  margin: 18px 0;
+}
+.hermes-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.hermes-guide th,
+.hermes-guide td {
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line, #dfe6d7);
+}
+.hermes-guide th {
+  background: #eaf2dc;
+}
+.hermes-guide a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
