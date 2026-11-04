@@ -1,0 +1,87 @@
+{
+  "date": "2026-11-04T16:25:03.041Z",
+  "environment": "https://wabotia-staging.brunovnq.workers.dev",
+  "external_channels": false,
+  "checks": [
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/applications",
+      "status": 200
+    },
+    {
+      "route": "v1/applications/226a8d34-c5d4-4d0a-a409-09103cdd8eef/keys",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations",
+      "status": 409
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations/073fbe0f-51bb-4c13-b11b-08edea343fae/actions",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/tickets",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/tickets/4874e429-43c2-47a5-9481-b6e2fd577952",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations/073fbe0f-51bb-4c13-b11b-08edea343fae/actions",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/conversations/073fbe0f-51bb-4c13-b11b-08edea343fae",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/events",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/reports",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/knowledge",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/media",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/6a6a5dd4-1470-4f73-bddc-33a9f2246f7a/media/7463d07f767e6a3e53b23d075153e730/content",
+      "status": 200
+    },
+    {
+      "route": "v1/keys/8831c537-6eea-452e-94d3-67466d047463",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 401
+    }
+  ]
+}

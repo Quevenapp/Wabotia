@@ -1,0 +1,3 @@
+# Gere dois valores diferentes com: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+MASTER_KEY=""
+SETUP_TOKEN=""

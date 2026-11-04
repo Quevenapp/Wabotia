@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-04T16:32:45.090Z",
+  "source": "staging",
+  "remote_d1": true,
+  "remote_r2": true,
+  "counts": [
+    {
+      "resource": "profiles",
+      "total": 3
+    },
+    {
+      "resource": "conversations",
+      "total": 7
+    },
+    {
+      "resource": "tickets",
+      "total": 6
+    },
+    {
+      "resource": "media",
+      "total": 1
+    },
+    {
+      "resource": "knowledge_search",
+      "total": 3
+    }
+  ],
+  "media": [
+    {
+      "id": "7463d07f767e6a3e53b23d075153e730",
+      "sha256": "01176fadb1053f0255c1158dc0982adede5aec03d4bd03acfe7dde4ba98b237f"
+    }
+  ],
+  "nonempty_target_refused": true,
+  "disposable_target_removed": true
+}

@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-04T16:42:29.737Z",
+  "environment": "https://wabotia-staging.brunovnq.workers.dev",
+  "results": [
+    {
+      "example": "examples/client.mjs",
+      "exit_code": 0
+    },
+    {
+      "example": "examples/client.py",
+      "exit_code": 0
+    },
+    {
+      "example": "examples/curl.sh",
+      "exit_code": 0
+    }
+  ]
+}
