@@ -4,7 +4,18 @@ Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa
 
 As telas do [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) usam dados fictícios. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta é a versão inicial 0.1.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
-## 1. Separe o que você vai usar
+## 1. Primeiro, vincule a Cloudflare ao GitHub
+
+Para instalar pelo botão **Deploy to Cloudflare**, faça a vinculação **antes de abrir o botão do Wabotia**. Se sua conta GitHub já aparece na lista **Git account** da Cloudflare, a conexão está feita; siga para as chaves abaixo. Se escolher o instalador pelo terminal (opção B), essa vinculação não é necessária.
+
+1. Entre na [Cloudflare, em Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages), e selecione a conta onde vai instalar o Wabotia.
+2. Clique em **Create application / Criar aplicativo** e escolha **GitHub**. Dependendo da tela, a opção fica em **Import a repository / Importar repositório**.
+3. Clique em **Connect GitHub / Conectar GitHub** ou **+ Add account / Adicionar conta**. Entre no GitHub, escolha a conta ou organização que receberá sua cópia e autorize o aplicativo **Cloudflare Workers and Pages**. Confira a conta e o acesso aos repositórios solicitado antes de confirmar.
+4. Volte à Cloudflare e confirme que sua conta aparece em **Git account**. A vinculação está concluída. Volte ao site Wabotia para gerar as chaves e continuar com o botão específico do projeto; não é preciso publicar um projeto vazio nesse assistente.
+
+**A tela fechou depois de autorizar pelo botão de deploy?** Isso pode acontecer na primeira vinculação. Volte a [wabotia.queven.app/install](https://wabotia.queven.app/install) e clique novamente em **Deploy to Cloudflare**. Escolha a conta GitHub já vinculada e continue. A autorização do GitHub, por si só, ainda não significa que o Wabotia foi instalado. Se a conta não aparecer, confira se está na mesma conta Cloudflare e conclua **Adicionar conta** antes de tentar o deploy novamente.
+
+### Depois da vinculação, separe o que você vai usar
 
 - Uma conta GitHub e uma conta Cloudflare. Considere Workers Paid para produção; habilite o R2 na Cloudflare. Custos dependem do plano e do uso, além dos modelos e canais externos.
 - Um Hermes funcionando, com seus perfis, modelos e ferramentas já configurados. Não apague os perfis existentes.
@@ -21,7 +32,7 @@ O gerador é para uma **nova instalação**. Se já instalou, preserve as chaves
 
 ### Opção A - Botão Deploy to Cloudflare
 
-1. Abra [wabotia.queven.app/install](https://wabotia.queven.app/install), gere e guarde as duas chaves conforme explicado acima. Depois clique em **Deploy to Cloudflare**; o formulário abre em outra aba.
+1. Com Cloudflare e GitHub já vinculados, abra [wabotia.queven.app/install](https://wabotia.queven.app/install), gere e guarde as duas chaves conforme explicado acima. Depois clique em **Deploy to Cloudflare**; o formulário abre em outra aba.
 2. Entre na sua conta Cloudflare. Confira que o projeto de origem é `Quevenapp/Wabotia`.
 3. Escolha sua conta e a conta GitHub onde ficará a cópia. Dê um nome ao projeto, por exemplo `meu-atendimento`. Autorize somente o repositório necessário.
 4. Confira os recursos sugeridos: banco D1, bucket R2 e Durable Object. O provisionamento é automático. Mantenha o bucket privado.
@@ -176,6 +187,7 @@ Após validar, ative **Atendimento** em Menus e preferências. Guarde os arquivo
 ## Referências oficiais
 
 - [Deploy to Cloudflare](https://developers.cloudflare.com/workers/platform/deploy-buttons/)
+- [Vinculação GitHub e Cloudflare Workers](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/)
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Service tokens do Access](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)

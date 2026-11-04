@@ -2,6 +2,8 @@
 
 Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pelo Telegram e API para integrações. O painel e seus dados operacionais são hospedados na sua conta Cloudflare. O Hermes continua no computador, Docker ou servidor de sua escolha.
 
+**Antes do botão:** [vincule sua conta Cloudflare ao GitHub](https://wabotia.queven.app/install#vincular-contas). Se a tela fechar após autorizar a conexão, volte e clique no botão novamente para continuar a instalação.
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Quevenapp/Wabotia)
 
 **[Instalação ilustrada](https://wabotia.queven.app/install)** · **[API interativa](https://wabotia.queven.app/api-docs)** · **[PDF](https://wabotia.queven.app/guide/wabotia-instalacao.pdf)**

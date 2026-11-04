@@ -275,7 +275,7 @@ function Landing() {
               WhatsApp, com a inteligência do Hermes e o controle nas suas mãos.
             </p>
             <div className="hero-actions">
-              <a className="button" href="/install#chaves">
+              <a className="button" href="/install#vincular-contas">
                 Publicar na Cloudflare <Cloud size={19} />
               </a>
               <a className="text-link" href="/install">
@@ -377,8 +377,8 @@ function Landing() {
 }
 const installSteps = [
   [
-    "Prepare suas contas",
-    "Tenha uma conta GitHub, uma conta Cloudflare e o Hermes funcionando. O Wabotia será instalado na sua conta Cloudflare; o Hermes continua onde já está.",
+    "Vincule Cloudflare e GitHub",
+    "Primeiro, conecte sua conta GitHub em Workers & Pages na Cloudflare, conforme explicado acima. Confira que ela aparece em Git account. Depois gere as chaves e abra o botão de deploy do Wabotia.",
   ],
   [
     "Publique o Wabotia",
@@ -402,6 +402,10 @@ const installSteps = [
   ],
 ];
 function Install() {
+  useEffect(() => {
+    if (location.hash === "#vincular-contas")
+      document.getElementById("vincular-contas")?.scrollIntoView();
+  }, []);
   return (
     <div className="guide-page">
       <nav className="landing-nav">
@@ -420,6 +424,64 @@ function Install() {
         <p className="lead">
           Você configura uma vez. Depois, tudo acontece pelo painel.
         </p>
+        <section
+          className="account-setup"
+          id="vincular-contas"
+          aria-labelledby="accounts-title"
+        >
+          <div className="eyebrow">PRIMEIRO PASSO · ANTES DO DEPLOY</div>
+          <h2 id="accounts-title">Vincule a Cloudflare ao GitHub</h2>
+          <p>
+            Faça essa conexão antes de usar o botão do Wabotia. Se sua conta
+            GitHub já aparece em <strong>Git account</strong> na Cloudflare,
+            continue para o gerador de chaves abaixo.
+          </p>
+          <ol>
+            <li>
+              Abra a Cloudflare e selecione a conta onde vai instalar o Wabotia.
+              Vá a <strong>Workers &amp; Pages</strong>.
+            </li>
+            <li>
+              Clique em <strong>Create application / Criar aplicativo</strong> e
+              escolha <strong>GitHub</strong>. Em algumas telas, a opção aparece
+              em <strong>Import a repository / Importar repositório</strong>.
+            </li>
+            <li>
+              Use <strong>Connect GitHub / Conectar GitHub</strong> ou{" "}
+              <strong>+ Add account / Adicionar conta</strong>. No GitHub,
+              escolha a conta ou organização que receberá sua cópia e autorize o
+              aplicativo <strong>Cloudflare Workers and Pages</strong>.
+            </li>
+            <li>
+              Ao voltar à Cloudflare, confira sua conta na lista{" "}
+              <strong>Git account</strong>. A vinculação terminou: volte a esta
+              página, gere e guarde as duas chaves e só então clique em{" "}
+              <strong>Deploy to Cloudflare</strong>.
+            </li>
+          </ol>
+          <a
+            className="button"
+            href="https://dash.cloudflare.com/?to=/:account/workers-and-pages"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Abrir Cloudflare para vincular <ArrowUpRight size={18} />
+          </a>
+          <aside className="account-return">
+            <strong>A tela fechou depois de autorizar?</strong>
+            <p>
+              Isso pode acontecer na primeira vinculação pelo botão de deploy.
+              Volte ao Wabotia e clique novamente em{" "}
+              <strong>Deploy to Cloudflare</strong>. Selecione a conta já
+              vinculada para continuar. Autorizar o GitHub, sozinho, ainda não
+              instala o Wabotia.
+            </p>
+          </aside>
+          <p className="account-note">
+            Pelo instalador do terminal, a publicação usa Wrangler e dispensa
+            essa vinculação. O PDF explica esse caminho alternativo.
+          </p>
+        </section>
         <div className="guide-actions">
           <a className="button" href="#chaves">
             Gerar chaves de instalação <ShieldCheck size={18} />
