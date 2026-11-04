@@ -2,6 +2,8 @@
 
 O Wabotia já deve estar instalado. **Não gere outra MASTER_KEY nem execute novamente a instalação do Worker.** Aqui você vai ligar dois serviços nativos do Hermes e permitir que o seu Wabotia os alcance. O painel continua hospedado na Cloudflare.
 
+Antes de começar, confira os [requisitos da conta e a função de cada serviço Cloudflare](INSTALACAO.md#antes-do-deploy-para-que-serve-cada-serviço-da-cloudflare). R2 precisa de assinatura ativada mesmo com franquia gratuita; D1 está incluído nos planos Workers; Zero Trust precisa estar ativado para usar Access neste roteiro. Se já ativou Zero Trust, apenas confirme o acesso às aplicações na etapa C.
+
 Siga nesta ordem: **A. preparar Hermes → B. testar localmente → C. ativar Zero Trust → D. proteger os endereços → E. criar o túnel → F. cadastrar no Wabotia**. A etapa G ensina a religar os serviços.
 
 ## A. Escolha onde o Hermes está
@@ -175,17 +177,17 @@ Só prossiga com os dois `OK`. O teste verifica a descoberta de `wabotia`, a ide
 
 ## D. Cloudflare Access: chave e proteção antes do túnel
 
-### D1. Crie a credencial da conexão
+### D.1. Crie a credencial da conexão
 
 1. Em **Zero Trust > Controles de acesso > Credenciais de serviço**, abra **Service Tokens / Tokens de serviço**. Em telas antigas: **Access > Service Auth > Service Tokens**.
 2. Clique **Create Service Token / Criar token de serviço**. Nome: `wabotia-hermes-local` (ou `wabotia-hermes-vps`). Escolha a validade e anote a data de renovação.
 3. A **Cloudflare gera** dois valores: **Client ID** e **Client Secret**. Copie os dois para seu gerenciador de senhas. O segredo pode ser exibido apenas uma vez. Eles serão colados nos campos Cloudflare Access da conexão Hermes no Wabotia.
 
-### D2. Proteja os dois endereços
+### D.2. Proteja os dois endereços
 
 1. Abra **Controles de acesso > Aplicativos > Adicionar aplicativo > Self-hosted / Auto-hospedado**.
 2. Nome: `Wabotia - Hermes administrativo local`. Em domínio público, preencha subdomínio `hermes-local`, domínio `seudominio.com` e deixe o campo caminho vazio. A proteção deve cobrir **o hostname inteiro**.
-3. Adicione uma política com nome `Somente Wabotia`. Em **Action / Ação**, selecione **Service Auth / Autenticação de serviço**. Em **Include / Incluir**, selecione **Service Token** e escolha o token de D1. Não use uma regra `Everyone` nem `Bypass`.
+3. Adicione uma política com nome `Somente Wabotia`. Em **Action / Ação**, selecione **Service Auth / Autenticação de serviço**. Em **Include / Incluir**, selecione **Service Token** e escolha o token da etapa D.1. Não use uma regra `Everyone` nem `Bypass`.
 4. Salve a política e a aplicação. Login interativo por e-mail não substitui Service Auth: o Worker precisa se autenticar sem uma pessoa no navegador.
 5. Repita para `api-hermes-local.seudominio.com`, nome `Wabotia - API bots local`, com o **mesmo token desta conexão**. Na VPS, use os hostnames com `vps`.
 6. Confirme na lista as duas aplicações e confira suas políticas. Só então publique as rotas do túnel.
@@ -283,8 +285,8 @@ Salve as rotas. A Cloudflare normalmente cria os CNAMEs automaticamente para `UU
 | Token administrativo | Valor “Token administrativo Hermes” de `chaves.local.txt` |
 | Nome do perfil Hermes | `wabotia` |
 | API_SERVER_KEY | Valor “API_SERVER_KEY desse perfil” de `chaves.local.txt` |
-| Conexão protegida por Cloudflare Access > Client ID | Gerado pela Cloudflare na etapa D1 |
-| Conexão protegida por Cloudflare Access > Client Secret | Gerado pela Cloudflare na etapa D1 |
+| Conexão protegida por Cloudflare Access > Client ID | Gerado pela Cloudflare na etapa D.1 |
+| Conexão protegida por Cloudflare Access > Client Secret | Gerado pela Cloudflare na etapa D.1 |
 
 No computador nativo, o arquivo privado fica em `~/.config/wabotia/hermes/chaves.local.txt`. No gerenciador de arquivos Linux, use Ctrl+H para mostrar `.config`. Abra o arquivo em um editor e copie apenas o valor, sem o rótulo. Não envie o arquivo ao GitHub ou ao suporte. No Docker, use a cópia privada da etapa A2.
 

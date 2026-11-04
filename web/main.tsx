@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HermesInstall } from "./hermes-install";
+import { CloudflarePrerequisites } from "./cloudflare-prerequisites";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -406,9 +407,13 @@ function Install() {
   useEffect(() => {
     const showStep = () => {
       if (
-        ["#vincular-contas", "#hermes", "#cloudflare-hermes"].includes(
-          location.hash,
-        )
+        [
+          "#vincular-contas",
+          "#requisitos",
+          "#servicos-cloudflare",
+          "#hermes",
+          "#cloudflare-hermes",
+        ].includes(location.hash)
       ) {
         const target = document.getElementById(location.hash.slice(1));
         if (target instanceof HTMLDetailsElement) target.open = true;
@@ -468,8 +473,8 @@ function Install() {
             <li>
               Ao voltar à Cloudflare, confira sua conta na lista{" "}
               <strong>Git account</strong>. A vinculação terminou: volte a esta
-              página, gere e guarde as duas chaves e só então clique em{" "}
-              <strong>Deploy to Cloudflare</strong>.
+              página, confira os serviços abaixo, gere e guarde as duas chaves e
+              só então clique em <strong>Deploy to Cloudflare</strong>.
             </li>
           </ol>
           <a
@@ -495,6 +500,7 @@ function Install() {
             essa vinculação. O PDF explica esse caminho alternativo.
           </p>
         </section>
+        <CloudflarePrerequisites />
         <div className="guide-actions">
           <a className="button" href="#chaves">
             Gerar chaves de instalação <ShieldCheck size={18} />
