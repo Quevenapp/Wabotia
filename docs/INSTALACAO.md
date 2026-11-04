@@ -9,15 +9,19 @@ As telas do [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.
 - Uma conta GitHub e uma conta Cloudflare. Considere Workers Paid para produção; habilite o R2 na Cloudflare. Custos dependem do plano e do uso, além dos modelos e canais externos.
 - Um Hermes funcionando, com seus perfis, modelos e ferramentas já configurados. Não apague os perfis existentes.
 - Um número de WhatsApp de teste e, se quiser atendimento pelo Telegram, um bot novo e um grupo privado com tópicos.
-- Um gerenciador de senhas para guardar duas chaves diferentes: `MASTER_KEY` e `SETUP_TOKEN`. Gere 64 caracteres aleatórios para cada uma. Não use frases nem as chaves dos exemplos.
+- Um gerenciador de senhas ou local privado para guardar duas chaves diferentes: `MASTER_KEY` e `SETUP_TOKEN`. O [gerador do site](https://wabotia.queven.app/install#chaves) cria as duas para você; cada uma tem 64 caracteres aleatórios.
 
 `MASTER_KEY` permite ler as credenciais criptografadas do seu banco. `SETUP_TOKEN` autoriza a criação da primeira conta. A senha do administrador é uma terceira informação, escolhida por você.
+
+**Como gerar e guardar:** no site, clique em **Gerar minhas duas chaves**. Use **Copiar MASTER_KEY** e **Copiar SETUP_TOKEN** para preencher os campos de mesmo nome na Cloudflare. Guarde as duas em seu gerenciador de senhas ou clique em **Baixar minhas chaves (.txt)** e proteja o arquivo. Depois do deploy, anote junto delas a URL da instalação. A geração acontece só no navegador; o site não recebe nem salva os valores. Atualizar ou fechar a página apaga o par da tela. O botão Deploy abre outra aba para você poder voltar e copiar.
+
+O gerador é para uma **nova instalação**. Se já instalou, preserve as chaves originais, especialmente MASTER_KEY. Se escolher o instalador pelo terminal (opção B), ele gera e salva as duas automaticamente; não precisa usar o gerador do site.
 
 ## 2. Escolha uma forma de publicar
 
 ### Opção A - Botão Deploy to Cloudflare
 
-1. Abra [wabotia.queven.app/install](https://wabotia.queven.app/install) e clique em **Deploy to Cloudflare**.
+1. Abra [wabotia.queven.app/install](https://wabotia.queven.app/install), gere e guarde as duas chaves conforme explicado acima. Depois clique em **Deploy to Cloudflare**; o formulário abre em outra aba.
 2. Entre na sua conta Cloudflare. Confira que o projeto de origem é `Quevenapp/Wabotia`.
 3. Escolha sua conta e a conta GitHub onde ficará a cópia. Dê um nome ao projeto, por exemplo `meu-atendimento`. Autorize somente o repositório necessário.
 4. Confira os recursos sugeridos: banco D1, bucket R2 e Durable Object. O provisionamento é automático. Mantenha o bucket privado.

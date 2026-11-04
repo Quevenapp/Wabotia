@@ -50,10 +50,10 @@
         "description": "Bucket R2 privado para arquivos. Habilite R2 na sua conta."
       },
       "MASTER_KEY": {
-        "description": "Chave aleatória com 64 caracteres. Crie em seu gerenciador de senhas e guarde: ela protege as credenciais. Não use o valor do exemplo."
+        "description": "Abra wabotia.queven.app/install#chaves e clique em Gerar minhas duas chaves. Copie MASTER_KEY para cá e guarde: ela protege suas credenciais. Não use sua senha de login."
       },
       "SETUP_TOKEN": {
-        "description": "Outro valor aleatório, diferente de MASTER_KEY. Você o usará uma única vez ao criar a primeira conta em /app."
+        "description": "No mesmo gerador, copie SETUP_TOKEN para cá e guarde também. É diferente de MASTER_KEY. Você usará este valor como código de instalação ao criar o primeiro administrador em /app."
       }
     }
   }

@@ -34,6 +34,7 @@ import {
   Globe,
 } from "lucide-react";
 import "./style.css";
+import { InstallKeys } from "./InstallKeys";
 type Row = Record<string, any>;
 const sections = [
   ["overview", "Visão geral", LayoutDashboard],
@@ -274,10 +275,7 @@ function Landing() {
               WhatsApp, com a inteligência do Hermes e o controle nas suas mãos.
             </p>
             <div className="hero-actions">
-              <a
-                className="button"
-                href="https://deploy.workers.cloudflare.com/?url=https://github.com/Quevenapp/Wabotia"
-              >
+              <a className="button" href="/install#chaves">
                 Publicar na Cloudflare <Cloud size={19} />
               </a>
               <a className="text-link" href="/install">
@@ -384,7 +382,7 @@ const installSteps = [
   ],
   [
     "Publique o Wabotia",
-    "Clique em “Deploy to Cloudflare”, autorize o repositório e siga a criação do Worker. Configure MASTER_KEY e SETUP_TOKEN com dois valores aleatórios diferentes. O guia PDF mostra o caminho alternativo pelo terminal.",
+    "Gere e guarde as duas chaves acima. Clique em “Deploy to Cloudflare” e cole cada valor no campo de mesmo nome: MASTER_KEY e SETUP_TOKEN. O guia PDF mostra o caminho alternativo pelo terminal.",
   ],
   [
     "Prepare o banco",
@@ -423,9 +421,15 @@ function Install() {
           Você configura uma vez. Depois, tudo acontece pelo painel.
         </p>
         <div className="guide-actions">
+          <a className="button" href="#chaves">
+            Gerar chaves de instalação <ShieldCheck size={18} />
+          </a>
           <a
-            className="button"
+            className="button secondary"
             href="https://deploy.workers.cloudflare.com/?url=https://github.com/Quevenapp/Wabotia"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Deploy to Cloudflare (abre em outra aba)"
           >
             Deploy to Cloudflare <Cloud size={18} />
           </a>
@@ -437,6 +441,7 @@ function Install() {
             Baixar guia em PDF <Download size={18} />
           </a>
         </div>
+        <InstallKeys />
         <div className="guide-grid">
           {installSteps.map(([title, desc], i) => (
             <article key={title}>
