@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-05T11:30:50.125Z",
+  "environment": "https://wabotia-release-staging.brunovnq.workers.dev",
+  "installed": {
+    "version": "0.3.0",
+    "commit": "72916d227a3104a7234c47a74a247f25b26ee0ff"
+  },
+  "method": "direct",
+  "configured": true,
+  "state": {
+    "id": "62ad63f3-ce52-4a0f-a04f-446e066d382b",
+    "target": "72916d227a3104a7234c47a74a247f25b26ee0ff",
+    "version": "0.3.0",
+    "previous": "57df3f684998efe8b6442fc0d4bb8f24db48f45f",
+    "status": "completed",
+    "phase": "publish",
+    "created": 1793878182844,
+    "updated": 1793878228180,
+    "completed_at": 1793878248675
+  },
+  "data_preserved": true,
+  "external_channels": false,
+  "checks": [
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/0e721534-20f2-4311-b549-d44c3cdfb056/conversations/10c89e98-85ce-430e-976d-cc78328c02c1",
+      "status": 200
+    }
+  ],
+  "duplicate_start_same_id": true
+}
