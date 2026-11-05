@@ -45,21 +45,21 @@ export async function question(
     throw Error(
       `Defina ${label} por variável de ambiente ou execute num terminal interativo.`,
     );
-  // A complete line remains visible in web terminals that defer partial lines.
+  const output = new Writable({
+    write(chunk, _encoding, done) {
+      if (!hidden) io.output.write(chunk);
+      done();
+    },
+  });
+  const rl = createInterface({ input: io.input, output, terminal: true });
+  // Enable readline's raw mode before displaying a secret prompt so fast pastes
+  // cannot be echoed by the terminal. Complete lines also work in web terminals.
   io.output.write(`\nAGUARDANDO VOCÊ · ${label}\n`);
   io.output.write(
     hidden
       ? "Cole o token e pressione Enter. A entrada fica invisível, inclusive ao colar.\n"
       : "Digite ou cole a resposta e pressione Enter para continuar.\n",
   );
-  let muted = hidden;
-  const output = new Writable({
-    write(chunk, _encoding, done) {
-      if (!muted) io.output.write(chunk);
-      done();
-    },
-  });
-  const rl = createInterface({ input: io.input, output, terminal: true });
   try {
     return (await rl.question(hidden ? "" : "> ")).trim();
   } finally {

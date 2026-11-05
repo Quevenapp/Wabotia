@@ -37,11 +37,22 @@ test("perguntas ficam em linhas completas; o token nunca aparece na saída", asy
       for (const hidden of [false, true]) {
         const input = new PassThrough();
         input.isTTY = true;
-        input.setRawMode = () => {};
+        input.setRawMode = (value) => {
+          input.isRaw = value;
+        };
+        let readyBeforePrompt = false;
+        sink.once("data", () => {
+          readyBeforePrompt = input.isRaw === true;
+        });
         const answer = question(
           hidden ? "Token Cloudflare" : "Account ID",
           hidden,
           { input, output: sink },
+        );
+        assert.equal(
+          readyBeforePrompt,
+          true,
+          "Modo sem eco precisa estar ativo antes de mostrar a pergunta",
         );
         // Assertions before sending input reproduce a terminal waiting for a person.
         assert.match(
