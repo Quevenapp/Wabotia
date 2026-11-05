@@ -2,33 +2,28 @@
 
 Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pelo Telegram e API para integrações. O painel e seus dados operacionais são hospedados na sua conta Cloudflare. O Hermes continua no computador, Docker ou servidor de sua escolha.
 
-**Antes do botão:** [vincule sua conta Cloudflare ao GitHub](https://wabotia.queven.app/install#vincular-contas). Se a tela fechar após autorizar a conexão, volte e clique no botão novamente para continuar a instalação.
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Quevenapp/Wabotia)
+**Instalação direta na Cloudflare, sem conta GitHub, cópia de repositório ou Deploy Hook.**
 
 **[Instalação ilustrada](https://wabotia.queven.app/install)** · **[API interativa](https://wabotia.queven.app/api-docs)** · **[PDF](https://wabotia.queven.app/guide/wabotia-instalacao.pdf)**
 
 ## Estado da versão
 
-Versão 0.2.3, com diagnóstico visível de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.3.0, com diagnóstico visível de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
-Requisitos: conta Cloudflare com Workers Paid como referência de produção, R2 habilitado, Node.js 22.13 ou superior, npm e Git. O instalador cria recursos novos e preserva o Hermes existente.
+Requisitos: conta Cloudflare, Workers Paid como referência de produção, R2 habilitado, Node.js 22.13+ e npm. O guia explica as três permissões do token inicial.
 
 ```sh
-git clone https://github.com/Quevenapp/Wabotia.git
-cd Wabotia
-npm ci
-npx wrangler login
-npm run setup
+curl -fL https://wabotia.queven.app/install-wabotia.mjs -o install-wabotia.mjs
+node install-wabotia.mjs
 ```
 
-O assistente publica o Worker, provisiona D1/R2, aplica migrações e gera secrets. Ao final, abra a URL publicada com `/app`. Crie seu administrador usando o `SETUP_TOKEN` do arquivo local `.secrets.production.local.json`. Guarde também `MASTER_KEY`: perder essa chave impede recuperar as credenciais criptografadas. **Nunca envie esses arquivos ao GitHub.**
+Informe Account ID, token Cloudflare e nome novo. O instalador baixa um pacote oficial, cria os recursos, aplica migrações e gera as chaves. Abra a URL exibida com `/app` e use SETUP_TOKEN de `chaves.local.json`. Guarde a pasta privada criada; MASTER_KEY é necessária para recuperar credenciais.
 
-Para teste isolado: `npm run setup -- --environment staging`. Para domínio próprio: `npm run setup -- --domain painel.seudominio.com`. O domínio deve estar na mesma conta Cloudflare. Configurações locais, bancos, mídias e secrets não integram o repositório.
+As próximas versões são instaladas em **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. [Instalação, Windows, retomada e reinstalação](docs/INSTALACAO.md) · [Atualizações e publicação de versões](docs/ATUALIZACOES.md).
 
-O botão Deploy to Cloudflare importa o código na sua conta e publica o Worker. Preencha os secrets e mantenha `npm run deploy` como comando de publicação para aplicar as migrações automaticamente, conforme o [guia](docs/INSTALACAO.md). GitHub Actions não é necessário; o repositório Quevenapp/Wabotia mantém Actions desativado.
+O repositório oficial continua público/MIT, com Actions desativado. Sua instalação recebe versões oficiais publicadas e mantém banco, mídias e secrets na sua própria Cloudflare.
 
 ## Conectar serviços
 
@@ -60,7 +55,7 @@ npm run dev
 
 Copie `.dev.vars.example` para `.dev.vars` com valores locais antes de testar autenticação. O modo `/app?demo=1` mostra dados fictícios e não permite gravações. Desenvolvimento local não é uma opção de hospedagem de produção.
 
-Atualizar pelo painel: [configure Cloudflare Builds e o Deploy Hook uma vez](docs/ATUALIZACOES.md) e use **Sistema e atualizações → Atualizar Wabotia**. Publicação manual: `npm run build`, `npx wrangler d1 migrations apply DB --remote --config wrangler.production.local.json`, `npx wrangler deploy --config wrangler.production.local.json`. [Backup, restauração e diagnóstico](docs/OPERACAO.md).
+Atualizar pelo painel: [use a autorização direta configurada pelo instalador](docs/ATUALIZACOES.md) e use **Sistema e atualizações → Atualizar Wabotia**. Publicação manual: `npm run build`, `npx wrangler d1 migrations apply DB --remote --config wrangler.production.local.json`, `npx wrangler deploy --config wrangler.production.local.json`. [Backup, restauração e diagnóstico](docs/OPERACAO.md).
 
 Uma organização por implantação; fuso America/Sao_Paulo. R2 é privado. O histórico do WABABOTAI não é importado automaticamente. Não há dependência de VPS ou Supabase para hospedar o Wabotia. Hermes e QR precisam permanecer ligados; a interface web permanece disponível quando eles estão offline.
 

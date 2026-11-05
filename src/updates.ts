@@ -8,172 +8,299 @@ import {
   uid,
 } from "./types";
 import { buildInfo } from "./build-info.generated";
-const source = "https://api.github.com/repos/Quevenapp/Wabotia";
-const sha = /^[a-f0-9]{40}$/;
-const configId = "system:update-config",
-  stateId = "system:update-state",
-  latestId = "system:update-latest";
-export function deployHookUrl(value: unknown) {
-  requireValue(
-    typeof value === "string" &&
-      /^https:\/\/api\.cloudflare\.com\/client\/v4\/workers\/builds\/deploy_hooks\/[a-zA-Z0-9_-]{16,200}$/.test(
-        value,
-      ),
-    "Cole a URL do Deploy Hook do seu Worker, criada em Cloudflare > Settings > Builds > Deploy Hooks.",
+import { all } from "./db";
+import * as legacy from "./legacy-updates";
+import {
+  assetManifest,
+  assetUpload,
+  CloudflareCallError,
+  fetchPackage,
+  installedSettings,
+  latestRelease,
+  parsePackage,
+  releaseCloudflare,
+  scriptPath,
+  validateInstalledSettings,
+  workerUpload,
+} from "./release";
+
+const configId = "system:release-config",
+  stateId = "system:release-state",
+  latestId = "system:release-latest";
+export const deployHookUrl = legacy.deployHookUrl;
+export const updatePlan = legacy.updatePlan;
+const isDirect = (env: Env) =>
+  !!(
+    env.WABOTIA_INSTALLATION_ID &&
+    env.WABOTIA_ACCOUNT_ID &&
+    env.WABOTIA_WORKER_NAME
   );
-  return value;
+async function tokenFor(env: Env) {
+  return (await secret(env, configId)).token || env.WABOTIA_UPDATE_TOKEN || "";
 }
-async function github(path: string) {
-  const r = await fetch(source + path, {
-    headers: {
-      "User-Agent": "Wabotia-Updater",
-      Accept: "application/vnd.github+json",
-    },
-    redirect: "manual",
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!r.ok)
-    throw new ApiError(
-      502,
-      "update_check_failed",
-      `Não foi possível consultar o repositório oficial (HTTP ${r.status}). Tente mais tarde.`,
-    );
-  return r.json<any>();
+async function legacyMode(env: Env) {
+  return !isDirect(env) && !!(await secret(env, "system:update-config")).hook;
+}
+function failure(error: unknown): never {
+  if (error instanceof ApiError) throw error;
+  throw new ApiError(
+    502,
+    "update_check_failed",
+    error instanceof Error
+      ? error.message
+      : "Não foi possível consultar a publicação oficial.",
+  );
 }
 export async function checkUpdate(env: Env, force = false) {
+  if (await legacyMode(env)) return legacy.checkUpdate(env, force);
   const cached = await secret(env, latestId);
-  if (!force && cached.checked_at && cached.checked_at > now() - 300000)
-    return cached;
-  const head = await github("/commits/main");
-  requireValue(
-    sha.test(head.sha),
-    "O repositório não retornou uma versão válida.",
+  if (!force && cached.checked_at > now() - 300000) return cached;
+  try {
+    const index = await latestRelease();
+    const latest = {
+      ...index,
+      checked_at: now(),
+      url: `https://github.com/Quevenapp/Wabotia/commit/${index.commit}`,
+    };
+    await setSecret(env, latestId, latest);
+    return latest;
+  } catch (e) {
+    failure(e);
+  }
+}
+function publicState(state: any) {
+  if (!state.id) return null;
+  return Object.fromEntries(
+    [
+      "id",
+      "target",
+      "version",
+      "previous",
+      "status",
+      "phase",
+      "created",
+      "updated",
+      "completed_at",
+      "error",
+    ].map((key) => [key, state[key]]),
   );
-  const packageFile = await github(`/contents/package.json?ref=${head.sha}`);
-  const pkg = JSON.parse(atob(packageFile.content.replace(/\s/g, "")));
-  requireValue(
-    /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(pkg.version),
-    "Versão publicada inválida.",
-  );
-  const latest = {
-    commit: head.sha,
-    version: pkg.version,
-    checked_at: now(),
-    url: `https://github.com/Quevenapp/Wabotia/commit/${head.sha}`,
-  };
-  await setSecret(env, latestId, latest);
-  return latest;
 }
 export async function updateStatus(env: Env) {
-  const config = await secret(env, configId),
-    state = await secret(env, stateId),
+  if (await legacyMode(env))
+    return {
+      ...(await legacy.updateStatus(env)),
+      method: "legacy",
+      installation_ready: false,
+    };
+  const state = await secret(env, stateId),
     latest = await secret(env, latestId);
-  if (
-    state.target &&
-    state.target === buildInfo.commit &&
-    state.status !== "completed"
-  ) {
+  if (state.target === buildInfo.commit && state.status !== "completed") {
     state.status = "completed";
     state.completed_at = now();
     await setSecret(env, stateId, state);
+    if (state.package_key) await env.MEDIA.delete(state.package_key);
   }
   return {
     installed: buildInfo,
-    configured: !!config.hook,
+    method: "direct",
+    installation_ready: isDirect(env),
+    account_id: env.WABOTIA_ACCOUNT_ID || "",
+    worker_name: env.WABOTIA_WORKER_NAME || "",
+    configured: isDirect(env) && !!(await tokenFor(env)),
     latest: latest.commit ? latest : null,
     available: !!latest.commit && latest.commit !== buildInfo.commit,
-    state: state.id ? state : null,
+    state: publicState(state),
     review_required:
       ["requested", "unknown", "sending"].includes(state.status) &&
       state.created < now() - 900000,
   };
 }
-export async function updatePlan(env: Env) {
-  const state = await secret(env, stateId);
-  const commit = ["sending", "requested", "unknown"].includes(state.status)
-    ? state.target
-    : buildInfo.commit;
-  return {
-    repository: "Quevenapp/Wabotia",
-    commit: sha.test(commit || "") ? commit : null,
-  };
-}
 export async function configureUpdates(env: Env, actor: Actor, data: any) {
   admin(actor);
+  if (!isDirect(env) && data.hook_url)
+    return legacy.configureUpdates(env, actor, data);
   requireValue(
-    data.build_configured === true,
-    "Confirme que o comando de build e WABOTIA_UPDATE_ORIGIN foram configurados conforme o guia.",
+    isDirect(env),
+    "Esta instalação usa o fluxo antigo. Siga o guia de reinstalação sem repositório.",
   );
-  await setSecret(env, configId, {
-    hook: deployHookUrl(data.hook_url),
-    configured_at: now(),
-  });
-  return { configured: true };
+  requireValue(
+    typeof data.token === "string" &&
+      data.token.length >= 20 &&
+      data.token.length <= 1024 &&
+      !/\s/.test(data.token),
+    "Informe um token Cloudflare com Workers Scripts: Edit.",
+  );
+  requireValue(
+    !(await updatePending(env)),
+    "Aguarde a atualização atual antes de trocar o token.",
+  );
+  try {
+    const settings = await installedSettings(
+      data.token,
+      scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!),
+    );
+    validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
+    await setSecret(env, configId, { token: data.token, configured_at: now() });
+    return { configured: true };
+  } catch (e) {
+    failure(e);
+  }
 }
 export async function startUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  const current = await updateStatus(env);
-  if (
-    current.state &&
-    ["sending", "requested", "unknown"].includes(current.state.status)
-  )
-    return current.state;
-  const config = await secret(env, configId);
+  if (await legacyMode(env)) return legacy.startUpdate(env, actor, data);
   requireValue(
-    config.hook,
-    "Configure primeiro o Deploy Hook desta instalação.",
+    isDirect(env) && (await tokenFor(env)),
+    "Configure a autorização Cloudflare para atualizar esta instalação.",
   );
-  const latest = await checkUpdate(env);
+  const old = await secret(env, stateId);
+  if (["pending", "sending", "requested", "unknown"].includes(old.status))
+    return publicState(old);
+  const index = await checkUpdate(env);
   requireValue(
-    data.commit === latest.commit && data.commit !== buildInfo.commit,
+    data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
   );
-  const state: any = {
+  const state = {
     id: uid(),
-    target: latest.commit,
-    version: latest.version,
+    index,
+    target: index.commit,
+    version: index.version,
     previous: buildInfo.commit,
-    status: "sending",
+    status: "pending",
+    phase: "download",
     created: now(),
+    updated: now(),
   };
-  // Persist the pinned source before triggering the build. Never retry a timeout automatically.
   await setSecret(env, stateId, state);
+  return publicState(state);
+}
+export async function updatePending(env: Env) {
+  return (await secret(env, stateId)).status === "pending";
+}
+export async function processUpdate(env: Env) {
+  const state = await secret(env, stateId);
+  if (state.status !== "pending") return;
   try {
-    const r = await fetch(deployHookUrl(config.hook), {
-      method: "POST",
-      redirect: "manual",
-      signal: AbortSignal.timeout(15000),
-    });
-    const result: any = await r.json();
-    if (!r.ok || result.success !== true || !result.result?.build_uuid) {
-      state.status = r.status >= 400 && r.status < 500 ? "failed" : "unknown";
-      state.error = `A Cloudflare não confirmou a atualização (HTTP ${r.status}). Confira a aba Builds antes de tentar novamente.`;
+    const token = await tokenFor(env),
+      base = scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!);
+    if (state.phase === "download") {
+      const { bytes } = await fetchPackage(state.index);
+      state.package_key = `system/releases/${state.id}.json`;
+      await env.MEDIA.put(state.package_key, bytes, {
+        httpMetadata: { contentType: "application/json" },
+      });
+      state.phase = "prepare";
     } else {
-      state.status = "requested";
-      state.build_id = result.result.build_uuid;
+      const stored = await env.MEDIA.get(state.package_key);
+      requireValue(
+        stored,
+        "O pacote temporário não está disponível. Libere uma nova tentativa.",
+      );
+      const pkg = await parsePackage(
+        state.index,
+        new Uint8Array(await stored!.arrayBuffer()),
+      );
+      if (state.phase === "prepare") {
+        const settings = await installedSettings(token, base);
+        validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
+        const upload = await releaseCloudflare(
+          token,
+          base + "/assets-upload-session",
+          "POST",
+          { manifest: assetManifest(pkg) },
+        );
+        requireValue(
+          typeof upload?.jwt === "string" && Array.isArray(upload.buckets),
+          "Sessão de arquivos inválida.",
+        );
+        state.upload = upload;
+        state.bucket = 0;
+        state.phase = upload.buckets.length ? "assets" : "migrate";
+      } else if (state.phase === "assets") {
+        const result = await releaseCloudflare(
+          state.upload.jwt,
+          `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
+          "POST",
+          assetUpload(pkg, state.upload.buckets[state.bucket]),
+        );
+        state.bucket++;
+        if (state.bucket === state.upload.buckets.length) {
+          requireValue(
+            typeof result?.jwt === "string",
+            "A Cloudflare não confirmou todos os arquivos. Libere uma nova tentativa.",
+          );
+          state.upload.jwt = result.jwt;
+          state.phase = "migrate";
+        }
+      } else if (state.phase === "migrate") {
+        await env.DB.prepare(
+          "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)",
+        ).run();
+        const applied = await all(env, "SELECT name FROM d1_migrations");
+        const migration = pkg.migrations.find(
+          (m) => !applied.some((row) => row.name === m.name),
+        );
+        if (migration) {
+          await env.DB.batch([
+            ...migration.statements.map((sql) => env.DB.prepare(sql)),
+            env.DB.prepare("INSERT INTO d1_migrations(name) VALUES(?)").bind(
+              migration.name,
+            ),
+          ]);
+        } else state.phase = "publish";
+      } else if (state.phase === "publish") {
+        const settings = await installedSettings(token, base);
+        validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
+        state.status = "sending";
+        state.updated = now();
+        await setSecret(env, stateId, state);
+        const result = await releaseCloudflare(
+          token,
+          base,
+          "PUT",
+          workerUpload(pkg, settings, state.upload.jwt),
+        );
+        requireValue(
+          result?.id || result?.etag,
+          "A Cloudflare não confirmou a publicação. Confira a versão antes de repetir.",
+        );
+        state.status = "requested";
+      } else throw new Error("Etapa de atualização desconhecida.");
     }
-  } catch {
-    state.status = "unknown";
+    state.updated = now();
+    if ((await secret(env, stateId)).status !== "completed")
+      await setSecret(env, stateId, state);
+  } catch (e) {
     state.error =
-      "O pedido ficou sem confirmação. Confira a aba Builds na Cloudflare antes de liberar outra tentativa.";
+      e instanceof Error ? e.message : "A atualização não foi concluída.";
+    state.status =
+      state.status === "sending" &&
+      (!(e instanceof CloudflareCallError) || e.ambiguous)
+        ? "unknown"
+        : "failed";
+    state.updated = now();
+    if ((await secret(env, stateId)).status !== "completed")
+      await setSecret(env, stateId, state);
   }
-  await setSecret(env, stateId, state);
-  return state;
 }
 export async function resetUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  const { state } = await updateStatus(env);
+  if (await legacyMode(env)) return legacy.resetUpdate(env, actor, data);
+  const state = await secret(env, stateId);
   requireValue(
-    state &&
+    data.confirmed_build_stopped === true &&
+      state.id &&
       state.status !== "completed" &&
-      data.confirmed_build_stopped === true,
-    "Confirme no Cloudflare que não há um build em execução ou na fila.",
+      state.status !== "pending",
+    "Confira a versão e confirme que a publicação anterior terminou.",
   );
   requireValue(
     state.status === "failed" || state.created < now() - 900000,
-    "Aguarde o build. Uma nova tentativa não será iniciada enquanto a atualização pode estar em andamento.",
+    "Aguarde a publicação. Não é possível repetir uma operação ainda em andamento.",
   );
   state.status = "cancelled";
   await setSecret(env, stateId, state);
-  return state;
+  if (state.package_key) await env.MEDIA.delete(state.package_key);
+  return publicState(state);
 }

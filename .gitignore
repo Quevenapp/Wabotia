@@ -26,3 +26,5 @@ backup-seguro/
 output/
 src/build-info.generated.ts
 .wabotia-source-commit
+public/releases/
+public/install-wabotia.mjs

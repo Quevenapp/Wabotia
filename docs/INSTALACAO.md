@@ -2,20 +2,15 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.2.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.3.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
 Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
 
-## 1. Primeiro, vincule a Cloudflare ao GitHub
+## 1. Prepare sua conta Cloudflare
 
-Para instalar pelo botão **Deploy to Cloudflare**, faça a vinculação **antes de abrir o botão do Wabotia**. Se sua conta GitHub já aparece na lista **Git account** da Cloudflare, a conexão está feita; siga para os requisitos dos serviços abaixo. Se escolher o instalador pelo terminal (opção B), essa vinculação não é necessária.
+Não é necessário ter conta GitHub ou criar uma cópia do repositório. O instalador oficial roda uma vez no seu computador e publica Worker, D1, R2 e Durable Objects na sua conta. Depois ele pode ser fechado; somente Hermes/QR/túnel precisam permanecer ligados no host escolhido.
 
-1. Entre na [Cloudflare, em Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages), e selecione a conta onde vai instalar o Wabotia.
-2. Clique em **Create application / Criar aplicativo** e escolha **GitHub**. Dependendo da tela, a opção fica em **Import a repository / Importar repositório**.
-3. Clique em **Connect GitHub / Conectar GitHub** ou **+ Add account / Adicionar conta**. Entre no GitHub, escolha a conta ou organização que receberá sua cópia e autorize o aplicativo **Cloudflare Workers and Pages**. Confira a conta e o acesso aos repositórios solicitado antes de confirmar.
-4. Volte à Cloudflare e confirme que sua conta aparece em **Git account**. A vinculação está concluída. Volte ao site Wabotia, confira os requisitos abaixo e depois gere as chaves para continuar com o botão específico do projeto; não é preciso publicar um projeto vazio nesse assistente.
-
-**A tela fechou depois de autorizar pelo botão de deploy?** Isso pode acontecer na primeira vinculação. Volte a [wabotia.queven.app/install](https://wabotia.queven.app/install) e clique novamente em **Deploy to Cloudflare**. Escolha a conta GitHub já vinculada e continue. A autorização do GitHub, por si só, ainda não significa que o Wabotia foi instalado. Se a conta não aparecer, confira se está na mesma conta Cloudflare e conclua **Adicionar conta** antes de tentar o deploy novamente.
+Instale [Node.js LTS](https://nodejs.org/en/download), versão 22.13 ou superior, com npm. Confira os serviços a seguir antes de criar o token.
 
 ### Antes do deploy: para que serve cada serviço da Cloudflare
 
@@ -24,15 +19,15 @@ A Cloudflare é a plataforma que mantém o Wabotia disponível na internet e gua
 | Serviço | Para que serve no Wabotia | O que você prepara |
 |---|---|---|
 | **Workers** | Executa o painel web, a API e as regras do atendimento. | Escolha o plano da conta. Workers Paid é a referência de produção do projeto. |
-| **D1** | Banco de dados: guarda usuários, configurações, conversas, protocolos e registros. | Confira acesso ao D1. O deploy cria ou conecta o banco exclusivo da instalação. |
+| **D1** | Banco de dados: guarda usuários, configurações, conversas, protocolos e registros. | Confira acesso ao D1. O instalador cria o banco exclusivo da instalação. |
 | **R2** | Armazena documentos, imagens, áudios e outros anexos. Uma pasta de armazenamento é chamada de *bucket*. | Ative a assinatura R2 e use um bucket privado. |
 | **Durable Objects e alarmes** | Coordenam as conversas e os trabalhos pendentes, preservando ordem e evitando operações duplicadas. Os alarmes retomam tarefas agendadas. | O deploy configura esses recursos. Não precisa criar um servidor nem contratar cada alarme. |
 | **Zero Trust** | Área da Cloudflare para administrar a segurança do acesso ao Hermes. | Ative um plano, como Zero Trust Free, antes de configurar o Access. |
 | **Access** | Verifica se a chamada ao Hermes vem do Wabotia autorizado. | Cadastre aplicações e políticas Service Auth; crie Client ID/Client Secret para a conexão. |
 | **Tunnel e cloudflared** | Fazem a ponte da Cloudflare até a máquina do Hermes sem abrir portas no roteador. cloudflared é o programa instalado nessa máquina. | Crie o túnel e mantenha cloudflared e Hermes ligados. |
 | **DNS** | Liga nomes como `api-hermes.seudominio.com` ao destino correto. | Use domínio ativo na Cloudflare para os hostnames do túnel e confira os registros criados. |
-| **Workers Builds** | Busca o código no GitHub, prepara e publica o aplicativo pelo botão de deploy. | Vincule o GitHub antes do botão. Esse serviço é separado do GitHub Actions. |
-| **Workers Secrets** | Guardam as chaves de instalação no ambiente protegido do Worker. | Preencha MASTER_KEY e SETUP_TOKEN sem publicar os valores no GitHub. |
+| **API da Cloudflare** | Recebe o pacote oficial e publica diretamente o Worker. | Autorize o token da instalação. Não é necessário configurar Builds. |
+| **Workers Secrets** | Guardam as chaves de instalação no ambiente protegido do Worker. | O instalador gera e guarda as duas chaves. Preserve os valores originais. |
 
 **Exemplo de uma conversa:** a mensagem chega ao Worker, o registro vai para o D1 e os anexos para o R2. Durable Objects organizam o processamento. Quando um bot é necessário, o Worker usa Access + Tunnel para chegar ao Hermes, que executa o modelo no computador ou na VPS.
 
@@ -41,7 +36,7 @@ A Cloudflare é a plataforma que mantém o Wabotia disponível na internet e gua
 1. Na conta Cloudflare da instalação, abra **Armazenamento e bancos de dados > R2 > Visão geral** (*Storage & databases > R2 > Overview*).
 2. Se aparecer a adesão ao serviço, conclua a ativação da assinatura R2. Confira os termos e valores e preencha os dados de cobrança que a Cloudflare solicitar. A franquia gratuita não dispensa a adesão.
 3. Confirme que você consegue acessar a lista de buckets ou o botão **Criar bucket**. Esse é o sinal de que o serviço está disponível para o deploy.
-4. Você pode criar antes um bucket privado chamado `wabotia-media` e selecioná-lo no formulário. Se o bucket dessa instalação já existe, use-o; não habilite acesso público.
+4. O instalador cria um bucket privado com o nome escolhido seguido de `-media`. Não é preciso criar um bucket antes; não habilite acesso público.
 
 R2 tem uma franquia mensal gratuita e cobrança conforme o uso excedente. Confira a [ativação oficial do R2](https://developers.cloudflare.com/r2/get-started/) e os [preços vigentes](https://developers.cloudflare.com/r2/pricing/) antes de confirmar.
 
@@ -49,7 +44,7 @@ R2 tem uma franquia mensal gratuita e cobrança conforme o uso excedente. Confir
 
 1. Abra **Armazenamento e bancos de dados > Banco de dados SQL D1**. Confira que consegue abrir a lista e encontrar **Criar banco de dados**.
 2. **D1 já está incluído nos planos Workers Free e Paid.** Ele não exige uma assinatura separada equivalente à adesão do R2; limites e eventuais cobranças dependem do plano Workers. Consulte os [planos oficiais do D1](https://developers.cloudflare.com/d1/platform/pricing/).
-3. O deploy do Wabotia cria ou conecta o banco. Não é preciso criar um banco de teste para habilitar o serviço. Se já instalou o Wabotia, confira o banco existente em **Worker > Bindings > DB**, sem criar outro para substituí-lo.
+3. O instalador do Wabotia cria o banco. Não é preciso criar um banco de teste para habilitar o serviço. Se já instalou o Wabotia, confira o banco existente em **Worker > Bindings > DB**, sem criar outro para substituí-lo.
 4. Para produção, prepare **Workers Paid** conforme a referência do projeto. Confira o plano e as condições na área de assinatura do Workers. Uma assinatura Zero Trust Free ou um plano do site/domínio não muda automaticamente o plano Workers.
 
 O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 e R2. Você não precisa gerar chaves D1 nem credenciais S3/R2 para colocar no painel Wabotia.
@@ -63,9 +58,10 @@ O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 
 
 O plano Zero Trust é separado de Workers e R2. Um Hermes com HTTPS autenticado já acessível ao Worker pode dispensar Tunnel + Access; este guia usa essa proteção para Hermes local/privado.
 
-### Confira os requisitos antes de gerar as chaves
+### Confira os requisitos antes de instalar
 
-- [ ] Conta correta selecionada e GitHub visível em **Git account**, para instalar pelo botão.
+- [ ] Conta Cloudflare correta e seu Account ID copiado.
+- [ ] Node.js 22.13+ e npm instalados no computador usado para publicar.
 - [ ] R2 ativado: lista de buckets ou **Criar bucket** disponível.
 - [ ] D1 disponível: lista de bancos e **Criar banco de dados** acessíveis.
 - [ ] Plano Workers conferido para o uso pretendido.
@@ -76,58 +72,66 @@ O plano Zero Trust é separado de Workers e R2. Um Hermes com HTTPS autenticado 
 
 Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, não consumo ilimitado nem dispensa de adesão. Se já ativou ou instalou algum item, confira o existente em vez de contratar novamente.
 
-### Agora, gere e guarde as duas chaves do Wabotia
+## 2. Instale sem GitHub
 
-Tenha um gerenciador de senhas ou local privado para guardar `MASTER_KEY` e `SETUP_TOKEN`. O [gerador do site](https://wabotia.queven.app/install#chaves) cria as duas para você, com 64 caracteres aleatórios cada.
+### Crie o token e copie Account ID
 
-`MASTER_KEY` permite ler as credenciais criptografadas do seu banco. `SETUP_TOKEN` autoriza a criação da primeira conta. A senha do administrador é uma terceira informação, escolhida por você.
+1. Na conta Cloudflare escolhida, copie **Account ID** na visão geral da conta/domínio.
+2. Abra **My Profile → API Tokens → Create Token → Custom Token**.
+3. Dê um nome, como “Wabotia instalação”. Adicione permissões de conta **Workers Scripts: Edit**, **D1: Edit** e **Workers R2 Storage: Edit**.
+4. Em **Account Resources**, selecione **Include → Specific account**, somente a conta da instalação. Defina a validade, confira e crie.
+5. Copie o valor exibido uma vez e guarde em local privado. Esse token autoriza publicar Workers e administrar D1/R2 nessa conta. Ele será enviado diretamente à Cloudflare; o site Wabotia não o recebe.
 
-**Como gerar e guardar:** no site, clique em **Gerar minhas duas chaves**. Use **Copiar MASTER_KEY** e **Copiar SETUP_TOKEN** para preencher os campos de mesmo nome na Cloudflare. Guarde as duas em seu gerenciador de senhas ou clique em **Baixar minhas chaves (.txt)** e proteja o arquivo. Depois do deploy, anote junto delas a URL da instalação. A geração acontece só no navegador; o site não recebe nem salva os valores. Atualizar ou fechar a página apaga o par da tela. O botão Deploy abre outra aba para você poder voltar e copiar.
+### Baixe e execute
 
-O gerador é para uma **nova instalação**. Se já instalou, preserve as chaves originais, especialmente MASTER_KEY. Se escolher o instalador pelo terminal (opção B), ele gera e salva as duas automaticamente; não precisa usar o gerador do site.
-
-## 2. Escolha uma forma de publicar
-
-### Opção A - Botão Deploy to Cloudflare
-
-1. Com GitHub vinculado e os requisitos R2, D1, Workers e Zero Trust conferidos, abra [wabotia.queven.app/install](https://wabotia.queven.app/install), gere e guarde as duas chaves conforme explicado acima. Depois clique em **Deploy to Cloudflare**; o formulário abre em outra aba.
-2. Entre na sua conta Cloudflare. Confira que o projeto de origem é `Quevenapp/Wabotia`.
-3. Escolha sua conta e a conta GitHub onde ficará a cópia. Dê um nome ao projeto, por exemplo `meu-atendimento`. Autorize somente o repositório necessário.
-4. Confira os recursos sugeridos: banco D1, bucket R2 e Durable Object. O provisionamento é automático. Mantenha o bucket privado.
-5. Preencha os secrets `MASTER_KEY` e `SETUP_TOKEN` com os valores que guardou. Eles são secrets do Worker; não são variáveis `VITE_*` nem arquivos para enviar ao GitHub.
-6. Em **Build command**, mantenha `npm run build`. Em **Deploy command**, mantenha `npm run deploy`. Esse comando publica e aplica as migrações do banco usando a ligação `DB`.
-7. Desative Enable Preview builds até configurar recursos isolados para testes. Clique em publicar e aguarde a indicação de sucesso. Guarde a URL `https://seu-projeto.sua-conta.workers.dev`. Se ela não abrir, vá ao Worker > Settings > Domains & Routes (Domínios e rotas) e habilite o endereço `workers.dev` de produção se estiver desativado.
-8. Em Workers & Pages > seu Worker > Settings > Variables and Secrets, confira apenas a existência dos dois secrets. Se a tela inicial não os solicitou, adicione-os com tipo **Secret** e publique a alteração.
-9. Abra **a URL da sua instalação**, acrescente `/app` e continue na etapa 3.
-
-O botão usa Cloudflare Builds. Não precisa de GitHub Actions. Na cópia do repositório, você também pode abrir Settings > Actions > General e selecionar **Disable actions**. O repositório original Quevenapp/Wabotia já mantém Actions desativado.
-
-O botão foi validado com uma instalação real, incluindo banco, mídias, migrações e primeiro administrador. Se o assistente falhar ao provisionar R2, abra Armazenamento e bancos de dados > R2 > Criar bucket, crie `wabotia-media` privado e volte ao deploy para selecionar o bucket existente. Se houver erro interno antes de criar qualquer recurso, confira a vinculação GitHub, volte ao botão e tente novamente usando o R2 já preparado; um erro interno isolado não permite determinar sua causa. Se o banco estiver vazio porque o comando de deploy foi alterado, use a opção B ou, numa cópia local da configuração com os IDs do seu Worker, rode `npx wrangler d1 migrations apply DB --remote`. Não crie um segundo atendimento para resolver uma migração pendente.
-
-### Opção B - Instalador pelo terminal
-
-É outra forma de publicação validada nesta versão. Os comandos são iguais em Linux, macOS e Windows/WSL2.
-
-1. Instale [Node.js LTS](https://nodejs.org/) (22.13 ou superior; preferencialmente 24 LTS) e [Git](https://git-scm.com/downloads).
-2. Windows: abra o Ubuntu no WSL2; macOS: abra Terminal; Ubuntu/Linux: abra Terminal. No Windows também é possível usar PowerShell com Node e Git instalados.
-3. Cole **uma linha de cada vez**, pressionando Enter:
+Linux, WSL2 ou macOS: abra **Terminal** e execute uma linha de cada vez:
 
 ```sh
-git clone https://github.com/Quevenapp/Wabotia.git
-cd Wabotia
-npm ci
-npx wrangler login
-npm run setup
+curl -fL https://wabotia.queven.app/install-wabotia.mjs -o install-wabotia.mjs
+node install-wabotia.mjs
 ```
 
-4. O login abre o navegador: selecione a mesma conta Cloudflare. Volte ao terminal quando ele indicar que o acesso foi concluído.
-5. O instalador cria Worker, D1, R2 e Durable Object, prepara o banco e gera os secrets sem mostrá-los no terminal. Não fecha nem reconfigura seu Hermes.
-6. Abra o arquivo **`.secrets.production.local.json`** na pasta Wabotia em um editor. Arquivos iniciados por ponto podem estar ocultos. Copie somente o valor de `SETUP_TOKEN` quando o painel pedir. Guarde o arquivo em local protegido.
-7. Abra a URL informada pelo instalador com `/app` no final.
+Windows: abra **PowerShell**, com Node.js e npm instalados:
 
-Para uma instalação de teste separada: `npm run setup -- --environment staging`. Para usar domínio próprio desde a primeira instalação: `npm run setup -- --domain painel.seudominio.com`. O domínio precisa estar na mesma conta Cloudflare. Se já existir uma instalação, mantenha os arquivos `wrangler.*.local.json` e `.secrets.*.local.json`; eles identificam e protegem seus recursos.
+```powershell
+Invoke-WebRequest https://wabotia.queven.app/install-wabotia.mjs -OutFile install-wabotia.mjs
+node .\install-wabotia.mjs
+```
 
-Não execute novamente o instalador sobre uma implantação feita pelo botão com secrets diferentes. Para administrar uma instalação já existente, baixe a configuração correspondente e use seus IDs e a MASTER_KEY original.
+O primeiro comando baixa o instalador oficial. O segundo o executa. Informe Account ID, o token (não aparece enquanto você digita) e um **nome novo**, como `wabotia-atendimento`.
+
+O instalador verifica a integridade da versão, publica os recursos, prepara o banco, gera as chaves e habilita a atualização pelo painel. Aguarde as cinco etapas. Ele recusa sobrescrever um Worker ou uma pasta de outra instalação.
+
+### Guarde a pasta privada
+
+Será criada uma pasta com o nome escolhido. Nela:
+
+| Arquivo | Para que serve |
+|---|---|
+| `chaves.local.json` | Guarda MASTER_KEY, SETUP_TOKEN e o token inicial de atualização. Não compartilhe. |
+| `installation.local.json` | Identifica a instalação, a versão e o ponto de retomada. |
+| `wrangler.jsonc` | Configuração dos recursos para recuperação manual. |
+| `worker/`, `web/`, `migrations/` | Arquivos da versão instalada, sem repositório Git. |
+
+Abra `chaves.local.json` em um editor e copie **somente o valor de SETUP_TOKEN** para criar o primeiro administrador. **MASTER_KEY** protege as credenciais criptografadas. A senha de login é escolhida por você. Não gere novas chaves para uma instalação existente. O gerador do site continua disponível para configuração manual, mas não é necessário neste fluxo.
+
+Abra a URL exibida pelo instalador seguida de `/app`. Para domínio próprio, use **Cloudflare → seu Worker → Settings → Domains & Routes → Add → Custom domain**, em um domínio da mesma conta.
+
+### Se parou no meio
+
+Corrija a mensagem e execute, no mesmo diretório, substituindo o nome:
+
+```sh
+node install-wabotia.mjs --name wabotia-atendimento --resume
+```
+
+Informe a mesma conta e um token válido. A retomada usa a pasta privada original e não apaga recursos. Não exclua DB, MEDIA ou os arquivos de chaves para tentar novamente.
+
+### Vou reinstalar
+
+Use um nome novo, por exemplo `wabotia-atendimento`, preservando a instalação anterior até validar a nova. Faça backup se houver dados. O histórico não é importado automaticamente. Mantenha bots, APIs e túnel Hermes existentes; cadastre a conexão novamente usando os mesmos endereços e chaves autorizadas. Não execute o assistente de criar túnel nos endereços que já funcionam.
+
+Pause os canais antigos antes de ativar os mesmos números/bots na nova instalação. Só depois de conferir os dados e canais você pode desativar os recursos antigos e remover a cópia GitHub anterior. A instalação nova não depende dela.
 
 ## 3. Crie a conta e o perfil de atendimento
 
@@ -234,8 +238,8 @@ Após validar, ative **Atendimento** em Menus e preferências. Guarde os arquivo
 
 ## Referências oficiais
 
-- [Deploy to Cloudflare](https://developers.cloudflare.com/workers/platform/deploy-buttons/)
-- [Vinculação GitHub e Cloudflare Workers](https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/)
+- [Publicação de Workers com Wrangler](https://developers.cloudflare.com/workers/wrangler/commands/#deploy)
+- [Tokens da API Cloudflare](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Service tokens do Access](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)

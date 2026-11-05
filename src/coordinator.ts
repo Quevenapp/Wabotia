@@ -7,6 +7,7 @@ import { finishDelivery } from "./delivery";
 import { transport } from "./transport";
 import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
+import { processUpdate, updatePending } from "./updates";
 import {
   processInbox,
   processRun,
@@ -155,6 +156,7 @@ export class Coordinator extends DurableObject<Env> {
     this.profile ||= (await this.ctx.storage.get<string>("profile")) || "";
     try {
       if (this.profile === "_admin") {
+        await processUpdate(this.env);
         await processCloudflareJob(this.env);
         return;
       }
@@ -226,7 +228,11 @@ export class Coordinator extends DurableObject<Env> {
               this.profile,
               this.profile,
             );
-      if (pending?.n) await this.ctx.storage.setAlarm(now() + 5000);
+      if (
+        pending?.n ||
+        (this.profile === "_admin" && (await updatePending(this.env)))
+      )
+        await this.ctx.storage.setAlarm(now() + 5000);
     }
   }
 }

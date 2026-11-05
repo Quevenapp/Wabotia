@@ -1,6 +1,6 @@
 {
   "name": "wabotia",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -12,6 +12,7 @@
     "pretest": "node scripts/build-info.mjs",
     "test": "vitest run",
     "deploy": "node scripts/deploy.mjs",
+    "release": "node scripts/release.mjs",
     "migrate": "wrangler d1 migrations apply DB --remote",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "setup": "node scripts/setup.mjs",

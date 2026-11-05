@@ -9,7 +9,7 @@ const services = [
   [
     "D1",
     "É o banco: guarda usuários, configurações, conversas, protocolos e registros.",
-    "Disponível nos planos Workers. O deploy cria ou conecta o banco exclusivo.",
+    "Disponível nos planos Workers. O instalador cria o banco exclusivo.",
   ],
   [
     "R2",
@@ -42,14 +42,14 @@ const services = [
     "Para os hostnames do túnel, use um domínio ativo na Cloudflare.",
   ],
   [
-    "Workers Builds",
-    "Lê sua cópia no GitHub, prepara o código e publica a aplicação pelo botão de deploy.",
-    "Vincule o GitHub antes do botão. É separado do GitHub Actions.",
+    "API da Cloudflare",
+    "Recebe a publicação oficial pelo instalador e aplica as atualizações solicitadas no painel.",
+    "Autorize o token da instalação. Não é necessário vincular GitHub ou configurar Builds.",
   ],
   [
     "Workers Secrets",
     "Guardam as chaves de instalação do Wabotia no ambiente protegido do Worker.",
-    "Preencha MASTER_KEY e SETUP_TOKEN; não publique esses valores no GitHub.",
+    "O instalador gera e guarda MASTER_KEY e SETUP_TOKEN. Preserve as originais.",
   ],
 ];
 
@@ -60,7 +60,7 @@ export function CloudflarePrerequisites() {
       id="requisitos"
       aria-labelledby="prerequisites-title"
     >
-      <div className="eyebrow">ANTES DAS CHAVES E DO DEPLOY</div>
+      <div className="eyebrow">ANTES DE EXECUTAR O INSTALADOR</div>
       <h2 id="prerequisites-title">Prepare os serviços da Cloudflare</h2>
       <p>
         Ter a conta criada não ativa todos os serviços. Confira R2, D1 e Zero
@@ -127,9 +127,9 @@ export function CloudflarePrerequisites() {
             </li>
             <li>
               Confirme que aparece a lista de buckets ou{" "}
-              <strong>Criar bucket</strong>. Você pode preparar um bucket
-              privado chamado <code>wabotia-media</code> e selecioná-lo no
-              deploy. Se o bucket desta instalação já existe, use-o.
+              <strong>Criar bucket</strong>. O instalador cria o bucket privado
+              com o nome da instalação seguido de <code>-media</code>. Não é
+              preciso criar um bucket antes.
             </li>
           </ol>
           <p>
@@ -165,9 +165,9 @@ export function CloudflarePrerequisites() {
               limites e eventuais cobranças seguem o plano Workers.
             </li>
             <li>
-              O deploy do Wabotia cria ou conecta o banco. Não precisa criar um
-              banco de teste antes. Na instalação concluída, confira o banco
-              ligado ao Worker em <strong>Bindings → DB</strong>.
+              O instalador do Wabotia cria o banco. Não precisa criar um banco
+              de teste antes. Na instalação concluída, confira o banco ligado ao
+              Worker em <strong>Bindings → DB</strong>.
             </li>
             <li>
               Para produção, prepare Workers Paid conforme a referência do
@@ -226,10 +226,9 @@ export function CloudflarePrerequisites() {
       <aside className="account-return">
         <strong>Pronto para continuar?</strong>
         <p>
-          Confira: GitHub aparece em Git account; R2 permite criar buckets; D1
-          permite criar bancos; Zero Trust permite gerenciar aplicações; e o
-          domínio do túnel está ativo. Depois gere e guarde as duas chaves do
-          Wabotia e abra o botão de deploy.
+          Confira: R2 permite criar buckets; D1 permite criar bancos; Zero Trust
+          permite gerenciar aplicações; e o domínio do túnel está ativo. Depois
+          execute o instalador e guarde a pasta privada que ele criar.
         </p>
       </aside>
     </section>

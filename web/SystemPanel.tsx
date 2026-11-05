@@ -19,8 +19,10 @@ type Api = (
 type Data = { updates: any; cloudflare: any; deployments: any[] };
 const demoData: Data = {
   updates: {
-    installed: { version: "0.2.0", commit: "exemplo" },
-    configured: false,
+    installed: { version: "0.3.0", commit: "exemplo" },
+    method: "direct",
+    installation_ready: true,
+    configured: true,
     available: false,
   },
   cloudflare: { configured: false, account_id: "", zone_id: "", domain: "" },
@@ -146,16 +148,11 @@ function Input({
 export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
   const system = useSystem(api, demo),
     action = useAction(demo);
-  const [hook, setHook] = useState("");
-  const [buildReady, setBuildReady] = useState(false);
+  const [updateToken, setUpdateToken] = useState("");
   const [stopped, setStopped] = useState(false);
   const [cf, setCf] = useState({ account_id: "", zone_id: "", token: "" });
   const [editingCf, setEditingCf] = useState(false);
   const [editingHook, setEditingHook] = useState(false);
-  const origin =
-    location.protocol === "https:"
-      ? location.origin
-      : "https://meu-wabotia.minhaconta.workers.dev";
   const data = system.data;
   if (!data)
     return (
@@ -168,7 +165,8 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
   const u = data.updates,
     state = u.state;
   const updating =
-    state && ["sending", "requested", "unknown"].includes(state.status);
+    state &&
+    ["pending", "sending", "requested", "unknown"].includes(state.status);
   const mutate = (path: string, body: any) =>
     api("v1/system/" + path, "POST", body, AbortSignal.timeout(45000));
   return (
@@ -182,9 +180,8 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           <span className="badge active">v{u.installed.version}</span>
         </div>
         <p>
-          Traga as correções do repositório oficial para esta instalação. A
-          publicação usa o Cloudflare Builds e mantém seu banco, mídias e
-          configurações.
+          Instale as versões oficiais publicadas do Wabotia. A atualização
+          direta na Cloudflare mantém seu banco, mídias, domínios e credenciais.
         </p>
         <dl className="system-facts">
           <div>
@@ -262,6 +259,21 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                 "A Cloudflare está preparando a versão. O painel confirmará quando o novo código estiver no ar. Isso pode levar alguns minutos."}
             </p>
             <small>
+              {state.phase && (
+                <>
+                  Etapa:{" "}
+                  {(
+                    {
+                      download: "baixando pacote",
+                      prepare: "verificando instalação",
+                      assets: "enviando arquivos",
+                      migrate: "preparando banco",
+                      publish: "publicando",
+                    } as Record<string, string>
+                  )[state.phase] || state.phase}{" "}
+                  ·{" "}
+                </>
+              )}
               Versão solicitada: {state.target.slice(0, 12)} ·{" "}
               {when(state.created)}
             </small>
@@ -285,7 +297,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           <div className="callout">
             <p>
               {state.error} Abra seu Worker na Cloudflare, confira a aba
-              Deployments/Builds e resolva o erro exibido.
+              Implantações e resolva o erro exibido.
             </p>
             <label className="check-field">
               <input
@@ -293,7 +305,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                 checked={stopped}
                 onChange={(e) => setStopped(e.target.checked)}
               />{" "}
-              Conferi: não há build em execução nem na fila.
+              Conferi a versão instalada e a publicação anterior já terminou.
             </label>
             <button
               className="button secondary"
@@ -321,81 +333,62 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
             : "Configurar atualização pelo painel"}{" "}
           <ArrowRight size={16} />
         </button>
-        {(editingHook || !u.configured) && (
-          <form
-            className="system-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action.run("Salvando atualização pelo painel…", async () => {
-                await mutate("updates/configure", {
-                  hook_url: hook,
-                  build_configured: buildReady,
-                });
-                setHook("");
-                setEditingHook(false);
-                await system.refresh();
-                action.setMessage("Atualização pelo painel configurada.");
-              });
-            }}
-          >
-            <ol className="plain-steps">
-              <li>
-                Na Cloudflare, abra{" "}
-                <strong>
-                  Workers & Pages → seu Worker → Settings → Builds
-                </strong>
-                . Vincule a cópia do Wabotia no GitHub, se necessário.
-              </li>
-              <li>
-                No repositório da instalação, confirme que existe{" "}
-                <code>wabotia-build.mjs</code>. Para uma cópia antiga, siga a{" "}
-                <a
-                  className="text-link"
-                  href="/install#atualizacoes"
-                  target="_blank"
-                >
-                  preparação inicial no manual
-                </a>
-                .
-              </li>
-              <li>
-                Em Build configuration, use <code>node wabotia-build.mjs</code>{" "}
-                como Build command e <code>npm run deploy</code> como Deploy
-                command.
-              </li>
-              <li>
-                Em Variables and secrets de <strong>Builds</strong>, adicione{" "}
-                <code>WABOTIA_UPDATE_ORIGIN</code> com o valor{" "}
-                <code>{origin}</code>.
-              </li>
-              <li>
-                Em Deploy Hooks, crie o hook da branch <code>main</code>. Copie
-                a URL para o campo abaixo. Guarde-a como uma senha.
-              </li>
-            </ol>
-            <Input
-              label="URL do Deploy Hook"
-              type="password"
-              autoComplete="new-password"
-              value={hook}
-              onChange={(e) => setHook(e.target.value)}
-              required
-              placeholder="https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/…"
-            />
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={buildReady}
-                onChange={(e) => setBuildReady(e.target.checked)}
+        {(editingHook || !u.configured) &&
+          (u.installation_ready ? (
+            <form
+              className="system-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void action.run(
+                  "Verificando autorização da atualização…",
+                  async () => {
+                    await mutate("updates/configure", { token: updateToken });
+                    setUpdateToken("");
+                    setEditingHook(false);
+                    await system.refresh();
+                    action.setMessage("Atualização direta autorizada.");
+                  },
+                );
+              }}
+            >
+              <p>
+                Instalação: <strong>{u.worker_name}</strong>. O instalador já
+                configura a atualização. Use este campo para renovar ou
+                substituir o token.
+              </p>
+              <p>
+                Na Cloudflare, abra My Profile → API Tokens → Create Token →
+                Custom Token. Permissão de conta:{" "}
+                <strong>Workers Scripts: Edit</strong>. Limite à conta desta
+                instalação. Esse token permite publicar Workers nessa conta.
+                Banco, mídias e credenciais continuam na sua Cloudflare.
+              </p>
+              <Input
+                label="Token Cloudflare para atualizações"
+                type="password"
+                autoComplete="new-password"
+                value={updateToken}
+                onChange={(e) => setUpdateToken(e.target.value)}
                 required
-              />{" "}
-              Configurei o arquivo, os comandos e a variável de Builds acima.
-            </label>
-            <button className="button" disabled={!!action.busy || !buildReady}>
-              Salvar atualização pelo painel
-            </button>
-          </form>
-        )}
+              />
+              <button className="button" disabled={!!action.busy || updating}>
+                Verificar e salvar token
+              </button>
+            </form>
+          ) : (
+            <div className="callout">
+              <p>
+                Esta instalação foi criada pelo fluxo anterior.
+                {u.method === "legacy" &&
+                  " O hook existente continua disponível até a migração."}
+                Use o instalador novo para criar uma instalação sem repositório
+                próprio.
+              </p>
+              <a href="/install#reinstalar" className="text-link">
+                Ver o roteiro de reinstalação
+              </a>
+            </div>
+          ))}
       </section>
       <section className="card system-card">
         <div className="section-heading">

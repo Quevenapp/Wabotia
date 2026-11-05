@@ -2373,6 +2373,17 @@ td .text-link {
   font-weight: 700;
   line-height: 1.5;
 }
+.guide-code {
+  padding: 18px;
+  border: 1px solid var(--line, #dfe6d7);
+  border-radius: 10px;
+  background: #edf2e3;
+  color: #173b30;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+}
 .hermes-guide .guide-detail {
   padding-top: 14px;
 }

@@ -6,6 +6,10 @@ export interface Env {
   MASTER_KEY: string;
   SETUP_TOKEN: string;
   APP_NAME?: string;
+  WABOTIA_ACCOUNT_ID?: string;
+  WABOTIA_WORKER_NAME?: string;
+  WABOTIA_INSTALLATION_ID?: string;
+  WABOTIA_UPDATE_TOKEN?: string;
 }
 export interface Actor {
   id: string;

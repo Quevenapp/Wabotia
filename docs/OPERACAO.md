@@ -4,15 +4,17 @@
 
 `npm run setup -- --environment staging` cria `wabotia-staging`, D1 e R2 separados. `npm run setup` usa produção. Os arquivos `wrangler.*.local.json` têm os IDs da sua conta e não devem ser copiados entre ambientes. Não compartilhe MASTER_KEY, chaves de aplicações ou tokens de canais entre eles.
 
-Antes de atualizar, faça backup e registre a versão Git. Execute `npm run check`, `npm test` e `npm run build`; aplique as migrações no ambiente alvo, depois execute `npx wrangler deploy --config wrangler.production.local.json`. Não remova migrações aplicadas. Cloudflare Builds, quando usado pelo botão Deploy, é um serviço da Cloudflare; não depende de GitHub Actions.
+Antes de atualizar, faça backup e registre a versão Git. Execute `npm run check`, `npm test` e `npm run build`; aplique as migrações no ambiente alvo, depois execute `npx wrangler deploy --config wrangler.production.local.json`. Não remova migrações aplicadas. O instalador direto dispensa GitHub pessoal, Builds e hooks. Os comandos desta seção são a alternativa para mantenedores trabalhando no código-fonte.
 
 ## Atualização e deploy do Hermes pelo painel
 
-O painel oferece **Sistema e atualizações → Atualizar Wabotia** após configurar Cloudflare Builds e um Deploy Hook. Veja o [roteiro completo e primeira atualização de cópias antigas](ATUALIZACOES.md). O código oficial é fixado por commit, o banco migra antes da troca de versão e o painel só confirma o commit em execução. O comando de primeiro deploy continua provisionando os recursos antes das migrações.
+O painel oferece **Sistema e atualizações → Atualizar Wabotia** com a autorização Cloudflare configurada pelo instalador. Veja o [roteiro completo de atualização direta](ATUALIZACOES.md). O código oficial é fixado por commit, o banco migra antes da troca de versão e o painel só confirma o commit em execução. O comando de primeiro deploy continua provisionando os recursos antes das migrações.
 
 Para preparar uma nova conexão Hermes, o assistente **Conexões → Preparar Hermes na Cloudflare** registra cada etapa em D1 e coordena a criação com Durable Objects. Veja [configuração e recuperação](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel). Falhas ambíguas não são repetidas automaticamente e não apagam recursos já criados.
 
 ## Backup
+
+Os scripts abaixo fazem parte do código-fonte oficial. Baixe-os pelo repositório público para operações administrativas; não é preciso criar um repositório na sua conta. Para instalações diretas, use o `wrangler.jsonc` da pasta privada da instalação, no lugar de `wrangler.production.local.json`.
 
 1. Pause o atendimento e os canais no painel. Pare o QR/conector para não receber gravações durante a cópia. Mantenha os diários/spools.
 2. Execute `node scripts/backup.mjs wrangler.production.local.json backup-seguro`.

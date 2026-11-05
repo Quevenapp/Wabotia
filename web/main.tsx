@@ -1,3 +1,4 @@
+import { DirectInstall } from "./DirectInstall";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HermesInstall } from "./hermes-install";
@@ -389,28 +390,28 @@ function Landing() {
 }
 const installSteps = [
   [
-    "Vincule Cloudflare e GitHub",
-    "Primeiro, conecte sua conta GitHub em Workers & Pages na Cloudflare, conforme explicado acima. Confira que ela aparece em Git account. Depois gere as chaves e abra o botão de deploy do Wabotia.",
+    "Prepare a Cloudflare",
+    "Ative R2, confira D1 e Workers e prepare Zero Trust para o túnel do Hermes.",
   ],
   [
-    "Publique o Wabotia",
-    "Gere e guarde as duas chaves acima. Clique em “Deploy to Cloudflare” e cole cada valor no campo de mesmo nome: MASTER_KEY e SETUP_TOKEN. O guia PDF mostra o caminho alternativo pelo terminal.",
+    "Execute o instalador",
+    "Baixe o instalador oficial. Informe Account ID, token Cloudflare e um nome novo. Ele publica os recursos e gera as chaves.",
   ],
   [
-    "Prepare o banco",
-    "Confirme que o comando de deploy é npm run deploy: ele prepara o banco automaticamente. Abra a URL do seu Worker e clique em “Abrir painel” para criar a conta de administrador usando SETUP_TOKEN.",
+    "Crie seu administrador",
+    "Abra a URL exibida e use SETUP_TOKEN do arquivo chaves.local.json para criar sua conta individual.",
   ],
   [
     "Conecte o Hermes",
-    "Crie um perfil de atendimento. Em Conexões, escolha Hermes, informe as URLs das APIs e suas chaves. Clique em Testar conexão e depois selecione os bots disponíveis.",
+    "Cadastre as APIs e as chaves do Hermes. Teste a conexão, descubra os bots e selecione o Atendente.",
   ],
   [
     "Escolha seus canais",
-    "Conecte Meta ou QR e configure um bot Telegram dedicado com um grupo privado de tópicos. Ative somente um modo por número. O QR precisa de seu conector ligado.",
+    "Conecte Meta ou QR e configure o bot Telegram dedicado. Use apenas um modo por número.",
   ],
   [
-    "Faça sua primeira conversa",
-    "Cadastre conhecimento, selecione o Atendente, marque sua presença e ative o atendimento. Use um número de teste para conferir mensagens, transferência humana e anexos.",
+    "Teste e atualize pelo painel",
+    "Confira mensagens e tomada humana antes de ativar. As próximas versões oficiais são instaladas em Sistema e atualizações.",
   ],
 ];
 function Install() {
@@ -418,7 +419,8 @@ function Install() {
     const showStep = () => {
       if (
         [
-          "#vincular-contas",
+          "#instalar",
+          "#reinstalar",
           "#requisitos",
           "#servicos-cloudflare",
           "#hermes",
@@ -454,78 +456,9 @@ function Install() {
         <p className="lead">
           Você configura uma vez. Depois, tudo acontece pelo painel.
         </p>
-        <section
-          className="account-setup"
-          id="vincular-contas"
-          aria-labelledby="accounts-title"
-        >
-          <div className="eyebrow">PRIMEIRO PASSO · ANTES DO DEPLOY</div>
-          <h2 id="accounts-title">Vincule a Cloudflare ao GitHub</h2>
-          <p>
-            Faça essa conexão antes de usar o botão do Wabotia. Se sua conta
-            GitHub já aparece em <strong>Git account</strong> na Cloudflare,
-            continue para o gerador de chaves abaixo.
-          </p>
-          <ol>
-            <li>
-              Abra a Cloudflare e selecione a conta onde vai instalar o Wabotia.
-              Vá a <strong>Workers &amp; Pages</strong>.
-            </li>
-            <li>
-              Clique em <strong>Create application / Criar aplicativo</strong> e
-              escolha <strong>GitHub</strong>. Em algumas telas, a opção aparece
-              em <strong>Import a repository / Importar repositório</strong>.
-            </li>
-            <li>
-              Use <strong>Connect GitHub / Conectar GitHub</strong> ou{" "}
-              <strong>+ Add account / Adicionar conta</strong>. No GitHub,
-              escolha a conta ou organização que receberá sua cópia e autorize o
-              aplicativo <strong>Cloudflare Workers and Pages</strong>.
-            </li>
-            <li>
-              Ao voltar à Cloudflare, confira sua conta na lista{" "}
-              <strong>Git account</strong>. A vinculação terminou: volte a esta
-              página, confira os serviços abaixo, gere e guarde as duas chaves e
-              só então clique em <strong>Deploy to Cloudflare</strong>.
-            </li>
-          </ol>
-          <a
-            className="button"
-            href="https://dash.cloudflare.com/?to=/:account/workers-and-pages"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Abrir Cloudflare para vincular <ArrowUpRight size={18} />
-          </a>
-          <aside className="account-return">
-            <strong>A tela fechou depois de autorizar?</strong>
-            <p>
-              Isso pode acontecer na primeira vinculação pelo botão de deploy.
-              Volte ao Wabotia e clique novamente em{" "}
-              <strong>Deploy to Cloudflare</strong>. Selecione a conta já
-              vinculada para continuar. Autorizar o GitHub, sozinho, ainda não
-              instala o Wabotia.
-            </p>
-          </aside>
-          <p className="account-note">
-            Pelo instalador do terminal, a publicação usa Wrangler e dispensa
-            essa vinculação. O PDF explica esse caminho alternativo.
-          </p>
-        </section>
+        <DirectInstall />
         <CloudflarePrerequisites />
         <div className="guide-actions">
-          <a className="button" href="#chaves">
-            Gerar chaves de instalação <ShieldCheck size={18} />
-          </a>
-          <a
-            className="button secondary"
-            href="https://deploy.workers.cloudflare.com/?url=https://github.com/Quevenapp/Wabotia"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Deploy to Cloudflare (abre em outra aba)"
-          >
-            Deploy to Cloudflare <Cloud size={18} />
-          </a>
           <a
             className="button secondary"
             href="/guide/wabotia-instalacao.pdf"
@@ -534,19 +467,12 @@ function Install() {
             Baixar guia em PDF <Download size={18} />
           </a>
         </div>
-        <InstallKeys />
-        <aside className="account-return">
-          <strong>O deploy falhou ou a URL não abriu?</strong>
-          <p>
-            Se a criação do R2 falhar, crie um bucket privado em R2 e
-            selecione-o ao tentar o deploy novamente. Depois da publicação,
-            confira no Worker, em Settings → Domains &amp; Routes, se a URL
-            workers.dev está habilitada. O PDF mostra essas verificações.
-          </p>
-          <a href="#hermes">
-            Wabotia já instalado? Conectar Hermes e Cloudflare ↓
-          </a>
-        </aside>
+        <details>
+          <summary>
+            Gerador de chaves para configuração manual (opcional)
+          </summary>
+          <InstallKeys />
+        </details>
         <div className="guide-grid">
           {installSteps.map(([title, desc], i) => (
             <article key={title}>
@@ -555,7 +481,6 @@ function Install() {
               <p>{desc}</p>
               {i === 0 && (
                 <div className="inline-links">
-                  <a href="https://github.com/Quevenapp/Wabotia">GitHub ↗</a>
                   <a href="https://dash.cloudflare.com/">Cloudflare ↗</a>
                 </div>
               )}

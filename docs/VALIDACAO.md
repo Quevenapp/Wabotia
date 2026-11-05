@@ -1,4 +1,4 @@
-# Validação e limites da versão 0.2.3
+# Validação e limites da versão 0.3.0
 
 Atualizado em 05/11/2026. A implementação é uma versão inicial de código aberto. **Ainda não foi homologada ponta a ponta com contas reais de WhatsApp, Telegram e perfis Hermes nesta implantação.** Credenciais, perfis e destinatários de teste precisam ser escolhidos pelo proprietário.
 
@@ -6,7 +6,7 @@ Atualizado em 05/11/2026. A implementação é uma versão inicial de código ab
 
 | Área | Evidência | Resultado |
 |---|---|---|
-| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 45 testes passam; provedores externos simulados |
+| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 50 testes passam; provedores externos simulados |
 | API remota | `scripts/smoke.mjs` contra Worker de staging | 20 verificações HTTP, dados fictícios; sem canal conectado |
 | Credenciais | Testes de hash, criptografia, expiração e revogação | Chaves inválidas recusadas; credenciais não ficam no frontend |
 | Autorizações | Testes de perfis, bots e namespaces de aplicações | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
@@ -23,7 +23,7 @@ Atualizado em 05/11/2026. A implementação é uma versão inicial de código ab
 
 Resultados remotos sanitizados: [API](reference/live-validation.json), [exemplos](reference/examples-validation.json) e [restauração](reference/restore-validation.json). Os arquivos não contêm chaves nem dados de clientes.
 
-O formulário oficial Deploy to Cloudflare reconheceu o repositório, D1, R2, os dois secrets e os comandos build/deploy. A publicação executada foi manual por Wrangler, incluindo provisionamento e migrações. Não foi criada uma segunda instalação via botão. O site e a configuração inicial estão publicados em https://wabotia.queven.app.
+O site e o guia estão publicados em https://wabotia.queven.app. Desde 0.3, novas instalações usam o instalador independente e a API Cloudflare; o fluxo de cópia GitHub permanece somente como legado.
 
 ## Matriz para homologar seus canais
 
@@ -59,6 +59,7 @@ Use staging, perfis e destinatários autorizados. Registre versão do Hermes, ve
 npm ci
 npm run check
 npm test
+node --test tests/installer.test.mjs tests/updater-build.test.mjs
 npm run build
 python3 -m pip install httpx
 python3 tests/hermes_transport_test.py
@@ -77,3 +78,12 @@ A atualização 0.2.0 foi publicada em uma instalação existente pelo Cloudflar
 0.2.1 ajusta o autocomplete dos campos de credenciais da manutenção para evitar que o gerenciador do navegador os confunda com o login do painel.
 
 0.2.2 corrige o modo de redirecionamento da consulta ao GitHub para o valor suportado por Workers. O teste passou a validar as opções de Request no próprio workerd e reproduziu a falha antes da correção. Um teste adicional recusa redirecionamentos sem guardar uma versão. O script também aceita recuperação manual por SHA completo, com as mesmas verificações de origem oficial e preservação dos recursos; três testes Node passam. 0.2.3 documenta essa recuperação no site e no PDF.
+
+
+## Instalação direta 0.3.0
+
+O instalador independente foi executado em Linux contra a Cloudflare real, em uma instalação isolada. Criou Worker, D1 e R2, aplicou quatro migrações, publicou três secrets e confirmou o commit no endpoint de saúde. A pasta não contém repositório Git. O teste Node do instalador recusa bancos e buckets preexistentes, incluindo bancos encontrados em páginas posteriores. Windows e macOS têm instruções, mas ainda não foram homologados nesses sistemas.
+
+Cinco testes adicionais em workerd cobrem o pacote oficial, preservação de bindings, identidade da instalação, autorização administrativa, início deduplicado, confirmação pelo código ativo, timeout sem nova publicação, integridade/caminhos, incompatibilidade de Durable Objects e rollback de migração. O tag de migração é lido nos metadados do serviço, porque o endpoint de settings não o retorna.
+
+Os pacotes oficiais usam HTTPS e SHA-256; não têm assinatura assimétrica. Um commit só aparece como atualização depois de publicado no catálogo oficial. O fluxo anterior de Builds continua disponível para instalações que já têm hook configurado.
