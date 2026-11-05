@@ -41,6 +41,13 @@ import {
   telegram,
 } from "./integrations";
 import { openapi } from "./openapi";
+import { buildInfo } from "./build-info.generated";
+import { checkUpdate, updatePlan, updateStatus } from "./updates";
+import {
+  cloudflareJobs,
+  cloudflareSettings,
+  connectorDownload,
+} from "./cloudflare";
 export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
 app.use(
@@ -94,9 +101,12 @@ app.onError((error, c) => {
 app.get("/api/health", (c) =>
   c.json({
     service: "wabotia",
-    version: "0.1.0",
+    ...buildInfo,
     runtime: "cloudflare-workers",
   }),
+);
+app.get("/api/system/update-plan", async (c) =>
+  c.json(await updatePlan(c.env)),
 );
 app.get("/api/openapi.json", (c) => c.json(openapi(new URL(c.req.url).origin)));
 app.get("/api/auth/status", async (c) => {
@@ -269,6 +279,38 @@ async function mutate(c: any, op: string, profile: string, data: any) {
     },
   );
 }
+app.get("/api/v1/system", async (c) => {
+  admin(c.get("actor"));
+  return c.json({
+    updates: await updateStatus(c.env),
+    cloudflare: await cloudflareSettings(c.env),
+    deployments: await cloudflareJobs(c.env),
+  });
+});
+app.get("/api/v1/system/updates/check", async (c) => {
+  admin(c.get("actor"));
+  await rate(c.env, `updates:${c.get("actor").id}`, 5);
+  await checkUpdate(c.env);
+  return c.json(await updateStatus(c.env));
+});
+app.get("/api/v1/system/cloudflare/:id/connector", async (c) => {
+  admin(c.get("actor"));
+  return c.json(
+    await connectorDownload(c.env, c.get("actor"), c.req.param("id")),
+  );
+});
+for (const [path, operation] of [
+  ["cloudflare/configure", "cloudflare.save"],
+  ["cloudflare/deploy", "cloudflare.create"],
+  ["cloudflare/retry", "cloudflare.retry"],
+  ["updates/configure", "updates.configure"],
+  ["updates/start", "updates.start"],
+  ["updates/reset", "updates.reset"],
+])
+  app.post("/api/v1/system/" + path, async (c) => {
+    admin(c.get("actor"));
+    return mutate(c, "system." + operation, "_admin", await c.req.json());
+  });
 for (const [method, path, op] of [
   ["post", "profiles", "profile.create"],
   ["post", "users", "user.create"],
@@ -1019,6 +1061,7 @@ app.post("/internal/v1/connectors/:id/status", async (c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(wake(env, "_admin"));
     for (const profile of await all(env, "SELECT id FROM profiles"))
       ctx.waitUntil(wake(env, profile.id));
     ctx.waitUntil(

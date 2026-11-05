@@ -448,6 +448,11 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  if (op.startsWith("system.")) {
+    admin(actor);
+    const maintenance = await import("./maintenance");
+    return maintenance.maintenanceCommand(env, actor, op, data);
+  }
   if (
     op.startsWith("connection.") &&
     [

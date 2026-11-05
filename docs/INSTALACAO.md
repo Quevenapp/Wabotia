@@ -2,7 +2,9 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta é a versão inicial 0.1.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.2.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+
+Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
 
 ## 1. Primeiro, vincule a Cloudflare ao GitHub
 

@@ -6,6 +6,7 @@ import { perform, inbound } from "./service";
 import { finishDelivery } from "./delivery";
 import { transport } from "./transport";
 import { audit } from "./events";
+import { processCloudflareJob } from "./cloudflare";
 import {
   processInbox,
   processRun,
@@ -153,6 +154,10 @@ export class Coordinator extends DurableObject<Env> {
     this.busy = true;
     this.profile ||= (await this.ctx.storage.get<string>("profile")) || "";
     try {
+      if (this.profile === "_admin") {
+        await processCloudflareJob(this.env);
+        return;
+      }
       await exec(
         this.env,
         "UPDATE outbox SET status='unknown',error='Processo interrompido durante envio; reconcilie antes de repetir.' WHERE profile_id=? AND status='sending' AND updated<?",
@@ -206,15 +211,21 @@ export class Coordinator extends DurableObject<Env> {
       );
     } finally {
       this.busy = false;
-      const pending = await one(
-        this.env,
-        "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending') n",
-        this.profile,
-        this.profile,
-        this.profile,
-        this.profile,
-        this.profile,
-      );
+      const pending =
+        this.profile === "_admin"
+          ? await one(
+              this.env,
+              "SELECT count(*) n FROM cloudflare_jobs WHERE status IN ('pending','running')",
+            )
+          : await one(
+              this.env,
+              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending') n",
+              this.profile,
+              this.profile,
+              this.profile,
+              this.profile,
+              this.profile,
+            );
       if (pending?.n) await this.ctx.storage.setAlarm(now() + 5000);
     }
   }

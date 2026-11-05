@@ -110,8 +110,92 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           </p>
         </div>
       </details>
+      <details id="deploy-hermes">
+        <summary>
+          3. Fazer deploy da configuração Cloudflare pelo Wabotia
+        </summary>
+        <div className="guide-detail">
+          <p>
+            Depois dos dois OK locais, você pode preparar Access, túnel e DNS
+            pelo painel. O Hermes continua na sua máquina ou VPS. Se já conectou
+            esta máquina pelo procedimento manual, mantenha a conexão existente.
+          </p>
+          <ol>
+            <li>
+              Ative Zero Trust e confirme seu domínio ativo na Cloudflare. Abra{" "}
+              <strong>
+                My Profile → API Tokens → Create Token → Custom Token
+              </strong>
+              .
+            </li>
+            <li>
+              Limite o token à sua conta e zona. Na conta, conceda{" "}
+              <strong>Cloudflare Tunnel: Edit</strong>,{" "}
+              <strong>Access: Apps and Policies: Edit</strong> e{" "}
+              <strong>Access: Service Tokens: Edit</strong>. Na zona,{" "}
+              <strong>Zone: Read</strong> e <strong>DNS: Edit</strong>.
+            </li>
+            <li>
+              Na visão geral do domínio, copie Account ID e Zone ID. No Wabotia,
+              vá a{" "}
+              <strong>
+                Sistema e atualizações → Preparação do Hermes na Cloudflare
+              </strong>
+              . Cole os IDs e o token e clique em{" "}
+              <strong>Verificar e salvar autorização</strong>. Esse token de API
+              é diferente do Client ID/Secret do Access.
+            </li>
+            <li>
+              Em <strong>Conexões → Preparar Hermes na Cloudflare</strong>,
+              informe dois subdomínios novos, o nome do perfil Hermes, as portas
+              e as duas chaves Hermes do arquivo privado{" "}
+              <code>chaves.local.txt</code>. Para outra máquina, escolha outros
+              endereços.
+            </li>
+            <li>
+              Confirme que as APIs estão ligadas, clique em{" "}
+              <strong>Revisar configuração</strong> e confira o resumo. Clique
+              em <strong>Fazer deploy da configuração</strong> e acompanhe as 12
+              etapas.
+            </li>
+            <li>
+              Quando aparecer <strong>Configuração pronta</strong>, escolha
+              Linux/WSL2, Docker no Linux ou macOS/terminal. Baixe o instalador
+              do conector e execute na máquina onde está o Hermes. O arquivo
+              contém uma credencial: envie à VPS somente por meio privado.
+            </li>
+          </ol>
+          <pre>
+            <code>bash wabotia-conector-linux.sh</code>
+          </pre>
+          <p>
+            Instale <code>cloudflared</code> antes pelo site oficial, ou Docker
+            se escolheu essa opção. Linux/WSL2 usa um serviço separado de
+            usuário. Em VPS, habilite a permanência após logout com{" "}
+            <code>sudo loginctl enable-linger "$USER"</code>. macOS/terminal
+            precisa ficar aberto. Em Docker Linux, o conector usa a rede do host
+            e precisa alcançar as portas locais do Hermes.
+          </p>
+          <p>
+            Volte ao cartão criado, clique em{" "}
+            <strong>Ativar → Testar conexão → Descobrir bots</strong>. O
+            resultado aparece no próprio cartão, com um atalho para a Equipe
+            Bot. Selecione o Atendente e ative o atendimento somente depois dos
+            testes.
+          </p>
+          <p>
+            O assistente preserva DNS, aplicações e túneis existentes. Se um
+            endereço já estiver usado, escolha outro ou mantenha o procedimento
+            manual. Se a criação ficar sem confirmação, confira a etapa no
+            dashboard antes de continuar. A credencial Access gerada vale por um
+            ano; renove-a antes do vencimento.
+          </p>
+        </div>
+      </details>
       <details id="cloudflare-hermes">
-        <summary>3. Cloudflare: ativar Zero Trust e criar o Access</summary>
+        <summary>
+          Alternativa manual: ativar Zero Trust e criar o Access
+        </summary>
         <div className="guide-detail">
           <ol>
             <li>

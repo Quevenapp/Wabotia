@@ -37,6 +37,9 @@ import {
 } from "lucide-react";
 import "./style.css";
 import { InstallKeys } from "./InstallKeys";
+import { ConnectionDiagnostics } from "./ConnectionDiagnostics";
+import { CloudflareDeploy, SystemPanel } from "./SystemPanel";
+import { MaintenanceGuide } from "./maintenance-guide";
 type Row = Record<string, any>;
 const sections = [
   ["overview", "Visão geral", LayoutDashboard],
@@ -55,11 +58,18 @@ const sections = [
   ["bot-runs", "Execuções", Bot],
   ["deliveries", "Entregas", Send],
   ["webhook-deliveries", "Webhooks", Zap],
+  ["system", "Sistema e atualizações", Cloud],
 ] as const;
-async function api(path: string, method = "GET", body?: any): Promise<any> {
+async function api(
+  path: string,
+  method = "GET",
+  body?: any,
+  signal?: AbortSignal,
+): Promise<any> {
   const response = await fetch("/api/" + path, {
     method,
     credentials: "same-origin",
+    signal,
     headers: {
       ...(body instanceof FormData
         ? {}
@@ -413,6 +423,8 @@ function Install() {
           "#servicos-cloudflare",
           "#hermes",
           "#cloudflare-hermes",
+          "#deploy-hermes",
+          "#atualizacoes",
         ].includes(location.hash)
       ) {
         const target = document.getElementById(location.hash.slice(1));
@@ -551,6 +563,7 @@ function Install() {
           ))}
         </div>
         <HermesInstall />
+        <MaintenanceGuide />
         <aside className="callout">
           <ShieldCheck />
           <div>
@@ -900,6 +913,7 @@ function App() {
     }
   };
   async function load() {
+    if (page === "system") return;
     if (demo) {
       setOverview({
         enabled: false,
@@ -1234,6 +1248,7 @@ function App() {
                   "users",
                   "applications",
                   "webhook-deliveries",
+                  "system",
                 ].includes(id),
             )
             .map(([id, title, Icon], i) => (
@@ -1374,7 +1389,7 @@ function App() {
               </button>
             </div>
           )}
-          {!profile && !["users", "applications"].includes(page) ? (
+          {!profile && !["users", "applications", "system"].includes(page) ? (
             <div className="card">
               <Empty
                 title="Vamos criar seu primeiro perfil?"
@@ -1386,6 +1401,9 @@ function App() {
             </div>
           ) : (
             <>
+              {page === "system" && me.role === "admin" && (
+                <SystemPanel api={api} demo={demo} />
+              )}
               {page === "overview" && (
                 <>
                   <div className="metric-grid">
@@ -1731,6 +1749,14 @@ function App() {
               )}
               {page === "connections" && (
                 <>
+                  <CloudflareDeploy
+                    key={profile}
+                    api={api}
+                    demo={demo}
+                    profile={profile}
+                    openSystem={() => setPage("system")}
+                    refreshConnections={load}
+                  />
                   <div className="toolbar">
                     <p>
                       Hermes fornece a inteligência. Os canais trazem as
@@ -1779,23 +1805,26 @@ function App() {
                                   : "WhatsApp pelo Hermes"}
                         </p>
                         <small>Último contato: {date(row.last_seen)}</small>
-                        <div className="card-actions">
-                          <Button
-                            secondary
-                            onClick={() =>
-                              run(
-                                () =>
-                                  api(
-                                    root + `/connections/${row.id}/test`,
-                                    "POST",
-                                    {},
-                                  ),
-                                "Conexão verificada.",
-                              ).then(load)
-                            }
-                          >
-                            Testar conexão
-                          </Button>
+                        <ConnectionDiagnostics
+                          hermes={row.kind === "hermes"}
+                          demo={demo}
+                          disabled={busy}
+                          request={(action, signal) =>
+                            api(
+                              root + `/connections/${row.id}/${action}`,
+                              "POST",
+                              {},
+                              signal,
+                            )
+                          }
+                          refresh={load}
+                          showBots={() => {
+                            setPage("bots");
+                            setCursor("");
+                            setNextCursor(null);
+                            setError("");
+                          }}
+                        >
                           <Button
                             secondary
                             onClick={() =>
@@ -1815,25 +1844,7 @@ function App() {
                           >
                             {row.status === "active" ? "Pausar" : "Ativar"}
                           </Button>
-                        </div>
-                        {row.kind === "hermes" && (
-                          <button
-                            className="text-link"
-                            onClick={() =>
-                              run(
-                                () =>
-                                  api(
-                                    root + `/connections/${row.id}/discover`,
-                                    "POST",
-                                    {},
-                                  ),
-                                "Bots atualizados.",
-                              ).then(load)
-                            }
-                          >
-                            Descobrir bots <ArrowRight size={16} />
-                          </button>
-                        )}
+                        </ConnectionDiagnostics>
                         {row.kind === "telegram" && (
                           <button
                             className="text-link"

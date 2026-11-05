@@ -10,7 +10,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão inicial 0.1.0. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.2.0, com diagnóstico visível de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -40,6 +40,8 @@ O botão Deploy to Cloudflare importa o código na sua conta e publica o Worker.
 
 Para Hermes privado: `node scripts/connect-hermes.mjs` gera as instruções e configuração de Cloudflare Tunnel protegido por Access, para Linux, WSL2 e macOS. HTTPS público autenticado também é aceito.
 
+Também é possível usar **Conexões → Preparar Hermes na Cloudflare**. Após ligar as APIs locais e autorizar um token Cloudflare em **Sistema e atualizações**, o painel cria Access, túnel e DNS e entrega um instalador privado para o conector. Veja [pré-requisitos, etapas e recuperação](docs/HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel).
+
 ## API
 
 REST/JSON em `/api/v1`, OpenAPI 3.1 em `/api/openapi.json`. Cada integração tem identidade própria, permissões, perfis e bots autorizados. Chaves Bearer são exibidas na emissão, persistidas como hash e podem expirar, ser rotacionadas ou revogadas. Recibos de operações que devolvem secrets são criptografados.
@@ -58,7 +60,7 @@ npm run dev
 
 Copie `.dev.vars.example` para `.dev.vars` com valores locais antes de testar autenticação. O modo `/app?demo=1` mostra dados fictícios e não permite gravações. Desenvolvimento local não é uma opção de hospedagem de produção.
 
-Atualizar produção: `npm run build`, `npx wrangler d1 migrations apply DB --remote --config wrangler.production.local.json`, `npx wrangler deploy --config wrangler.production.local.json`. [Backup, restauração e diagnóstico](docs/OPERACAO.md).
+Atualizar pelo painel: [configure Cloudflare Builds e o Deploy Hook uma vez](docs/ATUALIZACOES.md) e use **Sistema e atualizações → Atualizar Wabotia**. Publicação manual: `npm run build`, `npx wrangler d1 migrations apply DB --remote --config wrangler.production.local.json`, `npx wrangler deploy --config wrangler.production.local.json`. [Backup, restauração e diagnóstico](docs/OPERACAO.md).
 
 Uma organização por implantação; fuso America/Sao_Paulo. R2 é privado. O histórico do WABABOTAI não é importado automaticamente. Não há dependência de VPS ou Supabase para hospedar o Wabotia. Hermes e QR precisam permanecer ligados; a interface web permanece disponível quando eles estão offline.
 

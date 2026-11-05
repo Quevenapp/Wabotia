@@ -4,7 +4,25 @@ O Wabotia já deve estar instalado. **Não gere outra MASTER_KEY nem execute nov
 
 Antes de começar, confira os [requisitos da conta e a função de cada serviço Cloudflare](INSTALACAO.md#antes-do-deploy-para-que-serve-cada-serviço-da-cloudflare). R2 precisa de assinatura ativada mesmo com franquia gratuita; D1 está incluído nos planos Workers; Zero Trust precisa estar ativado para usar Access neste roteiro. Se já ativou Zero Trust, apenas confirme o acesso às aplicações na etapa C.
 
-Siga nesta ordem: **A. preparar Hermes → B. testar localmente → C. ativar Zero Trust → D. proteger os endereços → E. criar o túnel → F. cadastrar no Wabotia**. A etapa G ensina a religar os serviços.
+Siga nesta ordem: **A. preparar Hermes → B. testar localmente → deploy pelo painel (abaixo)**. Como alternativa, as etapas **C a F** ensinam Access, túnel e cadastro manual. A etapa G ensina a religar os serviços.
+
+## Deploy da configuração pelo painel
+
+Requer Wabotia 0.2.0 ou posterior. Se não aparece o botão, siga [Atualizar Wabotia](ATUALIZACOES.md).
+
+1. Primeiro, conclua A e B deste guia: perfil criado, modelo configurado e duas APIs autenticadas respondendo localmente.
+2. Ative o plano Zero Trust. O domínio precisa estar ativo na conta Cloudflare escolhida.
+3. Em **My Profile → API Tokens → Create Token → Custom Token**, limite a autorização à sua conta e à zona do domínio. Permissões de conta: **Cloudflare Tunnel: Edit**, **Access: Apps and Policies: Edit**, **Access: Service Tokens: Edit**. Permissões da zona: **Zone: Read** e **DNS: Edit**. Defina validade apropriada e guarde o token de forma privada.
+4. Na visão geral do domínio, copie **Account ID** e **Zone ID**. Em **Wabotia → Sistema e atualizações → Preparação do Hermes na Cloudflare**, informe esses IDs e o token. Clique **Verificar e salvar autorização**. Esse é um token de API Cloudflare, diferente do Client ID/Secret de Access. A autorização fica criptografada no backend.
+5. Selecione o perfil de atendimento e abra **Conexões → Preparar Hermes na Cloudflare**. Informe dois endereços novos de um único nível no domínio autorizado, nome exato do perfil Hermes, portas (normalmente 9119 e 8642), token administrativo e API_SERVER_KEY do perfil. As duas chaves Hermes estão em `~/.config/wabotia/hermes/chaves.local.txt` na máquina do Hermes; não use MASTER_KEY/SETUP_TOKEN nesses campos.
+6. Confirme os pré-requisitos, clique **Revisar configuração**, confira os recursos e clique **Fazer deploy da configuração**. Acompanhe as 12 etapas. Access é validado antes da publicação DNS. Nenhum DNS, túnel ou aplicativo existente é substituído.
+7. Quando aparecer **Configuração pronta**, escolha o tipo de execução e baixe o instalador. **O arquivo contém uma credencial do túnel**; use transferência privada para a VPS. Não o inclua no Git. Instale `cloudflared` pelo [site oficial](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/), ou Docker se escolheu essa opção.
+8. Na máquina do Hermes, entre na pasta do arquivo e rode `bash wabotia-conector-linux.sh`, `bash wabotia-conector-docker.sh` ou `bash wabotia-conector-macos.sh`, conforme o download. Linux/WSL2 precisa de systemd; a opção Docker usa Linux com rede do host. macOS/terminal permanece ligado enquanto a janela estiver aberta. Para Linux/VPS após logout, use `sudo loginctl enable-linger "$USER"`.
+9. O instalador cria um serviço separado. No Docker, as APIs Hermes precisam estar acessíveis nas portas do loopback do host; veja a rede em A2. Volte ao painel, ative a conexão criada, use **Testar conexão → Descobrir bots → Ver bots na Equipe Bot**. Habilite o bot autorizado, escolha o Atendente e só depois ative o atendimento.
+
+R2/D1/Zero Trust e eventuais termos/cobranças continuam sendo preparados pelo titular; o botão não faz essas adesões. A credencial Access criada vale por um ano; renove-a no Cloudflare e atualize a conexão antes do vencimento.
+
+**Falhou:** o painel indica a etapa e preserva os IDs dos recursos. Após corrigir uma falha confirmada, clique **Retomar após corrigir**. Para token de API expirado, salve o novo em Sistema e atualizações antes de retomar. **Sem confirmação:** não há repetição automática; confira os recursos no dashboard e finalize manualmente com C a F, usando o que já foi criado. Não execute de novo nos mesmos endereços. Se já usa o Hermes local por um túnel existente, continue usando a conexão atual.
 
 ## A. Escolha onde o Hermes está
 

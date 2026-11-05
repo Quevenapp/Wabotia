@@ -6,7 +6,7 @@ Data: 04/11/2026. A implementação é uma versão inicial de código aberto. **
 
 | Área | Evidência | Resultado |
 |---|---|---|
-| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 27 testes passam; provedores externos simulados |
+| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 44 testes passam; provedores externos simulados |
 | API remota | `scripts/smoke.mjs` contra Worker de staging | 20 verificações HTTP, dados fictícios; sem canal conectado |
 | Credenciais | Testes de hash, criptografia, expiração e revogação | Chaves inválidas recusadas; credenciais não ficam no frontend |
 | Autorizações | Testes de perfis, bots e namespaces de aplicações | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
@@ -65,3 +65,9 @@ python3 tests/hermes_transport_test.py
 ```
 
 Os scripts remotos `smoke.mjs` e `validate-examples.mjs` são exclusivos para staging e criam dados sintéticos. `validate-restore.mjs` cria e remove recursos descartáveis novos; use somente a configuração staging e um backup controlado. Os exemplos de execução de bot são opcionais e exigem `WABOTIA_BOT` autorizado.
+
+## Manutenção 0.2.0
+
+17 testes adicionais em workerd verificam autorização, CSRF, idempotência, criptografia, conflitos DNS/Access, ordem da proteção antes do DNS, rotas restritas, interrupções sem repetição e atualização fixada por commit. Dois testes Node verificam preservação da implantação e rejeição de bindings/migrações incompatíveis. As APIs de criação Cloudflare e hooks foram simuladas; isso não equivale à homologação de um novo túnel real pelo assistente.
+
+A interface de diagnóstico foi verificada no Chrome nos estados de espera, sucesso, vazio, falha e timeout, incluindo o atalho à Equipe Bot. O assistente de deploy foi exercitado com dados fictícios.
