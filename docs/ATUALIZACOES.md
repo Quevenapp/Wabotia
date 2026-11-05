@@ -36,3 +36,16 @@ O script copia código para o checkout temporário do build; ele não sincroniza
 - **Ainda aparece a tela antiga:** aguarde a confirmação do commit e clique **Reabrir painel atualizado**. Recarregar o navegador sozinho não publica código.
 
 Não há rollback automático de dados. Para mudanças sensíveis, valide primeiro uma instalação de staging separada e guarde backup.
+
+## Recuperar uma versão com erro ao consultar atualizações
+
+Este procedimento serve quando **Verificar atualização** falha na versão instalada. Ele publica um commit oficial escolhido por você, preservando os recursos da instalação. Não é necessário nas atualizações normais.
+
+1. Faça backup e confirme na Cloudflare que não há build em execução ou na fila.
+2. Abra o repositório oficial, entre em **Commits** e escolha a correção revisada. Copie o SHA completo de 40 caracteres desse commit.
+3. Baixe `wabotia-build.mjs` desse commit. No repositório GitHub da sua instalação, use **Add file → Upload files** para substituir somente esse arquivo e confirme o commit. Não altere `wrangler.jsonc` ou os secrets. Se um build automático começar, aguarde terminar antes de continuar.
+4. Na Cloudflare, abra **seu Worker → Configurações / Settings → Compilações / Builds**. Preserve `WABOTIA_UPDATE_ORIGIN` com a origem da sua instalação. Temporariamente, use como **Build command** `node wabotia-build.mjs --commit SHA_COMPLETO`, substituindo `SHA_COMPLETO` pelo código copiado. Mantenha **Deploy command** `npm run deploy` e salve.
+5. Em **Implantações / Deployments**, abra a última compilação do repositório e use **Retry build / Repetir compilação**. Aguarde a conclusão. O script aceita somente um SHA completo e verifica que pertence à branch `main` oficial.
+6. Abra o endereço da sua instalação seguido de `/api/health`. Confira `version` e `commit`, reabra `/app` e confira suas conexões.
+7. Volte às configurações de Builds, retire `--commit` e o código, deixando apenas `node wabotia-build.mjs`, e salve. **Se não retirar, os próximos builds continuarão presos à versão escolhida.**
+8. No painel, use **Verificar atualização**. Com o hook configurado, as próximas versões voltam a usar **Atualizar Wabotia**.

@@ -59,12 +59,12 @@ class Shot(Flowable):
 def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Paragraph(caption,styles['caption'])])
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 # 1
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.2.0','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.2.3','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
 p(link('Começar em wabotia.queven.app/install','https://wabotia.queven.app/install'))
-p('Edição de 04/11/2026. Leia na ordem; escolha apenas um modo de WhatsApp por número. O painel fica na Cloudflare. Hermes e QR continuam no computador ou servidor que você escolher.','small')
+p('Edição de 05/11/2026. Leia na ordem; escolha apenas um modo de WhatsApp por número. O painel fica na Cloudflare. Hermes e QR continuam no computador ou servidor que você escolher.','small')
 # 2
 title(2,'Primeiro, vincule suas contas')
 p('Antes do botão de deploy do Wabotia, conecte a Cloudflare ao GitHub. Se sua conta já aparece em <b>Git account</b> na Cloudflare, continue para os requisitos nas próximas páginas.')
@@ -285,7 +285,7 @@ title(29,'Antes de atender clientes')
 p('O núcleo e a publicação já foram testados. Seus perfis e canais precisam passar por homologação com credenciais e destinatários autorizados. Não confunda uma tela de demonstração com um canal conectado.')
 sub('Execute na sua instalação de teste')
 steps(['Envie e receba texto e anexo em cada canal escolhido. Confira protocolo, prazo, consentimento, avaliações, presença, notas e transferência.','Peça uma resposta lenta ao bot e assuma no meio da execução. A resposta automática antiga não deve chegar ao cliente.','Desligue e religue Hermes, túnel e conector. O painel deve continuar acessível; confira a retomada e os estados sem confirmação.','Repita uma mensagem/webhook de teste. Confira deduplicação, assinatura e recuperação. Teste também uma chave expirada/revogada.','Valide backup e restauração antes de depender da instalação. Só então ative o atendimento para clientes.'])
-box('<b>Evidência desta edição:</b> 44 testes em workerd, 2 testes do atualizador, 3 testes Python do transporte, 20 verificações HTTP em staging, exemplos em três linguagens e restauração remota D1/FTS/R2. Os testes externos usaram simulações ou dados fictícios. <b>As APIs Hermes locais também passaram na descoberta e na recusa de acesso sem chave. Isso não substitui homologação completa de modelo, túnel e canais Meta, QR e Telegram na sua instalação.</b>')
+box('<b>Evidência desta edição:</b> 45 testes em workerd, 3 testes do atualizador, 3 testes Python do transporte, 20 verificações HTTP em staging, exemplos em três linguagens e restauração remota D1/FTS/R2. Os testes externos usaram simulações ou dados fictícios. <b>As APIs Hermes locais também passaram na descoberta e na recusa de acesso sem chave. Isso não substitui homologação completa de modelo, túnel e canais Meta, QR e Telegram na sua instalação.</b>')
 sub('Onde encontrar os detalhes')
 p(link('Site e guia atualizado','https://wabotia.queven.app/install'))
 p(link('Código aberto e instruções completas','https://github.com/Quevenapp/Wabotia'))
@@ -323,11 +323,20 @@ p('Baixe wabotia-build.mjs de um commit testado do repositório oficial e adicio
 p(link('Primeira atualização e recuperação, passo a passo','https://github.com/Quevenapp/Wabotia/blob/main/docs/ATUALIZACOES.md'))
 p('Os testes automáticos simulam as APIs de criação Cloudflare. Criar uma nova conexão real pelo assistente ainda precisa ser validado na conta de destino, com seu token autorizado.','small')
 
+title(35,'Se a consulta de versões falhar')
+p('Use esta recuperação apenas quando uma versão antiga não consegue verificar atualizações. Ela publica uma correção oficial pelos Builds e preserva os recursos da sua instalação.')
+steps(['Faça backup e confira que não há compilação em execução ou na fila da Cloudflare.','No repositório oficial, abra <b>Commits</b>, escolha a correção revisada e copie seu <b>SHA completo</b>: o código de 40 caracteres que identifica essa versão.','Baixe <b>wabotia-build.mjs</b> desse commit. No GitHub da sua instalação, use <b>Add file > Upload files</b> para substituir somente esse arquivo e confirme o commit. Aguarde qualquer compilação automática terminar.','Na Cloudflare, abra <b>seu Worker > Configurações > Compilações</b>. Preserve WABOTIA_UPDATE_ORIGIN. Troque temporariamente o comando de build pelo comando abaixo, substituindo SHA_COMPLETO pelo código copiado. Mantenha npm run deploy como comando de implantação e salve.'])
+code('node wabotia-build.mjs --commit SHA_COMPLETO')
+steps(['Em <b>Implantações</b>, abra a última compilação e clique <b>Retry build / Repetir compilação</b>. Aguarde a conclusão.','Abra o endereço da instalação seguido de <b>/api/health</b>. Confira a versão e o commit. Reabra /app e confira suas conexões.','Volte às configurações de Compilações, retire --commit e o código, deixando somente o comando abaixo, e salve.'])
+code('node wabotia-build.mjs')
+box('<b>Não pule o último passo.</b> Se deixar o código fixo no comando, as próximas publicações continuarão nessa versão. Depois de restaurar o comando, use Verificar atualização e Atualizar Wabotia normalmente.')
+p(link('Roteiro completo de recuperação','https://github.com/Quevenapp/Wabotia/blob/main/docs/ATUALIZACOES.md'),'small')
+
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)
     c.setFillColor(GREEN);c.rect(0,H-8,W,8,fill=1,stroke=0)
     c.setStrokeColor(LINE);c.line(M,39,W-M,39)
-    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  Instalação na Cloudflare  |  04/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
+    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  Instalação na Cloudflare  |  05/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
 class NumberedCanvas(canvas.Canvas):
     def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
 doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)

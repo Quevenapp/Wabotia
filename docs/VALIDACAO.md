@@ -1,12 +1,12 @@
-# Validação e limites da versão 0.1.0
+# Validação e limites da versão 0.2.3
 
-Data: 04/11/2026. A implementação é uma versão inicial de código aberto. **Ainda não foi homologada ponta a ponta com contas reais de WhatsApp, Telegram e perfis Hermes nesta implantação.** Credenciais, perfis e destinatários de teste precisam ser escolhidos pelo proprietário.
+Atualizado em 05/11/2026. A implementação é uma versão inicial de código aberto. **Ainda não foi homologada ponta a ponta com contas reais de WhatsApp, Telegram e perfis Hermes nesta implantação.** Credenciais, perfis e destinatários de teste precisam ser escolhidos pelo proprietário.
 
 ## O que foi verificado
 
 | Área | Evidência | Resultado |
 |---|---|---|
-| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 44 testes passam; provedores externos simulados |
+| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 45 testes passam; provedores externos simulados |
 | API remota | `scripts/smoke.mjs` contra Worker de staging | 20 verificações HTTP, dados fictícios; sem canal conectado |
 | Credenciais | Testes de hash, criptografia, expiração e revogação | Chaves inválidas recusadas; credenciais não ficam no frontend |
 | Autorizações | Testes de perfis, bots e namespaces de aplicações | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
@@ -75,3 +75,5 @@ A interface de diagnóstico foi verificada no Chrome nos estados de espera, suce
 A atualização 0.2.0 foi publicada em uma instalação existente pelo Cloudflare Builds, com o commit aaea567 confirmado em /api/health e os recursos preservados. O painel autenticado confirmou a conexão e a descoberta de perfis no Hermes real; o bot autorizado permaneceu selecionado e o atendimento pausado. Isso valida o caminho de atualização inicial e o diagnóstico, sem substituir a homologação dos canais ou a criação automática de novos recursos Cloudflare.
 
 0.2.1 ajusta o autocomplete dos campos de credenciais da manutenção para evitar que o gerenciador do navegador os confunda com o login do painel.
+
+0.2.2 corrige o modo de redirecionamento da consulta ao GitHub para o valor suportado por Workers. O teste passou a validar as opções de Request no próprio workerd e reproduziu a falha antes da correção. Um teste adicional recusa redirecionamentos sem guardar uma versão. O script também aceita recuperação manual por SHA completo, com as mesmas verificações de origem oficial e preservação dos recursos; três testes Node passam. 0.2.3 documenta essa recuperação no site e no PDF.

@@ -85,6 +85,25 @@ export function MaintenanceGuide() {
           </p>
         </div>
       </details>
+      <details>
+        <summary>O botão Verificar atualização apresenta erro?</summary>
+        <div className="guide-detail">
+          <p>
+            Versões antigas podem precisar de uma correção inicial pelo
+            Cloudflare Builds. Siga o{" "}
+            <a
+              href="https://github.com/Quevenapp/Wabotia/blob/main/docs/ATUALIZACOES.md#recuperar-uma-versão-com-erro-ao-consultar-atualizações"
+              target="_blank"
+              rel="noreferrer"
+            >
+              passo a passo de recuperação
+            </a>{" "}
+            para publicar um commit oficial e preservar seus dados. Ao terminar,
+            restaure o comando <code>node wabotia-build.mjs</code> para voltar a
+            atualizar pelo painel.
+          </p>
+        </div>
+      </details>
     </section>
   );
 }
