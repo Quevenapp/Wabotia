@@ -288,7 +288,7 @@ function Landing() {
               WhatsApp, com a inteligência do Hermes e o controle nas suas mãos.
             </p>
             <div className="hero-actions">
-              <a className="button" href="/install#vincular-contas">
+              <a className="button" href="/install#nodejs">
                 Publicar na Cloudflare <Cloud size={19} />
               </a>
               <a className="text-link" href="/install">
@@ -419,6 +419,8 @@ function Install() {
     const showStep = () => {
       if (
         [
+          "#nodejs",
+          "#nodejs-erros",
           "#instalar",
           "#reinstalar",
           "#requisitos",

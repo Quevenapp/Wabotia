@@ -2361,6 +2361,14 @@ td .text-link {
 }
 
 /* Installation instructions remain readable on desktop and mobile. */
+.node-commands {
+  margin-bottom: 18px;
+}
+.node-copy-status {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+}
 .hermes-guide {
   scroll-margin-top: 24px;
 }

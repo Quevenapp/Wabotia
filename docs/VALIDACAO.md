@@ -1,4 +1,8 @@
-# Validação e limites da versão 0.3.0
+# Validação e limites da versão 0.3.1
+
+## Revisão 0.3.1: instalação e orientação
+
+Esta revisão acrescenta ao site e ao PDF o roteiro de Node.js para Ubuntu/VPS (incluindo `libatomic1` e a distinção root/sudo), Windows e macOS. O instalador mostra perguntas em linhas completas, distingue espera de entrada de espera por operação e informa tempo decorrido a cada 10 segundos. A publicação via npm/Wrangler é assíncrona para manter esses avisos ativos. Os testes Node cobrem entrada oculta, exibição da pergunta, encerramento dos avisos e propagação de falhas do processo. Não houve alteração no contrato dos recursos ou migrações nesta revisão. As homologações 0.3.0 abaixo são evidências históricas, não novas homologações de canais.
 
 Atualizado em 05/11/2026. A implementação é uma versão inicial de código aberto. **Ainda não foi homologada ponta a ponta com contas reais de WhatsApp, Telegram e perfis Hermes nesta implantação.** Credenciais, perfis e destinatários de teste precisam ser escolhidos pelo proprietário.
 

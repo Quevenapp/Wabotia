@@ -2,15 +2,112 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.3.0: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.3.1: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
 Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
+
+## Antes de começar: instale o Node.js e o npm
+
+**Node.js executa o instalador do Wabotia; npm vem junto e baixa as ferramentas necessárias.** Você pode fazer a instalação a partir do seu computador ou do terminal de uma VPS Ubuntu, inclusive da Hostinger. O painel será publicado na Cloudflare. Se fizer pela VPS, a pasta privada com as chaves ficará na VPS.
+
+Escolha **um** dos caminhos abaixo. Faça as etapas do Node.js e do instalador Wabotia no **mesmo terminal e com o mesmo usuário**. A instalação por NVM pertence ao usuário: instalar como `root` não disponibiliza automaticamente Node.js para o usuário `hermes`.
+
+### Ubuntu na VPS Hostinger, no computador ou no WSL2
+
+**1. Abra o terminal correto.**
+
+- Na Hostinger: abra **VPS**, selecione seu servidor e procure **Terminal** ou **Terminal do navegador**. Use o terminal do Ubuntu da VPS, **fora do contêiner Docker do Hermes**.
+- No Ubuntu do computador: abra **Terminal**.
+- No Windows com WSL2: abra o aplicativo **Ubuntu** pelo menu Iniciar. Os comandos desta seção vão dentro dele.
+
+Digite e pressione Enter:
+
+```sh
+whoami
+```
+
+Se a resposta for `root`, use os comandos sem sudo. Se aparecer outro nome, use a alternativa com sudo. Cole uma linha de cada vez e espere o nome do usuário reaparecer antes da próxima. Copie apenas os comandos, sem o prefixo `root@servidor:~#`.
+
+**2. Prepare os pacotes do Ubuntu, incluindo a biblioteca que o Node.js precisa.**
+
+Se `whoami` respondeu **root** (comum na VPS Hostinger):
+
+```sh
+apt-get update
+apt-get install -y ca-certificates curl git libatomic1
+```
+
+Se respondeu **outro nome**, com permissão administrativa:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git libatomic1
+```
+
+Use somente a alternativa correspondente ao seu usuário. A senha pedida por sudo é a do Ubuntu e não aparece enquanto você digita. `libatomic1` evita o erro `libatomic.so.1: cannot open shared object file`. Se a preparação terminar com erro, corrija antes de avançar.
+
+**3. Instale o gerenciador NVM e o Node.js LTS.**
+
+Execute uma linha de cada vez no mesmo terminal. O primeiro comando baixa e executa o instalador do [repositório oficial do NVM](https://github.com/nvm-sh/nvm/tree/v0.41.0). LTS é a versão com suporte prolongado. Não use sudo nestas linhas:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh | bash
+source "$HOME/.nvm/nvm.sh"
+nvm install --lts
+nvm alias default 'lts/*'
+nvm use --lts
+```
+
+O download pode levar alguns minutos. Copie a linha `source` inteira, com as **duas aspas**. Se o NVM informar que já está instalado, continue com as linhas seguintes.
+
+**4. Confira que Node.js e npm abrem sem erro.**
+
+```sh
+node -v
+npm -v
+```
+
+Exemplo de resultado: `v26.13.0` e `11.20.0`. Esses números são uma referência de 05/11/2026 e podem mudar. O Wabotia exige **Node.js 22.13 ou superior e npm**. Só avance quando os dois comandos mostrarem suas versões sem erro. Depois siga para a conta Cloudflare e execute o instalador Wabotia nesse mesmo terminal, sem sudo.
+
+### Se deu erro na instalação do Node.js
+
+| Mensagem ou sintoma | Como resolver |
+|---|---|
+| `libatomic.so.1: cannot open shared object file` | O Node.js foi instalado, mas falta uma biblioteca do Ubuntu. Repita a etapa 2, conforme seu usuário, e teste `node -v` e `npm -v`. Não precisa apagar Node.js ou Wabotia. |
+| `nvm: command not found` ou `node: command not found` no Ubuntu | Entre com o mesmo usuário da instalação. Execute `source "$HOME/.nvm/nvm.sh"` e `nvm use --lts`. Se o arquivo não existir, repita a etapa 3. |
+| O terminal ficou mostrando somente `>` | Geralmente faltou fechar uma aspa. Pressione **Ctrl+C** e cole novamente o comando inteiro, sem retirar as aspas. |
+| Falta de permissão no `apt-get` | Confira `whoami`. Usuário comum precisa de sudo; root não precisa. Se sua conta não puder usar sudo, use uma conta administradora. |
+| `node` não reconhecido no Windows ou Mac | Termine o instalador gráfico, feche a janela antiga do terminal e abra uma nova. |
+| PowerShell bloqueou `npm.ps1` | Confira com `npm.cmd -v`. Esse comando usa o executável do npm instalado. |
+
+### Windows sem WSL2
+
+1. Abra o [site oficial do Node.js](https://nodejs.org/en/download). Selecione a versão **LTS** e **Windows**.
+2. Baixe **Windows Installer (.msi)**. Em um computador Intel/AMD comum, use **x64**; use ARM64 somente se o seu computador for ARM. Não copie os comandos Linux/NVM exibidos no site.
+3. Abra o arquivo baixado e avance pelo assistente, mantendo **npm** e a configuração de **PATH** nas opções padrão. Conclua a instalação.
+4. Feche terminais antigos e abra uma nova janela de **PowerShell** pelo menu Iniciar. Execute:
+
+```powershell
+node -v
+npm.cmd -v
+```
+
+Os dois comandos devem mostrar versões. Use depois os comandos **Windows / PowerShell** do instalador Wabotia. Se for executar dentro do Ubuntu/WSL2, siga o caminho Ubuntu acima e instale o Node.js dentro dele.
+
+### macOS
+
+1. Abra o [site oficial do Node.js](https://nodejs.org/en/download), escolha **LTS**, **macOS** e baixe **macOS Installer (.pkg)** para o seu Mac.
+2. Abra o arquivo e conclua o assistente com as opções padrão; ele instala Node.js e npm.
+3. Feche terminais antigos. Abra **Aplicativos > Utilitários > Terminal** e execute `node -v` e `npm -v`.
+4. Com as versões aparecendo sem erro, use os comandos **Linux/macOS** do instalador Wabotia. Os comandos `apt-get` deste guia são apenas para Ubuntu.
+
+Se estiver gravando o passo a passo, pause a gravação antes de preencher tokens ou abrir o arquivo privado de chaves.
 
 ## 1. Prepare sua conta Cloudflare
 
 Não é necessário ter conta GitHub ou criar uma cópia do repositório. O instalador oficial roda uma vez no seu computador e publica Worker, D1, R2 e Durable Objects na sua conta. Depois ele pode ser fechado; somente Hermes/QR/túnel precisam permanecer ligados no host escolhido.
 
-Instale [Node.js LTS](https://nodejs.org/en/download), versão 22.13 ou superior, com npm. Confira os serviços a seguir antes de criar o token.
+Com Node.js e npm conferidos pelo roteiro acima, prepare os serviços a seguir antes de criar o token.
 
 ### Antes do deploy: para que serve cada serviço da Cloudflare
 
@@ -84,7 +181,7 @@ Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, 
 
 ### Baixe e execute
 
-Linux, WSL2 ou macOS: abra **Terminal** e execute uma linha de cada vez:
+Ubuntu na VPS, Linux, WSL2 ou macOS: use o **mesmo terminal e usuário em que Node.js e npm funcionaram** e execute uma linha de cada vez:
 
 ```sh
 curl -fL https://wabotia.queven.app/install-wabotia.mjs -o install-wabotia.mjs
@@ -99,6 +196,13 @@ node .\install-wabotia.mjs
 ```
 
 O primeiro comando baixa o instalador oficial. O segundo o executa. Informe Account ID, o token (não aparece enquanto você digita) e um **nome novo**, como `wabotia-atendimento`.
+
+**Como saber se está esperando você ou trabalhando:**
+
+- **AGUARDANDO VOCÊ:** digite ou cole o dado pedido e pressione Enter. No token, os caracteres ficam invisíveis. Antes de receber Account ID, token e nome, o instalador não publica nada.
+- **EM EXECUÇÃO:** a etapa começou. **AGUARDANDO RESULTADO** aparece a cada 10 segundos, com o tempo decorrido. Esse aviso confirma que o processo continua aguardando; não é uma porcentagem nem uma confirmação de que a Cloudflare terminou.
+- A publicação pode levar alguns minutos, especialmente ao baixar npm/Wrangler pela primeira vez. **OK** confirma uma etapa. **5/5 · Pronto** confirma o término e mostra sua URL.
+- Se surgir um erro, siga a orientação exibida. Se precisar interromper depois de iniciar a publicação, preserve a pasta e use a retomada abaixo; não abra outra instalação em paralelo nem apague os recursos.
 
 O instalador verifica a integridade da versão, publica os recursos, prepara o banco, gera as chaves e habilita a atualização pelo painel. Aguarde as cinco etapas. Ele recusa sobrescrever um Worker ou uma pasta de outra instalação.
 

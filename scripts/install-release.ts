@@ -3,7 +3,7 @@
 import { mkdir, readFile, writeFile, chmod, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
@@ -36,27 +36,87 @@ export async function materializeRelease(folder: string, pkg: ReleasePackage) {
       migration.statements.join(";\n") + ";\n",
     );
 }
-async function question(label: string, hidden = false) {
-  if (!process.stdin.isTTY)
+export async function question(
+  label: string,
+  hidden = false,
+  io = { input: process.stdin, output: process.stdout },
+) {
+  if (!io.input.isTTY)
     throw Error(
       `Defina ${label} por variável de ambiente ou execute num terminal interativo.`,
     );
-  let muted = false;
+  // A complete line remains visible in web terminals that defer partial lines.
+  io.output.write(`\nAGUARDANDO VOCÊ · ${label}\n`);
+  io.output.write(
+    hidden
+      ? "Cole o token e pressione Enter. A entrada fica invisível, inclusive ao colar.\n"
+      : "Digite ou cole a resposta e pressione Enter para continuar.\n",
+  );
+  let muted = hidden;
   const output = new Writable({
     write(chunk, _encoding, done) {
-      if (!muted) process.stdout.write(chunk);
+      if (!muted) io.output.write(chunk);
       done();
     },
   });
-  const rl = createInterface({ input: process.stdin, output, terminal: true });
-  process.stdout.write(label + ": ");
-  muted = hidden;
+  const rl = createInterface({ input: io.input, output, terminal: true });
   try {
-    return (await rl.question("")).trim();
+    return (await rl.question(hidden ? "" : "> ")).trim();
   } finally {
     rl.close();
-    if (hidden) process.stdout.write("\n");
+    if (hidden) io.output.write("\n");
   }
+}
+
+export async function progress<T>(label: string, task: () => Promise<T>) {
+  const started = Date.now();
+  console.log(`\nEM EXECUÇÃO · ${label}`);
+  const timer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - started) / 1000);
+    console.log(
+      `AGUARDANDO RESULTADO · ${label} · ${elapsed}s decorridos. Não inicie outra instalação.`,
+    );
+  }, 10000);
+  timer.unref();
+  try {
+    const result = await task();
+    console.log(
+      `OK · ${label} · ${Math.floor((Date.now() - started) / 1000)}s.`,
+    );
+    return result;
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+export async function runCommand(
+  executable: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+) {
+  await new Promise<void>((done, fail) => {
+    const child = spawn(executable, args, {
+      ...options,
+      stdio: "inherit",
+      shell: false,
+    });
+    child.once("error", () =>
+      fail(
+        Error(
+          "Não foi possível iniciar npm/Wrangler. Confira node -v e npm -v.",
+        ),
+      ),
+    );
+    child.once("close", (status) => {
+      if (status === 0) done();
+      else
+        fail(
+          Error(
+            "A etapa não concluiu. Corrija o erro e retome com --resume e a mesma pasta.",
+          ),
+        );
+    });
+  });
 }
 async function cloudflareGet(token: string, path: string, absent = false) {
   const r = await fetch("https://api.cloudflare.com/client/v4" + path, {
@@ -116,10 +176,13 @@ export async function install() {
   assertRelease(
     major > 22 ||
       (major === 22 && Number(process.versions.node.split(".")[1]) >= 13),
-    "Instale Node.js 22.13 ou superior pelo site nodejs.org.",
+    "Instale Node.js 22.13 ou superior: https://wabotia.queven.app/install#nodejs",
   );
   console.log(
     "Wabotia · instalação direta na sua Cloudflare\nNão é necessário ter conta ou repositório GitHub.",
+  );
+  console.log(
+    "Primeiro você informa Account ID, token e nome. Nenhuma publicação começa antes disso.\nDurante a execução, o assistente informa a etapa e o tempo a cada 10 segundos.\nSe estiver gravando, pause antes de preencher tokens ou abrir arquivos de chaves.",
   );
   const account =
     process.env.CLOUDFLARE_ACCOUNT_ID ||
@@ -170,11 +233,16 @@ export async function install() {
       !exists,
       "A pasta já existe. Escolha outra pasta ou use --resume para retomar a mesma instalação.",
     );
-    assertRelease(
-      !(await cloudflareGet(token, base + "/settings", true)),
-      "Já existe um Worker com esse nome. Escolha um nome novo; o instalador não substitui outra instalação.",
+    await progress(
+      "Conferindo a conta e os nomes dos recursos na Cloudflare",
+      async () => {
+        assertRelease(
+          !(await cloudflareGet(token, base + "/settings", true)),
+          "Já existe um Worker com esse nome. Escolha um nome novo; o instalador não substitui outra instalação.",
+        );
+        await assertNewResources(token, account, name);
+      },
     );
-    await assertNewResources(token, account, name);
     const releaseDirectory = option("--release-dir");
     const index = releaseDirectory
       ? validateIndex(
@@ -185,7 +253,10 @@ export async function install() {
             ),
           ),
         )
-      : await latestRelease();
+      : await progress(
+          "Consultando a versão oficial do Wabotia",
+          latestRelease,
+        );
     await mkdir(folder, { mode: 0o700 });
     state = {
       account,
@@ -238,8 +309,8 @@ export async function install() {
     npx = process.execPath;
     launcher = [entry!];
   }
-  const run = (command: string[]) => {
-    const result = spawnSync(
+  const run = (command: string[]) =>
+    runCommand(
       npx,
       [
         ...launcher,
@@ -251,7 +322,6 @@ export async function install() {
       ],
       {
         cwd: folder,
-        stdio: "inherit",
         env: {
           ...process.env,
           CLOUDFLARE_ACCOUNT_ID: account,
@@ -259,14 +329,8 @@ export async function install() {
           CI: "true",
           WRANGLER_SEND_METRICS: "false",
         },
-        shell: false,
       },
     );
-    assertRelease(
-      result.status === 0,
-      "A etapa não concluiu. Corrija o erro e execute novamente com --resume e a mesma pasta.",
-    );
-  };
   if (state.step === "download") {
     console.log(
       `1/5 · Baixando e verificando a versão oficial ${state.index.version}.`,
@@ -278,7 +342,9 @@ export async function install() {
             await readFile(join(state.release_directory, "package.json")),
           ),
         }
-      : await fetchPackage(validateIndex(state.index));
+      : await progress("Baixando e conferindo o pacote oficial", () =>
+          fetchPackage(validateIndex(state.index)),
+        );
     await materializeRelease(folder, pkg);
     const config = {
       name,
@@ -324,13 +390,18 @@ export async function install() {
         "O Worker existente pertence a outra instalação. A retomada foi interrompida.",
       );
     console.log("2/5 · Publicando Worker, D1, R2 e Durable Objects.");
-    run(["deploy"]);
+    await progress(
+      "Publicando Worker, banco e armazenamento (pode levar alguns minutos)",
+      () => run(["deploy"]),
+    );
     state.step = "migrate";
     await save();
   }
   if (state.step === "migrate") {
     console.log("3/5 · Preparando o banco.");
-    run(["d1", "migrations", "apply", "DB", "--remote"]);
+    await progress("Aplicando a estrutura do banco", () =>
+      run(["d1", "migrations", "apply", "DB", "--remote"]),
+    );
     state.step = "secrets";
     await save();
   }
@@ -338,33 +409,40 @@ export async function install() {
     console.log(
       "4/5 · Guardando as chaves e habilitando a atualização pelo painel.",
     );
-    run(["secret", "bulk", secretsFile]);
+    await progress("Guardando as chaves no Worker", () =>
+      run(["secret", "bulk", secretsFile]),
+    );
     state.step = "verify";
     await save();
   }
-  const settings = await cloudflareGet(token, base + "/settings");
-  const config = JSON.parse(await readFile(configFile, "utf8"));
-  const db = settings.bindings.find((b: any) => b.name === "DB");
-  if (db?.id) config.d1_databases[0].database_id = db.id;
-  await writeFile(configFile, JSON.stringify(config, null, 2), { mode: 0o600 });
-  const subdomain = await cloudflareGet(
-    token,
-    `/accounts/${account}/workers/subdomain`,
-  );
-  assertRelease(
-    subdomain?.subdomain,
-    "Habilite o subdomínio workers.dev no dashboard e retome o instalador.",
-  );
-  state.url = `https://${name}.${subdomain.subdomain}.workers.dev`;
-  const health = await fetch(state.url + "/api/health", {
-    redirect: "error",
-    signal: AbortSignal.timeout(20000),
+  console.log("5/5 · Confirmando os recursos e a resposta do site publicado.");
+  await progress("Confirmando a publicação na Cloudflare", async () => {
+    const settings = await cloudflareGet(token, base + "/settings");
+    const config = JSON.parse(await readFile(configFile, "utf8"));
+    const db = settings.bindings.find((b: any) => b.name === "DB");
+    if (db?.id) config.d1_databases[0].database_id = db.id;
+    await writeFile(configFile, JSON.stringify(config, null, 2), {
+      mode: 0o600,
+    });
+    const subdomain = await cloudflareGet(
+      token,
+      `/accounts/${account}/workers/subdomain`,
+    );
+    assertRelease(
+      subdomain?.subdomain,
+      "Habilite o subdomínio workers.dev no dashboard e retome o instalador.",
+    );
+    state.url = `https://${name}.${subdomain.subdomain}.workers.dev`;
+    const health = await fetch(state.url + "/api/health", {
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+    const info: any = await health.json();
+    assertRelease(
+      health.ok && info.commit === state.index.commit,
+      "A publicação ainda não foi confirmada. Aguarde e retome o instalador com --resume.",
+    );
   });
-  const info: any = await health.json();
-  assertRelease(
-    health.ok && info.commit === state.index.commit,
-    "A publicação ainda não foi confirmada. Aguarde e retome o instalador com --resume.",
-  );
   state.step = "done";
   await save();
   await chmod(secretsFile, 0o600);
