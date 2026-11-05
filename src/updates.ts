@@ -29,7 +29,7 @@ async function github(path: string) {
       "User-Agent": "Wabotia-Updater",
       Accept: "application/vnd.github+json",
     },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15000),
   });
   if (!r.ok)

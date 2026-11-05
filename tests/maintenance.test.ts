@@ -62,6 +62,8 @@ beforeEach(async () => {
     "DELETE FROM secrets WHERE id LIKE 'cloudflare:%' OR id LIKE 'system:update-%'",
   );
   vi.stubGlobal("fetch", async (input: any, init: any = {}) => {
+    // Validate request options in workerd even when the provider response is simulated.
+    new Request(input, init);
     const url = new URL(
       typeof input === "string" ? input : input.url || String(input),
     );
@@ -475,6 +477,23 @@ it("fixa commit oficial antes do hook, deduplica e só confirma o código instal
     target: buildInfo.commit,
   });
   expect((await updateStatus(env)).state.status).toBe("completed");
+});
+it("recusa redirecionamento do repositório sem registrar uma versão", async () => {
+  const redirectedFetch = vi.fn(async (input: any, init: any) => {
+    const request = new Request(input, init);
+    expect(request.redirect).toBe("manual");
+    return new Response(null, {
+      status: 302,
+      headers: { Location: "https://other.example/repository" },
+    });
+  });
+  vi.stubGlobal("fetch", redirectedFetch);
+  await expect(checkUpdate(env)).rejects.toMatchObject({
+    status: 502,
+    code: "update_check_failed",
+  });
+  expect(redirectedFetch).toHaveBeenCalledTimes(1);
+  expect((await updateStatus(env)).latest).toBeNull();
 });
 it("não repete hook ambíguo e exige revisão antes de liberar outra tentativa", async () => {
   await configureUpdates(env, admin, {

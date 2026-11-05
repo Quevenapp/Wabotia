@@ -2,10 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parse } from "jsonc-parser";
-import { preserveDeployment } from "../wabotia-build.mjs";
+import { manualCommit, preserveDeployment } from "../wabotia-build.mjs";
 const next = parse(
   readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
 );
+test("recuperação manual exige SHA completo e opção explícita", () => {
+  assert.equal(manualCommit([]), null);
+  const commit = "a".repeat(40);
+  assert.equal(manualCommit(["--commit", commit]), commit);
+  for (const args of [
+    ["main"],
+    ["--commit", "main"],
+    ["--commit", "a".repeat(7)],
+    ["--commit", commit, "extra"],
+  ])
+    assert.throws(() => manualCommit(args));
+});
 function installed() {
   return {
     ...structuredClone(next),

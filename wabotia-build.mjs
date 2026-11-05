@@ -20,6 +20,14 @@ import { parse } from "jsonc-parser";
 const upstream = "https://github.com/Quevenapp/Wabotia.git";
 const checkedSha = (value) =>
   typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
+export function manualCommit(args) {
+  if (!args.length) return null;
+  if (args.length !== 2 || args[0] !== "--commit" || !checkedSha(args[1]))
+    throw Error(
+      "Use --commit seguido do SHA completo de um commit oficial revisado.",
+    );
+  return args[1];
+}
 export function preserveDeployment(current, next) {
   if (
     !current.name ||
@@ -123,8 +131,13 @@ function assertRegularTree(path) {
     for (const name of readdirSync(path)) assertRegularTree(join(path, name));
 }
 async function main() {
+  const pinnedCommit = manualCommit(process.argv.slice(2));
   const origin = process.env.WABOTIA_UPDATE_ORIGIN;
   if (!origin) {
+    if (pinnedCommit)
+      throw Error(
+        "Configure WABOTIA_UPDATE_ORIGIN antes da atualização manual.",
+      );
     execFileSync("npm", ["run", "build"], { stdio: "inherit" });
     return;
   }
@@ -140,29 +153,31 @@ async function main() {
     throw Error(
       "WABOTIA_UPDATE_ORIGIN deve ser apenas a origem HTTPS da instalação.",
     );
-  let target;
-  const response = await fetch(new URL("/api/system/update-plan", url), {
-    redirect: "error",
-    signal: AbortSignal.timeout(20000),
-  });
-  if (
-    response.ok &&
-    response.headers.get("content-type")?.includes("application/json")
-  ) {
-    const plan = await response.json();
-    if (plan.repository !== "Quevenapp/Wabotia" || !checkedSha(plan.commit))
-      throw Error("Plano de atualização inválido.");
-    target = plan.commit;
-  } else if (
-    process.env.WABOTIA_BOOTSTRAP_COMMIT &&
-    checkedSha(process.env.WABOTIA_BOOTSTRAP_COMMIT)
-  ) {
-    // Only the first upgrade from a version without the update endpoint uses this explicitly pinned SHA.
-    target = process.env.WABOTIA_BOOTSTRAP_COMMIT;
-  } else
-    throw Error(
-      "Não foi possível ler o plano da instalação. Nenhum deploy foi iniciado.",
-    );
+  let target = pinnedCommit;
+  if (!target) {
+    const response = await fetch(new URL("/api/system/update-plan", url), {
+      redirect: "error",
+      signal: AbortSignal.timeout(20000),
+    });
+    if (
+      response.ok &&
+      response.headers.get("content-type")?.includes("application/json")
+    ) {
+      const plan = await response.json();
+      if (plan.repository !== "Quevenapp/Wabotia" || !checkedSha(plan.commit))
+        throw Error("Plano de atualização inválido.");
+      target = plan.commit;
+    } else if (
+      process.env.WABOTIA_BOOTSTRAP_COMMIT &&
+      checkedSha(process.env.WABOTIA_BOOTSTRAP_COMMIT)
+    ) {
+      // Only the first upgrade from a version without the update endpoint uses this explicitly pinned SHA.
+      target = process.env.WABOTIA_BOOTSTRAP_COMMIT;
+    } else
+      throw Error(
+        "Não foi possível ler o plano da instalação. Nenhum deploy foi iniciado.",
+      );
+  }
   const current = parse(readFileSync("wrangler.jsonc", "utf8"));
   const packageName = JSON.parse(readFileSync("package.json", "utf8")).name;
   const stage = mkdtempSync(join(tmpdir(), "wabotia-source-"));
