@@ -376,7 +376,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
             <Input
               label="URL do Deploy Hook"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
               value={hook}
               onChange={(e) => setHook(e.target.value)}
               required
@@ -482,6 +482,8 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
             <div className="system-grid">
               <Input
                 label="Account ID da Cloudflare"
+                name="cloudflare_account_id"
+                autoComplete="off"
                 value={cf.account_id}
                 onChange={(e) =>
                   setCf({ ...cf, account_id: e.target.value.trim() })
@@ -491,6 +493,8 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
               />
               <Input
                 label="Zone ID do domínio"
+                name="cloudflare_zone_id"
+                autoComplete="off"
                 value={cf.zone_id}
                 onChange={(e) =>
                   setCf({ ...cf, zone_id: e.target.value.trim() })
@@ -506,7 +510,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   : "Token de API da Cloudflare"
               }
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
               value={cf.token}
               onChange={(e) => setCf({ ...cf, token: e.target.value.trim() })}
               required={!data.cloudflare.configured}
@@ -711,7 +715,7 @@ export function CloudflareDeploy({
               <Input
                 label="Token administrativo Hermes"
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
                 minLength={16}
                 value={form.dashboard_token}
                 onChange={(e) => set("dashboard_token", e.target.value)}
@@ -720,7 +724,7 @@ export function CloudflareDeploy({
               <Input
                 label="Chave da API do perfil Hermes (API_SERVER_KEY)"
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
                 minLength={16}
                 value={form.profile_key}
                 onChange={(e) => set("profile_key", e.target.value)}
