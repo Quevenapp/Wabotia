@@ -11,6 +11,7 @@ import {
 import { mediaKind, putStream, multipartStream } from "./media";
 import { validateMedia } from "./whatsapp";
 import { metaRequest } from "./meta";
+import { metaCredentials } from "./meta-accounts";
 import { secret, setSecret, safeFetch, random, sha } from "./security";
 export async function hermesRequest(
   env: Env,
@@ -240,7 +241,10 @@ export async function probe(
   );
   requireValue(c, "Conexão não encontrada.");
   const cfg = json(c.config),
-    keys = await secret(env, `connection:${id}`);
+    keys =
+      c.kind === "meta"
+        ? await metaCredentials(env, c)
+        : await secret(env, `connection:${id}`);
   let details: any = {};
   if (c.kind === "hermes")
     return { ok: true, bots: await discover(env, id, profile) };
@@ -450,7 +454,7 @@ export async function metaSend(
   payload: any,
   template = false,
 ) {
-  const keys = await secret(env, `connection:${c.id}`),
+  const keys = await metaCredentials(env, c),
     cfg = json(c.config);
   const body: any = { messaging_product: "whatsapp", to, ...payload };
   const r = await safeFetch(
@@ -473,13 +477,11 @@ export async function metaSend(
   const data = await r.json<any>();
   return data.messages?.[0]?.id;
 }
-export async function metaMedia(
+export async function metaUpload(
   env: Env,
   c: any,
-  to: string,
   mediaId: string,
-  payload: any = {},
-  group = false,
+  kind: string,
 ) {
   const m = await one(
     env,
@@ -488,14 +490,10 @@ export async function metaMedia(
     c.profile_id,
   );
   requireValue(m, "Anexo não encontrado.");
-  const kind =
-    payload.content?.type && payload.content.type !== "text"
-      ? payload.content.type
-      : mediaKind(m.type);
   validateMedia(m, kind, c);
   const obj = await env.MEDIA.get(m.object_key);
   requireValue(obj, "Arquivo ausente.");
-  const keys = await secret(env, `connection:${c.id}`),
+  const keys = await metaCredentials(env, c),
     cfg = json(c.config);
   const body = multipartStream(
     { messaging_product: "whatsapp" },
@@ -525,6 +523,28 @@ export async function metaMedia(
       "meta_media_error",
       "Meta recusou o arquivo. Confira tamanho, formato e codecs.",
     );
+  return { id: String(data.id), name: m.name };
+}
+export async function metaMedia(
+  env: Env,
+  c: any,
+  to: string,
+  mediaId: string,
+  payload: any = {},
+  group = false,
+) {
+  const m = await one(
+    env,
+    "SELECT * FROM media WHERE id=? AND profile_id=?",
+    mediaId,
+    c.profile_id,
+  );
+  requireValue(m, "Anexo não encontrado.");
+  const kind =
+    payload.content?.type && payload.content.type !== "text"
+      ? payload.content.type
+      : mediaKind(m.type);
+  const data = await metaUpload(env, c, mediaId, kind);
   const type = kind === "voice" ? "audio" : kind;
   const details: any = { id: data.id };
   if (type === "document") details.filename = m.name;
@@ -608,7 +628,7 @@ export async function templatePayload(
       "notification_waiting",
       "Aguardando consentimento e template.",
     );
-  const keys = await secret(env, `connection:${c.id}`);
+  const keys = await metaCredentials(env, c);
   const config = json(c.config);
   requireValue(config.waba_id, "Configure WABA ID para verificar templates.");
   const response = await safeFetch(

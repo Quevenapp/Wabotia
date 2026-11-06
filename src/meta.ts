@@ -1,5 +1,6 @@
 import { Env, ApiError, json, requireValue } from "./types";
 import { secret } from "./security";
+import { metaCredentials } from "./meta-accounts";
 export async function metaRequest(
   env: Env,
   conn: any,
@@ -7,7 +8,7 @@ export async function metaRequest(
   method = "GET",
   body?: any,
 ) {
-  const keys = await secret(env, `connection:${conn.id}`),
+  const keys = await metaCredentials(env, conn),
     cfg = json(conn.config);
   const version = /^v\d+\.\d+$/.test(cfg.api_version || "")
     ? cfg.api_version

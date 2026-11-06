@@ -8,6 +8,7 @@ import { channelEvent } from "./whatsapp";
 import { callWebhook, expireCalls } from "./calls";
 import { expireUploads } from "./media";
 import { transport } from "./transport";
+import { routerLink } from "./number-router";
 import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending } from "./updates";
@@ -25,6 +26,21 @@ export class Coordinator extends DurableObject<Env> {
     const body = await request.json<any>();
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
+    if (new URL(request.url).pathname === "/router-link")
+      return this.ctx.blockConcurrencyWhile(async () => {
+        try {
+          return Response.json(
+            await routerLink(this.env, this.profile, body.token),
+          );
+        } catch (error) {
+          if (error instanceof ApiError)
+            return Response.json(
+              { error: { code: error.code, message: error.message } },
+              { status: error.status },
+            );
+          throw error;
+        }
+      });
     if (new URL(request.url).pathname === "/command")
       return this.ctx.blockConcurrencyWhile(async () => {
         const actor: Actor = body.actor,
@@ -98,7 +114,8 @@ export class Coordinator extends DurableObject<Env> {
             value?.id || body.data.id || "",
             body.requestId,
           );
-          if (["run.create", "inbound"].includes(body.operation)) status = 202;
+          if (["run.create", "inbound", "router.send"].includes(body.operation))
+            status = 202;
         } catch (error) {
           if (!(error instanceof ApiError)) throw error;
           status = error.status;

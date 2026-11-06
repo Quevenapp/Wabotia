@@ -1,4 +1,6 @@
 import { WhatsAppConversation } from "./WhatsAppConversation";
+import { NumberRouter } from "./NumberRouter";
+import { RouterGuide } from "./RouterGuide";
 import { WhatsAppGroups, GroupControls } from "./WhatsAppGroups";
 import { callStatus } from "./WhatsAppCalls";
 import { DirectInstall } from "./DirectInstall";
@@ -64,6 +66,7 @@ const sections = [
   ["consents", "Consentimentos", ShieldCheck],
   ["settings", "Menus e preferências", Settings],
   ["connections", "Conexões", Plug],
+  ["router", "Roteador de números", Phone],
   ["users", "Pessoas", Users],
   ["applications", "API e integrações", Code2],
   ["bot-runs", "Execuções", Bot],
@@ -444,6 +447,7 @@ function Install() {
           "#atualizacoes",
           "#agenda",
           "#whatsapp-recursos",
+          "#roteador",
         ].includes(location.hash)
       ) {
         const target = document.getElementById(location.hash.slice(1));
@@ -451,9 +455,14 @@ function Install() {
         target?.scrollIntoView();
       }
     };
-    showStep();
+    const frame = requestAnimationFrame(showStep);
+    window.addEventListener("load", showStep, { once: true });
     window.addEventListener("hashchange", showStep);
-    return () => window.removeEventListener("hashchange", showStep);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("load", showStep);
+      window.removeEventListener("hashchange", showStep);
+    };
   }, []);
   return (
     <div className="guide-page">
@@ -508,6 +517,7 @@ function Install() {
         <MaintenanceGuide />
         <ContactGuide />
         <WhatsAppGuide />
+        <RouterGuide />
         <aside className="callout">
           <ShieldCheck />
           <div>
@@ -859,7 +869,7 @@ function App() {
     }
   };
   async function load() {
-    if (page === "system" || page === "contacts") return;
+    if (page === "system" || page === "contacts" || page === "router") return;
     if (demo) {
       setOverview({
         enabled: false,
@@ -1140,6 +1150,7 @@ function App() {
       if (modal === "reconcile-delivery")
         return api(root + `/deliveries/${form.id}/reconcile`, "POST", {
           status: form.status,
+          allow_paid: form.allow_paid === true,
         });
       if (modal === "webhook")
         return api(root + "/webhook-subscriptions", "POST", {
@@ -1201,6 +1212,7 @@ function App() {
                 ![
                   "settings",
                   "connections",
+                  "router",
                   "users",
                   "applications",
                   "webhook-deliveries",
@@ -1388,6 +1400,9 @@ function App() {
             <>
               {page === "system" && me.role === "admin" && (
                 <SystemPanel api={api} demo={demo} />
+              )}
+              {page === "router" && me.role === "admin" && (
+                <NumberRouter key={profile} api={api} root={root} demo={demo} />
               )}
               {page === "contacts" && (
                 <ContactsPanel
@@ -1927,12 +1942,19 @@ function App() {
                         {row.kind === "meta" && (
                           <div className="resource-id">
                             <span>
-                              Webhook Meta: {location.origin}/webhooks/meta/
-                              {row.id}
+                              Webhook Meta: {location.origin}
+                              {parse(row.config).meta_account_id
+                                ? "/webhooks/meta-accounts/" +
+                                  parse(row.config).meta_account_id
+                                : "/webhooks/meta/" + row.id}
                             </span>
                             <CopyButton
                               value={
-                                location.origin + "/webhooks/meta/" + row.id
+                                location.origin +
+                                (parse(row.config).meta_account_id
+                                  ? "/webhooks/meta-accounts/" +
+                                    parse(row.config).meta_account_id
+                                  : "/webhooks/meta/" + row.id)
                               }
                             />
                           </div>
@@ -2524,6 +2546,25 @@ function App() {
                     ]}
                     action={(row: Row) => (
                       <div className="card-actions">
+                        {page === "deliveries" &&
+                          row.status === "pending" &&
+                          row.dedupe?.startsWith("router:") &&
+                          me.role === "admin" && (
+                            <Button
+                              secondary
+                              onClick={() =>
+                                run(() =>
+                                  api(
+                                    root + `/router/messages/${row.id}/cancel`,
+                                    "POST",
+                                    {},
+                                  ),
+                                ).then(load)
+                              }
+                            >
+                              Cancelar envio na fila
+                            </Button>
+                          )}
                         {page === "webhook-deliveries" && (
                           <Button
                             secondary
@@ -2569,7 +2610,12 @@ function App() {
                                   page === "bot-runs"
                                     ? "reconcile-run"
                                     : "reconcile-delivery",
-                                  { id: row.id, status: "cancelled" },
+                                  {
+                                    id: row.id,
+                                    status: "cancelled",
+                                    paid_template: row.kind === "template",
+                                    allow_paid: false,
+                                  },
                                 )
                               }
                             >
@@ -3160,6 +3206,18 @@ function App() {
                     ["pending", "Autorizar nova tentativa"],
                   ]}
                 />
+                {form.paid_template && form.status === "pending" && (
+                  <label className="check-line">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={!!form.allow_paid}
+                      onChange={(e) => change("allow_paid", e.target.checked)}
+                    />
+                    Autorizo a possível cobrança deste novo envio de modelo pela
+                    Meta.
+                  </label>
+                )}
               </>
             )}
             {modal === "webhook" && (

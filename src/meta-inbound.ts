@@ -3,6 +3,7 @@ import { one, exec } from "./db";
 import { sha, secret } from "./security";
 import { metaRequest } from "./meta";
 import { storeRemoteMedia } from "./integrations";
+import { metaCredentials } from "./meta-accounts";
 
 export async function metaInbound(
   env: Env,
@@ -29,6 +30,7 @@ export async function metaInbound(
                   status.recipient_id || status.recipient_user_id || "",
                 message_id: status.id,
                 status: status.status,
+                pricing: status.pricing,
                 participant:
                   status.recipient_participant_id ||
                   status.recipient_participant_user_id ||
@@ -145,7 +147,7 @@ export async function metaInbound(
                     url.hostname.endsWith(".fbsbx.com")),
                 "Endereço de mídia Meta inválido.",
               );
-              const keys = await secret(env, `connection:${conn.id}`);
+              const keys = await metaCredentials(env, conn);
               const resource = await fetch(url, {
                 headers: { Authorization: `Bearer ${keys.token}` },
                 redirect: "error",
@@ -173,6 +175,7 @@ export async function metaInbound(
           external_id: destination,
           phone: m.group_id ? null : m.from || null,
           message_id: m.id,
+          customer_at: Number(m.timestamp) * 1000,
           text: value,
           attachments,
           content,

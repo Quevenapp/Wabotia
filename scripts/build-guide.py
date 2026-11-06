@@ -59,7 +59,7 @@ class Shot(Flowable):
 def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Paragraph(caption,styles['caption'])])
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 # 1
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.5.0','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.6.0','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
@@ -72,6 +72,7 @@ steps(['Instale Node.js e npm no computador ou na VPS de onde vai publicar. O ro
 box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instalação nova começa vazia e não importa o histórico antigo. Mantenha a anterior até conferir o novo painel. O roteiro de transição está na página 39.')
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
 p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
+p('Roteador Meta: até 20 números, webhook único, contadores e modelos pagos autorizados nas páginas 50 a 54.','small')
 p('WhatsApp: atualização dos conectores, arquivos, voz, grupos, ligações e teste final nas páginas 43 a 49.','small')
 # Node.js before Cloudflare provisioning
 title(3,'Node.js: prepare o Ubuntu')
@@ -444,6 +445,42 @@ sub('Integrar com outro sistema')
 p('Cadastre a aplicação em API e integrações. Selecione somente os perfis e permissões necessários. A API oferece mídias, grupos e chamadas, com chaves individuais. O sistema integrador protege a chave no seu servidor; para voz ele também precisa de um cliente WebRTC.')
 p(link('Guia completo WhatsApp','https://wabotia.queven.app/install#whatsapp-recursos')+' · '+link('API e exemplos','https://github.com/Quevenapp/Wabotia/blob/main/docs/API.md#whatsapp-mídias-grupos-e-ligações'))
 box('Você pode manter o painel disponível enquanto Hermes/QR estão desligados. Os bots dependem do Hermes ligado; o canal QR depende do seu conector. Cada número deve ter apenas um consumidor ativo.')
+
+title(50,'Até 20 números, uma entrada')
+p('A versão 0.6.0 acrescenta o <b>Roteador de números</b>. Ele conecta até 20 telefones da mesma conta empresarial WhatsApp, chamada WABA, usando <b>Meta direto no Worker</b>. QR e transporte Hermes continuam separados; não é preciso alterar o Hermes para usar este recurso.')
+steps(['Faça backup. Em <b>Sistema e atualizações</b>, clique <b>Verificar atualização</b> e <b>Atualizar Wabotia</b>. Aguarde a confirmação e reabra o painel.','Selecione o perfil e abra <b>Roteador de números</b>. Prepare a conta Meta, o webhook, os números e um grupo conforme as próximas páginas.'])
+sub('Atendimento e modelos pagos são diferentes')
+table([['Tipo','Como funciona'],['Atendimento','O cliente falou com este mesmo número nas últimas 24 horas. O roteador respeita um teto local de até 1.000 mensagens por número/mês.'],['Modelo pago','Use modelo aprovado pela Meta, autorização explícita naquele envio e prova de consentimento na mesma categoria. A aplicação e a origem também precisam permitir pagos.'],['Novos contatos','O link público do grupo abre o WhatsApp num número ativo com saldo. O cliente inicia a conversa; o link sozinho não envia mensagem.'],['Conversa em andamento','Mantém o remetente original. Fim de cota, pausa ou falha não fazem o sistema enviar por outro número.']])
+box('A janela de 24 horas pertence ao cliente e ao número com que ele falou. <b>Saldo em outro telefone não transfere essa janela.</b> O Wabotia não converte atendimento ou notificação automática de um número do roteador em modelo pago.')
+p('O FAQ Meta consultado em 06/11/2026 informa que as primeiras 1.000 mensagens de atendimento por número empresarial/mês são gratuitas desde 01/10/2026. Modelos têm regras próprias de cobrança. Confirme as condições da sua conta. O contador local não substitui a fatura Meta.','small')
+p(link('FAQ oficial da Meta','https://whatsappbusiness.com/resources/faq/')+' · '+link('Guia do roteador no site','https://wabotia.queven.app/install#roteador'),'small')
+
+title(51,'Cadastre a WABA e o webhook')
+shot('30-router-conta.jpg','Tela de referência com dados fictícios. Os campos protegidos ficam vazios ao editar para manter os valores atuais.',width=CW)
+steps(['Na Meta, tenha uma <b>WABA</b> com os números habilitados na Cloud API. O Wabotia não compra nem registra números.','Separe <b>WABA ID</b>, <b>token Meta</b> com acesso à conta/números e <b>App Secret</b> do aplicativo. Escolha também um <b>Verify Token</b>, que será colocado igual nos dois lados.','No Wabotia, abra <b>Cadastrar ou editar a conta Meta</b>. Preencha nome, WABA ID, fuso igual ao da conta Meta e os três campos protegidos. Salve e aguarde a confirmação.','Copie <b>Webhook único desta conta</b>. No aplicativo Meta, procure <b>WhatsApp > Configuração > Webhook</b>. Cole a URL e o mesmo Verify Token, verifique e salve.','Assine <b>messages</b> e confirme que a WABA está inscrita nesse aplicativo. Ligações e grupos precisam também dos eventos próprios. Use uma única URL para os números desta conta.'])
+box('Use o endereço da <b>sua instalação</b>. Não copie o endereço 127.0.0.1 da imagem: ele é apenas do teste local. O App Secret confere a assinatura dos eventos. Evite outro sistema respondendo ao mesmo tempo pelo mesmo número.')
+p('O token Meta precisa permitir consultar WABA/modelos e enviar pelos números. Ele é diferente da chave de integração Wabotia, da senha de login e das chaves Cloudflare. Na edição, campo de segredo vazio preserva o valor anterior.','small')
+
+title(52,'Números e contadores')
+shot('29-router-contadores.jpg','Dois números e consumos fictícios. O uso inclui reservas; mensagens pagas e cobrança não informada aparecem separadas.',width=CW)
+steps(['Clique <b>Buscar números na Meta</b> e escolha um número encontrado. Dê um nome para reconhecê-lo.','Confira na Meta as mensagens de atendimento já usadas neste mês. Informe o consumo inicial e o teto local, no máximo <b>1.000</b>. Zero somente se não houve uso.','Confirme o uso e o fuso, depois clique <b>Adicionar ao roteador</b>. O número entra pausado. Confira o webhook e clique <b>Ativar</b>. Repita para os demais, até 20.','Se o número já está em Conexões, pause-o, reconcilie filas desconhecidas e aguarde os comprovantes das entregas anteriores. Seu histórico é preservado.'])
+sub('Leia o uso protegido')
+p('<b>Uso = histórico inicial do mês + entregas de atendimento + reservas.</b> Envios humanos, bots e API compartilham a contagem. Falha definitiva ou cancelamento antes do envio libera a reserva. Sem confirmação mantém a reserva, inclusive na mudança de mês.')
+box('O mês segue o fuso da conta. Recibos repetidos não somam novamente. Envios feitos fora do Wabotia só aparecem se os recibos chegarem ao webhook; pode haver atraso. <b>Confira também o WhatsApp Manager.</b> Cobrança não informada não significa gratuito.')
+
+title(53,'Grupo e programas autorizados')
+shot('31-router-grupo.jpg','Grupo fictício com sorteio, link de entrada e permissão para pedidos pagos. O envio ainda exige autorização individual.',width=CW)
+steps(['Abra <b>Criar grupo de roteamento</b>, informe um nome e selecione os números da mesma conta Meta.','Escolha <b>Menor consumo</b>, <b>Em sequência</b> ou <b>Aleatório entre os disponíveis</b>. A escolha vale para novos atendimentos; o remetente depois fica vinculado.','Ative o grupo. Marque <b>Criar link público</b> para divulgar uma entrada única. Para modelos pagos, marque a permissão específica. Salve.','Copie o link público para novos clientes iniciarem contato. Copie o ID do grupo para o seu programa integrador. Um número em vários grupos mantém um só contador.','Em <b>API e integrações</b>, crie a aplicação e sua chave com acesso ao perfil. Em <b>Autorizar programas externos</b>, selecione a aplicação, seus números diretos ou grupos e salve.'])
+box('Autorizar um grupo inclui seus membros atuais e futuros. Escolher um número diretamente exige a permissão individual. Ativar modelos pagos nessa tela <b>não autoriza envios automaticamente</b>: cada pedido precisa da confirmação e do consentimento.')
+p('A chave da aplicação fica no servidor do programa integrador. Ela não deve aparecer no navegador dos clientes. As credenciais Meta permanecem protegidas no Wabotia.','small')
+
+title(54,'Envio pago: confirme cada pedido')
+p('Para o programa integrador: faça <b>POST /api/v1/profiles/{perfil}/router/messages</b>, com chave Bearer e Idempotency-Key. Escolha <b>number_id</b> ou <b>pool_id</b>. Reutilize external_id para o mesmo cliente/atendimento e origem.')
+code('{\n  "pool_id": "ID_DO_GRUPO",\n  "to": "5511999992222",\n  "external_id": "cliente-456",\n  "allow_paid": true,\n  "consent": {\n    "granted": true, "category": "utility",\n    "reference": "Aceite no pedido 456"\n  },\n  "template": {\n    "name": "seu_modelo_aprovado",\n    "language": "pt_BR"\n  }\n}')
+p('O exemplo omite variáveis do modelo; se ele tiver campos, envie os componentes correspondentes. Use modelo real aprovado e consentimento na mesma categoria. Não basta ter uma opção geral de pagos ligada. Um consentimento retirado pelo cliente não pode ser substituído por uma declaração da API.','small')
+table([['Resultado','O que fazer'],['202 / pending','O pedido entrou na fila. Guarde delivery_id e consulte /router/messages/{delivery_id}.'],['sent','O canal aceitou. Confira provider_status delivered/read para comprovar entrega/leitura.'],['unknown','Sem confirmação. Confira e reconcilie; não gere outro pedido nem troque de número. Nova tentativa paga exige nova autorização.'],['Cota ou janela encerrada','Peça nova mensagem do cliente ou faça um pedido explícito de modelo autorizado. Não há troca silenciosa do remetente.']])
+p('Antes de atender clientes, teste os números reais: webhook de cada telefone, remetente escolhido/fixo, cota, modelo autorizado, recibos e repetição da mesma chave sem duplicar. Os testes do projeto usam dados fictícios; não substituem essa homologação.','small')
+p(link('Exemplos cURL, JavaScript e Python','https://github.com/Quevenapp/Wabotia/blob/main/docs/ROTEADOR.md')+' · '+link('Documentação interativa','https://wabotia.queven.app/api-docs'),'small')
 
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)

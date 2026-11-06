@@ -1,3 +1,4 @@
+import { routerOperations, routerSchemas } from "./router-openapi";
 const contactProperties = {
   name: { type: "string", minLength: 1, maxLength: 120 },
   phone: {
@@ -15,6 +16,7 @@ const contactProperties = {
   notes: { type: "string", maxLength: 2000 },
 };
 const schemas = {
+  ...routerSchemas,
   MessageContent: {
     type: "object",
     properties: {
@@ -731,7 +733,17 @@ operations.push(
 );
 export function openapi(origin: string) {
   const paths: any = {};
-  for (const [method, path, summary, scope, schema] of operations) {
+  for (const [method, path, summary, scope, schema] of [
+    ...operations,
+    ...routerOperations,
+  ]) {
+    const successCode =
+      method === "post" &&
+      (path === "/bot-runs" ||
+        path.endsWith("/router/messages") ||
+        path.endsWith("/inbound"))
+        ? "202"
+        : "200";
     const mutation =
       method !== "get" && !path.endsWith("/contacts/import/preview");
     const parameters: any[] = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({
@@ -834,7 +846,7 @@ export function openapi(origin: string) {
       parameters,
       security: [{ BearerAuth: [] }],
       responses: {
-        [path === "/bot-runs" ? "202" : "200"]: {
+        [successCode]: {
           description: "Operação aceita ou concluída",
           content: {
             "application/json": {
@@ -927,7 +939,23 @@ export function openapi(origin: string) {
         },
       };
     }
-    const success = entry.responses[path === "/bot-runs" ? "202" : "200"];
+    const success = entry.responses[successCode];
+    if (path.includes("/router")) {
+      entry.tags = ["Roteador WhatsApp"];
+      entry.description +=
+        " Até 20 números por WABA. Sem troca automática do remetente de uma conversa. A franquia local não garante ausência de cobranças Meta.";
+      const resultSchema = path.endsWith("/router")
+        ? "RouterView"
+        : path.endsWith("/router/messages")
+          ? "RouterQueued"
+          : path.endsWith("/router/messages/{id}")
+            ? "RouterDelivery"
+            : null;
+      if (resultSchema)
+        success.content["application/json"].schema = {
+          $ref: "#/components/schemas/" + resultSchema,
+        };
+    }
     success.headers = {
       "X-Request-Id": { schema: { type: "string" } },
       ...(mutation

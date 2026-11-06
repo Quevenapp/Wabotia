@@ -2,6 +2,8 @@ import { capabilities } from "./whatsapp";
 import { authorizedMedia, mediaResponse, uploadPart } from "./media";
 import { callView, callPermission } from "./calls";
 import { metaInbound } from "./meta-inbound";
+import { metaCredentials } from "./meta-accounts";
+import { routerView, routedMessage } from "./number-router";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -343,6 +345,14 @@ for (const [method, path, op] of [
   });
 }
 const commands = [
+  ["POST", "router/accounts", "meta-account.save"],
+  ["POST", "router/accounts/:id/discover", "meta-account.discover"],
+  ["POST", "router/numbers", "meta-number.save"],
+  ["PUT", "router/numbers/:id/limit", "router.number.limit"],
+  ["POST", "router/pools", "router.pool.save"],
+  ["PUT", "router/grants", "router.grants.save"],
+  ["POST", "router/messages", "router.send"],
+  ["POST", "router/messages/:id/cancel", "router.cancel"],
   ["PUT", "settings", "settings"],
   ["POST", "activate", "activate"],
   ["POST", "pause", "pause"],
@@ -451,6 +461,45 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
       p,
     ),
   });
+});
+app.get("/api/v1/profiles/:profile/router", async (c) =>
+  c.json(await routerView(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/router/messages/:id", async (c) =>
+  c.json(
+    await routedMessage(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
+);
+app.get("/api/public/whatsapp/:token", async (c) => {
+  await rate(
+    c.env,
+    "router-link:" + (c.req.header("CF-Connecting-IP") || "local"),
+    30,
+  );
+  const pool = await one(
+    c.env,
+    "SELECT profile_id FROM number_pools WHERE public_token=? AND enabled=1",
+    c.req.param("token"),
+  );
+  if (!pool)
+    throw new ApiError(404, "not_found", "Link de atendimento indisponível.");
+  const response = await c.env.COORDINATOR.get(
+    c.env.COORDINATOR.idFromName(pool.profile_id),
+  ).fetch("https://coordinator/router-link", {
+    method: "POST",
+    body: JSON.stringify({
+      profile: pool.profile_id,
+      token: c.req.param("token"),
+    }),
+  });
+  if (!response.ok) return response;
+  const result = await response.json<any>();
+  return c.redirect(result.url, 302);
 });
 app.get("/api/v1/profiles/:profile/connections", async (c) => {
   admin(c.get("actor"));
@@ -850,7 +899,9 @@ app.get(
       conn?.kind === "meta" && conv.chat_type !== "group",
       "Ligações exigem conversa individual na Meta.",
     );
-    return c.json(await callPermission(c.env, conn, conv.external_id));
+    return c.json(
+      await callPermission(c.env, conn, conv.recipient_id || conv.external_id),
+    );
   },
 );
 app.get("/api/v1/profiles/:profile/groups", async (c) => {
@@ -901,7 +952,12 @@ async function ingest(env: Env, conn: any, data: any) {
   );
 }
 app.get("/webhooks/meta/:id", async (c) => {
-  const keys = await secret(c.env, `connection:${c.req.param("id")}`);
+  const conn = await one(
+    c.env,
+    "SELECT * FROM connections WHERE id=? AND kind='meta'",
+    c.req.param("id"),
+  );
+  const keys = conn ? await metaCredentials(c.env, conn) : {};
   if (
     c.req.query("hub.mode") !== "subscribe" ||
     !keys.verify_token ||
@@ -917,7 +973,7 @@ app.post("/webhooks/meta/:id", async (c) => {
     c.req.param("id"),
   );
   requireValue(conn, "Canal não encontrado.");
-  const keys = await secret(c.env, `connection:${conn.id}`),
+  const keys = await metaCredentials(c.env, conn),
     raw = await c.req.text();
   if (
     !keys.app_secret ||
@@ -930,6 +986,69 @@ app.post("/webhooks/meta/:id", async (c) => {
   return metaInbound(c.env, conn, JSON.parse(raw), (data) =>
     ingest(c.env, conn, data),
   );
+});
+app.get("/webhooks/meta-accounts/:id", async (c) => {
+  const account = await one(
+    c.env,
+    "SELECT id FROM meta_accounts WHERE id=?",
+    c.req.param("id"),
+  );
+  const keys = account ? await secret(c.env, "meta-account:" + account.id) : {};
+  if (
+    c.req.query("hub.mode") !== "subscribe" ||
+    !keys.verify_token ||
+    !equal(keys.verify_token, c.req.query("hub.verify_token") || "")
+  )
+    throw new ApiError(403, "verification_failed", "Verificação recusada.");
+  return c.text(c.req.query("hub.challenge") || "");
+});
+app.post("/webhooks/meta-accounts/:id", async (c) => {
+  const account = await one(
+    c.env,
+    "SELECT * FROM meta_accounts WHERE id=?",
+    c.req.param("id"),
+  );
+  requireValue(account, "Conta Meta não encontrada.");
+  const keys = await secret(c.env, "meta-account:" + account.id),
+    raw = await c.req.text();
+  if (
+    !keys.app_secret ||
+    !equal(
+      c.req.header("X-Hub-Signature-256") || "",
+      `sha256=${await hmac(keys.app_secret, raw)}`,
+    )
+  )
+    throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
+  const body = JSON.parse(raw);
+  requireValue(
+    body.object === "whatsapp_business_account" && Array.isArray(body.entry),
+    "Webhook Meta inválido.",
+  );
+  const filtered = {
+    ...body,
+    entry: body.entry.filter((entry: any) => entry.id === account.waba_id),
+  };
+  const ids = new Set(
+    filtered.entry.flatMap((entry: any) =>
+      (entry.changes || []).map(
+        (change: any) => change.value?.metadata?.phone_number_id,
+      ),
+    ),
+  );
+  const connections = await all(
+    c.env,
+    "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE n.account_id=? AND c.profile_id=?",
+    account.id,
+    account.profile_id,
+  );
+  for (const conn of connections) {
+    if (!ids.has(json(conn.config).phone_id)) continue;
+    const response = await metaInbound(c.env, conn, filtered, (data) =>
+      ingest(c.env, conn, data),
+    );
+    if (!response.ok) return response;
+  }
+  return c.json({ received: true });
 });
 app.post("/webhooks/telegram/:id", async (c) => {
   const conn = await one(

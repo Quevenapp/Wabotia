@@ -1,3 +1,6 @@
+import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
+import { managedAppAllowed } from "./number-router";
+import { numberUsage } from "./number-quota";
 import { all, one, exec, batch } from "./db";
 import {
   type Env,
@@ -913,6 +916,7 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
   });
 }
 export async function deliver(env: Env, row: any) {
+  if (row.status !== "pending") return;
   const c = row.conversation_id
     ? await conversation(env, row.conversation_id, row.profile_id)
     : null;
@@ -943,14 +947,58 @@ export async function deliver(env: Env, row: any) {
     ["qr", "hermes-whatsapp"].includes(connection.kind)
   )
     return;
+  const managed =
+    connection.kind === "meta" &&
+    (await one(
+      env,
+      "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
+      connection.id,
+    ));
+  if (managed) {
+    if (
+      !(await managedAppAllowed(
+        env,
+        row.actor,
+        connection.id,
+        payload.router_source,
+        !!payload.template_message,
+      ))
+    ) {
+      await exec(
+        env,
+        "UPDATE outbox SET status='cancelled',error='Autorização do roteador revogada.',updated=? WHERE id=?",
+        now(),
+        row.id,
+      );
+      return;
+    }
+    const usage = await numberUsage(env, connection.id);
+    if (row.quota_category === "service" && usage && usage.used > usage.limit) {
+      await exec(
+        env,
+        "UPDATE outbox SET error='Teto de atendimento reduzido; confira as reservas e o limite do número.' WHERE id=?",
+        row.id,
+      );
+      return;
+    }
+  }
   try {
-    let body: any = { type: "text", text: { body: payload.text } };
+    let body: any = payload.template_message
+      ? await preparePaidTemplate(env, connection, c, payload)
+      : { type: "text", text: { body: payload.text } };
     if (
       connection.kind === "meta" &&
+      !payload.template_message &&
       c.chat_type !== "group" &&
       payload.content?.type !== "read" &&
       now() - c.last_customer >= 86400000
     ) {
+      if (managed)
+        throw new ApiError(
+          400,
+          "window_closed",
+          "Janela de 24h encerrada. Peça nova mensagem do cliente ou envie um modelo pelo roteador com autorização explícita de cobrança.",
+        );
       if (row.kind !== "notification") {
         await exec(
           env,
@@ -961,14 +1009,35 @@ export async function deliver(env: Env, row: any) {
       }
       body = await templatePayload(env, connection, c, payload, cfg);
     }
-    await exec(
+    const claimed = await exec(
       env,
       "UPDATE outbox SET status='sending',updated=? WHERE id=? AND status='pending'",
       now(),
       row.id,
     );
+    if (!claimed.meta.changes) return;
     let external = "";
     const fresh = await conversation(env, c.id, c.profile_id);
+    if (
+      connection.kind === "meta" &&
+      payload.router_source &&
+      !(await managedAppAllowed(
+        env,
+        row.actor,
+        connection.id,
+        payload.router_source,
+        !!payload.template_message,
+      ))
+    ) {
+      await exec(
+        env,
+        "UPDATE outbox SET status='cancelled',error='Autorização do roteador revogada.',updated=? WHERE id=?",
+        now(),
+        row.id,
+      );
+      return;
+    }
+    if (payload.template_message) await assertPaidConsent(env, c, payload);
     if (row.kind !== "team" && fresh.epoch !== row.epoch) {
       await exec(
         env,
@@ -1027,17 +1096,22 @@ export async function deliver(env: Env, row: any) {
         ? await metaMedia(
             env,
             connection,
-            c.external_id,
+            c.recipient_id || c.external_id,
             payload.media_id,
             payload,
             c.chat_type === "group",
           )
         : body.type === "template"
-          ? await metaSend(env, connection, c.external_id, body)
+          ? await metaSend(
+              env,
+              connection,
+              c.recipient_id || c.external_id,
+              body,
+            )
           : await metaContent(
               env,
               connection,
-              c.external_id,
+              c.recipient_id || c.external_id,
               payload,
               c.chat_type === "group",
             );

@@ -6,7 +6,13 @@ O contrato está em `/api/openapi.json` e o explorador de consultas em `/api-doc
 
 `Authorization: Bearer SUA_CHAVE` autentica a aplicação. Ela não escolhe o autor por `actor`, `user_id` ou campos semelhantes: a identidade vem da chave. Cada cliente externo é vinculado à aplicação; telefones informados não unem cadastros. Aplicações não acessam conversas externas de outras aplicações. Canais compartilhados seguem as permissões de perfil. Notas internas precisam de `notes:read`; relatórios não contornam essa restrição. Somente contas humanas registram presença.
 
-Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `groups:manage`, `calls:read/write`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
+Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `groups:manage`, `calls:read/write`, `routing:read/send/paid`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
+
+## Roteador de números Meta
+
+Consulte `GET /profiles/{perfil}/router` para números/grupos autorizados e contadores. Envie por `POST /profiles/{perfil}/router/messages`, com `number_id` **ou** `pool_id`, `to`, `external_id` estável e texto/anexo. Retorna `202` com `delivery_id`; consulte `GET /profiles/{perfil}/router/messages/{id}`. Somente uma entrega `pending` pode ser cancelada, por `POST /profiles/{perfil}/router/messages/{id}/cancel`. Todas as escritas exigem idempotência.
+
+Atendimento exige janela de 24 horas real no mesmo número. O remetente fica vinculado; esgotamento não troca de número nem inicia modelo pago. Modelos exigem `routing:paid`, origem/grupo autorizados, `allow_paid:true`, consentimento da mesma categoria e modelo aprovado na WABA. A chave não escolhe o autor. Consulte o [guia do roteador, limites e exemplos cURL/JavaScript/Python](ROTEADOR.md). Uma resposta `sent` é aceitação pelo canal; confira `provider_status`. Não repita um resultado `unknown` em outro número.
 
 ## Repetição e erros
 

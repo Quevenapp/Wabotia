@@ -7,7 +7,7 @@ export async function finishDelivery(env: Env, row: any, external: string) {
   const payload = json(row.payload),
     attachments = payload.media_id
       ? [payload.media_id]
-      : payload.attachments || [];
+      : payload.template_media_ids || payload.attachments || [];
   const writes: [string, any[]][] = [
     [
       "UPDATE outbox SET status='sent',external_id=?,error=NULL,updated=? WHERE id=?",
@@ -49,7 +49,7 @@ export async function finishDelivery(env: Env, row: any, external: string) {
       content = payload.content;
     await channelEvent(env, conn, {
       event: content.type,
-      external_id: c.external_id,
+      external_id: c.recipient_id || c.external_id,
       message_id: content.target_external_id,
       event_id: row.id,
       participant: row.actor,

@@ -5,6 +5,7 @@ import { conversation, enqueue } from "./service";
 import { event } from "./events";
 import { needCapability } from "./whatsapp";
 import { metaRequest } from "./meta";
+import { managedAppAllowed } from "./number-router";
 
 const finalStates = ["completed", "failed", "rejected", "missed"];
 export async function callView(
@@ -130,13 +131,25 @@ export async function callCommand(
         c.connection_id,
       );
     needCapability(conn, "calls", c.chat_type);
+    if (
+      await one(
+        env,
+        "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
+        conn.id,
+      )
+    )
+      requireValue(
+        await managedAppAllowed(env, actor.id, conn.id),
+        "Aplicação sem autorização para este número do roteador.",
+      );
     requireValue(conn.status === "active", "Ative a conexão antes de ligar.");
     requireValue(
       c.owner === actor.id && c.state === "human",
       "Assuma a conversa antes de ligar.",
     );
     await rate(env, `call:${actor.id}`, 10);
-    const permission = await callPermission(env, conn, c.external_id);
+    const recipient = c.recipient_id || c.external_id;
+    const permission = await callPermission(env, conn, recipient);
     const action =
       op === "call.permission" ? "send_call_permission_request" : "start_call";
     requireValue(
@@ -198,9 +211,7 @@ export async function callCommand(
         "POST",
         {
           messaging_product: "whatsapp",
-          ...(c.external_id.startsWith("US.")
-            ? { recipient: c.external_id }
-            : { to: c.external_id }),
+          ...(recipient.startsWith("US.") ? { recipient } : { to: recipient }),
           action: "connect",
           session: offer,
           biz_opaque_callback_data: id,
@@ -444,7 +455,7 @@ export async function callWebhook(env: Env, conn: any, data: any) {
     );
     let c = await one(
       env,
-      "SELECT * FROM conversations WHERE connection_id=? AND external_id=?",
+      "SELECT * FROM conversations WHERE connection_id=? AND coalesce(recipient_id,external_id)=?",
       conn.id,
       recipient,
     );

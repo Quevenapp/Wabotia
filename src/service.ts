@@ -35,7 +35,13 @@ import {
 } from "./whatsapp";
 import { callCommand } from "./calls";
 import { groupCommand } from "./groups";
+import { accountCommand } from "./meta-accounts";
+import { routerCommand, managedAppAllowed } from "./number-router";
+import { checkNumberCapacity, queueWithNumberQuota } from "./number-quota";
 export const scopes = [
+  "routing:read",
+  "routing:send",
+  "routing:paid",
   "calls:read",
   "calls:write",
   "groups:manage",
@@ -133,6 +139,12 @@ export async function enqueue(
         : mediaKind(firstMedia?.type || "application/octet-stream");
     const caption =
       !!payload.content && ["image", "video", "document"].includes(firstKind);
+    if (kind !== "team")
+      await checkNumberCapacity(
+        env,
+        c.connection_id,
+        payload.attachments.length + (payload.text && !caption ? 1 : 0),
+      );
     if (payload.text && !caption)
       ids.push(
         await enqueue(
@@ -184,20 +196,59 @@ export async function enqueue(
     return ids[0];
   }
   const id = uid();
-  await exec(
+  const managed =
+    kind !== "team" &&
+    c.connection_id &&
+    (await one(
+      env,
+      "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
+      c.connection_id,
+    ));
+  if (
+    managed &&
+    !(await managedAppAllowed(
+      env,
+      actor,
+      c.connection_id!,
+      payload.router_source,
+      !!payload.template_message,
+    ))
+  )
+    throw new ApiError(
+      403,
+      "source_not_allowed",
+      "Aplicação sem autorização para este número do roteador.",
+    );
+  if (managed && payload.template_message)
+    requireValue(
+      payload.paid_authorization?.actor === actor && payload.router_source,
+      "Modelo pago exige autorização individual pelo roteador.",
+    );
+  const category =
+    kind === "team" || payload.content?.type === "read"
+      ? "action"
+      : kind === "template" ||
+          (!managed &&
+            kind === "notification" &&
+            now() - c.last_customer >= 86400000)
+        ? "template"
+        : "service";
+  await queueWithNumberQuota(
     env,
-    "INSERT OR IGNORE INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-    id,
-    c.profile_id,
-    c.id,
-    c.connection_id,
-    c.epoch,
-    kind,
-    actor,
-    JSON.stringify(payload),
-    dedupe,
-    now(),
-    now(),
+    [
+      id,
+      c.profile_id,
+      c.id,
+      c.connection_id,
+      c.epoch,
+      kind,
+      actor,
+      JSON.stringify(payload),
+      dedupe,
+      now(),
+      now(),
+    ],
+    category,
   );
   return (await one(env, "SELECT id FROM outbox WHERE dedupe=?", dedupe)).id;
 }
@@ -362,18 +413,37 @@ export async function inbound(
     });
   }
   const key = `${profile}:${namespace}:${data.external_id}:${data.message_id}`;
+  const customerAt =
+    connectionId && Number.isFinite(data.customer_at) && data.customer_at > 0
+      ? Math.min(now(), data.customer_at)
+      : now();
   const old = await one(
     env,
     "SELECT conversation_id FROM inbox WHERE event_key=?",
     key,
   );
   if (old) return { conversation_id: old.conversation_id, duplicate: true };
-  let c = await one<Conversation>(
-    env,
-    "SELECT * FROM conversations WHERE profile_id=? AND external_namespace=? AND external_id=?",
-    profile,
-    namespace,
-    data.external_id,
+  const routed =
+    connectionId && !isGroup
+      ? await one(
+          env,
+          "SELECT conversation_id FROM router_affinities WHERE connection_id=? AND recipient=?",
+          connectionId,
+          data.external_id,
+        )
+      : null;
+  let c = routed
+    ? await conversation(env, routed.conversation_id, profile)
+    : await one<Conversation>(
+        env,
+        "SELECT * FROM conversations WHERE profile_id=? AND external_namespace=? AND external_id=?",
+        profile,
+        namespace,
+        data.external_id,
+      );
+  requireValue(
+    !c?.connection_id || !!connectionId,
+    "Mensagens de cliente em um canal real devem chegar pelo webhook autenticado.",
   );
   if (!c) {
     const id = uid();
@@ -387,7 +457,7 @@ export async function inbound(
       data.external_id,
       namespace.startsWith("channel:") ? data.phone || data.external_id : null,
       uid(),
-      now(),
+      customerAt,
       now(),
       now(),
     );
@@ -459,8 +529,8 @@ export async function inbound(
       ],
     ],
     [
-      "UPDATE conversations SET last_customer=?,updated=? WHERE id=?",
-      [now(), now(), c.id],
+      "UPDATE conversations SET last_customer=max(last_customer,?),updated=? WHERE id=?",
+      [customerAt, now(), c.id],
     ],
   ]);
   await event(env, profile, "message.received", msgId, {
@@ -544,6 +614,10 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  if (op.startsWith("meta-account.") || op.startsWith("meta-number."))
+    return accountCommand(env, actor, profile, op, data);
+  if (op.startsWith("router."))
+    return routerCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("upload."))
     return uploadCommand(env, actor, profile, op, data);
   if (op.startsWith("call."))
@@ -908,6 +982,30 @@ export async function perform(
       );
     }
     const cfg = data.config || {};
+    const managed =
+      old &&
+      (await one(
+        env,
+        "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
+        id,
+      ));
+    if (managed) {
+      const previous = json(old.config);
+      requireValue(
+        data.kind === "meta" &&
+          cfg.phone_id === previous.phone_id &&
+          cfg.number === previous.number,
+        "O número do roteador não pode mudar de identidade ou de modo.",
+      );
+      cfg.meta_account_id = previous.meta_account_id;
+      cfg.waba_id = previous.waba_id;
+      requireValue(
+        !data.secrets?.token &&
+          !data.secrets?.app_secret &&
+          !data.secrets?.verify_token,
+        "Edite as credenciais na conta Meta do roteador.",
+      );
+    }
     if (cfg.url) cfg.url = publicUrl(cfg.url);
     if (cfg.api_url) cfg.api_url = publicUrl(cfg.api_url);
     if (["qr", "hermes-whatsapp", "meta"].includes(data.kind))
@@ -1470,13 +1568,22 @@ export async function perform(
         profile,
       );
       requireValue(old, "Entrega não encontrada ou já reconciliada.");
+      requireValue(
+        !json(old.payload).template_message || data.allow_paid === true,
+        "Reenviar um modelo exige nova autorização explícita de cobrança (allow_paid: true).",
+      );
       const c = await conversation(env, old.conversation_id, profile);
       const id = await enqueue(
         env,
         c,
         old.actor,
         old.kind,
-        json(old.payload),
+        {
+          ...json(old.payload),
+          ...(json(old.payload).template_message
+            ? { retry_authorization: { actor: actor.id, authorized_at: now() } }
+            : {}),
+        },
         "manual-retry:" + requestId,
       );
       await exec(

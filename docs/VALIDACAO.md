@@ -1,4 +1,18 @@
-# Validação e limites da versão 0.5.0
+# Validação e limites da versão 0.6.0
+
+## Revisão 0.6.0: roteador de números Meta
+
+Atualizado em 06/11/2026. **A homologação com números reais permanece para a etapa final com o proprietário.** Nenhuma mensagem real foi enviada nem canal real conectado nesta revisão.
+
+- 106 testes passaram em workerd com D1, R2 e Durable Objects, incluindo 22 novos testes do roteador. Cobrem webhook compartilhado com 20 números, HMAC/WABA, deduplicação, reserva concorrente da última unidade, mudança de mês/fuso, envio sem confirmação, permissões, idempotência, remetente fixo, janela real, modelos aprovados simulados, autorização individual, consentimento revogado, mídia privada, cancelamento e nova tentativa paga.
+- Os 4 testes do instalador e 3 do atualizador Node passaram, incluindo preservação dos recursos e recusa de configuração incompatível.
+- Os exemplos cURL, JavaScript e Python foram executados contra um servidor HTTP fictício local. Os exemplos recusam modelo pago sem confirmação. As rotas do roteador também foram exercitadas em workerd nos testes; provedores Meta são simulados, sem verificar faturamento ou entrega real.
+- No Chrome, cadastro de conta, consumo inicial de dois números e grupo aleatório foram salvos numa instalação local isolada com dados fictícios. Confirmados retorno de sucesso e contador atualizado. O painel foi conferido em desktop e em 390 × 844, sem rolagem horizontal e sem erros registrados no console.
+- Guia ilustrado atualizado para 54 páginas. Novas páginas 50–54 e páginas iniciais renderizadas e revisadas. Screenshots de referência não contêm credenciais. A migração 0007 é aditiva e o pacote mantém as políticas de segurança dos arquivos web.
+
+O teto é uma proteção local de até 1.000 mensagens de atendimento por número/mês. A [referência Meta consultada](https://whatsappbusiness.com/resources/faq/) informa essa franquia desde 01/10/2026; condições e faturamento são definidos pela Meta. Envios por outros sistemas, uso inicial incorreto, fuso diferente ou atraso de recibos podem fazer o contador divergir. O Wabotia não estima custos nem promete ausência de cobrança. Janela e remetente não migram para outro número quando a cota acaba. Modelos pagos exigem aprovação Meta, permissões, consentimento e autorização naquele pedido.
+
+[Configuração, limites e roteiro de homologação real](ROTEADOR.md). Os registros abaixo são evidências históricas das versões indicadas.
 
 ## Revisão 0.5.0: WhatsApp, grupos e voz
 

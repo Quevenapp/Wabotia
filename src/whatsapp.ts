@@ -1,3 +1,4 @@
+import { observeMetaUsage } from "./number-quota";
 import { all, one, exec, batch } from "./db";
 import {
   Actor,
@@ -388,6 +389,7 @@ export async function channelEvent(env: Env, conn: any, data: any) {
     str(data.message_id, 250) && data.message_id && str(data.external_id, 200),
     "Identificador de evento inválido.",
   );
+  if (data.event === "status") await observeMetaUsage(env, conn, data);
   if (data.event === "group") {
     if (data.provider_request_id)
       await exec(
@@ -450,7 +452,7 @@ export async function applyChannelEvents(
   for (const e of events) {
     const m = await one(
       env,
-      "SELECT m.*,c.chat_type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.connection_id=? AND m.external_id=? AND (?='' OR c.external_id=?)",
+      "SELECT m.*,c.chat_type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.connection_id=? AND m.external_id=? AND (?='' OR coalesce(c.recipient_id,c.external_id)=?)",
       connectionId,
       externalId,
       e.chat,

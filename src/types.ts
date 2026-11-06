@@ -35,6 +35,7 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  recipient_id?: string | null;
   chat_type: string;
   title: string;
   bot_policy: string;

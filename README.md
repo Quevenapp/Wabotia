@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.5.0, com mídia nativa, gravador de voz, grupos, ações de mensagem e ligações humanas pela Meta Calling API. Inclui agenda de contatos por perfil, importação CSV com prévia e cadastro/vínculo a partir das conversas. Inclui instalação guiada, diagnóstico de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.6.0, com roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual. Mantém mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -46,6 +46,12 @@ Atualize também o processo QR ou o transporte Hermes; o botão do painel atuali
 ## Agenda de contatos
 
 Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe arquivos CSV UTF-8 de até 500 contatos/1 MB, conferindo erros e linhas idênticas antes de salvar. Em **Conversas → Salvar contato**, crie um cadastro ou vincule uma pessoa da agenda. Nome, telefone, e-mail, empresa e observações ficam salvos no perfil; telefones não unem clientes automaticamente. [Passo a passo com telas](docs/CONTATOS.md) · [Modelo CSV](public/modelo-contatos.csv).
+
+## Roteador WhatsApp
+
+Em **Roteador de números**, conecte uma WABA, adicione até 20 números e configure um único webhook. Crie grupos por menor consumo, sequência ou sorteio; autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis.
+
+O teto local de atendimento é de até 1.000 mensagens por número/mês, conforme a franquia informada no [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Modelos pagos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
 
 ## API
 

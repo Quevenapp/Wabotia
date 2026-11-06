@@ -1,3 +1,4 @@
+import { managedAppAllowed } from "./number-router";
 import { all, one, exec } from "./db";
 import { Actor, ApiError, Env, now, uid, json, requireValue } from "./types";
 import { access } from "./security";
@@ -66,6 +67,17 @@ export async function groupCommand(
     profile,
   );
   requireValue(conn, "Selecione uma conexão WhatsApp ativa.");
+  if (
+    await one(
+      env,
+      "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
+      conn.id,
+    )
+  )
+    requireValue(
+      await managedAppAllowed(env, actor.id, conn.id),
+      "Aplicação sem autorização para este número do roteador.",
+    );
   needCapability(conn, "group_manage");
   const action = data.action;
   requireValue(
