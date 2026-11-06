@@ -1,9 +1,14 @@
-# Validação e limites da versão 0.6.1
+# Validação e limites da versão 0.6.2
+
+## Revisão 0.6.2: atalho do guia
+
+O link direto `/install#meta-whatsapp` passa a abrir a seção Meta após o carregamento do React. O problema foi observado no Chrome e a correção conferida na prévia local. Verificação TypeScript e build concluídos; sem alteração de backend ou banco.
 
 ## Revisão 0.6.1: cadastro Meta e compatibilidade Workers
 
 Atualizado em 06/11/2026. O primeiro telefone real foi cadastrado na Meta; o aplicativo foi publicado e o webhook foi verificado e inscrito na conta. **Envio, recebimento, anexos e chamadas com o número real ainda dependem do teste final com o proprietário.** Nenhuma mensagem real foi enviada nesta revisão.
 
+- Uma instalação existente foi atualizada para 0.6.1 pelo próprio painel. A busca autenticada na Meta encontrou o telefone real, que foi adicionado uma única vez ao roteador, pausado, com consumo inicial zero. A conta, o webhook e as credenciais foram preservados na atualização. O nome de exibição ainda estava em análise na Meta.
 - 111 testes passaram em workerd com D1, R2 e Durable Objects. O teste de regressão reproduziu a falha ao construir a requisição nativa com `redirect: "error"`; a correção usa `manual` e recusa redirecionamentos sem encaminhar credenciais. Os testes também verificam download de mídia, rejeição de 302 e ausência de repetição automática após falha ambígua de envio.
 - Verificação TypeScript concluída. Nenhuma migração de banco ou mudança no contrato dos recursos nesta revisão.
 - Guia específico Meta com 15 páginas e manual completo com 69 páginas. As telas reais mostram cadastro, empresa verificada, app, localização do App Secret oculto, permissões e webhook; credenciais não são publicadas. O roteiro distingue registro, publicação, assinatura dos campos e inscrição da conta, e explica a renovação do token de 60 dias.

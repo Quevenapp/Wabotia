@@ -447,6 +447,7 @@ function Install() {
           "#deploy-hermes",
           "#atualizacoes",
           "#agenda",
+          "#meta-whatsapp",
           "#whatsapp-recursos",
           "#roteador",
         ].includes(location.hash)

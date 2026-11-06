@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.6.1, com guia ilustrado para cadastrar o primeiro número na Meta, obter tokens e conectar ao painel, além da correção das requisições Meta e do download de anexos no runtime Workers. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.6.2, com guia ilustrado para cadastrar o primeiro número na Meta, obter tokens e conectar ao painel, além da correção das requisições Meta e do download de anexos no runtime Workers. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
