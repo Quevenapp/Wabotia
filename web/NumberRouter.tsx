@@ -243,6 +243,11 @@ export function NumberRouter({
           Escolha o remetente pela API ou deixe um grupo distribuir os novos
           atendimentos.
         </p>
+        <p>
+          <a href="/install#meta-whatsapp" target="_blank" rel="noreferrer">
+            Passo a passo: cadastrar o número na Meta e obter os tokens ↗
+          </a>
+        </p>
         <div className="notice">
           A Meta informa 1.000 mensagens de <strong>atendimento</strong>{" "}
           gratuitas por número/mês desde 01/10/2026. Modelos pagos ficam

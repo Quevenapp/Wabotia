@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.6.0, com roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual. Mantém mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.6.1, com guia ilustrado para cadastrar o primeiro número na Meta, obter tokens e conectar ao painel, além da correção das requisições Meta e do download de anexos no runtime Workers. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -26,6 +26,8 @@ As próximas versões são instaladas em **Sistema e atualizações → Verifica
 O repositório oficial continua público/MIT, com Actions desativado. Sua instalação recebe versões oficiais publicadas e mantém banco, mídias e secrets na sua própria Cloudflare.
 
 ## Conectar serviços
+
+**Primeiro número na API oficial:** [passo a passo para iniciantes](docs/META-WHATSAPP.md) · [telas e requisitos no site](https://wabotia.queven.app/install#meta-whatsapp) · [caderno em PDF](https://wabotia.queven.app/guide/wabotia-meta-whatsapp.pdf).
 
 1. Crie um perfil no painel e cadastre a conexão Hermes com as URLs administrativas/API, o token administrativo e as chaves de cada perfil autorizado.
 2. Teste a conexão, descubra os bots, habilite os selecionados e escolha o Atendente. A API Hermes deve anunciar `features.runs_idempotency.durable`.

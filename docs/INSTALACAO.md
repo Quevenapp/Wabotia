@@ -2,7 +2,9 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare podem aparecer em inglês. Esta edição cobre a versão 0.3.1: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare e da Meta podem aparecer em inglês. Esta edição cobre a versão 0.6.1: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+
+Para cadastrar seu primeiro telefone na API oficial, comece por [WhatsApp: do chip à API](META-WHATSAPP.md). O [caderno ilustrado da Meta](https://wabotia.queven.app/guide/wabotia-meta-whatsapp.pdf) explica os requisitos da empresa, telefone, aplicativo, tokens e conexão ao Wabotia.
 
 Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
 

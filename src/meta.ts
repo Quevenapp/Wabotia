@@ -22,7 +22,9 @@ export async function metaRequest(
         "Content-Type": "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      redirect: "error",
+      // Workers supports manual/follow. Reject 3xx below without forwarding
+      // the Meta credential to a redirect destination.
+      redirect: "manual",
       signal: AbortSignal.timeout(15000),
     });
   } catch {

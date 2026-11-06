@@ -16,6 +16,8 @@ O teto local pode ser de 0 a 1.000. O Wabotia não oferece autorização automá
 
 ## 1. Prepare a conta Meta
 
+Primeiro número ou dúvida sobre tokens? Siga o [guia do chip à API](META-WHATSAPP.md), com requisitos da empresa, cadastro do telefone, conta de mensagens, aplicativo, token de produção, App Secret e webhook. Há uma [versão ilustrada no site](https://wabotia.queven.app/install#meta-whatsapp).
+
 No aplicativo Meta, confira os números cadastrados na WABA, sua habilitação na Cloud API e a qualidade dos números. O Wabotia não cria números, registra SIM nem amplia o limite concedido pela Meta.
 
 Tenha: **WABA ID**, token Meta com acesso aos números (`whatsapp_business_management` para descoberta/modelos e `whatsapp_business_messaging` para enviar), **App Secret** do aplicativo e um **Verify Token** escolhido por você. Os nomes e acessos disponíveis dependem do aplicativo e da sua conta Meta. Não use uma chave Wabotia no lugar do token Meta.

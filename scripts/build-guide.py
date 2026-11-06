@@ -3,6 +3,8 @@
 from pathlib import Path
 from xml.sax.saxutils import escape
 import shutil
+import sys
+import runpy
 from reportlab.pdfgen import canvas
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Flowable, KeepTogether
 from reportlab.lib import colors
@@ -13,7 +15,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
 ROOT=Path(__file__).resolve().parents[1]
-OUT=ROOT/'output/pdf/wabotia-instalacao.pdf'; OUT.parent.mkdir(parents=True,exist_ok=True)
+META_ONLY='--meta-only' in sys.argv
+OUT=ROOT/('output/pdf/wabotia-meta-whatsapp.pdf' if META_ONLY else 'output/pdf/wabotia-instalacao.pdf'); OUT.parent.mkdir(parents=True,exist_ok=True)
 SHOTS=ROOT/'docs/screenshots'
 font_root=Path('/usr/share/fonts/truetype/dejavu')
 for name,file in [('Sans','DejaVuSans.ttf'),('SansBold','DejaVuSans-Bold.ttf'),('Mono','DejaVuSansMono.ttf'),('Serif','DejaVuSerif.ttf')]:
@@ -59,7 +62,7 @@ class Shot(Flowable):
 def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Paragraph(caption,styles['caption'])])
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 # 1
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.6.0','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.6.1','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
@@ -73,6 +76,7 @@ box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instal
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
 p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
 p('Roteador Meta: até 20 números, webhook único, contadores e modelos pagos autorizados nas páginas 50 a 54.','small')
+p('Primeiro número na API oficial? Empresa, cadastro Meta, tokens e webhook: páginas 55 a 69. Também há um caderno separado no site.','small')
 p('WhatsApp: atualização dos conectores, arquivos, voz, grupos, ligações e teste final nas páginas 43 a 49.','small')
 # Node.js before Cloudflare provisioning
 title(3,'Node.js: prepare o Ubuntu')
@@ -482,14 +486,19 @@ table([['Resultado','O que fazer'],['202 / pending','O pedido entrou na fila. Gu
 p('Antes de atender clientes, teste os números reais: webhook de cada telefone, remetente escolhido/fixo, cota, modelo autorizado, recibos e repetição da mesma chave sem duplicar. Os testes do projeto usam dados fictícios; não substituem essa homologação.','small')
 p(link('Exemplos cURL, JavaScript e Python','https://github.com/Quevenapp/Wabotia/blob/main/docs/ROTEADOR.md')+' · '+link('Documentação interativa','https://wabotia.queven.app/api-docs'),'small')
 
+if META_ONLY:
+    story=[]
+append_meta_chapter=runpy.run_path(str(ROOT/'scripts/meta-guide-pages.py'))['append_meta_chapter']
+append_meta_chapter(p,title,sub,steps,code,box,table,shot,link,1 if META_ONLY else 55)
+
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)
     c.setFillColor(GREEN);c.rect(0,H-8,W,8,fill=1,stroke=0)
     c.setStrokeColor(LINE);c.line(M,39,W-M,39)
-    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  Instalação na Cloudflare  |  06/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
+    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  '+('WhatsApp: do chip à API' if META_ONLY else 'Instalação na Cloudflare')+'  |  06/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
 class NumberedCanvas(canvas.Canvas):
-    def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
-doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
+    def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - WhatsApp: do chip à API' if META_ONLY else 'Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Cadastro Meta e conexão WhatsApp ao Wabotia' if META_ONLY else 'Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
+doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - WhatsApp: do chip à API' if META_ONLY else 'Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
 doc.build(story,onFirstPage=on_page,onLaterPages=on_page,canvasmaker=NumberedCanvas)
-public=ROOT/'public/guide/wabotia-instalacao.pdf';public.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(OUT,public)
+public=ROOT/'public/guide'/OUT.name;public.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(OUT,public)
 print(OUT)

@@ -562,6 +562,74 @@ it("webhook Meta normaliza vídeo, grupo e status de participante", async () => 
     attachments: [id],
   });
 });
+it.each([200, 302])(
+  "download Meta no Workers preserva mídia ou rejeita redirecionamento (HTTP %i)",
+  async (status) => {
+    const f = await seed("meta"),
+      events: any[] = [];
+    const id = (await sha(`${f.conn.id}:download:asset`)).slice(0, 32);
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        expect(request.headers.get("Authorization")).toBe("Bearer fake-token");
+        expect(request.redirect).toBe("manual");
+        if (new URL(request.url).hostname === "graph.facebook.com")
+          return Response.json({
+            url: "https://lookaside.fbsbx.com/asset",
+            mime_type: "video/mp4",
+          });
+        expect(request.url).toBe("https://lookaside.fbsbx.com/asset");
+        return status === 200
+          ? new Response("sample", { headers: { "Content-Length": "6" } })
+          : new Response(null, {
+              status,
+              headers: { Location: "https://example.com/" },
+            });
+      });
+    await metaInbound(
+      env,
+      f.conn,
+      {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  metadata: { phone_number_id: "1234" },
+                  messages: [
+                    {
+                      from: "person",
+                      id: "download",
+                      type: "video",
+                      video: { id: "asset", caption: "Legenda" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      async (data) => {
+        events.push(data);
+        return Response.json({ ok: true });
+      },
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(events).toHaveLength(1);
+    const object = await env.MEDIA.get(f.p + "/" + id);
+    if (status === 200) {
+      expect(events[0].attachments).toEqual([id]);
+      expect(events[0].content.media_error).toBeUndefined();
+      expect(await object?.text()).toBe("sample");
+    } else {
+      expect(events[0].attachments).toEqual([]);
+      expect(events[0].content.media_error).toBe(true);
+      expect(object).toBeNull();
+    }
+  },
+);
 it("chamada de saída exige permissão, registra incerteza e não repete a execução", async () => {
   const f = await seed("meta");
   let posts = 0;

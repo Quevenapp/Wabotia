@@ -23,6 +23,11 @@ export function RouterGuide() {
       </p>
       <h3>Primeiro, entenda o que pode ser distribuído</h3>
       <p>
+        Ainda não cadastrou o chip na Meta ou não sabe onde obter os tokens?
+        Comece pelo{" "}
+        <a href="#meta-whatsapp">passo a passo do número e da API oficial</a>.
+      </p>
+      <p>
         Segundo o{" "}
         <a
           href="https://whatsappbusiness.com/resources/faq/"

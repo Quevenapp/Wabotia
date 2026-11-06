@@ -1,4 +1,14 @@
-# Validação e limites da versão 0.6.0
+# Validação e limites da versão 0.6.1
+
+## Revisão 0.6.1: cadastro Meta e compatibilidade Workers
+
+Atualizado em 06/11/2026. O primeiro telefone real foi cadastrado na Meta; o aplicativo foi publicado e o webhook foi verificado e inscrito na conta. **Envio, recebimento, anexos e chamadas com o número real ainda dependem do teste final com o proprietário.** Nenhuma mensagem real foi enviada nesta revisão.
+
+- 111 testes passaram em workerd com D1, R2 e Durable Objects. O teste de regressão reproduziu a falha ao construir a requisição nativa com `redirect: "error"`; a correção usa `manual` e recusa redirecionamentos sem encaminhar credenciais. Os testes também verificam download de mídia, rejeição de 302 e ausência de repetição automática após falha ambígua de envio.
+- Verificação TypeScript concluída. Nenhuma migração de banco ou mudança no contrato dos recursos nesta revisão.
+- Guia específico Meta com 15 páginas e manual completo com 69 páginas. As telas reais mostram cadastro, empresa verificada, app, localização do App Secret oculto, permissões e webhook; credenciais não são publicadas. O roteiro distingue registro, publicação, assinatura dos campos e inscrição da conta, e explica a renovação do token de 60 dias.
+
+[Roteiro do primeiro número e próximos testes](META-WHATSAPP.md). As evidências das versões anteriores permanecem abaixo.
 
 ## Revisão 0.6.0: roteador de números Meta
 

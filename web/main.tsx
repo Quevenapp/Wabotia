@@ -1,6 +1,7 @@
 import { WhatsAppConversation } from "./WhatsAppConversation";
 import { NumberRouter } from "./NumberRouter";
 import { RouterGuide } from "./RouterGuide";
+import { MetaGuide } from "./MetaGuide";
 import { WhatsAppGroups, GroupControls } from "./WhatsAppGroups";
 import { callStatus } from "./WhatsAppCalls";
 import { DirectInstall } from "./DirectInstall";
@@ -516,6 +517,7 @@ function Install() {
         <HermesInstall />
         <MaintenanceGuide />
         <ContactGuide />
+        <MetaGuide />
         <WhatsAppGuide />
         <RouterGuide />
         <aside className="callout">

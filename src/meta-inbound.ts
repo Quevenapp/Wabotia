@@ -150,7 +150,9 @@ export async function metaInbound(
               const keys = await metaCredentials(env, conn);
               const resource = await fetch(url, {
                 headers: { Authorization: `Bearer ${keys.token}` },
-                redirect: "error",
+                // storeRemoteMedia rejects non-2xx responses. Never follow a
+                // redirect carrying the private Meta credential.
+                redirect: "manual",
                 signal: AbortSignal.timeout(60000),
               });
               attachments.push(
