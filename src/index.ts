@@ -1,3 +1,7 @@
+import { capabilities } from "./whatsapp";
+import { authorizedMedia, mediaResponse, uploadPart } from "./media";
+import { callView, callPermission } from "./calls";
+import { metaInbound } from "./meta-inbound";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -57,9 +61,10 @@ import {
 } from "./cloudflare";
 export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
-app.use(
-  "*",
-  bodyLimit({
+app.use("*", async (c, next) => {
+  if (/^\/internal\/v1\/connectors\/[^/]+\/media-content$/.test(c.req.path))
+    return next();
+  return bodyLimit({
     maxSize: 21 * 1024 * 1024,
     onError: (c) =>
       c.json(
@@ -71,8 +76,8 @@ app.use(
         },
         413,
       ),
-  }),
-);
+  })(c, next);
+});
 app.use("*", async (c, next) => {
   c.set("requestId", uid());
   await next();
@@ -346,6 +351,24 @@ const commands = [
   ["PATCH", "bots/:id", "bot.update"],
   ["POST", "conversations", "conversation.create"],
   ["POST", "inbound", "inbound"],
+  ["POST", "media/uploads", "upload.create"],
+  ["POST", "media/uploads/:id/complete", "upload.complete"],
+  ["POST", "media/uploads/:id/abort", "upload.abort"],
+  ["POST", "conversations/:id/message-actions", "message.action"],
+  ["POST", "groups/actions", "group.action"],
+  ["POST", "group-operations/:id/reconcile", "group.reconcile"],
+  ["POST", "groups/:id/actions", "group.action"],
+  ["PUT", "groups/:id/policy", "group.policy"],
+  ["POST", "calls", "call.start"],
+  ["POST", "calls/permission", "call.permission"],
+  ["POST", "calls/:id/claim", "call.claim"],
+  ["POST", "calls/:id/pre_accept", "call.pre_accept"],
+  ["POST", "calls/:id/accept", "call.accept"],
+  ["POST", "calls/:id/reject", "call.reject"],
+  ["POST", "calls/:id/terminate", "call.terminate"],
+  ["POST", "calls/:id/keepalive", "call.keepalive"],
+  ["POST", "calls/:id/reconcile", "call.reconcile"],
+  ["PUT", "connections/:id/calling", "call.configure"],
   ["POST", "conversations/:id/actions", "conversation.action"],
   ["POST", "contacts", "contact.create"],
   ["PATCH", "contacts/:id", "contact.update"],
@@ -582,8 +605,31 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   access(actor, p, "conversations:read");
   const conv = await conversation(c.env, c.req.param("id"), p, actor);
   const notes = actor.kind !== "app" || actor.scopes.includes("notes:read");
+  const conn = conv.connection_id
+    ? await one(
+        c.env,
+        "SELECT * FROM connections WHERE id=?",
+        conv.connection_id,
+      )
+    : null;
+  const media = await all(
+    c.env,
+    "SELECT DISTINCT a.id,a.name,a.type,a.size FROM media a JOIN messages m ON m.profile_id=a.profile_id AND EXISTS(SELECT 1 FROM json_each(m.attachments) WHERE value=a.id) WHERE m.conversation_id=? AND (?=1 OR m.direction!='note')",
+    conv.id,
+    notes ? 1 : 0,
+  );
   return c.json({
     conversation: conv,
+    media,
+    capabilities: conn ? capabilities(conn, conv.chat_type) : {},
+    group:
+      conv.chat_type === "group"
+        ? await one(
+            c.env,
+            "SELECT * FROM whatsapp_groups WHERE conversation_id=?",
+            conv.id,
+          )
+        : null,
     contact: await conversationContact(c.env, actor, p, conv.id),
     messages: await all(
       c.env,
@@ -702,32 +748,147 @@ app.post("/api/v1/profiles/:profile/media", async (c) => {
   return result;
 });
 app.get("/api/v1/profiles/:profile/media/:id/content", async (c) => {
-  const p = c.req.param("profile");
-  access(c.get("actor"), p, "media:read");
+  const p = c.req.param("profile"),
+    actor = c.get("actor");
+  access(actor, p, "media:read");
+  return mediaResponse(
+    c.env,
+    await authorizedMedia(c.env, actor, p, c.req.param("id")),
+    c.req.raw,
+  );
+});
+app.put("/api/v1/profiles/:profile/media/uploads/:id/parts/:part", async (c) =>
+  c.json(
+    await uploadPart(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+      Number(c.req.param("part")),
+      c.req.raw,
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/connections/:id/capabilities", async (c) => {
+  access(c.get("actor"), c.req.param("profile"), "conversations:read");
   const row = await one(
     c.env,
-    "SELECT * FROM media WHERE id=? AND profile_id=?",
+    "SELECT * FROM connections WHERE id=? AND profile_id=?",
     c.req.param("id"),
-    p,
+    c.req.param("profile"),
   );
-  if (
-    !row ||
-    (c.get("actor").kind === "app" && row.actor !== c.get("actor").id)
-  )
-    throw new ApiError(404, "not_found", "Arquivo não encontrado.");
-  const obj = await c.env.MEDIA.get(row.object_key);
-  if (!obj) throw new ApiError(404, "not_found", "Arquivo ausente.");
-  return new Response(obj.body, {
-    headers: {
-      "Content-Type": row.type,
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(row.name)}`,
-      "Cache-Control": "no-store",
-    },
+  requireValue(row, "Conexão não encontrada.");
+  return c.json(capabilities(row));
+});
+app.get("/api/v1/profiles/:profile/calls", async (c) => {
+  const actor = c.get("actor"),
+    p = c.req.param("profile");
+  access(actor, p, "calls:read");
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 30)),
+    cursor = c.req.query("cursor") || "",
+    cid = c.req.query("conversation_id") || "";
+  let after = { created: Number.MAX_SAFE_INTEGER, id: "" };
+  if (cursor) {
+    try {
+      after = JSON.parse(atob(cursor));
+      if (!Number.isSafeInteger(after.created) || typeof after.id !== "string")
+        throw Error();
+    } catch {
+      throw new ApiError(400, "invalid_cursor", "Cursor inválido.");
+    }
+  }
+  const rows = await all(
+    c.env,
+    "SELECT id,conversation_id,direction,actor,status,error,started,ended,duration,created,updated FROM calls WHERE profile_id=? AND (?=1 OR actor=? OR actor IS NULL) AND (?='' OR conversation_id=?) AND (created<? OR (created=? AND id<?)) ORDER BY created DESC,id DESC LIMIT ?",
+    p,
+    actor.kind !== "app" ? 1 : 0,
+    actor.id,
+    cid,
+    cid,
+    after.created,
+    after.created,
+    after.id,
+    limit + 1,
+  );
+  return c.json({
+    data: rows.slice(0, limit),
+    next_cursor:
+      rows.length > limit
+        ? btoa(
+            JSON.stringify({
+              created: rows[limit - 1].created,
+              id: rows[limit - 1].id,
+            }),
+          )
+        : null,
+  });
+});
+app.get("/api/v1/profiles/:profile/calls/:id", async (c) =>
+  c.json(
+    await callView(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+      c.req.query("session") === "1",
+    ),
+  ),
+);
+app.get(
+  "/api/v1/profiles/:profile/conversations/:id/call-permission",
+  async (c) => {
+    const actor = c.get("actor"),
+      p = c.req.param("profile");
+    access(actor, p, "calls:read");
+    const conv = await conversation(c.env, c.req.param("id"), p, actor),
+      conn = await one(
+        c.env,
+        "SELECT * FROM connections WHERE id=?",
+        conv.connection_id,
+      );
+    requireValue(
+      conn?.kind === "meta" && conv.chat_type !== "group",
+      "Ligações exigem conversa individual na Meta.",
+    );
+    return c.json(await callPermission(c.env, conn, conv.external_id));
+  },
+);
+app.get("/api/v1/profiles/:profile/groups", async (c) => {
+  const actor = c.get("actor"),
+    p = c.req.param("profile");
+  access(actor, p, "conversations:read");
+  const cursor = c.req.query("cursor") || "";
+  const rows = await all(
+    c.env,
+    "SELECT * FROM conversations WHERE profile_id=? AND chat_type='group' AND (?='' OR id<?) ORDER BY id DESC LIMIT 51",
+    p,
+    cursor,
+    cursor,
+  );
+  return c.json({
+    data: rows.slice(0, 50),
+    next_cursor: rows.length > 50 ? rows[49].id : null,
+  });
+});
+app.get("/api/v1/profiles/:profile/group-operations", async (c) => {
+  const actor = c.get("actor"),
+    p = c.req.param("profile");
+  access(actor, p, "groups:manage");
+  return c.json({
+    data: await all(
+      c.env,
+      "SELECT id,connection_id,conversation_id,operation,status,result,error,created FROM group_operations WHERE profile_id=? AND (?=1 OR actor=?) ORDER BY created DESC LIMIT 30",
+      p,
+      actor.kind !== "app" ? 1 : 0,
+      actor.id,
+    ),
   });
 });
 async function ingest(env: Env, conn: any, data: any) {
   return env.COORDINATOR.get(env.COORDINATOR.idFromName(conn.profile_id)).fetch(
-    "https://coordinator/inbound",
+    data.event
+      ? "https://coordinator/channel-event"
+      : "https://coordinator/inbound",
     {
       method: "POST",
       body: JSON.stringify({
@@ -766,53 +927,9 @@ app.post("/webhooks/meta/:id", async (c) => {
     )
   )
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
-  const body = JSON.parse(raw);
-  for (const entry of body.entry || [])
-    for (const change of entry.changes || []) {
-      const v = change.value;
-      if (v?.metadata?.phone_number_id !== json(conn.config).phone_id) continue;
-      for (const m of v.messages || []) {
-        const attachments: string[] = [];
-        let value =
-          m.text?.body ||
-          m.interactive?.button_reply?.title ||
-          m.interactive?.list_reply?.title ||
-          "";
-        const media = m.image || m.audio || m.document || m.video;
-        if (media) {
-          try {
-            const meta = await fetch(
-              `https://graph.facebook.com/v23.0/${media.id}`,
-              { headers: { Authorization: `Bearer ${keys.token}` } },
-            );
-            const info = await meta.json<any>();
-            const resource = await fetch(info.url, {
-              headers: { Authorization: `Bearer ${keys.token}` },
-            });
-            attachments.push(
-              await storeRemoteMedia(
-                c.env,
-                conn.profile_id,
-                media.filename || m.type,
-                info.mime_type || "application/octet-stream",
-                resource,
-              ),
-            );
-          } catch {
-            value += "\n[Anexo indisponível; atendimento humano necessário]";
-          }
-        }
-        const r = await ingest(c.env, conn, {
-          external_id: m.from,
-          phone: m.from,
-          message_id: m.id,
-          text: value,
-          attachments,
-        });
-        if (!r.ok) return r;
-      }
-    }
-  return c.json({ received: true });
+  return metaInbound(c.env, conn, JSON.parse(raw), (data) =>
+    ingest(c.env, conn, data),
+  );
 });
 app.post("/webhooks/telegram/:id", async (c) => {
   const conn = await one(
@@ -930,7 +1047,13 @@ app.post("/webhooks/telegram/:id", async (c) => {
       );
       data.target = target?.id || value;
     }
-    const file = m.document || m.audio || m.voice || m.photo?.at(-1);
+    const file =
+      m.document ||
+      m.audio ||
+      m.voice ||
+      m.video ||
+      m.sticker ||
+      m.photo?.at(-1);
     if (file) {
       data.attachments = [
         await telegramFile(
@@ -941,7 +1064,20 @@ app.post("/webhooks/telegram/:id", async (c) => {
           file.mime_type || "image/jpeg",
         ),
       ];
-      if (!data.text) data.text = "Anexo";
+      data.content = {
+        type: m.voice
+          ? "voice"
+          : m.video
+            ? "video"
+            : m.sticker
+              ? "sticker"
+              : m.audio
+                ? "audio"
+                : m.photo
+                  ? "image"
+                  : "document",
+      };
+      if (!data.text) data.text = "";
     }
   } else return c.json({ ignored: true });
   const result = await c.env.COORDINATOR.get(
@@ -1047,8 +1183,53 @@ app.get("/internal/v1/connectors/:id/media/:media", async (c) => {
     headers: {
       "Content-Type": m.type,
       "X-Filename": encodeURIComponent(m.name),
+      "Content-Length": String(m.size),
     },
   });
+});
+app.post("/internal/v1/connectors/:id/media-content", async (c) => {
+  const conn = await one(
+    c.env,
+    "SELECT * FROM connections WHERE id=?",
+    c.req.param("id"),
+  );
+  const size = Number(c.req.header("Content-Length") || 0);
+  requireValue(
+    Number.isSafeInteger(size) && size > 0 && size <= 100 * 1024 * 1024,
+    "Arquivo deve ter de 1 byte a 100 MB.",
+  );
+  const key = c.req.header("Idempotency-Key");
+  requireValue(key && key.length <= 200, "Informe Idempotency-Key.");
+  const id = (await sha(conn.id + ":" + key)).slice(0, 32);
+  const existing = await one(
+    c.env,
+    "SELECT id,size FROM media WHERE id=? AND profile_id=?",
+    id,
+    conn.profile_id,
+  );
+  if (existing) {
+    requireValue(
+      existing.size === size,
+      "A chave já foi usada para outro arquivo.",
+    );
+    return c.json({ id });
+  }
+  const name = decodeURIComponent(c.req.header("X-Filename") || "anexo").slice(
+      0,
+      200,
+    ),
+    type = c.req.header("Content-Type") || "application/octet-stream";
+  await storeRemoteMedia(
+    c.env,
+    conn.profile_id,
+    name,
+    type,
+    new Response(c.req.raw.body, {
+      headers: { "Content-Length": String(size) },
+    }),
+    { id, actor: "transport:" + conn.id },
+  );
+  return c.json({ id });
 });
 app.post("/internal/v1/connectors/:id/media", async (c) => {
   const conn = await one(
@@ -1096,6 +1277,10 @@ app.post("/internal/v1/connectors/:id/status", async (c) => {
     JSON.stringify({
       ...json(conn.config),
       qr: data.qr || null,
+      protocol_version: Number(data.protocol_version) || 1,
+      features: Array.isArray(data.features)
+        ? data.features.filter((x: any) => typeof x === "string").slice(0, 30)
+        : [],
       ...(data.approved_template
         ? {
             approved_template: data.approved_template,

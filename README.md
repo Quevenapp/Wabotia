@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.4.0, com agenda de contatos por perfil, importação CSV com prévia e cadastro/vínculo a partir das conversas. Inclui instalação guiada, diagnóstico de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.5.0, com mídia nativa, gravador de voz, grupos, ações de mensagem e ligações humanas pela Meta Calling API. Inclui agenda de contatos por perfil, importação CSV com prévia e cadastro/vínculo a partir das conversas. Inclui instalação guiada, diagnóstico de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -36,6 +36,12 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 Para Hermes privado: `node scripts/connect-hermes.mjs` gera as instruções e configuração de Cloudflare Tunnel protegido por Access, para Linux, WSL2 e macOS. HTTPS público autenticado também é aceito.
 
 Também é possível usar **Conexões → Preparar Hermes na Cloudflare**. Após ligar as APIs locais e autorizar um token Cloudflare em **Sistema e atualizações**, o painel cria Access, túnel e DNS e entrega um instalador privado para o conector. Veja [pré-requisitos, etapas e recuperação](docs/HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel).
+
+## WhatsApp completo para atendimento
+
+Receba e envie imagens, vídeos, áudio, voz, documentos, figurinhas, localização e contatos conforme o canal. Gerencie grupos pelo QR e grupos empresariais Meta elegíveis. Ligações de voz usam Meta direto e WebRTC no navegador; QR/Hermes não fazem chamadas e não há videochamadas. Todos esses recursos têm rotas autenticadas na API. [Guia e limites por modo](docs/WHATSAPP.md).
+
+Atualize também o processo QR ou o transporte Hermes; o botão do painel atualiza somente a parte Cloudflare. Homologação com número real permanece pendente.
 
 ## Agenda de contatos
 

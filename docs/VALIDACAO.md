@@ -1,4 +1,18 @@
-# Validação e limites da versão 0.3.1
+# Validação e limites da versão 0.5.0
+
+## Revisão 0.5.0: WhatsApp, grupos e voz
+
+Atualizado em 06/11/2026. **A homologação com número real continua pendente, por escolha do proprietário, e será a etapa final.** Não foi iniciado nem alterado um consumidor WhatsApp real nesta revisão.
+
+- 84 testes passaram em workerd com D1, R2 e Durable Objects. Cobrem mídias nativas, upload por partes/conflitos/expiração, acesso privado e ranges, recibos fora de ordem, grupos, tomada humana, chamadas, identidade da aplicação, paginação e webhooks HMAC. Provedores externos simulados.
+- 6 testes Node do QR, 5 testes Python do transporte Hermes e 4 testes Python do assistente Hermes passaram. Mais 4 testes do instalador e 3 do atualizador Node passaram. O atualizador da extensão foi exercitado em cópia temporária conhecida: backup, repetição e recusa de arquivo modificado.
+- Os exemplos novos JavaScript e Python foram executados contra workerd local com dados fictícios. Upload, criação do pedido e repetição com o mesmo recibo foram verificados. [Evidência sanitizada](reference/whatsapp-examples-validation.json). Isso não verifica entrega a um provedor real.
+- No Chrome, foram conferidos anexos privados, reprodutor de áudio, citação, upload com progresso, fila, grupos, aviso de chamada e controles de voz simulada. Layout de conversa revisado também em 390 × 844, sem rolagem horizontal. O codificador real gerou OGG/Opus a partir de áudio sintético (1,22 s, 3.966 bytes), com prévia carregada sob as políticas de segurança de produção, sem solicitar microfone. A atualização direta preserva essas políticas nos metadados da API Cloudflare. Microfone real e áudio WebRTC com a Meta aguardam a homologação.
+- Guia ilustrado atualizado para 49 páginas; páginas novas e páginas iniciais renderizadas e revisadas. A migração 0006 é aditiva. Conectores externos precisam ser atualizados separadamente.
+
+[Guia WhatsApp e roteiro de teste real](WHATSAPP.md). Voz ao vivo exige **Meta direto** com Calling API elegível e permissão do cliente. QR e Hermes não iniciam/atendem chamadas; não há videochamadas. Meta Groups exige elegibilidade própria e não equivale aos grupos pessoais. O transporte Hermes oferece somente as funções nativas anunciadas pelo adaptador, sem administração completa de grupos ou todos os recibos.
+
+As evidências abaixo pertencem às revisões anteriores, salvo indicação explícita; não são novas homologações de canais da 0.5.0.
 
 ## Revisão 0.3.1: instalação e orientação
 
@@ -52,7 +66,7 @@ Use staging, perfis e destinatários autorizados. Registre versão do Hermes, ve
 - O conector pelo Hermes usa uma extensão do gateway e APIs internas do adaptador. Telegram e WhatsApp direto não precisam desse plugin. A extensão precisa ser revalidada a cada atualização Hermes.
 - A API nativa de artefatos faz download de uso único. Caminhos locais e arquivos não exportados não são anexos. Sem confirmação de download, é necessária nova exportação; não há repetição automática.
 - Envios de canais não participam da transação D1. Se o provedor recebeu a mensagem e a confirmação se perdeu, o estado pode ser `unknown`: confira e reconcilie. Deduplicação local não equivale a exatamente uma entrega no provedor.
-- PDFs digitalizados sem camada de texto não têm OCR. Importação de vídeos usa apenas legendas públicas/autorizadas. Há limite de 20 MB por arquivo e importações têm limites do runtime Workers.
+- PDFs digitalizados sem camada de texto não têm OCR. Importação de vídeos usa apenas legendas públicas/autorizadas. O endpoint legado de upload e o download Telegram têm limite de 20 MiB. Upload em partes/entrada de mídia WhatsApp aceitam até 100 MiB, com limites menores por canal/tipo. Importações têm limites próprios do runtime Workers.
 - Os spools e as sessões QR/Hermes estão no host externo. Monitore disco e preserve-os no backup; esta versão não faz expurgo automático desses diários.
 - Não houve teste de carga representativo nem homologação de todos os fornecedores/modelos. Não há garantia de paridade automática com toda personalização privada do WABABOTAI original. As regras migradas cobrem os módulos descritos e os testes deste repositório.
 - Histórico antigo não é importado. A cópia de backup deve ser feita com entradas pausadas para consistência entre banco e mídias.
@@ -63,7 +77,9 @@ Use staging, perfis e destinatários autorizados. Registre versão do Hermes, ve
 npm ci
 npm run check
 npm test
-node --test tests/installer.test.mjs tests/updater-build.test.mjs
+node tests/installer.test.mjs
+node tests/updater-build.test.mjs
+node tests/qr-features.test.mjs
 npm run build
 python3 -m pip install httpx
 python3 tests/hermes_transport_test.py

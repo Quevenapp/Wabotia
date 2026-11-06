@@ -59,7 +59,7 @@ class Shot(Flowable):
 def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Paragraph(caption,styles['caption'])])
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 # 1
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.4.0','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.5.0','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
@@ -72,6 +72,7 @@ steps(['Instale Node.js e npm no computador ou na VPS de onde vai publicar. O ro
 box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instalação nova começa vazia e não importa o histórico antigo. Mantenha a anterior até conferir o novo painel. O roteiro de transição está na página 39.')
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
 p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
+p('WhatsApp: atualização dos conectores, arquivos, voz, grupos, ligações e teste final nas páginas 43 a 49.','small')
 # Node.js before Cloudflare provisioning
 title(3,'Node.js: prepare o Ubuntu')
 p('<b>Node.js executa o instalador; npm vem junto.</b> Você pode publicar a partir do computador ou da VPS. O Wabotia fica na Cloudflare. Se usar a VPS, a pasta privada com as chaves ficará nela.')
@@ -394,6 +395,55 @@ shot('25-agenda-conversa.jpg','Escolha explícita de um contato já cadastrado. 
 steps(['Abra <b>Conversas</b> e selecione o atendimento. Clique em <b>Salvar contato</b>. O telefone é preenchido quando está disponível.','Escolha <b>Criar novo contato</b> e preencha o nome, ou <b>Vincular contato existente</b> e selecione a pessoa na agenda. Clique em Salvar contato ou Vincular contato.','O nome passa a aparecer na conversa. Depois, use <b>Editar contato</b> para corrigir os dados.','Se vinculou a pessoa errada, clique em <b>Editar contato > Desvincular desta conversa</b>. O cadastro e o histórico permanecem salvos. Depois escolha o contato correto.'])
 box('Um contato pode ser vinculado a várias conversas. O mesmo telefone não une clientes automaticamente. Importar ou salvar contatos não envia mensagens nem concede consentimento.')
 p(link('Guia da agenda no site','https://wabotia.queven.app/install#agenda')+' · '+link('Baixar modelo CSV','https://wabotia.queven.app/modelo-contatos.csv'),'small')
+
+title(43,'Atualize o WhatsApp do Wabotia')
+p('A versão 0.5.0 acrescenta mídias nativas, voz gravada, grupos e ligações pela Meta. O painel na Cloudflare e o conector externo são atualizados separadamente. Preserve a sessão do WhatsApp e os diários de entrega.')
+steps(['Faça backup. No painel, abra <b>Sistema e atualizações > Verificar atualização > Atualizar Wabotia</b>. Espere a confirmação e reabra o painel. Não precisa reinstalar.','Se usa <b>Meta direto</b>, o código do canal já é atualizado com o Worker. Confira no aplicativo Meta os eventos assinados no webhook.','Se usa <b>QR direto</b>, pause a conexão, confira as entregas e pare o conector. Faça backup privado de .env e data/ (ou volume Docker). Atualize a cópia do repositório oficial e reinstale as dependências na pasta connectors/qr.','Se usa <b>WhatsApp pelo Hermes</b>, atualize o transporte e a extensão compatível com o gateway parado. O roteiro abaixo confere a versão antes de alterar arquivos. Preserve os perfis, bots e dados.'])
+table([['Seu modo','Depois de atualizar o código'],['QR com Node.js','Na pasta connectors/qr: npm ci e npm start. Use a mesma pasta de dados e as mesmas credenciais.'],['QR com Docker','docker compose stop; faça backup; atualize o código; docker compose up -d --build. Não use down -v.'],['Pelo Hermes','Siga o roteiro específico; não aplique patches à força nem substitua o perfil inteiro.']])
+p(link('Roteiro de atualização QR','https://github.com/Quevenapp/Wabotia/blob/main/connectors/qr/README.md#atualizar-sem-perder-a-sessão')+'<br/>'+link('Roteiro de atualização Hermes','https://github.com/Quevenapp/Wabotia/blob/main/connectors/hermes/README.md#atualização-050'))
+box('O botão do painel não atualiza o computador/VPS. Reative a conexão somente após atualizar o conector. Não execute duas cópias para o mesmo número. Se não souber qual processo usa, confira Conexões antes de prosseguir.')
+
+title(44,'Fotos, vídeos e documentos')
+shot('26-whatsapp-midias.jpg','Conversa local de teste: imagem, áudio e resposta citada. Todos os dados são fictícios.',width=380,crop=(585,300,850,820))
+steps(['Em <b>Conversas</b>, abra o atendimento e clique <b>Assumir conversa</b>. Isso pausa a IA e invalida respostas antigas ainda em preparação.','Clique <b>Anexar</b>, escolha os arquivos e escreva a legenda se quiser. Deixe Automático pelo arquivo ou selecione Enviar como documento.','Clique <b>Enviar</b> e acompanhe a porcentagem. Na fila significa pedido recebido; Enviada significa confirmação do provedor. Entregue e Lida dependem dos recibos do canal.','Reproduza vídeo/áudio recebido no painel. Clique no nome do arquivo para baixar. A seta na mensagem permite responder citando o conteúdo.'])
+
+title(45,'Áudio e limites dos arquivos')
+sub('Grave uma mensagem de voz')
+steps(['Assuma a conversa e clique <b>Gravar áudio</b>. Permita o microfone no navegador. Use o painel em HTTPS.','Grave por até dois minutos e clique em parar. Ouça a prévia. Você pode descartar antes de enviar.','Clique <b>Enviar</b>. A gravação é preparada em OGG/Opus, formato compatível com voz no WhatsApp.'])
+table([['Conteúdo','Limites de envio'],['Foto','Meta: JPG/PNG até 5 MB. QR direto: até 20 MB.'],['Vídeo','Meta: MP4/3GP até 16 MB, H.264/AAC. QR direto: até 100 MB; prefira MP4 compatível.'],['Áudio e voz','Meta até 16 MB; voz em OGG/Opus. QR: arquivo de áudio até 100 MB, voz até 16 MB.'],['Documento','Até 100 MB. Na Meta, use PDF, TXT ou formatos Office aceitos.'],['Figurinha','WebP 512 x 512 pixels. Meta: estática até 100 KB, animada até 500 KB. QR: até 1 MB.']])
+p('O upload Wabotia aceita até 100 MB, mas o canal pode aceitar menos. Não há conversão automática de vídeo/documento. O formato e o codec ainda precisam ser aceitos pelo WhatsApp. O transporte Hermes pode oferecer menos funções, conforme o adaptador instalado.','small')
+sub('Outras ações da mensagem')
+p('Reaja pelo ícone de rosto. Editar e Apagar aparecem quando o canal permite; a Meta não oferece essas ações neste fluxo. No QR, edição de texto tem limite local de 15 minutos. Localização e Compartilhar contato estão no seletor de conteúdo.')
+box('Se aparecer <b>Sem confirmação</b>, confira Entregas e o WhatsApp antes de reenviar. A conexão pode ter caído depois de o provedor aceitar. Uploads incompletos expiram após 24 horas; o rascunho permanece em caso de erro enquanto a conversa está aberta.')
+
+title(46,'Converse em grupos')
+shot('27-whatsapp-grupos.jpg','Menu Grupos WhatsApp com um grupo fictício. O conector QR deve estar ligado para buscar grupos.',width=CW)
+steps(['Abra <b>Grupos WhatsApp</b>, selecione a conexão QR e use <b>Buscar grupos</b>. Aguarde o resultado em Operações recentes.','Abra um grupo existente ou selecione Criar grupo / Entrar por convite. Use apenas grupos e participantes autorizados.','Na conversa, escolha a IA: <b>Somente atendimento humano</b>, <b>Quando mencionada ou /bot</b> ou <b>Todas as mensagens</b>. Retome a IA se o atendimento estiver assumido por uma pessoa.','Atualize os dados do grupo antes de mudar nome, participantes ou convite. O número precisa ter as permissões necessárias no próprio WhatsApp. Confira resultados parciais por participante.'])
+box('<b>Meta tem regras diferentes:</b> grupos empresariais exigem conta oficial elegível, têm até oito participantes na referência consultada e entrada por convite. Não acessam todos os grupos pessoais. Sem ligações, editar/apagar ou interativos no grupo Meta.')
+p('Pelo Hermes, configure também a política normal de grupos dele. Mensagens podem ser filtradas antes de chegar ao Wabotia. O transporte não oferece administração completa de grupos. Grupos não são salvos como uma pessoa na agenda.','small')
+
+title(47,'Prepare ligações pela Meta')
+p('Ligações ao vivo usam <b>WhatsApp direto pela Meta</b> e o microfone do navegador. Não funcionam pelo QR nem pelo transporte Hermes. Videochamadas não são oferecidas.')
+steps(['Na sua conta Meta, confirme que o número tem acesso à <b>Calling API</b>. A referência de produção consultada exige nível de mensagens de pelo menos 2.000 destinatários únicos por dia, país/número elegível e permissões do token. A Meta define a elegibilidade final.','No aplicativo Meta, abra a configuração de webhooks do WhatsApp. Use a mesma URL de conexão exibida no Wabotia. Assine <b>calls</b>, além de <b>messages</b>. Mantenha o segredo do aplicativo cadastrado para validar a assinatura.','No Wabotia, abra <b>Conexões</b>. Na conexão Meta, clique <b>Habilitar ligações de voz</b>. Aguarde o resultado. Se houver recusa, confira as permissões e a elegibilidade na Meta.','Abra uma conversa individual e clique <b>Assumir conversa</b>. Use <b>Verificar permissão</b> para consultar a autorização e os limites atuais.','Se necessário, clique <b>Pedir permissão</b>. O cliente recebe uma solicitação e precisa autorizar. Para esse pedido, a janela de atendimento deve estar aberta por uma mensagem recente dele.'])
+box('Permissão de enviar mensagens não é permissão para ligar. Não basta habilitar o botão no painel: a Meta precisa liberar o número e o cliente precisa autorizar a ligação iniciada pela empresa. Cobranças e limites Meta continuam aplicáveis.')
+sub('Deixe o navegador pronto')
+p('Use HTTPS, permita o microfone e confira o dispositivo de áudio do computador. Firewall ou VPN podem impedir WebRTC. O áudio passa entre navegador e Meta; não é gravado nem armazenado pelo Wabotia. O modo de ligação deste painel usa WebRTC com SIP desativado.')
+p(link('Requisitos oficiais da Calling API','https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/')+'<br/>'+link('Permissão do cliente','https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-call-permissions/'),'small')
+
+title(48,'Atenda, ligue e encerre')
+shot('28-whatsapp-ligacoes.jpg','Chamada recebida simulada. Os botões são reais, mas não há ligação com um número nesta imagem.',width=CW)
+steps(['Para ligar, assuma a conversa, confirme a autorização e clique <b>Ligar</b>. Permita o microfone quando o navegador solicitar.','Quando o cliente ligar, o painel mostra um aviso e o menu <b>Ligações</b>. Abra a conversa e clique <b>Atender com microfone</b> ou <b>Recusar</b>. Apenas um responsável pode assumir.','Use o controle de áudio e Silenciar microfone quando necessário. Ao terminar, clique <b>Encerrar</b>. O histórico fica na conversa e no menu Ligações.','Mantenha a conversa aberta. Sair dela fecha o áudio e solicita encerramento. Se o navegador cair, o servidor solicita encerramento depois de aproximadamente 90 segundos sem presença.'])
+box('Se aparecer <b>Sem confirmação</b>, aguarde a atualização do provedor. Use <b>Confirmar encerramento</b> somente depois de conferir no WhatsApp que a chamada acabou. Esse botão corrige o registro; não desliga uma chamada ainda ativa.')
+p('O Wabotia não liga novamente por conta própria depois de uma falha de rede. Não abre ligação em grupo nem videochamada. Faça o teste completo com seu número antes de atender clientes.','small')
+
+title(49,'Teste com seu número real')
+p('Os testes automatizados conferem as regras usando serviços simulados. Esta etapa confirma seu número, o conector, a rede e as permissões reais. Use destinatários e grupo de teste autorizados.')
+table([['Teste','O que conferir'],['Mídias','Receba e envie foto, vídeo MP4, documento e áudio. Grave voz no painel e ouça nos dois lados.'],['Ações','Cite e reaja; confira recibos. No QR, edite/apague uma mensagem enviada.'],['Reconexão','Desligue e religue o QR. Confira mensagens recebidas enquanto ficou offline, sem duplicação.'],['Grupos','Participantes separados, menção, /bot, IA desligada e restrições de administrador.'],['Voz Meta','Permissão negada/concedida; ligar, atender, recusar, silenciar e encerrar. Confira recuperação ao fechar o navegador.'],['Responsabilidade','Assuma durante resposta da IA. Nenhuma resposta antiga deve ser enviada depois.'],['API externa','Chave sem permissão recusada; mesma intenção repetida sem duplicar; webhook validado e deduplicado.']])
+p('Anote a versão Wabotia, versão Hermes/conector, modo WhatsApp, data e resultado. <b>Na fila não é prova de entrega.</b> Não marque uma função como homologada apenas porque a simulação passou.')
+sub('Integrar com outro sistema')
+p('Cadastre a aplicação em API e integrações. Selecione somente os perfis e permissões necessários. A API oferece mídias, grupos e chamadas, com chaves individuais. O sistema integrador protege a chave no seu servidor; para voz ele também precisa de um cliente WebRTC.')
+p(link('Guia completo WhatsApp','https://wabotia.queven.app/install#whatsapp-recursos')+' · '+link('API e exemplos','https://github.com/Quevenapp/Wabotia/blob/main/docs/API.md#whatsapp-mídias-grupos-e-ligações'))
+box('Você pode manter o painel disponível enquanto Hermes/QR estão desligados. Os bots dependem do Hermes ligado; o canal QR depende do seu conector. Cada número deve ter apenas um consumidor ativo.')
 
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)

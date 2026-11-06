@@ -5,7 +5,17 @@ import json
 import mimetypes
 import sqlite3
 import time
+from urllib.parse import unquote, quote
+import hashlib
 from pathlib import Path
+try:
+    from .content import features, send_native
+except ImportError:
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location("wabotia_native_content", Path(__file__).with_name("content.py"))
+    _module = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_module)
+    features, send_native = _module.features, _module.send_native
 import httpx
 
 
@@ -42,16 +52,16 @@ class Transport:
         if self.task:
             self.task.cancel()
 
-    async def request(self, route, *, body=None, files=None):
-        async with httpx.AsyncClient(timeout=12, follow_redirects=False, trust_env=False) as client:
-            response = await client.request('POST' if body is not None or files else 'GET',
+    async def request(self, route, *, body=None, files=None, content=None, headers=None):
+        async with httpx.AsyncClient(timeout=120, follow_redirects=False, trust_env=False) as client:
+            response = await client.request('POST' if body is not None or files or content is not None else 'GET',
                 self.cfg['url'].rstrip('/') + '/internal/v1/connectors/' + self.cfg['connection_id'] + route,
-                headers={'Authorization': 'Bearer ' + self.cfg['token'], 'User-Agent': 'Wabotia-Connector/0.1'}, json=body, files=files)
+                headers={'Authorization': 'Bearer ' + self.cfg['token'], 'User-Agent': 'Wabotia-Connector/0.5', **(headers or {})}, json=body, files=files, content=content)
             response.raise_for_status()
             return response
 
     async def receive(self, payload, host):
-        if payload['platform'] != self.cfg['platform'] or payload['chat_type'] != 'dm':
+        if payload['platform'] != self.cfg['platform'] or payload['chat_type'] not in ('dm', 'group'):
             return True  # Reserved group/system traffic must never fall through to an agent.
         attachments = []
         for media in payload.get('media', []):
@@ -60,17 +70,31 @@ class Transport:
             if known:
                 attachments.append(known[0])
                 continue
-            if source.is_symlink() or not source.is_file() or source.stat().st_size > 20*1024*1024:
+            if source.is_symlink() or not source.is_file() or source.stat().st_size > 100*1024*1024:
                 payload['text'] += '\n[Attachment unavailable; human review required]'
                 continue
-            with source.open('rb') as handle:
-                response = await self.request('/media', files={'file': (source.name, handle, mimetypes.guess_type(source.name)[0] or 'application/octet-stream')})
+            async def chunks():
+                with source.open('rb') as handle:
+                    while chunk := handle.read(1024*1024):
+                        yield chunk
+            response = await self.request('/media-content', content=chunks(), headers={
+                'Content-Type': mimetypes.guess_type(source.name)[0] or 'application/octet-stream',
+                'Content-Length': str(source.stat().st_size), 'X-Filename': quote(source.name),
+                'Idempotency-Key': hashlib.sha256((payload['message_id']+str(source)).encode()).hexdigest()})
             media_id = response.json()['id']
             self.db.execute('INSERT OR REPLACE INTO media VALUES(?,?)', (str(source), media_id))
             self.db.commit()
             attachments.append(media_id)
-        await self.request('/events', body={'external_id': payload['chat'], 'phone': payload['user'],
-            'message_id': payload['message_id'], 'text': payload.get('text', ''), 'attachments': attachments})
+        metadata = payload.get('metadata') or {}
+        source = payload.get('source') or {}
+        media = payload.get('media') or []
+        mime = mimetypes.guess_type(media[0]['path'])[0] if media else None
+        kind = ('image' if mime and mime.startswith('image/') else 'video' if mime and mime.startswith('video/') else 'audio' if mime and mime.startswith('audio/') else 'document') if media else 'text'
+        await self.request('/events', body={'external_id': payload['chat'], 'phone': None if payload['chat_type'] == 'group' else payload['user'],
+            'message_id': payload['message_id'], 'text': payload.get('text', ''), 'attachments': attachments,
+            'chat_type': 'group' if payload['chat_type'] == 'group' else 'direct', 'title': source.get('chat_name', ''),
+            'content': {'type': kind, 'participant': payload['user'], 'participant_name': source.get('user_name') or payload['user'],
+                        'reply_external_id': payload.get('reply_to'), 'mentioned': bool(metadata.get('wabotia_mentioned'))}})
         return True
 
     async def tick(self, host):
@@ -95,11 +119,11 @@ class Transport:
                     await asyncio.sleep(5)
                     continue
                 if time.time() - self.last_status > 30:
-                    status = {'state': 'connected', 'platform': self.cfg['platform']}
+                    status = {'state': 'connected', 'platform': self.cfg['platform'], 'protocol_version': 2, 'features': features(adapter, self.cfg['platform'])}
                     if self.cfg['platform'] == 'whatsapp_cloud' and time.time() - self.last_template > 3600:
                         policy = (await self.request('/policy')).json()['notifications']
                         if policy.get('enabled') and policy.get('template_name') and adapter._waba_id:
-                            async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+                            async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
                                 catalog = await client.get(f'https://graph.facebook.com/{adapter._api_version}/{adapter._waba_id}/message_templates', params={'name': policy['template_name']}, headers=adapter._auth_headers())
                                 catalog.raise_for_status()
                                 template = next((t for t in catalog.json().get('data', []) if t.get('name') == policy['template_name'] and t.get('language') == policy.get('language')), None)
@@ -126,7 +150,8 @@ class Transport:
                         target = None
                         if media_id:
                             media = await self.request('/media/'+media_id)
-                            target = self.root / ('out-'+command['id'])
+                            filename = unquote(media.headers.get('X-Filename', 'anexo'))
+                            target = self.root / ('out-'+command['id']+Path(filename).suffix[:12])
                             target.write_bytes(media.content)
                             target.chmod(0o600)
                         if not (await self.request('/commands/'+command['id']+'/check', body={})).json()['valid']:
@@ -134,21 +159,21 @@ class Transport:
                             self.db.commit()
                             continue
                         if payload.get('template') and self.cfg['platform'] == 'whatsapp_cloud':
-                            ids, error = await adapter._post_messages({'messaging_product':'whatsapp','to':chat,'type':'template','template':payload['template']})
+                            ids, error = await adapter._post_messages({'messaging_product':'whatsapp','to':chat,'type':'template','template':payload['template']}, fail_log='[wabotia] template delivery failed', reject_log='[wabotia] HTTP %s: %s')
                             if error or not ids or not ids[0].get('id'):
                                 raise RuntimeError('Template delivery not confirmed')
                             from gateway.platforms.base import SendResult
                             result = SendResult(success=True, message_id=ids[0]['id'])
-                        elif target:
-                            from urllib.parse import unquote
-                            result = await adapter.send_document(chat, str(target), file_name=unquote(media.headers.get('X-Filename','anexo')))
                         else:
-                            result = await adapter.send(chat, payload['text'])
+                            result = await send_native(adapter, self.cfg['platform'], chat, payload, target,
+                                filename if target else None, media.headers.get('Content-Type') if target else None)
                         if not result.success or not result.message_id:
                             raise RuntimeError('Provider did not confirm delivery')
                         self.db.execute("UPDATE commands SET status='sent',external_id=? WHERE id=?", (str(result.message_id), command['id']))
                         if target:
                             target.unlink(missing_ok=True)
+                    except ValueError:
+                        self.db.execute("UPDATE commands SET status='failed',error='Conteúdo recusado antes do envio; confira os recursos do adaptador' WHERE id=?", (command['id'],))
                     except (Exception, asyncio.CancelledError):
                         self.db.execute("UPDATE commands SET status='unknown',error='Delivery not confirmed; reconcile in Wabotia' WHERE id=?", (command['id'],))
                     self.db.commit()

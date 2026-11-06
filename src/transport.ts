@@ -4,6 +4,7 @@ import { conversation, message, settings } from "./service";
 import { finishDelivery } from "./delivery";
 import { event } from "./events";
 import { approvedTemplate } from "./integrations";
+import { syncGroup } from "./whatsapp";
 
 export async function transport(
   env: Env,
@@ -17,6 +18,61 @@ export async function transport(
     connectionId,
   );
   requireValue(conn, "Conector não encontrado.");
+  if (
+    operation === "commands" &&
+    conn.status === "active" &&
+    Number(json(conn.config).protocol_version) >= 2
+  ) {
+    const job = await one(
+      env,
+      "SELECT * FROM group_operations WHERE connection_id=? AND status='pending' AND NOT EXISTS(SELECT 1 FROM group_operations WHERE connection_id=? AND status IN ('sending','unknown')) ORDER BY created LIMIT 1",
+      conn.id,
+      conn.id,
+    );
+    if (job) {
+      await exec(
+        env,
+        "UPDATE group_operations SET status='sending',updated=? WHERE id=?",
+        now(),
+        job.id,
+      );
+      return {
+        commands: [{ id: job.id, kind: "group", payload: json(job.payload) }],
+      };
+    }
+  }
+  if (operation !== "commands") {
+    const job = await one(
+      env,
+      "SELECT * FROM group_operations WHERE id=? AND connection_id=?",
+      data.id,
+      conn.id,
+    );
+    if (job) {
+      if (operation === "check")
+        return { valid: conn.status === "active" && job.status === "sending" };
+      requireValue(
+        operation === "receipt" &&
+          ["sent", "failed", "unknown"].includes(data.status),
+        "Recibo inválido.",
+      );
+      if (job.status === "sent") return { ok: true, duplicate: true };
+      requireValue(
+        ["sending", "unknown"].includes(job.status),
+        "Operação não aguardava confirmação.",
+      );
+      await exec(
+        env,
+        "UPDATE group_operations SET status=?,result=?,error=?,updated=? WHERE id=?",
+        data.status,
+        JSON.stringify(data.result || {}),
+        String(data.error || "").slice(0, 200),
+        now(),
+        job.id,
+      );
+      return { ok: true };
+    }
+  }
   if (operation === "commands") {
     if (conn.status !== "active") return { commands: [] };
     await exec(
@@ -27,14 +83,15 @@ export async function transport(
     );
     const row = await one(
       env,
-      "SELECT o.*,c.external_id destination,c.last_customer FROM outbox o JOIN conversations c ON c.id=o.conversation_id WHERE o.connection_id=? AND o.kind!='team' AND o.status='pending' AND o.epoch=c.epoch AND NOT EXISTS(SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND p.kind!='team' AND (p.created<o.created OR p.created=o.created AND p.rowid<o.rowid) AND p.status IN ('pending','sending','unknown')) ORDER BY o.created,o.rowid LIMIT 1",
+      "SELECT o.*,c.external_id destination,c.last_customer,c.chat_type FROM outbox o JOIN conversations c ON c.id=o.conversation_id WHERE o.connection_id=? AND o.kind!='team' AND o.status='pending' AND o.epoch=c.epoch AND NOT EXISTS(SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND p.kind!='team' AND (p.created<o.created OR p.created=o.created AND p.rowid<o.rowid) AND p.status IN ('pending','sending','unknown')) ORDER BY o.created,o.rowid LIMIT 1",
       conn.id,
     );
     if (!row) return { commands: [] };
     const cfg = json(conn.config),
-      payload = json(row.payload);
+      payload = { ...json(row.payload), chat_type: row.chat_type };
     if (
       cfg.platform === "whatsapp_cloud" &&
+      row.chat_type !== "group" &&
       now() - row.last_customer >= 86400000
     ) {
       const opts = (await settings(env, conn.profile_id)).notifications,

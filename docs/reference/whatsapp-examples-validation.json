@@ -1,0 +1,18 @@
+{
+  "version": "0.5.0",
+  "environment": "local workerd; dados fictícios; nenhum provedor conectado",
+  "examples": [
+    {
+      "language": "JavaScript",
+      "upload": true,
+      "queued": true,
+      "replayed_same_receipt": true
+    },
+    {
+      "language": "Python",
+      "upload": true,
+      "queued": true,
+      "replayed_same_receipt": true
+    }
+  ]
+}

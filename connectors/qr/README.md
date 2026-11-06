@@ -14,3 +14,15 @@ A sessão e o diário SQLite ficam em `data/` (ou no volume `qr-data` no Compose
 Para pausar/trocar modo, pause a conexão no painel, pare o processo, reconcilie pendências e só depois ative outro consumidor do número. Nunca execute duas cópias sobre a mesma sessão.
 
 Baileys 7.0.0-rc13 foi instalado e importado em validação técnica; pareamento com conta real ainda precisa de homologação. O Compose é fornecido para operação e não foi validado com uma sessão WhatsApp real.
+
+## Atualizar sem perder a sessão
+
+1. Pause a conexão no painel e confira Entregas e Operações de grupos. Pare o processo com o gerenciador que o executa. No Docker: `docker compose stop`.
+2. Faça uma cópia privada de `.env` e de `data/`, ou do volume `qr-data` com o serviço parado. Não use `down -v`.
+3. Atualize a cópia do repositório oficial com `git pull --ff-only`. Se houver alterações locais, preserve-as e resolva antes de continuar.
+4. Dentro de `connectors/qr`, execute `npm ci` e `npm start`. Se usa Docker, execute `docker compose up -d --build`, preservando o volume. Use a mesma URL, ID de conexão, token e pasta de dados.
+5. Ative a conexão no painel. O heartbeat deve anunciar `protocol_version:2`. Não deve ser necessário ler outro QR se a sessão continua válida; se o WhatsApp tiver encerrado a sessão, pare o processo e renomeie somente `data/session` antes de parear. Preserve `journal.sqlite`.
+
+A versão 0.5 transmite imagem, vídeo, áudio/voz, documento, figurinha, localização, cartão de contato, citação, menção, reação, edição/revogação e recibos. Inclui criação/sincronização/administração de grupos usando a mesma sessão. Mensagens offline `append` passam pelo diário de deduplicação; histórico antigo não é importado em massa.
+
+Arquivos recebidos são transferidos por streaming para o disco e o Worker, com limite de 100 MiB. O envio pelo Baileys pode manter o arquivo na memória do host. O host deve ter disco para spool e memória para as operações internas do Baileys. O conector anuncia somente mensagens/grupos; Baileys não oferece iniciar/atender chamada ou videochamada neste caminho. Para voz ao vivo use Meta direto. [Guia e homologação](../../docs/WHATSAPP.md).

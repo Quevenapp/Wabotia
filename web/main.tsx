@@ -1,3 +1,6 @@
+import { WhatsAppConversation } from "./WhatsAppConversation";
+import { WhatsAppGroups, GroupControls } from "./WhatsAppGroups";
+import { callStatus } from "./WhatsAppCalls";
 import { DirectInstall } from "./DirectInstall";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -23,6 +26,7 @@ import {
   Menu,
   MessageCircle,
   Plus,
+  Phone,
   Search,
   Send,
   Settings,
@@ -42,11 +46,14 @@ import { ConnectionDiagnostics } from "./ConnectionDiagnostics";
 import { CloudflareDeploy, SystemPanel } from "./SystemPanel";
 import { MaintenanceGuide } from "./maintenance-guide";
 import { ContactGuide } from "./ContactGuide";
+import { WhatsAppGuide } from "./WhatsAppGuide";
 import { ContactsPanel, ContactEditor, demoContacts } from "./ContactsPanel";
 type Row = Record<string, any>;
 const sections = [
   ["overview", "Visão geral", LayoutDashboard],
   ["conversations", "Conversas", MessageCircle],
+  ["groups", "Grupos WhatsApp", Users],
+  ["calls", "Ligações", Phone],
   ["contacts", "Agenda de contatos", BookOpen],
   ["tickets", "Protocolos", FileText],
   ["bots", "Equipe Bot", Bot],
@@ -435,6 +442,8 @@ function Install() {
           "#cloudflare-hermes",
           "#deploy-hermes",
           "#atualizacoes",
+          "#agenda",
+          "#whatsapp-recursos",
         ].includes(location.hash)
       ) {
         const target = document.getElementById(location.hash.slice(1));
@@ -498,6 +507,7 @@ function Install() {
         <HermesInstall />
         <MaintenanceGuide />
         <ContactGuide />
+        <WhatsAppGuide />
         <aside className="callout">
           <ShieldCheck />
           <div>
@@ -807,6 +817,7 @@ function App() {
     [section, setSection] = useState("tickets"),
     [cursor, setCursor] = useState(""),
     [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [ringingCalls, setRingingCalls] = useState<Row[]>([]);
   const root = "v1/profiles/" + profile;
   const change = (key: string, value: any) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -947,6 +958,32 @@ function App() {
       return () => clearInterval(timer);
     }
   }, [profile, page, me, section, cursor]);
+  useEffect(() => {
+    if (!me || !profile || demo) return;
+    let alive = true;
+    setRingingCalls([]);
+    const check = async () => {
+      try {
+        const result = await api(root + "/calls?limit=30");
+        if (alive)
+          setRingingCalls(
+            (result.data || []).filter(
+              (call: Row) =>
+                call.status === "ringing" &&
+                (!call.actor || call.actor === me.id),
+            ),
+          );
+      } catch {
+        /* The panel keeps working while reconnecting. */
+      }
+    };
+    check();
+    const timer = setInterval(check, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [profile, me?.id, demo]);
   async function openConversation(row: Row) {
     if (demo) {
       setSelection({
@@ -981,26 +1018,6 @@ function App() {
     setModal(kind);
     setError("");
   }
-  async function sendReply() {
-    const attachments: string[] = [];
-    const el = document.querySelector("#reply-file") as HTMLInputElement;
-    for (const file of Array.from(el?.files || [])) {
-      const fd = new FormData();
-      fd.set("file", file);
-      attachments.push((await api(root + "/media", "POST", fd)).id);
-    }
-    const result = await api(
-      root + `/conversations/${selection!.conversation.id}/actions`,
-      "POST",
-      {
-        action: "reply",
-        text: reply || (attachments.length ? "Anexo" : ""),
-        attachments,
-      },
-    );
-    if (el) el.value = "";
-    return result;
-  }
   async function saveModal() {
     const result = await run(async () => {
       if (modal === "profile") return api("v1/profiles", "POST", form);
@@ -1028,6 +1045,7 @@ function App() {
       if (modal === "connection") {
         const config: Row = {},
           secrets: Row = {};
+        config.groups_enabled = !!form.groups_enabled;
         for (const k of [
           "url",
           "api_url",
@@ -1209,6 +1227,9 @@ function App() {
                   <Icon size={18} />
                   <span>{title}</span>
                   {id === "conversations" && total > 0 && <b>{total}</b>}
+                  {id === "calls" && ringingCalls.length > 0 && (
+                    <b>{ringingCalls.length}</b>
+                  )}
                 </button>
               </React.Fragment>
             ))}
@@ -1272,6 +1293,26 @@ function App() {
           </div>
         )}
         <div className="page-content">
+          {ringingCalls.length > 0 &&
+            !(
+              page === "conversations" &&
+              selection?.conversation.id === ringingCalls[0].conversation_id
+            ) && (
+              <div className="notice" role="status">
+                <Phone size={18} /> Você está recebendo uma ligação pelo
+                WhatsApp.{" "}
+                <button
+                  onClick={() => {
+                    setPage("conversations");
+                    openConversation({
+                      id: ringingCalls[0].conversation_id,
+                    }).catch((e) => setError(e.message));
+                  }}
+                >
+                  Abrir ligação
+                </button>
+              </div>
+            )}
           <div className="page-heading">
             <div>
               <div className="eyebrow">SEU CENTRO DE ATENDIMENTO</div>
@@ -1515,7 +1556,10 @@ function App() {
                           </span>
                           <div>
                             <strong>
-                              {row.contact_name || row.phone || row.external_id}
+                              {row.title ||
+                                row.contact_name ||
+                                row.phone ||
+                                row.external_id}
                             </strong>
                             <small>{date(row.updated)}</small>
                           </div>
@@ -1535,7 +1579,8 @@ function App() {
                         <header>
                           <div>
                             <h2>
-                              {selection.contact?.name ||
+                              {selection.conversation.title ||
+                                selection.contact?.name ||
                                 selection.conversation.phone ||
                                 selection.conversation.external_id}
                             </h2>
@@ -1544,6 +1589,9 @@ function App() {
                           <div className="contact-actions">
                             <Button
                               secondary
+                              disabled={
+                                selection.conversation.chat_type === "group"
+                              }
                               onClick={() => setContactEditing(true)}
                             >
                               {selection.contact
@@ -1570,84 +1618,29 @@ function App() {
                             </Button>
                           </div>
                         </header>
-                        <div className="messages">
-                          {selection.messages.map((m: any) => (
-                            <div
-                              className={
-                                "message " +
-                                (m.direction === "customer"
-                                  ? "incoming"
-                                  : m.direction === "note"
-                                    ? "internal"
-                                    : "outgoing")
+                        <WhatsAppConversation
+                          key={selection.conversation.id}
+                          selection={selection}
+                          api={api}
+                          root={root}
+                          me={me}
+                          refresh={() =>
+                            openConversation(selection.conversation)
+                          }
+                          demo={demo}
+                        />
+                        {selection.conversation.chat_type === "group" &&
+                          !demo && (
+                            <GroupControls
+                              api={api}
+                              root={root}
+                              c={selection.conversation}
+                              refresh={() =>
+                                openConversation(selection.conversation)
                               }
-                              key={m.id}
-                            >
-                              <small>
-                                {m.direction === "note"
-                                  ? "Nota interna"
-                                  : m.direction === "customer"
-                                    ? "Cliente"
-                                    : m.author}
-                              </small>
-                              <p>{m.text}</p>
-                              {parse(m.attachments, []).map((id: string) => (
-                                <a
-                                  key={id}
-                                  href={
-                                    "/api/" + root + "/media/" + id + "/content"
-                                  }
-                                >
-                                  Baixar anexo
-                                </a>
-                              ))}
-                              <time>{date(m.created)}</time>
-                            </div>
-                          ))}
-                        </div>
+                            />
+                          )}
                         <div className="reply-box">
-                          <textarea
-                            placeholder="Escreva sua resposta…"
-                            value={reply}
-                            onChange={(e) => setReply(e.target.value)}
-                          />
-                          <input
-                            id="reply-file"
-                            className="attachment-input"
-                            aria-label="Anexar arquivos"
-                            type="file"
-                            multiple
-                          />
-                          <div>
-                            <Button
-                              secondary
-                              onClick={() =>
-                                run(() =>
-                                  api(
-                                    root +
-                                      `/conversations/${selection.conversation.id}/actions`,
-                                    "POST",
-                                    { action: "note", text: reply },
-                                  ),
-                                ).then(() => {
-                                  setReply("");
-                                  openConversation(selection.conversation);
-                                })
-                              }
-                            >
-                              Nota interna
-                            </Button>
-                            <Button
-                              onClick={() =>
-                                run(sendReply).then(() => {
-                                  setReply("");
-                                  openConversation(selection.conversation);
-                                })
-                              }
-                            >
-                              Enviar <Send size={16} />
-                            </Button>
-                          </div>
                           <div className="inline-links">
                             <button
                               onClick={() =>
@@ -1695,17 +1688,20 @@ function App() {
                             >
                               Abrir protocolo
                             </button>
-                            <button
-                              onClick={() =>
-                                run(() =>
-                                  api(root + "/consents/request", "POST", {
-                                    conversation_id: selection.conversation.id,
-                                  }),
-                                )
-                              }
-                            >
-                              Solicitar consentimento
-                            </button>
+                            {selection.conversation.chat_type !== "group" && (
+                              <button
+                                onClick={() =>
+                                  run(() =>
+                                    api(root + "/consents/request", "POST", {
+                                      conversation_id:
+                                        selection.conversation.id,
+                                    }),
+                                  )
+                                }
+                              >
+                                Solicitar consentimento
+                              </button>
+                            )}
                           </div>
                         </div>
                       </>
@@ -1717,6 +1713,50 @@ function App() {
                     )}
                   </section>
                 </div>
+              )}
+              {page === "groups" && (
+                <WhatsAppGroups
+                  api={api}
+                  root={root}
+                  rows={list}
+                  demo={demo}
+                  openConversation={(row) => {
+                    setPage("conversations");
+                    openConversation(row);
+                  }}
+                />
+              )}
+              {page === "calls" && (
+                <section className="card">
+                  <h2>Ligações de voz</h2>
+                  <p>
+                    Chamadas pela Meta. Abra a conversa para atender, ligar ou
+                    consultar o histórico.
+                  </p>
+                  {list.length ? (
+                    list.map((row) => (
+                      <button
+                        className="call-history-row"
+                        key={row.id}
+                        onClick={() => {
+                          setPage("conversations");
+                          openConversation({ id: row.conversation_id });
+                        }}
+                      >
+                        <strong>{callStatus[row.status] || row.status}</strong>
+                        <span>
+                          {row.direction === "inbound"
+                            ? "Recebida"
+                            : "Realizada"}{" "}
+                          · {date(row.created)}
+                        </span>
+                        <span>Abrir conversa →</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p>Nenhuma ligação registrada.</p>
+                  )}
+                </section>
               )}
               {page === "connections" && (
                 <>
@@ -1834,6 +1874,36 @@ function App() {
                           >
                             Ligar recebimento Telegram
                           </button>
+                        )}
+                        {row.kind === "meta" && (
+                          <div className="call-configuration">
+                            <p>
+                              Ligações de voz exigem habilitação pela Meta,
+                              permissão do aplicativo e assinatura do webhook{" "}
+                              <code>calls</code>. O áudio será atendido no
+                              navegador.
+                            </p>
+                            <Button
+                              secondary
+                              disabled={busy}
+                              onClick={() =>
+                                run(() =>
+                                  api(
+                                    root + `/connections/${row.id}/calling`,
+                                    "PUT",
+                                    {
+                                      enabled: !parse(row.config)
+                                        .calling_enabled,
+                                    },
+                                  ),
+                                ).then(load)
+                              }
+                            >
+                              {parse(row.config).calling_enabled
+                                ? "Desabilitar ligações"
+                                : "Habilitar ligações de voz"}
+                            </Button>
+                          </div>
                         )}
                         {["qr", "hermes-whatsapp"].includes(row.kind) && (
                           <button
@@ -2729,6 +2799,18 @@ function App() {
                     </details>
                   </>
                 )}
+                {form.kind === "meta" && (
+                  <label className="check-line">
+                    <input
+                      type="checkbox"
+                      checked={!!form.groups_enabled}
+                      onChange={(e) =>
+                        change("groups_enabled", e.target.checked)
+                      }
+                    />
+                    Minha conta Meta tem acesso à API de Grupos (OBA)
+                  </label>
+                )}
                 {["meta", "telegram"].includes(form.kind) && (
                   <Field
                     label="Token do serviço"
@@ -2883,6 +2965,9 @@ function App() {
                 <div className="scope-grid">
                   {(
                     (rows.scopes?.length ? rows.scopes : null) || [
+                      "calls:read",
+                      "calls:write",
+                      "groups:manage",
                       "conversations:read",
                       "conversations:write",
                       "contacts:read",

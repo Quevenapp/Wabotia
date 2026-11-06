@@ -44,3 +44,19 @@ Mantenha `exclusive-ingress.json`, `wabotia-connector.json`, `wabotia-transport/
 Para remover, primeiro pause o canal e pare o gateway. Confirme pendências no Wabotia, desabilite o plugin e remova somente o vínculo daquele consumidor em `exclusive-ingress.json`. Depois reative o consumidor escolhido. Não exclua todos os vínculos nem todo o perfil.
 
 Os testes Python cobrem diário, confirmação perdida e recebimento. Homologação real Meta/QR exige suas credenciais e números autorizados.
+
+## Atualização 0.5.0
+
+Pause a conexão, confira Entregas, pare o gateway e faça backup do perfil/checkout. Atualize a cópia Wabotia. Se já aplicou exatamente a extensão fornecida até 0.4.0, execute:
+
+```sh
+python3 scripts/update-hermes-ingress.py --hermes-checkout /CAMINHO/DO/HERMES
+```
+
+O atualizador confere o hash da extensão conhecida, faz uma cópia e troca somente `gateway/exclusive_ingress.py`. Recusa arquivos de outras versões ou modificados; não force a substituição. A extensão nova reconhece menções do bridge atual e aceita arquivos até 100 MiB. Para instalação inicial continue usando o patch completo, com `git apply --check`.
+
+Repita `install-hermes-transport.py` com o **mesmo perfil, conexão e token** já existentes. Isso atualiza `content.py` e o consumidor, preservando `wabotia-transport/`, `exclusive-inbox/`, configurações de bots e sessão WhatsApp. Reinicie o gateway pela supervisão existente e ative a conexão. Não inicie o conector QR direto para o mesmo número.
+
+O protocolo 2 anuncia as funções nativas implementadas no adaptador concreto. O envio de imagem/vídeo/voz/documento usa esses métodos; não aceita como suporte uma implementação base que apenas envia o caminho local como texto. Na Meta Hermes, conteúdo nativo inclui citação, reação, figurinha, localização e contatos. Não há encaminhamento completo de recibos/edições recebidas nem API de administração de grupos neste transporte. Para isso prefira o modo direto.
+
+Grupos são encaminhados com autor separado da conversa. A política normal de grupos do Hermes pode filtrar a entrada antes da extensão; configure grupos permitidos nele. A política Wabotia padrão responde apenas a menção ou `/bot`. O QR Hermes usa o método de voz do adaptador também para arquivos de áudio; a conversão depende das ferramentas instaladas nele. Ligações ao vivo exigem Meta direto, não esta extensão.

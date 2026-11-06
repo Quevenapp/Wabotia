@@ -2668,3 +2668,305 @@ td .text-link {
     gap: 12px;
   }
 }
+
+/* WhatsApp conversation tools keep private media inside the authenticated panel. */
+.chat-media {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  max-width: 100%;
+}
+.chat-media img,
+.chat-media video {
+  display: block;
+  max-width: 100%;
+  max-height: 310px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+.chat-media audio {
+  max-width: 100%;
+  width: 290px;
+}
+.chat-media a {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+.message blockquote {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #14a599;
+  background: #ffffff66;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.message-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+.message-tools button,
+.message-tools summary {
+  border: 0;
+  background: transparent;
+  padding: 3px;
+  cursor: pointer;
+  color: #386d72;
+  font-size: 11px;
+}
+.message-tools details {
+  position: relative;
+}
+.emoji-choices {
+  display: flex;
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  z-index: 3;
+  border: 1px solid #d4e1e1;
+  background: white;
+  border-radius: 8px;
+  padding: 8px;
+}
+.emoji-choices button {
+  font-size: 18px;
+  white-space: nowrap;
+}
+.reaction {
+  display: inline-block;
+  border: 1px solid #cbdede;
+  border-radius: 20px;
+  padding: 2px 6px;
+  margin: 4px 4px 0 0;
+  background: white;
+}
+.delivery-progress {
+  font-size: 12px;
+  padding: 8px 12px;
+  background: #fff4d9;
+  border-radius: 8px;
+  align-self: flex-end;
+}
+.rich-reply fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.compose-tools,
+.compose-send,
+.special-fields,
+.call-toolbar,
+.current-call {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.compose-tools {
+  margin: 10px 0;
+}
+.compose-tools button,
+.compose-tools select,
+.file-picker,
+.call-panel button,
+.group-strip select,
+.group-controls button,
+.group-controls select,
+.groups-page button {
+  border: 1px solid #cbdcdd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.file-picker input {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  opacity: 0;
+}
+.compose-send {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.compose-send small {
+  margin-right: auto;
+  max-width: 260px;
+  line-height: 1.5;
+  font-size: 10px;
+  color: #687d83;
+}
+.compose-send button {
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbdcdd;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.compose-send .primary,
+.groups-page .primary {
+  background: #0b8179;
+  color: white;
+  border-color: #0b8179;
+}
+.quote-draft,
+.file-preview {
+  font-size: 12px;
+  padding: 9px;
+  border: 1px solid #d9e5e5;
+  border-radius: 8px;
+  margin: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quote-draft button,
+.file-preview button {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.recording {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  background: #fff0f0;
+  border-radius: 8px;
+}
+.special-fields label {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+  font-size: 12px;
+}
+.special-fields input,
+.special-fields select,
+.group-controls input,
+.groups-page input {
+  padding: 9px;
+  border: 1px solid #cbdcdd;
+  border-radius: 8px;
+  width: 100%;
+}
+.call-panel,
+.group-strip,
+.group-controls {
+  padding: 12px 18px;
+  border-bottom: 1px solid #e0e9e9;
+  background: #f5faf9;
+  font-size: 12px;
+}
+.call-toolbar strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: auto;
+}
+.call-panel p {
+  margin: 8px 0;
+}
+.call-panel audio {
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+}
+.current-call {
+  margin-top: 9px;
+  border: 1px solid #a9cfbf;
+  padding: 10px;
+  border-radius: 8px;
+  background: #e5f6ed;
+}
+.group-strip {
+  display: grid;
+  gap: 8px;
+}
+.group-strip label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.group-controls summary {
+  cursor: pointer;
+}
+.group-controls > label {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0;
+}
+.groups-page {
+  display: grid;
+  gap: 20px;
+}
+.groups-page .card {
+  padding: 22px;
+}
+.groups-page .special-fields {
+  margin: 16px 0;
+}
+.group-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.group-list button {
+  justify-content: space-between;
+  text-align: left;
+}
+.group-job {
+  padding: 12px 0;
+  border-bottom: 1px solid #e0e9e9;
+}
+.call-history-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 15px;
+  width: 100%;
+  background: white;
+  border: 0;
+  border-bottom: 1px solid #e0e9e9;
+  cursor: pointer;
+  text-align: left;
+}
+.call-configuration {
+  margin: 10px 0;
+  font-size: 12px;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@media (max-width: 700px) {
+  .chat-media video,
+  .chat-media img {
+    max-height: 230px;
+  }
+  .compose-send small {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .call-toolbar {
+    align-items: stretch;
+  }
+  .call-toolbar strong {
+    flex-basis: 100%;
+  }
+}
+
+.guide-reference-image { display: block; max-width: 100%; height: auto; border-radius: 10px; }

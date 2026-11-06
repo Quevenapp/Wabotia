@@ -311,6 +311,7 @@ export async function contactCommand(
         conv.external_namespace !== contactNamespace(actor))
     )
       throw new ApiError(404, "not_found", "Conversa não encontrada.");
+    requireValue(conv.chat_type!=="group","Um grupo não pode ser salvo como uma pessoa na agenda.");
     const linked = await one(
       env,
       "SELECT contact_id FROM conversation_contacts WHERE conversation_id=? AND profile_id=?",

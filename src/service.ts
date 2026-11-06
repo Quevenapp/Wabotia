@@ -24,7 +24,21 @@ import { visibleConversation } from "./visibility";
 import { probe, discover, configureTelegram } from "./integrations";
 import { secret } from "./security";
 import { contactCommand } from "./contacts";
+import { authorizedMedia, mediaKind, uploadCommand } from "./media";
+import {
+  outgoingContent,
+  messageAction,
+  channelEvent,
+  applyChannelEvents,
+  syncGroup,
+  needCapability,
+} from "./whatsapp";
+import { callCommand } from "./calls";
+import { groupCommand } from "./groups";
 export const scopes = [
+  "calls:read",
+  "calls:write",
+  "groups:manage",
   "conversations:read",
   "conversations:write",
   "contacts:read",
@@ -49,6 +63,8 @@ export const eventTypes = [
   "conversation.updated",
   "message.received",
   "message.sent",
+  "message.updated",
+  "call.updated",
   "ticket.created",
   "ticket.updated",
   "bot.run.completed",
@@ -106,14 +122,31 @@ export async function enqueue(
 ) {
   if (payload.attachments?.length) {
     const ids: string[] = [];
-    if (payload.text)
+    const firstMedia = await one(
+      env,
+      "SELECT type FROM media WHERE id=?",
+      payload.attachments[0],
+    );
+    const firstKind =
+      payload.content?.type && payload.content.type !== "text"
+        ? payload.content.type
+        : mediaKind(firstMedia?.type || "application/octet-stream");
+    const caption =
+      !!payload.content && ["image", "video", "document"].includes(firstKind);
+    if (payload.text && !caption)
       ids.push(
         await enqueue(
           env,
           c,
           actor,
           kind,
-          { ...payload, attachments: [] },
+          {
+            ...payload,
+            attachments: [],
+            content: payload.content
+              ? { ...payload.content, type: "text" }
+              : undefined,
+          },
           dedupe + ":text",
         ),
       );
@@ -124,7 +157,27 @@ export async function enqueue(
           c,
           actor,
           kind,
-          { ...payload, text: "", attachments: [], media_id: attachment },
+          {
+            ...payload,
+            text: caption && index === 0 ? payload.text : "",
+            attachments: [],
+            media_id: attachment,
+            content: {
+              ...payload.content,
+              type:
+                !payload.content?.type || payload.content.type === "text"
+                  ? mediaKind(
+                      (
+                        await one(
+                          env,
+                          "SELECT type FROM media WHERE id=?",
+                          attachment,
+                        )
+                      )?.type || "application/octet-stream",
+                    )
+                  : payload.content.type,
+            },
+          },
           dedupe + ":media:" + index,
         ),
       );
@@ -277,6 +330,37 @@ export async function inbound(
     "Texto inválido.",
   );
   const attachments = await mediaIds(env, profile, data.attachments || []);
+  if (namespace.startsWith("app:")) {
+    const appId = namespace.slice(4);
+    for (const id of attachments)
+      requireValue(
+        (await one(env, "SELECT actor FROM media WHERE id=?", id))?.actor ===
+          appId,
+        "Anexo não pertence a esta aplicação.",
+      );
+  }
+  const content =
+    data.content && typeof data.content === "object" ? data.content : {};
+  const isGroup = data.chat_type === "group";
+  if (isGroup) {
+    requireValue(
+      !!connectionId && namespace.startsWith("channel:"),
+      "Grupos precisam de um canal autenticado.",
+    );
+    requireValue(
+      typeof content.participant === "string" && content.participant.length > 0,
+      "Informe o participante do grupo.",
+    );
+    const conn = await one(
+      env,
+      "SELECT * FROM connections WHERE id=?",
+      connectionId,
+    );
+    await syncGroup(env, conn, {
+      external_id: data.external_id,
+      title: data.title,
+    });
+  }
   const key = `${profile}:${namespace}:${data.external_id}:${data.message_id}`;
   const old = await one(
     env,
@@ -330,7 +414,13 @@ export async function inbound(
     );
     c = await conversation(env, c.id, profile);
   }
-  if (c.state === "ai") {
+  if (
+    c.state === "ai" &&
+    (c.chat_type !== "group" ||
+      c.bot_policy === "all" ||
+      (c.bot_policy === "mentions" &&
+        (content.mentioned || /^\/bot(?:\s|$)/i.test(data.text))))
+  ) {
     await exec(env, "UPDATE conversations SET epoch=epoch+1 WHERE id=?", c.id);
     c = await conversation(env, c.id, profile);
   }
@@ -354,17 +444,18 @@ export async function inbound(
       ],
     ],
     [
-      "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created) VALUES(?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,content) VALUES(?,?,?,?,?,?,?,?,?,?)",
       [
         msgId,
         profile,
         c.id,
         "customer",
-        `customer:${namespace}:${data.external_id}`,
+        `customer:${namespace}:${content.participant || data.external_id}`,
         data.text,
         JSON.stringify(attachments),
         data.message_id,
         now(),
+        JSON.stringify(content),
       ],
     ],
     [
@@ -378,6 +469,8 @@ export async function inbound(
     text: data.text,
     attachments,
   });
+  if (connectionId)
+    await applyChannelEvents(env, connectionId, data.message_id);
   return { conversation_id: c.id, message_id: msgId };
 }
 export async function createRun(
@@ -451,6 +544,14 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  if (op.startsWith("upload."))
+    return uploadCommand(env, actor, profile, op, data);
+  if (op.startsWith("call."))
+    return callCommand(env, actor, profile, op, data, requestId);
+  if (op.startsWith("group."))
+    return groupCommand(env, actor, profile, op, data, requestId);
+  if (op === "message.action")
+    return messageAction(env, actor, profile, data, requestId);
   if (op.startsWith("contact."))
     return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("system.")) {
@@ -1002,17 +1103,29 @@ export async function perform(
           c.state === "human",
           "A conversa não está em atendimento humano.",
         );
-        const value = text(data.text),
+        const content = await outgoingContent(env, actor, c, data);
+        const value = String(data.text || "").trim(),
           attachments = await mediaIds(env, profile, data.attachments || []);
+        if (c.chat_type === "group") {
+          const group = await one(
+            env,
+            "SELECT * FROM whatsapp_groups WHERE conversation_id=?",
+            c.id,
+          );
+          requireValue(
+            !group?.announcement || group.own_admin,
+            "Somente administradores podem enviar mensagens neste grupo.",
+          );
+        }
         const delivery = await enqueue(
           env,
           c,
           actor.id,
           "text",
-          { text: value, attachments },
+          { text: value, attachments, content },
           `reply:${actor.id}:${requestId}`,
         );
-        await message(env, c, "operator", actor.id, value, attachments);
+
         await exec(
           env,
           "UPDATE tickets SET first_response_at=coalesce(first_response_at,?),updated=? WHERE conversation_id=? AND status!='closed'",
@@ -1049,6 +1162,7 @@ export async function perform(
           c.id,
         );
         if (
+          c.chat_type !== "group" &&
           action === "resolve" &&
           (await settings(env, profile)).surveys_enabled
         ) {
@@ -1183,6 +1297,10 @@ export async function perform(
   if (op === "consent.request") {
     access(actor, profile, "conversations:write");
     const c = await conversation(env, data.conversation_id, profile);
+    requireValue(
+      c.chat_type !== "group",
+      "Consentimento individual não pode ser solicitado em grupo.",
+    );
     requireValue(c.owner === actor.id, "Assuma a conversa.");
     const id = uid();
     await exec(
@@ -1236,7 +1354,8 @@ export async function perform(
       "Tipo de fonte inválido.",
     );
     if (data.url) data.url = publicUrl(data.url);
-    if (data.media_id) await mediaIds(env, profile, [data.media_id]);
+    if (data.media_id)
+      await authorizedMedia(env, actor, profile, data.media_id);
     await exec(
       env,
       "INSERT INTO documents(id,profile_id,title,kind,url,media_id,created) VALUES(?,?,?,?,?,?,?)",

@@ -111,7 +111,7 @@
 +        'internal': bool(event.internal), 'source': source.to_dict(),
 +        'media': [{'path': str(path), 'type': event.media_types[i] if i < len(event.media_types) else 'document'}
 +                  for i, path in enumerate(event.media_urls)],
-+        'metadata': dict(event.metadata or {}),
++        'metadata': {**dict(event.metadata or {}), 'wabotia_mentioned': bool(isinstance(event.raw_message, dict) and set(event.raw_message.get('mentionedIds', [])) & set(event.raw_message.get('botIds', [])))},
 +    }
 +
 +
@@ -129,7 +129,7 @@
 +    media = []
 +    for index, item in enumerate(payload['media']):
 +        source = Path(item['path'])
-+        if not source.is_file() or source.is_symlink() or source.stat().st_size > 20_000_000:
++        if not source.is_file() or source.is_symlink() or source.stat().st_size > 104_857_600:
 +            payload['text'] += '\n[Attachment unavailable: requires human review]'
 +            continue
 +        destination = directory / (key + '-' + str(index) + source.suffix[:12])
@@ -153,7 +153,7 @@
 +async def deliver_spool(path, host):
 +    envelope = json.loads(path.read_text())
 +    consumer = _consumers.get((str(host.home.resolve()), envelope['consumer']))
-+    if consumer and await asyncio.wait_for(consumer[0](copy.deepcopy(envelope['payload']), host), timeout=15) is True:
++    if consumer and await asyncio.wait_for(consumer[0](copy.deepcopy(envelope['payload']), host), timeout=150) is True:
 +        path.unlink(missing_ok=True)
 +        for media in envelope['payload'].get('media', []):
 +            file = Path(media['path'])

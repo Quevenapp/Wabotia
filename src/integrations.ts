@@ -8,6 +8,9 @@ import {
   json,
   requireValue,
 } from "./types";
+import { mediaKind, putStream, multipartStream } from "./media";
+import { validateMedia } from "./whatsapp";
+import { metaRequest } from "./meta";
 import { secret, setSecret, safeFetch, random, sha } from "./security";
 export async function hermesRequest(
   env: Env,
@@ -348,42 +351,7 @@ export async function storeRemoteMedia(
   );
   const id = identity?.id || uid(),
     objectKey = `${profile}/${id}`;
-  const max = 20 * 1024 * 1024;
-  const length = Number(response.headers.get("Content-Length") || 0);
-  requireValue(length <= max, "Arquivo excede 20 MB.");
-  let size = 0;
-  if (length > 0) {
-    const stream = new FixedLengthStream(length);
-    await Promise.all([
-      response.body.pipeTo(stream.writable),
-      env.MEDIA.put(objectKey, stream.readable, {
-        httpMetadata: { contentType: type },
-      }),
-    ]);
-    size = length;
-  } else {
-    const reader = response.body.getReader(),
-      chunks: Uint8Array[] = [];
-    for (;;) {
-      const next = await reader.read();
-      if (next.done) break;
-      size += next.value.byteLength;
-      if (size > max) {
-        await reader.cancel();
-        throw new ApiError(413, "file_too_large", "Arquivo excede 20 MB.");
-      }
-      chunks.push(next.value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.length;
-    }
-    await env.MEDIA.put(objectKey, bytes, {
-      httpMetadata: { contentType: type },
-    });
-  }
+  const size = await putStream(env, objectKey, type, response);
   await exec(
     env,
     "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
@@ -429,27 +397,50 @@ export async function telegramMedia(
   chat: string,
   thread: string | null,
   mediaId: string,
+  payload: any = {},
 ) {
   const m = await one(env, "SELECT * FROM media WHERE id=?", mediaId);
   requireValue(m, "Anexo não encontrado.");
+  requireValue(
+    m.size <= 50 * 1024 * 1024,
+    "O espelhamento Telegram aceita arquivos de até 50 MB.",
+  );
   const obj = await env.MEDIA.get(m.object_key);
   requireValue(obj, "Arquivo ausente.");
-  const keys = await secret(env, `connection:${connection}`);
-  const form = new FormData();
-  form.set("chat_id", chat);
-  if (thread) form.set("message_thread_id", thread);
-  form.set(
-    "document",
-    new Blob([await obj.arrayBuffer()], { type: m.type }),
-    m.name,
-  );
-  const r = await fetch(
-    `https://api.telegram.org/bot${keys.token}/sendDocument`,
-    { method: "POST", body: form, signal: AbortSignal.timeout(20000) },
-  );
+  const type = payload.content?.type || mediaKind(m.type);
+  const native: any = {
+    image: ["photo", "sendPhoto"],
+    video: ["video", "sendVideo"],
+    audio: ["audio", "sendAudio"],
+    voice: ["voice", "sendVoice"],
+    sticker: ["sticker", "sendSticker"],
+  };
+  const [field, method] = native[type] || ["document", "sendDocument"];
+  const fields: any = {
+    chat_id: chat,
+    ...(thread ? { message_thread_id: thread } : {}),
+    ...(payload.text && type !== "sticker"
+      ? { caption: payload.text.slice(0, 1024) }
+      : {}),
+  };
+  const body = multipartStream(fields, field, m.name, m.type, obj.body, m.size),
+    keys = await secret(env, `connection:${connection}`);
+  const r = await fetch(`https://api.telegram.org/bot${keys.token}/${method}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": body.type,
+      "Content-Length": String(body.length),
+    },
+    body: body.stream,
+    signal: AbortSignal.timeout(60000),
+  });
   const data = await r.json<any>();
   if (!data.ok)
-    throw new ApiError(502, "telegram_error", "Telegram recusou o anexo.");
+    throw new ApiError(
+      r.status >= 500 ? 502 : 400,
+      "telegram_error",
+      "Telegram recusou o anexo.",
+    );
   return String(data.result.message_id);
 }
 export async function metaSend(
@@ -482,7 +473,14 @@ export async function metaSend(
   const data = await r.json<any>();
   return data.messages?.[0]?.id;
 }
-export async function metaMedia(env: Env, c: any, to: string, mediaId: string) {
+export async function metaMedia(
+  env: Env,
+  c: any,
+  to: string,
+  mediaId: string,
+  payload: any = {},
+  group = false,
+) {
   const m = await one(
     env,
     "SELECT * FROM media WHERE id=? AND profile_id=?",
@@ -490,33 +488,107 @@ export async function metaMedia(env: Env, c: any, to: string, mediaId: string) {
     c.profile_id,
   );
   requireValue(m, "Anexo não encontrado.");
+  const kind =
+    payload.content?.type && payload.content.type !== "text"
+      ? payload.content.type
+      : mediaKind(m.type);
+  validateMedia(m, kind, c);
   const obj = await env.MEDIA.get(m.object_key);
   requireValue(obj, "Arquivo ausente.");
   const keys = await secret(env, `connection:${c.id}`),
     cfg = json(c.config);
-  const form = new FormData();
-  form.set("messaging_product", "whatsapp");
-  form.set(
+  const body = multipartStream(
+    { messaging_product: "whatsapp" },
     "file",
-    new Blob([await obj.arrayBuffer()], { type: m.type }),
     m.name,
+    m.type,
+    obj.body,
+    m.size,
   );
   const r = await fetch(
     `https://graph.facebook.com/v23.0/${cfg.phone_id}/media`,
     {
       method: "POST",
-      headers: { Authorization: `Bearer ${keys.token}` },
-      body: form,
-      signal: AbortSignal.timeout(20000),
+      headers: {
+        Authorization: `Bearer ${keys.token}`,
+        "Content-Type": body.type,
+        "Content-Length": String(body.length),
+      },
+      body: body.stream,
+      signal: AbortSignal.timeout(60000),
     },
   );
   const data = await r.json<any>();
   if (!r.ok || !data.id)
-    throw new ApiError(400, "meta_media_error", "Meta recusou o arquivo.");
+    throw new ApiError(
+      400,
+      "meta_media_error",
+      "Meta recusou o arquivo. Confira tamanho, formato e codecs.",
+    );
+  const type = kind === "voice" ? "audio" : kind;
+  const details: any = { id: data.id };
+  if (type === "document") details.filename = m.name;
+  if (["document", "image", "video"].includes(type) && payload.text)
+    details.caption = payload.text;
+  if (kind === "voice") details.voice = true;
   return metaSend(env, c, to, {
-    type: "document",
-    document: { id: data.id, filename: m.name },
+    type,
+    [type]: details,
+    ...(group ? { recipient_type: "group" } : {}),
+    ...(payload.content?.reply_external_id
+      ? { context: { message_id: payload.content.reply_external_id } }
+      : {}),
   });
+}
+export async function metaContent(
+  env: Env,
+  c: any,
+  to: string,
+  payload: any,
+  group = false,
+) {
+  const content = payload.content || {},
+    kind = content.type || "text";
+  let body: any = { type: "text", text: { body: payload.text } };
+  if (kind === "reaction")
+    body = {
+      type: "reaction",
+      reaction: {
+        message_id: content.target_external_id,
+        emoji: content.emoji,
+      },
+    };
+  if (kind === "location")
+    body = { type: "location", location: content.location };
+  if (kind === "contacts")
+    body = {
+      type: "contacts",
+      contacts: content.contacts.map((x: any) => ({
+        name: { formatted_name: x.name, first_name: x.name },
+        phones: [{ phone: x.phone, type: "CELL" }],
+      })),
+    };
+  if (kind === "call_permission")
+    body = {
+      type: "interactive",
+      interactive: {
+        type: "call_permission_request",
+        action: { name: "call_permission_request" },
+        body: { text: payload.text },
+      },
+    };
+  if (kind === "read") {
+    await metaRequest(env, c, `${json(c.config).phone_id}/messages`, "POST", {
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: content.target_external_id,
+    });
+    return content.target_external_id;
+  }
+  if (content.reply_external_id)
+    body.context = { message_id: content.reply_external_id };
+  if (group) body.recipient_type = "group";
+  return metaSend(env, c, to, body);
 }
 export async function templatePayload(
   env: Env,

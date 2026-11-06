@@ -26,6 +26,7 @@ import {
   telegramMedia,
   metaSend,
   metaMedia,
+  metaContent,
   templatePayload,
 } from "./integrations";
 import { secret, hmac, safeFetch } from "./security";
@@ -68,6 +69,36 @@ export async function processInbox(env: Env, profile: string) {
     });
   await exec(env, "UPDATE inbox SET status='processing' WHERE id=?", row.id);
   try {
+    if (c.chat_type === "group") {
+      const group = await one(
+        env,
+        "SELECT * FROM whatsapp_groups WHERE conversation_id=?",
+        c.id,
+      );
+      if (group?.announcement && !group.own_admin) return;
+    }
+    if (
+      c.chat_type === "group" &&
+      (c.bot_policy === "off" ||
+        (c.bot_policy === "mentions" &&
+          !data.content?.mentioned &&
+          !/^\/bot(?:\s|$)/i.test(data.text)))
+    ) {
+      if (cfg.telegram_connection && cfg.telegram_group)
+        await enqueue(
+          env,
+          c,
+          "system",
+          "team",
+          {
+            text: `Grupo ${c.title} · ${data.content?.participant_name || data.content?.participant || "Participante"}: ${data.text}`,
+            attachments: data.attachments || [],
+            group: cfg.telegram_group,
+          },
+          `mirror:${row.id}`,
+        );
+      return;
+    }
     if (!p?.enabled) {
       if (cfg.telegram_connection && cfg.telegram_group)
         await enqueue(
@@ -101,7 +132,10 @@ export async function processInbox(env: Env, profile: string) {
       "SELECT * FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
       c.id,
     );
-    if (/^(autorizo|nao autorizo|revogar)$/.test(normalized)) {
+    if (
+      c.chat_type !== "group" &&
+      /^(autorizo|nao autorizo|revogar)$/.test(normalized)
+    ) {
       if (consent?.status === "pending" || normalized === "revogar") {
         await exec(
           env,
@@ -139,7 +173,7 @@ export async function processInbox(env: Env, profile: string) {
       c.id,
     );
     const rating = value.match(/^([1-5])(?:\s+(.{0,1000}))?$/s);
-    if (survey && rating) {
+    if (c.chat_type !== "group" && survey && rating) {
       await exec(
         env,
         "UPDATE surveys SET score=?,comment=?,status='answered' WHERE id=?",
@@ -911,7 +945,12 @@ export async function deliver(env: Env, row: any) {
     return;
   try {
     let body: any = { type: "text", text: { body: payload.text } };
-    if (connection.kind === "meta" && now() - c.last_customer >= 86400000) {
+    if (
+      connection.kind === "meta" &&
+      c.chat_type !== "group" &&
+      payload.content?.type !== "read" &&
+      now() - c.last_customer >= 86400000
+    ) {
       if (row.kind !== "notification") {
         await exec(
           env,
@@ -973,6 +1012,7 @@ export async function deliver(env: Env, row: any) {
           payload.group,
           topic,
           payload.media_id,
+          payload,
         );
       else {
         const r = await telegram(env, connection.id, "sendMessage", {
@@ -984,8 +1024,23 @@ export async function deliver(env: Env, row: any) {
       }
     } else {
       external = payload.media_id
-        ? await metaMedia(env, connection, c.external_id, payload.media_id)
-        : await metaSend(env, connection, c.external_id, body);
+        ? await metaMedia(
+            env,
+            connection,
+            c.external_id,
+            payload.media_id,
+            payload,
+            c.chat_type === "group",
+          )
+        : body.type === "template"
+          ? await metaSend(env, connection, c.external_id, body)
+          : await metaContent(
+              env,
+              connection,
+              c.external_id,
+              payload,
+              c.chat_type === "group",
+            );
     }
     await finishDelivery(env, row, external);
   } catch (error) {
@@ -1050,11 +1105,13 @@ export async function deliverWebhook(env: Env, row: any) {
     );
     return;
   }
-  const permission = ev.kind.startsWith("bot.")
-    ? "bots:invoke"
-    : ev.kind.startsWith("ticket.")
-      ? "tickets:read"
-      : "conversations:read";
+  const permission = ev.kind.startsWith("call.")
+    ? "calls:read"
+    : ev.kind.startsWith("bot.")
+      ? "bots:invoke"
+      : ev.kind.startsWith("ticket.")
+        ? "tickets:read"
+        : "conversations:read";
   if (!json(sub.scopes, []).includes(permission)) {
     await exec(
       env,

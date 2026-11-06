@@ -106,6 +106,9 @@ const release = {
   assets_config: {
     not_found_handling: config.assets.not_found_handling,
     run_worker_first: config.assets.run_worker_first,
+    // The direct Cloudflare API expects this text in metadata. Uploading the
+    // _headers file as a static asset alone does not apply its policies.
+    _headers: readFileSync("dist/_headers", "utf8"),
   },
   durable_migrations: config.migrations,
   modules: files("output/release-worker", "", true),

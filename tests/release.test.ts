@@ -86,6 +86,8 @@ beforeEach(async () => {
     assets_config: {
       not_found_handling: "single-page-application",
       run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
+      _headers:
+        "/*\n  Permissions-Policy: microphone=(self), camera=()\n  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'; media-src 'self' blob:\n",
     },
     durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
     modules: [
@@ -198,6 +200,7 @@ it("publica sem GitHub/Builds preservando ligações e migrações, e só confir
   expect(metadata.observability).toEqual(settings.observability);
   expect(metadata.limits).toEqual(settings.limits);
   expect(metadata.assets.jwt).toBe("temporary-completion-token");
+  expect(metadata.assets.config._headers).toBe(pkg.assets_config._headers);
   expect(
     calls.some(
       (call) =>

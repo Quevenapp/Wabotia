@@ -9,12 +9,22 @@ export function visibleConversation(actor: Actor, c: any) {
 }
 export async function visibleEvent(env: Env, actor: Actor, e: any) {
   if (actor.kind !== "app") return true;
-  const scope = e.kind.startsWith("bot.")
-    ? "bots:invoke"
-    : e.kind.startsWith("ticket.")
-      ? "tickets:read"
-      : "conversations:read";
+  const scope = e.kind.startsWith("call.")
+    ? "calls:read"
+    : e.kind.startsWith("bot.")
+      ? "bots:invoke"
+      : e.kind.startsWith("ticket.")
+        ? "tickets:read"
+        : "conversations:read";
   if (!actor.scopes.includes(scope)) return false;
+  if (e.kind.startsWith("call.")) {
+    const call = await one(
+      env,
+      "SELECT actor FROM calls WHERE id=?",
+      e.resource_id,
+    );
+    if (!call || (call.actor && call.actor !== actor.id)) return false;
+  }
   if (e.kind.startsWith("bot.")) {
     const run = await one(
       env,

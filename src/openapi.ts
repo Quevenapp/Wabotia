@@ -15,6 +15,149 @@ const contactProperties = {
   notes: { type: "string", maxLength: 2000 },
 };
 const schemas = {
+  MessageContent: {
+    type: "object",
+    properties: {
+      type: {
+        enum: [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "voice",
+          "document",
+          "sticker",
+          "location",
+          "contacts",
+        ],
+      },
+      reply_to: {
+        type: "string",
+        description: "ID Wabotia de uma mensagem desta conversa.",
+      },
+      mentions: {
+        type: "array",
+        items: { type: "string" },
+        description: "IDs de participantes do grupo; somente QR direto.",
+      },
+      location: {
+        type: "object",
+        required: ["latitude", "longitude"],
+        properties: {
+          latitude: { type: "number", minimum: -90, maximum: 90 },
+          longitude: { type: "number", minimum: -180, maximum: 180 },
+          name: { type: "string" },
+          address: { type: "string" },
+        },
+      },
+      contacts: {
+        type: "array",
+        maxItems: 10,
+        items: {
+          type: "object",
+          required: ["name", "phone"],
+          properties: { name: { type: "string" }, phone: { type: "string" } },
+        },
+      },
+    },
+  },
+  MessageAction: {
+    type: "object",
+    required: ["action", "message_id"],
+    properties: {
+      action: { enum: ["reaction", "edit", "delete", "read"] },
+      message_id: { type: "string" },
+      emoji: {
+        type: "string",
+        description: "Emoji ou vazio para remover sua reação.",
+      },
+      text: { type: "string" },
+    },
+  },
+  MediaUpload: {
+    type: "object",
+    required: ["name", "type", "size"],
+    properties: {
+      name: { type: "string", maxLength: 200 },
+      type: { type: "string" },
+      size: { type: "integer", minimum: 1, maximum: 104857600 },
+    },
+  },
+  GroupAction: {
+    type: "object",
+    required: ["action"],
+    properties: {
+      action: {
+        enum: [
+          "sync",
+          "create",
+          "join",
+          "refresh",
+          "invite",
+          "subject",
+          "description",
+          "participants",
+          "announcement",
+          "leave",
+        ],
+      },
+      connection_id: { type: "string" },
+      subject: { type: "string", maxLength: 128 },
+      description: { type: "string", maxLength: 2048 },
+      invite: { type: "string" },
+      participants: { type: "array", items: { type: "string" } },
+      operation: { enum: ["add", "remove", "promote", "demote"] },
+      enabled: { type: "boolean" },
+      cursor: { type: "string" },
+    },
+  },
+  GroupPolicy: {
+    type: "object",
+    required: ["bot_policy"],
+    properties: { bot_policy: { enum: ["off", "mentions", "all"] } },
+  },
+  GroupReconcile: {
+    type: "object",
+    required: ["confirmed", "status"],
+    properties: {
+      confirmed: { const: true },
+      status: { enum: ["sent", "failed"] },
+    },
+  },
+  CallSession: {
+    type: "object",
+    required: ["sdp_type", "sdp"],
+    properties: {
+      sdp_type: { enum: ["offer", "answer"] },
+      sdp: {
+        type: "string",
+        maxLength: 60000,
+        description: "SDP de áudio WebRTC. Não envie vídeo ou dados.",
+      },
+    },
+  },
+  CallStart: {
+    type: "object",
+    required: ["conversation_id", "session"],
+    properties: {
+      conversation_id: { type: "string" },
+      session: { $ref: "#/components/schemas/CallSession" },
+    },
+  },
+  CallAccept: {
+    type: "object",
+    properties: { session: { $ref: "#/components/schemas/CallSession" } },
+  },
+  CallPermission: {
+    type: "object",
+    required: ["conversation_id"],
+    properties: { conversation_id: { type: "string" } },
+  },
+  CallReconcile: {
+    type: "object",
+    required: ["confirmed_ended"],
+    properties: { confirmed_ended: { const: true } },
+  },
   ContactInput: {
     type: "object",
     required: ["name"],
@@ -166,6 +309,7 @@ const schemas = {
           "tags",
         ],
       },
+      content: { $ref: "#/components/schemas/MessageContent" },
       text: { type: "string" },
       target: { type: "string" },
       attachments: { type: "array", items: { type: "string" } },
@@ -449,6 +593,142 @@ const operations: [string, string, string, string?, string?][] = [
     "webhooks:manage",
   ],
 ];
+operations.push(
+  [
+    "get",
+    "/profiles/{profile}/connections/{id}/capabilities",
+    "Recursos disponíveis neste canal",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/conversations/{id}/message-actions",
+    "Reagir, editar, apagar ou marcar como lida",
+    "conversations:write",
+    "MessageAction",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/media/uploads",
+    "Iniciar arquivo de até 100 MB em partes de 5 MB",
+    "media:write",
+    "MediaUpload",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/media/uploads/{id}/parts/{part}",
+    "Enviar uma parte; identidade upload + número, conflito se bytes diferentes",
+    "media:write",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/media/uploads/{id}/complete",
+    "Concluir arquivo após confirmar todas as partes",
+    "media:write",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/media/uploads/{id}/abort",
+    "Cancelar envio incompleto",
+    "media:write",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/groups",
+    "Listar conversas de grupo",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/groups/actions",
+    "Buscar grupos, criar grupo ou entrar por convite",
+    "groups:manage",
+    "GroupAction",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/groups/{id}/actions",
+    "Administrar grupo autorizado",
+    "groups:manage",
+    "GroupAction",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/groups/{id}/policy",
+    "Escolher quando a IA responde no grupo",
+    "groups:manage",
+    "GroupPolicy",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/group-operations",
+    "Consultar últimas 30 operações de grupo da aplicação",
+    "groups:manage",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/group-operations/{id}/reconcile",
+    "Reconciliar operação após conferência no WhatsApp",
+    "groups:manage",
+    "GroupReconcile",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/calls",
+    "Listar ligações autorizadas",
+    "calls:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/calls/{id}",
+    "Consultar ligação; sessão de áudio só para o responsável",
+    "calls:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/conversations/{id}/call-permission",
+    "Verificar permissão e limites atuais da Meta",
+    "calls:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/calls",
+    "Iniciar chamada humana com oferta WebRTC",
+    "calls:write",
+    "CallStart",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/calls/permission",
+    "Solicitar permissão ao cliente dentro da janela de atendimento",
+    "calls:write",
+    "CallPermission",
+  ],
+  ...[
+    "claim",
+    "pre_accept",
+    "accept",
+    "reject",
+    "terminate",
+    "keepalive",
+    "reconcile",
+  ].map(
+    (action) =>
+      [
+        "post",
+        `/profiles/{profile}/calls/{id}/${action}`,
+        `Ligação: ${action}`,
+        action === "claim"
+          ? "calls:read + calls:write + conversations:write"
+          : "calls:read + calls:write",
+        ["accept", "pre_accept"].includes(action)
+          ? "CallAccept"
+          : action === "reconcile"
+            ? "CallReconcile"
+            : "",
+      ] as [string, string, string, string, string],
+  ),
+);
 export function openapi(origin: string) {
   const paths: any = {};
   for (const [method, path, summary, scope, schema] of operations) {
@@ -487,6 +767,33 @@ export function openapi(origin: string) {
           name: "limit",
           schema: { type: "integer", minimum: 1, maximum: 100, default: 50 },
         },
+      );
+    if (path.endsWith("/calls/{id}"))
+      parameters.push({
+        in: "query",
+        name: "session",
+        schema: { enum: ["1"] },
+        description:
+          "Exige calls:write e responsabilidade da ligação; devolve SDP remoto. Não exponha ao público.",
+      });
+    if (path.endsWith("/calls") && method === "get")
+      parameters.push(
+        ...["cursor", "conversation_id", "limit"].map((name) => ({
+          in: "query",
+          name,
+          schema: { type: "string" },
+        })),
+      );
+    if (path.endsWith("/groups") && method === "get")
+      parameters.push({
+        in: "query",
+        name: "cursor",
+        schema: { type: "string" },
+      });
+    if (path.endsWith("/content"))
+      parameters.push(
+        { in: "header", name: "Range", schema: { type: "string" } },
+        { in: "query", name: "inline", schema: { enum: ["1"] } },
       );
     if (path.endsWith("/events"))
       parameters.push({
@@ -566,6 +873,29 @@ export function openapi(origin: string) {
           },
         },
       };
+    if (path.endsWith("/parts/{part}"))
+      entry.requestBody = {
+        required: true,
+        content: {
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+        },
+      };
+    if (path.endsWith("/content")) {
+      entry.responses["200"] = {
+        description: "Arquivo privado",
+        content: {
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+        },
+      };
+      entry.responses["206"] = {
+        description: "Parte do arquivo; Content-Range e Accept-Ranges",
+      };
+      entry.responses["416"] = { description: "Range inválido" };
+    }
     for (const [status, description] of Object.entries({
       400: "Requisição inválida",
       401: "Chave expirada, revogada ou inválida",
@@ -573,6 +903,7 @@ export function openapi(origin: string) {
       404: "Recurso ausente ou fora do acesso",
       409: "Conflito de responsabilidade ou idempotência",
       413: "Arquivo acima do limite",
+      422: "Recurso não suportado pelo canal",
       429: "Limite atingido; respeite Retry-After",
       502: "Serviço externo indisponível",
     })) {

@@ -6,17 +6,20 @@ export async function event(
   kind: string,
   id: string,
   payload: any,
+  uniqueKey?: string,
 ) {
-  const sourceKey = [
-    "message.received",
-    "message.sent",
-    "bot.run.completed",
-    "bot.run.failed",
-    "conversation.created",
-    "ticket.created",
-  ].includes(kind)
-    ? `${profile}:${kind}:${id}`
-    : null;
+  const sourceKey =
+    uniqueKey ||
+    ([
+      "message.received",
+      "message.sent",
+      "bot.run.completed",
+      "bot.run.failed",
+      "conversation.created",
+      "ticket.created",
+    ].includes(kind)
+      ? `${profile}:${kind}:${id}`
+      : null);
   const row = await one(
     env,
     "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) VALUES(?,?,?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET source_key=excluded.source_key RETURNING id",
@@ -32,11 +35,13 @@ export async function event(
     "SELECT s.*,a.scopes FROM webhook_subscriptions s JOIN applications a ON a.id=s.app_id WHERE s.profile_id=? AND s.enabled=1 AND a.disabled=0",
     profile,
   );
-  const scope = kind.startsWith("bot.")
-    ? "bots:invoke"
-    : kind.startsWith("ticket.")
-      ? "tickets:read"
-      : "conversations:read";
+  const scope = kind.startsWith("call.")
+    ? "calls:read"
+    : kind.startsWith("bot.")
+      ? "bots:invoke"
+      : kind.startsWith("ticket.")
+        ? "tickets:read"
+        : "conversations:read";
   const deliveries = subs
     .filter(
       (s) =>

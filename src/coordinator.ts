@@ -4,6 +4,9 @@ import { one, all, exec } from "./db";
 import { sha, seal, unseal, canonical } from "./security";
 import { perform, inbound } from "./service";
 import { finishDelivery } from "./delivery";
+import { channelEvent } from "./whatsapp";
+import { callWebhook, expireCalls } from "./calls";
+import { expireUploads } from "./media";
 import { transport } from "./transport";
 import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
@@ -129,6 +132,23 @@ export class Coordinator extends DurableObject<Env> {
           ),
         ),
       );
+    if (new URL(request.url).pathname === "/channel-event") {
+      const result = await this.ctx.blockConcurrencyWhile(async () => {
+        const conn = await one(
+          this.env,
+          "SELECT * FROM connections WHERE id=? AND profile_id=?",
+          body.connectionId,
+          this.profile,
+        );
+        if (!conn)
+          throw new ApiError(404, "not_found", "Conexão não encontrada.");
+        return body.data.event === "call"
+          ? callWebhook(this.env, conn, body.data)
+          : channelEvent(this.env, conn, body.data);
+      });
+      await this.schedule();
+      return Response.json(result);
+    }
     if (new URL(request.url).pathname === "/inbound") {
       const result = await this.ctx.blockConcurrencyWhile(() =>
         inbound(
@@ -177,6 +197,14 @@ export class Coordinator extends DurableObject<Env> {
         this.profile,
       ))
         await finishDelivery(this.env, row, row.external_id || row.id);
+      await exec(
+        this.env,
+        "UPDATE group_operations SET status='unknown',error='Conector interrompido; confira o grupo antes de reconciliar.' WHERE profile_id=? AND status='sending' AND updated<?",
+        this.profile,
+        now() - 120000,
+      );
+      await expireCalls(this.env, this.profile);
+      await expireUploads(this.env, this.profile);
       await processInbox(this.env, this.profile);
       for (const run of await all<Run>(
         this.env,
@@ -221,7 +249,8 @@ export class Coordinator extends DurableObject<Env> {
             )
           : await one(
               this.env,
-              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending') n",
+              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending')) n",
+              this.profile,
               this.profile,
               this.profile,
               this.profile,
@@ -230,6 +259,12 @@ export class Coordinator extends DurableObject<Env> {
             );
       if (
         pending?.n ||
+        (this.profile !== "_admin" &&
+          (await one(
+            this.env,
+            "SELECT id FROM calls WHERE profile_id=? AND status IN ('active','preaccepted','dialing','connecting','ringing') LIMIT 1",
+            this.profile,
+          ))) ||
         (this.profile === "_admin" && (await updatePending(this.env)))
       )
         await this.ctx.storage.setAlarm(now() + 5000);

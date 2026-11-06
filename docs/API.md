@@ -6,7 +6,7 @@ O contrato está em `/api/openapi.json` e o explorador de consultas em `/api-doc
 
 `Authorization: Bearer SUA_CHAVE` autentica a aplicação. Ela não escolhe o autor por `actor`, `user_id` ou campos semelhantes: a identidade vem da chave. Cada cliente externo é vinculado à aplicação; telefones informados não unem cadastros. Aplicações não acessam conversas externas de outras aplicações. Canais compartilhados seguem as permissões de perfil. Notas internas precisam de `notes:read`; relatórios não contornam essa restrição. Somente contas humanas registram presença.
 
-Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
+Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `groups:manage`, `calls:read/write`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
 
 ## Repetição e erros
 
@@ -32,7 +32,81 @@ Use `/inbound` para novas mensagens do cliente. Para operar o atendimento, faça
 
 Abra um protocolo com `POST /profiles/{perfil}/tickets`, corpo `{"conversation_id":"ID","title":"Solicitação"}`. Atualize com `PATCH /profiles/{perfil}/tickets/{id}` e `status`, `text`, `owner` ou `response_due_at`. O prazo só é alterável antes da primeira resposta e enquanto aberto.
 
-Envie arquivos de até 20 MB com multipart `file` para `/profiles/{perfil}/media`. Use os IDs retornados em `attachments`. Baixe por `/media/{id}/content` com a chave autorizada; não há URLs públicas do bucket. Cadastre conhecimento em `/knowledge` com `kind: text`, `url`, `file` ou `youtube`; importações de arquivos/URLs são assíncronas.
+O endpoint legado `/profiles/{perfil}/media` aceita multipart `file` de até 20 MiB. Para arquivos de até 100 MiB, use upload em partes abaixo. Use os IDs retornados em `attachments`. Baixe por `/media/{id}/content` com a chave autorizada; não há URLs públicas do bucket. Cadastre conhecimento em `/knowledge` com `kind: text`, `url`, `file` ou `youtube`; importações de arquivos/URLs são assíncronas e têm limites próprios.
+
+## WhatsApp: mídias, grupos e ligações
+
+Estas rotas partem de `/api/v1/profiles/{perfil}`. Consulte `GET /connections/{id}/capabilities` com `conversations:read` antes de oferecer uma função. A resposta da conversa também traz `capabilities`, `group` e metadados de mídias autorizadas. Ausência de capacidade gera `422 unsupported_capability`. [Matriz de modos e limites](WHATSAPP.md).
+
+### Arquivos e mensagens nativas
+
+1. `POST /media/uploads` com `{name,type,size}` e `media:write` retorna `{id,part_size,parts}`. Máximo 100 MiB por arquivo, cinco uploads abertos por identidade. Incompletos expiram após 24h.
+2. Envie partes de `part_size` bytes (5 MiB; a última pode ser menor), em ordem, por `PUT /media/uploads/{id}/parts/{part}`, começando em 1. Corpo binário e `Content-Type: application/octet-stream`. Cada parte exige `Idempotency-Key`; a identidade durável é upload + número. Bytes diferentes para a mesma parte geram conflito. Um envio sem recibo retorna `upload_part_unknown`: cancele esse upload e crie outro; não tente substituir a parte.
+3. `POST /media/uploads/{id}/complete` confirma o arquivo e retorna o ID para anexar. `POST /media/uploads/{id}/abort` cancela um upload incompleto. Ambas exigem idempotência. Se o R2 concluiu antes de uma interrupção, a conclusão pode ser recuperada.
+4. Assuma a conversa e envie `action:reply`, `attachments:[id]` e `content`. Cada anexo resulta em uma entrega; `delivery_id`/`delivery_ids` são filas, não comprovantes do WhatsApp. Preserve todos os IDs para acompanhar Entregas.
+5. `GET /media/{id}/content` requer `media:read`; aceita `Range: bytes=...` (206/416). `?inline=1` permite visualização segura de imagens/áudio/vídeo. Não abre HTML inline. Apps só obtêm arquivos próprios ou anexos de conversas autorizadas com `conversations:read`.
+
+Tipos de `content.type`: `text` (detecta o tipo dos anexos), `image`, `video`, `audio`, `voice`, `document`, `sticker`, `location`, `contacts`. `voice` exige OGG/Opus; `sticker` exige WebP 512 × 512. `content.reply_to` é o ID Wabotia de uma mensagem da mesma conversa. `content.mentions` recebe IDs dos participantes conhecidos do grupo QR. Não forneça IDs/identidades de outro perfil.
+
+```sh
+curl "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/conversations/$WABOTIA_CONVERSATION/actions" \
+ -H "Authorization: Bearer $WABOTIA_KEY" -H 'Content-Type: application/json' \
+ -H 'Idempotency-Key: video-pedido-0001' \
+ --data '{"action":"reply","text":"Vídeo do pedido","attachments":["ID_MIDIA"],"content":{"type":"video","reply_to":"ID_MENSAGEM"}}'
+```
+
+Localização: `content:{type:"location",location:{latitude:-23.5,longitude:-46.6,name:"Local de exemplo",address:"Endereço de exemplo"}}`. Contato: `content:{type:"contacts",contacts:[{name:"Pessoa de exemplo",phone:"5511999990000"}]}`. São dados explicitamente fornecidos; não há consulta de localização do celular.
+
+`POST /conversations/{id}/message-actions` com `conversations:write`, responsabilidade da conversa e idempotência:
+
+```json
+{"action":"reaction","message_id":"ID_WABOTIA","emoji":"👍"}
+```
+
+Outras ações: `read`; `edit` com `text`; `delete`. `emoji:""` remove a própria reação. Editar/apagar só mensagens enviadas; edição tem limite local de 15 minutos. Ações são enviadas ao canal e sujeitas às capacidades/regras dele. Atualizações e recibos geram `message.updated`.
+
+Os exemplos executáveis [JavaScript](../examples/whatsapp-media.mjs) e [Python](../examples/whatsapp-media.py) fazem upload por partes, assumem e respondem. Defina `WABOTIA_URL`, `WABOTIA_KEY`, `WABOTIA_PROFILE`, `WABOTIA_CONVERSATION` e `WABOTIA_REQUEST_ID` no servidor; a chave precisa de `media:write` e `conversations:write`. **Eles enviam uma mensagem; use uma conversa autorizada de teste.**
+
+```sh
+node examples/whatsapp-media.mjs ./arquivo.pdf application/pdf document "Seu documento"
+python3 examples/whatsapp-media.py ./voz.ogg audio/ogg voice
+```
+
+Use um novo REQUEST_ID para uma nova intenção. Ao repetir após falha de rede, mantenha esse ID, arquivo e parâmetros exatamente iguais. Não execute os dois exemplos como se fossem um único pedido; cada exemplo é uma alternativa. Em `unknown`, confira e reconcilie antes de iniciar outra intenção.
+
+### Grupos
+
+| Método e rota | Uso |
+|---|---|
+| `GET /groups` | `conversations:read`, lista paginada por cursor |
+| `POST /groups/actions` | `groups:manage`; `action:sync/create/join`, `connection_id` |
+| `POST /groups/{conversation_id}/actions` | `refresh/invite/subject/description/participants/announcement/leave` |
+| `PUT /groups/{conversation_id}/policy` | `bot_policy:off/mentions/all`; invalida inferência anterior |
+| `GET /group-operations` | Últimas 30 operações acessíveis à identidade |
+| `POST /group-operations/{id}/reconcile` | `{status:"sent" ou "failed",confirmed:true}` após conferência do grupo |
+
+Exemplos de corpos: `{action:"create",connection_id:"ID",subject:"Equipe",participants:["5511999990000"]}` (QR); `{action:"join",connection_id:"ID",invite:"https://chat.whatsapp.com/CODIGO"}`; `{action:"participants",operation:"add",participants:["5511999990000"]}`; `{action:"announcement",enabled:true}`. Meta cria grupos elegíveis e admite participantes por convite, não por `add`. A confirmação QR é assíncrona. `unknown` bloqueia novas operações de grupo naquela conexão até reconciliação. Resultados por participante podem indicar sucesso parcial.
+
+### Ligações de voz
+
+O administrador habilita Calling API em Conexões. Escritas exigem `calls:read` **e** `calls:write`; assumir entrada exige também `conversations:write`. Apps podem ver chamadas livres no perfil autorizado e assumir uma delas em sua própria identidade. Depois, apenas o responsável controla/obtém a sessão; outra aplicação não vê a chamada nem recebe seus novos eventos. Atendentes humanos mantêm a visibilidade de equipe, mas só o responsável recebe o SDP.
+
+| Método e rota | Uso |
+|---|---|
+| `GET /calls` | Histórico por data, `limit` 1–100, `cursor`, `conversation_id` |
+| `GET /calls/{id}` | Estado; `?session=1` só para o responsável com escrita |
+| `GET /conversations/{id}/call-permission` | Permissão/limites atuais da Meta, `calls:read` |
+| `POST /calls/permission` | `{conversation_id}`; exige ser responsável e janela de atendimento aberta |
+| `POST /calls` | `{conversation_id,session:{sdp_type:"offer",sdp:"..."}}` de WebRTC áudio |
+| `POST /calls/{id}/claim` | Assumir chamada recebida; também toma a conversa e invalida a IA |
+| `POST /calls/{id}/pre_accept` e `/accept` | Mesma `session:{sdp_type:"answer",sdp:"..."}` nas duas ações |
+| `POST /calls/{id}/keepalive` | Renovar presença; enviar a cada 20 s durante a chamada |
+| `POST /calls/{id}/reject` ou `/terminate` | Recusar entrada ou encerrar; sem repetição automática em timeout |
+| `POST /calls/{id}/reconcile` | `{confirmed_ended:true}` somente após confirmar que encerrou no WhatsApp |
+
+O JSON é a sinalização, não o áudio. Um integrador precisa de um cliente WebRTC ou servidor de mídia próprio para produzir/consumir o SDP. Não basta enviar texto em `sdp`. Recolha os candidatos ICE antes de enviar a oferta/resposta; vídeo e data channels são recusados. Não exponha a chave Bearer nem credenciais Meta no navegador externo: seu backend deve autenticar a interface e repassar somente a sessão da chamada autorizada.
+
+Uma resposta HTTP bem-sucedida não significa que alguém atendeu. Consulte os estados `dialing`, `connecting`, `ringing`, `preaccepted`, `active`, `completed`, `rejected`, `missed`, `failed` e `unknown`, ou assine `call.updated`. Receipts, SDP e credenciais dinâmicas são criptografados em repouso; SDP não é enviado nos webhooks da aplicação. Depois do fim, as sessões da tabela de chamadas são eliminadas. Ausência de keepalive por cerca de 90 s solicita encerramento uma vez, sem repetir uma ação ambígua. Não há gravação de chamadas.
 
 ## Agenda de contatos
 

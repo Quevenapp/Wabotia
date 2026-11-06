@@ -1,6 +1,6 @@
 {
   "name": "wabotia",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.11.0",
+    "opus-recorder": "^8.0.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "unpdf": "^2.1.0",
@@ -46,16 +47,16 @@
   "cloudflare": {
     "bindings": {
       "DB": {
-        "description": "Banco D1 exclusivo desta instalação. Será criado automaticamente."
+        "description": "Banco D1 exclusivo desta instala\u00e7\u00e3o. Ser\u00e1 criado automaticamente."
       },
       "MEDIA": {
         "description": "Bucket R2 privado para arquivos. Habilite R2 na sua conta."
       },
       "MASTER_KEY": {
-        "description": "Abra wabotia.queven.app/install#chaves e clique em Gerar minhas duas chaves. Copie MASTER_KEY para cá e guarde: ela protege suas credenciais. Não use sua senha de login."
+        "description": "Abra wabotia.queven.app/install#chaves e clique em Gerar minhas duas chaves. Copie MASTER_KEY para c\u00e1 e guarde: ela protege suas credenciais. N\u00e3o use sua senha de login."
       },
       "SETUP_TOKEN": {
-        "description": "No mesmo gerador, copie SETUP_TOKEN para cá e guarde também. É diferente de MASTER_KEY. Você usará este valor como código de instalação ao criar o primeiro administrador em /app."
+        "description": "No mesmo gerador, copie SETUP_TOKEN para c\u00e1 e guarde tamb\u00e9m. \u00c9 diferente de MASTER_KEY. Voc\u00ea usar\u00e1 este valor como c\u00f3digo de instala\u00e7\u00e3o ao criar o primeiro administrador em /app."
       }
     }
   }

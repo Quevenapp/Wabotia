@@ -353,7 +353,13 @@ export async function install() {
       no_bundle: true,
       compatibility_date: pkg.compatibility_date,
       compatibility_flags: pkg.compatibility_flags,
-      assets: { directory: "web", binding: "ASSETS", ...pkg.assets_config },
+      // Wrangler reads web/_headers itself; _headers is only an API field.
+      assets: {
+        directory: "web",
+        binding: "ASSETS",
+        not_found_handling: pkg.assets_config.not_found_handling,
+        run_worker_first: pkg.assets_config.run_worker_first,
+      },
       d1_databases: [
         { binding: "DB", database_name: name, migrations_dir: "migrations" },
       ],
