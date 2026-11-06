@@ -42,6 +42,13 @@ import {
 } from "./integrations";
 import { openapi } from "./openapi";
 import { buildInfo } from "./build-info.generated";
+import {
+  listContacts,
+  contactDetail,
+  conversationContact,
+  contactNamespace,
+  previewContactCsv,
+} from "./contacts";
 import { checkUpdate, updatePlan, updateStatus } from "./updates";
 import {
   cloudflareJobs,
@@ -340,6 +347,11 @@ const commands = [
   ["POST", "conversations", "conversation.create"],
   ["POST", "inbound", "inbound"],
   ["POST", "conversations/:id/actions", "conversation.action"],
+  ["POST", "contacts", "contact.create"],
+  ["PATCH", "contacts/:id", "contact.update"],
+  ["POST", "contacts/import", "contact.import"],
+  ["PUT", "conversations/:id/contact", "contact.from-conversation"],
+  ["DELETE", "conversations/:id/contact", "contact.unlink"],
   ["PUT", "presence", "presence"],
   ["POST", "tickets", "ticket.create"],
   ["PATCH", "tickets/:id", "ticket.update"],
@@ -357,7 +369,9 @@ const commands = [
 for (const [method, path, op] of commands)
   app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) =>
     mutate(c, op, c.req.param("profile")!, {
-      ...(method === "DELETE" ? {} : await c.req.json().catch(() => ({}))),
+      ...(method === "DELETE" && op !== "contact.unlink"
+        ? {}
+        : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
     }),
   );
@@ -484,6 +498,38 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     }
     return c.json({ data: rows, next_cursor: more ? rows.at(-1)?.id : null });
   });
+app.get("/api/v1/profiles/:profile/contacts", async (c) =>
+  c.json(
+    await listContacts(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.query(),
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/contacts/:id", async (c) =>
+  c.json(
+    await contactDetail(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
+);
+app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
+  await rate(c.env, `contacts-preview:${c.get("actor").id}`, 20);
+  const data = await c.req.json();
+  return c.json(
+    await previewContactCsv(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      data.csv,
+    ),
+  );
+});
 app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   const p = c.req.param("profile");
   access(c.get("actor"), p, "conversations:read");
@@ -500,10 +546,17 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     q = (c.req.query("q") || "").slice(0, 200);
   const rows = await all(
     c.env,
-    "SELECT * FROM conversations WHERE profile_id=? AND (?='' OR state=?) AND (external_id LIKE ? OR phone LIKE ?) AND (?=1 OR external_namespace NOT LIKE 'app:%' OR external_namespace=?) AND (? IS NULL OR updated<? OR (updated=? AND id<?)) ORDER BY updated DESC,id DESC LIMIT ?",
+    "SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?",
+    c.get("actor").kind === "user" ||
+      c.get("actor").scopes.includes("contacts:read")
+      ? 1
+      : 0,
+    c.get("actor").kind === "user" ? 1 : 0,
+    contactNamespace(c.get("actor")),
     p,
     state,
     state,
+    `%${q}%`,
     `%${q}%`,
     `%${q}%`,
     c.get("actor").kind !== "app" ? 1 : 0,
@@ -531,6 +584,7 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   const notes = actor.kind !== "app" || actor.scopes.includes("notes:read");
   return c.json({
     conversation: conv,
+    contact: await conversationContact(c.env, actor, p, conv.id),
     messages: await all(
       c.env,
       "SELECT * FROM messages WHERE conversation_id=? AND (?=1 OR direction!='note') ORDER BY created,id",

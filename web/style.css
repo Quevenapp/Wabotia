@@ -2429,3 +2429,242 @@ td .text-link {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Agenda: the same profile and conversation context as the inbox. */
+.contacts-panel {
+  display: grid;
+  gap: 24px;
+}
+.contacts-toolbar,
+.contact-actions,
+.contact-mode,
+.contacts-search,
+.contacts-pagination,
+.contacts-pagination > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.contacts-toolbar {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.contacts-search {
+  flex: 1;
+  min-width: min(100%, 300px);
+}
+.contacts-search .search-box {
+  flex: 1;
+  margin: 0;
+  min-width: 210px;
+}
+.contacts-search input {
+  width: 100%;
+  min-width: 0;
+}
+.contacts-list {
+  min-width: 0;
+}
+.contacts-list .section-heading {
+  margin-bottom: 16px;
+}
+.contacts-list .section-heading p {
+  margin-bottom: 0;
+}
+.contact-table-wrap {
+  overflow: auto;
+  max-height: 500px;
+}
+.contact-table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+}
+.contact-table caption {
+  text-align: left;
+  padding: 10px 0;
+  font-weight: 600;
+}
+.contact-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: #f1f5ec;
+}
+.contact-table th,
+.contact-table td {
+  padding: 15px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.contact-table td {
+  max-width: 250px;
+  overflow-wrap: anywhere;
+}
+.contact-table small,
+.contact-match small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.contact-name {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.contact-name:hover {
+  text-decoration: underline;
+}
+.contacts-pagination {
+  margin-top: 20px;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.contacts-help {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.contacts-help > div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px;
+}
+.contacts-help h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.contacts-help p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+  color: var(--muted);
+}
+.contacts-dialog-wide {
+  max-width: 860px;
+}
+.contacts-dialog .field {
+  margin-top: 16px;
+}
+.contacts-dialog .text-link {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.contact-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.contact-fields .field small {
+  font-weight: 400;
+}
+.contact-mode {
+  margin-top: 20px;
+}
+.contact-mode .button {
+  flex: 1;
+  font-size: 12px;
+}
+.contact-matches {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+.contact-match {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  cursor: pointer;
+}
+.contact-match input {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.contact-match span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.contact-unlink,
+.contact-history {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 16px;
+}
+.contact-history h3 {
+  font-size: 15px;
+}
+.contact-history-link {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+  cursor: pointer;
+}
+.contact-history-link:hover {
+  text-decoration: underline;
+}
+.contact-import-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  border-radius: 10px;
+  background: #edf3e3;
+  padding: 18px;
+  margin-top: 20px;
+  font-size: 14px;
+}
+.contact-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.contacts-dialog .notice {
+  overflow-wrap: anywhere;
+}
+.contacts-dialog .notice ul {
+  padding-left: 20px;
+}
+@media (max-width: 760px) {
+  .contacts-help {
+    grid-template-columns: 1fr;
+  }
+  .contacts-toolbar > *,
+  .contacts-toolbar .contact-actions {
+    width: 100%;
+  }
+  .contacts-toolbar .button {
+    font-size: 12px;
+  }
+  .contacts-dialog {
+    padding: 20px;
+  }
+  .contact-table th,
+  .contact-table td {
+    padding: 12px 8px;
+    min-width: 100px;
+  }
+  .conversation-detail > header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}

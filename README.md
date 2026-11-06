@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.3.1, com instalação guiada do Node.js para Ubuntu/VPS, diagnóstico visível de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.4.0, com agenda de contatos por perfil, importação CSV com prévia e cadastro/vínculo a partir das conversas. Inclui instalação guiada, diagnóstico de conexões, atualização pelo painel e assistente para preparar Hermes na Cloudflare. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects, e por requisições ao ambiente Cloudflare de homologação. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -36,6 +36,10 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 Para Hermes privado: `node scripts/connect-hermes.mjs` gera as instruções e configuração de Cloudflare Tunnel protegido por Access, para Linux, WSL2 e macOS. HTTPS público autenticado também é aceito.
 
 Também é possível usar **Conexões → Preparar Hermes na Cloudflare**. Após ligar as APIs locais e autorizar um token Cloudflare em **Sistema e atualizações**, o painel cria Access, túnel e DNS e entrega um instalador privado para o conector. Veja [pré-requisitos, etapas e recuperação](docs/HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel).
+
+## Agenda de contatos
+
+Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe arquivos CSV UTF-8 de até 500 contatos/1 MB, conferindo erros e linhas idênticas antes de salvar. Em **Conversas → Salvar contato**, crie um cadastro ou vincule uma pessoa da agenda. Nome, telefone, e-mail, empresa e observações ficam salvos no perfil; telefones não unem clientes automaticamente. [Passo a passo com telas](docs/CONTATOS.md) · [Modelo CSV](public/modelo-contatos.csv).
 
 ## API
 

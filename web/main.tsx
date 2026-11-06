@@ -41,10 +41,13 @@ import { InstallKeys } from "./InstallKeys";
 import { ConnectionDiagnostics } from "./ConnectionDiagnostics";
 import { CloudflareDeploy, SystemPanel } from "./SystemPanel";
 import { MaintenanceGuide } from "./maintenance-guide";
+import { ContactGuide } from "./ContactGuide";
+import { ContactsPanel, ContactEditor, demoContacts } from "./ContactsPanel";
 type Row = Record<string, any>;
 const sections = [
   ["overview", "Visão geral", LayoutDashboard],
   ["conversations", "Conversas", MessageCircle],
+  ["contacts", "Agenda de contatos", BookOpen],
   ["tickets", "Protocolos", FileText],
   ["bots", "Equipe Bot", Bot],
   ["knowledge", "Conhecimento", BookOpen],
@@ -66,6 +69,7 @@ async function api(
   method = "GET",
   body?: any,
   signal?: AbortSignal,
+  idempotencyKey?: string,
 ): Promise<any> {
   const response = await fetch("/api/" + path, {
     method,
@@ -75,7 +79,9 @@ async function api(
       ...(body instanceof FormData
         ? {}
         : { "Content-Type": "application/json" }),
-      ...(method !== "GET" ? { "Idempotency-Key": crypto.randomUUID() } : {}),
+      ...(method !== "GET"
+        ? { "Idempotency-Key": idempotencyKey || crypto.randomUUID() }
+        : {}),
     },
     body:
       body === undefined
@@ -491,6 +497,7 @@ function Install() {
         </div>
         <HermesInstall />
         <MaintenanceGuide />
+        <ContactGuide />
         <aside className="callout">
           <ShieldCheck />
           <div>
@@ -793,6 +800,7 @@ function App() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [selection, setSelection] = useState<Row | null>(null),
+    [contactEditing, setContactEditing] = useState(false),
     [reply, setReply] = useState(""),
     [search, setSearch] = useState(""),
     [mobile, setMobile] = useState(false),
@@ -840,7 +848,7 @@ function App() {
     }
   };
   async function load() {
-    if (page === "system") return;
+    if (page === "system" || page === "contacts") return;
     if (demo) {
       setOverview({
         enabled: false,
@@ -943,6 +951,9 @@ function App() {
     if (demo) {
       setSelection({
         conversation: row,
+        contact: row.contact_id
+          ? demoContacts.find((c) => c.id === row.contact_id)
+          : null,
         messages: [
           {
             id: 1,
@@ -1180,13 +1191,16 @@ function App() {
             )
             .map(([id, title, Icon], i) => (
               <React.Fragment key={id}>
-                {i === 10 && <div className="nav-label">ADMINISTRAÇÃO</div>}
+                {id === "connections" && (
+                  <div className="nav-label">ADMINISTRAÇÃO</div>
+                )}
                 <button
                   onClick={() => {
                     setPage(id);
                     setCursor("");
                     setNextCursor(null);
                     setSelection(null);
+                    setContactEditing(false);
                     setMobile(false);
                     setError("");
                   }}
@@ -1267,9 +1281,11 @@ function App() {
                   ? "Tudo o que sua equipe precisa para cuidar de cada conversa."
                   : page === "conversations"
                     ? "Contexto, pessoas e respostas no mesmo lugar."
-                    : page === "applications"
-                      ? "Conecte outros sistemas com acesso controlado."
-                      : "Organize seu atendimento com clareza."}
+                    : page === "contacts"
+                      ? "Guarde os dados dos clientes e encontre cada contato com facilidade."
+                      : page === "applications"
+                        ? "Conecte outros sistemas com acesso controlado."
+                        : "Organize seu atendimento com clareza."}
               </p>
             </div>
             <div className="heading-actions">
@@ -1280,6 +1296,7 @@ function App() {
                   setProfile(e.target.value);
                   setCursor("");
                   setSelection(null);
+                  setContactEditing(false);
                 }}
               >
                 <option value="">Escolha um perfil</option>
@@ -1330,6 +1347,20 @@ function App() {
             <>
               {page === "system" && me.role === "admin" && (
                 <SystemPanel api={api} demo={demo} />
+              )}
+              {page === "contacts" && (
+                <ContactsPanel
+                  key={profile}
+                  api={api}
+                  root={root}
+                  demo={demo}
+                  openConversation={(row) => {
+                    setPage("conversations");
+                    setSearch("");
+                    setCursor("");
+                    openConversation(row).catch((e) => setError(e.message));
+                  }}
+                />
               )}
               {page === "overview" && (
                 <>
@@ -1483,7 +1514,9 @@ function App() {
                             {(row.phone || row.external_id).slice(-2)}
                           </span>
                           <div>
-                            <strong>{row.phone || row.external_id}</strong>
+                            <strong>
+                              {row.contact_name || row.phone || row.external_id}
+                            </strong>
                             <small>{date(row.updated)}</small>
                           </div>
                           <Badge value={row.state} />
@@ -1502,29 +1535,40 @@ function App() {
                         <header>
                           <div>
                             <h2>
-                              {selection.conversation.phone ||
+                              {selection.contact?.name ||
+                                selection.conversation.phone ||
                                 selection.conversation.external_id}
                             </h2>
                             <Badge value={selection.conversation.state} />
                           </div>
-                          <Button
-                            secondary
-                            disabled={busy}
-                            onClick={() =>
-                              run(() =>
-                                api(
-                                  root +
-                                    `/conversations/${selection.conversation.id}/actions`,
-                                  "POST",
-                                  { action: "claim" },
-                                ),
-                              ).then(() =>
-                                openConversation(selection.conversation),
-                              )
-                            }
-                          >
-                            Assumir conversa
-                          </Button>
+                          <div className="contact-actions">
+                            <Button
+                              secondary
+                              onClick={() => setContactEditing(true)}
+                            >
+                              {selection.contact
+                                ? "Editar contato"
+                                : "Salvar contato"}
+                            </Button>
+                            <Button
+                              secondary
+                              disabled={busy}
+                              onClick={() =>
+                                run(() =>
+                                  api(
+                                    root +
+                                      `/conversations/${selection.conversation.id}/actions`,
+                                    "POST",
+                                    { action: "claim" },
+                                  ),
+                                ).then(() =>
+                                  openConversation(selection.conversation),
+                                )
+                              }
+                            >
+                              Assumir conversa
+                            </Button>
+                          </div>
                         </header>
                         <div className="messages">
                           {selection.messages.map((m: any) => (
@@ -2522,6 +2566,24 @@ function App() {
           </footer>
         </div>
       </main>
+      {contactEditing && selection && (
+        <ContactEditor
+          key={profile + selection.conversation.id}
+          api={api}
+          root={root}
+          demo={demo}
+          contact={selection.contact}
+          conversation={selection.conversation}
+          close={() => setContactEditing(false)}
+          saved={(message) => {
+            setContactEditing(false);
+            setNotice(message);
+            openConversation(selection.conversation)
+              .then(load)
+              .catch((e) => setError(e.message));
+          }}
+        />
+      )}
       {modal && (
         <Modal
           title={
@@ -2823,6 +2885,8 @@ function App() {
                     (rows.scopes?.length ? rows.scopes : null) || [
                       "conversations:read",
                       "conversations:write",
+                      "contacts:read",
+                      "contacts:write",
                       "tickets:read",
                       "tickets:write",
                       "bots:read",

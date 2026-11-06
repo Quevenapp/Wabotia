@@ -23,9 +23,12 @@ import { event, audit } from "./events";
 import { visibleConversation } from "./visibility";
 import { probe, discover, configureTelegram } from "./integrations";
 import { secret } from "./security";
+import { contactCommand } from "./contacts";
 export const scopes = [
   "conversations:read",
   "conversations:write",
+  "contacts:read",
+  "contacts:write",
   "notes:read",
   "tickets:read",
   "tickets:write",
@@ -448,6 +451,8 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  if (op.startsWith("contact."))
+    return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("system.")) {
     admin(actor);
     const maintenance = await import("./maintenance");

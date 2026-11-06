@@ -6,7 +6,7 @@ O contrato está em `/api/openapi.json` e o explorador de consultas em `/api-doc
 
 `Authorization: Bearer SUA_CHAVE` autentica a aplicação. Ela não escolhe o autor por `actor`, `user_id` ou campos semelhantes: a identidade vem da chave. Cada cliente externo é vinculado à aplicação; telefones informados não unem cadastros. Aplicações não acessam conversas externas de outras aplicações. Canais compartilhados seguem as permissões de perfil. Notas internas precisam de `notes:read`; relatórios não contornam essa restrição. Somente contas humanas registram presença.
 
-Permissões: `conversations:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
+Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
 
 ## Repetição e erros
 
@@ -33,6 +33,34 @@ Use `/inbound` para novas mensagens do cliente. Para operar o atendimento, faça
 Abra um protocolo com `POST /profiles/{perfil}/tickets`, corpo `{"conversation_id":"ID","title":"Solicitação"}`. Atualize com `PATCH /profiles/{perfil}/tickets/{id}` e `status`, `text`, `owner` ou `response_due_at`. O prazo só é alterável antes da primeira resposta e enquanto aberto.
 
 Envie arquivos de até 20 MB com multipart `file` para `/profiles/{perfil}/media`. Use os IDs retornados em `attachments`. Baixe por `/media/{id}/content` com a chave autorizada; não há URLs públicas do bucket. Cadastre conhecimento em `/knowledge` com `kind: text`, `url`, `file` ou `youtube`; importações de arquivos/URLs são assíncronas.
+
+## Agenda de contatos
+
+Todas as rotas abaixo partem de `/api/v1/profiles/{perfil}`:
+
+| Método e rota                        | Permissão                               | Uso                                                                                                                                                                        |
+| ------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /contacts`                      | `contacts:read`                         | Lista `{data,next_cursor}`; filtros `q`, `cursor`, `limit` (1–100, padrão 50) e `namespace` opcional.                                                                      |
+| `POST /contacts`                     | `contacts:write`                        | Cadastra nome obrigatório e telefone, e-mail, empresa e observações opcionais.                                                                                             |
+| `GET /contacts/{id}`                 | `contacts:read`                         | Retorna `{contact,conversations}`. A lista de até 50 conversas recentes exige também `conversations:read`.                                                                 |
+| `PATCH /contacts/{id}`               | `contacts:write`                        | Atualiza campos enviados, exigindo `expected_version` da consulta. Versão antiga retorna 409.                                                                              |
+| `POST /contacts/import/preview`      | `contacts:write`                        | Corpo `{csv: "conteúdo UTF-8"}`. Retorna prévia, contagens e erros por linha; não grava e não exige Idempotency-Key. Limite adicional de 20 prévias/minuto por identidade. |
+| `POST /contacts/import`              | `contacts:write`                        | Mesmo corpo; até 500 contatos/1 MiB. Retorna `{imported,skipped,total}`. Arquivo com erro não importa nenhuma linha.                                                       |
+| `PUT /conversations/{id}/contact`    | `contacts:write` e `conversations:read` | Cria com os campos do contato ou vincula explicitamente com `{contact_id}`.                                                                                                |
+| `DELETE /conversations/{id}/contact` | `contacts:write` e `conversations:read` | Corpo `{expected_contact_id}`. Remove somente o vínculo; contato diferente do esperado retorna 409.                                                                        |
+
+Escritas exigem `Idempotency-Key`. Cada aplicação acessa apenas seu namespace, definido pelo servidor. Autor, perfil e namespace não podem ser forjados no corpo. Aplicações só vinculam contatos às suas próprias conversas externas; o telefone não une cadastros. Contatos de equipe e de outras integrações são inacessíveis à aplicação, mesmo se ela tentar filtrar outro namespace.
+
+O CSV aceita cabeçalhos em português e inglês, vírgula ou ponto e vírgula, BOM UTF-8 e campos entre aspas. Colunas desconhecidas aparecem em `ignored_columns`. Linhas com todos os campos normalizados idênticos são ignoradas no mesmo arquivo e em reimportações no mesmo perfil/namespace. Uma reimportação não sobrescreve edições feitas depois. Nenhuma operação de agenda envia mensagens ou concede consentimento. Veja o [guia de CSV](CONTATOS.md).
+
+```sh
+curl "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/contacts" \
+ -H "Authorization: Bearer $WABOTIA_KEY" -H 'Content-Type: application/json' \
+ -H 'Idempotency-Key: contato-cliente-001' \
+ --data '{"name":"Contato de exemplo","phone":"5511999990000","email":"contato@example.com","company":"Empresa","notes":"Cadastro pelo sistema integrador"}'
+```
+
+Para importar um arquivo no backend com JavaScript, leia-o como UTF-8 e envie `JSON.stringify({csv})` às rotas de prévia e importação. Confira `errors.length === 0` e `new_count > 0` antes de confirmar. Preserve a mesma Idempotency-Key e o mesmo corpo ao repetir uma importação após falha de rede.
 
 ## Executar bots
 

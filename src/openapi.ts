@@ -1,4 +1,130 @@
+const contactProperties = {
+  name: { type: "string", minLength: 1, maxLength: 120 },
+  phone: {
+    type: "string",
+    maxLength: 40,
+    description:
+      "Opcional. De 8 a 15 dígitos com DDI e DDD; aceita +, espaços e pontuação de telefone. Não une cadastros.",
+  },
+  email: {
+    type: "string",
+    maxLength: 254,
+    description: "E-mail válido ou vazio.",
+  },
+  company: { type: "string", maxLength: 160 },
+  notes: { type: "string", maxLength: 2000 },
+};
 const schemas = {
+  ContactInput: {
+    type: "object",
+    required: ["name"],
+    properties: contactProperties,
+  },
+  ContactUpdate: {
+    type: "object",
+    required: ["expected_version"],
+    properties: {
+      ...contactProperties,
+      expected_version: {
+        type: "integer",
+        minimum: 1,
+        description: "Versão obtida na consulta. Desatualizada retorna 409.",
+      },
+    },
+  },
+  Contact: {
+    type: "object",
+    properties: {
+      ...contactProperties,
+      id: { type: "string" },
+      profile_id: { type: "string" },
+      namespace: { type: "string", readOnly: true },
+      source: { enum: ["manual", "csv", "conversation"] },
+      version: { type: "integer" },
+      created_by: { type: "string", readOnly: true },
+      updated_by: { type: "string", readOnly: true },
+      created: { type: "integer" },
+      updated: { type: "integer" },
+    },
+  },
+  ContactLink: {
+    oneOf: [
+      { $ref: "#/components/schemas/ContactInput" },
+      {
+        type: "object",
+        required: ["contact_id"],
+        properties: {
+          contact_id: {
+            type: "string",
+            description:
+              "Contato existente do mesmo perfil e namespace da aplicação.",
+          },
+        },
+      },
+    ],
+  },
+  ContactUnlink: {
+    type: "object",
+    required: ["expected_contact_id"],
+    properties: {
+      expected_contact_id: {
+        type: "string",
+        description:
+          "Contato atualmente vinculado; impede desvincular uma alteração mais recente.",
+      },
+    },
+  },
+  ContactCsv: {
+    type: "object",
+    required: ["csv"],
+    properties: {
+      csv: {
+        type: "string",
+        maxLength: 1048576,
+        description:
+          "Conteúdo UTF-8 completo, até 1 MiB e 500 contatos. Cabeçalho nome obrigatório; telefone, email, empresa, observacoes opcionais. Separador vírgula ou ponto e vírgula. Nenhuma linha é importada se houver erro.",
+      },
+    },
+  },
+  ContactImportResult: {
+    type: "object",
+    properties: {
+      imported: { type: "integer" },
+      skipped: { type: "integer" },
+      total: { type: "integer" },
+    },
+  },
+  ContactCsvPreview: {
+    type: "object",
+    properties: {
+      total: { type: "integer" },
+      new_count: { type: "integer" },
+      skipped_count: { type: "integer" },
+      delimiter: { type: "string" },
+      ignored_columns: { type: "array", items: { type: "string" } },
+      rows: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            line: { type: "integer" },
+            values: { $ref: "#/components/schemas/ContactInput" },
+            duplicate: { type: "boolean" },
+          },
+        },
+      },
+      errors: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            line: { type: "integer" },
+            message: { type: "string" },
+          },
+        },
+      },
+    },
+  },
   Error: {
     type: "object",
     properties: {
@@ -124,6 +250,60 @@ const schemas = {
 };
 const operations: [string, string, string, string?, string?][] = [
   ["get", "/profiles", "Listar perfis autorizados"],
+  [
+    "get",
+    "/profiles/{profile}/contacts",
+    "Consultar agenda de contatos",
+    "contacts:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/contacts",
+    "Cadastrar contato",
+    "contacts:write",
+    "ContactInput",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/contacts/{id}",
+    "Consultar contato e conversas vinculadas",
+    "contacts:read",
+  ],
+  [
+    "patch",
+    "/profiles/{profile}/contacts/{id}",
+    "Atualizar contato",
+    "contacts:write",
+    "ContactUpdate",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/contacts/import/preview",
+    "Conferir CSV sem salvar",
+    "contacts:write",
+    "ContactCsv",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/contacts/import",
+    "Importar contatos de CSV",
+    "contacts:write",
+    "ContactCsv",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/conversations/{id}/contact",
+    "Salvar ou vincular contato da conversa",
+    "contacts:write e conversations:read",
+    "ContactLink",
+  ],
+  [
+    "delete",
+    "/profiles/{profile}/conversations/{id}/contact",
+    "Desvincular contato sem excluir cadastro",
+    "contacts:write e conversations:read",
+    "ContactUnlink",
+  ],
   ["get", "/profiles/{profile}/bots", "Listar bots", "bots:read"],
   [
     "get",
@@ -272,7 +452,8 @@ const operations: [string, string, string, string?, string?][] = [
 export function openapi(origin: string) {
   const paths: any = {};
   for (const [method, path, summary, scope, schema] of operations) {
-    const mutation = method !== "get";
+    const mutation =
+      method !== "get" && !path.endsWith("/contacts/import/preview");
     const parameters: any[] = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({
       in: "path",
       name: m[1],
@@ -293,6 +474,19 @@ export function openapi(origin: string) {
           name,
           schema: { type: "string" },
         })),
+      );
+    if (path.endsWith("/contacts") && method === "get")
+      parameters.push(
+        ...["cursor", "q", "namespace"].map((name) => ({
+          in: "query",
+          name,
+          schema: { type: "string" },
+        })),
+        {
+          in: "query",
+          name: "limit",
+          schema: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+        },
       );
     if (path.endsWith("/events"))
       parameters.push({
@@ -413,7 +607,10 @@ export function openapi(origin: string) {
           }
         : {}),
     };
-    if (paginated || (path.endsWith("/conversations") && method === "get"))
+    if (
+      paginated ||
+      (/\/(conversations|contacts)$/.test(path) && method === "get")
+    )
       success.content["application/json"].schema = {
         type: "object",
         required: ["data", "next_cursor"],
@@ -422,6 +619,49 @@ export function openapi(origin: string) {
           next_cursor: { type: ["string", "null"] },
         },
       };
+    if (path.endsWith("/contacts") && method === "get")
+      success.content["application/json"].schema.properties.data.items = {
+        allOf: [
+          { $ref: "#/components/schemas/Contact" },
+          {
+            type: "object",
+            properties: { conversation_count: { type: "integer" } },
+          },
+        ],
+      };
+    if (
+      (path.endsWith("/contacts") && method === "post") ||
+      (path.endsWith("/contacts/{id}") && method === "patch") ||
+      (path.endsWith("/contact") && method === "put")
+    )
+      success.content["application/json"].schema = {
+        $ref: "#/components/schemas/Contact",
+      };
+    if (path.endsWith("/contacts/{id}") && method === "get")
+      success.content["application/json"].schema = {
+        type: "object",
+        properties: {
+          contact: { $ref: "#/components/schemas/Contact" },
+          conversations: {
+            type: "array",
+            maxItems: 50,
+            description:
+              "Requer também conversations:read. Até 50 conversas recentes da própria aplicação.",
+            items: { type: "object" },
+          },
+        },
+      };
+    if (path.endsWith("/contacts/import"))
+      success.content["application/json"].schema = {
+        $ref: "#/components/schemas/ContactImportResult",
+      };
+    if (path.endsWith("/contacts/import/preview"))
+      success.content["application/json"].schema = {
+        $ref: "#/components/schemas/ContactCsvPreview",
+      };
+    if (path.includes("/contacts") || path.endsWith("/contact"))
+      entry.description +=
+        " A aplicação acessa somente seus contatos no perfil. Namespace e autor vêm da autenticação. Nenhuma operação envia mensagens, concede consentimento ou une clientes pelo telefone. Importações repetidas ignoram linhas com todos os campos idênticos normalizados. Vínculos exigem conversa da própria aplicação.";
     if (path.endsWith("/events"))
       success.content["application/json"].schema = {
         type: "object",

@@ -59,18 +59,19 @@ class Shot(Flowable):
 def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Paragraph(caption,styles['caption'])])
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 # 1
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.3.1','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.4.0','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
 p(link('Começar em wabotia.queven.app/install','https://wabotia.queven.app/install'))
-p('Edição de 05/11/2026. Leia na ordem; escolha apenas um modo de WhatsApp por número. O painel fica na Cloudflare. Hermes e QR continuam no computador ou servidor que você escolher.','small')
+p('Edição de 06/11/2026. Leia na ordem; escolha apenas um modo de WhatsApp por número. O painel fica na Cloudflare. Hermes e QR continuam no computador ou servidor que você escolher.','small')
 # 2
 title(2,'Um instalador. Sua Cloudflare.')
 p('Você não precisa criar uma conta GitHub nem um repositório para instalar. O código aberto continua no repositório oficial. Sua instalação recebe versões prontas e pode ser atualizada pelo painel.')
 steps(['Instale Node.js e npm no computador ou na VPS de onde vai publicar. O roteiro completo, incluindo libatomic1 no Ubuntu, está nas páginas 3 a 6.','Prepare a conta Cloudflare: Workers, R2 e D1. Para conectar um Hermes privado, ative também Zero Trust. Veja páginas 7 a 9.','Crie um token da API Cloudflare e copie seu Account ID. O token autoriza o instalador a criar os recursos na sua conta. Página 10.','Execute o instalador no computador uma vez. Ele baixa o pacote oficial, verifica a integridade, publica os recursos e gera as chaves. Página 11.','Guarde a pasta privada criada. Abra a URL exibida e use SETUP_TOKEN para criar seu administrador. Páginas 12 e 13.','Conecte o Hermes e os canais. Nas próximas versões, use Sistema e atualizações, páginas 37 e 38.'])
 box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instalação nova começa vazia e não importa o histórico antigo. Mantenha a anterior até conferir o novo painel. O roteiro de transição está na página 39.')
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
+p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
 # Node.js before Cloudflare provisioning
 title(3,'Node.js: prepare o Ubuntu')
 p('<b>Node.js executa o instalador; npm vem junto.</b> Você pode publicar a partir do computador ou da VPS. O Wabotia fica na Cloudflare. Se usar a VPS, a pasta privada com as chaves ficará nela.')
@@ -378,11 +379,27 @@ p('Confira Implantações e /api/health. Um pedido pode ter sido aceito antes de
 box('Não restaure apenas o código se uma migração exigir outro esquema de banco. Use o backup e revise a compatibilidade. O instalador não substitui outro Worker nem troca as chaves de uma instalação existente.')
 p('O novo instalador foi exercitado em Linux com recursos reais na Cloudflare. Comandos Windows/macOS estão documentados; ainda precisam de validação nesses sistemas. Teste canais reais na sua instalação antes de usar em produção.','small')
 
+title(40,'Sua agenda de contatos')
+p('A partir da versão 0.4.0, guarde nome, telefone, e-mail, empresa e observações de cada cliente. Escolha o perfil no alto do painel e abra <b>Agenda de contatos</b>.')
+shot('23-agenda.jpg','Agenda em uma instalação de teste. Todos os contatos e telefones desta imagem são fictícios.',width=CW,crop=(0,80,1455,700))
+steps(['Clique em <b>Novo contato</b>. Preencha o nome; os outros campos são opcionais.','No telefone, inclua DDI e DDD: por exemplo, <b>5511999990000</b>. Pode usar +55 (11) 99999-0000. O sistema guarda os dígitos, sem acrescentar o país.','Clique em <b>Salvar contato</b>. Para corrigir, clique no nome na agenda. A edição vale para todas as conversas vinculadas.','Para localizar uma pessoa, digite nome, telefone, e-mail ou empresa e clique em <b>Buscar</b>. Use Próxima página quando houver mais registros.'])
+box('Se o menu ainda não apareceu, use <b>Sistema e atualizações > Verificar atualização > Atualizar Wabotia</b>. Ao concluir, clique em Reabrir painel atualizado. Não precisa reinstalar.')
+p('Atendentes acessam apenas seus perfis. Integrações externas possuem cadastros separados, identificados como Integração externa. A API da agenda também está disponível.','small')
+title(41,'Importe sua planilha CSV')
+steps(['Na agenda, clique em <b>Modelo CSV</b>. Abra no Excel, LibreOffice ou Google Planilhas. Mantenha a primeira linha e substitua o contato de exemplo.','Use as colunas <b>nome, telefone, email, empresa, observacoes</b>. Só nome é obrigatório. Antes de preencher, formate a coluna telefone como <b>Texto</b>; inclua DDI e DDD.','Salve como <b>CSV UTF-8</b> com vírgula ou ponto e vírgula. No Excel: Arquivo > Salvar como > CSV UTF-8. No Google Planilhas: Arquivo > Fazer download > Valores separados por vírgulas. No LibreOffice: Texto CSV, UTF-8.','Use até <b>500 contatos e 1 MB por arquivo</b>. Para mais contatos, divida a planilha e mantenha o cabeçalho em cada arquivo.','Clique em <b>Importar CSV</b> e escolha o arquivo. Confira os novos contatos, linhas idênticas ignoradas e erros. Corrija os erros, salve e selecione o arquivo novamente.','Com a prévia correta, clique em <b>Importar N contato(s)</b>. Aguarde a confirmação na agenda.'])
+shot('24-agenda-csv.jpg','Prévia com dois contatos novos e uma linha idêntica ignorada. Role a janela para conferir as linhas e o botão de importação.',width=460,crop=(295,35,850,490))
+p('<b>Se houver erro, nenhum contato será importado.</b> Repetir o mesmo CSV ignora as linhas idênticas, sem sobrescrever edições posteriores. Dados diferentes geram outro cadastro, mesmo com o mesmo telefone. Para corrigir um cadastro existente, edite na agenda.','small')
+title(42,'Salve o contato da conversa')
+shot('25-agenda-conversa.jpg','Escolha explícita de um contato já cadastrado. Tela com dados fictícios.',width=300,crop=(443,32,555,583))
+steps(['Abra <b>Conversas</b> e selecione o atendimento. Clique em <b>Salvar contato</b>. O telefone é preenchido quando está disponível.','Escolha <b>Criar novo contato</b> e preencha o nome, ou <b>Vincular contato existente</b> e selecione a pessoa na agenda. Clique em Salvar contato ou Vincular contato.','O nome passa a aparecer na conversa. Depois, use <b>Editar contato</b> para corrigir os dados.','Se vinculou a pessoa errada, clique em <b>Editar contato > Desvincular desta conversa</b>. O cadastro e o histórico permanecem salvos. Depois escolha o contato correto.'])
+box('Um contato pode ser vinculado a várias conversas. O mesmo telefone não une clientes automaticamente. Importar ou salvar contatos não envia mensagens nem concede consentimento.')
+p(link('Guia da agenda no site','https://wabotia.queven.app/install#agenda')+' · '+link('Baixar modelo CSV','https://wabotia.queven.app/modelo-contatos.csv'),'small')
+
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)
     c.setFillColor(GREEN);c.rect(0,H-8,W,8,fill=1,stroke=0)
     c.setStrokeColor(LINE);c.line(M,39,W-M,39)
-    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  Instalação na Cloudflare  |  05/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
+    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  Instalação na Cloudflare  |  06/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
 class NumberedCanvas(canvas.Canvas):
     def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
 doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
