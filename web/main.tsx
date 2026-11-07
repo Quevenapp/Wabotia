@@ -5,7 +5,7 @@ import { MetaGuide } from "./MetaGuide";
 import { WhatsAppGroups, GroupControls } from "./WhatsAppGroups";
 import { callStatus } from "./WhatsAppCalls";
 import { DirectInstall } from "./DirectInstall";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { HermesInstall } from "./hermes-install";
 import { CloudflarePrerequisites } from "./cloudflare-prerequisites";
@@ -813,7 +813,11 @@ function App() {
     [page, setPage] = useState("overview"),
     [profiles, setProfiles] = useState<Row[]>(demo ? [demoProfile] : []),
     [profile, setProfile] = useState(demo ? "demo" : ""),
-    [rows, setRows] = useState<any>([]),
+    [pageData, setPageData] = useState<{
+      scope: string;
+      rows: any;
+      nextCursor: string | null;
+    }>({ scope: "", rows: [], nextCursor: null }),
     [overview, setOverview] = useState<any>({}),
     [bots, setBots] = useState<Row[]>([]),
     [settings, setSettings] = useState<Row>({}),
@@ -828,9 +832,17 @@ function App() {
     [search, setSearch] = useState(""),
     [mobile, setMobile] = useState(false),
     [section, setSection] = useState("tickets"),
-    [cursor, setCursor] = useState(""),
-    [nextCursor, setNextCursor] = useState<string | null>(null);
+    [cursor, setCursor] = useState("");
   const [ringingCalls, setRingingCalls] = useState<Row[]>([]);
+  const loadScope = JSON.stringify([profile, page, section, cursor]);
+  const currentScope = useRef(loadScope);
+  const latestLoad = useRef(0);
+  currentScope.current = loadScope;
+  // Never render a previous page's records as a different resource type.
+  const rows = pageData.scope === loadScope ? pageData.rows : [];
+  const nextCursor = pageData.scope === loadScope ? pageData.nextCursor : null;
+  const setRows = (data: any, nextCursor: string | null = null) =>
+    setPageData({ scope: loadScope, rows: data, nextCursor });
   const root = "v1/profiles/" + profile;
   const change = (key: string, value: any) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -872,6 +884,7 @@ function App() {
     }
   };
   async function load() {
+    const request = ++latestLoad.current;
     if (page === "system" || page === "contacts" || page === "router") return;
     if (demo) {
       setOverview({
@@ -932,9 +945,6 @@ function App() {
       const [o, b] = profile
         ? await Promise.all([api(root + "/status"), api(root + "/bots")])
         : [{}, []];
-      setOverview(o);
-      setSettings(o.settings || {});
-      setBots(b.data || b);
       let data: any = [];
       if (page === "users" || page === "applications")
         data = await api("v1/" + page);
@@ -958,10 +968,18 @@ function App() {
         data = await api(
           root + "/" + page + "?cursor=" + encodeURIComponent(cursor),
         );
-      setNextCursor(data.next_cursor || null);
-      setRows(page === "reports" ? data : data.data || data);
+      if (currentScope.current !== loadScope || request !== latestLoad.current)
+        return;
+      setOverview(o);
+      setSettings(o.settings || {});
+      setBots(b.data || b);
+      setRows(
+        page === "reports" ? data : data.data || data,
+        data.next_cursor || null,
+      );
     } catch (e: any) {
-      setError(e.message);
+      if (currentScope.current === loadScope && request === latestLoad.current)
+        setError(e.message);
     }
   }
   useEffect(() => {
@@ -1231,7 +1249,6 @@ function App() {
                   onClick={() => {
                     setPage(id);
                     setCursor("");
-                    setNextCursor(null);
                     setSelection(null);
                     setContactEditing(false);
                     setMobile(false);
@@ -1570,7 +1587,9 @@ function App() {
                           onClick={() => openConversation(row)}
                         >
                           <span className="avatar">
-                            {(row.phone || row.external_id).slice(-2)}
+                            {String(row.phone || row.external_id || "?").slice(
+                              -2,
+                            )}
                           </span>
                           <div>
                             <strong>
@@ -1850,7 +1869,6 @@ function App() {
                           showBots={() => {
                             setPage("bots");
                             setCursor("");
-                            setNextCursor(null);
                             setError("");
                           }}
                         >
