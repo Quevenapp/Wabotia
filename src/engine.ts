@@ -1,6 +1,7 @@
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
 import { managedAppAllowed } from "./number-router";
 import { numberUsage } from "./number-quota";
+import { assertNumberDelivery, getNumberPolicy } from "./number-permissions";
 import { all, one, exec, batch } from "./db";
 import {
   type Env,
@@ -58,6 +59,7 @@ export async function processInbox(env: Env, profile: string) {
   const data = json(row.payload);
   let c = await conversation(env, row.conversation_id, profile);
   const cfg = await settings(env, profile);
+  const policy = await getNumberPolicy(env, c.connection_id);
   // These source-keyed events also repair interruption after the inbound transaction.
   await event(env, profile, "conversation.created", c.id, {
     id: c.id,
@@ -102,34 +104,11 @@ export async function processInbox(env: Env, profile: string) {
         );
       return;
     }
-    if (!p?.enabled) {
-      if (cfg.telegram_connection && cfg.telegram_group)
-        await enqueue(
-          env,
-          c,
-          "system",
-          "team",
-          {
-            text: `Cliente: ${data.text}`,
-            attachments: data.attachments || [],
-            group: cfg.telegram_group,
-          },
-          `mirror:${row.id}`,
-        );
-      return;
-    }
     const value = data.text.trim(),
       normalized = value
         .toLowerCase()
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "");
-    if (
-      data.session !== c.session ||
-      (c.state === "ai" && data.epoch !== c.epoch)
-    ) {
-      await exec(env, "UPDATE inbox SET status='done' WHERE id=?", row.id);
-      return;
-    }
     const consent = await one(
       env,
       "SELECT * FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
@@ -154,22 +133,46 @@ export async function processInbox(env: Env, profile: string) {
           }),
           now(),
         );
+        if (p?.enabled && policy.service && (policy.menu || policy.bots))
+          await enqueue(
+            env,
+            c,
+            "system",
+            "text",
+            {
+              text:
+                normalized === "autorizo"
+                  ? "Autorização registrada."
+                  : "Notificações desautorizadas.",
+            },
+            `consent:${row.id}`,
+          );
+        return;
+      }
+    }
+    // Revocation is recorded even on an integration-only or paused number.
+    // Keeping inbound events available does not require an automatic reply.
+    if (!p?.enabled || !policy.service || (!policy.menu && !policy.bots)) {
+      if (cfg.telegram_connection && cfg.telegram_group)
         await enqueue(
           env,
           c,
           "system",
-          "text",
+          "team",
           {
-            text:
-              normalized === "autorizo"
-                ? "Autorização registrada."
-                : "Notificações desautorizadas.",
+            text: `Cliente: ${data.text}`,
+            attachments: data.attachments || [],
+            group: cfg.telegram_group,
           },
-          `consent:${row.id}`,
+          `mirror:${row.id}`,
         );
-        return;
-      }
+      return;
     }
+    if (
+      data.session !== c.session ||
+      (c.state === "ai" && data.epoch !== c.epoch)
+    )
+      return;
     const survey = await one(
       env,
       "SELECT * FROM surveys WHERE conversation_id=? AND status='pending' ORDER BY created DESC LIMIT 1",
@@ -195,6 +198,7 @@ export async function processInbox(env: Env, profile: string) {
       return;
     }
     if (
+      policy.menu &&
       /\b(protocolo|chamado)\b/.test(normalized) &&
       /\b(status|consultar|acompanhar|andamento)\b/.test(normalized)
     ) {
@@ -223,6 +227,7 @@ export async function processInbox(env: Env, profile: string) {
       return;
     }
     if (
+      policy.human &&
       /\b(humano|atendente|pessoa real|falar com alguem)\b/.test(normalized)
     ) {
       await handoff(env, c, "Cliente solicitou atendimento humano.");
@@ -245,10 +250,15 @@ export async function processInbox(env: Env, profile: string) {
       return;
     }
     if (
+      policy.menu &&
       /^(oi|ola|bom dia|boa tarde|boa noite|tudo bem)[!?.\s]*$/.test(normalized)
     ) {
       const menu = (cfg.menus || []).filter(
-        (m: any) => m.enabled !== false && !m.parent_id,
+        (m: any) =>
+          m.enabled !== false &&
+          !m.parent_id &&
+          (m.type !== "bot" || policy.bots) &&
+          (m.type !== "human" || policy.human),
       );
       await enqueue(
         env,
@@ -256,6 +266,7 @@ export async function processInbox(env: Env, profile: string) {
         "bot:attendant",
         "text",
         {
+          automation: "menu",
           text:
             "Olá! Como podemos ajudar?" +
             (menu.length
@@ -271,7 +282,10 @@ export async function processInbox(env: Env, profile: string) {
     }
     const menus = (cfg.menus || []).filter(
       (m: any) =>
+        policy.menu &&
         m.enabled !== false &&
+        (m.type !== "bot" || policy.bots) &&
+        (m.type !== "human" || policy.human) &&
         (m.parent_id || null) === ((c as any).menu_parent || null),
     );
     const choice = menus.find(
@@ -315,7 +329,7 @@ export async function processInbox(env: Env, profile: string) {
             c,
             "system",
             "text",
-            { text: `${app.name}\n${app.url}` },
+            { text: `${app.name}\n${app.url}`, automation: "menu" },
             `app:${row.id}`,
           );
           if (app.review_url)
@@ -324,7 +338,10 @@ export async function processInbox(env: Env, profile: string) {
               c,
               "system",
               "text",
-              { text: `Avalie o aplicativo: ${app.review_url}` },
+              {
+                text: `Avalie o aplicativo: ${app.review_url}`,
+                automation: "menu",
+              },
               `app-review:${row.id}`,
             );
           if (app.review_enabled) {
@@ -344,6 +361,7 @@ export async function processInbox(env: Env, profile: string) {
               "text",
               {
                 text: `Como você avalia ${app.name}? Responda de 1 a 5 e, se desejar, deixe um comentário.`,
+                automation: "menu",
               },
               "app-rating:" + row.id,
             );
@@ -359,7 +377,11 @@ export async function processInbox(env: Env, profile: string) {
           c.id,
         );
         const children = (cfg.menus || []).filter(
-          (m: any) => m.parent_id === choice.id && m.enabled !== false,
+          (m: any) =>
+            m.parent_id === choice.id &&
+            m.enabled !== false &&
+            (m.type !== "bot" || policy.bots) &&
+            (m.type !== "human" || policy.human),
         );
         await enqueue(
           env,
@@ -367,6 +389,7 @@ export async function processInbox(env: Env, profile: string) {
           "system",
           "text",
           {
+            automation: "menu",
             text:
               children
                 .map((m: any, i: number) => `${i + 1}. ${m.label}`)
@@ -377,7 +400,7 @@ export async function processInbox(env: Env, profile: string) {
         return;
       }
     }
-    if (normalized === "menu") {
+    if (policy.menu && normalized === "menu") {
       await exec(
         env,
         "UPDATE conversations SET menu_parent=NULL WHERE id=?",
@@ -389,9 +412,16 @@ export async function processInbox(env: Env, profile: string) {
         "system",
         "text",
         {
+          automation: "menu",
           text:
             (cfg.menus || [])
-              .filter((m: any) => !m.parent_id)
+              .filter(
+                (m: any) =>
+                  !m.parent_id &&
+                  m.enabled !== false &&
+                  (m.type !== "bot" || policy.bots) &&
+                  (m.type !== "human" || policy.human),
+              )
               .map((m: any, i: number) => `${i + 1}. ${m.label}`)
               .join("\n") || "Como podemos ajudar?",
         },
@@ -399,6 +429,7 @@ export async function processInbox(env: Env, profile: string) {
       );
       return;
     }
+    if (!policy.bots) return;
     const words = Array.from(
       new Set(normalized.match(/[\p{L}\p{N}]{3,}/gu) || []),
     ).slice(0, 24);
@@ -545,6 +576,23 @@ function parseOutput(output: any) {
   return JSON.parse(candidate);
 }
 export async function processRun(env: Env, run: Run) {
+  if (run.conversation_id) {
+    const c = await conversation(env, run.conversation_id, run.profile_id);
+    if (!(await getNumberPolicy(env, c.connection_id)).bots) {
+      await exec(
+        env,
+        "UPDATE bot_runs SET status='cancelled',error='Bots desativados neste número.',updated=? WHERE id=?",
+        now(),
+        run.id,
+      );
+      await event(env, run.profile_id, "bot.run.failed", run.id, {
+        id: run.id,
+        status: "cancelled",
+        error: "Bots desativados neste número.",
+      });
+      return;
+    }
+  }
   const bot = await one(env, "SELECT * FROM bots WHERE id=?", run.bot_id),
     conn = bot
       ? await one(
@@ -955,6 +1003,25 @@ export async function deliver(env: Env, row: any) {
       connection.id,
     ));
   if (managed) {
+    try {
+      await assertNumberDelivery(
+        env,
+        connection.id,
+        row.actor,
+        row.kind,
+        payload,
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      await exec(
+        env,
+        "UPDATE outbox SET status='cancelled',error=?,updated=? WHERE id=?",
+        error.message,
+        now(),
+        row.id,
+      );
+      return;
+    }
     if (
       !(await managedAppAllowed(
         env,
@@ -1018,6 +1085,14 @@ export async function deliver(env: Env, row: any) {
     if (!claimed.meta.changes) return;
     let external = "";
     const fresh = await conversation(env, c.id, c.profile_id);
+    // Recheck after asynchronous template/media preparation as well.
+    await assertNumberDelivery(
+      env,
+      c.connection_id,
+      row.actor,
+      row.kind,
+      payload,
+    );
     if (
       connection.kind === "meta" &&
       payload.router_source &&
@@ -1119,11 +1194,13 @@ export async function deliver(env: Env, row: any) {
     await finishDelivery(env, row, external);
   } catch (error) {
     const status =
-      error instanceof ApiError && error.status === 409
-        ? "pending"
-        : error instanceof ApiError && error.status < 500
-          ? "failed"
-          : "unknown";
+      error instanceof ApiError && error.code === "number_policy_denied"
+        ? "cancelled"
+        : error instanceof ApiError && error.status === 409
+          ? "pending"
+          : error instanceof ApiError && error.status < 500
+            ? "failed"
+            : "unknown";
     await exec(
       env,
       "UPDATE outbox SET status=?,error=?,updated=? WHERE id=?",

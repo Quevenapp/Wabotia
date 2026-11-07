@@ -3030,6 +3030,10 @@ button:disabled {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
+.router-number-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  align-items: start;
+}
 .router-number {
   border: 1px solid #dfe6df;
   border-radius: 12px;
@@ -3039,6 +3043,46 @@ button:disabled {
 .router-count {
   font-size: 28px;
   color: #173b30;
+}
+.number-policy-editor {
+  border-top: 1px solid var(--line, #dde5df);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.number-policy-editor form {
+  display: grid;
+  gap: 14px;
+}
+.number-policy-editor p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.number-policy-options {
+  display: grid;
+  gap: 14px;
+}
+.number-router .number-policy-options label.check-line {
+  align-items: flex-start;
+  margin: 0;
+}
+.number-policy-options input {
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+.number-policy-options span {
+  display: grid;
+  gap: 3px;
+}
+.number-policy-options small {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.number-policy-note {
+  padding: 12px;
+  background: var(--soft, #f4f7ef);
+  border-radius: 8px;
 }
 .router-number progress {
   width: 100%;

@@ -1,11 +1,12 @@
 import countersImage from "../docs/screenshots/29-router-contadores.jpg";
 import accountImage from "../docs/screenshots/30-router-conta.jpg";
 import poolImage from "../docs/screenshots/31-router-grupo.jpg";
+import policyImage from "../docs/screenshots/43-router-funcoes.jpg";
 
 export function RouterGuide() {
   return (
     <section id="roteador" className="system-card card hermes-guide">
-      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.6.0</div>
+      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.7.0</div>
       <h2>Uma entrada, até 20 números WhatsApp</h2>
       <p>
         Use <strong>Meta direto</strong> para conectar até 20 números da mesma
@@ -39,7 +40,8 @@ export function RouterGuide() {
         , desde 01/10/2026 as primeiras 1.000 mensagens de atendimento por
         número empresarial/mês são gratuitas. O Wabotia limita o atendimento a
         esse teto local. Modelos pagos ficam separados e exigem autorização em
-        cada envio.
+        cada envio. Uma resposta sem template enviada depois de um modelo
+        continua sendo mensagem de serviço e entra no contador.
       </p>
       <p>
         O cliente precisa ter falado com{" "}
@@ -154,6 +156,50 @@ export function RouterGuide() {
           envios feitos fora do Wabotia, atrasos nos recibos e o fuso. “Cobrança
           não informada” não significa gratuito. O mês muda conforme o fuso
           cadastrado.
+        </p>
+      </details>
+      <details>
+        <summary>3.1. Escolha a função e as permissões de cada número</summary>
+        <ol>
+          <li>
+            Em <strong>Uso por número</strong>, abra{" "}
+            <strong>Função e permissões</strong> no telefone desejado.
+          </li>
+          <li>
+            Escolha <strong>Atendimento oficial</strong> para seu número fixo de
+            contato: menu, bots, atendentes e templates autorizados; fora dos
+            grupos por padrão.
+          </li>
+          <li>
+            Escolha <strong>Integração com janela de 24 horas (Vinki)</strong>{" "}
+            para responder pela API: permite serviço e grupos, bloqueia
+            templates e desliga menu, bots e atendimento manual.
+          </li>
+          <li>
+            Marque ou desmarque cada opção conforme precisar. A função passa a{" "}
+            <strong>Personalizado</strong>.
+          </li>
+          <li>
+            Clique <strong>Salvar função e permissões</strong>. Aguarde a
+            confirmação. Isso não ativa o canal nem a automação do perfil.
+          </li>
+        </ol>
+        <p>
+          As permissões do número prevalecem sobre as dos grupos e programas. A
+          janela continua vinculada ao mesmo remetente. Recebimento, histórico e
+          contadores são preservados; desligar uma opção também bloqueia
+          mensagens ainda na fila.
+        </p>
+        <img
+          src={policyImage}
+          alt="Função de integração com 24 horas: serviço, API e grupos habilitados; templates, atendentes, menu e bots desligados. Dados fictícios."
+          className="guide-reference-image"
+        />
+        <p>
+          O roteador também pode atender retirada de pedidos, check-in de
+          recepção, estacionamento e solicitações ao ERP. Use templates
+          autorizados para avisos fora da janela. Mil mensagens não significam
+          mil clientes: cada resposta conta.
         </p>
       </details>
       <details>

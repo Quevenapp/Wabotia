@@ -35,7 +35,7 @@ export async function numberUsage(env: Env, connection: string) {
   );
   const confirmed = await one(
     env,
-    `SELECT count(*) delivered,sum(CASE WHEN category='service' AND billable=0 THEN 1 ELSE 0 END) free_confirmed,sum(CASE WHEN billable=1 THEN 1 ELSE 0 END) billable_confirmed,sum(CASE WHEN category='unknown' OR billable IS NULL THEN 1 ELSE 0 END) pricing_unknown FROM meta_message_usage WHERE connection_id=? AND period=? AND delivered_at>=?`,
+    `SELECT count(*) delivered,sum(CASE WHEN category='service' THEN 1 ELSE 0 END) service_delivered,sum(CASE WHEN category IN ('utility','marketing','authentication','authentication_international') THEN 1 ELSE 0 END) template_delivered,sum(CASE WHEN category='service' AND billable=0 THEN 1 ELSE 0 END) free_confirmed,sum(CASE WHEN billable=1 THEN 1 ELSE 0 END) billable_confirmed,sum(CASE WHEN category='unknown' OR billable IS NULL THEN 1 ELSE 0 END) pricing_unknown FROM meta_message_usage WHERE connection_id=? AND period=? AND delivered_at>=?`,
     connection,
     period,
     n.monitored_at,
@@ -55,6 +55,8 @@ export async function numberUsage(env: Env, connection: string) {
     remaining: Math.max(0, n.service_limit - count.used),
     reserved: pending.n,
     delivered: confirmed.delivered,
+    service_delivered: confirmed.service_delivered || 0,
+    template_delivered: confirmed.template_delivered || 0,
     free_confirmed: confirmed.free_confirmed || 0,
     billable_confirmed: confirmed.billable_confirmed || 0,
     pricing_unknown: confirmed.pricing_unknown || 0,

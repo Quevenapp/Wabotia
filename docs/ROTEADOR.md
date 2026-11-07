@@ -4,7 +4,7 @@ A versão 0.6.0 permite cadastrar até **20 números por conta empresarial do Wh
 
 ## Franquia, janela e cobrança
 
-O [FAQ oficial da Meta](https://whatsappbusiness.com/resources/faq/), consultado em 06/11/2026, informa uma franquia de 1.000 mensagens de atendimento por número empresarial/mês desde 01/10/2026. Modelos de marketing, utilidade e autenticação têm suas próprias regras de cobrança. Consulte a Meta para as condições e tarifas da sua conta.
+O [FAQ oficial da Meta](https://whatsappbusiness.com/resources/faq/), consultado em 07/11/2026, informa uma franquia de 1.000 mensagens de atendimento por número empresarial/mês desde 01/10/2026. Modelos de marketing, utilidade e autenticação têm suas próprias regras de cobrança. O texto livre enviado depois de um template continua sendo mensagem de serviço: iniciar a conversa por template não isenta as respostas seguintes. Consulte a Meta para as condições e tarifas da sua conta.
 
 - **Atendimento:** o cliente precisa ter enviado mensagem para aquele mesmo número nas últimas 24 horas. Ter saldo em outro número não transfere essa janela.
 - **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. Pausa, fim de cota ou falha não provocam envio por outro número.
@@ -46,7 +46,40 @@ Se o telefone já está em Conexões, pause-o e reconcilie filas desconhecidas a
 
 Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma proteção local e não garante uma fatura sem cobrança.** Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
 
+## 3.1. Defina o que cada número pode fazer
+
+Desde a versão 0.7.0, cada cartão em **Uso por número** tem **Função e permissões**:
+
+1. Abra **Função e permissões** no número desejado.
+2. Escolha **Atendimento oficial** para seu telefone de contato permanente, ou **Integração com janela de 24 horas (Vinki)** para uma linha utilizada por sistemas externos.
+3. Confira as opções individuais. Alterá-las muda a função para **Personalizado**.
+4. Clique **Salvar função e permissões** e aguarde a confirmação. Salvar não ativa o canal nem a automação do perfil.
+
+| Opção | Atendimento oficial | Integração de 24 horas |
+|---|---|---|
+| Respostas sem template dentro de 24 horas | Sim | Sim |
+| Templates aprovados, autorizados por envio | Sim | Bloqueados |
+| Atendimento manual no painel/Telegram | Sim | Bloqueado por padrão |
+| Envios de aplicações já autorizadas | Sim | Sim |
+| Menu e saudação automática | Sim | Desligados |
+| Bots Hermes autorizados no perfil | Sim | Desligados |
+| Participar dos grupos em que estiver cadastrado | Não por padrão | Sim |
+
+As opções podem ser combinadas. Por exemplo, para uma linha que só envia templates, desmarque **Respostas dentro de 24 horas** e mantenha **Templates aprovados**, além da origem humana/API correspondente. Para permitir atendimento manual na linha de integração, marque essa opção. Receber mensagens e consultar o histórico continuam disponíveis, inclusive quando nenhuma resposta está permitida.
+
+![Função e permissões de uma linha de integração; dados fictícios](screenshots/43-router-funcoes.jpg)
+
+Menu e bots utilizam a configuração do perfil e só respondem quando a automação desse perfil está ativa. Desligar ambos impede saudações, menus, respostas de bots e avisos automáticos ao cliente. Solicitações de revogação de consentimento continuam registradas. Os programas recebem os eventos normalmente e só enviam dentro das permissões concedidas. Notas internas e acompanhamento continuam disponíveis.
+
+Uma permissão de grupo ou de aplicação nunca libera o que o número bloqueou. A verificação ocorre antes de entrar na fila e novamente antes do envio. Desligar uma opção bloqueia entregas ainda pendentes; não apaga mensagens já enviadas nem transfere conversas. Contadores e consentimentos são preservados. Ao atualizar, números existentes mantêm suas opções anteriores até o administrador escolher e salvar uma função.
+
+**Contadores:** mensagens de serviço entram no uso protegido; templates entregues aparecem em outro campo. O total de mensagens pagas inclui todas as categorias informadas pela Meta. Não confunda 1.000 mensagens com 1.000 clientes: confirmação, chamada da senha e lembrete podem consumir três mensagens de serviço.
+
+**Exemplos além do Vinki:** retirada de pedidos em restaurantes/lojas, check-in e chamada de recepção, estacionamento/valet e solicitações de documentos no ERP. O cliente abre o link e envia a mensagem; as respostas retornam pelo mesmo número durante a janela. Para documentos e dados pessoais, valide a identidade e as permissões no sistema de origem antes de entregar. Lembretes para dias seguintes precisam de template autorizado ou de nova mensagem do cliente.
+
 ## 4. Crie um grupo
+
+Antes de criar o grupo, configure a função de cada telefone conforme o passo abaixo.
 
 Em **Grupos de números → Criar grupo de roteamento**, informe um nome, selecione membros da mesma conta e escolha:
 

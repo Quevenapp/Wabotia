@@ -1,4 +1,10 @@
-# Validação e limites da versão 0.6.2
+# Validação e limites da versão 0.7.0
+
+## Revisão 0.7.0: função e permissões por número
+
+Em 07/11/2026, 120 testes passaram em workerd com D1, R2 e Durable Objects. Incluem isolamento entre perfis, alterações restritas ao administrador, seleção de números elegíveis, bloqueio de templates/atendentes/bots/API conforme a política, cancelamento de envios pendentes após restrições e contadores separados de serviço e templates. Uma linha de integração continua recebendo e registrando revogações de consentimento sem disparar saudações ou bots. A versão mantém a janela e o remetente; nunca converte um envio bloqueado em mensagem paga ou troca o número.
+
+TypeScript e build passaram. A prévia com dados fictícios confirmou as funções sugeridas, seleção individual e ausência de erros no console. Esses testes não enviaram mensagens reais nem verificaram a fatura Meta. Não há migração de banco. A mudança de função não ativa o perfil, o canal, uma integração ou uma autorização de cobrança.
 
 ## Revisão 0.6.2: atalho do guia
 

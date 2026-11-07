@@ -38,6 +38,11 @@ import { groupCommand } from "./groups";
 import { accountCommand } from "./meta-accounts";
 import { routerCommand, managedAppAllowed } from "./number-router";
 import { checkNumberCapacity, queueWithNumberQuota } from "./number-quota";
+import {
+  assertNumberDelivery,
+  getNumberPolicy,
+  numberPolicyError,
+} from "./number-permissions";
 export const scopes = [
   "routing:read",
   "routing:send",
@@ -126,6 +131,7 @@ export async function enqueue(
   payload: any,
   dedupe: string,
 ) {
+  await assertNumberDelivery(env, c.connection_id, actor, kind, payload);
   if (payload.attachments?.length) {
     const ids: string[] = [];
     const firstMedia = await one(
@@ -318,6 +324,7 @@ export async function openTicket(
   return await one(env, "SELECT * FROM tickets WHERE id=?", id);
 }
 export async function handoff(env: Env, c: Conversation, reason: string) {
+  const policy = await getNumberPolicy(env, c.connection_id);
   await exec(
     env,
     "UPDATE conversations SET state='waiting',owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
@@ -336,14 +343,15 @@ export async function handoff(env: Env, c: Conversation, reason: string) {
     const ticket = await openTicket(env, c, "system", reason, true);
     reply = `${cfg.absence_instructions}\nProtocolo: ${ticket.number}.`;
   }
-  await enqueue(
-    env,
-    c,
-    "system",
-    "text",
-    { text: reply },
-    `handoff:${c.id}:${c.session}`,
-  );
+  if (policy.human && policy.service && (policy.menu || policy.bots))
+    await enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      { text: reply },
+      `handoff:${c.id}:${c.session}`,
+    );
   if (cfg.telegram_connection && cfg.telegram_group)
     await enqueue(
       env,
@@ -550,6 +558,11 @@ export async function createRun(
   data: any,
   extra: any = {},
 ) {
+  if (extra.conversation_id) {
+    const c = await conversation(env, extra.conversation_id, profile, actor);
+    if (!(await getNumberPolicy(env, c.connection_id)).bots)
+      throw numberPolicyError("bots");
+  }
   if (extra.source_key) {
     const old = await one(
       env,
@@ -999,6 +1012,8 @@ export async function perform(
       );
       cfg.meta_account_id = previous.meta_account_id;
       cfg.waba_id = previous.waba_id;
+      // Editing connection credentials must not reset per-number restrictions.
+      cfg.number_policy = previous.number_policy;
       requireValue(
         !data.secrets?.token &&
           !data.secrets?.app_secret &&
@@ -1137,6 +1152,14 @@ export async function perform(
     access(actor, profile, "conversations:write");
     let c = await conversation(env, data.id, profile, actor);
     const action = data.action;
+    const policy = await getNumberPolicy(env, c.connection_id);
+    if (["claim", "reply"].includes(action)) {
+      const capability = actor.kind === "app" ? "api" : "human";
+      if (!policy[capability]) throw numberPolicyError(capability);
+    }
+    if (action === "transfer" && !policy.human)
+      throw numberPolicyError("human");
+    if (action === "resume" && !policy.bots) throw numberPolicyError("bots");
     if (action === "bind_topic") {
       admin(actor);
       requireValue(
@@ -1262,6 +1285,8 @@ export async function perform(
         if (
           c.chat_type !== "group" &&
           action === "resolve" &&
+          policy.service &&
+          (policy.menu || policy.bots) &&
           (await settings(env, profile)).surveys_enabled
         ) {
           const id = uid();

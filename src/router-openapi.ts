@@ -33,6 +33,59 @@ const sourceProperties = {
   },
 };
 export const routerSchemas = {
+  NumberPolicy: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "purpose",
+      "service",
+      "templates",
+      "human",
+      "api",
+      "menu",
+      "bots",
+      "pool",
+    ],
+    description:
+      "Restrições por número. Não substituem os escopos e permissões da aplicação, consentimento, janela real ou autorização individual de cobrança. Números existentes mantêm suas opções até o administrador salvar. A função identifica a configuração sugerida; as opções booleanas determinam o comportamento.",
+    properties: {
+      purpose: { enum: ["official", "service_only", "custom"] },
+      service: {
+        type: "boolean",
+        description: "Respostas sem template dentro da janela de 24h.",
+      },
+      templates: {
+        type: "boolean",
+        description:
+          "Permite templates com autorização individual de cobrança.",
+      },
+      human: {
+        type: "boolean",
+        description: "Atendimento manual pelo painel/Telegram.",
+      },
+      api: {
+        type: "boolean",
+        description: "Envios pelas aplicações autorizadas.",
+      },
+      menu: {
+        type: "boolean",
+        description: "Menu e saudação automática do perfil.",
+      },
+      bots: {
+        type: "boolean",
+        description: "Atendente e especialistas Hermes.",
+      },
+      pool: {
+        type: "boolean",
+        description: "Seleção e envio por grupos de roteamento.",
+      },
+    },
+  },
+  RouterNumberPolicy: {
+    type: "object",
+    required: ["policy"],
+    properties: { policy: { $ref: "#/components/schemas/NumberPolicy" } },
+  },
   RouterUsage: {
     type: "object",
     description:
@@ -47,6 +100,8 @@ export const routerSchemas = {
         "remaining",
         "reserved",
         "delivered",
+        "service_delivered",
+        "template_delivered",
         "free_confirmed",
         "billable_confirmed",
         "pricing_unknown",
@@ -69,6 +124,7 @@ export const routerSchemas = {
             account_id: id,
             status: { enum: ["active", "paused"] },
             direct_allowed: { type: "boolean" },
+            policy: { $ref: "#/components/schemas/NumberPolicy" },
             usage: { $ref: "#/components/schemas/RouterUsage" },
           },
         },
@@ -415,6 +471,13 @@ export const routerOperations: [string, string, string, string, string?][] = [
     "Alterar teto de atendimento",
     "administrador humano",
     "RouterLimit",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/router/numbers/{id}/policy",
+    "Definir função e permissões do número",
+    "administrador humano",
+    "RouterNumberPolicy",
   ],
   [
     "post",

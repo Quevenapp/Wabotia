@@ -17,7 +17,8 @@ import {
   routedMessage,
 } from "../src/number-router";
 import { inbound, conversation, enqueue, perform } from "../src/service";
-import { deliver } from "../src/engine";
+import { deliver, processInbox, processRun } from "../src/engine";
+import { numberPolicyPresets, type NumberPolicy } from "../src/number-policy";
 import { finishDelivery } from "../src/delivery";
 import { metaInbound } from "../src/meta-inbound";
 import { visibleConversation } from "../src/visibility";
@@ -229,6 +230,356 @@ function metaMock(
   vi.stubGlobal("fetch", fetch);
   return { sent, fetch };
 }
+
+async function setPolicy(f: any, index: number, policy: NumberPolicy) {
+  return routerCommand(
+    env,
+    admin,
+    f.profile,
+    "router.number.policy",
+    {
+      id: f.numbers[index].id,
+      policy,
+    },
+    uid(),
+  );
+}
+
+it("salva permissões por número somente com administrador e preserva identidade, consumo e isolamento", async () => {
+  const f = await fixture(2, 23);
+  const original = json(f.numbers[0].config);
+  expect((await routerView(env, admin, f.profile)).numbers[0].policy).toEqual(
+    numberPolicyPresets.custom,
+  );
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.number.policy",
+      {
+        id: f.numbers[0].id,
+        policy: numberPolicyPresets.service_only,
+      },
+      uid(),
+    ),
+  ).rejects.toThrow();
+  await expect(
+    routerCommand(
+      env,
+      admin,
+      uid(),
+      "router.number.policy",
+      {
+        id: f.numbers[0].id,
+        policy: numberPolicyPresets.service_only,
+      },
+      uid(),
+    ),
+  ).rejects.toThrow("neste perfil");
+  await expect(
+    setPolicy(f, 0, {
+      ...numberPolicyPresets.official,
+      templates: "false",
+    } as any),
+  ).rejects.toThrow("verdadeiro ou falso");
+  await setPolicy(f, 0, numberPolicyPresets.official);
+  const saved = await one(
+    env,
+    "SELECT * FROM connections WHERE id=?",
+    f.numbers[0].id,
+  );
+  expect(json(saved.config)).toEqual({
+    ...original,
+    number_policy: numberPolicyPresets.official,
+  });
+  expect(saved.status).toBe("active");
+  expect((await numberUsage(env, saved.id))!.used).toBe(23);
+  const view = await routerView(env, f.actor, f.profile);
+  expect(view.numbers.find((n: any) => n.id === saved.id).policy).toEqual(
+    numberPolicyPresets.official,
+  );
+  expect(
+    view.numbers.find((n: any) => n.id === f.numbers[1].id).policy,
+  ).toEqual(numberPolicyPresets.custom);
+});
+
+it("roteia a entrada para a linha Vinki, permite sua API e recusa templates e atendimento manual", async () => {
+  const f = await fixture();
+  await setPolicy(f, 0, numberPolicyPresets.official);
+  await setPolicy(f, 1, numberPolicyPresets.service_only);
+  const pool = await one(
+    env,
+    "SELECT public_token FROM number_pools WHERE id=?",
+    f.pool.id,
+  );
+  expect((await routerLink(env, f.profile, pool.public_token)).url).toBe(
+    `https://wa.me/${json(f.numbers[1].config).number}`,
+  );
+  const c = await customer(f, 1);
+  await expect(
+    perform(
+      env,
+      admin,
+      f.profile,
+      "conversation.action",
+      { id: c.id, action: "claim" },
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "number_policy_denied" });
+  const mock = metaMock();
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.send",
+      {
+        ...paid(f),
+        pool_id: undefined,
+        number_id: f.numbers[1].id,
+      },
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "number_policy_denied" });
+  expect(mock.fetch).not.toHaveBeenCalled();
+  const result = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  const row = await one(
+    env,
+    "SELECT * FROM outbox WHERE id=?",
+    result.delivery_id,
+  );
+  expect(row.connection_id).toBe(f.numbers[1].id);
+  await deliver(env, row);
+  expect(mock.sent).toHaveLength(1);
+  expect(mock.sent[0].text.body).toBe("Resposta de atendimento");
+});
+
+it("restrições do número prevalecem sobre grupos e impedem envio direto por outra rota da API", async () => {
+  const f = await fixture();
+  const c0 = await customer(f, 0);
+  await customer(f, 1);
+  await setPolicy(f, 0, { ...numberPolicyPresets.custom, api: false });
+  await expect(
+    enqueue(env, c0, f.actor.id, "text", { text: "Tentativa por fora" }, uid()),
+  ).rejects.toMatchObject({ code: "number_policy_denied" });
+  const result = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  const row = await one(
+    env,
+    "SELECT * FROM outbox WHERE id=?",
+    result.delivery_id,
+  );
+  expect(row.connection_id).toBe(f.numbers[1].id);
+  await setPolicy(f, 1, { ...numberPolicyPresets.custom, api: false });
+  const mock = metaMock();
+  await deliver(env, row);
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", row.id)).status,
+  ).toBe("cancelled");
+  expect(mock.fetch).not.toHaveBeenCalled();
+  await expect(
+    routerCommand(env, f.actor, f.profile, "router.send", service(f), uid()),
+  ).rejects.toMatchObject({ code: "sender_unavailable" });
+});
+
+it("recebe e registra opt-out numa linha Vinki sem disparar menu, saudação, bot ou aviso automático", async () => {
+  const f = await fixture(1);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await exec(env, "UPDATE profiles SET enabled=1 WHERE id=?", f.profile);
+  const c = await customer(f);
+  await processInbox(env, f.profile);
+  for (const text of ["menu", "falar com humano", "REVOGAR"]) {
+    await inbound(
+      env,
+      f.profile,
+      { external_id: c.external_id, message_id: uid(), text },
+      "channel:" + c.connection_id,
+      c.connection_id,
+    );
+    await processInbox(env, f.profile);
+  }
+  expect(
+    await all(
+      env,
+      "SELECT id FROM messages WHERE conversation_id=? AND direction='customer'",
+      c.id,
+    ),
+  ).toHaveLength(4);
+  expect(
+    await all(env, "SELECT id FROM outbox WHERE profile_id=?", f.profile),
+  ).toHaveLength(0);
+  expect(
+    await all(env, "SELECT id FROM bot_runs WHERE profile_id=?", f.profile),
+  ).toHaveLength(0);
+  expect(
+    (
+      await one(
+        env,
+        "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
+        c.id,
+      )
+    ).status,
+  ).toBe("revoked");
+  expect(
+    await all(
+      env,
+      "SELECT id FROM events WHERE profile_id=? AND kind='message.received'",
+      f.profile,
+    ),
+  ).toHaveLength(4);
+});
+
+it("processa menu sem executar Hermes e cancela saudação enfileirada se o menu for desligado", async () => {
+  const f = await fixture(1);
+  await setPolicy(f, 0, { ...numberPolicyPresets.official, bots: false });
+  await exec(env, "UPDATE profiles SET enabled=1 WHERE id=?", f.profile);
+  const c = await customer(f);
+  await processInbox(env, f.profile);
+  const row = await one(
+    env,
+    "SELECT * FROM outbox WHERE conversation_id=?",
+    c.id,
+  );
+  expect(json(row.payload).text).toContain("Olá! Como podemos ajudar?");
+  expect(
+    await all(env, "SELECT id FROM bot_runs WHERE profile_id=?", f.profile),
+  ).toHaveLength(0);
+  await setPolicy(f, 0, { ...numberPolicyPresets.official, menu: false });
+  const mock = metaMock();
+  await deliver(env, row);
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", row.id)).status,
+  ).toBe("cancelled");
+  expect(mock.fetch).not.toHaveBeenCalled();
+});
+
+it("bloqueia template já na fila quando a linha passa a ser exclusiva de serviço", async () => {
+  const f = await fixture(1);
+  const mock = metaMock();
+  const result = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    paid(f),
+    uid(),
+  );
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", result.delivery_id),
+  );
+  expect(mock.sent).toHaveLength(0);
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", result.delivery_id))
+      .status,
+  ).toBe("cancelled");
+});
+
+it("configura número para templates apenas sem gastar cota de serviço ou permitir resposta livre", async () => {
+  const f = await fixture(1, 1000);
+  await setPolicy(f, 0, { ...numberPolicyPresets.custom, service: false });
+  const c = await customer(f);
+  await expect(
+    enqueue(env, c, admin.id, "text", { text: "Livre" }, uid()),
+  ).rejects.toMatchObject({ code: "number_policy_denied" });
+  const mock = metaMock();
+  const result = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    paid(f),
+    uid(),
+  );
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", result.delivery_id),
+  );
+  expect(mock.sent).toHaveLength(1);
+  expect(mock.sent[0].type).toBe("template");
+  expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(1000);
+});
+
+it("desligar bots impede novas execuções e cancela respostas antigas já na fila", async () => {
+  const f = await fixture(1),
+    c = await customer(f);
+  const runId = uid();
+  await exec(
+    env,
+    "INSERT INTO bot_runs(id,profile_id,bot_id,actor,conversation_id,epoch,input,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
+    runId,
+    f.profile,
+    uid(),
+    "bot:attendant",
+    c.id,
+    c.epoch,
+    "Pergunta",
+    now(),
+    now(),
+  );
+  const id = await enqueue(
+    env,
+    c,
+    "bot:attendant",
+    "text",
+    { text: "Resposta antiga" },
+    uid(),
+  );
+  await setPolicy(f, 0, { ...numberPolicyPresets.official, bots: false });
+  const mock = metaMock();
+  await processRun(
+    env,
+    (await one(env, "SELECT * FROM bot_runs WHERE id=?", runId))!,
+  );
+  await deliver(env, await one(env, "SELECT * FROM outbox WHERE id=?", id));
+  expect(
+    (await one(env, "SELECT status FROM bot_runs WHERE id=?", runId)).status,
+  ).toBe("cancelled");
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", id)).status,
+  ).toBe("cancelled");
+  expect(mock.fetch).not.toHaveBeenCalled();
+});
+
+it("contabiliza serviço e templates separadamente sem descontar template da franquia de serviço", async () => {
+  const f = await fixture(1);
+  for (const category of [
+    "service",
+    "utility",
+    "marketing",
+    "authentication",
+  ]) {
+    await observeMetaUsage(env, f.numbers[0], {
+      message_id: uid(),
+      status: "delivered",
+      timestamp: now(),
+      pricing: { category, billable: category !== "service" },
+    });
+  }
+  expect(await numberUsage(env, f.numbers[0].id)).toMatchObject({
+    used: 1,
+    delivered: 4,
+    service_delivered: 1,
+    template_delivered: 3,
+    free_confirmed: 1,
+    billable_confirmed: 3,
+  });
+});
 it("reserva atomicamente a última unidade da cota em pedidos concorrentes", async () => {
   const f = await fixture(1, 999),
     c = await customer(f);

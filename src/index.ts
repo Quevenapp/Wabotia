@@ -349,6 +349,7 @@ const commands = [
   ["POST", "router/accounts/:id/discover", "meta-account.discover"],
   ["POST", "router/numbers", "meta-number.save"],
   ["PUT", "router/numbers/:id/limit", "router.number.limit"],
+  ["PUT", "router/numbers/:id/policy", "router.number.policy"],
   ["POST", "router/pools", "router.pool.save"],
   ["PUT", "router/grants", "router.grants.save"],
   ["POST", "router/messages", "router.send"],

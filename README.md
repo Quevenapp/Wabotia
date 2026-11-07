@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.6.2, com guia ilustrado para cadastrar o primeiro número na Meta, obter tokens e conectar ao painel, além da correção das requisições Meta e do download de anexos no runtime Workers. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.7.0, com função e permissões por número: serviço, templates, atendentes, API, menus, bots e grupos de roteamento. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -52,6 +52,8 @@ Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe ar
 ## Roteador WhatsApp
 
 Em **Roteador de números**, conecte uma WABA, adicione até 20 números e configure um único webhook. Crie grupos por menor consumo, sequência ou sorteio; autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis.
+
+Em cada cartão, **Função e permissões** permite separar a linha oficial das linhas de integração com 24 horas, ou escolher cada capacidade individualmente. Restrições do número prevalecem sobre grupos/aplicações e são conferidas novamente antes do envio. Alterar a função preserva histórico e consumo.
 
 O teto local de atendimento é de até 1.000 mensagens por número/mês, conforme a franquia informada no [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Modelos pagos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
 

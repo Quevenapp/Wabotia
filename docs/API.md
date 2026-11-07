@@ -10,6 +10,8 @@ Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `t
 
 ## Roteador de números Meta
 
+Cada número retorna `policy` com `purpose`, `service`, `templates`, `human`, `api`, `menu`, `bots` e `pool`. As opções do número prevalecem sobre permissões de grupo/aplicação. Somente administrador humano pode alterá-las por `PUT /profiles/{perfil}/router/numbers/{id}/policy`, corpo `{"policy":{...}}` completo e `Idempotency-Key`. `403 number_policy_denied` indica capacidade desabilitada. A conferência ocorre no pedido e antes da entrega; uma restrição nova cancela envios ainda pendentes. Mensagens já enviadas ou sem confirmação não são repetidas nem movidas para outro número. O histórico e os eventos recebidos continuam disponíveis.
+
 Consulte `GET /profiles/{perfil}/router` para números/grupos autorizados e contadores. Envie por `POST /profiles/{perfil}/router/messages`, com `number_id` **ou** `pool_id`, `to`, `external_id` estável e texto/anexo. Retorna `202` com `delivery_id`; consulte `GET /profiles/{perfil}/router/messages/{id}`. Somente uma entrega `pending` pode ser cancelada, por `POST /profiles/{perfil}/router/messages/{id}/cancel`. Todas as escritas exigem idempotência.
 
 Atendimento exige janela de 24 horas real no mesmo número. O remetente fica vinculado; esgotamento não troca de número nem inicia modelo pago. Modelos exigem `routing:paid`, origem/grupo autorizados, `allow_paid:true`, consentimento da mesma categoria e modelo aprovado na WABA. A chave não escolhe o autor. Consulte o [guia do roteador, limites e exemplos cURL/JavaScript/Python](ROTEADOR.md). Uma resposta `sent` é aceitação pelo canal; confira `provider_status`. Não repita um resultado `unknown` em outro número.

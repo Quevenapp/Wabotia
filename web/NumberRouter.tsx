@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { NumberPolicyEditor } from "./NumberPolicyEditor";
+import { numberPolicyPresets } from "../src/number-policy";
 type Row = Record<string, any>;
 const parse = (v: any) => {
   try {
@@ -28,7 +30,8 @@ const sample = {
     {
       id: "numero-atendimento-1",
       account_id: "conta-exemplo",
-      name: "Atendimento 1",
+      name: "Atendimento oficial",
+      policy: numberPolicyPresets.official,
       number: "5511999990001",
       status: "active",
       usage: {
@@ -37,7 +40,9 @@ const sample = {
         used: 842,
         remaining: 158,
         reserved: 2,
-        delivered: 840,
+        delivered: 852,
+        service_delivered: 840,
+        template_delivered: 12,
         free_confirmed: 840,
         billable_confirmed: 12,
         baseline: 0,
@@ -47,7 +52,8 @@ const sample = {
     {
       id: "numero-atendimento-2",
       account_id: "conta-exemplo",
-      name: "Atendimento 2",
+      name: "Vinki · Janela de 24 horas",
+      policy: numberPolicyPresets.service_only,
       number: "5511999990002",
       status: "active",
       usage: {
@@ -57,8 +63,10 @@ const sample = {
         remaining: 365,
         reserved: 3,
         delivered: 632,
+        service_delivered: 632,
+        template_delivered: 0,
         free_confirmed: 632,
-        billable_confirmed: 8,
+        billable_confirmed: 0,
         baseline: 0,
         pricing_unknown: 0,
       },
@@ -603,11 +611,15 @@ export function NumberRouter({
                   <dd>{n.usage.reserved}</dd>
                 </div>
                 <div>
-                  <dt>Grátis confirmadas pela Meta</dt>
+                  <dt>Serviço grátis confirmado pela Meta</dt>
                   <dd>{n.usage.free_confirmed}</dd>
                 </div>
                 <div>
-                  <dt>Pagas confirmadas pela Meta</dt>
+                  <dt>Templates entregues (fora do teto)</dt>
+                  <dd>{n.usage.template_delivered ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Pagas confirmadas (todas as categorias)</dt>
                   <dd>{n.usage.billable_confirmed}</dd>
                 </div>
                 <div>
@@ -662,6 +674,19 @@ export function NumberRouter({
               </div>
               <small>ID para a API</small>
               <CopyValue value={n.id} />
+              <NumberPolicyEditor
+                policy={n.policy}
+                name={n.name}
+                busy={!!busy}
+                onSave={(policy) =>
+                  write(
+                    `router/numbers/${n.id}/policy`,
+                    { policy },
+                    "Salvar função e permissões",
+                    "PUT",
+                  )
+                }
+              />
             </article>
           ))}
         </div>
@@ -672,7 +697,9 @@ export function NumberRouter({
           <p>
             Um grupo pertence a uma conta Meta. A escolha ocorre no início do
             atendimento e fica vinculada a ele. Grupos podem compartilhar
-            números; o consumo do número continua único.
+            números; o consumo do número continua único. Apenas números que
+            permitem participar do roteamento são escolhidos. Permitir templates
+            no grupo não libera templates em um número que os bloqueia.
           </p>
           {data.pools
             .filter((p: Row) => p.account_id === accountId)

@@ -6,6 +6,12 @@ import { conversation, enqueue, perform } from "./service";
 import { outgoingContent } from "./whatsapp";
 import { paidTemplate } from "./router-templates";
 import { event } from "./events";
+import {
+  numberPolicy,
+  numberPolicyFlags,
+  deniedNumberCapability,
+} from "./number-policy";
+import { numberPolicyError } from "./number-permissions";
 
 export async function sourceAllowed(
   env: Env,
@@ -43,12 +49,13 @@ export async function managedAppAllowed(
   );
   const conn = await one(
     env,
-    "SELECT profile_id FROM connections WHERE id=?",
+    "SELECT profile_id,config FROM connections WHERE id=?",
     connection,
   );
   if (
     !app ||
     !conn ||
+    !numberPolicy(json(conn.config)).api ||
     !json(app.profiles, []).includes(conn.profile_id) ||
     !json(app.scopes, []).includes("routing:send") ||
     (paid && !json(app.scopes, []).includes("routing:paid"))
@@ -110,6 +117,7 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
       account_id: n.account_id,
       status: n.status,
       direct_allowed: direct,
+      policy: numberPolicy(cfg),
       usage: await numberUsage(env, n.id),
     });
   }
@@ -138,6 +146,7 @@ export async function selectPoolNumbers(
   profile: string,
   poolId: string,
   paid = false,
+  actor?: Actor,
 ) {
   const pool = await one(
     env,
@@ -165,6 +174,9 @@ export async function selectPoolNumbers(
     profile,
     pool.account_id,
   )) {
+    const policy = numberPolicy(json(row.config));
+    if (!policy.pool || !(paid ? policy.templates : policy.service)) continue;
+    if (actor && !(actor.kind === "app" ? policy.api : policy.human)) continue;
     const usage = await numberUsage(env, row.id);
     if (usage && (paid || usage.remaining > 0))
       candidates.push({
@@ -206,7 +218,7 @@ export async function routerLink(env: Env, profile: string, token: string) {
     throw new ApiError(
       409,
       "pool_exhausted",
-      "Nenhum número com saldo disponível neste grupo.",
+      "Nenhum número ativo com permissão de roteamento, atendimento e saldo disponível neste grupo.",
     );
   await selected(env, pool.id, choice.id);
   return { url: `https://wa.me/${json(choice.config).number}` };
@@ -250,6 +262,37 @@ export async function routerCommand(
     return { id: row.id, status: "cancelled" };
   }
   admin(actor);
+  if (op === "router.number.policy") {
+    const policy = data.policy;
+    requireValue(
+      policy && typeof policy === "object" && !Array.isArray(policy),
+      "Informe as permissões do número.",
+    );
+    requireValue(
+      ["official", "service_only", "custom"].includes(policy.purpose) &&
+        numberPolicyFlags.every((flag) => typeof policy[flag] === "boolean") &&
+        Object.keys(policy).every(
+          (key) => key === "purpose" || numberPolicyFlags.includes(key as any),
+        ),
+      "Informe a função e todas as opções como verdadeiro ou falso.",
+    );
+    const row = await one(
+      env,
+      "SELECT c.id FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=?",
+      data.id,
+      profile,
+    );
+    requireValue(row, "Número não encontrado neste perfil.");
+    await exec(
+      env,
+      "UPDATE connections SET config=json_set(config,'$.number_policy',json(?)) WHERE id=?",
+      JSON.stringify(policy),
+      row.id,
+    );
+    // Pending sends are checked again by deliver; an in-flight/ambiguous send
+    // must keep its receipt and reservation, never be retried on another number.
+    return { id: row.id, policy };
+  }
   if (op === "router.pool.save") {
     const id = data.id || uid(),
       old = await one(env, "SELECT * FROM number_pools WHERE id=?", id);
@@ -517,13 +560,22 @@ async function routedSend(
     );
   const candidates =
     type === "pool"
-      ? await selectPoolNumbers(env, profile, source, paid)
+      ? await selectPoolNumbers(env, profile, source, paid, actor)
       : await all(
           env,
           "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=? AND c.status='active'",
           source,
           profile,
         );
+  if (type === "number" && candidates[0]) {
+    const denied = deniedNumberCapability(
+      numberPolicy(json(candidates[0].config)),
+      actor.id,
+      paid ? "template" : "text",
+      {},
+    );
+    if (denied) throw numberPolicyError(denied);
+  }
   const pinned = existing?.conversation_id || data.conversation_id;
   let c: any, chosen: any;
   if (pinned) {
@@ -553,7 +605,7 @@ async function routedSend(
       throw new ApiError(
         409,
         "sender_unavailable",
-        "O remetente deste atendimento está pausado ou sem cota. Ele não será trocado automaticamente.",
+        "O remetente deste atendimento está pausado, sem cota ou sem permissão para este envio. Ele não será trocado automaticamente.",
       );
     requireValue(
       !data.to || data.to === (c.recipient_id || c.external_id),
