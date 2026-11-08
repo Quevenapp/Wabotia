@@ -39,14 +39,19 @@ await build({
   target: "node22",
   format: "esm",
 });
+// No Windows os executáveis do npm são .cmd (mesma regra de scripts/deploy.mjs).
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 const run = (command, args) =>
   execFileSync(command, args, {
     stdio: "inherit",
+    // Node 22 só executa arquivos .cmd através do shell.
+    shell: process.platform === "win32",
     env: { ...process.env, WABOTIA_SOURCE_COMMIT: commit },
   });
-run("npm", ["run", "build"]);
+run(npm, ["run", "build"]);
 rmSync("output/release-worker", { recursive: true, force: true });
-run("npx", [
+run(npx, [
   "wrangler",
   "deploy",
   "--dry-run",
