@@ -28,14 +28,16 @@ import {
   sha,
   random,
   passwordHash,
-  passwordVerify,
+  passwordMatches,
   rate,
   secret,
   setSecret,
   equal,
   hmac,
   hex,
+  MOBILE_TOKEN_PREFIX,
 } from "./security";
+import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
 import { settings, scopes, eventTypes, conversation, perform } from "./service";
 import {
@@ -200,7 +202,7 @@ app.post("/api/auth/login", async (c) => {
     "SELECT * FROM users WHERE email=? AND disabled=0",
     String(data.email || "").toLowerCase(),
   );
-  if (!user || !passwordVerify(String(data.password || ""), user.password))
+  if (!passwordMatches(String(data.password || ""), user?.password))
     throw new ApiError(
       401,
       "invalid_credentials",
@@ -209,10 +211,11 @@ app.post("/api/auth/login", async (c) => {
   const token = random();
   await exec(
     c.env,
-    "INSERT INTO sessions(hash,user_id,expires) VALUES(?,?,?)",
+    "INSERT INTO sessions(hash,user_id,expires,kind,created) VALUES(?,?,?,'cookie',?)",
     await sha(token),
     user.id,
     now() + 43200000,
+    now(),
   );
   setCookie(c, "wabotia", token, {
     httpOnly: true,
@@ -223,17 +226,246 @@ app.post("/api/auth/login", async (c) => {
   });
   return c.json({ ok: true });
 });
+const MOBILE_SESSION_MS = 30 * 86400000;
+const mobilePlatforms = ["android", "ios"];
+function mobileLabel(device: any) {
+  return [device?.name, device?.app_version]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+    .join(" | ")
+    .slice(0, 200);
+}
+async function createMobileSession(env: Env, userId: string, label: string) {
+  const token = MOBILE_TOKEN_PREFIX + random(),
+    expires = now() + MOBILE_SESSION_MS;
+  await exec(
+    env,
+    "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used) VALUES(?,?,?,'bearer',?,?,?)",
+    await sha(token),
+    userId,
+    expires,
+    now(),
+    label || null,
+    now(),
+  );
+  return { token, expires };
+}
+const mobileUser = (user: any) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  profiles: json(user.profiles, []),
+});
+app.post("/api/auth/mobile/login", async (c) => {
+  await rate(
+    c.env,
+    `login:${c.req.header("CF-Connecting-IP") || "local"}`,
+    10,
+    600000,
+  );
+  const data = await c.req.json();
+  requireValue(
+    data.device &&
+      typeof data.device === "object" &&
+      mobilePlatforms.includes(data.device.platform),
+    "Informe device.platform como android ou ios.",
+  );
+  const user = await one(
+    c.env,
+    "SELECT * FROM users WHERE email=? AND disabled=0",
+    String(data.email || "")
+      .trim()
+      .toLowerCase(),
+  );
+  if (!passwordMatches(String(data.password || ""), user?.password))
+    throw new ApiError(
+      401,
+      "invalid_credentials",
+      "E-mail ou senha inválidos.",
+    );
+  const session = await createMobileSession(
+    c.env,
+    user.id,
+    mobileLabel(data.device),
+  );
+  return c.json({ ...session, user: mobileUser(user) });
+});
 app.use("/api/v1/*", async (c, next) => {
   c.set("actor", await authenticate(c.env, c.req.raw));
   await next();
 });
+const mobileToken = (c: any) => {
+  const bearer = c.req.header("Authorization")?.match(/^Bearer (.+)$/)?.[1];
+  return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
+};
 app.get("/api/v1/me", (c) => c.json(c.get("actor")));
+app.post("/api/v1/auth/mobile/refresh", async (c) => {
+  const token = mobileToken(c);
+  if (!token || c.get("actor").kind !== "user")
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "A renovação exige uma sessão móvel (Bearer wabu_).",
+    );
+  const hash = await sha(token);
+  const old = await one(
+    c.env,
+    "SELECT label FROM sessions WHERE hash=? AND kind='bearer'",
+    hash,
+  );
+  const user = await one(
+    c.env,
+    "SELECT * FROM users WHERE id=?",
+    c.get("actor").id,
+  );
+  const session = await createMobileSession(
+    c.env,
+    c.get("actor").id,
+    old?.label || "",
+  );
+  await exec(c.env, "DELETE FROM sessions WHERE hash=?", hash);
+  return c.json({ ...session, user: mobileUser(user) });
+});
 app.post("/api/v1/logout", async (c) => {
   const cookie = c.req.header("Cookie")?.match(/wabotia=([^;]+)/)?.[1];
   if (cookie)
     await exec(c.env, "DELETE FROM sessions WHERE hash=?", await sha(cookie));
+  const bearer = mobileToken(c);
+  if (bearer)
+    await exec(c.env, "DELETE FROM sessions WHERE hash=?", await sha(bearer));
   deleteCookie(c, "wabotia", { path: "/" });
   return c.json({ ok: true });
+});
+function requireUser(actor: Actor) {
+  if (actor.kind !== "user")
+    throw new ApiError(
+      403,
+      "user_required",
+      "Dispositivos pertencem a contas de atendente.",
+    );
+}
+const deviceView = (d: any) => ({ ...d, profiles: json(d.profiles, []) });
+export const MAX_DEVICES_PER_USER = 10;
+app.get("/api/v1/devices", async (c) => {
+  const actor = c.get("actor");
+  requireUser(actor);
+  return c.json({
+    data: (
+      await all(
+        c.env,
+        "SELECT * FROM devices WHERE user_id=? ORDER BY created",
+        actor.id,
+      )
+    ).map(deviceView),
+  });
+});
+app.put("/api/v1/devices/:id", async (c) => {
+  const actor = c.get("actor"),
+    id = c.req.param("id");
+  requireUser(actor);
+  requireValue(
+    /^[A-Za-z0-9_-]{8,100}$/.test(id),
+    "Identificador do dispositivo inválido.",
+  );
+  const data = await c.req.json();
+  requireValue(
+    mobilePlatforms.includes(data.platform),
+    "Informe platform como android ou ios.",
+  );
+  const provider = data.provider ?? "fcm";
+  requireValue(provider === "fcm", "Provedor de push não suportado.");
+  requireValue(
+    typeof data.token === "string" &&
+      data.token.trim().length > 0 &&
+      data.token.length <= 4096,
+    "Informe o token do provedor (até 4096 caracteres).",
+  );
+  const profiles = data.profiles ?? [];
+  requireValue(
+    Array.isArray(profiles) &&
+      profiles.length <= 50 &&
+      profiles.every(
+        (p: any) => typeof p === "string" && p.length > 0 && p.length <= 100,
+      ),
+    "profiles deve ser uma lista de até 50 identificadores.",
+  );
+  const token = data.token.trim(),
+    origin = new URL(c.req.url).origin;
+  await rate(c.env, `devices:${actor.id}`, 30);
+  // Taking over another person's device id needs proof of possession: the
+  // same provider token (another person signing in on the same handset).
+  const existing = await one(
+    c.env,
+    "SELECT user_id,provider,token FROM devices WHERE id=?",
+    id,
+  );
+  if (
+    existing &&
+    existing.user_id !== actor.id &&
+    !(existing.provider === provider && existing.token === token)
+  )
+    throw new ApiError(
+      409,
+      "device_conflict",
+      "Este identificador de dispositivo pertence a outra pessoa.",
+    );
+  await batch(c.env, [
+    [
+      "DELETE FROM devices WHERE provider=? AND token=? AND id!=?",
+      [provider, token, id],
+    ],
+    [
+      "INSERT INTO devices(id,user_id,platform,provider,token,name,app_version,profiles,origin,enabled,last_error,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,NULL,?,?) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,platform=excluded.platform,provider=excluded.provider,token=excluded.token,name=excluded.name,app_version=excluded.app_version,profiles=excluded.profiles,origin=excluded.origin,enabled=excluded.enabled,last_error=NULL,updated=excluded.updated",
+      [
+        id,
+        actor.id,
+        data.platform,
+        provider,
+        token,
+        String(data.name || "").slice(0, 100),
+        String(data.app_version || "").slice(0, 50),
+        JSON.stringify(profiles),
+        origin,
+        data.enabled === undefined || data.enabled ? 1 : 0,
+        now(),
+        now(),
+      ],
+    ],
+    // At most MAX_DEVICES_PER_USER rows per person: the oldest are dropped.
+    [
+      "DELETE FROM devices WHERE user_id=? AND id NOT IN (SELECT id FROM devices WHERE user_id=? ORDER BY updated DESC,created DESC,id DESC LIMIT ?)",
+      [actor.id, actor.id, MAX_DEVICES_PER_USER],
+    ],
+  ]);
+  return c.json(
+    deviceView(await one(c.env, "SELECT * FROM devices WHERE id=?", id)),
+  );
+});
+app.delete("/api/v1/devices/:id", async (c) => {
+  const actor = c.get("actor");
+  requireUser(actor);
+  const result = await exec(
+    c.env,
+    "DELETE FROM devices WHERE id=? AND user_id=?",
+    c.req.param("id"),
+    actor.id,
+  );
+  return c.json({ deleted: (result.meta?.changes || 0) > 0 });
+});
+app.post("/api/v1/devices/:id/test", async (c) => {
+  const actor = c.get("actor");
+  requireUser(actor);
+  await rate(c.env, `push-test:${actor.id}`, 5);
+  const device = await one(
+    c.env,
+    "SELECT * FROM devices WHERE id=? AND user_id=?",
+    c.req.param("id"),
+    actor.id,
+  );
+  if (!device)
+    throw new ApiError(404, "not_found", "Dispositivo não encontrado.");
+  return c.json({ results: await sendTest(c.env, [device]) });
 });
 app.get("/api/v1/profiles", async (c) =>
   c.json(
@@ -307,6 +539,32 @@ app.get("/api/v1/system/updates/check", async (c) => {
   await checkUpdate(c.env);
   return c.json(await updateStatus(c.env));
 });
+app.get("/api/v1/system/push", async (c) => {
+  admin(c.get("actor"));
+  return c.json({
+    ...publicPushConfig(await pushConfig(c.env)),
+    devices: (
+      await one(
+        c.env,
+        "SELECT count(*) n FROM devices WHERE enabled=1",
+      )
+    )?.n,
+  });
+});
+app.post("/api/v1/system/push/test", async (c) => {
+  admin(c.get("actor"));
+  await rate(c.env, `push-test:${c.get("actor").id}`, 5);
+  const devices = await all(
+    c.env,
+    "SELECT * FROM devices WHERE user_id=? AND enabled=1",
+    c.get("actor").id,
+  );
+  requireValue(
+    devices.length > 0,
+    "Nenhum dispositivo ativo registrado para a sua conta. Entre no aplicativo antes de testar.",
+  );
+  return c.json({ results: await sendTest(c.env, devices) });
+});
 app.get("/api/v1/system/cloudflare/:id/connector", async (c) => {
   admin(c.get("actor"));
   return c.json(
@@ -320,6 +578,7 @@ for (const [path, operation] of [
   ["updates/configure", "updates.configure"],
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
+  ["push/configure", "push.configure"],
 ])
   app.post("/api/v1/system/" + path, async (c) => {
     admin(c.get("actor"));
@@ -556,6 +815,22 @@ for (const [path, [table, scope]] of Object.entries(readLists))
         params.push("app:" + actor.id);
       }
     }
+    if (table === "tickets") {
+      const status = c.req.query("status");
+      if (status) {
+        requireValue(
+          ["open", "in_progress", "closed"].includes(status),
+          "Estado inválido.",
+        );
+        filter += " AND status=?";
+        params.push(status);
+      }
+      if (c.req.query("overdue") === "1") {
+        filter +=
+          " AND response_due_at<? AND first_response_at IS NULL AND status!='closed'";
+        params.push(now());
+      }
+    }
     const rows = await all(
       c.env,
       `SELECT * FROM ${table} WHERE profile_id=? AND id>? ${filter} ORDER BY id LIMIT ?`,
@@ -571,6 +846,47 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     }
     return c.json({ data: rows, next_cursor: more ? rows.at(-1)?.id : null });
   });
+app.get("/api/v1/profiles/:profile/tickets/:id", async (c) => {
+  const p = c.req.param("profile"),
+    actor = c.get("actor");
+  access(actor, p, "tickets:read");
+  const ticket = await one(
+    c.env,
+    "SELECT * FROM tickets WHERE id=? AND profile_id=?",
+    c.req.param("id"),
+    p,
+  );
+  if (!ticket) throw new ApiError(404, "not_found", "Protocolo não encontrado.");
+  const conv = await conversation(c.env, ticket.conversation_id, p, actor);
+  const contact =
+    actor.kind === "user" || actor.scopes.includes("contacts:read")
+      ? await one(
+          c.env,
+          "SELECT ct.name FROM conversation_contacts l JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=l.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND (?=1 OR ct.namespace=?)",
+          p,
+          conv.id,
+          actor.kind === "user" ? 1 : 0,
+          contactNamespace(actor),
+        )
+      : null;
+  return c.json({
+    ticket,
+    updates: await all(
+      c.env,
+      "SELECT * FROM ticket_updates WHERE ticket_id=? ORDER BY created,id",
+      ticket.id,
+    ),
+    conversation: {
+      id: conv.id,
+      phone: conv.phone,
+      external_id: conv.external_id,
+      title: conv.title,
+      state: conv.state,
+      owner: conv.owner,
+      contact_name: contact?.name || null,
+    },
+  });
+});
 app.get("/api/v1/profiles/:profile/contacts", async (c) =>
   c.json(
     await listContacts(
@@ -1427,5 +1743,6 @@ export default {
       exec(env, "DELETE FROM rate_limits WHERE expires<?", now() - 600000),
     );
     ctx.waitUntil(exec(env, "DELETE FROM sessions WHERE expires<?", now()));
+    ctx.waitUntil(prunePush(env));
   },
 };

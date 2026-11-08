@@ -393,6 +393,202 @@ const schemas = {
       error: { type: ["string", "null"] },
     },
   },
+  MobileLogin: {
+    type: "object",
+    required: ["email", "password", "device"],
+    properties: {
+      email: { type: "string", maxLength: 254 },
+      password: { type: "string" },
+      device: {
+        type: "object",
+        required: ["platform", "name", "app_version"],
+        properties: {
+          platform: { enum: ["android", "ios"] },
+          name: { type: "string", maxLength: 120 },
+          app_version: { type: "string", maxLength: 40 },
+        },
+      },
+    },
+  },
+  MobileSession: {
+    type: "object",
+    required: ["token", "expires", "user"],
+    properties: {
+      token: {
+        type: "string",
+        description:
+          "Sessão de usuário com prefixo wabu_. Exibida uma única vez; o servidor guarda apenas o hash. Use em Authorization: Bearer.",
+      },
+      expires: {
+        type: "integer",
+        description: "Unix em milissegundos; 30 dias, renováveis por refresh.",
+      },
+      user: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          email: { type: "string" },
+          role: { enum: ["admin", "agent"] },
+          profiles: {
+            type: "array",
+            items: { type: "string" },
+            description: "IDs dos perfis autorizados à pessoa.",
+          },
+        },
+      },
+    },
+  },
+  DeviceInput: {
+    type: "object",
+    required: ["platform", "provider", "token"],
+    properties: {
+      platform: { enum: ["android", "ios"] },
+      provider: { enum: ["fcm"] },
+      token: {
+        type: "string",
+        maxLength: 4096,
+        description: "Token de registro do provedor de push.",
+      },
+      name: { type: "string", maxLength: 120 },
+      app_version: { type: "string", maxLength: 40 },
+      profiles: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Perfis a notificar; vazio recebe de todos os perfis autorizados.",
+      },
+      enabled: { type: "boolean", default: true },
+    },
+  },
+  Device: {
+    type: "object",
+    properties: {
+      id: {
+        type: "string",
+        description: "UUID gerado pelo aplicativo em cada instalação.",
+      },
+      user_id: { type: "string", readOnly: true },
+      platform: { enum: ["android", "ios"] },
+      provider: { enum: ["fcm"] },
+      name: { type: "string" },
+      app_version: { type: "string" },
+      profiles: { type: "array", items: { type: "string" } },
+      enabled: {
+        type: "boolean",
+        description:
+          "Falso quando o provedor recusou o token como inexistente ou o usuário desativou.",
+      },
+      token_suffix: {
+        type: "string",
+        readOnly: true,
+        description:
+          "Últimos caracteres do token; o token completo não é devolvido.",
+      },
+      created: { type: "integer" },
+      updated: { type: "integer" },
+      last_sent_at: { type: ["integer", "null"], readOnly: true },
+    },
+  },
+  PushConfig: {
+    type: "object",
+    properties: {
+      mode: { enum: ["off", "gateway", "fcm"] },
+      gateway_url: { type: "string", format: "uri" },
+      gateway_secret_configured: { type: "boolean", readOnly: true },
+      fcm_configured: { type: "boolean", readOnly: true },
+      fcm_project_id: {
+        type: "string",
+        readOnly: true,
+        description:
+          "project_id da conta de serviço; a conta nunca é devolvida.",
+      },
+      preview: { enum: ["preview", "minimal"] },
+      ticket_alert_minutes: { type: "integer", minimum: 0 },
+    },
+  },
+  PushConfigInput: {
+    type: "object",
+    required: ["mode"],
+    properties: {
+      mode: { enum: ["off", "gateway", "fcm"] },
+      gateway_url: {
+        type: "string",
+        format: "uri",
+        default: "https://push.wabotia.queven.app",
+        description: "Somente no modo gateway. HTTPS obrigatório.",
+      },
+      gateway_secret: {
+        type: "string",
+        writeOnly: true,
+        description:
+          "Opcional; valor de GATEWAY_SHARED_SECRET do gateway. Ausente mantém o atual; vazio remove.",
+      },
+      fcm_service_account: {
+        type: "string",
+        writeOnly: true,
+        description:
+          "JSON da conta de serviço com papel Firebase Cloud Messaging API Admin; somente no modo fcm. Ausente mantém a atual. Guardada criptografada.",
+      },
+      preview: { enum: ["preview", "minimal"], default: "preview" },
+      ticket_alert_minutes: {
+        type: "integer",
+        minimum: 0,
+        maximum: 10080,
+        default: 60,
+        description: "Minutos antes do prazo da primeira resposta; 0 desativa.",
+      },
+    },
+  },
+  PushTestResult: {
+    type: "object",
+    properties: {
+      sent: {
+        type: "integer",
+        description: "Notificações aceitas pelo provedor ou gateway.",
+      },
+      devices: {
+        type: "integer",
+        description: "Dispositivos ativos da pessoa autenticada.",
+      },
+    },
+  },
+  TicketDetail: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      number: { type: "string", description: "Protocolo público, como WA-…" },
+      profile_id: { type: "string" },
+      conversation_id: { type: "string" },
+      title: { type: "string" },
+      status: { enum: ["open", "in_progress", "closed"] },
+      owner: { type: ["string", "null"] },
+      response_due_at: { type: ["integer", "null"] },
+      first_response_at: { type: ["integer", "null"] },
+      overdue: {
+        type: "boolean",
+        description:
+          "Verdadeiro quando o prazo da primeira resposta passou sem resposta.",
+      },
+      created: { type: "integer" },
+      updated: { type: "integer" },
+      updates: {
+        type: "array",
+        description:
+          "Andamentos em ordem cronológica; notas internas exigem notes:read ou sessão de usuário.",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            actor: { type: "string" },
+            text: { type: "string" },
+            internal: { type: "boolean" },
+            created: { type: "integer" },
+          },
+        },
+      },
+    },
+  },
 };
 const operations: [string, string, string, string?, string?][] = [
   ["get", "/profiles", "Listar perfis autorizados"],
@@ -488,6 +684,12 @@ const operations: [string, string, string, string?, string?][] = [
     "get",
     "/profiles/{profile}/tickets",
     "Consultar protocolos",
+    "tickets:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/tickets/{id}",
+    "Consultar protocolo e andamentos",
     "tickets:read",
   ],
   [
@@ -731,12 +933,67 @@ operations.push(
       ] as [string, string, string, string, string],
   ),
 );
+const USER_ONLY =
+  "Somente sessão de usuário (token wabu_) ou cookie do painel; não disponível para chaves de aplicação.";
+const mobileOperations: [string, string, string, string?, string?][] = [
+  [
+    "post",
+    "/auth/mobile/login",
+    "Entrar pelo aplicativo com e-mail e senha",
+    "",
+    "MobileLogin",
+  ],
+  [
+    "post",
+    "/auth/mobile/refresh",
+    "Renovar sessão do aplicativo; o token anterior é revogado",
+    "",
+    "",
+  ],
+  ["get", "/devices", "Listar dispositivos da própria pessoa", "", ""],
+  [
+    "put",
+    "/devices/{id}",
+    "Registrar ou atualizar dispositivo para push",
+    "",
+    "DeviceInput",
+  ],
+  ["delete", "/devices/{id}", "Remover dispositivo antes de sair", "", ""],
+  [
+    "post",
+    "/devices/{id}/test",
+    "Enviar notificação de teste a este dispositivo",
+    "",
+    "",
+  ],
+  ["get", "/system/push", "Consultar notificações dos aplicativos", "", ""],
+  [
+    "post",
+    "/system/push/configure",
+    "Configurar modo, gateway, FCM, conteúdo e alerta de protocolo",
+    "",
+    "PushConfigInput",
+  ],
+  [
+    "post",
+    "/system/push/test",
+    "Enviar notificação de teste aos dispositivos do administrador",
+    "",
+    "",
+  ],
+];
+const isMobilePath = (path: string) =>
+  path.startsWith("/auth/mobile") ||
+  path.startsWith("/devices") ||
+  path.startsWith("/system/push");
 export function openapi(origin: string) {
   const paths: any = {};
   for (const [method, path, summary, scope, schema] of [
     ...operations,
     ...routerOperations,
+    ...mobileOperations,
   ]) {
+    const mobile = isMobilePath(path);
     const successCode =
       method === "post" &&
       (path === "/bot-runs" ||
@@ -745,7 +1002,10 @@ export function openapi(origin: string) {
         ? "202"
         : "200";
     const mutation =
-      method !== "get" && !path.endsWith("/contacts/import/preview");
+      method !== "get" &&
+      !path.endsWith("/contacts/import/preview") &&
+      !(path === "/devices/{id}" && method === "put") &&
+      path !== "/auth/mobile/login";
     const parameters: any[] = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({
       in: "path",
       name: m[1],
@@ -813,6 +1073,22 @@ export function openapi(origin: string) {
         name: "after",
         schema: { type: "integer", default: 0 },
       });
+    if (path.endsWith("/tickets") && method === "get")
+      parameters.push(
+        {
+          in: "query",
+          name: "status",
+          schema: { enum: ["open", "in_progress", "closed"] },
+          description: "Filtra pelo estado do protocolo.",
+        },
+        {
+          in: "query",
+          name: "overdue",
+          schema: { enum: ["1"] },
+          description:
+            "Somente protocolos com prazo da primeira resposta vencido e sem resposta.",
+        },
+      );
     if (path.endsWith("/reports"))
       parameters.push(
         ...["section", "start", "end", "format", "cursor", "limit"].map(
@@ -839,9 +1115,11 @@ export function openapi(origin: string) {
       );
     const entry: any = {
       summary,
-      description: scope
-        ? `Permissão: ${scope}. Datas no formato Unix em milissegundos.`
-        : "Retorna somente perfis autorizados.",
+      description: mobile
+        ? `${USER_ONLY} Datas no formato Unix em milissegundos.`
+        : scope
+          ? `Permissão: ${scope}. Datas no formato Unix em milissegundos.`
+          : "Retorna somente perfis autorizados.",
       operationId: method + "_" + path.replace(/[^a-zA-Z]+/g, "_"),
       parameters,
       security: [{ BearerAuth: [] }],
@@ -1052,6 +1330,53 @@ export function openapi(origin: string) {
         schema: { type: "string" },
         description: "Uma linha JSON por registro; formato por streaming.",
       };
+    if (path.endsWith("/tickets/{id}") && method === "get")
+      success.content["application/json"].schema = {
+        $ref: "#/components/schemas/TicketDetail",
+      };
+    if (mobile) {
+      entry.tags = ["Aplicativos móveis"];
+      const ref = (name: string) => ({
+        $ref: `#/components/schemas/${name}`,
+      });
+      if (path === "/auth/mobile/login") {
+        entry.security = [];
+        entry.servers = [{ url: origin + "/api" }];
+        entry.description +=
+          " Rota servida em /api/auth/mobile/login, fora de /api/v1 (veja servers desta operação). Sem autenticação prévia; limite de 10 tentativas por IP a cada 10 minutos. Não exige Idempotency-Key.";
+        success.content["application/json"].schema = ref("MobileSession");
+      }
+      if (path === "/auth/mobile/refresh") {
+        entry.description +=
+          " Estende a validade por 30 dias; use quando faltar menos de 7 dias. O token usado na chamada deixa de valer.";
+        success.content["application/json"].schema = ref("MobileSession");
+      }
+      if (path === "/devices" && method === "get")
+        success.content["application/json"].schema = {
+          type: "array",
+          items: ref("Device"),
+        };
+      if (path === "/devices/{id}" && method === "put") {
+        entry.description +=
+          " Cria ou substitui o dispositivo identificado pelo UUID gerado no aparelho; a operação é naturalmente idempotente e não exige Idempotency-Key.";
+        success.content["application/json"].schema = ref("Device");
+      }
+      if (path === "/devices/{id}" && method === "delete")
+        success.content["application/json"].schema = {
+          type: "object",
+          properties: { ok: { type: "boolean" } },
+        };
+      if (path.endsWith("/test"))
+        success.content["application/json"].schema = ref("PushTestResult");
+      if (path.startsWith("/system/push")) {
+        entry.description += " Exige papel de administrador.";
+        if (!path.endsWith("/test"))
+          success.content["application/json"].schema = ref("PushConfig");
+      }
+      if (path === "/system/push/configure")
+        entry.description +=
+          " Segredo do gateway e conta de serviço FCM são guardados criptografados e nunca devolvidos; a resposta informa apenas se estão configurados.";
+    }
     (paths[path] ??= {})[method] = entry;
   }
   return {
@@ -1060,7 +1385,7 @@ export function openapi(origin: string) {
       title: "Wabotia API",
       version: "1.0.0",
       description:
-        "Atendimento e bots Hermes. Integrações servidor-servidor cadastradas pelo administrador. Nunca exponha sua chave em JavaScript público. Webhooks são entregues ao menos uma vez; deduplique por ID. Assinatura HMAC-SHA256 sobre timestamp.corpo_original.",
+        'Atendimento e bots Hermes. Integrações servidor-servidor cadastradas pelo administrador. Nunca exponha sua chave em JavaScript público. Webhooks são entregues ao menos uma vez; deduplique por ID. Assinatura HMAC-SHA256 sobre timestamp.corpo_original. As operações marcadas como "Aplicativos móveis" aceitam somente sessões de usuário (token wabu_, emitido por POST /api/auth/mobile/login) ou o cookie do painel; chaves de aplicação recebem 403. O login móvel é servido em /api/auth/mobile/login, fora de /api/v1.',
     },
     servers: [{ url: origin + "/api/v1" }],
     components: {

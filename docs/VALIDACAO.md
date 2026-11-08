@@ -1,4 +1,12 @@
-# Validação e limites da versão 0.7.0
+# Validação e limites da versão 0.8.0
+
+## Revisão 0.8.0: aplicativos Android e iOS, login móvel e push
+
+Em 08/11/2026, 139 testes passaram em workerd com D1, R2 e Durable Objects (19 novos em `tests/mobile.test.ts`), além de 6 testes do gateway de push (`push-gateway/`). Os novos testes cobrem login móvel com token `wabu_` sem verificação de origem, renovação e revogação, dispositivos (upsert, teto por pessoa, conflito de posse, limite de cadência), regras de alvo do push (responsável, fila, IA, exclusão do ator), deduplicação e cursor (semeadura no fim do histórico, falha no meio do lote), alertas de protocolo vencendo/atrasado uma única vez mesmo com mais de 100 protocolos antigos, modos gateway/FCM/desligado (404 do FCM só desativa aparelho com `UNREGISTERED`), configuração sem devolver a chave privada, e a listagem/detalhe de protocolos. Verificação TypeScript, `wrangler deploy --dry-run` da raiz e do gateway concluídos. Uma revisão adversarial independente (segurança e correção) apontou 11 defeitos, todos corrigidos com testes de regressão.
+
+A migração `0008_mobile.sql` é aditiva e foi aplicada apenas em banco vazio (testes); não foi executada contra um D1 remoto com dados reais. FCM e Google OAuth foram simulados: nenhuma notificação real foi enviada. O gateway `push.wabotia.queven.app` ainda não foi publicado.
+
+Aplicativos: o Android (`mobile/android`) compilou em Windows com JDK 17, Gradle 8.11.1 e SDK 35 (`assembleDebug` gera o APK de depuração; `lintDebug` sem erros). Uma revisão adversarial confirmou 6 defeitos no Android (entre eles encerrar a ligação ao sair da tela de acompanhamento e perda da chave de idempotência em repetições), todos corrigidos. O iOS (`mobile/ios`, 41 arquivos Swift) foi revisado estaticamente para Swift 5.10/iOS 16, teve 8 defeitos confirmados corrigidos e, ainda em 08/11/2026, foi compilado no Mac com Xcode 27.0 (projeto gerado pelo XcodeGen): build para simulador, build assinado para aparelho com o perfil gerenciado da equipe e 11 testes unitários (muxer OGG/Opus, normalização de servidor, deep links) passando no simulador de iPad. O app foi instalado e aberto no iPad A16 (iOS 26.6), mostrando a tela do servidor; no iPhone X (iOS 16.7) foi instalado e aberto após o usuário confiar no perfil de desenvolvedor, mostrando a mesma tela inicial. iPhone 7 (iOS 15) fica fora do alvo mínimo iOS 16. Nenhum dos dois foi executado em aparelho real nem contra um número WhatsApp real; isso permanece como etapa final com o proprietário. [Guia dos aplicativos](MOBILE.md).
 
 ## Revisão 0.7.0: função e permissões por número
 

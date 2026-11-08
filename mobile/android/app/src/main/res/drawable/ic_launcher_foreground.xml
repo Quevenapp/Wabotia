@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Balão de conversa com um "W" estilizado -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,22C36.3,22 22,34.5 22,50c0,7.4 3.3,14.1 8.7,19.1L27,86l17.6,-8.4C47.5,78.5 50.7,79 54,79c17.7,0 32,-12.5 32,-28S71.7,22 54,22z" />
+    <path
+        android:fillColor="#0B5C4D"
+        android:strokeColor="#0B5C4D"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M36,40l6,22l8,-16l8,16l6,-22" />
+</vector>

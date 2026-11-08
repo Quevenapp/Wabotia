@@ -1152,6 +1152,7 @@ export async function perform(
     access(actor, profile, "conversations:write");
     let c = await conversation(env, data.id, profile, actor);
     const action = data.action;
+    let eventExtra: Record<string, any> = {};
     const policy = await getNumberPolicy(env, c.connection_id);
     if (["claim", "reply"].includes(action)) {
       const capability = actor.kind === "app" ? "api" : "human";
@@ -1274,6 +1275,7 @@ export async function perform(
           now(),
           c.id,
         );
+        eventExtra = { owner: target.id, actor: actor.id };
       } else if (action === "resolve" || action === "resume") {
         await exec(
           env,
@@ -1312,7 +1314,10 @@ export async function perform(
         }
       } else throw new ApiError(400, "unknown_action", "Ação inválida.");
     }
-    await event(env, profile, "conversation.updated", c.id, { action });
+    await event(env, profile, "conversation.updated", c.id, {
+      action,
+      ...eventExtra,
+    });
     return await conversation(env, c.id, profile);
   }
   if (op === "presence") {
@@ -1414,7 +1419,15 @@ export async function perform(
         `ticket:${requestId}`,
       );
     }
-    await event(env, profile, "ticket.updated", ticket.id, { status });
+    await event(env, profile, "ticket.updated", ticket.id, {
+      status,
+      previous_status: ticket.status,
+      owner: data.owner ?? ticket.owner,
+      previous_owner: ticket.owner,
+      text_added: !!publicText,
+      actor: actor.id,
+      number: ticket.number,
+    });
     return await one(env, "SELECT * FROM tickets WHERE id=?", ticket.id);
   }
   if (op === "consent.request") {

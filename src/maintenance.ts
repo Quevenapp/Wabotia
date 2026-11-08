@@ -5,6 +5,7 @@ import {
   saveCloudflareSettings,
 } from "./cloudflare";
 import { configureUpdates, resetUpdate, startUpdate } from "./updates";
+import { configurePush } from "./push";
 export async function maintenanceCommand(
   env: Env,
   actor: Actor,
@@ -24,6 +25,8 @@ export async function maintenanceCommand(
       return startUpdate(env, actor, data);
     case "system.updates.reset":
       return resetUpdate(env, actor, data);
+    case "system.push.configure":
+      return configurePush(env, actor, data);
     default:
       throw new ApiError(
         400,

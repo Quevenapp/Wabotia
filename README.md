@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.7.0, com função e permissões por número: serviço, templates, atendentes, API, menus, bots e grupos de roteamento. Mantém o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, além de mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.8.0, com aplicativos Android e iOS que se conectam a qualquer instalação pelo endereço do servidor, login de usuário por token de sessão (`wabu_`, separado das chaves de aplicação), registro de dispositivos e notificações push via gateway Wabotia ou FCM direto, além de consulta de protocolos por estado e atraso. Mantém função e permissões por número, o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -44,6 +44,12 @@ Também é possível usar **Conexões → Preparar Hermes na Cloudflare**. Após
 Receba e envie imagens, vídeos, áudio, voz, documentos, figurinhas, localização e contatos conforme o canal. Gerencie grupos pelo QR e grupos empresariais Meta elegíveis. Ligações de voz usam Meta direto e WebRTC no navegador; QR/Hermes não fazem chamadas e não há videochamadas. Todos esses recursos têm rotas autenticadas na API. [Guia e limites por modo](docs/WHATSAPP.md).
 
 Atualize também o processo QR ou o transporte Hermes; o botão do painel atualiza somente a parte Cloudflare. Homologação com número real permanece pendente.
+
+## Aplicativos Android e iOS
+
+Os aplicativos nativos em [`mobile/`](mobile) funcionam com qualquer servidor Wabotia: na primeira tela a pessoa digita o endereço da própria instalação (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`) e entra com o e-mail e a senha cadastrados em **Pessoas**. O aplicativo recebe um token de sessão de usuário (`wabu_`), com os mesmos perfis e papel do painel, e oferece conversas, mensagens WhatsApp com mídia, ligações, protocolos, bots, presença e notificações push de mensagens, fila, transferências, protocolos e ligações.
+
+As notificações saem do seu servidor para um gateway de push (padrão operado pela Queven; pode ser o seu) ou direto para o Firebase Cloud Messaging; o administrador escolhe em **Sistema e atualizações → Notificações dos aplicativos**, inclusive o conteúdo mínimo para não expor trechos de mensagens. Rotas, contrato do gateway, compilação e limites estão em [docs/MOBILE.md](docs/MOBILE.md).
 
 ## Agenda de contatos
 

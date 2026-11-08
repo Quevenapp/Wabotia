@@ -31,6 +31,18 @@ export function passwordVerify(password: string, stored: string) {
     return false;
   }
 }
+// Fixed scrypt hash of an unknown password: logins for e-mails that do not
+// exist run the same key derivation as real accounts, so response time does
+// not reveal which e-mails are registered.
+const DUMMY_PASSWORD_HASH =
+  "67c91b3aa4dd3fe9c74836224e16f8a143c88887bc0525bb173392966dc94ec4:c035d6c1ac69cfec4881e94f578eeb46a439fc47cf16df672dbd1347d22e192e";
+export function passwordMatches(
+  password: string,
+  stored: string | null | undefined,
+) {
+  const verified = passwordVerify(password, stored || DUMMY_PASSWORD_HASH);
+  return !!stored && verified;
+}
 async function key(env: Env) {
   if (!env.MASTER_KEY || env.MASTER_KEY.length < 32)
     throw new ApiError(
@@ -130,10 +142,48 @@ export function admin(actor: Actor) {
   if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(403, "admin_required", "Somente administradores.");
 }
+function userActor(row: any): Actor {
+  return {
+    id: row.id,
+    kind: "user",
+    name: row.name,
+    role: row.role,
+    profiles: json(row.profiles, []),
+    scopes: [],
+    bots: [],
+    rate: 300,
+    runLimit: 10,
+  };
+}
+export const MOBILE_TOKEN_PREFIX = "wabu_";
 export async function authenticate(env: Env, request: Request): Promise<Actor> {
   const bearer = request.headers
     .get("Authorization")
     ?.match(/^Bearer (.+)$/)?.[1];
+  if (bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX)) {
+    // Mobile user session: identifies a person, no Origin check (native app).
+    const hash = await sha(bearer);
+    const row = await one(
+      env,
+      "SELECT u.*,s.last_used session_last_used FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0",
+      hash,
+      now(),
+    );
+    if (!row)
+      throw new ApiError(
+        401,
+        "invalid_token",
+        "Sessão inválida ou expirada. Entre novamente.",
+      );
+    if (!row.session_last_used || row.session_last_used < now() - 3600000)
+      await exec(
+        env,
+        "UPDATE sessions SET last_used=? WHERE hash=?",
+        now(),
+        hash,
+      );
+    return userActor(row);
+  }
   if (bearer) {
     const row = await one(
       env,
@@ -163,7 +213,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
   const row = token
     ? await one(
         env,
-        "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.expires>? AND u.disabled=0",
+        "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0",
         await sha(token),
         now(),
       )
@@ -178,17 +228,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
         "Origem da requisição inválida.",
       );
   }
-  return {
-    id: row.id,
-    kind: "user",
-    name: row.name,
-    role: row.role,
-    profiles: json(row.profiles, []),
-    scopes: [],
-    bots: [],
-    rate: 300,
-    runLimit: 10,
-  };
+  return userActor(row);
 }
 export function publicUrl(value: string) {
   let url: URL;

@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wabotia-push-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Segredos (não ficam neste arquivo):
+  //   wrangler secret put FCM_SERVICE_ACCOUNT    JSON da conta de serviço Firebase
+  //   wrangler secret put GATEWAY_SHARED_SECRET  opcional; exige Authorization: Bearer
+}

@@ -12,6 +12,7 @@ import { routerLink } from "./number-router";
 import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending } from "./updates";
+import { processPush } from "./push";
 import {
   processInbox,
   processRun,
@@ -248,6 +249,7 @@ export class Coordinator extends DurableObject<Env> {
         this.profile,
       );
       if (doc) await importDocument(this.env, doc);
+      await processPush(this.env, this.profile);
     } catch (error) {
       console.error(
         JSON.stringify({
@@ -266,7 +268,9 @@ export class Coordinator extends DurableObject<Env> {
             )
           : await one(
               this.env,
-              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending')) n",
+              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM events WHERE profile_id=? AND id>coalesce((SELECT last_event_id FROM push_cursors WHERE profile_id=?),0)) n",
+              this.profile,
+              this.profile,
               this.profile,
               this.profile,
               this.profile,

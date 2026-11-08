@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
+  Bell,
   Check,
   Cloud,
   Download,
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Smartphone,
   X,
 } from "lucide-react";
 
@@ -28,6 +30,49 @@ const demoData: Data = {
   cloudflare: { configured: false, account_id: "", zone_id: "", domain: "" },
   deployments: [],
 };
+type PushMode = "off" | "gateway" | "fcm";
+type PushPreview = "preview" | "minimal";
+type PushConfig = {
+  mode: PushMode;
+  gateway_url: string;
+  gateway_secret_configured?: boolean;
+  fcm_configured: boolean;
+  fcm_project_id: string;
+  preview: PushPreview;
+  ticket_alert_minutes: number;
+};
+type PushForm = {
+  mode: PushMode;
+  gateway_url: string;
+  gateway_secret: string;
+  fcm_service_account: string;
+  preview: PushPreview;
+  ticket_alert_minutes: string;
+};
+const DEFAULT_GATEWAY = "https://push.wabotia.queven.app";
+const demoPush: PushConfig = {
+  mode: "gateway",
+  gateway_url: DEFAULT_GATEWAY,
+  gateway_secret_configured: false,
+  fcm_configured: false,
+  fcm_project_id: "",
+  preview: "minimal",
+  ticket_alert_minutes: 60,
+};
+const isPushMode = (v: string): v is PushMode =>
+  v === "off" || v === "gateway" || v === "fcm";
+const isPushPreview = (v: string): v is PushPreview =>
+  v === "preview" || v === "minimal";
+function pushForm(config: PushConfig): PushForm {
+  return {
+    mode: config.mode,
+    gateway_url: config.gateway_url || DEFAULT_GATEWAY,
+    gateway_secret: "",
+    fcm_service_account: "",
+    preview: config.preview,
+    ticket_alert_minutes: String(config.ticket_alert_minutes ?? 60),
+  };
+}
 const when = (n: number) =>
   new Date(n).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 
@@ -514,7 +559,285 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           </form>
         )}
       </section>
+      <PushSection api={api} demo={demo} />
     </div>
+  );
+}
+
+function PushSection({ api, demo }: { api: Api; demo: boolean }) {
+  const action = useAction(demo);
+  const [config, setConfig] = useState<PushConfig | null>(
+    demo ? demoPush : null,
+  );
+  const [form, setForm] = useState<PushForm>(pushForm(demoPush));
+  const [loadError, setLoadError] = useState("");
+  const alive = useRef(true);
+  const load = useCallback(async () => {
+    if (demo) return;
+    try {
+      const result: PushConfig = await api(
+        "v1/system/push",
+        "GET",
+        undefined,
+        AbortSignal.timeout(20000),
+      );
+      if (alive.current) {
+        setConfig(result);
+        setForm(pushForm(result));
+        setLoadError("");
+      }
+    } catch (e) {
+      if (alive.current)
+        setLoadError(
+          e instanceof Error
+            ? e.message
+            : "Não foi possível consultar as notificações.",
+        );
+    }
+  }, [api, demo]);
+  useEffect(() => {
+    alive.current = true;
+    void load();
+    return () => {
+      alive.current = false;
+    };
+  }, [load]);
+  const set = <K extends keyof PushForm>(name: K, value: PushForm[K]) =>
+    setForm((f) => ({ ...f, [name]: value }));
+  const statusLabel =
+    !config || config.mode === "off"
+      ? "Desligado"
+      : config.mode === "gateway"
+        ? "Gateway"
+        : config.fcm_configured
+          ? "FCM direto"
+          : "FCM sem conta";
+  return (
+    <section className="card system-card">
+      <div className="section-heading">
+        <h2>
+          <Smartphone size={22} /> Notificações dos aplicativos
+        </h2>
+        <span
+          className={
+            "badge " + (config && config.mode !== "off" ? "active" : "paused")
+          }
+        >
+          {statusLabel}
+        </span>
+      </div>
+      <p>
+        Os aplicativos Wabotia para Android e iOS, disponíveis nas lojas, se
+        conectam a esta instalação informando o endereço do servidor e o login
+        de atendente. Aqui você define como este servidor envia avisos de
+        mensagens, fila, transferências, protocolos e ligações aos aparelhos.
+        Detalhes em <code>docs/MOBILE.md</code>.
+      </p>
+      <Feedback {...action} error={action.error || loadError} />
+      {!config && !loadError ? (
+        <p className="connection-progress" role="status">
+          <Loader2 className="spin" size={16} /> Carregando notificações…
+        </p>
+      ) : (
+        <form
+          className="system-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void action.run("Salvando notificações…", async () => {
+              const minutes = Number(form.ticket_alert_minutes);
+              if (!Number.isInteger(minutes) || minutes < 0)
+                throw Error("Informe os minutos do alerta como inteiro ≥ 0.");
+              if (form.mode === "fcm" && form.fcm_service_account.trim()) {
+                try {
+                  JSON.parse(form.fcm_service_account);
+                } catch {
+                  throw Error(
+                    "A conta de serviço FCM precisa ser um JSON válido.",
+                  );
+                }
+              }
+              const body: Record<string, unknown> = {
+                mode: form.mode,
+                preview: form.preview,
+                ticket_alert_minutes: minutes,
+              };
+              if (form.mode === "gateway") {
+                body.gateway_url = form.gateway_url.trim() || DEFAULT_GATEWAY;
+                if (form.gateway_secret)
+                  body.gateway_secret = form.gateway_secret;
+              }
+              if (form.mode === "fcm" && form.fcm_service_account.trim())
+                body.fcm_service_account = form.fcm_service_account.trim();
+              const result: PushConfig = await api(
+                "v1/system/push/configure",
+                "POST",
+                body,
+                AbortSignal.timeout(45000),
+              );
+              setConfig(result);
+              setForm(pushForm(result));
+              action.setMessage(
+                result.mode === "off"
+                  ? "Notificações desligadas. Os aplicativos continuam funcionando em primeiro plano."
+                  : "Notificações salvas. Use “Enviar teste” para conferir nos aparelhos conectados.",
+              );
+            });
+          }}
+        >
+          <div className="system-grid">
+            <label className="field">
+              <span>Modo</span>
+              <select
+                value={form.mode}
+                onChange={(e) => {
+                  if (isPushMode(e.target.value)) set("mode", e.target.value);
+                }}
+              >
+                <option value="off">Desligado</option>
+                <option value="gateway">Gateway Wabotia</option>
+                <option value="fcm">FCM direto</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Conteúdo das notificações</span>
+              <select
+                value={form.preview}
+                onChange={(e) => {
+                  if (isPushPreview(e.target.value))
+                    set("preview", e.target.value);
+                }}
+              >
+                <option value="minimal">Mínimo (apenas “Nova mensagem”)</option>
+                <option value="preview">Prévia (nome e trecho do texto)</option>
+              </select>
+            </label>
+            <Input
+              label="Alerta de protocolo (minutos antes do prazo; 0 desativa)"
+              type="number"
+              min="0"
+              max="10080"
+              step="1"
+              value={form.ticket_alert_minutes}
+              onChange={(e) => set("ticket_alert_minutes", e.target.value)}
+              required
+            />
+          </div>
+          <small>
+            O conteúdo das notificações passa pelo provedor de push (Google e
+            Apple) e, no modo gateway, também pelo gateway escolhido. O modo
+            mínimo não envia nomes nem trechos de mensagens; é o recomendado ao
+            usar um gateway de terceiros.
+          </small>
+          {form.mode === "gateway" && (
+            <>
+              <p>
+                O gateway guarda as credenciais Firebase do aplicativo publicado
+                e repassa as notificações sem receber as credenciais desta
+                instalação. O padrão é operado pela Queven; quem compila o
+                próprio aplicativo pode publicar um gateway próprio.
+              </p>
+              <div className="system-grid">
+                <Input
+                  label="URL do gateway"
+                  type="url"
+                  autoComplete="off"
+                  placeholder={DEFAULT_GATEWAY}
+                  value={form.gateway_url}
+                  onChange={(e) => set("gateway_url", e.target.value.trim())}
+                  required
+                />
+                <Input
+                  label={
+                    config?.gateway_secret_configured
+                      ? "Segredo do gateway (configurado; vazio mantém)"
+                      : "Segredo do gateway (opcional)"
+                  }
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.gateway_secret}
+                  onChange={(e) => set("gateway_secret", e.target.value)}
+                />
+              </div>
+              <small>
+                Preencha o segredo somente se o gateway foi publicado com{" "}
+                <code>GATEWAY_SHARED_SECRET</code>. Ele é guardado criptografado
+                e não volta a ser exibido.
+              </small>
+            </>
+          )}
+          {form.mode === "fcm" && (
+            <>
+              <p>
+                {config?.fcm_configured ? (
+                  <>
+                    Conta configurada: projeto{" "}
+                    <strong>
+                      {config.fcm_project_id || "sem identificação"}
+                    </strong>
+                    . Cole um novo JSON somente para substituí-la.
+                  </>
+                ) : (
+                  <>
+                    Cole o JSON da conta de serviço do seu projeto Firebase com
+                    o papel <strong>Firebase Cloud Messaging API Admin</strong>.
+                    Esse modo exige um aplicativo compilado com o mesmo projeto;
+                    o aplicativo das lojas usa o gateway.
+                  </>
+                )}
+              </p>
+              <label className="field">
+                <span>
+                  {config?.fcm_configured
+                    ? "Nova conta de serviço FCM (JSON; vazio mantém a atual)"
+                    : "Conta de serviço FCM (JSON)"}
+                </span>
+                <textarea
+                  rows={6}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder='{"type":"service_account","project_id":"…"}'
+                  value={form.fcm_service_account}
+                  onChange={(e) => set("fcm_service_account", e.target.value)}
+                  required={!config?.fcm_configured}
+                />
+              </label>
+              <small>
+                A conta é guardada criptografada e nunca é exibida de volta.
+              </small>
+            </>
+          )}
+          <div className="card-actions">
+            <button className="button" disabled={!!action.busy}>
+              <Check size={17} /> Salvar notificações
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={!!action.busy || !config || config.mode === "off"}
+              onClick={() =>
+                action.run("Enviando notificação de teste…", async () => {
+                  const result: { sent: number; devices: number } = await api(
+                    "v1/system/push/test",
+                    "POST",
+                    {},
+                    AbortSignal.timeout(45000),
+                  );
+                  const devices = Number(result?.devices ?? 0),
+                    sent = Number(result?.sent ?? 0);
+                  action.setMessage(
+                    devices === 0
+                      ? "Nenhum dispositivo registrado para a sua conta. Entre no aplicativo neste servidor e repita o teste."
+                      : `Teste enviado: ${sent} de ${devices} dispositivo${devices === 1 ? "" : "s"} aceito${sent === 1 ? "" : "s"} pelo provedor.`,
+                  );
+                })
+              }
+            >
+              <Bell size={16} /> Enviar teste
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
 
