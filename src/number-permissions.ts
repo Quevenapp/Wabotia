@@ -9,12 +9,11 @@ import {
 export async function getNumberPolicy(env: Env, connection: string | null) {
   const row =
     connection &&
-    (await one(
-      env,
-      "SELECT c.config FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=?",
-      connection,
-    ));
-  return numberPolicy(row ? json(row.config) : {});
+    (await one(env, "SELECT config FROM connections WHERE id=?", connection));
+  const config = row ? json(row.config) : {};
+  const policy = numberPolicy(config);
+  if (config.service?.menu_mode === "off") policy.menu = false;
+  return policy;
 }
 export function numberPolicyError(flag: NumberPolicyFlag) {
   const labels: Record<NumberPolicyFlag, string> = {
@@ -29,7 +28,7 @@ export function numberPolicyError(flag: NumberPolicyFlag) {
   return new ApiError(
     403,
     "number_policy_denied",
-    `Este número não permite ${labels[flag]}. Confira Função e permissões no Roteador de números.`,
+    `Este número não permite ${labels[flag]}. Confira as permissões no painel de linhas.`,
   );
 }
 export async function assertNumberDelivery(
@@ -47,4 +46,25 @@ export async function assertNumberDelivery(
     payload,
   );
   if (denied) throw numberPolicyError(denied);
+  if (
+    actor.startsWith("bot:") &&
+    actor !== "bot:attendant" &&
+    payload.automation !== "menu"
+  ) {
+    const bot = await one(
+      env,
+      "SELECT b.line_ids FROM bots b JOIN connections c ON c.profile_id=b.profile_id WHERE b.id=? AND c.id=? AND b.enabled=1",
+      actor.slice(4),
+      connection,
+    );
+    if (
+      !bot ||
+      (bot.line_ids !== null && !json(bot.line_ids, []).includes(connection))
+    )
+      throw new ApiError(
+        403,
+        "bot_not_allowed",
+        "Este bot não atende esta linha.",
+      );
+  }
 }

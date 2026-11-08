@@ -35,6 +35,10 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  assigned_bot_id?: string | null;
+  menu_active?: number;
+  menu_manual?: number;
+  menu_parent?: string | null;
   recipient_id?: string | null;
   chat_type: string;
   title: string;

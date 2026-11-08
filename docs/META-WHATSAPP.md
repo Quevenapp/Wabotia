@@ -70,7 +70,7 @@ A verificação empresarial não é o selo pago Meta Verified. Também não é a
 
 ![Confirmação real de conta adicionada; não representa ainda um teste de envio](screenshots/37-meta-numero-adicionado.jpg)
 
-Se sua empresa já tem a conta de mensagens correta, use o fluxo de adicionar número nela pelo WhatsApp Manager ou pela Configuração da API. **Não crie uma conta de mensagens nova para cada telefone de um mesmo grupo.** O roteador exige que os números pertençam à mesma conta acessível pela API e respeita o limite concedido pela Meta, até o máximo de 20 suportado pelo Wabotia.
+Se sua empresa já tem a conta de mensagens correta, use o fluxo de adicionar número nela pelo WhatsApp Manager ou pela Configuração da API. **Não crie uma conta de mensagens nova para cada telefone de um mesmo grupo.** O roteador exige que os números pertençam à mesma conta acessível pela API e respeita a quantidade concedida pela Meta, sem impor um limite fixo de linhas no Wabotia.
 
 ## 6. Crie o aplicativo da integração
 

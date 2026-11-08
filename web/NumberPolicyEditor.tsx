@@ -12,7 +12,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   [
     "service",
     "Respostas dentro de 24 horas",
-    "Mensagens sem template. Usam o teto de atendimento deste número.",
+    "Mensagens de serviço, com cobrança do excedente após a franquia gratuita.",
   ],
   [
     "templates",
@@ -31,8 +31,8 @@ const options: [NumberPolicyFlag, string, string][] = [
   ],
   [
     "menu",
-    "Menu e saudação automática",
-    "Usa o menu configurado no perfil, inclusive respostas dos submenus.",
+    "Menus e submenus",
+    "Permite menus nas linhas e nos momentos escolhidos no painel de menus.",
   ],
   [
     "bots",
@@ -127,8 +127,8 @@ export function NumberPolicyEditor({
         <p className="number-policy-note">
           Receber mensagens e guardar o histórico continuam disponíveis. A
           janela de 24 horas vale somente para o número que recebeu a mensagem
-          do cliente. Estas opções não ativam o canal, o perfil nem autorizam
-          cobrança automática.
+          do cliente. Mensagens de serviço podem ser cobradas após a franquia.
+          Ativar esta permissão não ativa o canal ou o perfil.
         </p>
         <button className="primary" disabled={busy || !dirty}>
           Salvar função e permissões

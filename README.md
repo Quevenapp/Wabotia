@@ -8,7 +8,7 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.8.0, com aplicativos Android e iOS que se conectam a qualquer instalação pelo endereço do servidor, login de usuário por token de sessão (`wabu_`, separado das chaves de aplicação), registro de dispositivos e notificações push via gateway Wabotia ou FCM direto, além de consulta de protocolos por estado e atraso. Mantém função e permissões por número, o roteador de até 20 números por WABA, webhook compartilhado, contadores por número e modelos pagos com autorização individual, mídia nativa, gravador de voz, grupos, ligações humanas pela Meta Calling API, agenda/CSV e integrações Hermes. Inclui instalação guiada, diagnóstico e atualização pelo painel. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.9.0, com atendimento por linha, menus e submenus por número, bots atribuídos a uma ou várias linhas e conversas internas entre pessoas e bots. O roteador alterna novos atendimentos desde o início, prioriza franquias gratuitas e mantém conversas no mesmo número com serviço pago após a franquia, respeitando a janela de 24 horas. Web, Android e iOS usam as mesmas configurações e permissões. Mantém login móvel por token de sessão (`wabu_`), push, protocolos, mídia, voz, grupos, ligações Meta, agenda/CSV e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Instalar na Cloudflare
 
@@ -57,11 +57,20 @@ Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe ar
 
 ## Roteador WhatsApp
 
-Em **Roteador de números**, conecte uma WABA, adicione até 20 números e configure um único webhook. Crie grupos por menor consumo, sequência ou sorteio; autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis.
+Em **Roteador de números**, conecte uma WABA, adicione os números habilitados na Meta e configure um único webhook. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. Os grupos alternam os números desde o primeiro atendimento e priorizam quem ainda possui franquia gratuita. Autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis, inclusive com serviço pago quando todas as franquias acabam.
 
 Em cada cartão, **Função e permissões** permite separar a linha oficial das linhas de integração com 24 horas, ou escolher cada capacidade individualmente. Restrições do número prevalecem sobre grupos/aplicações e são conferidas novamente antes do envio. Alterar a função preserva histórico e consumo.
 
-O teto local de atendimento é de até 1.000 mensagens por número/mês, conforme a franquia informada no [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Modelos pagos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
+A franquia gratuita configurada é de até 1.000 mensagens por número/mês, conforme o [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Ela orienta o rodízio e a estimativa de consumo; o excedente de serviço pode ser cobrado e não bloqueia o atendimento. Modelos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
+
+## Linhas, menus e equipe interna
+
+- **Linhas de atendimento:** escolha equipe humana, bot específico ou bot padrão por número. Linhas de atendimento direto podem ficar fora dos grupos de roteamento.
+- **Menus e submenus:** selecione as linhas autorizadas e apresentação automática ou quando uma pessoa ou bot chamar o menu. Submenus respeitam as restrições dos pais. Na conversa, use **Enviar menu ao cliente**.
+- **Equipe Bot:** autorize todas as linhas, algumas linhas ou apenas conversas internas para cada bot.
+- **Conversas internas:** pessoas e bots aparecem com disponibilidade online/offline. Mensagens internas têm histórico privado entre participantes e não são enviadas pelo WhatsApp. Conversas de clientes podem ser transferidas para pessoas ou bots, preservando seu número.
+
+A migração aditiva `0009_service_team.sql` mantém os atendimentos e configurações existentes e acrescenta as atribuições e o histórico interno. Os recursos novos nos aplicativos exigem o servidor 0.9.0.
 
 ## API
 

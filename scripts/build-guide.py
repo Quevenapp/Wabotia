@@ -75,7 +75,7 @@ steps(['Instale Node.js e npm no computador ou na VPS de onde vai publicar. O ro
 box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instalação nova começa vazia e não importa o histórico antigo. Mantenha a anterior até conferir o novo painel. O roteiro de transição está na página 39.')
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
 p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
-p('Roteador Meta: até 20 números, webhook único, contadores e modelos pagos autorizados nas páginas 50 a 54.','small')
+p('Roteador Meta: números da sua conta, webhook único, contadores e modelos pagos autorizados nas páginas 50 a 54. A quantidade de linhas permitida é definida pela Meta.','small')
 p('Primeiro número na API oficial? Empresa, cadastro Meta, tokens e webhook: páginas 55 a 69. Também há um caderno separado no site.','small')
 p('WhatsApp: atualização dos conectores, arquivos, voz, grupos, ligações e teste final nas páginas 43 a 49.','small')
 # Node.js before Cloudflare provisioning
@@ -450,8 +450,8 @@ p('Cadastre a aplicação em API e integrações. Selecione somente os perfis e 
 p(link('Guia completo WhatsApp','https://wabotia.queven.app/install#whatsapp-recursos')+' · '+link('API e exemplos','https://github.com/Quevenapp/Wabotia/blob/main/docs/API.md#whatsapp-mídias-grupos-e-ligações'))
 box('Você pode manter o painel disponível enquanto Hermes/QR estão desligados. Os bots dependem do Hermes ligado; o canal QR depende do seu conector. Cada número deve ter apenas um consumidor ativo.')
 
-title(50,'Até 20 números, uma entrada')
-p('A versão 0.6.0 acrescenta o <b>Roteador de números</b>. Ele conecta até 20 telefones da mesma conta empresarial WhatsApp, chamada WABA, usando <b>Meta direto no Worker</b>. QR e transporte Hermes continuam separados; não é preciso alterar o Hermes para usar este recurso.')
+title(50,'Seus números, uma entrada')
+p('O <b>Roteador de números</b> conecta os telefones da mesma conta empresarial WhatsApp, chamada WABA, usando <b>Meta direto no Worker</b>. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. QR e transporte Hermes continuam separados; não é preciso alterar o Hermes para usar este recurso.')
 steps(['Faça backup. Em <b>Sistema e atualizações</b>, clique <b>Verificar atualização</b> e <b>Atualizar Wabotia</b>. Aguarde a confirmação e reabra o painel.','Selecione o perfil e abra <b>Roteador de números</b>. Prepare a conta Meta, o webhook, os números e um grupo conforme as próximas páginas.'])
 sub('Atendimento e modelos pagos são diferentes')
 table([['Tipo','Como funciona'],['Atendimento','O cliente falou com este mesmo número nas últimas 24 horas. O roteador respeita um teto local de até 1.000 mensagens por número/mês.'],['Modelo pago','Use modelo aprovado pela Meta, autorização explícita naquele envio e prova de consentimento na mesma categoria. A aplicação e a origem também precisam permitir pagos.'],['Novos contatos','O link público do grupo abre o WhatsApp num número ativo com saldo. O cliente inicia a conversa; o link sozinho não envia mensagem.'],['Conversa em andamento','Mantém o remetente original. Fim de cota, pausa ou falha não fazem o sistema enviar por outro número.']])
@@ -467,7 +467,7 @@ p('O token Meta precisa permitir consultar WABA/modelos e enviar pelos números.
 
 title(52,'Números e contadores')
 shot('29-router-contadores.jpg','Dois números e consumos fictícios. O uso inclui reservas; mensagens pagas e cobrança não informada aparecem separadas.',width=CW)
-steps(['Clique <b>Buscar números na Meta</b> e escolha um número encontrado. Dê um nome para reconhecê-lo.','Confira na Meta as mensagens de atendimento já usadas neste mês. Informe o consumo inicial e o teto local, no máximo <b>1.000</b>. Zero somente se não houve uso.','Confirme o uso e o fuso, depois clique <b>Adicionar ao roteador</b>. O número entra pausado. Confira o webhook e clique <b>Ativar</b>. Repita para os demais, até 20.','Se o número já está em Conexões, pause-o, reconcilie filas desconhecidas e aguarde os comprovantes das entregas anteriores. Seu histórico é preservado.'])
+steps(['Clique <b>Buscar números na Meta</b> e escolha um número encontrado. Dê um nome para reconhecê-lo.','Confira na Meta as mensagens de atendimento já usadas neste mês. Informe o consumo inicial e o teto local, no máximo <b>1.000</b>. Zero somente se não houve uso.','Confirme o uso e o fuso, depois clique <b>Adicionar ao roteador</b>. O número entra pausado. Confira o webhook e clique <b>Ativar</b>. Repita para os demais números habilitados na sua conta Meta.','Se o número já está em Conexões, pause-o, reconcilie filas desconhecidas e aguarde os comprovantes das entregas anteriores. Seu histórico é preservado.'])
 sub('Leia o uso protegido')
 p('<b>Uso = histórico inicial do mês + entregas de atendimento + reservas.</b> Envios humanos, bots e API compartilham a contagem. Falha definitiva ou cancelamento antes do envio libera a reserva. Sem confirmação mantém a reserva, inclusive na mudança de mês.')
 box('O mês segue o fuso da conta. Recibos repetidos não somam novamente. Envios feitos fora do Wabotia só aparecem se os recibos chegarem ao webhook; pode haver atraso. <b>Confira também o WhatsApp Manager.</b> Cobrança não informada não significa gratuito.')

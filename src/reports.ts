@@ -33,6 +33,11 @@ export async function report(
   );
   let filter = "",
     params: any[] = [profile, start, end];
+  if (section === "runs") {
+    filter +=
+      " AND (json_extract(context,'$.internal_chat_id') IS NULL OR actor=?)";
+    params.push(actor.id);
+  }
   if (actor.kind === "app") {
     if (section === "runs") {
       access(actor, profile, "bots:invoke");

@@ -102,6 +102,9 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
     ).map((r: any) => r.connection_id);
     pool.members.forEach((id: string) => visibleNumbers.add(id));
     if (actor.kind === "app") delete pool.public_token;
+    // Older installations may persist least_used/random. All new admissions
+    // now rotate fairly, prioritizing the available free service allowance.
+    pool.strategy = "round_robin";
     pools.push(pool);
   }
   const list = [];
@@ -178,21 +181,22 @@ export async function selectPoolNumbers(
     if (!policy.pool || !(paid ? policy.templates : policy.service)) continue;
     if (actor && !(actor.kind === "app" ? policy.api : policy.human)) continue;
     const usage = await numberUsage(env, row.id);
-    if (usage && (paid || usage.remaining > 0))
+    if (usage)
       candidates.push({
         ...row,
         usage,
-        draw: crypto.getRandomValues(new Uint32Array(1))[0],
       });
   }
-  candidates.sort((a, b) =>
-    pool.strategy === "random"
-      ? a.draw - b.draw
-      : pool.strategy === "round_robin"
-        ? a.last_selected - b.last_selected || a.id.localeCompare(b.id)
-        : a.usage.used - b.usage.used ||
-          a.last_selected - b.last_selected ||
-          a.id.localeCompare(b.id),
+  candidates.sort(
+    (a, b) =>
+      // Templates have independent pricing; service first rotates among free
+      // numbers, then among paid numbers when every free allowance is used.
+      (paid
+        ? 0
+        : Number(b.usage.free_remaining > 0) -
+          Number(a.usage.free_remaining > 0)) ||
+      a.last_selected - b.last_selected ||
+      a.id.localeCompare(b.id),
   );
   return candidates;
 }
@@ -218,7 +222,7 @@ export async function routerLink(env: Env, profile: string, token: string) {
     throw new ApiError(
       409,
       "pool_exhausted",
-      "Nenhum número ativo com permissão de roteamento, atendimento e saldo disponível neste grupo.",
+      "Nenhum número ativo com permissão de roteamento e atendimento neste grupo.",
     );
   await selected(env, pool.id, choice.id);
   return { url: `https://wa.me/${json(choice.config).number}` };
@@ -305,7 +309,7 @@ export async function routerCommand(
     );
     requireValue(account, "Selecione a conta Meta.");
     const name = String(data.name || "").trim(),
-      strategy = data.strategy || "least_used";
+      strategy = data.strategy || "round_robin";
     requireValue(
       name.length > 0 && name.length <= 100,
       "Informe o nome do grupo.",
@@ -317,20 +321,23 @@ export async function routerCommand(
     requireValue(
       Array.isArray(data.members) &&
         data.members.length > 0 &&
-        data.members.length <= 20 &&
+        data.members.every(
+          (member: unknown) => typeof member === "string" && member.length > 0,
+        ) &&
         new Set(data.members).size === data.members.length,
-      "Selecione de 1 a 20 números diferentes.",
+      "Selecione pelo menos um número, sem repetições.",
     );
-    for (const member of data.members)
-      requireValue(
-        await one(
-          env,
-          "SELECT connection_id FROM meta_numbers WHERE connection_id=? AND account_id=?",
-          member,
-          account.id,
-        ),
-        "Todos os números devem pertencer à mesma conta Meta.",
-      );
+    const members = JSON.stringify(data.members);
+    const matching = await one(
+      env,
+      "SELECT count(*) n FROM meta_numbers WHERE account_id=? AND connection_id IN (SELECT value FROM json_each(?))",
+      account.id,
+      members,
+    );
+    requireValue(
+      matching.n === data.members.length,
+      "Todos os números devem pertencer à mesma conta Meta.",
+    );
     const count = await one(
       env,
       "SELECT count(*) n FROM number_pools WHERE profile_id=?",
@@ -348,7 +355,7 @@ export async function routerCommand(
           profile,
           account.id,
           name,
-          strategy,
+          "round_robin",
           data.enabled ? 1 : 0,
           data.allow_paid ? 1 : 0,
           publicToken,
@@ -357,14 +364,13 @@ export async function routerCommand(
       ],
       [
         "DELETE FROM number_pool_members WHERE pool_id=? AND connection_id NOT IN (SELECT value FROM json_each(?))",
-        [id, JSON.stringify(data.members)],
+        [id, members],
+      ],
+      [
+        "INSERT OR IGNORE INTO number_pool_members(pool_id,connection_id) SELECT ?,value FROM json_each(?)",
+        [id, members],
       ],
     ];
-    for (const member of data.members)
-      writes.push([
-        "INSERT OR IGNORE INTO number_pool_members(pool_id,connection_id) VALUES(?,?)",
-        [id, member],
-      ]);
     await batch(env, writes);
     return {
       id,
@@ -443,7 +449,7 @@ export async function routerCommand(
     const limit = Number(data.service_limit);
     requireValue(
       Number.isSafeInteger(limit) && limit >= 0 && limit <= 1000,
-      "Use um teto entre 0 e 1.000.",
+      "Informe uma franquia gratuita entre 0 e 1.000. O excedente continua com cobrança.",
     );
     const row = await one(
       env,
@@ -605,7 +611,7 @@ async function routedSend(
       throw new ApiError(
         409,
         "sender_unavailable",
-        "O remetente deste atendimento está pausado, sem cota ou sem permissão para este envio. Ele não será trocado automaticamente.",
+        "O remetente deste atendimento está pausado ou sem permissão para este envio. Ele não será trocado automaticamente.",
       );
     requireValue(
       !data.to || data.to === (c.recipient_id || c.external_id),
@@ -689,6 +695,7 @@ async function routedSend(
       );
   }
   let payload: any;
+  const usageBefore = paid ? null : await numberUsage(env, chosen.id);
   if (paid) {
     if (c) {
       const consent = await one(
@@ -728,13 +735,6 @@ async function routedSend(
         "Envie texto separado para áudio, voz ou figurinha.",
       );
     }
-    const usage = await numberUsage(env, c.connection_id);
-    if (!usage || usage.remaining < 1)
-      throw new ApiError(
-        409,
-        "number_quota_exhausted",
-        "A cota deste número foi atingida.",
-      );
     payload = { text: String(data.text || "").trim(), attachments, content };
   }
   if (!c) {
@@ -814,7 +814,8 @@ async function routedSend(
     { ...payload, router_source: { type, id: source } },
     `router:${actor.id}:${key}`,
   );
-  if (type === "pool") await selected(env, source, c.connection_id);
+  // Existing chats do not advance the new-admission rotation.
+  if (type === "pool" && !pinned) await selected(env, source, c.connection_id);
   return {
     delivery_id: delivery,
     conversation_id: c.id,
@@ -828,7 +829,15 @@ async function routedSend(
           authorized: true,
           category: payload.paid_authorization.category,
         }
-      : { mode: "service_allowance" },
+      : {
+          mode:
+            usageBefore && usageBefore.free_remaining > 0
+              ? "service_allowance"
+              : "service_paid",
+          category: "service",
+          estimated: true,
+          service_overage_allowed: true,
+        },
     usage: await numberUsage(env, c.connection_id),
   };
 }

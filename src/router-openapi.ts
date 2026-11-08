@@ -89,15 +89,19 @@ export const routerSchemas = {
   RouterUsage: {
     type: "object",
     description:
-      "Proteção local; não é uma fatura Meta. Uso inclui o histórico inicial, entregas e reservas. Reservas sem confirmação atravessam o mês. Modelos pagos não consomem a cota de atendimento.",
+      "Estimativa de uso e franquia; não é uma fatura Meta nem limite de envio. Uso inclui o histórico inicial, entregas e reservas. O serviço continua pago no mesmo número após a franquia. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
     properties: Object.fromEntries([
       ["period", { type: "string", example: "2026-11" }],
       ["timezone", { type: "string", example: "America/Sao_Paulo" }],
+      ["service_overage_allowed", { type: "boolean", const: true }],
       ...[
         "limit",
         "baseline",
         "used",
         "remaining",
+        "free_allowance",
+        "free_remaining",
+        "paid_service_estimated",
         "reserved",
         "delivered",
         "service_delivered",
@@ -137,7 +141,11 @@ export const routerSchemas = {
             id,
             name: { type: "string" },
             account_id: id,
-            strategy: { enum: ["least_used", "round_robin", "random"] },
+            strategy: {
+              const: "round_robin",
+              description:
+                "Rodízio com prioridade aos números com franquia gratuita; continua com serviço pago quando todos esgotarem.",
+            },
             enabled: { type: "integer" },
             allow_paid: { type: "integer" },
             members: { type: "array", items: id },
@@ -173,7 +181,7 @@ export const routerSchemas = {
     ...sources,
     not: { required: ["template"] },
     description:
-      "Janela real de 24 horas aberta neste mesmo número. Não há troca de remetente nem conversão automática em modelo pago quando a cota ou janela termina. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
+      "Janela real de 24 horas aberta neste mesmo número. O serviço continua com cobrança após a franquia gratuita, sem trocar remetente ou converter em template. Serviço pago não exige routing:paid/allow_paid, que se aplicam somente a templates. A janela vencida continua bloqueando texto livre. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
     properties: {
       ...sourceProperties,
       text: { type: "string", maxLength: 4096 },
@@ -296,9 +304,17 @@ export const routerSchemas = {
       billing: {
         type: "object",
         properties: {
-          mode: { enum: ["service_allowance", "paid_template"] },
+          mode: {
+            enum: ["service_allowance", "service_paid", "paid_template"],
+          },
           authorized: { type: "boolean" },
           category: { type: "string" },
+          estimated: {
+            type: "boolean",
+            description:
+              "A classificação de serviço usa o contador local; a cobrança final é informada pela Meta.",
+          },
+          service_overage_allowed: { type: "boolean" },
         },
       },
     },
@@ -352,7 +368,7 @@ export const routerSchemas = {
     type: "object",
     required: ["account_id", "phone_id", "baseline_used", "baseline_confirmed"],
     description:
-      "Até 20 números por WABA, descobertos há menos de uma hora. Cria pausado; conexão existente deve estar pausada e sem entregas não confirmadas.",
+      "Números autorizados pela Meta na WABA, descobertos há menos de uma hora, sem teto de quantidade imposto pelo roteador. Cria pausado; conexão existente deve estar pausada e sem entregas não confirmadas.",
     properties: {
       account_id: id,
       phone_id: id,
@@ -364,11 +380,15 @@ export const routerSchemas = {
         minimum: 0,
         maximum: 1000,
         default: 1000,
+        description:
+          "Franquia gratuita mensal para priorizar novas entradas. Não bloqueia envios de serviço excedentes.",
       },
     },
   },
   RouterLimit: {
     type: "object",
+    description:
+      "Atualiza a franquia gratuita estimada; não define teto de envio nem cancela mensagens.",
     required: ["service_limit"],
     properties: {
       service_limit: { type: "integer", minimum: 0, maximum: 1000 },
@@ -384,16 +404,22 @@ export const routerSchemas = {
       members: {
         type: "array",
         minItems: 1,
-        maxItems: 20,
         uniqueItems: true,
         items: id,
       },
       strategy: {
         enum: ["least_used", "round_robin", "random"],
-        default: "least_used",
+        default: "round_robin",
+        description:
+          "Novos e antigos grupos usam rodízio com prioridade à franquia. Valores legados least_used/random são aceitos por compatibilidade e normalizados para round_robin.",
       },
       enabled: { type: "boolean", default: false },
-      allow_paid: { type: "boolean", default: false },
+      allow_paid: {
+        type: "boolean",
+        default: false,
+        description:
+          "Habilita templates pagos; mensagens de serviço excedentes continuam independentemente desta opção.",
+      },
       public_enabled: {
         type: "boolean",
         default: false,
@@ -468,7 +494,7 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "put",
     "/profiles/{profile}/router/numbers/{id}/limit",
-    "Alterar teto de atendimento",
+    "Alterar franquia gratuita estimada",
     "administrador humano",
     "RouterLimit",
   ],

@@ -1,4 +1,14 @@
-# Validação e limites da versão 0.8.0
+# Validação e limites da versão 0.9.0
+
+## Revisão 0.9.0: rodízio, atendimento por linha e equipe interna
+
+No ajuste seguinte, o teto de 20 linhas foi removido do cadastro, dos grupos, da interface e do contrato REST. A descoberta percorre as páginas retornadas pela Meta e recusa cursores repetidos, sem teto local de quantidade. Os 37 testes do roteador passaram, incluindo cadastro e seleção com 21 linhas, validação de pertencimento à conta e descoberta com 501 números em seis páginas. TypeScript e build web também passaram. Não há nova migração de banco; esse ajuste ainda não foi publicado.
+
+Em 08/11/2026, 155 testes passaram em 12 arquivos no workerd com D1, R2 e Durable Objects. São 16 testes novos desde a 0.8.0: 4 do roteador e 12 de linhas, menus e equipe. A verificação TypeScript (`tsc --noEmit`) também passou. As regressões cobrem rodízio concorrente desde a primeira entrada, preferência pela franquia, continuidade paga no mesmo número e janela de 24 horas; atribuição e revogação de linhas por bot; menu manual durante atendimento humano; transferência imediata com fontes; presença de bots; preservação de configuração; isolamento de mensagens internas, execuções, eventos e relatórios; e cancelamento de entregas QR após revogação.
+
+A migração aditiva `0009_service_team.sql` foi exercitada em bancos locais de teste. Provedores externos foram simulados; estes testes não enviaram mensagens reais, não conferiram a fatura Meta e não publicaram o servidor nem os aplicativos. A homologação nos canais reais continua pendente. [Funcionamento de linhas, menus e equipe](ATENDIMENTO-EQUIPE.md).
+
+O pacote web compilou e o Worker passou em `wrangler deploy --dry-run`. No navegador, a interface foi conferida em desktop e em 390 × 844. Uma instalação local isolada confirmou persistência de atendimento humano e menu manual por linha, saída da linha do roteador e envio de conversa interna; a segunda conta conseguiu ler a mensagem pela API e a fila de mensagens externas permaneceu vazia. Nenhum erro ou aviso apareceu no console dessa validação. Android 0.9.0 (build 2): `assembleDebug` e 4 testes unitários passaram. iOS 0.9.0 (build 2): compilação no Mac e 14 testes XCTest passaram no simulador. O APK de depuração e o pacote iOS para simulador estão em `mobile/android/app/build/outputs/apk/debug/` e `mobile/ios/build/`. Esta versão ainda não foi instalada em aparelhos reais nem publicada nas lojas.
 
 ## Revisão 0.8.0: aplicativos Android e iOS, login móvel e push
 
@@ -39,7 +49,7 @@ Atualizado em 06/11/2026. **A homologação com números reais permanece para a 
 - No Chrome, cadastro de conta, consumo inicial de dois números e grupo aleatório foram salvos numa instalação local isolada com dados fictícios. Confirmados retorno de sucesso e contador atualizado. O painel foi conferido em desktop e em 390 × 844, sem rolagem horizontal e sem erros registrados no console.
 - Guia ilustrado atualizado para 54 páginas. Novas páginas 50–54 e páginas iniciais renderizadas e revisadas. Screenshots de referência não contêm credenciais. A migração 0007 é aditiva e o pacote mantém as políticas de segurança dos arquivos web.
 
-O teto é uma proteção local de até 1.000 mensagens de atendimento por número/mês. A [referência Meta consultada](https://whatsappbusiness.com/resources/faq/) informa essa franquia desde 01/10/2026; condições e faturamento são definidos pela Meta. Envios por outros sistemas, uso inicial incorreto, fuso diferente ou atraso de recibos podem fazer o contador divergir. O Wabotia não estima custos nem promete ausência de cobrança. Janela e remetente não migram para outro número quando a cota acaba. Modelos pagos exigem aprovação Meta, permissões, consentimento e autorização naquele pedido.
+Na implementação atual, até 1.000 mensagens de atendimento por número/mês representam a franquia gratuita estimada, não um teto de envio. Novas entradas alternam desde o início entre linhas com franquia; quando todas esgotam, o rodízio continua com serviço pago. Conversas existentes permanecem no mesmo número com cobrança do excedente, sempre respeitando sua janela de 24 horas. Os antigos grupos de menor consumo ou aleatórios também passam a seguir esse rodízio. A [referência Meta consultada](https://whatsappbusiness.com/resources/faq/) informa essa franquia desde 01/10/2026; condições e faturamento são definidos pela Meta. Envios por outros sistemas, uso inicial incorreto, fuso diferente ou atraso de recibos podem fazer o contador divergir. O Wabotia informa unidades excedentes estimadas, não preços nem garantia de ausência de cobrança. Templates continuam exigindo aprovação Meta, permissões, consentimento e autorização naquele pedido; o serviço pago não é convertido em template.
 
 [Configuração, limites e roteiro de homologação real](ROTEADOR.md). Os registros abaixo são evidências históricas das versões indicadas.
 

@@ -56,7 +56,14 @@ export async function hermesRequest(
       "hermes_error",
       `Hermes respondeu HTTP ${r.status}.`,
     );
-  return r.json<any>();
+  const result = await r.json<any>();
+  await exec(
+    env,
+    "UPDATE connections SET last_seen=? WHERE id=?",
+    now(),
+    connection.id,
+  );
+  return result;
 }
 
 export async function hermesArtifact(

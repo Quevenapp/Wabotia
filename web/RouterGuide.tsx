@@ -6,13 +6,14 @@ import policyImage from "../docs/screenshots/43-router-funcoes.jpg";
 export function RouterGuide() {
   return (
     <section id="roteador" className="system-card card hermes-guide">
-      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.7.0</div>
-      <h2>Uma entrada, até 20 números WhatsApp</h2>
+      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.9.0</div>
+      <h2>Uma entrada para seus números WhatsApp</h2>
       <p>
-        Use <strong>Meta direto</strong> para conectar até 20 números da mesma
-        conta empresarial do WhatsApp, chamada WABA. O roteador usa um webhook
-        compartilhado e permite escolher um número ou grupo pela API. Hermes não
-        precisa de alteração para este recurso.
+        Use <strong>Meta direto</strong> para conectar os números da mesma conta
+        empresarial do WhatsApp, chamada WABA. A quantidade permitida é definida
+        pela Meta; o Wabotia não impõe um limite fixo de linhas. O roteador usa
+        um webhook compartilhado e permite escolher um número ou grupo pela API.
+        Hermes não precisa de alteração para este recurso.
       </p>
       <p>
         Atualize em{" "}
@@ -38,17 +39,19 @@ export function RouterGuide() {
           FAQ da Meta
         </a>
         , desde 01/10/2026 as primeiras 1.000 mensagens de atendimento por
-        número empresarial/mês são gratuitas. O Wabotia limita o atendimento a
-        esse teto local. Modelos pagos ficam separados e exigem autorização em
-        cada envio. Uma resposta sem template enviada depois de um modelo
-        continua sendo mensagem de serviço e entra no contador.
+        número empresarial/mês são gratuitas. O Wabotia acompanha a franquia e
+        permite a continuidade com serviço pago. Modelos ficam separados e
+        exigem autorização em cada envio. Uma resposta sem template enviada
+        depois de um modelo continua sendo mensagem de serviço e entra no
+        contador.
       </p>
       <p>
         O cliente precisa ter falado com{" "}
-        <strong>aquele mesmo número nas últimas 24 horas</strong>. Quando a cota
-        acaba, a conversa mantém o remetente; ela não passa silenciosamente para
-        outro telefone. O link público do grupo distribui{" "}
-        <strong>novos contatos</strong> entre números com saldo.
+        <strong>aquele mesmo número nas últimas 24 horas</strong>. Quando a
+        franquia acaba, a conversa mantém o remetente e continua com cobrança do
+        excedente. O link público do grupo alterna{" "}
+        <strong>novos contatos</strong> desde o início, priorizando números com
+        franquia e usando serviço pago quando todos a esgotarem.
       </p>
       <details>
         <summary>1. Cadastre a conta Meta e suas chaves</summary>
@@ -127,7 +130,7 @@ export function RouterGuide() {
             outro sistema.
           </li>
           <li>
-            Defina o teto local, no máximo 1.000, e marque a confirmação do
+            Informe a franquia gratuita, até 1.000, e marque a confirmação do
             consumo e fuso. Clique <strong>Adicionar ao roteador</strong>.
           </li>
           <li>
@@ -142,7 +145,7 @@ export function RouterGuide() {
         </p>
         <img
           src={countersImage}
-          alt="Dois números fictícios com uso mensal, reservas, saldo e botões de pausa e teto"
+          alt="Dois números fictícios com uso mensal, reservas, saldo e configuração de consumo"
           className="guide-reference-image"
         />
         <p>
@@ -210,9 +213,10 @@ export function RouterGuide() {
             os números da mesma conta.
           </li>
           <li>
-            Escolha <strong>Menor consumo</strong>,{" "}
-            <strong>Em sequência</strong> ou{" "}
-            <strong>Aleatório entre os disponíveis</strong>.
+            O grupo usa{" "}
+            <strong>Rodízio com prioridade à franquia gratuita</strong>. Cada
+            novo atendimento passa à próxima linha elegível, sem esperar que uma
+            linha consuma toda a franquia.
           </li>
           <li>
             Ative o grupo e marque <strong>Criar link público</strong> se
@@ -229,7 +233,7 @@ export function RouterGuide() {
         </ol>
         <img
           src={poolImage}
-          alt="Grupo de exemplo com dois números, sorteio, link público e autorização de modelos pagos"
+          alt="Grupo de exemplo com dois números, link público e autorização de modelos pagos"
           className="guide-reference-image"
         />
         <p>

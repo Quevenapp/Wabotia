@@ -1,4 +1,9 @@
 import { routerOperations, routerSchemas } from "./router-openapi";
+import {
+  serviceOperations,
+  serviceSchemas,
+  describeServiceOperation,
+} from "./service-openapi";
 const contactProperties = {
   name: { type: "string", minLength: 1, maxLength: 120 },
   phone: {
@@ -17,6 +22,7 @@ const contactProperties = {
 };
 const schemas = {
   ...routerSchemas,
+  ...serviceSchemas,
   MessageContent: {
     type: "object",
     properties: {
@@ -309,11 +315,21 @@ const schemas = {
           "resolve",
           "resume",
           "tags",
+          "menu",
         ],
       },
       content: { $ref: "#/components/schemas/MessageContent" },
       text: { type: "string" },
-      target: { type: "string" },
+      target: {
+        type: "string",
+        description:
+          "Para transferir: ID de pessoa ou bot:<id>, do diretório /team.",
+      },
+      menu_id: {
+        type: ["string", "null"],
+        description:
+          "Na ação menu: ID de submenu ou null para o menu principal. Respeita linhas, responsabilidade e janela de 24 horas.",
+      },
       attachments: { type: "array", items: { type: "string" } },
       tags: { type: "array", items: { type: "string" } },
     },
@@ -992,6 +1008,7 @@ export function openapi(origin: string) {
     ...operations,
     ...routerOperations,
     ...mobileOperations,
+    ...serviceOperations,
   ]) {
     const mobile = isMobilePath(path);
     const successCode =
@@ -1221,7 +1238,7 @@ export function openapi(origin: string) {
     if (path.includes("/router")) {
       entry.tags = ["Roteador WhatsApp"];
       entry.description +=
-        " Até 20 números por WABA. Sem troca automática do remetente de uma conversa. A franquia local não garante ausência de cobranças Meta.";
+        " A quantidade de números da WABA é definida pela Meta, sem teto imposto pelo roteador. Sem troca automática do remetente de uma conversa. A franquia local não garante ausência de cobranças Meta.";
       const resultSchema = path.endsWith("/router")
         ? "RouterView"
         : path.endsWith("/router/messages")
@@ -1377,6 +1394,7 @@ export function openapi(origin: string) {
         entry.description +=
           " Segredo do gateway e conta de serviço FCM são guardados criptografados e nunca devolvidos; a resposta informa apenas se estão configurados.";
     }
+    describeServiceOperation(path, method, entry, success);
     (paths[path] ??= {})[method] = entry;
   }
   return {

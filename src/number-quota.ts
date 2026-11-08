@@ -1,5 +1,5 @@
-import { all, one, exec } from "./db";
-import { Env, ApiError, json, now, requireValue } from "./types";
+import { one, exec } from "./db";
+import { Env, now } from "./types";
 
 export function billingPeriod(timestamp: number, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -53,6 +53,12 @@ export async function numberUsage(env: Env, connection: string) {
     baseline: n.baseline_period === period ? n.baseline_used : 0,
     used: count.used,
     remaining: Math.max(0, n.service_limit - count.used),
+    // The legacy limit/remaining fields describe the free allowance, never a
+    // delivery cap. Pending sends count conservatively until Meta confirms.
+    free_allowance: n.service_limit,
+    free_remaining: Math.max(0, n.service_limit - count.used),
+    paid_service_estimated: Math.max(0, count.used - n.service_limit),
+    service_overage_allowed: true,
     reserved: pending.n,
     delivered: confirmed.delivered,
     service_delivered: confirmed.service_delivered || 0,
@@ -62,20 +68,6 @@ export async function numberUsage(env: Env, connection: string) {
     pricing_unknown: confirmed.pricing_unknown || 0,
     monitored_at: n.monitored_at,
   };
-}
-export async function checkNumberCapacity(
-  env: Env,
-  connection: string | null,
-  units: number,
-) {
-  if (!connection) return;
-  const used = await numberUsage(env, connection);
-  if (used && used.remaining < units)
-    throw new ApiError(
-      409,
-      "number_quota_exhausted",
-      "Este número atingiu o teto de atendimento. A conversa não será transferida silenciosamente para outro remetente.",
-    );
 }
 export async function queueWithNumberQuota(
   env: Env,
@@ -92,37 +84,16 @@ export async function queueWithNumberQuota(
     ));
   const sql =
     "INSERT OR IGNORE INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated,quota_month,quota_category)";
-  if (!n || category !== "service") {
-    await exec(
-      env,
-      `${sql} VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ...values,
-      n ? billingPeriod(now(), n.timezone) : null,
-      n ? category : null,
-    );
-    return;
-  }
-  const period = billingPeriod(now(), n.timezone);
+  // Exhausting the free allowance changes billing, not delivery eligibility.
+  // Window, sender, policy and application checks stay in the sending paths.
+  // Keep each queued service unit in the usage ledger, including paid overage.
   await exec(
     env,
-    `WITH b(period) AS (VALUES (?)) ${sql} SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? FROM meta_numbers n,b WHERE n.connection_id=? AND ${usage}<n.service_limit`,
-    period,
+    `${sql} VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ...values,
-    period,
-    category,
-    connection,
+    n ? billingPeriod(now(), n.timezone) : null,
+    n ? category : null,
   );
-  const saved = await one(
-    env,
-    "SELECT id FROM outbox WHERE dedupe=?",
-    values[8],
-  );
-  if (!saved)
-    throw new ApiError(
-      409,
-      "number_quota_exhausted",
-      "O teto deste número foi atingido. Nenhuma nova mensagem foi enfileirada.",
-    );
 }
 export async function observeMetaUsage(env: Env, conn: any, data: any) {
   if (

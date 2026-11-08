@@ -20,7 +20,7 @@ import {
   PUSH_LOG_RETENTION_MS,
 } from "../src/push";
 import { fcmMessage, sendFcm } from "../src/push-fcm";
-import { MAX_DEVICES_PER_USER } from "../src/index";
+import { MAX_DEVICES_PER_USER } from "../src/mobile-limits";
 
 type Call = { url: URL; method: string; headers: Headers; body: any };
 let calls: Call[] = [];
@@ -174,9 +174,9 @@ const sentMessages = () =>
 it("login móvel devolve token wabu_ e Bearer funciona sem Origin", async () => {
   const p = await profileFixture(),
     u = await user("operator", [p]);
-  expect(
-    (await login(u.email, PASSWORD, { platform: "windows" })).status,
-  ).toBe(400);
+  expect((await login(u.email, PASSWORD, { platform: "windows" })).status).toBe(
+    400,
+  );
   expect((await login(u.email, "errada-mas-longa-123")).status).toBe(401);
   const r = await login(u.email);
   expect(r.status).toBe(200);
@@ -204,9 +204,7 @@ it("login móvel devolve token wabu_ e Bearer funciona sem Origin", async () => 
   });
   expect(presence.status).toBe(200);
   expect(await presence.json()).toEqual({ actor: u.id, present: true });
-  expect(
-    (await api("wabu_" + "0".repeat(64), "/me")).status,
-  ).toBe(401);
+  expect((await api("wabu_" + "0".repeat(64), "/me")).status).toBe(401);
 });
 it("refresh invalida o token antigo e logout revoga a sessão Bearer", async () => {
   const u = await user("operator");
@@ -307,17 +305,21 @@ it("registra, lista, migra e remove dispositivos", async () => {
     ),
   ).toEqual(["fcm-token-2"]);
   expect((await api(ta, "/devices/device-bbbb", "DELETE")).status).toBe(200);
-  expect(await (await api(ta, "/devices/device-bbbb", "DELETE")).json()).toEqual(
-    { deleted: false },
-  );
-  expect(await (await api(tb, "/devices/device-bbbb", "DELETE")).json()).toEqual(
-    { deleted: true },
-  );
+  expect(
+    await (await api(ta, "/devices/device-bbbb", "DELETE")).json(),
+  ).toEqual({ deleted: false });
+  expect(
+    await (await api(tb, "/devices/device-bbbb", "DELETE")).json(),
+  ).toEqual({ deleted: true });
   expect((await (await api(tb, "/devices")).json<any>()).data).toHaveLength(0);
   // Another person's device id with a different token is not taken over.
   expect(
-    (await api(ta, "/devices/device-cccc", "PUT", { ...payload, token: "tok-a" }))
-      .status,
+    (
+      await api(ta, "/devices/device-cccc", "PUT", {
+        ...payload,
+        token: "tok-a",
+      })
+    ).status,
   ).toBe(200);
   const stolen = await api(tb, "/devices/device-cccc", "PUT", {
     ...payload,
@@ -326,15 +328,20 @@ it("registra, lista, migra e remove dispositivos", async () => {
   expect(stolen.status).toBe(409);
   expect((await stolen.json<any>()).error.code).toBe("device_conflict");
   expect(
-    (await one(env, "SELECT user_id,token FROM devices WHERE id='device-cccc'")),
+    await one(env, "SELECT user_id,token FROM devices WHERE id='device-cccc'"),
   ).toEqual({ user_id: a.id, token: "tok-a" });
   // Same handset (same provider token) signing in as b: allowed.
   expect(
-    (await api(tb, "/devices/device-cccc", "PUT", { ...payload, token: "tok-a" }))
-      .status,
+    (
+      await api(tb, "/devices/device-cccc", "PUT", {
+        ...payload,
+        token: "tok-a",
+      })
+    ).status,
   ).toBe(200);
   expect(
-    (await one(env, "SELECT user_id FROM devices WHERE id='device-cccc'")).user_id,
+    (await one(env, "SELECT user_id FROM devices WHERE id='device-cccc'"))
+      .user_id,
   ).toBe(b.id);
   // Application keys cannot own devices.
   const appId = uid(),
@@ -365,18 +372,25 @@ it("limita dispositivos por pessoa e a cadência de registros", async () => {
   const u = await user("operator");
   const t = (await (await login(u.email)).json<any>()).token;
   for (let i = 1; i <= 31; i++) {
-    const r = await api(t, `/devices/device-${String(i).padStart(4, "0")}`, "PUT", {
-      platform: "android",
-      token: `fcm-token-${i}`,
-      name: "Aparelho " + i,
-    });
+    const r = await api(
+      t,
+      `/devices/device-${String(i).padStart(4, "0")}`,
+      "PUT",
+      {
+        platform: "android",
+        token: `fcm-token-${i}`,
+        name: "Aparelho " + i,
+      },
+    );
     expect(r.status, `registro ${i}`).toBe(i <= 30 ? 200 : 429);
   }
   const list = (await (await api(t, "/devices")).json<any>()).data;
   expect(list).toHaveLength(MAX_DEVICES_PER_USER);
   expect(list.map((d: any) => d.id)).toEqual(
-    Array.from({ length: MAX_DEVICES_PER_USER }, (_, i) =>
-      `device-${String(31 - MAX_DEVICES_PER_USER + i).padStart(4, "0")}`,
+    Array.from(
+      { length: MAX_DEVICES_PER_USER },
+      (_, i) =>
+        `device-${String(31 - MAX_DEVICES_PER_USER + i).padStart(4, "0")}`,
     ),
   );
 });
@@ -438,7 +452,11 @@ it("notifica mensagens recebidas conforme o estado da conversa sem duplicar", as
   await processPush(env, p);
   expect(calls).toHaveLength(0);
   const seeded = (
-    await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p)
+    await one(
+      env,
+      "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+      p,
+    )
   ).last_event_id;
   await inbound(
     env,
@@ -484,8 +502,13 @@ it("notifica mensagens recebidas conforme o estado da conversa sem duplicar", as
   await processPush(env, p);
   expect(sentTokens()).toEqual([]);
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
   ).toBe(cursor.last_event_id);
   // Waiting queue: everyone authorized on the profile, including admins.
   await exec(
@@ -497,7 +520,12 @@ it("notifica mensagens recebidas conforme o estado da conversa sem duplicar", as
   await inbound(
     env,
     p,
-    { external_id: "5511999990001", message_id: uid(), text: "", attachments: [] },
+    {
+      external_id: "5511999990001",
+      message_id: uid(),
+      text: "",
+      attachments: [],
+    },
     "app:a",
     null,
   );
@@ -524,8 +552,13 @@ it("notifica mensagens recebidas conforme o estado da conversa sem duplicar", as
   await processPush(env, p);
   expect(sentTokens()).toEqual([]);
   expect(
-    (await all(env, "SELECT * FROM push_log WHERE profile_id=? AND status='ok'", p))
-      .length,
+    (
+      await all(
+        env,
+        "SELECT * FROM push_log WHERE profile_id=? AND status='ok'",
+        p,
+      )
+    ).length,
   ).toBe(4);
 });
 it("avisa fila, transferência e protocolos excluindo quem agiu", async () => {
@@ -756,7 +789,9 @@ it("alerta protocolo vencendo e atrasado uma única vez cada", async () => {
   calls = [];
   await processPush(env, p);
   expect(sentTokens()).toEqual([da.token]);
-  expect(sentMessages()[0].title).toMatch(/^Protocolo WA-TEST-1 vence em \d+ min$/);
+  expect(sentMessages()[0].title).toMatch(
+    /^Protocolo WA-TEST-1 vence em \d+ min$/,
+  );
   expect(sentMessages()[0].data).toMatchObject({
     type: "ticket_due",
     ticket_id: id,
@@ -764,7 +799,12 @@ it("alerta protocolo vencendo e atrasado uma única vez cada", async () => {
   calls = [];
   await processPush(env, p);
   expect(sentTokens()).toEqual([]);
-  await exec(env, "UPDATE tickets SET response_due_at=? WHERE id=?", now() - 1000, id);
+  await exec(
+    env,
+    "UPDATE tickets SET response_due_at=? WHERE id=?",
+    now() - 1000,
+    id,
+  );
   await processPush(env, p);
   expect(sentTokens()).toEqual([da.token]);
   expect(sentMessages()[0].title).toBe("Protocolo WA-TEST-1 atrasado");
@@ -773,9 +813,13 @@ it("alerta protocolo vencendo e atrasado uma única vez cada", async () => {
   await processPush(env, p);
   expect(sentTokens()).toEqual([]);
   expect(
-    (await all(env, "SELECT kind FROM ticket_alerts WHERE ticket_id=? ORDER BY kind", id)).map(
-      (x) => x.kind,
-    ),
+    (
+      await all(
+        env,
+        "SELECT kind FROM ticket_alerts WHERE ticket_id=? ORDER BY kind",
+        id,
+      )
+    ).map((x) => x.kind),
   ).toEqual(["due_soon", "overdue"]);
   // Alerts disabled: a fresh ticket produces nothing.
   await setSecret(env, "push:config", { ticket_alert_minutes: 0 });
@@ -842,13 +886,24 @@ it("primeiro ciclo de um perfil começa no fim do histórico e ignora eventos an
   await processPush(env, p);
   expect(calls).toHaveLength(0);
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
-  ).toBe((await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m);
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
+  ).toBe(
+    (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m,
+  );
   expect(
-    (await all(env, "SELECT kind FROM ticket_alerts WHERE ticket_id=? ORDER BY kind", old)).map(
-      (x) => x.kind,
-    ),
+    (
+      await all(
+        env,
+        "SELECT kind FROM ticket_alerts WHERE ticket_id=? ORDER BY kind",
+        old,
+      )
+    ).map((x) => x.kind),
   ).toEqual(["due_soon", "overdue"]);
   // Nothing old fires on the next cycles either.
   await processPush(env, p);
@@ -875,9 +930,16 @@ it("primeiro ciclo de um perfil começa no fim do histórico e ignora eventos an
   expect(sentTokens()).toEqual([da.token]);
   expect(sentMessages()[0].body).toBe("nova");
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
-  ).toBe((await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m);
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
+  ).toBe(
+    (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m,
+  );
 });
 it("protocolo novo recebe alerta mesmo com mais de 100 antigos já alertados", async () => {
   const p = await profileFixture(),
@@ -896,7 +958,17 @@ it("protocolo novo recebe alerta mesmo com mais de 100 antigos já alertados", a
     const id = uid();
     rows.push([
       "INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
-      [id, `WA-BKL-${i}`, p, r.conversation_id, "Antigo", a.id, now() - 3600000 - i, now(), now()],
+      [
+        id,
+        `WA-BKL-${i}`,
+        p,
+        r.conversation_id,
+        "Antigo",
+        a.id,
+        now() - 3600000 - i,
+        now(),
+        now(),
+      ],
     ]);
     rows.push([
       "INSERT INTO ticket_alerts(ticket_id,kind,created) VALUES(?,'overdue',?)",
@@ -925,12 +997,21 @@ it("protocolo novo recebe alerta mesmo com mais de 100 antigos já alertados", a
   calls = [];
   await processPush(env, p);
   expect(sentTokens()).toEqual([da.token]);
-  expect(sentMessages()[0].title).toMatch(/^Protocolo WA-NEW-1 vence em \d+ min$/);
+  expect(sentMessages()[0].title).toMatch(
+    /^Protocolo WA-NEW-1 vence em \d+ min$/,
+  );
   // And the same ticket moves on to the overdue alert past the 100 old ones.
-  await exec(env, "UPDATE tickets SET response_due_at=? WHERE id=?", now() - 1000, fresh);
+  await exec(
+    env,
+    "UPDATE tickets SET response_due_at=? WHERE id=?",
+    now() - 1000,
+    fresh,
+  );
   calls = [];
   await processPush(env, p);
-  expect(sentMessages().map((m) => m.title)).toEqual(["Protocolo WA-NEW-1 atrasado"]);
+  expect(sentMessages().map((m) => m.title)).toEqual([
+    "Protocolo WA-NEW-1 atrasado",
+  ]);
   calls = [];
   await processPush(env, p);
   expect(calls).toHaveLength(0);
@@ -946,14 +1027,32 @@ it("falha no meio do lote não avança o cursor além do evento processado nem p
     "app:a",
     null,
   );
-  await exec(env, "UPDATE conversations SET state='waiting' WHERE id=?", r.conversation_id);
+  await exec(
+    env,
+    "UPDATE conversations SET state='waiting' WHERE id=?",
+    r.conversation_id,
+  );
   await processPush(env, p);
   calls = [];
-  await inbound(env, p, { external_id: "c1", message_id: uid(), text: "primeira" }, "app:a", null);
-  const first = (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m;
+  await inbound(
+    env,
+    p,
+    { external_id: "c1", message_id: uid(), text: "primeira" },
+    "app:a",
+    null,
+  );
+  const first = (
+    await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)
+  ).m;
   // A ticket event whose SELECT fails: the tickets table is renamed for a moment.
   await event(env, p, "ticket.created", uid(), { number: "WA-X" });
-  await inbound(env, p, { external_id: "c1", message_id: uid(), text: "terceira" }, "app:a", null);
+  await inbound(
+    env,
+    p,
+    { external_id: "c1", message_id: uid(), text: "terceira" },
+    "app:a",
+    null,
+  );
   await exec(env, "ALTER TABLE tickets RENAME TO tickets_offline");
   try {
     await processPush(env, p);
@@ -963,11 +1062,20 @@ it("falha no meio do lote não avança o cursor além do evento processado nem p
   // The first event was delivered; the cursor stopped right before the failure.
   expect(sentMessages().map((m) => m.body)).toEqual(["primeira"]);
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
   ).toBe(first);
   expect(
-    await all(env, "SELECT * FROM push_log WHERE profile_id=? AND status='pending'", p),
+    await all(
+      env,
+      "SELECT * FROM push_log WHERE profile_id=? AND status='pending'",
+      p,
+    ),
   ).toEqual([]);
   // Next run resumes: the third event is delivered once, nothing repeated.
   calls = [];
@@ -975,9 +1083,16 @@ it("falha no meio do lote não avança o cursor além do evento processado nem p
   expect(sentMessages().map((m) => m.body)).toEqual(["terceira"]);
   expect(sentTokens()).toEqual([da.token]);
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
-  ).toBe((await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m);
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
+  ).toBe(
+    (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m,
+  );
 });
 it("poda push_log antigo e alertas de protocolos concluídos", async () => {
   const p = await profileFixture(),
@@ -1037,7 +1152,9 @@ it("poda push_log antigo e alertas de protocolos concluídos", async () => {
   );
   await prunePush(env);
   expect(
-    (await all(env, "SELECT id FROM push_log WHERE profile_id=?", p)).map((x) => x.id),
+    (await all(env, "SELECT id FROM push_log WHERE profile_id=?", p)).map(
+      (x) => x.id,
+    ),
   ).toEqual([newLog]);
   expect(
     (
@@ -1109,11 +1226,13 @@ it("modo gateway usa a URL configurada com segredo e desativa token inexistente"
   const disabled = await one(env, "SELECT * FROM devices WHERE id=?", db.id);
   expect(disabled.enabled).toBe(0);
   expect(disabled.last_error).toBe("UNREGISTERED");
-  expect((await one(env, "SELECT enabled FROM devices WHERE id=?", da.id)).enabled).toBe(1);
   expect(
-    (await all(env, "SELECT status FROM push_log WHERE device_id=?", db.id)).map(
-      (x) => x.status,
-    ),
+    (await one(env, "SELECT enabled FROM devices WHERE id=?", da.id)).enabled,
+  ).toBe(1);
+  expect(
+    (
+      await all(env, "SELECT status FROM push_log WHERE device_id=?", db.id)
+    ).map((x) => x.status),
   ).toEqual(["unregistered"]);
   // Network failure: logged, no retry, cursor still advances.
   responder = () => {
@@ -1135,8 +1254,13 @@ it("modo gateway usa a URL configurada com segredo e desativa token inexistente"
   );
   expect(failed[0]).toEqual({ status: "error", error: "gateway offline" });
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
   ).toBe(
     (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m,
   );
@@ -1173,12 +1297,19 @@ it("modo off não chama a rede e mantém o cursor", async () => {
   expect(calls).toHaveLength(0);
   expect(await sendPush(env, [])).toEqual([]);
   expect(
-    (await one(env, "SELECT last_event_id FROM push_cursors WHERE profile_id=?", p))
-      .last_event_id,
+    (
+      await one(
+        env,
+        "SELECT last_event_id FROM push_cursors WHERE profile_id=?",
+        p,
+      )
+    ).last_event_id,
   ).toBe(
     (await one(env, "SELECT max(id) m FROM events WHERE profile_id=?", p)).m,
   );
-  expect(await all(env, "SELECT * FROM push_log WHERE profile_id=?", p)).toEqual([]);
+  expect(
+    await all(env, "SELECT * FROM push_log WHERE profile_id=?", p),
+  ).toEqual([]);
   await exec(env, "DELETE FROM secrets WHERE id='push:config'");
 });
 async function serviceAccount() {
@@ -1271,7 +1402,12 @@ it("fcmMessage monta android e apns; sendFcm só desativa token com errorCode UN
   expect(android).toEqual({
     message: {
       token: "t3",
-      data: { title: "Maria", body: "Oi", type: "message", conversation_id: "c1" },
+      data: {
+        title: "Maria",
+        body: "Oi",
+        type: "message",
+        conversation_id: "c1",
+      },
       android: { priority: "high", collapse_key: "conversa-c1" },
     },
   });
@@ -1288,7 +1424,13 @@ it("fcmMessage monta android e apns; sendFcm só desativa token com errorCode UN
       const token = call.body.message.token;
       if (token === "morto")
         return Response.json(
-          { error: { code: 404, status: "NOT_FOUND", details: [{ errorCode: "UNREGISTERED" }] } },
+          {
+            error: {
+              code: 404,
+              status: "NOT_FOUND",
+              details: [{ errorCode: "UNREGISTERED" }],
+            },
+          },
           { status: 404 },
         );
       if (token === "invalido")
@@ -1297,7 +1439,8 @@ it("fcmMessage monta android e apns; sendFcm só desativa token com errorCode UN
             error: {
               code: 400,
               status: "INVALID_ARGUMENT",
-              message: "The registration token is not a valid FCM registration token",
+              message:
+                "The registration token is not a valid FCM registration token",
               details: [{ errorCode: "INVALID_ARGUMENT" }],
             },
           },
@@ -1398,9 +1541,19 @@ it("fcmMessage monta android e apns; sendFcm só desativa token com errorCode UN
     null,
   );
   await processPush(env, p);
-  await exec(env, "UPDATE conversations SET state='waiting' WHERE id=?", r.conversation_id);
+  await exec(
+    env,
+    "UPDATE conversations SET state='waiting' WHERE id=?",
+    r.conversation_id,
+  );
   calls = [];
-  await inbound(env, p, { external_id: "c1", message_id: uid(), text: "fila" }, "app:a", null);
+  await inbound(
+    env,
+    p,
+    { external_id: "c1", message_id: uid(), text: "fila" },
+    "app:a",
+    null,
+  );
   await processPush(env, p);
   const sent = calls.filter((x) => x.url.hostname === "fcm.googleapis.com");
   expect(sent.map((x) => x.body.message.token)).toEqual([da.token]);

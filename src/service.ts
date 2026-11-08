@@ -37,7 +37,16 @@ import { callCommand } from "./calls";
 import { groupCommand } from "./groups";
 import { accountCommand } from "./meta-accounts";
 import { routerCommand, managedAppAllowed } from "./number-router";
-import { checkNumberCapacity, queueWithNumberQuota } from "./number-quota";
+import { queueWithNumberQuota } from "./number-quota";
+import {
+  saveLine,
+  validateLineIds,
+  botAllowsLine,
+  serviceForLine,
+  sendMenu,
+  availableMenus,
+} from "./line-service";
+import { internalCommand } from "./team";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -145,12 +154,6 @@ export async function enqueue(
         : mediaKind(firstMedia?.type || "application/octet-stream");
     const caption =
       !!payload.content && ["image", "video", "document"].includes(firstKind);
-    if (kind !== "team")
-      await checkNumberCapacity(
-        env,
-        c.connection_id,
-        payload.attachments.length + (payload.text && !caption ? 1 : 0),
-      );
     if (payload.text && !caption)
       ids.push(
         await enqueue(
@@ -327,7 +330,7 @@ export async function handoff(env: Env, c: Conversation, reason: string) {
   const policy = await getNumberPolicy(env, c.connection_id);
   await exec(
     env,
-    "UPDATE conversations SET state='waiting',owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
+    "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
     now(),
     c.id,
   );
@@ -492,6 +495,20 @@ export async function inbound(
     );
     c = await conversation(env, c.id, profile);
   }
+  const line = await serviceForLine(env, connectionId);
+  if (line.mode === "human" && c.state === "ai" && !c.assigned_bot_id) {
+    await exec(
+      env,
+      "UPDATE conversations SET state='waiting',owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
+      now(),
+      c.id,
+    );
+    c = await conversation(env, c.id, profile);
+    await event(env, profile, "conversation.updated", c.id, {
+      action: "waiting",
+      state: "waiting",
+    });
+  }
   if (
     c.state === "ai" &&
     (c.chat_type !== "group" ||
@@ -562,6 +579,10 @@ export async function createRun(
     const c = await conversation(env, extra.conversation_id, profile, actor);
     if (!(await getNumberPolicy(env, c.connection_id)).bots)
       throw numberPolicyError("bots");
+    requireValue(
+      await botAllowsLine(env, data.bot_id, profile, c.connection_id),
+      "Este bot não atende esta linha.",
+    );
   }
   if (extra.source_key) {
     const old = await one(
@@ -627,6 +648,9 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  if (op === "line.save") return saveLine(env, actor, profile, data);
+  if (op.startsWith("internal."))
+    return internalCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("meta-account.") || op.startsWith("meta-number."))
     return accountCommand(env, actor, profile, op, data);
   if (op.startsWith("router."))
@@ -878,6 +902,13 @@ export async function perform(
     }
     for (const item of next.menus) {
       text(item.label, 100);
+      if (item.line_ids !== undefined)
+        await validateLineIds(env, profile, item.line_ids);
+      if (item.trigger !== undefined)
+        requireValue(
+          ["automatic", "manual"].includes(item.trigger),
+          "Modo de menu inválido.",
+        );
       requireValue(
         ["human", "app", "submenu", "bot"].includes(item.type),
         "Destino de menu inválido.",
@@ -953,7 +984,15 @@ export async function perform(
     admin(actor);
     if (op === "activate") {
       const cfg = await settings(env, profile);
-      requireValue(cfg.attendant_bot, "Selecione o Bot Atendente.");
+      const configuredLine = await one(
+        env,
+        "SELECT id FROM connections WHERE profile_id=? AND kind IN ('meta','qr','hermes-whatsapp') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
+        profile,
+      );
+      requireValue(
+        cfg.attendant_bot || configuredLine,
+        "Selecione o Bot Atendente do perfil ou configure o atendimento por linha.",
+      );
     }
     await exec(
       env,
@@ -995,6 +1034,12 @@ export async function perform(
       );
     }
     const cfg = data.config || {};
+    if (old) {
+      const previous = json(old.config);
+      // Credential editors omit line assignments. Those are edited through line.save.
+      cfg.service = previous.service;
+      cfg.number_policy = previous.number_policy;
+    }
     const managed =
       old &&
       (await one(
@@ -1114,7 +1159,10 @@ export async function perform(
       profile,
     );
     requireValue(bot, "Bot não encontrado.");
-    if (data.enabled) {
+    if (data.line_ids !== undefined)
+      await validateLineIds(env, profile, data.line_ids, true);
+    const enabled = data.enabled === undefined ? !!bot.enabled : !!data.enabled;
+    if (enabled && !bot.enabled) {
       const keys = await secret(env, `connection:${bot.connection_id}`);
       requireValue(
         keys.profile_keys?.[bot.remote_profile],
@@ -1123,9 +1171,14 @@ export async function perform(
     }
     await exec(
       env,
-      "UPDATE bots SET enabled=?,name=coalesce(?,name) WHERE id=?",
-      data.enabled ? 1 : 0,
+      "UPDATE bots SET enabled=?,name=coalesce(?,name),line_ids=? WHERE id=?",
+      enabled ? 1 : 0,
       data.name || null,
+      data.line_ids === undefined
+        ? bot.line_ids
+        : data.line_ids === null
+          ? null
+          : JSON.stringify(data.line_ids),
       data.id,
     );
     return { id: data.id };
@@ -1158,9 +1211,30 @@ export async function perform(
       const capability = actor.kind === "app" ? "api" : "human";
       if (!policy[capability]) throw numberPolicyError(capability);
     }
-    if (action === "transfer" && !policy.human)
-      throw numberPolicyError("human");
+    if (
+      action === "transfer" &&
+      !(String(data.target).startsWith("bot:") ? policy.bots : policy.human)
+    )
+      throw numberPolicyError(
+        String(data.target).startsWith("bot:") ? "bots" : "human",
+      );
     if (action === "resume" && !policy.bots) throw numberPolicyError("bots");
+    if (action === "menu") {
+      const botActor = actor.id.startsWith("bot:");
+      requireValue(
+        c.owner === actor.id ||
+          actor.role === "admin" ||
+          (botActor && c.state === "ai"),
+        "Assuma a conversa antes de enviar um menu.",
+      );
+      return sendMenu(
+        env,
+        actor,
+        c,
+        data.menu_id || null,
+        `manual-menu:${actor.id}:${requestId}`,
+      );
+    }
     if (action === "bind_topic") {
       admin(actor);
       requireValue(
@@ -1185,7 +1259,7 @@ export async function perform(
         );
       await exec(
         env,
-        "UPDATE conversations SET state='human',owner=?,epoch=epoch+1,updated=? WHERE id=?",
+        "UPDATE conversations SET state='human',owner=?,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
         actor.id,
         now(),
         c.id,
@@ -1257,29 +1331,102 @@ export async function perform(
         );
         return { delivery_id: delivery, status: "pending" };
       } else if (action === "transfer") {
-        const target = await one(
-          env,
-          "SELECT * FROM users WHERE id=? AND disabled=0",
-          data.target,
-        );
-        requireValue(
-          target &&
-            (target.role === "admin" ||
-              json(target.profiles, []).includes(profile)),
-          "Atendente não autorizado.",
-        );
-        await exec(
-          env,
-          "UPDATE conversations SET owner=?,state='human',epoch=epoch+1,updated=? WHERE id=?",
-          target.id,
-          now(),
-          c.id,
-        );
-        eventExtra = { owner: target.id, actor: actor.id };
+        const botId = String(data.target || "").startsWith("bot:")
+          ? String(data.target).slice(4)
+          : null;
+        if (botId) {
+          requireValue(
+            await botAllowsLine(env, botId, profile, c.connection_id),
+            "Bot não autorizado para esta linha.",
+          );
+          if (now() - c.last_customer < 86400000) {
+            const history = await all(
+              env,
+              "SELECT direction,text FROM messages WHERE conversation_id=? AND direction!='note' ORDER BY created DESC,rowid DESC LIMIT 20",
+              c.id,
+            );
+            const request =
+              history.find((m) => m.direction === "customer")?.text ||
+              "Atendimento encaminhado para você. Leia o histórico e pergunte como pode ajudar.";
+            const words = Array.from(
+              new Set(
+                String(request)
+                  .toLowerCase()
+                  .match(/[\p{L}\p{N}]{3,}/gu) || [],
+              ),
+            ).slice(0, 24);
+            const sources = words.length
+              ? await all(
+                  env,
+                  "SELECT rowid id,document_id,text,url FROM chunks WHERE profile_id=? AND chunks MATCH ? ORDER BY rank LIMIT 5",
+                  profile,
+                  words
+                    .map((w) => '"' + w.replaceAll('"', "") + '"')
+                    .join(" OR "),
+                )
+              : [];
+            const cfg = await settings(env, profile);
+            const menus = (
+              await availableMenus(env, profile, c.connection_id, null, true)
+            ).map((m: any) => ({ id: m.id, label: m.label, type: m.type }));
+            await createRun(
+              env,
+              actor,
+              profile,
+              {
+                bot_id: botId,
+                input: JSON.stringify({
+                  request,
+                  history: history.reverse(),
+                  sources,
+                  menus,
+                  actions: (cfg.capabilities || []).filter(
+                    (a: any) => a.enabled !== false,
+                  ),
+                }),
+              },
+              {
+                conversation_id: c.id,
+                epoch: c.epoch + 1,
+                phase: "attendant",
+                context: { request, sources, session: c.session },
+                source_key: `transfer:${actor.id}:${requestId}`,
+              },
+            );
+          }
+          await exec(
+            env,
+            "UPDATE conversations SET owner=NULL,state='ai',assigned_bot_id=?,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
+            botId,
+            now(),
+            c.id,
+          );
+          eventExtra = { assigned_bot_id: botId, actor: actor.id };
+        } else {
+          const target = await one(
+            env,
+            "SELECT * FROM users WHERE id=? AND disabled=0",
+            data.target,
+          );
+          requireValue(
+            target &&
+              (target.role === "admin" ||
+                json(target.profiles, []).includes(profile)),
+            "Atendente não autorizado.",
+          );
+          await exec(
+            env,
+            "UPDATE conversations SET owner=?,state='human',assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
+            target.id,
+            now(),
+            c.id,
+          );
+          eventExtra = { owner: target.id, actor: actor.id };
+        }
       } else if (action === "resolve" || action === "resume") {
         await exec(
           env,
-          "UPDATE conversations SET state=?,owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
+          "UPDATE conversations SET state=?,owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
           action === "resolve" ? "closed" : "ai",
           now(),
           c.id,
@@ -1471,7 +1618,9 @@ export async function perform(
       profile,
     );
     requireValue(
-      run && (actor.kind !== "app" || run.actor === actor.id),
+      run &&
+        ((actor.kind !== "app" && !json(run.context).internal_chat_id) ||
+          run.actor === actor.id),
       "Execução não encontrada.",
     );
     await exec(
@@ -1650,7 +1799,10 @@ export async function perform(
       data.id,
       profile,
     );
-    requireValue(run, "Execução não encontrada.");
+    requireValue(
+      run && (!json(run.context).internal_chat_id || run.actor === actor.id),
+      "Execução não encontrada.",
+    );
     requireValue(
       typeof data.remote_id === "string" && /^run_[\w-]+$/.test(data.remote_id),
       "Informe run_id confirmado no Hermes.",

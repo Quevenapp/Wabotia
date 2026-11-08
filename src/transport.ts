@@ -5,6 +5,7 @@ import { finishDelivery } from "./delivery";
 import { event } from "./events";
 import { approvedTemplate } from "./integrations";
 import { syncGroup } from "./whatsapp";
+import { assertNumberDelivery } from "./number-permissions";
 
 export async function transport(
   env: Env,
@@ -89,6 +90,19 @@ export async function transport(
     if (!row) return { commands: [] };
     const cfg = json(conn.config),
       payload = { ...json(row.payload), chat_type: row.chat_type };
+    try {
+      await assertNumberDelivery(env, conn.id, row.actor, row.kind, payload);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      await exec(
+        env,
+        "UPDATE outbox SET status='cancelled',error=?,updated=? WHERE id=?",
+        error.message,
+        now(),
+        row.id,
+      );
+      return { commands: [] };
+    }
     if (
       cfg.platform === "whatsapp_cloud" &&
       row.chat_type !== "group" &&
@@ -153,10 +167,22 @@ export async function transport(
   requireValue(row, "Entrega não encontrada.");
   const c = await conversation(env, row.conversation_id, conn.profile_id);
   if (operation === "check") {
-    const valid =
+    let valid =
       conn.status === "active" &&
       row.status === "sending" &&
       row.epoch === c.epoch;
+    try {
+      await assertNumberDelivery(
+        env,
+        conn.id,
+        row.actor,
+        row.kind,
+        json(row.payload),
+      );
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      valid = false;
+    }
     if (!valid && row.status === "sending")
       await exec(
         env,

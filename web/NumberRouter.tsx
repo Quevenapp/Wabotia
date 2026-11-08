@@ -77,7 +77,7 @@ const sample = {
       id: "grupo-atendimento",
       account_id: "conta-exemplo",
       name: "Atendimento principal",
-      strategy: "least_used",
+      strategy: "round_robin",
       enabled: 1,
       allow_paid: 1,
       members: ["numero-atendimento-1", "numero-atendimento-2"],
@@ -120,7 +120,7 @@ export function NumberRouter({
     }),
     [poolForm, setPoolForm] = useState<Row>({
       name: "",
-      strategy: "least_used",
+      strategy: "round_robin",
       members: [],
       enabled: false,
       allow_paid: false,
@@ -197,7 +197,7 @@ export function NumberRouter({
     setAccountId(id);
     setPoolForm({
       name: "",
-      strategy: "least_used",
+      strategy: "round_robin",
       members: [],
       enabled: false,
       allow_paid: false,
@@ -247,9 +247,9 @@ export function NumberRouter({
           </button>
         </div>
         <p>
-          Até 20 números da mesma conta Meta, com um webhook compartilhado.
-          Escolha o remetente pela API ou deixe um grupo distribuir os novos
-          atendimentos.
+          Números da mesma conta Meta, com um webhook compartilhado. A
+          quantidade permitida é definida pela Meta. Escolha o remetente pela
+          API ou deixe um grupo distribuir os novos atendimentos.
         </p>
         <p>
           <a href="/install#meta-whatsapp" target="_blank" rel="noreferrer">
@@ -258,13 +258,14 @@ export function NumberRouter({
         </p>
         <div className="notice">
           A Meta informa 1.000 mensagens de <strong>atendimento</strong>{" "}
-          gratuitas por número/mês desde 01/10/2026. Modelos pagos ficam
-          separados. A janela de 24 horas e a conversa pertencem ao número com
-          que o cliente falou; o roteador mantém esse remetente.
+          gratuitas por número/mês desde 01/10/2026. Novos atendimentos alternam
+          entre as linhas, priorizando quem ainda tem franquia. A conversa
+          mantém o número de origem e continua com mensagens de serviço pagas
+          após a franquia, respeitando a janela de 24 horas.
         </div>
         <p className="muted">
-          Os contadores são uma proteção local, não uma fatura da Meta. Confira
-          o uso anterior, o fuso e envios feitos fora do Wabotia.{" "}
+          Os contadores estimam o consumo e não interrompem o atendimento.
+          Confira o uso anterior, o fuso e envios feitos fora do Wabotia.{" "}
           <a
             href="https://whatsappbusiness.com/resources/faq/"
             target="_blank"
@@ -428,7 +429,7 @@ export function NumberRouter({
         <section className="card">
           <details>
             <summary>
-              2. Buscar e adicionar números ({numbers.length}/20)
+              2. Buscar e adicionar números ({numbers.length} cadastrados)
             </summary>
             <p>
               Os números precisam estar cadastrados e habilitados na Meta.
@@ -522,7 +523,7 @@ export function NumberRouter({
                   />
                 </label>
                 <label>
-                  Teto local de atendimento (máximo 1.000)
+                  Franquia gratuita mensal (até 1.000)
                   <input
                     required
                     type="number"
@@ -558,7 +559,7 @@ export function NumberRouter({
                 pause e reconcilie as entregas antes. Depois confira o webhook e
                 clique em Ativar na lista.
               </p>
-              <button type="submit" disabled={!!busy || numbers.length >= 20}>
+              <button type="submit" disabled={!!busy}>
                 Adicionar ao roteador
               </button>
             </form>
@@ -603,7 +604,7 @@ export function NumberRouter({
               />
               <dl>
                 <div>
-                  <dt>Disponíveis</dt>
+                  <dt>Franquia gratuita restante</dt>
                   <dd>{n.usage.remaining}</dd>
                 </div>
                 <div>
@@ -615,8 +616,15 @@ export function NumberRouter({
                   <dd>{n.usage.free_confirmed}</dd>
                 </div>
                 <div>
-                  <dt>Templates entregues (fora do teto)</dt>
+                  <dt>Templates entregues</dt>
                   <dd>{n.usage.template_delivered ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Serviço além da franquia (estimado)</dt>
+                  <dd>
+                    {n.usage.paid_service_estimated ??
+                      Math.max(0, n.usage.used - n.usage.limit)}
+                  </dd>
                 </div>
                 <div>
                   <dt>Pagas confirmadas (todas as categorias)</dt>
@@ -646,9 +654,9 @@ export function NumberRouter({
                   {n.status === "active" ? "Pausar" : "Ativar"}
                 </button>
                 <label>
-                  Teto
+                  Franquia
                   <input
-                    aria-label={"Teto de " + n.name}
+                    aria-label={"Franquia de " + n.name}
                     type="number"
                     min="0"
                     max="1000"
@@ -664,14 +672,18 @@ export function NumberRouter({
                     write(
                       `router/numbers/${n.id}/limit`,
                       { service_limit: Number(limits[n.id] ?? n.usage.limit) },
-                      "Atualizar teto",
+                      "Atualizar franquia",
                       "PUT",
                     )
                   }
                 >
-                  Salvar teto
+                  Salvar franquia
                 </button>
               </div>
+              <p className="number-policy-note">
+                Ao terminar a franquia, as conversas continuam neste número com
+                possível cobrança de serviço.
+              </p>
               <small>ID para a API</small>
               <CopyValue value={n.id} />
               <NumberPolicyEditor
@@ -759,7 +771,7 @@ export function NumberRouter({
                 if (r)
                   setPoolForm({
                     name: "",
-                    strategy: "least_used",
+                    strategy: "round_robin",
                     members: [],
                     enabled: false,
                     allow_paid: false,
@@ -780,19 +792,10 @@ export function NumberRouter({
                   />
                 </label>
                 <label>
-                  Como escolher
-                  <select
-                    value={poolForm.strategy}
-                    onChange={(e) =>
-                      setPoolForm({ ...poolForm, strategy: e.target.value })
-                    }
-                  >
-                    <option value="least_used">
-                      Menor consumo, alternando empates
-                    </option>
-                    <option value="round_robin">Em sequência</option>
-                    <option value="random">
-                      Aleatório entre os disponíveis
+                  Distribuição dos novos atendimentos
+                  <select value="round_robin" disabled>
+                    <option value="round_robin">
+                      Rodízio com prioridade à franquia gratuita
                     </option>
                   </select>
                 </label>
@@ -849,7 +852,7 @@ export function NumberRouter({
                   onClick={() =>
                     setPoolForm({
                       name: "",
-                      strategy: "least_used",
+                      strategy: "round_robin",
                       members: [],
                       enabled: false,
                       allow_paid: false,

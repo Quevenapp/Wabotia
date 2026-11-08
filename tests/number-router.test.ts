@@ -580,19 +580,22 @@ it("contabiliza serviço e templates separadamente sem descontar template da fra
     billable_confirmed: 3,
   });
 });
-it("reserva atomicamente a última unidade da cota em pedidos concorrentes", async () => {
+it("contabiliza envios concorrentes ao cruzar a franquia e permite o excedente pago", async () => {
   const f = await fixture(1, 999),
     c = await customer(f);
   const results = await Promise.allSettled([
     enqueue(env, c, admin.id, "text", { text: "A" }, uid()),
     enqueue(env, c, admin.id, "text", { text: "B" }, uid()),
   ]);
-  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-  expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
+  expect(results.filter((r) => r.status === "rejected")).toHaveLength(0);
   expect(await numberUsage(env, f.numbers[0].id)).toMatchObject({
-    used: 1000,
+    used: 1001,
     remaining: 0,
-    reserved: 1,
+    free_remaining: 0,
+    paid_service_estimated: 1,
+    service_overage_allowed: true,
+    reserved: 2,
   });
 });
 it("conta mensagens confirmadas uma vez, mesmo com webhooks duplicados e fora de ordem", async () => {
@@ -702,7 +705,7 @@ it("conta entregas de outros sistemas e separa modelos pagos da cota de atendime
     billable_confirmed: 1,
   });
 });
-it("escolhe número disponível e mantém o remetente do atendimento quando a cota acaba", async () => {
+it("prioriza franquia para entrada e continua pago no mesmo remetente quando ela acaba", async () => {
   const f = await fixture();
   await customer(f, 0);
   await customer(f, 1);
@@ -730,9 +733,25 @@ it("escolhe número disponível e mantém o remetente do atendimento quando a co
     "UPDATE meta_numbers SET baseline_used=0 WHERE connection_id=?",
     f.numbers[0].id,
   );
-  await expect(
-    routerCommand(env, f.actor, f.profile, "router.send", service(f), uid()),
-  ).rejects.toMatchObject({ code: "sender_unavailable" });
+  const second = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  expect(second.number_id).toBe(first.number_id);
+  expect(second.billing).toMatchObject({
+    mode: "service_paid",
+    category: "service",
+    estimated: true,
+  });
+  expect(second.usage).toMatchObject({
+    used: 1001,
+    free_remaining: 0,
+    paid_service_estimated: 1,
+  });
   await expect(
     routerCommand(
       env,
@@ -759,7 +778,7 @@ it("recusa janela falsa, destinatário sem mensagem e número não autorizado", 
     routerCommand(env, f.actor, f.profile, "router.send", service(f), uid()),
   ).rejects.toMatchObject({ status: 403 });
 });
-it("link público alterna números disponíveis, pausa e esgotamento são respeitados", async () => {
+it("link público alterna números ativos e continua com serviço pago quando a franquia acaba", async () => {
   const f = await fixture(),
     pool = await one(env, "SELECT * FROM number_pools WHERE id=?", f.pool.id);
   const a = await routerLink(env, f.profile, pool.public_token),
@@ -779,9 +798,191 @@ it("link público alterna números disponíveis, pausa e esgotamento são respei
     "UPDATE meta_numbers SET baseline_used=1000 WHERE connection_id=?",
     f.numbers[1].id,
   );
+  expect((await routerLink(env, f.profile, pool.public_token)).url).toBe(
+    `https://wa.me/${json(f.numbers[1].config).number}`,
+  );
+  await exec(
+    env,
+    "UPDATE connections SET status='paused' WHERE id=?",
+    f.numbers[1].id,
+  );
   await expect(
     routerLink(env, f.profile, pool.public_token),
   ).rejects.toMatchObject({ code: "pool_exhausted" });
+});
+it("faz rodízio desde a primeira entrada mesmo com consumo desigual e estratégia legada", async () => {
+  const f = await fixture(3),
+    pool = await one(env, "SELECT * FROM number_pools WHERE id=?", f.pool.id);
+  await exec(
+    env,
+    "UPDATE number_pools SET strategy='least_used' WHERE id=?",
+    f.pool.id,
+  );
+  for (let i = 0; i < f.numbers.length; i++)
+    await exec(
+      env,
+      "UPDATE meta_numbers SET baseline_used=? WHERE connection_id=?",
+      i * 300,
+      f.numbers[i].id,
+    );
+  const turns = [];
+  for (let i = 0; i < 6; i++)
+    turns.push((await routerLink(env, f.profile, pool.public_token)).url);
+  expect(new Set(turns.slice(0, 3)).size).toBe(3);
+  expect(turns.slice(0, 3)).toEqual(turns.slice(3));
+  expect((await routerView(env, f.actor, f.profile)).pools[0].strategy).toBe(
+    "round_robin",
+  );
+  await exec(
+    env,
+    "UPDATE meta_numbers SET baseline_used=1000 WHERE connection_id=?",
+    f.numbers[0].id,
+  );
+  const available = new Set(
+    f.numbers.slice(1).map((n) => `https://wa.me/${json(n.config).number}`),
+  );
+  const after = [];
+  for (let i = 0; i < 4; i++)
+    after.push((await routerLink(env, f.profile, pool.public_token)).url);
+  expect(new Set(after)).toEqual(available);
+  expect(after[0]).not.toBe(after[1]);
+  expect(after.slice(0, 2)).toEqual(after.slice(2));
+  await exec(
+    env,
+    "UPDATE meta_numbers SET baseline_used=1000 WHERE account_id=?",
+    f.account,
+  );
+  const paidTurns = [];
+  for (let i = 0; i < 3; i++)
+    paidTurns.push((await routerLink(env, f.profile, pool.public_token)).url);
+  expect(new Set(paidTurns).size).toBe(3);
+});
+it("serializa entradas públicas concorrentes sem concentrar o rodízio em um número", async () => {
+  const f = await fixture(3),
+    pool = await one(
+      env,
+      "SELECT public_token FROM number_pools WHERE id=?",
+      f.pool.id,
+    );
+  const responses = await Promise.all(
+    Array.from({ length: 12 }, () =>
+      SELF.fetch(`https://test/api/public/whatsapp/${pool.public_token}`, {
+        redirect: "manual",
+      }),
+    ),
+  );
+  const counts = new Map<string, number>();
+  for (const response of responses) {
+    expect(response.status).toBe(302);
+    const url = response.headers.get("Location")!;
+    counts.set(url, (counts.get(url) || 0) + 1);
+  }
+  expect([...counts.values()]).toEqual([4, 4, 4]);
+});
+it("entrega serviço excedente sem autorizar templates e mantém a janela de 24h", async () => {
+  const f = await fixture(1, 1000);
+  const c = await customer(f);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await exec(env, "UPDATE number_pools SET allow_paid=0 WHERE id=?", f.pool.id);
+  await exec(
+    env,
+    "UPDATE number_router_grants SET allow_paid=0 WHERE app_id=?",
+    f.appId,
+  );
+  const actor = {
+    ...f.actor,
+    scopes: f.actor.scopes.filter((scope) => scope !== "routing:paid"),
+  };
+  const mock = metaMock();
+  const result = await routerCommand(
+    env,
+    actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  expect(result.number_id).toBe(f.numbers[0].id);
+  expect(result.billing.mode).toBe("service_paid");
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", result.delivery_id),
+  );
+  expect(mock.sent).toHaveLength(1);
+  expect(mock.sent[0]).toMatchObject({
+    type: "text",
+    text: { body: "Resposta de atendimento" },
+  });
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", result.delivery_id))
+      .status,
+  ).toBe("sent");
+  const pending = await routerCommand(
+    env,
+    actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  await exec(
+    env,
+    "UPDATE conversations SET last_customer=? WHERE id=?",
+    now() - 25 * 3600000,
+    c.id,
+  );
+  await expect(
+    routerCommand(env, actor, f.profile, "router.send", service(f), uid()),
+  ).rejects.toThrow("24 horas");
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", pending.delivery_id),
+  );
+  expect(mock.sent).toHaveLength(1);
+  expect(
+    await one(
+      env,
+      "SELECT status,error FROM outbox WHERE id=?",
+      pending.delivery_id,
+    ),
+  ).toMatchObject({ status: "failed" });
+});
+it("respostas já vinculadas não alteram a vez dos próximos atendimentos", async () => {
+  const f = await fixture();
+  await customer(f, 0);
+  const initial = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  const before = await all(
+    env,
+    "SELECT connection_id,last_selected FROM number_pool_members WHERE pool_id=? ORDER BY connection_id",
+    f.pool.id,
+  );
+  for (let i = 0; i < 3; i++)
+    expect(
+      (
+        await routerCommand(
+          env,
+          f.actor,
+          f.profile,
+          "router.send",
+          service(f),
+          uid(),
+        )
+      ).number_id,
+    ).toBe(initial.number_id);
+  expect(
+    await all(
+      env,
+      "SELECT connection_id,last_selected FROM number_pool_members WHERE pool_id=? ORDER BY connection_id",
+      f.pool.id,
+    ),
+  ).toEqual(before);
 });
 it("webhook compartilhado valida assinatura e WABA, separa números e deduplica entradas", async () => {
   const f = await fixture(20);
@@ -1091,7 +1292,7 @@ it("revogar origem antes da entrega cancela o envio e libera a reserva", async (
   expect(mock.sent).toHaveLength(0);
   expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(0);
 });
-it("recusa cadastrar um 21º número e exige confirmação do consumo inicial", async () => {
+it("cadastra e roteia mais de 20 números, mantendo confirmação e validação da conta", async () => {
   const f = await fixture(20);
   const phone = f.waba + "999";
   await exec(
@@ -1108,26 +1309,77 @@ it("recusa cadastrar um 21º número e exige confirmação do consumo inicial", 
       account_id: f.account,
       phone_id: phone,
       baseline_used: 0,
-      baseline_confirmed: true,
-    }),
-  ).rejects.toThrow(/20/);
-  const next = await fixture(1);
-  await exec(
-    env,
-    "UPDATE meta_accounts SET discovered=?,discovered_at=? WHERE id=?",
-    JSON.stringify([
-      { phone_id: phone, number: "5511999988888", name: "Extra" },
-    ]),
-    now(),
-    next.account,
-  );
-  await expect(
-    accountCommand(env, admin, next.profile, "meta-number.save", {
-      account_id: next.account,
-      phone_id: phone,
-      baseline_used: 0,
     }),
   ).rejects.toThrow(/contador inicial/);
+  const added = await accountCommand(
+    env,
+    admin,
+    f.profile,
+    "meta-number.save",
+    {
+      account_id: f.account,
+      phone_id: phone,
+      baseline_used: 0,
+      baseline_confirmed: true,
+    },
+  );
+  expect(added.status).toBe("paused");
+  expect(
+    (
+      await one(
+        env,
+        "SELECT count(*) n FROM meta_numbers WHERE account_id=?",
+        f.account,
+      )
+    ).n,
+  ).toBe(21);
+  await expect(
+    accountCommand(env, admin, f.profile, "meta-number.save", {
+      account_id: f.account,
+      phone_id: phone,
+      baseline_used: 0,
+      baseline_confirmed: true,
+    }),
+  ).rejects.toThrow(/já está no roteador/);
+  const members = [...f.numbers.map((n) => n.id), added.id];
+  const savePool = (selected: string[]) =>
+    routerCommand(
+      env,
+      admin,
+      f.profile,
+      "router.pool.save",
+      {
+        id: f.pool.id,
+        account_id: f.account,
+        name: "Todas as filiais",
+        enabled: true,
+        public_enabled: true,
+        members: selected,
+      },
+      uid(),
+    );
+  await savePool(members);
+  await exec(
+    env,
+    "UPDATE connections SET status='active' WHERE id=?",
+    added.id,
+  );
+  expect(await selectPoolNumbers(env, f.profile, f.pool.id)).toHaveLength(21);
+  const view = await routerView(env, admin, f.profile);
+  expect(view.numbers).toHaveLength(21);
+  expect(view.pools.find((p: any) => p.id === f.pool.id).members).toEqual(
+    expect.arrayContaining(members),
+  );
+  await expect(savePool([...members, members[0]])).rejects.toThrow(
+    /sem repetições/,
+  );
+  const other = await fixture(1);
+  await expect(savePool([...members, other.numbers[0].id])).rejects.toThrow(
+    /mesma conta Meta/,
+  );
+  expect(
+    (await selectPoolNumbers(env, f.profile, f.pool.id)).map((n) => n.id),
+  ).toEqual(expect.arrayContaining(members));
 });
 it("consulta e cancela somente envios autorizados ainda na fila, liberando a reserva", async () => {
   const f = await fixture(1);
@@ -1365,8 +1617,83 @@ it("escopo pago não substitui permissão paga da origem e números pausados nun
   );
   expect(
     (await selectPoolNumbers(env, f.profile, f.pool.id)).map((n) => n.id),
-  ).toEqual([f.numbers[2].id]);
+  ).toEqual([f.numbers[2].id, f.numbers[1].id]);
   expect(mock.sent).toHaveLength(0);
+});
+it("descobre todas as páginas da WABA sem teto local de números", async () => {
+  const f = await fixture(1);
+  const mock = vi.fn(async (input: any) => {
+    const url = new URL(String(input));
+    expect(url.pathname).toContain(`/${f.waba}/phone_numbers`);
+    const page = Number(url.searchParams.get("after") || 0);
+    return Response.json({
+      data: Array.from({ length: page === 5 ? 1 : 100 }, (_, index) => ({
+        id: String(900000 + page * 100 + index),
+        display_phone_number:
+          "5511999" + String(page * 100 + index).padStart(6, "0"),
+        verified_name: `Filial ${page * 100 + index + 1}`,
+      })),
+      ...(page < 5
+        ? {
+            paging: {
+              next: "https://graph.facebook.com/next",
+              cursors: { after: String(page + 1) },
+            },
+          }
+        : {}),
+    });
+  });
+  vi.stubGlobal("fetch", mock);
+  const result = await accountCommand(
+    env,
+    admin,
+    f.profile,
+    "meta-account.discover",
+    { id: f.account },
+  );
+  expect(result.data).toHaveLength(501);
+  expect(mock).toHaveBeenCalledTimes(6);
+  expect(
+    json(
+      (
+        await one(
+          env,
+          "SELECT discovered FROM meta_accounts WHERE id=?",
+          f.account,
+        )
+      ).discovered,
+      [],
+    ),
+  ).toHaveLength(501);
+});
+it("recusa ciclos na paginação Meta sem salvar uma descoberta parcial", async () => {
+  const f = await fixture(1);
+  const mock = vi.fn(async (input: any) => {
+    const cursor = new URL(String(input)).searchParams.get("after");
+    return Response.json({
+      data: [{ id: "99887766", display_phone_number: "+55 11 99999-3333" }],
+      paging: {
+        next: "https://graph.facebook.com/next",
+        cursors: { after: cursor === "first" ? "second" : "first" },
+      },
+    });
+  });
+  vi.stubGlobal("fetch", mock);
+  await expect(
+    accountCommand(env, admin, f.profile, "meta-account.discover", {
+      id: f.account,
+    }),
+  ).rejects.toThrow(/Paginação Meta inválida/);
+  expect(mock).toHaveBeenCalledTimes(3);
+  expect(
+    (
+      await one(
+        env,
+        "SELECT discovered_at FROM meta_accounts WHERE id=?",
+        f.account,
+      )
+    ).discovered_at,
+  ).toBe(0);
 });
 it("descobre na WABA e adiciona número pausado com histórico, sem expor as credenciais", async () => {
   const f = await fixture(1);

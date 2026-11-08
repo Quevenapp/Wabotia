@@ -4,6 +4,9 @@ import { callView, callPermission } from "./calls";
 import { metaInbound } from "./meta-inbound";
 import { metaCredentials } from "./meta-accounts";
 import { routerView, routedMessage } from "./number-router";
+import { listLines, listMenus } from "./line-service";
+import { teamDirectory, listInternalChats, internalChatDetail } from "./team";
+import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -346,7 +349,6 @@ function requireUser(actor: Actor) {
     );
 }
 const deviceView = (d: any) => ({ ...d, profiles: json(d.profiles, []) });
-export const MAX_DEVICES_PER_USER = 10;
 app.get("/api/v1/devices", async (c) => {
   const actor = c.get("actor");
   requireUser(actor);
@@ -544,10 +546,7 @@ app.get("/api/v1/system/push", async (c) => {
   return c.json({
     ...publicPushConfig(await pushConfig(c.env)),
     devices: (
-      await one(
-        c.env,
-        "SELECT count(*) n FROM devices WHERE enabled=1",
-      )
+      await one(c.env, "SELECT count(*) n FROM devices WHERE enabled=1")
     )?.n,
   });
 });
@@ -604,6 +603,9 @@ for (const [method, path, op] of [
   });
 }
 const commands = [
+  ["PUT", "lines/:id", "line.save"],
+  ["POST", "internal-chats", "internal.create"],
+  ["POST", "internal-chats/:id/messages", "internal.send"],
   ["POST", "router/accounts", "meta-account.save"],
   ["POST", "router/accounts/:id/discover", "meta-account.discover"],
   ["POST", "router/numbers", "meta-number.save"],
@@ -681,7 +683,10 @@ app.get("/api/v1/bot-runs/:id", async (c) => {
   );
   if (!run) throw new ApiError(404, "not_found", "Execução não encontrada.");
   access(c.get("actor"), run.profile_id, "bots:invoke");
-  if (c.get("actor").kind === "app" && run.actor !== c.get("actor").id)
+  if (
+    (c.get("actor").kind === "app" || json(run.context).internal_chat_id) &&
+    run.actor !== c.get("actor").id
+  )
     throw new ApiError(404, "not_found", "Execução não encontrada.");
   run.attachments = json(run.result, {}).attachments || [];
   delete run.context;
@@ -724,6 +729,37 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
 });
 app.get("/api/v1/profiles/:profile/router", async (c) =>
   c.json(await routerView(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/lines", async (c) =>
+  c.json(await listLines(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/menus", async (c) =>
+  c.json(
+    await listMenus(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.query("connection_id"),
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/team", async (c) =>
+  c.json(await teamDirectory(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
+  c.json(
+    await listInternalChats(c.env, c.get("actor"), c.req.param("profile")),
+  ),
+);
+app.get("/api/v1/profiles/:profile/internal-chats/:id", async (c) =>
+  c.json(
+    await internalChatDetail(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
 );
 app.get("/api/v1/profiles/:profile/router/messages/:id", async (c) =>
   c.json(
@@ -801,6 +837,11 @@ for (const [path, [table, scope]] of Object.entries(readLists))
       cursor = c.req.query("cursor") || "";
     let filter = "",
       params: any[] = [p, cursor];
+    if (table === "bot_runs") {
+      filter +=
+        " AND (json_extract(context,'$.internal_chat_id') IS NULL OR actor=?)";
+      params.push(actor.id);
+    }
     if (actor.kind === "app") {
       if (table === "bots") {
         filter += " AND id IN (SELECT value FROM json_each(?))";
@@ -856,7 +897,8 @@ app.get("/api/v1/profiles/:profile/tickets/:id", async (c) => {
     c.req.param("id"),
     p,
   );
-  if (!ticket) throw new ApiError(404, "not_found", "Protocolo não encontrado.");
+  if (!ticket)
+    throw new ApiError(404, "not_found", "Protocolo não encontrado.");
   const conv = await conversation(c.env, ticket.conversation_id, p, actor);
   const contact =
     actor.kind === "user" || actor.scopes.includes("contacts:read")

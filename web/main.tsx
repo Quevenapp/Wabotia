@@ -1,5 +1,12 @@
 import { WhatsAppConversation } from "./WhatsAppConversation";
 import { NumberRouter } from "./NumberRouter";
+import {
+  LinesPanel,
+  MenusPanel,
+  BotLinesEditor,
+  ConversationMenu,
+} from "./ServicePanels";
+import { TeamPanel } from "./TeamPanel";
 import { RouterGuide } from "./RouterGuide";
 import { MetaGuide } from "./MetaGuide";
 import { WhatsAppGroups, GroupControls } from "./WhatsAppGroups";
@@ -60,13 +67,16 @@ const sections = [
   ["contacts", "Agenda de contatos", BookOpen],
   ["tickets", "Protocolos", FileText],
   ["bots", "Equipe Bot", Bot],
+  ["team", "Conversas internas", Users],
   ["knowledge", "Conhecimento", BookOpen],
   ["presence", "Disponibilidade", Headphones],
   ["reports", "Relatórios", Activity],
   ["surveys", "Avaliações", Star],
   ["consents", "Consentimentos", ShieldCheck],
-  ["settings", "Menus e preferências", Settings],
+  ["menus", "Menus e submenus", Menu],
+  ["settings", "Preferências", Settings],
   ["connections", "Conexões", Plug],
+  ["lines", "Linhas de atendimento", Phone],
   ["router", "Roteador de números", Phone],
   ["users", "Pessoas", Users],
   ["applications", "API e integrações", Code2],
@@ -103,7 +113,13 @@ async function api(
   });
   const data: any = await response.json();
   if (!response.ok)
-    throw new Error(data.error?.message || "Não foi possível concluir.");
+    throw Object.assign(
+      new Error(data.error?.message || "Não foi possível concluir."),
+      {
+        status: response.status,
+        code: data.error?.code,
+      },
+    );
   return data;
 }
 const date = (n: number) =>
@@ -837,6 +853,7 @@ function App() {
   const loadScope = JSON.stringify([profile, page, section, cursor]);
   const currentScope = useRef(loadScope);
   const latestLoad = useRef(0);
+  const transferKeys = useRef(new Map<string, string>());
   currentScope.current = loadScope;
   // Never render a previous page's records as a different resource type.
   const rows = pageData.scope === loadScope ? pageData.rows : [];
@@ -885,7 +902,10 @@ function App() {
   };
   async function load() {
     const request = ++latestLoad.current;
-    if (page === "system" || page === "contacts" || page === "router") return;
+    if (
+      ["system", "contacts", "router", "lines", "menus", "team"].includes(page)
+    )
+      return;
     if (demo) {
       setOverview({
         enabled: false,
@@ -1111,12 +1131,32 @@ function App() {
           secrets,
         });
       }
-      if (modal === "transfer")
-        return api(
-          root + `/conversations/${form.conversation_id}/actions`,
-          "POST",
-          { action: "transfer", target: form.target },
-        );
+      if (modal === "transfer") {
+        const path = root + `/conversations/${form.conversation_id}/actions`;
+        const body = { action: "transfer", target: form.target };
+        const intent = path + JSON.stringify(body);
+        if (!transferKeys.current.has(intent))
+          transferKeys.current.set(intent, crypto.randomUUID());
+        try {
+          const result = await api(
+            path,
+            "POST",
+            body,
+            undefined,
+            transferKeys.current.get(intent),
+          );
+          transferKeys.current.delete(intent);
+          return result;
+        } catch (error: any) {
+          if (
+            error.status >= 400 &&
+            error.status < 500 &&
+            !["operation_unknown", "idempotency_conflict"].includes(error.code)
+          )
+            transferKeys.current.delete(intent);
+          throw error;
+        }
+      }
       if (modal === "jev") return api(root + "/jev", "POST", { key: form.key });
       if (modal === "user-edit")
         return api("v1/users/" + form.id, "PATCH", form);
@@ -1232,6 +1272,8 @@ function App() {
                 me.role === "admin" ||
                 ![
                   "settings",
+                  "menus",
+                  "lines",
                   "connections",
                   "router",
                   "users",
@@ -1423,6 +1465,21 @@ function App() {
               )}
               {page === "router" && me.role === "admin" && (
                 <NumberRouter key={profile} api={api} root={root} demo={demo} />
+              )}
+              {page === "lines" && me.role === "admin" && (
+                <LinesPanel key={profile} api={api} root={root} demo={demo} />
+              )}
+              {page === "menus" && me.role === "admin" && (
+                <MenusPanel key={profile} api={api} root={root} demo={demo} />
+              )}
+              {page === "team" && (
+                <TeamPanel
+                  key={profile}
+                  api={api}
+                  root={root}
+                  demo={demo}
+                  me={me}
+                />
               )}
               {page === "contacts" && (
                 <ContactsPanel
@@ -1681,12 +1738,38 @@ function App() {
                           <div className="inline-links">
                             <button
                               onClick={() =>
-                                api(root + "/presence").then((people) =>
-                                  open("transfer", {
-                                    conversation_id: selection.conversation.id,
-                                    people,
-                                  }),
+                                (demo
+                                  ? Promise.resolve({
+                                      data: [
+                                        {
+                                          id: "demo-person",
+                                          name: "Ana",
+                                          online: false,
+                                          kind: "user",
+                                        },
+                                        {
+                                          id: "bot:demo-bot",
+                                          name: "Atendente",
+                                          online: true,
+                                          kind: "bot",
+                                        },
+                                      ],
+                                    })
+                                  : api(root + "/team")
                                 )
+                                  .then(({ data }) =>
+                                    open("transfer", {
+                                      conversation_id:
+                                        selection.conversation.id,
+                                      people: data.map((contact: Row) => ({
+                                        ...contact,
+                                        actor: contact.id,
+                                        present: contact.online,
+                                        name: `${contact.name} · ${contact.kind === "bot" ? "Bot" : "Pessoa"} · ${contact.online ? "Online" : "Offline"}`,
+                                      })),
+                                    }),
+                                  )
+                                  .catch((e: Error) => setError(e.message))
                               }
                             >
                               Transferir
@@ -1740,6 +1823,16 @@ function App() {
                               </button>
                             )}
                           </div>
+                          <ConversationMenu
+                            key={selection.conversation.id}
+                            api={api}
+                            root={root}
+                            demo={demo}
+                            conversation={selection.conversation}
+                            refresh={() =>
+                              openConversation(selection.conversation)
+                            }
+                          />
                         </div>
                       </>
                     ) : (
@@ -2049,6 +2142,15 @@ function App() {
                           {bot.id}
                           <CopyButton value={bot.id} />
                         </small>
+                        {me.role === "admin" && (
+                          <BotLinesEditor
+                            key={bot.id}
+                            bot={bot}
+                            api={api}
+                            root={root}
+                            demo={demo}
+                          />
+                        )}
                       </section>
                     ))}
                   </div>
@@ -2318,7 +2420,8 @@ function App() {
                         <h2>Menu de atendimento</h2>
                         <button
                           className="icon-button"
-                          onClick={() => open("menu", { type: "human" })}
+                          aria-label="Abrir menus e submenus"
+                          onClick={() => setPage("menus")}
                         >
                           <Plus size={18} />
                         </button>
@@ -3201,6 +3304,24 @@ function App() {
                     options={bots}
                   />
                 )}
+              </>
+            )}
+            {modal === "transfer" && (
+              <>
+                <Field
+                  label="Pessoa ou bot que receberá a conversa"
+                  value={form.target}
+                  onChange={(value: string) => change("target", value)}
+                  options={(form.people || []).map((person: Row) => [
+                    person.id,
+                    person.name,
+                  ])}
+                  required
+                />
+                <p>
+                  A conversa mantém o número de WhatsApp. As permissões da linha
+                  e do destinatário continuam valendo.
+                </p>
               </>
             )}
             {modal === "reconcile-run" && (

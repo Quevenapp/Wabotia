@@ -120,8 +120,9 @@ export async function accountCommand(
       config: JSON.stringify({ meta_account_id: account.id }),
     };
     const found: any[] = [];
+    const cursors = new Set<string>();
     let after = "";
-    for (let page = 0; page < 5; page++) {
+    while (true) {
       const result = await metaRequest(
         env,
         conn,
@@ -143,14 +144,11 @@ export async function accountCommand(
       if (!result.paging?.next) break;
       const next = result.paging?.cursors?.after;
       requireValue(
-        typeof next === "string" && next && next !== after,
+        typeof next === "string" && next && !cursors.has(next),
         "Paginação Meta inválida.",
       );
+      cursors.add(next);
       after = next;
-      requireValue(
-        page < 4,
-        "Conta com mais de 500 números. Use uma conta dentro do limite suportado.",
-      );
     }
     await exec(
       env,
@@ -179,12 +177,6 @@ export async function accountCommand(
       data.phone_id,
     );
     requireValue(!old, "Este número já está no roteador.");
-    const count = await one(
-      env,
-      "SELECT count(*) n FROM meta_numbers WHERE account_id=?",
-      account.id,
-    );
-    requireValue(count.n < 20, "Cada conta no roteador aceita até 20 números.");
     const existing = await one(
       env,
       "SELECT * FROM connections WHERE kind='meta' AND json_extract(config,'$.phone_id')=?",
@@ -228,7 +220,7 @@ export async function accountCommand(
     );
     requireValue(
       Number.isSafeInteger(limit) && limit >= 0 && limit <= 1000,
-      "O teto de proteção deve estar entre 0 e 1.000 mensagens.",
+      "A franquia gratuita deve estar entre 0 e 1.000 mensagens. O excedente continua com cobrança.",
     );
     const id = existing?.id || uid(),
       created = now();

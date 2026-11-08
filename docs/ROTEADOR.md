@@ -1,18 +1,18 @@
 # Roteador de números WhatsApp
 
-A versão 0.6.0 permite cadastrar até **20 números por conta empresarial do WhatsApp (WABA)**, receber todos pelo mesmo webhook e escolher o remetente pela API: um número específico ou um grupo autorizado. É para **Meta direto no Worker**. QR e transporte Hermes continuam separados. Hermes não precisa de alteração para este recurso.
+O roteador permite cadastrar os números da **conta empresarial do WhatsApp (WABA)**, receber todos pelo mesmo webhook e escolher o remetente pela API: um número específico ou um grupo autorizado. A quantidade permitida é definida pela Meta; o Wabotia não impõe um limite fixo de linhas por conta ou grupo. É para **Meta direto no Worker**. QR e transporte Hermes continuam separados. Hermes não precisa de alteração para este recurso.
 
 ## Franquia, janela e cobrança
 
 O [FAQ oficial da Meta](https://whatsappbusiness.com/resources/faq/), consultado em 07/11/2026, informa uma franquia de 1.000 mensagens de atendimento por número empresarial/mês desde 01/10/2026. Modelos de marketing, utilidade e autenticação têm suas próprias regras de cobrança. O texto livre enviado depois de um template continua sendo mensagem de serviço: iniciar a conversa por template não isenta as respostas seguintes. Consulte a Meta para as condições e tarifas da sua conta.
 
 - **Atendimento:** o cliente precisa ter enviado mensagem para aquele mesmo número nas últimas 24 horas. Ter saldo em outro número não transfere essa janela.
-- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. Pausa, fim de cota ou falha não provocam envio por outro número.
-- **Novos clientes:** divulgue o link público do grupo. Ele abre o WhatsApp num número ativo com saldo; o cliente inicia a conversa. O link sozinho não envia nada nem reserva uma mensagem.
+- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. O fim da franquia permite continuar com mensagens de serviço pagas, sem trocar o número. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
+- **Novos clientes:** divulgue o link público do grupo. Ele alterna os números ativos desde a primeira entrada, priorizando os que ainda têm franquia gratuita; o cliente inicia a conversa. Se todos consumiram a franquia, o rodízio continua com serviço pago. O link sozinho não envia nada nem reserva uma mensagem.
 - **Modelos pagos:** cada pedido precisa de `allow_paid: true`, comprovação do consentimento e modelo aprovado. A aplicação, a origem e o grupo precisam autorizar pagos. Uma configuração geral não substitui a autorização por envio.
 - **Notificações automáticas de números gerenciados:** não são convertidas em modelos pagos. Ao acabar a janela, falham com orientação para pedir nova mensagem ou usar o envio explícito de modelo.
 
-O teto local pode ser de 0 a 1.000. O Wabotia não oferece autorização automática para cobrar a 1.001ª mensagem de atendimento. Um modelo pago autorizado continua possível mesmo com a cota de atendimento esgotada.
+A franquia gratuita configurada pode ser de 0 a 1.000 e serve para priorizar novas entradas, nunca para bloquear a conversa. A 1.001ª mensagem de serviço pode continuar no mesmo número com cobrança, dentro da janela de 24 horas. Serviço pago não vira template e não depende de `allow_paid` ou `routing:paid`; essas autorizações continuam específicas para templates. A regra de janela vencida permanece: aguardar nova mensagem do cliente ou solicitar explicitamente um template aprovado.
 
 ## 1. Prepare a conta Meta
 
@@ -37,14 +37,14 @@ Não repita uma URL por telefone: o Wabotia separa as entradas pelo Phone Number
 1. Clique **Buscar números na Meta**. A busca apenas consulta a conta.
 2. Escolha um número encontrado e dê um nome fácil de reconhecer.
 3. Confira na Meta quantas mensagens de atendimento esse número já usou no mês. Informe em **Mensagens de atendimento já usadas neste mês**. Zero somente se realmente não houve uso.
-4. Defina o **Teto local**, no máximo 1.000. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para até 20 números.
+4. Defina a **Franquia gratuita mensal**, no máximo 1.000. Essa informação não limita o envio de serviço pago. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para os números habilitados na sua conta Meta.
 5. Os números entram pausados. Confira o webhook e clique **Ativar** na lista de uso. O perfil também precisa estar pronto para o atendimento normal.
 
 Se o telefone já está em Conexões, pause-o e reconcilie filas desconhecidas antes de adotá-lo no roteador. Aguarde os comprovantes de entregas anteriores aceitas pela Meta; não basta o estado `sent`. O histórico e a identidade da conexão são preservados. O contador inicial não deve ser reiniciado para obter saldo artificial.
 
-**Como ler o painel:** uso protegido = histórico inicial do mês + entregas de atendimento + reservas de envios ainda não confirmados. Um anexo é uma mensagem; texto separado é outra. Envios humanos, bots e API no número gerenciado compartilham o mesmo contador. Falha definitiva e cancelamento antes do envio liberam a reserva. `unknown` mantém a reserva e exige conferência. Na mudança de mês, o histórico inicial deixa de contar; mensagens ainda sem confirmação continuam reservadas.
+**Como ler o painel:** uso estimado = histórico inicial do mês + entregas de atendimento + reservas de envios ainda não confirmados. Um anexo é uma mensagem; texto separado é outra. Envios humanos, bots e API no número gerenciado compartilham o mesmo contador. Falha definitiva e cancelamento antes do envio liberam a reserva. `unknown` mantém a reserva e exige conferência. Na mudança de mês, o histórico inicial deixa de contar; mensagens ainda sem confirmação continuam reservadas.
 
-Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma proteção local e não garante uma fatura sem cobrança.** Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
+Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma estimativa local e não garante uma fatura sem cobrança.** O excedente de serviço é permitido; a Meta confirma a cobrança de cada entrega. Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
 
 ## 3.1. Defina o que cada número pode fazer
 
@@ -73,7 +73,7 @@ Menu e bots utilizam a configuração do perfil e só respondem quando a automa�
 
 Uma permissão de grupo ou de aplicação nunca libera o que o número bloqueou. A verificação ocorre antes de entrar na fila e novamente antes do envio. Desligar uma opção bloqueia entregas ainda pendentes; não apaga mensagens já enviadas nem transfere conversas. Contadores e consentimentos são preservados. Ao atualizar, números existentes mantêm suas opções anteriores até o administrador escolher e salvar uma função.
 
-**Contadores:** mensagens de serviço entram no uso protegido; templates entregues aparecem em outro campo. O total de mensagens pagas inclui todas as categorias informadas pela Meta. Não confunda 1.000 mensagens com 1.000 clientes: confirmação, chamada da senha e lembrete podem consumir três mensagens de serviço.
+**Contadores:** mensagens de serviço gratuitas e pagas entram no uso estimado; templates entregues aparecem em outro campo. O total de mensagens pagas inclui todas as categorias informadas pela Meta. Não confunda 1.000 mensagens com 1.000 clientes: confirmação, chamada da senha e lembrete podem consumir três mensagens de serviço.
 
 **Exemplos além do Vinki:** retirada de pedidos em restaurantes/lojas, check-in e chamada de recepção, estacionamento/valet e solicitações de documentos no ERP. O cliente abre o link e envia a mensagem; as respostas retornam pelo mesmo número durante a janela. Para documentos e dados pessoais, valide a identidade e as permissões no sistema de origem antes de entregar. Lembretes para dias seguintes precisam de template autorizado ou de nova mensagem do cliente.
 
@@ -81,13 +81,9 @@ Uma permissão de grupo ou de aplicação nunca libera o que o número bloqueou.
 
 Antes de criar o grupo, configure a função de cada telefone conforme o passo abaixo.
 
-Em **Grupos de números → Criar grupo de roteamento**, informe um nome, selecione membros da mesma conta e escolha:
+Em **Grupos de números → Criar grupo de roteamento**, informe um nome e selecione membros da mesma conta. O grupo usa **rodízio com prioridade à franquia gratuita**: alterna entre os números que ainda têm franquia, mesmo que seus consumos sejam diferentes. Quando todos a consumirem, alterna entre os números ativos com serviço pago. Grupos antigos configurados como menor consumo ou aleatório também passam a seguir essa regra.
 
-| Estratégia | Escolha para um novo atendimento |
-|---|---|
-| Menor consumo | Menor uso protegido; alterna os empates |
-| Em sequência | Próximo número disponível |
-| Aleatório | Sorteio entre números disponíveis |
+Entradas simultâneas são serializadas por perfil. Respostas de conversas já vinculadas mantêm seu número e não avançam a vez de novos atendimentos. Por exemplo: com três linhas disponíveis, as seis próximas entradas serão A, B, C, A, B, C; a conversa de A continua em A mesmo se sua franquia terminar.
 
 Ative o grupo. Marque **Criar link público** para divulgar uma entrada única. Se desejar modelos pagos, marque a opção específica; ela só habilita pedidos individualmente autorizados. Salve e copie o ID para integrações. Um número pode estar em vários grupos; seu consumo continua único.
 
@@ -105,7 +101,7 @@ Base: `/api/v1/profiles/{perfil}`. Todas as escritas exigem `Idempotency-Key`. G
 
 | Método e caminho | Resultado |
 |---|---|
-| `GET /router` | Números, grupos autorizados, saldo e reservas |
+| `GET /router` | Números, grupos autorizados, franquia, excedente estimado e reservas |
 | `POST /router/messages` | `202`, `delivery_id`, conversa e remetente escolhido |
 | `GET /router/messages/{delivery_id}` | Fila, aceitação e recibo Meta quando disponível |
 | `POST /router/messages/{delivery_id}/cancel` | Cancela somente `pending`, pelo autor ou administrador |
@@ -118,7 +114,7 @@ Exemplo de atendimento, salve em `mensagem.json`:
 {"pool_id":"ID_GRUPO","to":"5511999991111","external_id":"cliente-123","text":"Olá! Como podemos ajudar?"}
 ```
 
-O cliente precisa ter falado com esse número. Para escolher um número, substitua `pool_id` por `number_id`. O envio assume a conversa na identidade da aplicação; outro responsável precisa transferir/liberar antes.
+O cliente precisa ter falado com esse número nas últimas 24 horas; o serviço pode ser cobrado após a franquia. A resposta informa `billing.mode: service_allowance` ou `service_paid` como estimativa, e `usage.free_remaining`/`paid_service_estimated`; a confirmação final vem da Meta. Os campos antigos `usage.limit` e `remaining` continuam representando a franquia, sem bloquear envio. Para escolher um número, substitua `pool_id` por `number_id`. O envio assume a conversa na identidade da aplicação; outro responsável precisa transferir/liberar antes.
 
 ```sh
 curl --fail-with-body "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/router/messages" \
@@ -154,10 +150,10 @@ Configure `WABOTIA_URL`, `WABOTIA_KEY`, `WABOTIA_PROFILE` e `WABOTIA_REQUEST_ID`
 
 `pending` significa na fila; `sent` significa aceito pelo canal, não prova de recebimento. `provider_status: delivered/read` confirma o recibo. `billable: null` significa que a Meta ainda não informou a cobrança. Estado `unknown` não autoriza tentativa automática. Conferir uma nova tentativa de modelo em Entregas exige nova autorização explícita de cobrança.
 
-Erros relevantes: `source_not_allowed` (origem), `paid_disabled` (grupo), `consent_revoked` (aceite retirado), `number_quota_exhausted` (teto), `sender_pinned` (tentativa de trocar origem), `sender_unavailable` (remetente vinculado indisponível) e `no_eligible_sender` (sem número com janela/condições). Atendimento nunca faz fallback para modelo pago. Uma conversa criada por modelo pago não abre 24 horas até o cliente responder de verdade.
+Erros relevantes: `source_not_allowed` (origem), `paid_disabled` (grupo), `consent_revoked` (aceite retirado), `sender_pinned` (tentativa de trocar origem), `sender_unavailable` (remetente vinculado indisponível) e `no_eligible_sender` (sem número com janela/condições). Atendimento nunca faz fallback para modelo pago. Uma conversa criada por modelo pago não abre 24 horas até o cliente responder de verdade.
 
 Acompanhe `message.sent`, `message.updated` e `conversation.updated` nos eventos/webhooks já existentes, correlacionando conversa e `source_key` quando disponível. Para entrega individual, use o GET acima. OpenAPI 3.1 e documentação interativa: `/api/openapi.json` e `/api-docs`.
 
 ## 7. Homologue antes de atender clientes
 
-Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número, simule teto menor e confirme que novos atendimentos vão para outro disponível. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.
+Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número e confira que ele sai do rodízio. Simule o fim da franquia: entradas novas priorizam outras linhas com franquia, mas conversas já vinculadas continuam com serviço pago na linha original. Quando todas acabarem, o rodízio também continua. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.

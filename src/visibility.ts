@@ -8,6 +8,27 @@ export function visibleConversation(actor: Actor, c: any) {
   );
 }
 export async function visibleEvent(env: Env, actor: Actor, e: any) {
+  if (e.kind.startsWith("internal.")) {
+    if (actor.kind !== "user") return false;
+    const chat = await one(
+      env,
+      "SELECT id FROM internal_chats WHERE id=? AND profile_id=? AND (member_a=? OR member_b=?)",
+      json(e.payload).chat_id || "",
+      e.profile_id,
+      actor.id,
+      actor.id,
+    );
+    return !!chat;
+  }
+  if (e.kind.startsWith("bot.")) {
+    const run = await one(
+      env,
+      "SELECT actor,context FROM bot_runs WHERE id=?",
+      e.resource_id,
+    );
+    if (json(run?.context).internal_chat_id && run?.actor !== actor.id)
+      return false;
+  }
   if (actor.kind !== "app") return true;
   const scope = e.kind.startsWith("call.")
     ? "calls:read"
