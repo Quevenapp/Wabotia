@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-08",
+  "application": "Wabotia",
+  "bundle_id": "br.com.queven.wabotia",
+  "version": "0.9.0",
+  "build": "2",
+  "minimum_ios": "15.0",
+  "signing": "Apple Development through the existing Mac xcb wrapper",
+  "validation": {
+    "signed_device_build": "passed",
+    "simulator_tests": { "total": 14, "failures": 0 },
+    "final_navigation_identity_fix_included": true,
+    "uninstalled_existing_apps": false,
+    "app_store_published": false
+  },
+  "devices": [
+    {
+      "model": "iPhone 7",
+      "system_version": "15.8.8",
+      "installed_version": "0.9.0",
+      "installed_build": "2",
+      "installation": "success",
+      "launch": "success",
+      "observed_screen": "Wabotia server selection",
+      "authenticated_workflows_tested": false
+    },
+    {
+      "model": "iPhone X",
+      "system_version": "16.7.16",
+      "installed_version": "0.9.0",
+      "installed_build": "2",
+      "installation": "success",
+      "launch": "success",
+      "observed_screen": "Wabotia server selection",
+      "authenticated_workflows_tested": false
+    },
+    {
+      "model": "iPad A16",
+      "system_version": "26.6.2",
+      "installed_version": "0.9.0",
+      "installed_build": "2",
+      "installation": "success",
+      "launch": "success",
+      "observed_screen": "Conversations, empty queue; existing session retained",
+      "authenticated_workflows_tested": false
+    }
+  ],
+  "limits": [
+    "No real WhatsApp message or call was sent during this device validation.",
+    "The iOS 15 compatibility layer was compiled and launched on iPhone 7; authenticated navigation and media flows were not exercised on that device.",
+    "Screenshots were inspected and removed after validation according to the Mac workspace privacy instructions."
+  ]
+}

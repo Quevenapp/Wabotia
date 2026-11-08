@@ -73,7 +73,7 @@ struct TicketsView: View {
                 Section { Text(error).font(.footnote).foregroundStyle(.red) }
             }
             ForEach(model.tickets) { ticket in
-                NavigationLink(value: Route.ticket(id: ticket.id)) {
+                RouteLink(route: Route.ticket(id: ticket.id)) {
                     TicketRowView(ticket: ticket)
                 }
             }

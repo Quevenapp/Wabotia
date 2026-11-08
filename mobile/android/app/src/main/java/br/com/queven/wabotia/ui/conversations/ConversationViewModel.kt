@@ -82,6 +82,8 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         private set
     /** Aviso transitório (snackbar). A tela zera após exibir. */
     var notice by mutableStateOf<String?>(null)
+    var team by mutableStateOf<List<br.com.queven.wabotia.core.model.TeamContact>>(emptyList())
+        private set
     var presence by mutableStateOf<List<PresenceEntry>>(emptyList())
         private set
     var ringing by mutableStateOf<List<Call>>(emptyList())
@@ -155,10 +157,13 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         viewModelScope.launch {
             try {
                 presence = container.api.presence(profileId)
+                team = container.api.team(profileId).data
             } catch (_: Exception) {
             }
         }
     }
+
+    fun sendMenu(menuId: String?) { act(ActionRequest(action = "menu", menu_id = menuId), "Menu enviado") }
 
     fun loadBots() {
         viewModelScope.launch {

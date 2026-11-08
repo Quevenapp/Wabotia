@@ -64,7 +64,7 @@ struct ImageViewerView: View {
     @State private var shareURL: URL?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             GeometryReader { geo in
                 Image(uiImage: image)
                     .resizable()
@@ -93,13 +93,12 @@ struct ImageViewerView: View {
             .ignoresSafeArea()
             .navigationTitle(file.name)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .appDarkNavigationBar()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
                     if let shareURL {
-                        ShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up") }
+                        AppShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up") }
                     } else {
                         ProgressView()
                     }
@@ -145,7 +144,7 @@ struct VideoPlayerSheet: View {
     @State private var shareURL: URL?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Group {
                 if let player {
                     VideoPlayer(player: player).ignoresSafeArea(edges: .bottom)
@@ -159,7 +158,7 @@ struct VideoPlayerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) {
-                    if let shareURL { ShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up") } }
+                    if let shareURL { AppShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up") } }
                 }
             }
             .onAppear {
@@ -292,7 +291,7 @@ struct DocumentAttachmentView: View {
             }
             .buttonStyle(.plain)
             if let localURL {
-                ShareLink(item: localURL) { Label("Compartilhar", systemImage: "square.and.arrow.up").font(.caption) }
+                AppShareLink(item: localURL) { Label("Compartilhar", systemImage: "square.and.arrow.up").font(.caption) }
             }
             if let error { Text(error).font(.caption2).foregroundStyle(.red) }
         }

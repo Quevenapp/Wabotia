@@ -94,6 +94,18 @@ interface WabotiaApi {
     @POST("api/v1/profiles/{p}/calls/{id}/keepalive") suspend fun keepaliveCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): JsonObject
     @POST("api/v1/profiles/{p}/calls/{id}/reconcile") suspend fun reconcileCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: CallReconcile): CallActionResult
 
+    // --- equipe, linhas e menus ---
+    @GET("api/v1/profiles/{p}/team") suspend fun team(@Path("p") p: String): Page<TeamContact>
+    @GET("api/v1/profiles/{p}/lines") suspend fun lines(@Path("p") p: String): Page<ServiceLine>
+    @PUT("api/v1/profiles/{p}/lines/{id}") suspend fun saveLine(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+    @GET("api/v1/profiles/{p}/menus") suspend fun menus(@Path("p") p: String, @Query("connection_id") connectionId: String? = null): Page<JsonObject>
+    @PUT("api/v1/profiles/{p}/settings") suspend fun saveSettings(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+    @PATCH("api/v1/profiles/{p}/bots/{id}") suspend fun updateBot(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+    @POST("api/v1/profiles/{p}/internal-chats") suspend fun openInternalChat(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): InternalChat
+    @GET("api/v1/profiles/{p}/internal-chats") suspend fun internalChats(@Path("p") p: String): Page<InternalChat>
+    @GET("api/v1/profiles/{p}/internal-chats/{id}") suspend fun internalChat(@Path("p") p: String, @Path("id") id: String): InternalChat
+    @POST("api/v1/profiles/{p}/internal-chats/{id}/messages") suspend fun sendInternal(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
+
     // --- genérico, para respostas cruas quando necessário ---
     @GET suspend fun raw(@Url url: String): Response<JsonObject>
 }

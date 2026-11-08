@@ -1,57 +1,32 @@
 import SwiftUI
 
-/// Transferir a conversa: lista a equipe do perfil com presença (GET /presence).
+/// Transferir para uma pessoa ou bot autorizado a atender esta linha.
 struct TransferSheet: View {
     @ObservedObject var vm: ConversationViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var target: PresenceEntry?
+    @State private var target: TeamContact?
     @State private var busy = false
-
-    private var candidates: [PresenceEntry] {
-        vm.presence.filter { $0.actor != vm.meId }.sorted { a, b in
-            if (a.present ?? 0) != (b.present ?? 0) { return (a.present ?? 0) > (b.present ?? 0) }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
+    private var candidates: [TeamContact] {
+        vm.team.filter { p in
+            p.id != vm.meId && (p.kind != "bot" || p.line_ids == nil || p.line_ids!.contains(vm.conversation?.connection_id ?? ""))
+        }.sorted { $0.online != $1.online ? $0.online : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
-
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
-                if candidates.isEmpty {
-                    EmptyStateView(title: "Ninguém para transferir", systemImage: "person.2.slash", message: "Nenhum outro atendente está vinculado a este perfil.")
-                } else {
-                    ForEach(candidates) { p in
-                        Button {
-                            target = p
-                        } label: {
-                            HStack {
-                                Circle().fill((p.present ?? 0) == 1 ? Color.green : Color.gray).frame(width: 10, height: 10)
-                                VStack(alignment: .leading) {
-                                    Text(p.name.isEmpty ? p.actor : p.name).foregroundStyle(.primary)
-                                    Text((p.present ?? 0) == 1 ? "Presente" : "Ausente").font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if target?.actor == p.actor { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
-                            }
-                        }
-                    }
+                ForEach(candidates) { p in
+                    Button { target = p } label: {
+                        HStack { TeamContactRow(contact: p); if target?.id == p.id { Image(systemName: "checkmark") } }
+                    }.foregroundStyle(.primary)
                 }
-                if let e = vm.actionError { Section { Text(e).font(.footnote).foregroundStyle(.red) } }
+                if candidates.isEmpty { Text("Nenhuma pessoa ou bot autorizado para esta linha.") }
+                if let error = vm.actionError { Text(error).foregroundStyle(.red) }
             }
             .navigationTitle("Transferir para")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        guard let target else { return }
-                        busy = true
-                        Task {
-                            if await vm.act("transfer", target: target.actor) { dismiss() }
-                            busy = false
-                        }
-                    } label: { if busy { ProgressView() } else { Text("Transferir") } }
-                    .disabled(target == nil || busy)
+                    Button("Transferir") { guard let target else { return }; busy = true; Task { if await vm.act("transfer", target: target.id) { dismiss() }; busy = false } }.disabled(target == nil || busy)
                 }
             }
             .task { await vm.loadPresence() }
@@ -68,7 +43,7 @@ struct TagsSheet: View {
     @State private var busy = false
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 Section {
                     HStack {
@@ -119,7 +94,7 @@ struct BotPickerSheet: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Group {
                 if let error {
                     EmptyStateView(title: "Não foi possível carregar", systemImage: "exclamationmark.triangle", message: error)
@@ -164,7 +139,7 @@ struct SaveContactSheet: View {
     @State private var busy = false
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     TextField("Nome", text: $name)

@@ -206,19 +206,19 @@ struct TicketView: View {
                 }
             }
             .padding(.vertical, 4)
-            LabeledContent("Número", value: ticket.number)
-            LabeledContent("Aberto em", value: TicketsSupport.shortDate(ticket.created))
-            LabeledContent("Atualizado", value: TicketsSupport.shortDate(ticket.updated))
-            LabeledContent("Prazo da primeira resposta", value: ticket.response_due_at == nil ? "Sem prazo" : TicketsSupport.shortDate(ticket.response_due_at))
+            AppLabeledContent("Número", value: ticket.number)
+            AppLabeledContent("Aberto em", value: TicketsSupport.shortDate(ticket.created))
+            AppLabeledContent("Atualizado", value: TicketsSupport.shortDate(ticket.updated))
+            AppLabeledContent("Prazo da primeira resposta", value: ticket.response_due_at == nil ? "Sem prazo" : TicketsSupport.shortDate(ticket.response_due_at))
             if let first = ticket.first_response_at {
-                LabeledContent("Primeira resposta", value: TicketsSupport.shortDate(first))
+                AppLabeledContent("Primeira resposta", value: TicketsSupport.shortDate(first))
             }
         }
     }
 
     private func conversationSection(_ ticket: Ticket) -> some View {
         Section("Conversa") {
-            NavigationLink(value: Route.conversation(id: ticket.conversation_id)) {
+            RouteLink(route: Route.conversation(id: ticket.conversation_id)) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(TicketsSupport.conversationName(model.detail?.conversation))
                     HStack(spacing: 6) {
@@ -355,11 +355,10 @@ struct TicketProgressSheet: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
-                    TextField("O que foi feito ou o que o cliente precisa saber", text: $text, axis: .vertical)
-                        .lineLimit(4...10)
+                    AppMultilineField("O que foi feito ou o que o cliente precisa saber", text: $text, lines: 4...10)
                         .focused($focused)
                 } footer: {
                     Text("Enviado ao cliente como \"Protocolo \(model.ticket?.number ?? ""): texto\" e registrado como primeira resposta, se ainda não houver.")
@@ -379,7 +378,7 @@ struct TicketProgressSheet: View {
             .interactiveDismissDisabled(sending)
             .onAppear { focused = true }
         }
-        .presentationDetents([.medium, .large])
+        .appSheetDetents()
     }
 
     private func send() {
@@ -401,7 +400,7 @@ struct TicketOwnerSheet: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 if let error {
                     Section { Text(error).font(.footnote).foregroundStyle(.red) }
@@ -441,7 +440,7 @@ struct TicketOwnerSheet: View {
             }
             .interactiveDismissDisabled(saving != nil)
         }
-        .presentationDetents([.medium, .large])
+        .appSheetDetents()
     }
 
     private func choose(_ person: PresenceEntry) {
@@ -465,7 +464,7 @@ struct TicketDueSheet: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     DatePicker("Prazo", selection: $date, in: Date()..., displayedComponents: [.date, .hourAndMinute])

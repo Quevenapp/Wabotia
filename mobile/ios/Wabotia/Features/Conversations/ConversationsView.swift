@@ -38,7 +38,7 @@ struct ConversationsView: View {
                         .listRowBackground(Color.clear)
                 } else {
                     ForEach(vm.items) { c in
-                        NavigationLink(value: Route.conversation(id: c.id)) {
+                        RouteLink(route: Route.conversation(id: c.id)) {
                             ConversationRow(conversation: c, meId: vm.meId)
                         }
                         .onAppear { vm.loadMoreIfNeeded(current: c) }
@@ -139,7 +139,7 @@ struct RingingCallRow: View {
                 Text(ConversationFormatting.callStatusLabel(call.status) + " · " + ConversationFormatting.date(call.created)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            NavigationLink(value: Route.call(conversationId: call.conversation_id, callId: call.id)) {
+            RouteLink(route: Route.call(conversationId: call.conversation_id, callId: call.id)) {
                 Text("Atender").font(.footnote.weight(.semibold))
             }
             .buttonStyle(.borderedProminent)

@@ -69,6 +69,7 @@ final class ConversationViewModel: ObservableObject {
 
     @Published private(set) var detail: ConversationDetail?
     @Published private(set) var presence: [PresenceEntry] = []
+    @Published private(set) var team: [TeamContact] = []
     @Published private(set) var loading = false
     @Published var error: String?
     @Published var actionError: String?
@@ -92,6 +93,7 @@ final class ConversationViewModel: ObservableObject {
     private var poller: EventsPoller?
     private var sendTask: Task<Void, Never>?
     private var loadedOnce = false
+    private var pendingAction: (body: ActionRequest, key: String)?
 
     private var container: AppContainer { AppContainer.shared }
     private var profileId: String? { container.profileId }
@@ -190,6 +192,7 @@ final class ConversationViewModel: ObservableObject {
     func loadPresence() async {
         guard let p = profileId else { return }
         if let list = try? await container.api.presence(p) { presence = list }
+        do { team = try await container.api.team(p) } catch { actionError = APIError.describe(error) }
     }
 
     func startPolling() {
@@ -214,16 +217,21 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Ações da conversa
 
     @discardableResult
-    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil) async -> Bool {
+    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil) async -> Bool {
         guard let p = profileId else { return false }
         busy = true
         actionError = nil
         defer { busy = false }
+        let body = ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags, menu_id: menuId)
+        let actionKey = pendingAction?.body == body ? pendingAction!.key : APIClient.newIdempotencyKey()
+        pendingAction = (body, actionKey)
         do {
-            _ = try await container.api.act(p, conversation: conversationId, ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags), key: APIClient.newIdempotencyKey())
+            _ = try await container.api.act(p, conversation: conversationId, body, key: actionKey)
+            pendingAction = nil
             await load(silent: true)
             return true
         } catch {
+            if let e = error as? APIError, (400..<500).contains(e.status) && ![408, 429].contains(e.status) && !["operation_unknown", "idempotency_conflict"].contains(e.code) { pendingAction = nil }
             handleActionError(error)
             return false
         }

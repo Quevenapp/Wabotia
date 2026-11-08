@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 class ApiException(val status: Int, val code: String, override val message: String, val requestId: String? = null) : IOException(message) {
     val isUnauthorized get() = status == 401
     val isIdempotencyConflict get() = code == "idempotency_conflict"
+    val isDefinitiveWriteRejection get() = status in 400..499 && status !in listOf(408, 429) && code !in listOf("operation_unknown", "idempotency_conflict")
 }
 
 /** Cliente HTTP para um servidor. Acrescenta Authorization: Bearer e traduz erros da API. */

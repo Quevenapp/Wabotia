@@ -35,7 +35,7 @@ struct CallsView: View {
             }
             Section("Histórico") {
                 ForEach(vm.history) { call in
-                    NavigationLink(value: Route.conversation(id: call.conversation_id)) {
+                    RouteLink(route: Route.conversation(id: call.conversation_id)) {
                         historyRow(call)
                     }
                 }
@@ -63,7 +63,7 @@ struct CallsView: View {
                 }
             }
             HStack(spacing: 12) {
-                NavigationLink(value: Route.call(conversationId: call.conversation_id, callId: call.id)) {
+                RouteLink(route: Route.call(conversationId: call.conversation_id, callId: call.id)) {
                     Label("Atender", systemImage: "phone.fill").frame(maxWidth: .infinity)
                 }
                 .simultaneousGesture(TapGesture().onEnded { CallIntents.answerCallId = call.id })

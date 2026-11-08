@@ -9,7 +9,7 @@ struct ServerView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(spacing: 8) {

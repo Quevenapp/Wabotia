@@ -5,9 +5,11 @@ Clientes nativos do Wabotia para a equipe de atendimento. Funcionam com **qualqu
 | Plataforma | Pasta | Stack | Mínimo |
 |---|---|---|---|
 | Android | [`android/`](android) | Kotlin 2.0, Jetpack Compose (Material 3), Retrofit/OkHttp, kotlinx.serialization, Coil, Media3, Firebase Messaging, stream-webrtc-android | Android 8.0 (API 26) |
-| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, WebRTC (stasel), CallKit, AVFoundation | iOS 16 |
+| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, WebRTC (stasel), CallKit, AVFoundation | iOS 15 |
 
 Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `br.com.queven.wabotia`.
+
+No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegação, campos multilinha, seletor de fotos/vídeos e compartilhamento com os controles disponíveis no sistema. Os mesmos recursos de atendimento permanecem disponíveis; iOS 16 ou superior usa a navegação moderna.
 
 ## Arquitetura comum
 
@@ -32,7 +34,7 @@ Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `
 - Ligações tocando (`GET /calls?limit=30` com `status == ringing` e `actor` vazio ou igual a mim) aparecem como faixa no topo com Atender/Recusar.
 
 ### Conversa
-- Cabeçalho: nome, telefone, estado e responsável (`GET /presence` para nomes). Menu: **Assumir** (`claim`), **Transferir** (`transfer` com `target` escolhido em `GET /presence`, mostrando presença), **Devolver à IA** (`resume`), **Concluir** (`resolve`), **Etiquetas** (`tags`), **Abrir protocolo**, **Consultar bot** (abre Bot com o contexto da conversa), **Ligar** (se `capabilities.calls`), **Salvar contato**. Grupo: seletor de `bot_policy` (`PUT /groups/{id}/policy`).
+- Cabeçalho: nome, telefone, estado e responsável (`GET /presence` para nomes). Menu: **Assumir** (`claim`), **Transferir** (`transfer` com `target` escolhido em `GET /team`, mostrando pessoas e bots com presença), **Devolver à IA** (`resume`), **Concluir** (`resolve`), **Etiquetas** (`tags`), **Abrir protocolo**, **Consultar bot** (abre Bot com o contexto da conversa), **Ligar** (se `capabilities.calls`), **Salvar contato**. Grupo: seletor de `bot_policy` (`PUT /groups/{id}/policy`).
 - Lista de mensagens (mais antigas em cima, rolagem até o fim ao abrir): bolhas cliente à esquerda, enviadas à direita, notas internas destacadas; autor nos grupos (`content.participant_name`); citação (`content.reply_to` / `reply_text`); reações (`content.reactions`); "Mensagem apagada" (`content.deleted`); "Editada"; recibo (`delivery_status`: Na fila / Enviada / Entregue / Lida / Ouvida / Falhou / Sem confirmação); localização (`content.location` → abrir no mapa); contatos (`content.contacts`). Anexos pela lista `media` do detalhe: imagem (miniatura → visualizador com zoom e compartilhar), vídeo (player), áudio/voz (player com progresso), documento (nome, tamanho, baixar/abrir/compartilhar). Entregas pendentes (`deliveries` não `sent`/`cancelled`) aparecem como linha de status.
 - Ações por mensagem (toque longo), conforme `capabilities`: Responder (citação), Reagir (👍 ❤️ 😊 🙏 e remover), Editar (só enviadas, sem anexos, < 15 min), Apagar (confirmação), Marcar como lida (recebidas), Copiar texto.
 - Composer (só quando assumida; senão mostra "Assuma a conversa para responder"): texto multilinha; **Anexar** (galeria foto/vídeo, câmera, arquivo); **Gravar áudio** (segurar ou tocar para iniciar/parar, até 2 min, prévia, descartar; Android `MediaRecorder` OGG/Opus em API 29+ e AAC/M4A como `audio` abaixo disso; iOS grava Opus em CAF via `AVAudioRecorder` e remuxa para OGG com `OggOpusMuxer`, caindo para M4A/AAC como `audio` se falhar); **Localização** (posição atual do aparelho com permissão, revisão antes de enviar, ou coordenadas manuais); **Contato** (picker do sistema ou nome/telefone manual); **Nota interna** (`note`). Tipo do conteúdo: automático pelo arquivo ou "Enviar como documento". Progresso de upload por arquivo. Pedido pendente guardado (mesma `Idempotency-Key`) com "Tentar novamente"/"Abandonar pedido".
@@ -56,7 +58,16 @@ Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `
   - Durante a chamada: `POST /calls/{id}/keepalive` a cada 20 s; silenciar; viva-voz; cronômetro; **Encerrar** (`terminate`). Estado `unknown` → botão "Confirmar encerramento" (`reconcile` após confirmar no WhatsApp). Sair da tela encerra a chamada.
   - Android: `CallService` em primeiro plano (phoneCall|microphone) e `AudioManager` em modo comunicação; iOS: `CXProvider`/`CXCallController` para a chamada do sistema e `AVAudioSession` `.playAndRecord` `.voiceChat`. Vídeo nunca é oferecido.
 
-### Mais (aba 5)
+### Mais (aba 5) — atendimento e equipe na versão 0.9.0
+
+- **Equipe e conversas internas:** diretório de pessoas e bots com estado Online/Offline, histórico privado e chat dentro do Wabotia. As mensagens internas não passam pelo WhatsApp. O histórico continua acessível quando um contato fica indisponível. Respostas de bots são acompanhadas na própria conversa.
+- **Linhas de atendimento:** escolha equipe humana, bot específico ou configuração do perfil para cada linha; configure menus automáticos, sob demanda ou desligados e a participação no roteador separadamente. Administradores editam; atendentes consultam.
+- **Menus e submenus (administrador):** crie ou edite opções, destino, menu pai, linhas permitidas e exibição automática/sob demanda. Submenus respeitam também o escopo de linhas do pai.
+- **Linhas dos bots (administrador):** autorize todas as linhas, linhas específicas ou nenhuma (somente conversas internas).
+- Na conversa WhatsApp, **Enviar menu** permite chamar o menu principal ou um submenu disponível naquela linha. **Transferir** lista pessoas e bots autorizados para a linha, com presença.
+- Novos atendimentos do roteador alternam números com prioridade à franquia disponível. Conversas existentes permanecem no mesmo número após a franquia, com possível cobrança de serviço. A janela de 24 horas permanece obrigatória; pagar serviço não autoriza texto livre fora dela.
+
+### Mais — conta e dispositivo
 - **Disponibilidade:** interruptor Presente/Ausente (`PUT /presence {present}`), lista da equipe com presença.
 - **Perfil:** trocar de perfil (quando há mais de um). **Notificações:** ligar/desligar (atualiza `enabled` do dispositivo), "Enviar teste" (`POST /devices/{id}/test`), permissão do sistema. **Dispositivo:** nome, versão, estado do registro de push. **Servidor:** endereço, versão (`GET /api/health`), abrir painel no navegador. **Sair:** `DELETE /devices/{id}` → `POST /logout` → limpar sessão (mantém o servidor).
 
@@ -69,3 +80,7 @@ Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `
 ## Compilar
 
 Veja [`docs/MOBILE.md`](../docs/MOBILE.md#4-compilar-os-aplicativos). Resumo: Android `cd android && ./gradlew assembleDebug` (JDK 17, SDK 35; `google-services.json` opcional); iOS `cd ios && xcodegen generate && xcodebuild -scheme Wabotia -destination "generic/platform=iOS" build` (Xcode 16+, `GoogleService-Info.plist` opcional).
+
+## API de linhas e equipe
+
+Clientes 0.9.0 requerem servidor 0.9.0 para os novos recursos. `GET /profiles/{p}/lines` e `PUT /lines/{id}` consultam e configuram atendimento; `GET /menus` e `PUT /settings {menus}` configuram menus; `PATCH /bots/{id} {line_ids}` restringe linhas (`null`: todas, `[]`: somente interno). `GET /team` consulta presença. `GET/POST /internal-chats`, `GET /internal-chats/{id}` e `POST /internal-chats/{id}/messages` mantêm conversas privadas. Todos os caminhos têm o prefixo `/api/v1`. Escritas reutilizam a mesma Idempotency-Key após resposta inconclusiva; erros definitivos liberam a edição.

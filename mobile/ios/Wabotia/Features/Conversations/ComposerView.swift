@@ -8,7 +8,6 @@ import UniformTypeIdentifiers
 struct ComposerView: View {
     @ObservedObject var vm: ConversationViewModel
     @StateObject private var recorder = VoiceRecorder()
-    @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showCamera = false
     @State private var showFiles = false
@@ -53,16 +52,17 @@ struct ComposerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: max(1, 10 - vm.attachments.count), matching: .any(of: [.images, .videos]))
-        .onChange(of: photoItems) { items in
-            guard !items.isEmpty else { return }
-            importing = true
-            Task {
-                for item in items where vm.attachments.count < 10 {
-                    if let a = await AttachmentFactory.from(photoItem: item) { vm.addAttachment(a) }
+        .sheet(isPresented: $showPhotos) {
+            PhotoLibraryPicker(limit: max(1, 10 - vm.attachments.count)) { items in
+                showPhotos = false
+                guard !items.isEmpty else { return }
+                importing = true
+                Task {
+                    for item in items where vm.attachments.count < 10 {
+                        if let a = await AttachmentFactory.from(photoResult: item) { vm.addAttachment(a) }
+                    }
+                    importing = false
                 }
-                photoItems = []
-                importing = false
             }
         }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -91,8 +91,7 @@ struct ComposerView: View {
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             attachMenu
-            TextField(vm.editing != nil ? "Novo texto da mensagem" : "Mensagem", text: $vm.draft, axis: .vertical)
-                .lineLimit(1...6)
+            AppMultilineField(vm.editing != nil ? "Novo texto da mensagem" : "Mensagem", text: $vm.draft, lines: 1...6)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
                 .disabled(vm.composerLocked)

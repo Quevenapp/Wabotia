@@ -85,7 +85,7 @@ struct BotsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(model.bots) { bot in
-                    NavigationLink(value: Route.bot(id: bot.id, conversationId: nil)) {
+                    RouteLink(route: Route.bot(id: bot.id, conversationId: nil)) {
                         BotRowView(bot: bot)
                     }
                 }
@@ -194,11 +194,11 @@ struct BotRunDetailView: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 Section("Pedido") {
                     Text(run.input ?? "").textSelection(.enabled)
-                    LabeledContent("Enviado", value: TicketsSupport.shortDate(run.created))
+                    AppLabeledContent("Enviado", value: TicketsSupport.shortDate(run.created))
                 }
                 Section("Resultado") {
                     BotRunResultView(run: run, profileId: container.profileId ?? "")

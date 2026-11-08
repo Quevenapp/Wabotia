@@ -7,7 +7,7 @@ struct ProfilePickerView: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Group {
                 if let error {
                     EmptyStateView(title: "Não foi possível carregar", systemImage: "exclamationmark.triangle", message: error)

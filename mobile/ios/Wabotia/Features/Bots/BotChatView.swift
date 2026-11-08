@@ -300,7 +300,7 @@ struct BotChatView: View {
                     }
                     .padding(16)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .appScrollDismissesKeyboard()
                 .onChange(of: model.turns) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
@@ -318,8 +318,7 @@ struct BotChatView: View {
     private var composer: some View {
         VStack(spacing: 4) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Pergunte ao bot", text: $model.input, axis: .vertical)
-                    .lineLimit(1...6)
+                AppMultilineField("Pergunte ao bot", text: $model.input, lines: 1...6)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
                     .onChange(of: model.input) { value in

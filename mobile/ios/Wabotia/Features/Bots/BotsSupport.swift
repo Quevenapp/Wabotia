@@ -186,7 +186,7 @@ struct BotAttachmentView: View {
                 if busy {
                     ProgressView()
                 } else if let fileURL {
-                    ShareLink(item: fileURL) {
+                    AppShareLink(item: fileURL) {
                         Label("Compartilhar", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
                     }
                 } else {

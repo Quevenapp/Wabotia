@@ -13,10 +13,18 @@ enum AttachmentFactory {
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"; return f.string(from: Date())
     }
 
-    /// Item do PhotosPicker (foto ou vídeo). HEIC e outros formatos viram JPEG, aceito pela Meta.
-    static func from(photoItem item: PhotosPickerItem) async -> PendingAttachment? {
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
-        let type = item.supportedContentTypes.first
+    /// Item escolhido no seletor do sistema, disponível também no iOS 15.
+    static func from(photoResult result: PHPickerResult) async -> PendingAttachment? {
+        let provider = result.itemProvider
+        guard let identifier = provider.registeredTypeIdentifiers.first(where: {
+            guard let type = UTType($0) else { return false }
+            return type.conforms(to: .image) || type.conforms(to: .movie)
+        }) else { return nil }
+        let data: Data? = await withCheckedContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in continuation.resume(returning: data) }
+        }
+        guard let data else { return nil }
+        let type = UTType(identifier)
         let mime = type?.preferredMIMEType ?? ""
         let ext = type?.preferredFilenameExtension ?? "bin"
         if type?.conforms(to: .image) == true || mime.hasPrefix("image/") {
@@ -200,7 +208,7 @@ struct ManualContactSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     TextField("Nome", text: $name).textContentType(.name)
@@ -292,7 +300,7 @@ struct LocationSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     Button {

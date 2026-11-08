@@ -129,7 +129,7 @@ Coloque o `google-services.json` do projeto Firebase em `mobile/android/app/`. S
 
 ### iOS
 
-Requisitos: macOS com Xcode 16 ou superior e [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). Alvo mínimo iOS 16.
+Requisitos: macOS com Xcode 16 ou superior e [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). Alvo mínimo iOS 15, incluindo iPhone 7. A camada `Core/Compatibility.swift` mantém controles equivalentes para navegação, galerias, compartilhamento e texto multilinha.
 
 ```sh
 cd mobile/ios

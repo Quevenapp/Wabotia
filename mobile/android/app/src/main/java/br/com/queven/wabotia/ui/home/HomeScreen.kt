@@ -34,6 +34,10 @@ fun HomeScreen(
     openTicket: (String) -> Unit,
     openBot: (String) -> Unit,
     openCall: (conversationId: String, callId: String?) -> Unit,
+    openTeam: () -> Unit,
+    openLines: () -> Unit,
+    openMenus: () -> Unit,
+    openBotLines: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(HomeTab.Conversations) }
     Scaffold(
@@ -56,7 +60,7 @@ fun HomeScreen(
             HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation)
             HomeTab.Bots -> BotsScreen(container, modifier, openBot)
             HomeTab.Calls -> CallsScreen(container, modifier, openCall, openConversation)
-            HomeTab.More -> SettingsScreen(container, modifier)
+            HomeTab.More -> SettingsScreen(container, modifier, openTeam, openLines, openMenus, openBotLines)
         }
     }
 }

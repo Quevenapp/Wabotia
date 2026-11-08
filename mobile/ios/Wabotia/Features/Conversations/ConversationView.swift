@@ -12,6 +12,7 @@ struct ConversationView: View {
     @State private var pendingBot: Bot?
     @State private var showTransfer = false
     @State private var showTags = false
+    @State private var showMenu = false
     @State private var showBots = false
     @State private var showSaveContact = false
     @State private var confirmResolve = false
@@ -55,7 +56,7 @@ struct ConversationView: View {
                 vm.stopPolling()
             }
         }
-        .navigationDestination(isPresented: Binding(get: { pushed != nil }, set: { if !$0 { pushed = nil } })) {
+        .appNavigationDestination(isPresented: Binding(get: { pushed != nil }, set: { if !$0 { pushed = nil } })) {
             switch pushed {
             case .newTicket?: NewTicketView(conversationId: conversationId)
             case .call?: CallView(conversationId: conversationId, callId: nil)
@@ -65,6 +66,7 @@ struct ConversationView: View {
         }
         .sheet(isPresented: $showTransfer) { TransferSheet(vm: vm) }
         .sheet(isPresented: $showTags) { TagsSheet(vm: vm) }
+        .sheet(isPresented: $showMenu) { ConversationMenuSheet(vm: vm) }
         .sheet(isPresented: $showBots, onDismiss: {
             if let bot = pendingBot { pendingBot = nil; pushed = .bot(bot.id) }
         }) { BotPickerSheet { bot in pendingBot = bot } }
@@ -167,7 +169,7 @@ struct ConversationView: View {
                     }
                     .padding(12)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .appScrollDismissesKeyboard()
                 .onChange(of: vm.scrollToken) { _ in
                     withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
@@ -238,6 +240,7 @@ struct ConversationView: View {
                 }
                 if vm.isOwned || vm.isAdmin, c.state != "closed" {
                     Button { showTransfer = true } label: { Label("Transferir…", systemImage: "arrow.left.arrow.right") }
+                    Button { showMenu = true } label: { Label("Enviar menu…", systemImage: "list.bullet") }
                 }
                 if vm.isOwned {
                     Button { confirmResume = true } label: { Label("Devolver à IA", systemImage: "cpu") }

@@ -87,7 +87,7 @@ import java.util.Date
  * Assinatura usada por ui/home/HomeScreen.kt; não alterar.
  */
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openTeam: () -> Unit = {}, openLines: () -> Unit = {}, openMenus: () -> Unit = {}, openBotLines: () -> Unit = {}) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
     val context = LocalContext.current
@@ -111,6 +111,17 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
 
     Box(modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
+            item {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    TextButton(onClick = openTeam) { Text("Equipe e conversas internas") }
+                    TextButton(onClick = openLines) { Text("Linhas de atendimento") }
+                    if (container.session.user?.isAdmin == true) {
+                        TextButton(onClick = openMenus) { Text("Menus e submenus") }
+                        TextButton(onClick = openBotLines) { Text("Linhas dos bots") }
+                    }
+                }
+            }
+
             item { AccountHeader(state) }
 
             // --- Disponibilidade ---

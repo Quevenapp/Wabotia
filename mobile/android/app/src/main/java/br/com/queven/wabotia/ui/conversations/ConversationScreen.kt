@@ -70,7 +70,7 @@ import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.push.IncomingCallBus
 import br.com.queven.wabotia.core.push.Notifications
 
-private enum class ConversationSheet { Transfer, Tags, Bots, Policy }
+private enum class ConversationSheet { Transfer, Tags, Bots, Policy, Menu }
 
 /**
  * Tela da conversa (mobile/README.md, seção Conversa): cabeçalho com estado e responsável, menu de ações,
@@ -172,7 +172,8 @@ fun ConversationScreen(
                                 onDismiss = { menuOpen = false },
                                 detail = detail,
                                 vm = vm,
-                                onTransfer = { sheet = ConversationSheet.Transfer },
+                                onTransfer = { vm.loadPresence(); sheet = ConversationSheet.Transfer },
+                                onMenu = { sheet = ConversationSheet.Menu },
                                 onTags = { sheet = ConversationSheet.Tags },
                                 onBots = { vm.loadBots(); sheet = ConversationSheet.Bots },
                                 onPolicy = { sheet = ConversationSheet.Policy },
@@ -234,11 +235,12 @@ fun ConversationScreen(
     if (detail != null && conversation != null) {
         when (sheet) {
             ConversationSheet.Transfer -> TransferSheet(
-                presence = vm.presence,
+                contacts = vm.team.filter { it.kind != "bot" || it.line_ids == null || conversation.connection_id in it.line_ids },
                 meId = vm.meId,
                 onPick = { sheet = null; vm.transfer(it) },
                 onDismiss = { sheet = null },
             )
+            ConversationSheet.Menu -> br.com.queven.wabotia.ui.service.ConversationMenusSheet(container, conversation.connection_id, { sheet = null; vm.sendMenu(it) }, { sheet = null })
             ConversationSheet.Tags -> TagsDialog(
                 current = conversation.tagList(),
                 onSave = { sheet = null; vm.saveTags(it) },
@@ -293,6 +295,7 @@ private fun ConversationMenu(
     detail: ConversationDetail,
     vm: ConversationViewModel,
     onTransfer: () -> Unit,
+    onMenu: () -> Unit,
     onTags: () -> Unit,
     onBots: () -> Unit,
     onPolicy: () -> Unit,
@@ -316,6 +319,9 @@ private fun ConversationMenu(
                 leadingIcon = { Icon(Icons.Filled.SwapHoriz, contentDescription = null) },
                 onClick = { onDismiss(); onTransfer() },
             )
+        }
+        if (own || vm.isAdmin) {
+            DropdownMenuItem(text = { Text("Enviar menu") }, onClick = { onDismiss(); onMenu() })
         }
         if (own) {
             DropdownMenuItem(

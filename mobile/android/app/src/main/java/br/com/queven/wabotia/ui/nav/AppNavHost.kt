@@ -18,6 +18,10 @@ import br.com.queven.wabotia.ui.auth.ServerScreen
 import br.com.queven.wabotia.ui.bots.BotChatScreen
 import br.com.queven.wabotia.ui.conversations.ConversationScreen
 import br.com.queven.wabotia.ui.home.HomeScreen
+import br.com.queven.wabotia.ui.team.TeamScreen
+import br.com.queven.wabotia.ui.service.LinesScreen
+import br.com.queven.wabotia.ui.service.MenusScreen
+import br.com.queven.wabotia.ui.service.BotLinesScreen
 import br.com.queven.wabotia.ui.tickets.NewTicketScreen
 import br.com.queven.wabotia.ui.tickets.TicketScreen
 
@@ -74,8 +78,16 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openTicket = { nav.navigate(Routes.ticket(it)) },
                 openBot = { nav.navigate(Routes.botChat(it)) },
                 openCall = { conversationId, callId -> nav.navigate(Routes.call(conversationId, callId)) },
+                openTeam = { nav.navigate(Routes.TEAM) },
+                openLines = { nav.navigate(Routes.LINES) },
+                openMenus = { nav.navigate(Routes.MENUS) },
+                openBotLines = { nav.navigate(Routes.BOT_LINES) },
             )
         }
+        composable(Routes.TEAM) { TeamScreen(container) { nav.popBackStack() } }
+        composable(Routes.LINES) { LinesScreen(container) { nav.popBackStack() } }
+        composable(Routes.MENUS) { MenusScreen(container) { nav.popBackStack() } }
+        composable(Routes.BOT_LINES) { BotLinesScreen(container) { nav.popBackStack() } }
         composable(Routes.CONVERSATION, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("id") ?: return@composable
             ConversationScreen(

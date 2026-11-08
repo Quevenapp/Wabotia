@@ -105,6 +105,7 @@ import kotlinx.serialization.json.JsonObject
     val attachments: List<String>? = null,
     val content: JsonObject? = null,
     val tags: List<String>? = null,
+    val menu_id: String? = null,
 )
 @Serializable data class ActionResult(val delivery_id: String? = null, val status: String? = null, val id: String? = null)
 @Serializable data class MessageActionRequest(val action: String, val message_id: String, val emoji: String? = null, val text: String? = null)
@@ -132,7 +133,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable data class TicketDetail(val ticket: Ticket, val updates: List<TicketUpdate> = emptyList(), val conversation: JsonObject? = null)
 @Serializable data class TicketCreate(val conversation_id: String, val title: String)
 
-@Serializable data class Bot(val id: String, val profile_id: String = "", val connection_id: String = "", val remote_profile: String = "", val name: String = "", val enabled: Int = 0)
+@Serializable data class Bot(val id: String, val profile_id: String = "", val connection_id: String = "", val remote_profile: String = "", val name: String = "", val enabled: Int = 0, val line_ids: String? = null)
 @Serializable data class BotRunRequest(val profile_id: String, val bot_id: String, val input: String)
 @Serializable data class BotRun(
     val id: String,

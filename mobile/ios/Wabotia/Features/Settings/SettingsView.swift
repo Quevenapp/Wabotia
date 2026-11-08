@@ -15,6 +15,14 @@ struct SettingsView: View {
         List {
             accountSection
             presenceSection
+            Section("Atendimento e equipe") {
+                NavigationLink { TeamView() } label: { Label("Equipe e conversas internas", systemImage: "person.2") }
+                NavigationLink { LinesView() } label: { Label("Linhas de atendimento", systemImage: "phone.connection") }
+                if vm.isAdmin {
+                    NavigationLink { MenusView() } label: { Label("Menus e submenus", systemImage: "list.bullet.indent") }
+                    NavigationLink { BotLinesView() } label: { Label("Linhas dos bots", systemImage: "cpu") }
+                }
+            }
             profileSection
             notificationsSection
             deviceSection
@@ -124,9 +132,9 @@ struct SettingsView: View {
                         Text(profile.name).tag(profile.id)
                     }
                 }
-                .pickerStyle(.navigationLink)
+                .appNavigationPicker()
             } else {
-                LabeledContent("Perfil", value: vm.currentProfileName)
+                AppLabeledContent("Perfil", value: vm.currentProfileName)
             }
             if let error = vm.profilesError {
                 Text(error).font(.footnote).foregroundStyle(.red)
@@ -207,10 +215,10 @@ struct SettingsView: View {
 
     private var deviceSection: some View {
         Section {
-            LabeledContent("Nome", value: vm.deviceName)
-            LabeledContent("Sistema", value: vm.systemVersion)
-            LabeledContent("Versão do app", value: vm.appVersion)
-            LabeledContent("Identificador", value: String(vm.deviceId.prefix(8)))
+            AppLabeledContent("Nome", value: vm.deviceName)
+            AppLabeledContent("Sistema", value: vm.systemVersion)
+            AppLabeledContent("Versão do app", value: vm.appVersion)
+            AppLabeledContent("Identificador", value: String(vm.deviceId.prefix(8)))
             HStack {
                 Text("Registro de push")
                 Spacer()
@@ -248,7 +256,7 @@ struct SettingsView: View {
 
     private var serverSection: some View {
         Section {
-            LabeledContent("Endereço", value: vm.serverURL?.absoluteString ?? "—")
+            AppLabeledContent("Endereço", value: vm.serverURL?.absoluteString ?? "—")
             HStack {
                 Text("Versão")
                 Spacer()

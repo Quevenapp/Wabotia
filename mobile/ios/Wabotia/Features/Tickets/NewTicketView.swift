@@ -24,8 +24,7 @@ struct NewTicketView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Resumo da solicitação", text: $title, axis: .vertical)
-                    .lineLimit(2...5)
+                AppMultilineField("Resumo da solicitação", text: $title, lines: 2...5)
                     .focused($focused)
                     .onChange(of: title) { value in
                         if value.count > Self.titleLimit { title = String(value.prefix(Self.titleLimit)) }
@@ -57,7 +56,7 @@ struct NewTicketView: View {
         }
         .navigationTitle("Novo protocolo")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showCreated) {
+        .appNavigationDestination(isPresented: $showCreated) {
             if let created {
                 TicketView(ticketId: created.id)
             }

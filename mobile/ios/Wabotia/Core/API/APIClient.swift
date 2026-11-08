@@ -9,6 +9,7 @@ struct APIError: LocalizedError, Equatable {
     var errorDescription: String? { message }
     var isUnauthorized: Bool { status == 401 }
     var isIdempotencyConflict: Bool { code == "idempotency_conflict" }
+    var isDefinitiveWriteRejection: Bool { (400..<500).contains(status) && ![408, 429].contains(status) && !["operation_unknown", "idempotency_conflict"].contains(code) }
 
     static func describe(_ error: Error) -> String {
         if let e = error as? APIError { return e.message }

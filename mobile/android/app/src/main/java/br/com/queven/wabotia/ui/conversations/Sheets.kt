@@ -82,25 +82,20 @@ private fun PresenceDot(present: Boolean) {
 
 /** Transferir para outro atendente (GET /presence com presença). */
 @Composable
-internal fun TransferSheet(presence: List<PresenceEntry>, meId: String?, onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    val others = presence.filter { it.actor != meId }.sortedWith(compareByDescending<PresenceEntry> { it.present }.thenBy { it.name.lowercase() })
+internal fun TransferSheet(contacts: List<br.com.queven.wabotia.core.model.TeamContact>, meId: String?, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val others = contacts.filter { it.id != meId }.sortedWith(compareByDescending<br.com.queven.wabotia.core.model.TeamContact> { it.online }.thenBy { it.name.lowercase() })
     ModalBottomSheet(onDismissRequest = onDismiss) {
         SheetTitle("Transferir para")
         if (others.isEmpty()) {
             Text(
-                "Nenhum outro atendente neste perfil.",
+                "Nenhuma pessoa ou bot autorizado para esta linha.",
                 modifier = Modifier.padding(16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
             LazyColumn(Modifier.navigationBarsPadding()) {
-                items(others, key = { it.actor }) { entry ->
-                    ListItem(
-                        headlineContent = { Text(entry.name.ifBlank { entry.actor }) },
-                        supportingContent = { Text(if (entry.present == 1) "Presente" else "Ausente") },
-                        leadingContent = { PresenceDot(entry.present == 1) },
-                        modifier = Modifier.clickable { onPick(entry.actor) },
-                    )
+                items(others, key = { it.id }) { entry ->
+                    br.com.queven.wabotia.ui.team.TeamContactItem(entry, Modifier.clickable { onPick(entry.id) })
                 }
             }
         }

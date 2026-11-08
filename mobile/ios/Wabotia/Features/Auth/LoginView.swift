@@ -12,7 +12,7 @@ struct LoginView: View {
     private var server: URL? { container.session.serverURL }
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     HStack {

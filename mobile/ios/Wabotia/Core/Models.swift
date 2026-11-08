@@ -147,13 +147,14 @@ struct ConversationDetail: Codable {
 }
 
 /// POST /conversations/{id}/actions
-struct ActionRequest: Codable {
+struct ActionRequest: Codable, Equatable {
     var action: String // claim | reply | note | transfer | resolve | resume | tags
     var text: String?
     var target: String?
     var attachments: [String]?
     var content: JSONValue?
     var tags: [String]?
+    var menu_id: String? = nil
 }
 struct MessageActionRequest: Codable { var action: String; var message_id: String; var emoji: String?; var text: String? }
 struct UploadInit: Codable { var name: String; var type: String; var size: Int64 }
@@ -183,7 +184,7 @@ struct TicketUpdate: Codable, Identifiable, Equatable { var id: String; var tick
 struct TicketDetail: Codable { var ticket: Ticket; var updates: [TicketUpdate] = []; var conversation: JSONValue? }
 struct TicketCreate: Codable { var conversation_id: String; var title: String }
 
-struct Bot: Codable, Identifiable, Equatable { var id: String; var profile_id: String = ""; var connection_id: String = ""; var remote_profile: String = ""; var name: String = ""; var enabled: Int? = 0 }
+struct Bot: Codable, Identifiable, Equatable { var id: String; var profile_id: String = ""; var connection_id: String = ""; var remote_profile: String = ""; var name: String = ""; var enabled: Int? = 0; var line_ids: String? }
 struct BotRunRequest: Codable { var profile_id: String; var bot_id: String; var input: String }
 struct BotRun: Codable, Identifiable, Equatable {
     var id: String

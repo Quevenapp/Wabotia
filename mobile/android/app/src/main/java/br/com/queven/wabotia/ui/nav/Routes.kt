@@ -6,6 +6,10 @@ object Routes {
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
     const val HOME = "home" // abas: conversas, protocolos, bots, ligações, mais
+    const val TEAM = "team"
+    const val LINES = "lines"
+    const val MENUS = "menus"
+    const val BOT_LINES = "bot-lines"
     const val CONVERSATION = "conversation/{id}"
     const val TICKET = "ticket/{id}"
     const val TICKET_NEW = "ticket-new/{conversationId}"
