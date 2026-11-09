@@ -1,0 +1,116 @@
+{
+  "date": "2026-11-09T13:09:07.521Z",
+  "environment": "discarded-staging",
+  "version": "0.10.0",
+  "commit": "ba85167da900e087c9c6241c17d452b14996268d",
+  "previous_version": "0.9.0",
+  "preserved": ["profile", "conversation", "ticket", "media"],
+  "external_channels": false,
+  "checks": [
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/:id/conversations/:id",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/:id/tickets/:id",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/:id/media/:media/content",
+      "status": 200,
+      "preserved": true
+    },
+    {
+      "route": "v1/profiles/:id/settings",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/:id/status",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/automatic",
+      "status": 200
+    },
+    {
+      "route": "pairing/start",
+      "status": 201
+    },
+    {
+      "route": "v1/pairings/lookup",
+      "status": 200
+    },
+    {
+      "route": "v1/pairings/:id/approve",
+      "status": 200
+    },
+    {
+      "route": "pairing/token",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/pairings",
+      "status": 403
+    },
+    {
+      "route": "v1/pairings/disconnect",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 401
+    },
+    {
+      "route": "pairing/start",
+      "status": 201
+    },
+    {
+      "route": "v1/pairings/lookup",
+      "status": 200
+    },
+    {
+      "route": "v1/pairings/:id/approve",
+      "status": 200
+    },
+    {
+      "route": "pairing/token",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/pairings",
+      "status": 403
+    },
+    {
+      "route": "v1/pairings/disconnect",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 401
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-09T13:19:25.780Z",
+  "environment": "https://wabotia.queven.com.br",
+  "version": "0.10.0",
+  "commit": "ba85167da900e087c9c6241c17d452b14996268d",
+  "backup_complete": true,
+  "migrations": [
+    "0010_pairing.sql",
+    "0011_auto_updates.sql",
+    "0012_service_destinations.sql",
+    "0013_jev_decisions.sql"
+  ],
+  "preserved_tables": ["users", "profiles", "connections", "bots", "api_keys"],
+  "original_connections_restored": 2,
+  "bindings_preserved": true,
+  "external_messages_sent": false,
+  "checks": [
+    {
+      "route": "/api/health",
+      "status": 200
+    },
+    {
+      "route": "/api/auth/status",
+      "status": 200
+    },
+    {
+      "route": "/api/openapi.json",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    }
+  ],
+  "cloudflare_version_id": "29336128-d80b-4827-a15b-5261614f4d13"
+}

@@ -8,7 +8,7 @@ Revogar no Wabotia interrompe todas as chaves daquele vínculo. **Desconectar** 
 
 ## Implantação coordenada
 
-Aplicar a migração Wabotia `0010_pairing.sql` e atualizar Worker e painel. Os clientes estão preparados nos checkouts locais `D:/Code/wabotia/Vinki-pairing` (branch `sessao/wabotia-pareamento`) e `D:/Code/wabotia/Fagoo-pairing` (branch `codex/wabotia-pareamento`). Nenhum deploy ou release foi realizado.
+O Wabotia `0.10.0` foi publicado em 09/11/2026 na distribuição oficial `wabotia.queven.app` e na instalação operacional `wabotia.queven.com.br`, com as migrações `0010` a `0013`. O upgrade remoto de `0.9.0` preservou os dados existentes e validou aprovação, troca da credencial e revogação dos dois clientes em homologação. Os clientes estão nos checkouts locais `D:/Code/wabotia/Vinki-pairing` e `D:/Code/wabotia/Fagoo-pairing`; cada um exige sua própria implantação.
 
 - Vinki V4: integrar a alteração, aplicar `cloud/loja/migrations/0003_wabotia.sql`, atualizar Worker da loja, gerar `web/local/dist` e recompilar a central com a ponte Rust. A nuvem da loja e sua identidade Ed25519 devem estar configuradas. Ver `docs/contrato/wabotia.md` e `docs/wabotia.md` nesse checkout.
 - Fagoo: integrar a alteração, aplicar `supabase/migrations/202611090001_wabotia_pairing.sql`, atualizar `workers/erp-api` e o frontend. Ver `docs/operations/wabotia.md` nesse checkout e o procedimento próprio de release assinado.
@@ -17,7 +17,7 @@ Os segredos dos clientes são cifrados usando configuração privada já instala
 
 Se a configuração privada mudar e o cliente não conseguir abrir a credencial anterior, a tela mostra **Esquecer conexão local**. Primeiro revogue a aplicação anterior no Wabotia e confirme isso na tela; depois esqueça a configuração e gere outro código. Essa recuperação apaga somente o estado local e não promete revogação remota.
 
-Validação dos clientes: Vinki Worker com D1 real; frontend compilado, 61 testes aprovados e 19 testes que exigem core real pulados. A ponte Rust recebeu revisão estática, sem compilação ou testes por ausência de Cargo/rustc/toolchain WSL neste ambiente. Fagoo validado com Postgres PGlite real, rotas HTTP de autenticação/MFA e verificação TypeScript. Não houve homologação em produção ou envio real.
+Validação dos clientes em 09/11/2026: Vinki Worker com D1 real (56 testes), frontend com núcleo real (80 testes) e Rust sem Quall (95 testes distintos, incluindo sete contra a nuvem local e o pareamento pela FFI). Nenhum desses testes foi pulado. Rust e bibliotecas Android arm64/armv7 foram compilados. Fagoo validado com Postgres PGlite real, rotas HTTP de autenticação/MFA e verificação TypeScript. Os testes não enviaram mensagens por canais reais. A publicação da nuvem de cada loja Vinki depende da identificação dessa instalação; um APK de teste não equivale a uma publicação Android/iOS em produção.
 
 ## API
 

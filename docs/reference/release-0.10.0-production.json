@@ -1,0 +1,61 @@
+{
+  "date": "2026-11-09T13:14:08.499Z",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.10.0",
+  "commit": "ba85167da900e087c9c6241c17d452b14996268d",
+  "package_sha256": "9bff5e6c2ef9e31ef3276578c4e69dd579eebb0dc74505b99063b221132104b5",
+  "package_size": 13331223,
+  "cloudflare_version_id": "3b10a20f-0f62-44ba-95a5-5d74e1b06edf",
+  "migrations": [
+    "0010_pairing.sql",
+    "0011_auto_updates.sql",
+    "0012_service_destinations.sql",
+    "0013_jev_decisions.sql"
+  ],
+  "backup_complete": true,
+  "administrator_initialized": false,
+  "administrator_state_preserved": true,
+  "external_messages_sent": false,
+  "checks": [
+    {
+      "path": "/api/health",
+      "status": 200
+    },
+    {
+      "path": "/releases/latest.json",
+      "status": 200
+    },
+    {
+      "path": "/releases/0.10.0/release.json",
+      "status": 200
+    },
+    {
+      "path": "/releases/0.10.0/package.json",
+      "status": 200
+    },
+    {
+      "path": "/releases/0.9.0/release.json",
+      "status": 200
+    },
+    {
+      "path": "/api/openapi.json",
+      "status": 200
+    },
+    {
+      "path": "/api/auth/status",
+      "status": 200
+    },
+    {
+      "path": "/app",
+      "status": 200
+    },
+    {
+      "path": "/assets/index-BiAA02Jt.js",
+      "status": 200
+    },
+    {
+      "path": "/api/v1/pairings",
+      "status": 401
+    }
+  ]
+}

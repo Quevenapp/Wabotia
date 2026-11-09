@@ -1,8 +1,12 @@
 # Validação e limites
 
-## Revisão local de 09/11/2026: configuração e integrações
+## Publicação 0.10.0 de 09/11/2026: configuração e integrações
 
-Implementação local, ainda sem publicação ou envio real. O painel simplificado e o assistente compartilham as configurações existentes. Foram acrescentados pareamento Vinki/Fagoo por código, atualização automática opcional, menus interativos, destinos por setor, consulta de protocolos por titularidade e interpretação do Atendente antes da decisão JEV.
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `ba85167da900e087c9c6241c17d452b14996268d`. O painel simplificado e o assistente compartilham as configurações existentes. Foram acrescentados pareamento Vinki/Fagoo por código, atualização automática opcional, menus interativos, destinos por setor, consulta de protocolos por titularidade e interpretação do Atendente antes da decisão JEV.
+
+Backups D1/R2 completos foram feitos antes das quatro migrações `0010`–`0013`. Na instalação operacional, os dois canais foram pausados durante a manutenção e restaurados ao estado anterior; o perfil permaneceu desabilitado como já estava. A comparação antes/depois confirmou conteúdo idêntico nas colunas existentes de usuários, perfis, conexões, bots e chaves. Bindings, namespace de Durable Object, banco, bucket, variáveis e nomes dos secrets foram preservados. Nenhuma migração ficou pendente.
+
+Antes de publicar, uma instalação remota descartável executou o pacote oficial `0.9.0`, recebeu dados sintéticos e foi atualizada para o mesmo pacote `0.10.0` publicado. Passaram 26 verificações HTTP: preservação de perfil, conversa, protocolo e arquivo, menus/setores, JEV desligado, configuração de atualização automática e pareamento completo dos dois clientes com revogação e recusa de acesso. Os recursos remotos temporários foram removidos depois. Em produção, versão/commit, catálogo, SHA-256 do pacote e rotas públicas foram conferidos; o catálogo anterior `0.9.0` continua disponível. Não houve envio de mensagens reais. Evidências sanitizadas: [upgrade](reference/release-0.10.0-upgrade.json), [distribuição](reference/release-0.10.0-production.json) e [instalação operacional](reference/release-0.10.0-operational.json).
 
 O roteamento mantém a janela de 24 horas no mesmo número e reserva a franquia atomicamente. Vinki pareado exige `free_only`, inclusive em envios diretos. Avisos podem definir `expires_at`; vencimento durante upload também impede a chamada de envio da mensagem. Os contadores são estimativas, não uma comprovação de gratuidade na fatura Meta.
 
@@ -10,9 +14,9 @@ A interface foi conferida no Chrome em desktop e 390 × 844: pareamento com a co
 
 Validação final do Wabotia: `npm run check` aprovado; `npm test` com **216 testes aprovados em 17 arquivos**; `npm run build` aprovado; `git diff --check` sem erros. O build informa apenas o aviso de tamanho do pacote JavaScript principal (559 kB minificado).
 
-Clientes em checkouts separados: Vinki Worker teve 56 testes aprovados; frontend compilado com 61 testes aprovados e 19 testes que exigem core real pulados. A ponte Rust teve revisão estática, sem compilação por ausência de toolchain. Fagoo teve três testes de pareamento, autenticação/MFA e PostgreSQL aprovados, sete testes de atualizações existentes aprovados e TypeScript aprovado.
+Clientes em checkouts separados: Vinki Worker teve 56 testes aprovados; frontend com núcleo real teve 80 testes aprovados; Rust sem Quall teve 95 testes distintos aprovados, incluindo sete contra a nuvem local e a ponte Wabotia pela FFI. Não houve testes pulados nessas suítes. Rust 1.99.1 e LLVM-MinGW 23.1.5 foram instalados, e as bibliotecas Android arm64/armv7 foram compiladas. Fagoo teve três testes de pareamento, autenticação/MFA e PostgreSQL aprovados, sete testes de atualizações existentes aprovados e TypeScript aprovado; os procedimentos de publicação de cada cliente são independentes.
 
-A publicação exige as migrações Wabotia `0010`–`0013` e a implantação coordenada dos clientes. Consulte [pareamento e implantação](PAREAMENTO.md), [menus e protocolos](MENUS-PROTOCOLOS.md), [JEV](JEV.md) e [atualizações automáticas](ATUALIZACOES.md). As evidências abaixo são históricas das versões indicadas.
+As migrações Wabotia `0010`–`0013` já foram aplicadas nos dois destinos acima. Consulte [pareamento e implantação dos clientes](PAREAMENTO.md), [menus e protocolos](MENUS-PROTOCOLOS.md), [JEV](JEV.md) e [atualizações automáticas](ATUALIZACOES.md). As evidências abaixo são históricas das versões indicadas.
 
 ## Revisão 0.9.0: rodízio, atendimento por linha e equipe interna
 
@@ -93,22 +97,22 @@ Atualizado em 05/11/2026. A implementação é uma versão inicial de código ab
 
 ## O que foi verificado
 
-| Área | Evidência | Resultado |
-|---|---|---|
-| Runtime | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd | 50 testes passam; provedores externos simulados |
-| API remota | `scripts/smoke.mjs` contra Worker de staging | 20 verificações HTTP, dados fictícios; sem canal conectado |
-| Credenciais | Testes de hash, criptografia, expiração e revogação | Chaves inválidas recusadas; credenciais não ficam no frontend |
-| Autorizações | Testes de perfis, bots e namespaces de aplicações | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
-| Consistência | Idempotência/conflito, inbox/outbox, limites, época da conversa e recibos | Repetições deduplicadas; tomada humana invalida resposta antiga |
-| Bots | API assíncrona simulada, cancelamento, confirmação perdida e recuperação | Sem execução automática adicional após resultado ambíguo |
-| Arquivos de bots | Download único, R2 recuperável e isolamento de ator | Não repete download ambíguo nem libera arquivo para outra aplicação |
-| Conhecimento | Texto, importação e pesquisa FTS em testes | Base consultável; importação depende de conteúdo e acesso da fonte |
-| Webhooks | HMAC, retry e permissões testados com HTTP simulado | Eventos mantêm IDs estáveis; destinatário precisa deduplicar |
-| Clientes de exemplo | JavaScript, Python e cURL contra staging | Criam conversa, assumem, respondem e abrem protocolo; bot real não executado |
-| Backup e restauração | D1 e R2 remotos em destino novo/vazio | Contagens, FTS e mídia por SHA-256 conferidos; banco preenchido recusado |
-| Transporte Hermes | 3 testes Python | Diário e recibos; sem gateway/canal real conectado |
-| Interface | Chrome desktop e viewport 390 × 844 | Landing, painel, formulários e navegação móvel revisados |
-| Repositório | Quevenapp/Wabotia público, MIT | Actions desativado antes do primeiro push; sem workflows |
+| Área                 | Evidência                                                                 | Resultado                                                                         |
+| -------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Runtime              | Vitest com `@cloudflare/vitest-plugin`, D1/R2/DO em workerd               | 50 testes passam; provedores externos simulados                                   |
+| API remota           | `scripts/smoke.mjs` contra Worker de staging                              | 20 verificações HTTP, dados fictícios; sem canal conectado                        |
+| Credenciais          | Testes de hash, criptografia, expiração e revogação                       | Chaves inválidas recusadas; credenciais não ficam no frontend                     |
+| Autorizações         | Testes de perfis, bots e namespaces de aplicações                         | Aplicações não escolhem identidade nem acessam conversas externas umas das outras |
+| Consistência         | Idempotência/conflito, inbox/outbox, limites, época da conversa e recibos | Repetições deduplicadas; tomada humana invalida resposta antiga                   |
+| Bots                 | API assíncrona simulada, cancelamento, confirmação perdida e recuperação  | Sem execução automática adicional após resultado ambíguo                          |
+| Arquivos de bots     | Download único, R2 recuperável e isolamento de ator                       | Não repete download ambíguo nem libera arquivo para outra aplicação               |
+| Conhecimento         | Texto, importação e pesquisa FTS em testes                                | Base consultável; importação depende de conteúdo e acesso da fonte                |
+| Webhooks             | HMAC, retry e permissões testados com HTTP simulado                       | Eventos mantêm IDs estáveis; destinatário precisa deduplicar                      |
+| Clientes de exemplo  | JavaScript, Python e cURL contra staging                                  | Criam conversa, assumem, respondem e abrem protocolo; bot real não executado      |
+| Backup e restauração | D1 e R2 remotos em destino novo/vazio                                     | Contagens, FTS e mídia por SHA-256 conferidos; banco preenchido recusado          |
+| Transporte Hermes    | 3 testes Python                                                           | Diário e recibos; sem gateway/canal real conectado                                |
+| Interface            | Chrome desktop e viewport 390 × 844                                       | Landing, painel, formulários e navegação móvel revisados                          |
+| Repositório          | Quevenapp/Wabotia público, MIT                                            | Actions desativado antes do primeiro push; sem workflows                          |
 
 Resultados remotos sanitizados: [API](reference/live-validation.json), [exemplos](reference/examples-validation.json) e [restauração](reference/restore-validation.json). Os arquivos não contêm chaves nem dados de clientes.
 
@@ -118,18 +122,18 @@ O site e o guia estão publicados em https://wabotia.queven.app. Desde 0.3, nova
 
 Use staging, perfis e destinatários autorizados. Registre versão do Hermes, versão do conector, data e resultado. Uma linha só está concluída depois de executar o teste no serviço real.
 
-| Cenário | Ainda requer teste real |
-|---|---|
-| Hermes nativo e Docker | Descoberta, cada chave de perfil, run/stop, reconexão, áudio, imagem e exportação de artefato |
-| Tunnel + Access | Service Auth nos dois hostnames, renovação do serviço, reinício do host, recusa sem credenciais |
-| Meta direto | Webhook/assinatura, mensagem e anexo, janela 24h, consentimento/template UTILITY |
-| QR direto | Pareamento Baileys, entrada/saída, anexo, reinício mantendo sessão, confirmação perdida |
-| Meta/QR pelo Hermes | Extensão exclusiva compatível, spool/replay, isolamento de perfil, ausência de dupla resposta |
-| Telegram direto | Bot dedicado, grupo privado/tópicos, vínculo de IDs, presença, comandos, notas e anexos |
-| Tomada humana | Assumir durante inferência; nenhuma resposta obsoleta; transferência com mensagens pendentes |
-| Indisponibilidade | Desligar Hermes/túnel/QR e restaurar; painel continua acessível; pendências conferidas |
-| Integração externa | Entrega HMAC a endpoint do integrador, duplicata após timeout, retry manual e limites na carga prevista |
-| Troca de modo do número | Pausa, reconciliação, ativação do novo consumidor, retomada sem duplicidade |
+| Cenário                 | Ainda requer teste real                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| Hermes nativo e Docker  | Descoberta, cada chave de perfil, run/stop, reconexão, áudio, imagem e exportação de artefato           |
+| Tunnel + Access         | Service Auth nos dois hostnames, renovação do serviço, reinício do host, recusa sem credenciais         |
+| Meta direto             | Webhook/assinatura, mensagem e anexo, janela 24h, consentimento/template UTILITY                        |
+| QR direto               | Pareamento Baileys, entrada/saída, anexo, reinício mantendo sessão, confirmação perdida                 |
+| Meta/QR pelo Hermes     | Extensão exclusiva compatível, spool/replay, isolamento de perfil, ausência de dupla resposta           |
+| Telegram direto         | Bot dedicado, grupo privado/tópicos, vínculo de IDs, presença, comandos, notas e anexos                 |
+| Tomada humana           | Assumir durante inferência; nenhuma resposta obsoleta; transferência com mensagens pendentes            |
+| Indisponibilidade       | Desligar Hermes/túnel/QR e restaurar; painel continua acessível; pendências conferidas                  |
+| Integração externa      | Entrega HMAC a endpoint do integrador, duplicata após timeout, retry manual e limites na carga prevista |
+| Troca de modo do número | Pausa, reconciliação, ativação do novo consumidor, retomada sem duplicidade                             |
 
 ## Limites que precisam ser considerados
 
@@ -169,7 +173,6 @@ A atualização 0.2.0 foi publicada em uma instalação existente pelo Cloudflar
 0.2.1 ajusta o autocomplete dos campos de credenciais da manutenção para evitar que o gerenciador do navegador os confunda com o login do painel.
 
 0.2.2 corrige o modo de redirecionamento da consulta ao GitHub para o valor suportado por Workers. O teste passou a validar as opções de Request no próprio workerd e reproduziu a falha antes da correção. Um teste adicional recusa redirecionamentos sem guardar uma versão. O script também aceita recuperação manual por SHA completo, com as mesmas verificações de origem oficial e preservação dos recursos; três testes Node passam. 0.2.3 documenta essa recuperação no site e no PDF.
-
 
 ## Instalação direta 0.3.0
 
