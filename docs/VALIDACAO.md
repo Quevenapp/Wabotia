@@ -16,7 +16,7 @@ Validação final do Wabotia: `npm run check` aprovado; `npm test` com **216 tes
 
 Clientes em checkouts separados: Vinki Worker teve 56 testes aprovados; frontend com núcleo real teve 80 testes aprovados; Rust sem Quall teve 95 testes distintos aprovados, incluindo sete contra a nuvem local e a ponte Wabotia pela FFI. Não houve testes pulados nessas suítes. Rust 1.99.1 e LLVM-MinGW 23.1.5 foram instalados, e as bibliotecas Android arm64/armv7 foram compiladas. Fagoo teve três testes de pareamento, autenticação/MFA e PostgreSQL aprovados, sete testes de atualizações existentes aprovados e TypeScript aprovado; os procedimentos de publicação de cada cliente são independentes.
 
-As migrações Wabotia `0010`–`0013` já foram aplicadas nos dois destinos acima. Consulte [pareamento e implantação dos clientes](PAREAMENTO.md), [menus e protocolos](MENUS-PROTOCOLOS.md), [JEV](JEV.md) e [atualizações automáticas](ATUALIZACOES.md). As evidências abaixo são históricas das versões indicadas.
+As migrações Wabotia `0010`–`0013` já foram aplicadas nos dois destinos acima. A nuvem Vinki foi publicada em `vinki.queven.com.br` com as migrações `0001`–`0003`; cinco verificações HTTP passaram e o vínculo com o aparelho central permanece por configurar. O Fagoo `v0.3.1` foi publicado como release assinada e instalado em `demo.fagoo.com.br` pelo atualizador oficial, com backup, estado final `succeeded/complete`, serviços saudáveis e nova rota de pareamento administrativa funcional. Consulte [pareamento e implantação dos clientes](PAREAMENTO.md), [menus e protocolos](MENUS-PROTOCOLOS.md), [JEV](JEV.md) e [atualizações automáticas](ATUALIZACOES.md). As evidências abaixo são históricas das versões indicadas.
 
 ## Revisão 0.9.0: rodízio, atendimento por linha e equipe interna
 
