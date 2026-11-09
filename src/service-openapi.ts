@@ -34,10 +34,41 @@ export const serviceSchemas = {
     properties: {
       id,
       label: { type: "string", minLength: 1, maxLength: 100 },
-      type: { enum: ["human", "bot", "app", "submenu"] },
+      type: {
+        enum: [
+          "human",
+          "bot",
+          "app",
+          "submenu",
+          "link",
+          "content",
+          "protocols",
+          "survey",
+        ],
+      },
       parent_id: { type: ["string", "null"] },
       bot_id: id,
       app_id: id,
+      department_id: {
+        type: ["string", "null"],
+        description: "Setor humano. Sem setor, encaminha para a fila geral.",
+      },
+      url: {
+        type: "string",
+        format: "uri",
+        description: "Endereço público HTTPS para destino link.",
+      },
+      content: {
+        type: "string",
+        maxLength: 3500,
+        description:
+          "Mensagem do destino content (obrigatória) ou texto do link (até3000).",
+      },
+      question: {
+        type: "string",
+        maxLength: 300,
+        description: "Pergunta opcional da avaliação de 1 a 5.",
+      },
       enabled: { type: "boolean" },
       line_ids: {
         ...lineIds,
@@ -49,13 +80,34 @@ export const serviceSchemas = {
   },
   MenuSettings: {
     type: "object",
-    required: ["menus"],
     properties: {
       menus: {
         type: "array",
         maxItems: 200,
         items: { $ref: "#/components/schemas/MenuItem" },
       },
+      departments: {
+        type: "array",
+        maxItems: 100,
+        items: { $ref: "#/components/schemas/ServiceDepartment" },
+      },
+      protocol_response_hours: {
+        type: ["number", "null"],
+        exclusiveMinimum: 0,
+        maximum: 8760,
+      },
+      surveys_enabled: { type: "boolean" },
+      jev_enabled: { type: "boolean" },
+    },
+  },
+  ServiceDepartment: {
+    type: "object",
+    required: ["id", "name", "members"],
+    properties: {
+      id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" },
+      name: { type: "string", minLength: 1, maxLength: 100 },
+      members: { type: "array", maxItems: 100, uniqueItems: true, items: id },
+      enabled: { type: "boolean", default: true },
     },
   },
   BotLineUpdate: {

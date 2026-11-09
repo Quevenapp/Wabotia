@@ -1,4 +1,18 @@
-# Validação e limites da versão 0.9.0
+# Validação e limites
+
+## Revisão local de 09/11/2026: configuração e integrações
+
+Implementação local, ainda sem publicação ou envio real. O painel simplificado e o assistente compartilham as configurações existentes. Foram acrescentados pareamento Vinki/Fagoo por código, atualização automática opcional, menus interativos, destinos por setor, consulta de protocolos por titularidade e interpretação do Atendente antes da decisão JEV.
+
+O roteamento mantém a janela de 24 horas no mesmo número e reserva a franquia atomicamente. Vinki pareado exige `free_only`, inclusive em envios diretos. Avisos podem definir `expires_at`; vencimento durante upload também impede a chamada de envio da mensagem. Os contadores são estimativas, não uma comprovação de gratuidade na fatura Meta.
+
+A interface foi conferida no Chrome em desktop e 390 × 844: pareamento com a configuração manual recolhida, horários de atualização automática, destinos de menus e setores. Nenhum erro de console foi registrado. Os testes de backend usam D1/R2/Durable Objects reais em workerd e respostas simuladas dos provedores; não homologam as contas externas.
+
+Validação final do Wabotia: `npm run check` aprovado; `npm test` com **216 testes aprovados em 17 arquivos**; `npm run build` aprovado; `git diff --check` sem erros. O build informa apenas o aviso de tamanho do pacote JavaScript principal (559 kB minificado).
+
+Clientes em checkouts separados: Vinki Worker teve 56 testes aprovados; frontend compilado com 61 testes aprovados e 19 testes que exigem core real pulados. A ponte Rust teve revisão estática, sem compilação por ausência de toolchain. Fagoo teve três testes de pareamento, autenticação/MFA e PostgreSQL aprovados, sete testes de atualizações existentes aprovados e TypeScript aprovado.
+
+A publicação exige as migrações Wabotia `0010`–`0013` e a implantação coordenada dos clientes. Consulte [pareamento e implantação](PAREAMENTO.md), [menus e protocolos](MENUS-PROTOCOLOS.md), [JEV](JEV.md) e [atualizações automáticas](ATUALIZACOES.md). As evidências abaixo são históricas das versões indicadas.
 
 ## Revisão 0.9.0: rodízio, atendimento por linha e equipe interna
 

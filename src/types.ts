@@ -35,6 +35,10 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  department_id?: string | null;
+  menu_expires_at?: number | null;
+  menu_token?: string | null;
+  menu_items?: string;
   assigned_bot_id?: string | null;
   menu_active?: number;
   menu_manual?: number;
@@ -111,6 +115,7 @@ export const defaults = {
   names: {},
   team: [],
   capabilities: [],
+  departments: [],
   menus: [],
   apps: [],
   surveys_enabled: false,

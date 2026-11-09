@@ -403,6 +403,7 @@ export function MenusPanel(props: Props) {
     [lines, setLines] = useState<Row[]>(props.demo ? demoLines : []),
     [bots, setBots] = useState<Row[]>(props.demo ? demoBots : []),
     [apps, setApps] = useState<Row[]>([]),
+    [departments, setDepartments] = useState<Row[]>([]),
     [draft, setDraft] = useState<Row | null>(null);
   const state = useWrite(props);
   async function load() {
@@ -417,6 +418,7 @@ export function MenusPanel(props: Props) {
     setLines(l.data);
     setBots(b.data);
     setApps(status.settings?.apps || []);
+    setDepartments(status.settings?.departments || []);
   }
   useEffect(() => {
     load().catch((e) => state.setError(e.message));
@@ -473,9 +475,10 @@ export function MenusPanel(props: Props) {
           </button>
         </div>
         <p>
-          Configure as opções que o cliente pode digitar, suas linhas e o
-          momento de apresentação. As restrições da linha e do menu pai também
-          se aplicam aos submenus.
+          Crie caminhos para conteúdo, links, bots, setores, protocolos e
+          avaliações. Na API Meta, até três opções curtas viram botões e até dez
+          viram uma lista. Nos demais casos, o cliente recebe opções numeradas.
+          As permissões da linha e dos menus pais continuam valendo.
         </p>
         <Feedback {...state} />
       </div>
@@ -536,9 +539,92 @@ export function MenusPanel(props: Props) {
                   <option value="bot">Bot</option>
                   <option value="submenu">Submenu</option>
                   <option value="app">Aplicativo</option>
+                  <option value="link">Conteúdo com link</option>
+                  <option value="content">Mensagem informativa</option>
+                  <option value="protocols">Consultar protocolos</option>
+                  <option value="survey">Avaliar atendimento</option>
                 </select>
               </label>
             </div>
+            {draft.type === "human" && (
+              <label>
+                Setor responsável
+                <select
+                  value={draft.department_id || ""}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      department_id: e.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">Fila geral da equipe</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                      {department.enabled === false ? " · desativado" : ""}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  Somente pessoas do setor ou administradores podem assumir. Sem
+                  membros disponíveis, é aberto um protocolo. Cadastre os
+                  setores abaixo.
+                </small>
+              </label>
+            )}
+            {["link", "content"].includes(draft.type) && (
+              <label>
+                {draft.type === "link"
+                  ? "Texto que acompanha o link (opcional)"
+                  : "Conteúdo da resposta"}
+                <textarea
+                  required={draft.type === "content"}
+                  maxLength={draft.type === "link" ? 3000 : 3500}
+                  value={draft.content || ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, content: e.target.value })
+                  }
+                />
+              </label>
+            )}
+            {draft.type === "link" && (
+              <label>
+                Link do conteúdo
+                <input
+                  required
+                  type="url"
+                  placeholder="https://seusistema.com/ajuda"
+                  value={draft.url || ""}
+                  onChange={(e) => setDraft({ ...draft, url: e.target.value })}
+                />
+              </label>
+            )}
+            {draft.type === "protocols" && (
+              <p>
+                A opção reconhece os protocolos do telefone do cliente neste
+                perfil, inclusive em outras linhas. Depois, o cliente pode
+                digitar o número completo para consultar um protocolo
+                específico.
+              </p>
+            )}
+            {draft.type === "survey" && (
+              <label>
+                Pergunta da avaliação (opcional)
+                <input
+                  maxLength={300}
+                  placeholder="Como você avalia este atendimento?"
+                  value={draft.question || ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, question: e.target.value })
+                  }
+                />
+                <small>
+                  O cliente responde de 1 a 5, com comentário opcional. Enviar
+                  MENU sai da avaliação.
+                </small>
+              </label>
+            )}
             {draft.type === "bot" && (
               <label>
                 Bot
@@ -652,6 +738,23 @@ export function MenusPanel(props: Props) {
                 · {m.enabled ? "Habilitado" : "Desabilitado"}
               </small>
               <small>
+                {m.type === "human"
+                  ? m.department_id
+                    ? `Setor: ${departments.find((d) => d.id === m.department_id)?.name || "indisponível"}`
+                    : "Fila geral"
+                  : (
+                      {
+                        bot: "Bot especialista",
+                        app: "Aplicativo",
+                        link: "Link",
+                        content: "Conteúdo",
+                        protocols: "Consulta de protocolos",
+                        survey: "Avaliação",
+                        submenu: "Submenu",
+                      } as Row
+                    )[m.type]}
+              </small>
+              <small>
                 {m.line_ids?.length
                   ? m.line_ids
                       .map(
@@ -672,7 +775,184 @@ export function MenusPanel(props: Props) {
           </p>
         )}
       </section>
+      <DepartmentsEditor {...props} saved={load} />
     </div>
+  );
+}
+
+function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
+  const state = useWrite(props);
+  const [departments, setDepartments] = useState<Row[]>([]),
+    [people, setPeople] = useState<Row[]>([]),
+    [draft, setDraft] = useState<Row | null>(null);
+  async function load() {
+    if (props.demo) {
+      setPeople([{ id: "demo-user", name: "Administrador", role: "admin" }]);
+      return;
+    }
+    const [status, users] = await Promise.all([
+      props.api(props.root + "/status"),
+      props.api("v1/users"),
+    ]);
+    const profile = props.root.split("/").at(-1);
+    setDepartments(status.settings?.departments || []);
+    setPeople(
+      (Array.isArray(users) ? users : users.data || []).filter(
+        (user: Row) =>
+          !user.disabled &&
+          (user.role === "admin" || parse(user.profiles, []).includes(profile)),
+      ),
+    );
+  }
+  useEffect(() => {
+    load().catch((e) => state.setError(e.message));
+  }, [props.root]);
+  async function save() {
+    if (!draft) return;
+    const latest = props.demo
+      ? departments
+      : (await props.api(props.root + "/status")).settings?.departments || [];
+    const next = latest.some((item: Row) => item.id === draft.id)
+      ? latest.map((item: Row) => (item.id === draft.id ? draft : item))
+      : [...latest, draft];
+    if (await state.write("/settings", "PUT", { departments: next })) {
+      setDraft(null);
+      await load();
+      await props.saved();
+    }
+  }
+  return (
+    <section className="card">
+      <div className="section-heading">
+        <h2>Setores de atendimento</h2>
+        <button
+          onClick={() =>
+            setDraft({
+              id: crypto.randomUUID(),
+              name: "",
+              members: [],
+              enabled: true,
+            })
+          }
+        >
+          Adicionar setor
+        </button>
+      </div>
+      <p>
+        Monte filas como Financeiro, Comercial e Suporte. A disponibilidade é a
+        mesma informada pela equipe; somente membros do setor ou administradores
+        podem assumir e responder.
+      </p>
+      <Feedback {...state} />
+      {draft && (
+        <form
+          className="service-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save().catch((err) => state.setError(err.message));
+          }}
+        >
+          <label>
+            Nome do setor
+            <input
+              required
+              maxLength={100}
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+          </label>
+          <fieldset>
+            <legend>Pessoas que atendem este setor</legend>
+            {draft.members
+              .filter(
+                (id: string) => !people.some((person) => person.id === id),
+              )
+              .map((id: string) => (
+                <div className="check-line" key={id}>
+                  <span>Pessoa sem acesso ativo a este perfil</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        members: draft.members.filter(
+                          (member: string) => member !== id,
+                        ),
+                      })
+                    }
+                  >
+                    Remover do setor
+                  </button>
+                </div>
+              ))}
+            {people.map((person) => (
+              <label className="check-line" key={person.id}>
+                <input
+                  type="checkbox"
+                  checked={draft.members.includes(person.id)}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      members: e.target.checked
+                        ? [...draft.members, person.id]
+                        : draft.members.filter(
+                            (id: string) => id !== person.id,
+                          ),
+                    })
+                  }
+                />
+                {person.name}
+              </label>
+            ))}
+            {!people.length && (
+              <p>
+                Cadastre pessoas em Equipe → Pessoas e acessos, com acesso a
+                este perfil.
+              </p>
+            )}
+          </fieldset>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={draft.enabled !== false}
+              onChange={(e) =>
+                setDraft({ ...draft, enabled: e.target.checked })
+              }
+            />
+            Setor habilitado
+          </label>
+          <div className="card-actions">
+            <button className="primary" disabled={state.busy}>
+              Salvar setor
+            </button>
+            <button type="button" onClick={() => setDraft(null)}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+      {departments.map((department) => (
+        <div className="service-menu-row" key={department.id}>
+          <div>
+            <strong>{department.name}</strong>
+            <small>
+              {department.members.length} pessoa(s) ·{" "}
+              {department.enabled === false ? "Desativado" : "Habilitado"}
+            </small>
+          </div>
+          <button
+            onClick={() =>
+              setDraft({ ...department, members: [...department.members] })
+            }
+          >
+            Editar setor
+          </button>
+        </div>
+      ))}
+      {!departments.length && (
+        <p>Sem setores cadastrados, os encaminhamentos usam a fila geral.</p>
+      )}
+    </section>
   );
 }
 
@@ -683,11 +963,18 @@ export function ConversationMenu({
 }: Props & { conversation: Row; refresh: () => Promise<any> }) {
   const [menus, setMenus] = useState<Row[]>([]),
     [open, setOpen] = useState(false),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(""),
+    [departments, setDepartments] = useState<Row[]>([]),
+    [department, setDepartment] = useState(""),
+    [protocol, setProtocol] = useState("");
   const state = useWrite(props);
   async function show() {
     setOpen(true);
     try {
+      if (!props.demo)
+        setDepartments(
+          (await props.api(props.root + "/status")).settings?.departments || [],
+        );
       setMenus(
         props.demo
           ? demoMenus
@@ -739,8 +1026,8 @@ export function ConversationMenu({
             </select>
           </label>
           <small>
-            O cliente poderá digitar uma opção. A janela de 24 horas e as
-            permissões desta linha continuam valendo.
+            O cliente poderá tocar ou digitar uma opção. A janela de 24 horas e
+            as permissões desta linha continuam valendo.
           </small>
           <div className="card-actions">
             <button className="primary" disabled={state.busy}>
@@ -755,6 +1042,107 @@ export function ConversationMenu({
             </button>
           </div>
         </form>
+      )}
+      {conversation.chat_type !== "group" && (
+        <details>
+          <summary>Protocolos, avaliação e setores</summary>
+          <label>
+            Número do protocolo (opcional)
+            <input
+              value={protocol}
+              onChange={(e) => setProtocol(e.target.value)}
+              placeholder="Em branco: protocolos do telefone"
+            />
+          </label>
+          <div className="card-actions">
+            <button
+              disabled={state.busy}
+              onClick={async () => {
+                if (
+                  await state.write(
+                    `/conversations/${conversation.id}/actions`,
+                    "POST",
+                    {
+                      action: "protocols",
+                      number: protocol.trim() || undefined,
+                    },
+                  )
+                )
+                  await refresh();
+              }}
+            >
+              Enviar consulta ao cliente
+            </button>
+            <button
+              disabled={state.busy}
+              onClick={async () => {
+                if (
+                  await state.write(
+                    `/conversations/${conversation.id}/actions`,
+                    "POST",
+                    { action: "survey" },
+                  )
+                )
+                  await refresh();
+              }}
+            >
+              Pedir avaliação
+            </button>
+            <button
+              disabled={state.busy}
+              onClick={async () => {
+                try {
+                  setDepartments(
+                    props.demo
+                      ? []
+                      : (await props.api(props.root + "/status")).settings
+                          ?.departments || [],
+                  );
+                } catch (e: any) {
+                  state.setError(e.message);
+                }
+              }}
+            >
+              Carregar setores
+            </button>
+          </div>
+          {departments.length > 0 && (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (
+                  await state.write(
+                    `/conversations/${conversation.id}/actions`,
+                    "POST",
+                    { action: "transfer", department_id: department },
+                  )
+                )
+                  await refresh();
+              }}
+            >
+              <label>
+                Encaminhar para setor
+                <select
+                  required
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                >
+                  <option value="">Selecione o setor</option>
+                  {departments
+                    .filter((d) => d.enabled !== false)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button disabled={state.busy}>
+                Encaminhar para a fila do setor
+              </button>
+            </form>
+          )}
+        </details>
       )}
       <Feedback {...state} />
     </div>

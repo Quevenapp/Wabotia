@@ -460,10 +460,17 @@ export async function metaSend(
   to: string,
   payload: any,
   template = false,
+  expiresAt?: number,
 ) {
   const keys = await metaCredentials(env, c),
     cfg = json(c.config);
   const body: any = { messaging_product: "whatsapp", to, ...payload };
+  if (typeof expiresAt === "number" && expiresAt <= now())
+    throw new ApiError(
+      410,
+      "message_expired",
+      "Validade da mensagem encerrada antes do envio.",
+    );
   const r = await safeFetch(
     `https://graph.facebook.com/v23.0/${cfg.phone_id}/messages`,
     {
@@ -558,14 +565,21 @@ export async function metaMedia(
   if (["document", "image", "video"].includes(type) && payload.text)
     details.caption = payload.text;
   if (kind === "voice") details.voice = true;
-  return metaSend(env, c, to, {
-    type,
-    [type]: details,
-    ...(group ? { recipient_type: "group" } : {}),
-    ...(payload.content?.reply_external_id
-      ? { context: { message_id: payload.content.reply_external_id } }
-      : {}),
-  });
+  return metaSend(
+    env,
+    c,
+    to,
+    {
+      type,
+      [type]: details,
+      ...(group ? { recipient_type: "group" } : {}),
+      ...(payload.content?.reply_external_id
+        ? { context: { message_id: payload.content.reply_external_id } }
+        : {}),
+    },
+    false,
+    payload.expires_at,
+  );
 }
 export async function metaContent(
   env: Env,
@@ -604,6 +618,14 @@ export async function metaContent(
         body: { text: payload.text },
       },
     };
+  if (kind === "interactive" && !group) {
+    requireValue(
+      content.interactive &&
+        ["button", "list"].includes(content.interactive.type),
+      "Menu interativo inválido.",
+    );
+    body = { type: "interactive", interactive: content.interactive };
+  }
   if (kind === "read") {
     await metaRequest(env, c, `${json(c.config).phone_id}/messages`, "POST", {
       messaging_product: "whatsapp",
@@ -615,7 +637,7 @@ export async function metaContent(
   if (content.reply_external_id)
     body.context = { message_id: content.reply_external_id };
   if (group) body.recipient_type = "group";
-  return metaSend(env, c, to, body);
+  return metaSend(env, c, to, body, false, payload.expires_at);
 }
 export async function templatePayload(
   env: Env,

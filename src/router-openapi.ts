@@ -6,6 +6,11 @@ const sources = {
   ],
 };
 const sourceProperties = {
+  expires_at: {
+    type: "integer",
+    description:
+      "Opcional: validade em milissegundos Unix, posterior ao pedido e no máximo 24 horas adiante. A entrega é cancelada se vencer na fila; omitir preserva o comportamento anterior.",
+  },
   number_id: {
     ...id,
     description: "ID Wabotia do número, não o Phone Number ID da Meta.",
@@ -54,6 +59,12 @@ export const routerSchemas = {
         type: "boolean",
         description: "Respostas sem template dentro da janela de 24h.",
       },
+      service_overage: {
+        type: "boolean",
+        default: true,
+        description:
+          "False ativa Somente franquia gratuita: reservas de serviço são admitidas atomicamente até a franquia local. Saldo local não garante fatura sem cobrança. Omitir preserva a opção salva; linhas sem opção salva permitem excedente por compatibilidade.",
+      },
       templates: {
         type: "boolean",
         description:
@@ -89,11 +100,11 @@ export const routerSchemas = {
   RouterUsage: {
     type: "object",
     description:
-      "Estimativa de uso e franquia; não é uma fatura Meta nem limite de envio. Uso inclui o histórico inicial, entregas e reservas. O serviço continua pago no mesmo número após a franquia. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
+      "Estimativa de uso e franquia; não é uma fatura Meta. Uso inclui o histórico inicial, entregas e reservas. service_overage_allowed=false bloqueia excedentes de serviço pelo contador conservador. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
     properties: Object.fromEntries([
       ["period", { type: "string", example: "2026-11" }],
       ["timezone", { type: "string", example: "America/Sao_Paulo" }],
-      ["service_overage_allowed", { type: "boolean", const: true }],
+      ["service_overage_allowed", { type: "boolean" }],
       ...[
         "limit",
         "baseline",
@@ -144,7 +155,7 @@ export const routerSchemas = {
             strategy: {
               const: "round_robin",
               description:
-                "Rodízio com prioridade aos números com franquia gratuita; continua com serviço pago quando todos esgotarem.",
+                "Rodízio com prioridade aos números com franquia gratuita. Linhas sem saldo que proíbem excedente saem da seleção; as demais podem continuar com serviço pago.",
             },
             enabled: { type: "integer" },
             allow_paid: { type: "integer" },
@@ -181,9 +192,15 @@ export const routerSchemas = {
     ...sources,
     not: { required: ["template"] },
     description:
-      "Janela real de 24 horas aberta neste mesmo número. O serviço continua com cobrança após a franquia gratuita, sem trocar remetente ou converter em template. Serviço pago não exige routing:paid/allow_paid, que se aplicam somente a templates. A janela vencida continua bloqueando texto livre. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
+      "Janela real de 24 horas aberta neste mesmo número. Se free_only=true ou service_overage=false, saldo esgotado retorna quota_exhausted sem trocar remetente. Vinki pareado exige free_only automaticamente, mesmo quando omitido ou falso. Caso contrário o serviço pode continuar com cobrança após a franquia. routing:paid/allow_paid se aplicam somente a templates. A janela vencida continua bloqueando texto livre. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
     properties: {
       ...sourceProperties,
+      free_only: {
+        type: "boolean",
+        default: false,
+        description:
+          "Exige saldo no contador conservador para este pedido, mesmo se a linha permite excedente. A reserva é atômica, permanece na fila e é revalidada antes da entrega. Não garante fatura sem cobrança. Obrigatório por regra do servidor para aplicações pareadas como Vinki.",
+      },
       text: { type: "string", maxLength: 4096 },
       attachments: { type: "array", maxItems: 1, items: id },
       content: { $ref: "#/components/schemas/MessageContent" },
@@ -203,6 +220,11 @@ export const routerSchemas = {
       "Modelo aprovado da WABA. Exige routing:paid, permissão paga da origem, grupo habilitado para pagos, autorização por pedido e consentimento da mesma categoria. Não abre uma janela de atendimento artificialmente.",
     properties: {
       ...sourceProperties,
+      free_only: {
+        const: false,
+        description:
+          "Modelos pagos não aceitam free_only=true. Aplicações pareadas como Vinki não podem enviar modelos pagos.",
+      },
       allow_paid: {
         const: true,
         description:
@@ -300,6 +322,16 @@ export const routerSchemas = {
       source_type: { enum: ["number", "pool"] },
       source_id: id,
       status: { const: "pending" },
+      free_only: {
+        type: "boolean",
+        description:
+          "Restrição efetiva deste pedido; pode ser imposta pelo pareamento Vinki.",
+      },
+      expires_at: {
+        type: ["integer", "null"],
+        description:
+          "Validade em milissegundos Unix, ou null quando não definida.",
+      },
       usage: { $ref: "#/components/schemas/RouterUsage" },
       billing: {
         type: "object",
@@ -335,6 +367,8 @@ export const routerSchemas = {
       provider_category: { type: ["string", "null"] },
       billable: { type: ["boolean", "null"] },
       error: { type: ["string", "null"] },
+      free_only: { type: "boolean" },
+      expires_at: { type: ["integer", "null"] },
       source: {
         type: "object",
         properties: { type: { enum: ["number", "pool"] }, id },
@@ -381,14 +415,14 @@ export const routerSchemas = {
         maximum: 1000,
         default: 1000,
         description:
-          "Franquia gratuita mensal para priorizar novas entradas. Não bloqueia envios de serviço excedentes.",
+          "Franquia gratuita mensal para priorizar novas entradas e limitar o envio quando service_overage=false.",
       },
     },
   },
   RouterLimit: {
     type: "object",
     description:
-      "Atualiza a franquia gratuita estimada; não define teto de envio nem cancela mensagens.",
+      "Atualiza a franquia gratuita estimada. Se service_overage=false, reduz também o limite de admissão e mensagens pendentes excedentes são bloqueadas antes do envio.",
     required: ["service_limit"],
     properties: {
       service_limit: { type: "integer", minimum: 0, maximum: 1000 },
@@ -418,7 +452,7 @@ export const routerSchemas = {
         type: "boolean",
         default: false,
         description:
-          "Habilita templates pagos; mensagens de serviço excedentes continuam independentemente desta opção.",
+          "Habilita templates pagos. Excedente de serviço depende de service_overage na linha, não desta opção.",
       },
       public_enabled: {
         type: "boolean",

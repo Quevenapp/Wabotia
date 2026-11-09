@@ -7,12 +7,16 @@ O roteador permite cadastrar os números da **conta empresarial do WhatsApp (WAB
 O [FAQ oficial da Meta](https://whatsappbusiness.com/resources/faq/), consultado em 07/11/2026, informa uma franquia de 1.000 mensagens de atendimento por número empresarial/mês desde 01/10/2026. Modelos de marketing, utilidade e autenticação têm suas próprias regras de cobrança. O texto livre enviado depois de um template continua sendo mensagem de serviço: iniciar a conversa por template não isenta as respostas seguintes. Consulte a Meta para as condições e tarifas da sua conta.
 
 - **Atendimento:** o cliente precisa ter enviado mensagem para aquele mesmo número nas últimas 24 horas. Ter saldo em outro número não transfere essa janela.
-- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. O fim da franquia permite continuar com mensagens de serviço pagas, sem trocar o número. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
-- **Novos clientes:** divulgue o link público do grupo. Ele alterna os números ativos desde a primeira entrada, priorizando os que ainda têm franquia gratuita; o cliente inicia a conversa. Se todos consumiram a franquia, o rodízio continua com serviço pago. O link sozinho não envia nada nem reserva uma mensagem.
+- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. Se **Somente franquia gratuita** estiver ligada, o fim do saldo bloqueia novas mensagens de serviço com `quota_exhausted`. Caso contrário, o atendimento pode continuar com serviço pago. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
+- **Novos clientes:** divulgue o link público do grupo. Ele alterna os números ativos desde a primeira entrada, priorizando os que ainda têm franquia gratuita; o cliente inicia a conversa. Linhas sem saldo que bloqueiam excedente saem da seleção. As demais podem continuar com serviço pago. O link sozinho não envia nada nem reserva uma mensagem.
 - **Modelos pagos:** cada pedido precisa de `allow_paid: true`, comprovação do consentimento e modelo aprovado. A aplicação, a origem e o grupo precisam autorizar pagos. Uma configuração geral não substitui a autorização por envio.
 - **Notificações automáticas de números gerenciados:** não são convertidas em modelos pagos. Ao acabar a janela, falham com orientação para pedir nova mensagem ou usar o envio explícito de modelo.
 
-A franquia gratuita configurada pode ser de 0 a 1.000 e serve para priorizar novas entradas, nunca para bloquear a conversa. A 1.001ª mensagem de serviço pode continuar no mesmo número com cobrança, dentro da janela de 24 horas. Serviço pago não vira template e não depende de `allow_paid` ou `routing:paid`; essas autorizações continuam específicas para templates. A regra de janela vencida permanece: aguardar nova mensagem do cliente ou solicitar explicitamente um template aprovado.
+A franquia gratuita configurada pode ser de 0 a 1.000. Em **Função e permissões → Somente franquia gratuita**, escolha se ela deve bloquear o excedente de serviço. A opção começa desligada nas linhas existentes. Selecionar e salvar o preset **Integração com janela de 24 horas (Vinki)** liga esse bloqueio e mantém templates desabilitados. Com excedente permitido, a 1.001ª mensagem pode continuar no mesmo número com cobrança, dentro da janela de 24 horas. Serviço pago não vira template e não depende de `allow_paid` ou `routing:paid`; essas autorizações continuam específicas para templates. A regra de janela vencida permanece: aguardar nova mensagem do cliente ou solicitar explicitamente um template aprovado.
+
+Na API, a opção corresponde a `policy.service_overage: false`. Omitir esse campo em um cliente antigo preserva a opção já salva; linhas sem essa opção continuam permitindo excedente. A reserva e a conferência do saldo são feitas no mesmo comando de banco, incluindo envios simultâneos. A política é conferida novamente antes da entrega: reduzir a franquia ou ligar o bloqueio cancela mensagens pendentes que excedam o novo saldo, respeitando a ordem das reservas. Mensagens já enviadas ou sem confirmação continuam contando; não são repetidas em outro número. A permissão de templates continua separada: para uma linha restrita ao serviço dentro da franquia, mantenha também `templates: false`.
+
+Cada pedido de serviço também pode enviar `free_only: true`. Essa restrição permanece na mensagem enfileirada mesmo que a linha permita excedentes ou sua configuração mude depois. Aplicações conectadas pelo pareamento **Vinki** sempre usam essa restrição por regra do servidor, inclusive se omitirem o campo, enviarem `false` ou usarem o envio direto de conversa. Templates pagos são recusados para esses pedidos e para Vinki pareado. Outras aplicações antigas mantêm o comportamento anterior. O contador continua sendo uma estimativa local, sem garantia de fatura zero.
 
 ## 1. Prepare a conta Meta
 
@@ -37,14 +41,14 @@ Não repita uma URL por telefone: o Wabotia separa as entradas pelo Phone Number
 1. Clique **Buscar números na Meta**. A busca apenas consulta a conta.
 2. Escolha um número encontrado e dê um nome fácil de reconhecer.
 3. Confira na Meta quantas mensagens de atendimento esse número já usou no mês. Informe em **Mensagens de atendimento já usadas neste mês**. Zero somente se realmente não houve uso.
-4. Defina a **Franquia gratuita mensal**, no máximo 1.000. Essa informação não limita o envio de serviço pago. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para os números habilitados na sua conta Meta.
+4. Defina a **Franquia gratuita mensal**, no máximo 1.000. Ela limita os envios de serviço quando **Somente franquia gratuita** estiver ligada; com a opção desligada, pode haver excedente pago. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para os números habilitados na sua conta Meta.
 5. Os números entram pausados. Confira o webhook e clique **Ativar** na lista de uso. O perfil também precisa estar pronto para o atendimento normal.
 
 Se o telefone já está em Conexões, pause-o e reconcilie filas desconhecidas antes de adotá-lo no roteador. Aguarde os comprovantes de entregas anteriores aceitas pela Meta; não basta o estado `sent`. O histórico e a identidade da conexão são preservados. O contador inicial não deve ser reiniciado para obter saldo artificial.
 
 **Como ler o painel:** uso estimado = histórico inicial do mês + entregas de atendimento + reservas de envios ainda não confirmados. Um anexo é uma mensagem; texto separado é outra. Envios humanos, bots e API no número gerenciado compartilham o mesmo contador. Falha definitiva e cancelamento antes do envio liberam a reserva. `unknown` mantém a reserva e exige conferência. Na mudança de mês, o histórico inicial deixa de contar; mensagens ainda sem confirmação continuam reservadas.
 
-Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma estimativa local e não garante uma fatura sem cobrança.** O excedente de serviço é permitido; a Meta confirma a cobrança de cada entrega. Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
+Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma estimativa local e não garante uma fatura sem cobrança, mesmo com Somente franquia gratuita ligada.** A opção limita os envios pelo contador conservador do Wabotia; a Meta confirma a cobrança de cada entrega. Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
 
 ## 3.1. Defina o que cada número pode fazer
 
@@ -58,6 +62,7 @@ Desde a versão 0.7.0, cada cartão em **Uso por número** tem **Função e perm
 | Opção | Atendimento oficial | Integração de 24 horas |
 |---|---|---|
 | Respostas sem template dentro de 24 horas | Sim | Sim |
+| Somente franquia gratuita | Não | Sim |
 | Templates aprovados, autorizados por envio | Sim | Bloqueados |
 | Atendimento manual no painel/Telegram | Sim | Bloqueado por padrão |
 | Envios de aplicações já autorizadas | Sim | Sim |
@@ -81,9 +86,9 @@ Uma permissão de grupo ou de aplicação nunca libera o que o número bloqueou.
 
 Antes de criar o grupo, configure a função de cada telefone conforme o passo abaixo.
 
-Em **Grupos de números → Criar grupo de roteamento**, informe um nome e selecione membros da mesma conta. O grupo usa **rodízio com prioridade à franquia gratuita**: alterna entre os números que ainda têm franquia, mesmo que seus consumos sejam diferentes. Quando todos a consumirem, alterna entre os números ativos com serviço pago. Grupos antigos configurados como menor consumo ou aleatório também passam a seguir essa regra.
+Em **Grupos de números → Criar grupo de roteamento**, informe um nome e selecione membros da mesma conta. O grupo usa **rodízio com prioridade à franquia gratuita**: alterna entre os números que ainda têm franquia, mesmo que seus consumos sejam diferentes. Quando todos a consumirem, continua apenas com os números ativos que permitem excedente. Se todos bloquearem excedente, retorna `quota_exhausted`. Grupos antigos configurados como menor consumo ou aleatório também passam a seguir essa regra.
 
-Entradas simultâneas são serializadas por perfil. Respostas de conversas já vinculadas mantêm seu número e não avançam a vez de novos atendimentos. Por exemplo: com três linhas disponíveis, as seis próximas entradas serão A, B, C, A, B, C; a conversa de A continua em A mesmo se sua franquia terminar.
+Entradas simultâneas são serializadas por perfil. Respostas de conversas já vinculadas mantêm seu número e não avançam a vez de novos atendimentos. Por exemplo: com três linhas disponíveis, as seis próximas entradas serão A, B, C, A, B, C; a conversa de A continua vinculada a A mesmo se sua franquia terminar. Com bloqueio de excedente, novas respostas aguardam saldo; não são transferidas automaticamente para B ou C.
 
 Ative o grupo. Marque **Criar link público** para divulgar uma entrada única. Se desejar modelos pagos, marque a opção específica; ela só habilita pedidos individualmente autorizados. Salve e copie o ID para integrações. Um número pode estar em vários grupos; seu consumo continua único.
 
@@ -108,13 +113,15 @@ Base: `/api/v1/profiles/{perfil}`. Todas as escritas exigem `Idempotency-Key`. G
 
 Escolha **um** `number_id` ou `pool_id` retornado pela API, nunca ambos. `external_id` é um identificador estável do cliente/atendimento no integrador, separado por aplicação. Reutilize-o para esse destinatário e origem, inclusive ao abrir novos protocolos; não troque esse ID para tentar outro remetente. `conversation_id` é opcional para vincular uma conversa autorizada. `to` é obrigatório no primeiro pedido; use DDI/DDD e só dígitos.
 
+Para avisos com prazo, informe `expires_at` como inteiro em milissegundos Unix: deve estar no futuro e no máximo 24 horas adiante. O prazo fica salvo com a mensagem e o envio é cancelado se vencer antes da entrega ao canal. Omitir mantém o comportamento anterior. A resposta inicial e a consulta do envio mostram `free_only` efetivo e `expires_at` (ou `null`); o payload interno não é exposto. `billing.service_overage_allowed` reflete a restrição do pedido, enquanto `usage.service_overage_allowed` descreve a política geral da linha.
+
 Exemplo de atendimento, salve em `mensagem.json`:
 
 ```json
 {"pool_id":"ID_GRUPO","to":"5511999991111","external_id":"cliente-123","text":"Olá! Como podemos ajudar?"}
 ```
 
-O cliente precisa ter falado com esse número nas últimas 24 horas; o serviço pode ser cobrado após a franquia. A resposta informa `billing.mode: service_allowance` ou `service_paid` como estimativa, e `usage.free_remaining`/`paid_service_estimated`; a confirmação final vem da Meta. Os campos antigos `usage.limit` e `remaining` continuam representando a franquia, sem bloquear envio. Para escolher um número, substitua `pool_id` por `number_id`. O envio assume a conversa na identidade da aplicação; outro responsável precisa transferir/liberar antes.
+O cliente precisa ter falado com esse número nas últimas 24 horas. A resposta informa `billing.mode: service_allowance` ou `service_paid` como estimativa, e `usage.free_remaining`/`paid_service_estimated`; a confirmação final vem da Meta. `usage.service_overage_allowed: false` indica bloqueio de excedente: ao atingir o saldo, o pedido retorna `quota_exhausted`. Os campos antigos `usage.limit` e `remaining` continuam representando a franquia. Para escolher um número, substitua `pool_id` por `number_id`. O envio assume a conversa na identidade da aplicação; outro responsável precisa transferir/liberar antes.
 
 ```sh
 curl --fail-with-body "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/router/messages" \
@@ -150,10 +157,10 @@ Configure `WABOTIA_URL`, `WABOTIA_KEY`, `WABOTIA_PROFILE` e `WABOTIA_REQUEST_ID`
 
 `pending` significa na fila; `sent` significa aceito pelo canal, não prova de recebimento. `provider_status: delivered/read` confirma o recibo. `billable: null` significa que a Meta ainda não informou a cobrança. Estado `unknown` não autoriza tentativa automática. Conferir uma nova tentativa de modelo em Entregas exige nova autorização explícita de cobrança.
 
-Erros relevantes: `source_not_allowed` (origem), `paid_disabled` (grupo), `consent_revoked` (aceite retirado), `sender_pinned` (tentativa de trocar origem), `sender_unavailable` (remetente vinculado indisponível) e `no_eligible_sender` (sem número com janela/condições). Atendimento nunca faz fallback para modelo pago. Uma conversa criada por modelo pago não abre 24 horas até o cliente responder de verdade.
+Erros relevantes: `source_not_allowed` (origem), `paid_disabled` (grupo), `consent_revoked` (aceite retirado), `sender_pinned` (tentativa de trocar origem), `sender_unavailable` (remetente vinculado indisponível), `quota_exhausted` (franquia consumida ou reservada com bloqueio de excedente) e `no_eligible_sender` (sem número com janela/condições). Atendimento nunca faz fallback para modelo pago. Uma conversa criada por modelo pago não abre 24 horas até o cliente responder de verdade.
 
 Acompanhe `message.sent`, `message.updated` e `conversation.updated` nos eventos/webhooks já existentes, correlacionando conversa e `source_key` quando disponível. Para entrega individual, use o GET acima. OpenAPI 3.1 e documentação interativa: `/api/openapi.json` e `/api-docs`.
 
 ## 7. Homologue antes de atender clientes
 
-Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número e confira que ele sai do rodízio. Simule o fim da franquia: entradas novas priorizam outras linhas com franquia, mas conversas já vinculadas continuam com serviço pago na linha original. Quando todas acabarem, o rodízio também continua. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.
+Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número e confira que ele sai do rodízio. Simule o fim da franquia nos dois modos: com excedente permitido, conversas continuam na linha original; com **Somente franquia gratuita**, respostas são bloqueadas e novas entradas procuram linhas ainda com saldo. Quando todas bloquearem excedente e estiverem sem saldo, confira `quota_exhausted`. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.

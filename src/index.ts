@@ -62,6 +62,17 @@ import {
 } from "./contacts";
 import { checkUpdate, updatePlan, updateStatus } from "./updates";
 import {
+  pairingStart,
+  pairingToken,
+  pairingList,
+  pairingLookup,
+  pairingApprove,
+  pairingDeny,
+  pairingRevoke,
+  pairingDisconnect,
+  prunePairings,
+} from "./pairing";
+import {
   cloudflareJobs,
   cloudflareSettings,
   connectorDownload,
@@ -128,6 +139,27 @@ app.get("/api/system/update-plan", async (c) =>
   c.json(await updatePlan(c.env)),
 );
 app.get("/api/openapi.json", (c) => c.json(openapi(new URL(c.req.url).origin)));
+app.use("/api/pairing/*", bodyLimit({ maxSize: 4096 }));
+app.post("/api/pairing/start", async (c) =>
+  c.json(
+    await pairingStart(
+      c.env,
+      await c.req.json(),
+      new URL(c.req.url).origin,
+      c.req.header("CF-Connecting-IP") || "local",
+    ),
+    201,
+  ),
+);
+app.post("/api/pairing/token", async (c) =>
+  c.json(
+    await pairingToken(
+      c.env,
+      await c.req.json(),
+      c.req.header("CF-Connecting-IP") || "local",
+    ),
+  ),
+);
 app.get("/api/auth/status", async (c) => {
   const count = await one(c.env, "SELECT count(*) n FROM users");
   return c.json({
@@ -303,6 +335,33 @@ const mobileToken = (c: any) => {
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
 };
 app.get("/api/v1/me", (c) => c.json(c.get("actor")));
+app.get("/api/v1/pairings", async (c) =>
+  c.json(await pairingList(c.env, c.get("actor"))),
+);
+app.post("/api/v1/pairings/disconnect", async (c) =>
+  c.json(await pairingDisconnect(c.env, c.get("actor"))),
+);
+app.post("/api/v1/pairings/lookup", async (c) =>
+  c.json(
+    await pairingLookup(c.env, c.get("actor"), (await c.req.json()).user_code),
+  ),
+);
+app.post("/api/v1/pairings/:id/approve", async (c) =>
+  c.json(
+    await pairingApprove(
+      c.env,
+      c.get("actor"),
+      c.req.param("id"),
+      await c.req.json(),
+    ),
+  ),
+);
+app.post("/api/v1/pairings/:id/deny", async (c) =>
+  c.json(await pairingDeny(c.env, c.get("actor"), c.req.param("id"))),
+);
+app.delete("/api/v1/pairings/:id", async (c) =>
+  c.json(await pairingRevoke(c.env, c.get("actor"), c.req.param("id"))),
+);
 app.post("/api/v1/auth/mobile/refresh", async (c) => {
   const token = mobileToken(c);
   if (!token || c.get("actor").kind !== "user")
@@ -575,6 +634,7 @@ for (const [path, operation] of [
   ["cloudflare/deploy", "cloudflare.create"],
   ["cloudflare/retry", "cloudflare.retry"],
   ["updates/configure", "updates.configure"],
+  ["updates/automatic", "updates.automatic"],
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
@@ -857,6 +917,13 @@ for (const [path, [table, scope]] of Object.entries(readLists))
       }
     }
     if (table === "tickets") {
+      const q = (c.req.query("q") || "").trim().slice(0, 200);
+      if (q) {
+        const phone = q.replace(/\D/g, "");
+        filter +=
+          " AND (number LIKE ? OR conversation_id IN (SELECT id FROM conversations WHERE profile_id=? AND ?!='' AND phone LIKE ?))";
+        params.push(`%${q}%`, p, phone, `%${phone}%`);
+      }
       const status = c.req.query("status");
       if (status) {
         requireValue(
@@ -974,10 +1041,11 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     throw new ApiError(400, "invalid_cursor", "Cursor inválido.");
   }
   const state = c.req.query("state") || "",
+    department = (c.req.query("department_id") || "").slice(0, 100),
     q = (c.req.query("q") || "").slice(0, 200);
   const rows = await all(
     c.env,
-    "SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?",
+    "SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?",
     c.get("actor").kind === "user" ||
       c.get("actor").scopes.includes("contacts:read")
       ? 1
@@ -987,6 +1055,8 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     p,
     state,
     state,
+    department,
+    department,
     `%${q}%`,
     `%${q}%`,
     `%${q}%`,
@@ -1786,5 +1856,6 @@ export default {
     );
     ctx.waitUntil(exec(env, "DELETE FROM sessions WHERE expires<?", now()));
     ctx.waitUntil(prunePush(env));
+    ctx.waitUntil(prunePairings(env));
   },
 };

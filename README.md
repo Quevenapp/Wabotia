@@ -8,7 +8,13 @@ Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pe
 
 ## Estado da versão
 
-Versão 0.9.0, com atendimento por linha, menus e submenus por número, bots atribuídos a uma ou várias linhas e conversas internas entre pessoas e bots. O roteador alterna novos atendimentos desde o início, prioriza franquias gratuitas e mantém conversas no mesmo número com serviço pago após a franquia, respeitando a janela de 24 horas. Web, Android e iOS usam as mesmas configurações e permissões. Mantém login móvel por token de sessão (`wabu_`), push, protocolos, mídia, voz, grupos, ligações Meta, agenda/CSV e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.10.0, com atendimento por linha, menus e submenus por número, bots atribuídos a uma ou várias linhas e conversas internas entre pessoas e bots. O roteador alterna novos atendimentos desde o início, prioriza franquias gratuitas e mantém conversas no mesmo número, respeitando a janela de 24 horas e a política de bloquear ou permitir excedentes da franquia. Web, Android e iOS usam as mesmas configurações e permissões. Mantém login móvel por token de sessão (`wabu_`), push, protocolos, mídia, voz, grupos, ligações Meta, agenda/CSV e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+
+## Navegação e configuração guiada
+
+O painel reúne as tarefas em **Início**, **Atendimento**, **Contatos**, **Equipe**, **Automação**, **Canais**, **Avaliações e relatórios**, **Integrações** e **Sistema**. O assistente de configuração tem um atalho próprio para orientar os primeiros passos. O **modo avançado** revela consentimentos, execuções, entregas, webhooks e detalhes técnicos, usando as mesmas configurações do modo guiado.
+
+Em **Automação**, o Bot Atendente conversa com o cliente e consulta especialistas internos do Hermes para operações nos sistemas; as credenciais desses sistemas ficam nos especialistas. O [pareamento Vinki/Fagoo](docs/PAREAMENTO.md) usa código temporário, sem copiar tokens. As [atualizações automáticas](docs/ATUALIZACOES.md) são opcionais, com janela diária. O [JEV](docs/JEV.md) pode decidir após a interpretação do Atendente. Consulte a [matriz de capacidades e dependências externas](docs/ESCOPO-DO-PAINEL.md).
 
 ## Instalar na Cloudflare
 
@@ -57,11 +63,11 @@ Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe ar
 
 ## Roteador WhatsApp
 
-Em **Roteador de números**, conecte uma WABA, adicione os números habilitados na Meta e configure um único webhook. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. Os grupos alternam os números desde o primeiro atendimento e priorizam quem ainda possui franquia gratuita. Autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis, inclusive com serviço pago quando todas as franquias acabam.
+Em **Roteador de números**, conecte uma WABA, adicione os números habilitados na Meta e configure um único webhook. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. Os grupos alternam os números desde o primeiro atendimento e priorizam quem ainda possui franquia gratuita. Autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis e respeita o bloqueio de excedentes configurado por linha.
 
 Em cada cartão, **Função e permissões** permite separar a linha oficial das linhas de integração com 24 horas, ou escolher cada capacidade individualmente. Restrições do número prevalecem sobre grupos/aplicações e são conferidas novamente antes do envio. Alterar a função preserva histórico e consumo.
 
-A franquia gratuita configurada é de até 1.000 mensagens por número/mês, conforme o [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Ela orienta o rodízio e a estimativa de consumo; o excedente de serviço pode ser cobrado e não bloqueia o atendimento. Modelos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
+A franquia gratuita configurada é de até 1.000 mensagens por número/mês, conforme o [FAQ Meta](https://whatsappbusiness.com/resources/faq/) desde 01/10/2026. Ela orienta o rodízio e a estimativa de consumo. O preset Vinki bloqueia excedentes; linhas existentes preservam a política anterior até serem alteradas. Se o excedente estiver permitido, pode haver cobrança. Modelos ficam separados e exigem autorização explícita e consentimento em cada pedido. Contadores não substituem a fatura Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Guia ilustrado](https://wabotia.queven.app/install#roteador).
 
 ## Linhas, menus e equipe interna
 
@@ -70,13 +76,13 @@ A franquia gratuita configurada é de até 1.000 mensagens por número/mês, con
 - **Equipe Bot:** autorize todas as linhas, algumas linhas ou apenas conversas internas para cada bot.
 - **Conversas internas:** pessoas e bots aparecem com disponibilidade online/offline. Mensagens internas têm histórico privado entre participantes e não são enviadas pelo WhatsApp. Conversas de clientes podem ser transferidas para pessoas ou bots, preservando seu número.
 
-A migração aditiva `0009_service_team.sql` mantém os atendimentos e configurações existentes e acrescenta as atribuições e o histórico interno. Os recursos novos nos aplicativos exigem o servidor 0.9.0.
+As migrações aditivas `0010` a `0013` acrescentam pareamento, trava de atualizações, setores/menus e registro JEV. Aplique-as antes de publicar o Worker. Protocolos e atendimentos anteriores são preservados. Veja [menus interativos, setores e consulta de protocolos](docs/MENUS-PROTOCOLOS.md). O pareamento exige a implantação coordenada dos clientes Vinki e Fagoo descrita no guia.
 
 ## API
 
 REST/JSON em `/api/v1`, OpenAPI 3.1 em `/api/openapi.json`. Cada integração tem identidade própria, permissões, perfis e bots autorizados. Chaves Bearer são exibidas na emissão, persistidas como hash e podem expirar, ser rotacionadas ou revogadas. Recibos de operações que devolvem secrets são criptografados.
 
-Escritas exigem `Idempotency-Key`. Execuções de bots retornam `202` e são acompanhadas por consulta ou webhooks HMAC. Timeouts sem confirmação exigem reconciliação; não iniciam outra execução automaticamente. [Exemplos cURL, JavaScript e Python](docs/API.md).
+As escritas operacionais exigem `Idempotency-Key`; o pareamento usa códigos de uso único e transições atômicas próprias. Execuções de bots retornam `202` e são acompanhadas por consulta ou webhooks HMAC. Timeouts sem confirmação exigem reconciliação; não iniciam outra execução automaticamente. [Exemplos cURL, JavaScript e Python](docs/API.md).
 
 ## Desenvolvimento e operação
 

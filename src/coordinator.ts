@@ -11,7 +11,7 @@ import { transport } from "./transport";
 import { routerLink } from "./number-router";
 import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
-import { processUpdate, updatePending } from "./updates";
+import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import {
   processInbox,
@@ -194,6 +194,7 @@ export class Coordinator extends DurableObject<Env> {
     this.profile ||= (await this.ctx.storage.get<string>("profile")) || "";
     try {
       if (this.profile === "_admin") {
+        await automaticUpdateTick(this.env);
         await processUpdate(this.env);
         await processCloudflareJob(this.env);
         return;

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "jsonc-parser";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 const [config, dir, confirmation] = process.argv.slice(2);
 if (!config || !dir || confirmation !== "--empty-target")
   throw Error(
@@ -12,13 +13,19 @@ const cfg = parse(await readFile(config, "utf8")),
   manifest = JSON.parse(
     await readFile(path.join(dir, "manifest.json"), "utf8"),
   ),
-  npx = process.platform === "win32" ? "npx.cmd" : "npx";
+  wrangler = fileURLToPath(
+    new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url),
+  );
 if (!manifest.complete) throw Error("Backup incompleto.");
 function run(args, capture = false) {
-  const r = spawnSync(npx, ["wrangler", ...args, "--config", config], {
-    encoding: "utf8",
-    stdio: capture ? "pipe" : "inherit",
-  });
+  const r = spawnSync(
+    process.execPath,
+    [wrangler, ...args, "--config", config],
+    {
+      encoding: "utf8",
+      stdio: capture ? "pipe" : "inherit",
+    },
+  );
   if (r.status !== 0)
     throw Error("Restauração interrompida; não ative o atendimento.");
   return r.stdout;

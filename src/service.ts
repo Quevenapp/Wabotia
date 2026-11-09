@@ -48,6 +48,13 @@ import {
 } from "./line-service";
 import { internalCommand } from "./team";
 import {
+  validateDepartments,
+  departmentFor,
+  assertDepartmentAccess,
+  presentInDepartment,
+} from "./departments";
+import { sendProtocolLookup } from "./protocol-lookup";
+import {
   assertNumberDelivery,
   getNumberPolicy,
   numberPolicyError,
@@ -326,25 +333,76 @@ export async function openTicket(
   });
   return await one(env, "SELECT * FROM tickets WHERE id=?", id);
 }
-export async function handoff(env: Env, c: Conversation, reason: string) {
-  const policy = await getNumberPolicy(env, c.connection_id);
-  await exec(
+export async function requestSurvey(
+  env: Env,
+  c: Conversation,
+  key: string,
+  actor = "system",
+  question?: string,
+) {
+  requireValue(
+    c.chat_type !== "group",
+    "Peça uma avaliação em uma conversa individual.",
+  );
+  const pending = await one(
     env,
-    "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
-    now(),
+    "SELECT id FROM surveys WHERE conversation_id=? AND app_id IS NULL AND status='pending' AND created>? ORDER BY created DESC LIMIT 1",
     c.id,
+    now() - 86400000,
   );
-  c = await conversation(env, c.id, c.profile_id);
-  const present = await one(
+  const id = pending?.id || `survey:${key}`;
+  const delivery = await enqueue(
     env,
-    "SELECT p.actor FROM presence p JOIN users u ON u.id=p.actor AND u.disabled=0 WHERE p.profile_id=? AND p.present=1 LIMIT 1",
-    c.profile_id,
+    c,
+    actor,
+    "text",
+    {
+      text: `${question || "Como você avalia este atendimento?"}\nResponda de 1 a 5 e, se desejar, escreva um comentário. Para sair da avaliação, envie MENU.`,
+    },
+    key,
   );
+  if (!pending)
+    await exec(
+      env,
+      "INSERT OR IGNORE INTO surveys(id,profile_id,conversation_id,created) VALUES(?,?,?,?)",
+      id,
+      c.profile_id,
+      c.id,
+      now(),
+    );
+  return { survey_id: id, delivery_id: delivery, status: "pending" };
+}
+export async function handoff(
+  env: Env,
+  c: Conversation,
+  reason: string,
+  departmentId: string | null = null,
+) {
+  const department = await departmentFor(env, c.profile_id, departmentId);
+  requireValue(
+    !departmentId || department,
+    "Setor de atendimento indisponível.",
+  );
+  const policy = await getNumberPolicy(env, c.connection_id);
+  await batch(env, [
+    [
+      "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
+      [departmentId, now(), c.id],
+    ],
+    [
+      "UPDATE tickets SET owner=NULL WHERE conversation_id=? AND status!='closed'",
+      [c.id],
+    ],
+  ]);
+  c = await conversation(env, c.id, c.profile_id);
+  const present = await presentInDepartment(env, c.profile_id, departmentId);
   const cfg = await settings(env, c.profile_id);
-  let reply = "Vou encaminhar sua solicitação para nossa equipe.";
+  let reply = department
+    ? `Vou encaminhar sua solicitação para o setor ${department.name}.`
+    : "Vou encaminhar sua solicitação para nossa equipe.";
   if (!present) {
     const ticket = await openTicket(env, c, "system", reason, true);
-    reply = `${cfg.absence_instructions}\nProtocolo: ${ticket.number}.`;
+    reply = `${department ? `O setor ${department.name} está sem atendentes disponíveis.\n` : ""}${cfg.absence_instructions}\nProtocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`;
   }
   if (policy.human && policy.service && (policy.menu || policy.bots))
     await enqueue(
@@ -353,7 +411,7 @@ export async function handoff(env: Env, c: Conversation, reason: string) {
       "system",
       "text",
       { text: reply },
-      `handoff:${c.id}:${c.session}`,
+      `handoff:${c.id}:${c.session}:${departmentId || "general"}`,
     );
   if (cfg.telegram_connection && cfg.telegram_group)
     await enqueue(
@@ -362,13 +420,14 @@ export async function handoff(env: Env, c: Conversation, reason: string) {
       "system",
       "team",
       {
-        text: `Novo atendimento\n${c.phone || c.external_id}\n${reason}`,
+        text: `Novo atendimento${department ? ` · Setor ${department.name}` : ""}\n${c.phone || c.external_id}\n${reason}`,
         group: cfg.telegram_group,
       },
-      `topic:${c.id}:${c.session}`,
+      `topic:${c.id}:${c.session}:${departmentId || "general"}`,
     );
   await event(env, c.profile_id, "conversation.updated", c.id, {
     state: "waiting",
+    department_id: departmentId,
     reason,
   });
 }
@@ -482,8 +541,9 @@ export async function inbound(
     /^[1-5](?:\s|$)/.test(data.text) &&
     (await one(
       env,
-      "SELECT id FROM surveys WHERE conversation_id=? AND status='pending'",
+      "SELECT id FROM surveys WHERE conversation_id=? AND status='pending' AND created>?",
       c.id,
+      now() - 86400000,
     ));
   if (c.state === "closed" && !ratingReply) {
     await exec(
@@ -874,6 +934,14 @@ export async function perform(
     const old = await settings(env, profile);
     const next = { ...old, ...data };
     requireValue(
+      typeof next.jev_enabled === "boolean" &&
+        typeof next.surveys_enabled === "boolean",
+      "JEV e avaliações devem estar ligados ou desligados.",
+    );
+    if (next.departments === undefined) next.departments = [];
+    if (data.departments !== undefined)
+      await validateDepartments(env, profile, next.departments);
+    requireValue(
       JSON.stringify(next).length <= 150000,
       "Configuração muito grande.",
     );
@@ -910,9 +978,29 @@ export async function perform(
           "Modo de menu inválido.",
         );
       requireValue(
-        ["human", "app", "submenu", "bot"].includes(item.type),
+        [
+          "human",
+          "app",
+          "submenu",
+          "bot",
+          "link",
+          "content",
+          "protocols",
+          "survey",
+        ].includes(item.type),
         "Destino de menu inválido.",
       );
+      if (item.type === "human" && item.department_id)
+        requireValue(
+          next.departments.some((d: any) => d.id === item.department_id),
+          "Setor do menu não encontrado.",
+        );
+      if (item.type === "link") {
+        item.url = publicUrl(item.url);
+        if (item.content) text(item.content, 3000);
+      }
+      if (item.type === "content") text(item.content, 3500);
+      if (item.type === "survey" && item.question) text(item.question, 300);
       if (item.type === "app")
         requireValue(
           next.apps.some((a: any) => a.id === item.app_id),
@@ -1205,8 +1293,39 @@ export async function perform(
     access(actor, profile, "conversations:write");
     let c = await conversation(env, data.id, profile, actor);
     const action = data.action;
+    if (
+      [
+        "claim",
+        "reply",
+        "transfer",
+        "resume",
+        "resolve",
+        "protocols",
+        "survey",
+      ].includes(action)
+    )
+      await assertDepartmentAccess(env, actor, c);
     let eventExtra: Record<string, any> = {};
     const policy = await getNumberPolicy(env, c.connection_id);
+    if (action === "protocols" || action === "survey") {
+      requireValue(
+        c.owner === actor.id ||
+          actor.role === "admin" ||
+          (actor.id.startsWith("bot:") && c.state === "ai"),
+        "Assuma a conversa antes desta ação.",
+      );
+      if (action === "protocols") {
+        access(actor, profile, "tickets:read");
+        return sendProtocolLookup(
+          env,
+          c,
+          data.number || undefined,
+          `protocols:${actor.id}:${requestId}`,
+          actor.id,
+        );
+      }
+      return requestSurvey(env, c, `survey:${actor.id}:${requestId}`, actor.id);
+    }
     if (["claim", "reply"].includes(action)) {
       const capability = actor.kind === "app" ? "api" : "human";
       if (!policy[capability]) throw numberPolicyError(capability);
@@ -1331,6 +1450,14 @@ export async function perform(
         );
         return { delivery_id: delivery, status: "pending" };
       } else if (action === "transfer") {
+        if (data.department_id) {
+          requireValue(
+            !data.target,
+            "Escolha uma pessoa, bot ou setor por transferência.",
+          );
+          await handoff(env, c, "Encaminhado pela equipe.", data.department_id);
+          return conversation(env, c.id, profile, actor);
+        }
         const botId = String(data.target || "").startsWith("bot:")
           ? String(data.target).slice(4)
           : null;
@@ -1413,6 +1540,11 @@ export async function perform(
               (target.role === "admin" ||
                 json(target.profiles, []).includes(profile)),
             "Atendente não autorizado.",
+          );
+          await assertDepartmentAccess(
+            env,
+            { ...actor, id: target.id, kind: "user", role: target.role },
+            c,
           );
           await exec(
             env,
@@ -1502,7 +1634,13 @@ export async function perform(
       profile,
     );
     requireValue(ticket, "Protocolo não encontrado.");
-    await conversation(env, ticket.conversation_id, profile, actor);
+    const ticketConversation = await conversation(
+      env,
+      ticket.conversation_id,
+      profile,
+      actor,
+    );
+    await assertDepartmentAccess(env, actor, ticketConversation);
     requireValue(
       actor.role === "admin" || ticket.owner === actor.id,
       "Somente o responsável pode alterar o protocolo.",
@@ -1530,6 +1668,18 @@ export async function perform(
         ),
         "Responsável inválido.",
       );
+    if (data.owner) {
+      const owner = await one(
+        env,
+        "SELECT role FROM users WHERE id=?",
+        data.owner,
+      );
+      await assertDepartmentAccess(
+        env,
+        { ...actor, id: data.owner, kind: "user", role: owner!.role },
+        ticketConversation,
+      );
+    }
     const publicText = data.text ? text(data.text) : "";
     await exec(
       env,

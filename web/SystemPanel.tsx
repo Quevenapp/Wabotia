@@ -21,7 +21,7 @@ type Api = (
 type Data = { updates: any; cloudflare: any; deployments: any[] };
 const demoData: Data = {
   updates: {
-    installed: { version: "0.3.0", commit: "exemplo" },
+    installed: { version: "0.10.0", commit: "exemplo" },
     method: "direct",
     installation_ready: true,
     configured: true,
@@ -187,6 +187,196 @@ function Input({
       <span>{label}</span>
       <input {...props} />
     </label>
+  );
+}
+
+function AutomaticUpdates({
+  api,
+  demo,
+  updates,
+  refresh,
+}: {
+  api: Api;
+  demo: boolean;
+  updates: any;
+  refresh: () => Promise<void>;
+}) {
+  const initial = updates.automatic || {
+    enabled: false,
+    hour: 3,
+    window_hours: 2,
+  };
+  const [form, setForm] = useState({
+    enabled: !!initial.enabled,
+    hour: Number(initial.hour),
+    window_hours: Number(initial.window_hours),
+  });
+  const dirty = useRef(false);
+  const action = useAction(demo);
+  useEffect(() => {
+    if (!dirty.current)
+      setForm({
+        enabled: !!initial.enabled,
+        hour: Number(initial.hour),
+        window_hours: Number(initial.window_hours),
+      });
+  }, [initial.enabled, initial.hour, initial.window_hours]);
+  const update = (patch: Partial<typeof form>) => {
+    dirty.current = true;
+    setForm((old) => ({ ...old, ...patch }));
+  };
+  const statuses: Record<string, string> = {
+    off: "Desligadas",
+    scheduled: "Aguardando a janela diária",
+    checking: "Consultando a versão oficial",
+    queued: "Atualização agendada",
+    running: "Atualização em andamento",
+    awaiting_confirmation: "Aguardando confirmação da publicação",
+    retry_wait: "Aguardando nova tentativa",
+    blocked: "Revisão necessária",
+    up_to_date: "Nenhuma versão mais nova disponível",
+    release_requires_review: "Versão exige revisão manual",
+    check_failed: "Não foi possível consultar a versão",
+  };
+  return (
+    <section className="card system-card">
+      <div className="section-heading">
+        <h2>
+          <RefreshCw size={22} /> Atualizações automáticas
+        </h2>
+        <span className="badge">
+          {initial.enabled ? "Ligadas" : "Desligadas"}
+        </span>
+      </div>
+      <p>
+        O Wabotia pode consultar e instalar versões oficiais mais novas durante
+        uma janela diária. Usa a autorização Cloudflare já configurada nesta
+        instalação.
+      </p>
+      <form
+        className="system-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void action.run("Salvando atualização automática…", async () => {
+            await api(
+              "v1/system/updates/automatic",
+              "POST",
+              form,
+              AbortSignal.timeout(45000),
+            );
+            dirty.current = false;
+            await refresh();
+            action.setMessage(
+              form.enabled
+                ? "Atualização automática ligada para a janela escolhida."
+                : "Atualização automática desligada. Trabalhos já iniciados terminam normalmente.",
+            );
+          });
+        }}
+      >
+        <label className="check-field">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            disabled={!!action.busy || (!updates.configured && !form.enabled)}
+            onChange={(e) => update({ enabled: e.target.checked })}
+          />
+          Instalar novas versões automaticamente
+        </label>
+        {!updates.configured && (
+          <p>
+            Primeiro configure a atualização direta no cartão acima. Esta opção
+            não utiliza o fluxo antigo de Deploy Hook.
+          </p>
+        )}
+        <div className="system-grid">
+          <label className="field">
+            <span>Início da janela · horário de Brasília</span>
+            <select
+              value={form.hour}
+              disabled={!!action.busy}
+              onChange={(e) => update({ hour: Number(e.target.value) })}
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {String(hour).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Duração da janela</span>
+            <select
+              value={form.window_hours}
+              disabled={!!action.busy}
+              onChange={(e) => update({ window_hours: Number(e.target.value) })}
+            >
+              {[1, 2, 3, 4, 5, 6].map((hours) => (
+                <option key={hours} value={hours}>
+                  {hours} {hours === 1 ? "hora" : "horas"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p>
+          Uma consulta por janela, com até três tentativas se o serviço estiver
+          indisponível. Desligar cancela o início de novos trabalhos; uma
+          atualização já iniciada continua até sua confirmação. A janela define
+          o início, não interrompe uma publicação em andamento.
+        </p>
+        <button className="button" disabled={!!action.busy || !dirty.current}>
+          Salvar atualização automática
+        </button>
+      </form>
+      <Feedback {...action} />
+      <dl className="system-facts">
+        <div>
+          <dt>Estado</dt>
+          <dd>
+            {statuses[
+              initial.status || (initial.enabled ? "scheduled" : "off")
+            ] || initial.status}
+          </dd>
+        </div>
+        <div>
+          <dt>Última consulta automática</dt>
+          <dd>
+            {initial.last_checked_at
+              ? when(initial.last_checked_at)
+              : "Ainda não realizada"}
+          </dd>
+        </div>
+        {initial.attempt && (
+          <div>
+            <dt>Tentativa de instalação</dt>
+            <dd>
+              {initial.attempt} de {initial.max_attempts || 3}
+            </dd>
+          </div>
+        )}
+        {(initial.retry_at || initial.check_retry_at) && (
+          <div>
+            <dt>Nova tentativa a partir de</dt>
+            <dd>
+              {when(initial.retry_at || initial.check_retry_at)} · dentro da
+              janela
+            </dd>
+          </div>
+        )}
+      </dl>
+      {initial.enabled && initial.error && (
+        <div className="notice error" role="status">
+          {initial.error}
+        </div>
+      )}
+      <p className="muted">
+        O pacote é conferido antes de publicar. Migrações incompatíveis e
+        publicações sem confirmação precisam de revisão no cartão de
+        atualização. Esta opção atualiza o servidor e o painel; os processos
+        Hermes e QR são mantidos separadamente.
+      </p>
+    </section>
   );
 }
 
@@ -435,6 +625,12 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
             </div>
           ))}
       </section>
+      <AutomaticUpdates
+        api={api}
+        demo={demo}
+        updates={u}
+        refresh={system.refresh}
+      />
       <section className="card system-card">
         <div className="section-heading">
           <h2>

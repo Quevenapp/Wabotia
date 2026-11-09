@@ -8,6 +8,7 @@ import {
   numberUsage,
   billingPeriod,
   observeMetaUsage,
+  assertNumberQuotaDelivery,
 } from "../src/number-quota";
 import {
   routerCommand,
@@ -18,7 +19,11 @@ import {
 } from "../src/number-router";
 import { inbound, conversation, enqueue, perform } from "../src/service";
 import { deliver, processInbox, processRun } from "../src/engine";
-import { numberPolicyPresets, type NumberPolicy } from "../src/number-policy";
+import {
+  numberPolicyPresets,
+  numberPolicy,
+  type NumberPolicy,
+} from "../src/number-policy";
 import { finishDelivery } from "../src/delivery";
 import { metaInbound } from "../src/meta-inbound";
 import { visibleConversation } from "../src/visibility";
@@ -244,6 +249,568 @@ async function setPolicy(f: any, index: number, policy: NumberPolicy) {
     uid(),
   );
 }
+
+async function pairedVinki(f: any) {
+  await exec(
+    env,
+    "INSERT INTO pairing_requests(id,client,instance_name,device_hash,user_hash,status,expires,profile_id,app_id,created,updated) VALUES(?,'vinki','Vinki teste',?,?,'consumed',?,?,?,?,?)",
+    uid(),
+    uid(),
+    uid(),
+    now() + 600000,
+    f.profile,
+    f.appId,
+    now(),
+    now(),
+  );
+}
+
+it("free_only reserva atomicamente a última unidade de uma linha legada sem bloquear clientes antigos", async () => {
+  const f = await fixture(1, 999),
+    c = await customer(f);
+  const results = await Promise.allSettled(
+    [1, 2].map((index) =>
+      enqueue(
+        env,
+        c,
+        f.actor.id,
+        "text",
+        { text: "somente saldo " + index, free_only: true },
+        uid(),
+      ),
+    ),
+  );
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  expect(
+    (results.find((r) => r.status === "rejected") as PromiseRejectedResult)
+      .reason,
+  ).toMatchObject({ code: "quota_exhausted" });
+  expect(
+    (await numberUsage(env, c.connection_id))!.service_overage_allowed,
+  ).toBe(true);
+  await expect(
+    enqueue(env, c, f.actor.id, "text", { text: "legado" }, uid()),
+  ).resolves.toBeTypeOf("string");
+  expect((await numberUsage(env, c.connection_id))!.used).toBe(1001);
+});
+
+it("free_only seleciona saldo de linhas legadas e aparece no recibo sem expor payload privado", async () => {
+  const f = await fixture(2, 1000);
+  await exec(
+    env,
+    "UPDATE meta_numbers SET baseline_used=999 WHERE connection_id=?",
+    f.numbers[1].id,
+  );
+  await customer(f, 0);
+  await customer(f, 1);
+  const queued = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f, { free_only: true }),
+    uid(),
+  );
+  expect(queued).toMatchObject({
+    number_id: f.numbers[1].id,
+    free_only: true,
+    billing: { service_overage_allowed: false },
+  });
+  const receipt = await routedMessage(
+    env,
+    f.actor,
+    f.profile,
+    queued.delivery_id,
+  );
+  expect(receipt).toMatchObject({
+    free_only: true,
+    number_id: f.numbers[1].id,
+  });
+  expect(receipt).not.toHaveProperty("payload");
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.send",
+      service(f, { free_only: true }),
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+});
+
+it("Vinki pareado força free_only mesmo omitido ou falso e impede desvio pelo envio direto", async () => {
+  const f = await fixture(1, 999),
+    c = await customer(f);
+  await pairedVinki(f);
+  const queued = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f, { free_only: false }),
+    uid(),
+  );
+  expect(queued.free_only).toBe(true);
+  const row = await one(
+    env,
+    "SELECT * FROM outbox WHERE id=?",
+    queued.delivery_id,
+  );
+  expect(json(row.payload).free_only).toBe(true);
+  await expect(
+    routerCommand(env, f.actor, f.profile, "router.send", service(f), uid()),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+  await expect(
+    enqueue(
+      env,
+      await conversation(env, c.id, f.profile),
+      f.actor.id,
+      "text",
+      { text: "direto", free_only: false },
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+  await expect(
+    routerCommand(env, f.actor, f.profile, "router.send", paid(f), uid()),
+  ).rejects.toMatchObject({ code: "invalid_request" });
+  const unmanagedId = uid();
+  await exec(
+    env,
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,'Sem contador','meta','direct','active',?,?)",
+    unmanagedId,
+    f.profile,
+    f.numbers[0].config,
+    now(),
+  );
+  const unmanaged = await customer({ ...f, numbers: [{ id: unmanagedId }] });
+  await expect(
+    assertNumberQuotaDelivery(env, { ...row, connection_id: unmanagedId }),
+  ).rejects.toMatchObject({
+    code: "quota_exhausted",
+  });
+  await expect(
+    enqueue(
+      env,
+      unmanaged,
+      f.actor.id,
+      "text",
+      { text: "sem contador" },
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "invalid_request" });
+});
+
+it("cancela aviso que vence durante upload de mídia sem enviar a mensagem à Meta", async () => {
+  const f = await fixture(1),
+    media = uid();
+  await customer(f);
+  await env.MEDIA.put(f.profile + "/" + media, "fake-image");
+  await exec(
+    env,
+    "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
+    media,
+    f.profile,
+    "foto.jpg",
+    "image/jpeg",
+    10,
+    f.profile + "/" + media,
+    f.actor.id,
+    now(),
+  );
+  const expires_at = now() + 60000;
+  const queued = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f, { text: "", attachments: [media], free_only: true, expires_at }),
+    uid(),
+  );
+  const fetcher = vi.fn(async (url: any) => {
+    expect(String(url)).toMatch(/\/media$/);
+    vi.spyOn(Date, "now").mockReturnValue(expires_at + 1);
+    return Response.json({ id: "provider-media" });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", queued.delivery_id),
+  );
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(
+    await routedMessage(env, f.actor, f.profile, queued.delivery_id),
+  ).toMatchObject({
+    status: "cancelled",
+    error: "Validade da mensagem encerrada antes do envio.",
+  });
+});
+
+it("a restrição do pedido persiste na entrega quando a política da linha permite excedente", async () => {
+  const f = await fixture(1, 999);
+  await customer(f);
+  await pairedVinki(f);
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.custom,
+    service_overage: false,
+  });
+  const queued = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  await setPolicy(f, 0, numberPolicyPresets.custom);
+  await exec(
+    env,
+    "UPDATE meta_numbers SET service_limit=999 WHERE connection_id=?",
+    f.numbers[0].id,
+  );
+  const row = await one(
+    env,
+    "SELECT * FROM outbox WHERE id=?",
+    queued.delivery_id,
+  );
+  await expect(assertNumberQuotaDelivery(env, row)).rejects.toMatchObject({
+    code: "quota_exhausted",
+  });
+  const mock = metaMock();
+  await deliver(env, row);
+  expect(mock.sent).toHaveLength(0);
+  expect((await routedMessage(env, f.actor, f.profile, row.id)).status).toBe(
+    "cancelled",
+  );
+});
+
+it("valida free_only e validade do aviso, preserva expires_at no recibo e cancela vencido sem rede", async () => {
+  const f = await fixture(1),
+    c = await customer(f);
+  for (const expires_at of [
+    now() - 1,
+    now() + 86400001 + 60000,
+    "2030-01-01",
+    null,
+    1.5,
+  ])
+    await expect(
+      routerCommand(
+        env,
+        f.actor,
+        f.profile,
+        "router.send",
+        service(f, { expires_at }),
+        uid(),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.send",
+      service(f, { free_only: "true" }),
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "invalid_request" });
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.send",
+      paid(f, { free_only: true }),
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "invalid_request" });
+  const expires_at = now() + 60000;
+  const queued = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f, { free_only: true, expires_at }),
+    uid(),
+  );
+  expect(queued.expires_at).toBe(expires_at);
+  expect(
+    (await routedMessage(env, f.actor, f.profile, queued.delivery_id))
+      .expires_at,
+  ).toBe(expires_at);
+  expect(
+    json(
+      (
+        await one(
+          env,
+          "SELECT payload FROM outbox WHERE id=?",
+          queued.delivery_id,
+        )
+      ).payload,
+    ),
+  ).toMatchObject({ expires_at, free_only: true });
+  await exec(
+    env,
+    "UPDATE outbox SET payload=json_set(payload,'$.expires_at',?) WHERE id=?",
+    now() - 1,
+    queued.delivery_id,
+  );
+  const mock = metaMock();
+  await deliver(
+    env,
+    await one(env, "SELECT * FROM outbox WHERE id=?", queued.delivery_id),
+  );
+  expect(mock.sent).toHaveLength(0);
+  expect(
+    (await routedMessage(env, f.actor, f.profile, queued.delivery_id)).status,
+  ).toBe("cancelled");
+  expect((await numberUsage(env, c.connection_id))!.used).toBe(0);
+});
+
+it("preserva excedente de clientes antigos e aplica o novo preset Vinki somente ao salvar", async () => {
+  const f = await fixture(1);
+  expect(numberPolicy({}).service_overage).toBe(true);
+  expect(
+    numberPolicy({ number_policy: { purpose: "service_only" } })
+      .service_overage,
+  ).toBe(true);
+  expect(numberPolicyPresets.service_only.service_overage).toBe(false);
+  const { service_overage: _unused, ...oldPolicy } =
+    numberPolicyPresets.service_only;
+  const saved = await routerCommand(
+    env,
+    admin,
+    f.profile,
+    "router.number.policy",
+    { id: f.numbers[0].id, policy: oldPolicy },
+    uid(),
+  );
+  expect(saved.policy.service_overage).toBe(true);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  const preserved = await routerCommand(
+    env,
+    admin,
+    f.profile,
+    "router.number.policy",
+    { id: f.numbers[0].id, policy: oldPolicy },
+    uid(),
+  );
+  expect(preserved.policy.service_overage).toBe(false);
+});
+
+it("reserva a última unidade atomicamente e mantém o recibo de uma repetição", async () => {
+  const f = await fixture(1, 999),
+    c = await customer(f);
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.custom,
+    service_overage: false,
+  });
+  const keys = [uid(), uid()];
+  const results = await Promise.allSettled(
+    keys.map((key) => enqueue(env, c, admin.id, "text", { text: key }, key)),
+  );
+  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  const rejected = results.find(
+    (r) => r.status === "rejected",
+  ) as PromiseRejectedResult;
+  expect(rejected.reason).toMatchObject({ code: "quota_exhausted" });
+  expect(await numberUsage(env, f.numbers[0].id)).toMatchObject({
+    used: 1000,
+    reserved: 1,
+    service_overage_allowed: false,
+  });
+  const success = results.findIndex((r) => r.status === "fulfilled");
+  const replay = await enqueue(
+    env,
+    c,
+    admin.id,
+    "text",
+    { text: keys[success] },
+    keys[success],
+  );
+  expect(replay).toBe(
+    (results[success] as PromiseFulfilledResult<string>).value,
+  );
+  expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(1000);
+});
+
+it("respeita ordem das reservas ao reduzir limite e cancela apenas o excedente antes da rede", async () => {
+  const f = await fixture(1, 998),
+    c = await customer(f);
+  const first = await enqueue(
+    env,
+    c,
+    admin.id,
+    "text",
+    { text: "primeira" },
+    uid(),
+  );
+  const second = await enqueue(
+    env,
+    c,
+    admin.id,
+    "text",
+    { text: "segunda" },
+    uid(),
+  );
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.custom,
+    service_overage: false,
+  });
+  await exec(
+    env,
+    "UPDATE meta_numbers SET service_limit=999 WHERE connection_id=?",
+    f.numbers[0].id,
+  );
+  const row1 = await one(env, "SELECT * FROM outbox WHERE id=?", first);
+  const row2 = await one(env, "SELECT * FROM outbox WHERE id=?", second);
+  await expect(assertNumberQuotaDelivery(env, row1)).resolves.toBeUndefined();
+  await expect(assertNumberQuotaDelivery(env, row2)).rejects.toMatchObject({
+    code: "quota_exhausted",
+  });
+  const mock = metaMock();
+  await deliver(env, row2);
+  expect(mock.sent).toHaveLength(0);
+  expect(
+    (await one(env, "SELECT status FROM outbox WHERE id=?", second)).status,
+  ).toBe("cancelled");
+  await deliver(env, row1);
+  expect(mock.sent).toHaveLength(1);
+});
+
+it("recibos externos recebidos depois da reserva são conferidos novamente antes da entrega", async () => {
+  const f = await fixture(1, 999),
+    c = await customer(f);
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.custom,
+    service_overage: false,
+  });
+  const id = await enqueue(
+    env,
+    c,
+    admin.id,
+    "text",
+    { text: "aguardando" },
+    uid(),
+  );
+  const row = await one(env, "SELECT * FROM outbox WHERE id=?", id);
+  await observeMetaUsage(env, f.numbers[0], {
+    message_id: "external-" + uid(),
+    status: "delivered",
+    timestamp: now(),
+    pricing: { category: "service", billable: false },
+  });
+  await expect(assertNumberQuotaDelivery(env, row)).rejects.toMatchObject({
+    code: "quota_exhausted",
+  });
+});
+
+it("pula linhas sem saldo no link público e retorna quota_exhausted se todas bloqueiam excedente", async () => {
+  const f = await fixture(2, 1000);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await setPolicy(f, 1, numberPolicyPresets.service_only);
+  await expect(
+    selectPoolNumbers(env, f.profile, f.pool.id),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+  const pool = await one(
+    env,
+    "SELECT public_token FROM number_pools WHERE id=?",
+    f.pool.id,
+  );
+  await expect(
+    routerLink(env, f.profile, pool.public_token),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+  await exec(
+    env,
+    "UPDATE meta_numbers SET baseline_used=999 WHERE connection_id=?",
+    f.numbers[1].id,
+  );
+  expect(
+    (await selectPoolNumbers(env, f.profile, f.pool.id)).map((n) => n.id),
+  ).toEqual([f.numbers[1].id]);
+  expect((await routerLink(env, f.profile, pool.public_token)).url).toBe(
+    "https://wa.me/" + json(f.numbers[1].config).number,
+  );
+});
+
+it("não troca o remetente vinculado quando a franquia acaba e outra linha tem saldo", async () => {
+  const f = await fixture(2, 999);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await setPolicy(f, 1, numberPolicyPresets.service_only);
+  await customer(f, 0);
+  await customer(f, 1);
+  await exec(
+    env,
+    "UPDATE number_pool_members SET last_selected=1 WHERE pool_id=? AND connection_id=?",
+    f.pool.id,
+    f.numbers[1].id,
+  );
+  const first = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    service(f),
+    uid(),
+  );
+  expect(first.number_id).toBe(f.numbers[0].id);
+  expect(first.billing.service_overage_allowed).toBe(false);
+  await expect(
+    routerCommand(env, f.actor, f.profile, "router.send", service(f), uid()),
+  ).rejects.toMatchObject({ code: "quota_exhausted" });
+  expect(
+    (
+      await one(
+        env,
+        "SELECT connection_id FROM router_affinities WHERE profile_id=? AND actor=? AND external_id='pedido-123'",
+        f.profile,
+        f.actor.id,
+      )
+    ).connection_id,
+  ).toBe(f.numbers[0].id);
+});
+
+it("o bloqueio de excedente de serviço não gasta saldo com leitura nem autoriza templates por conta própria", async () => {
+  const f = await fixture(1, 1000),
+    c = await customer(f);
+  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await expect(
+    enqueue(
+      env,
+      c,
+      f.actor.id,
+      "text",
+      { content: { type: "read", message_id: "sample" } },
+      uid(),
+    ),
+  ).resolves.toBeTypeOf("string");
+  await expect(
+    routerCommand(
+      env,
+      f.actor,
+      f.profile,
+      "router.send",
+      paid(f, { number_id: f.numbers[0].id, pool_id: undefined }),
+      uid(),
+    ),
+  ).rejects.toMatchObject({ code: "number_policy_denied" });
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.custom,
+    service_overage: false,
+  });
+  metaMock();
+  const result = await routerCommand(
+    env,
+    f.actor,
+    f.profile,
+    "router.send",
+    paid(f),
+    uid(),
+  );
+  expect(result.billing.mode).toBe("paid_template");
+  expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(1000);
+});
 
 it("salva permissões por número somente com administrador e preserva identidade, consumo e isolamento", async () => {
   const f = await fixture(2, 23);
@@ -882,7 +1449,10 @@ it("serializa entradas públicas concorrentes sem concentrar o rodízio em um n�
 it("entrega serviço excedente sem autorizar templates e mantém a janela de 24h", async () => {
   const f = await fixture(1, 1000);
   const c = await customer(f);
-  await setPolicy(f, 0, numberPolicyPresets.service_only);
+  await setPolicy(f, 0, {
+    ...numberPolicyPresets.service_only,
+    service_overage: true,
+  });
   await exec(env, "UPDATE number_pools SET allow_paid=0 WHERE id=?", f.pool.id);
   await exec(
     env,

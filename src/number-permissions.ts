@@ -18,6 +18,7 @@ export async function getNumberPolicy(env: Env, connection: string | null) {
 export function numberPolicyError(flag: NumberPolicyFlag) {
   const labels: Record<NumberPolicyFlag, string> = {
     service: "mensagens de atendimento dentro da janela de 24 horas",
+    service_overage: "excedente de serviço após a franquia configurada",
     templates: "envio de templates",
     human: "envio por atendentes no painel ou Telegram",
     api: "envio por programas externos",

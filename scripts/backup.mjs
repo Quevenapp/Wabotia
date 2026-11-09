@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, appendFile, rm } from "node:fs/promises";
 import { parse } from "jsonc-parser";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 const config = process.argv[2] || "wrangler.production.local.json",
   dir =
     process.argv[3] ||
@@ -11,13 +12,19 @@ await mkdir(dir, { recursive: true, mode: 0o700 });
 await mkdir(path.join(dir, "media"), { recursive: true, mode: 0o700 });
 await rm(path.join(dir, "manifest.json"), { force: true });
 const cfg = parse(await readFile(config, "utf8")),
-  npx = process.platform === "win32" ? "npx.cmd" : "npx";
+  wrangler = fileURLToPath(
+    new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url),
+  );
 function run(args, capture = false) {
-  const r = spawnSync(npx, ["wrangler", ...args, "--config", config], {
-    encoding: "utf8",
-    stdio: capture ? "pipe" : "inherit",
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const r = spawnSync(
+    process.execPath,
+    [wrangler, ...args, "--config", config],
+    {
+      encoding: "utf8",
+      stdio: capture ? "pipe" : "inherit",
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
   if (r.status !== 0)
     throw Error("Backup interrompido; não considere esta cópia completa.");
   return r.stdout;

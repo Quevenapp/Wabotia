@@ -1,5 +1,6 @@
 import { one, exec } from "./db";
-import { Env, now } from "./types";
+import { ApiError, Env, now, json, requireValue } from "./types";
+import { numberPolicy } from "./number-policy";
 
 export function billingPeriod(timestamp: number, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -11,25 +12,47 @@ export function billingPeriod(timestamp: number, timezone: string) {
 }
 // Pending, accepted and ambiguous sends remain reserved across month boundaries.
 // A provider delivery timestamp moves confirmed usage to the correct billing month.
-const localUnits = `(SELECT count(*) FROM outbox o LEFT JOIN meta_message_usage u ON u.connection_id=o.connection_id AND u.external_id=o.external_id
+const localUnits = (
+  reserved = "o.status IN ('pending','sending','unknown','sent')",
+) => `(SELECT count(*) FROM outbox o LEFT JOIN meta_message_usage u ON u.connection_id=o.connection_id AND u.external_id=o.external_id
  WHERE o.connection_id=n.connection_id AND o.created>=n.monitored_at
  AND coalesce(nullif(u.category,'unknown'),o.quota_category)='service'
  AND ((u.delivered_at IS NOT NULL AND u.period=b.period) OR
-      (u.delivered_at IS NULL AND coalesce(u.status,'')!='failed' AND o.status IN ('pending','sending','unknown','sent'))))`;
+      (u.delivered_at IS NULL AND coalesce(u.status,'')!='failed' AND (${reserved}))))`;
 const externalUnits = `(SELECT count(*) FROM meta_message_usage u WHERE u.connection_id=n.connection_id AND u.delivered_at>=n.monitored_at AND u.period=b.period AND u.category IN ('service','unknown') AND NOT EXISTS(SELECT 1 FROM outbox o WHERE o.connection_id=u.connection_id AND o.external_id=u.external_id))`;
-const usage = `(CASE WHEN n.baseline_period=b.period THEN n.baseline_used ELSE 0 END + ${localUnits} + ${externalUnits})`;
+const usage = (reserved?: string) =>
+  `(CASE WHEN n.baseline_period=b.period THEN n.baseline_used ELSE 0 END + ${localUnits(reserved)} + ${externalUnits})`;
+
+export function quotaExhausted() {
+  return new ApiError(
+    409,
+    "quota_exhausted",
+    "A franquia configurada deste número foi consumida ou reservada. Este envio exige saldo de franquia gratuita. A conversa mantém o mesmo remetente.",
+  );
+}
+
+export async function vinkiFreeOnly(env: Env, actor: string) {
+  return (
+    actor.startsWith("app:") &&
+    !!(await one(
+      env,
+      "SELECT id FROM pairing_requests WHERE app_id=? AND client='vinki' AND status='consumed' LIMIT 1",
+      actor.slice(4),
+    ))
+  );
+}
 
 export async function numberUsage(env: Env, connection: string) {
   const n = await one(
     env,
-    "SELECT n.*,a.timezone FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE connection_id=?",
+    "SELECT n.*,a.timezone,c.config FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id JOIN connections c ON c.id=n.connection_id WHERE connection_id=?",
     connection,
   );
   if (!n) return null;
   const period = billingPeriod(now(), n.timezone);
   const count = await one(
     env,
-    `WITH b(period) AS (VALUES (?)) SELECT ${usage} used FROM meta_numbers n,b WHERE n.connection_id=?`,
+    `WITH b(period) AS (VALUES (?)) SELECT ${usage()} used FROM meta_numbers n,b WHERE n.connection_id=?`,
     period,
     connection,
   );
@@ -53,12 +76,12 @@ export async function numberUsage(env: Env, connection: string) {
     baseline: n.baseline_period === period ? n.baseline_used : 0,
     used: count.used,
     remaining: Math.max(0, n.service_limit - count.used),
-    // The legacy limit/remaining fields describe the free allowance, never a
-    // delivery cap. Pending sends count conservatively until Meta confirms.
+    // Pending sends count conservatively until Meta confirms. A saved policy
+    // can opt into using this allowance as an admission cap.
     free_allowance: n.service_limit,
     free_remaining: Math.max(0, n.service_limit - count.used),
     paid_service_estimated: Math.max(0, count.used - n.service_limit),
-    service_overage_allowed: true,
+    service_overage_allowed: numberPolicy(json(n.config)).service_overage,
     reserved: pending.n,
     delivered: confirmed.delivered,
     service_delivered: confirmed.service_delivered || 0,
@@ -74,6 +97,16 @@ export async function queueWithNumberQuota(
   values: any[],
   category: string,
 ) {
+  const freeOnly =
+    json(values[7]).free_only === true || (await vinkiFreeOnly(env, values[6]));
+  requireValue(
+    !freeOnly || category !== "template",
+    "Somente franquia gratuita não permite modelos pagos.",
+  );
+  if (freeOnly) {
+    values = [...values];
+    values[7] = JSON.stringify({ ...json(values[7]), free_only: true });
+  }
   const connection = values[3];
   const n =
     connection &&
@@ -82,18 +115,75 @@ export async function queueWithNumberQuota(
       "SELECT a.timezone FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE n.connection_id=?",
       connection,
     ));
+  requireValue(
+    !freeOnly || category !== "service" || !!n,
+    "Somente franquia gratuita exige uma linha WhatsApp com contador no roteador.",
+  );
   const sql =
     "INSERT OR IGNORE INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated,quota_month,quota_category)";
-  // Exhausting the free allowance changes billing, not delivery eligibility.
-  // Window, sender, policy and application checks stay in the sending paths.
-  // Keep each queued service unit in the usage ledger, including paid overage.
+  const period = n ? billingPeriod(now(), n.timezone) : null;
+  // Admission and reservation are one statement: two concurrent sends cannot
+  // both spend the last unit. Read the live policy in that same statement.
   await exec(
     env,
-    `${sql} VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `WITH b(period) AS (VALUES (?)) ${sql} SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE ?!='service' OR NOT EXISTS (
+      SELECT 1 FROM meta_numbers n JOIN connections c ON c.id=n.connection_id,b
+      WHERE n.connection_id=? AND (?=1 OR json_extract(c.config,'$.number_policy.service_overage')=0) AND ${usage()}>=n.service_limit
+    )`,
+    period,
     ...values,
-    n ? billingPeriod(now(), n.timezone) : null,
+    period,
     n ? category : null,
+    category,
+    connection || null,
+    Number(freeOnly),
   );
+  // A replay returns the original receipt even if the allowance is now full.
+  if (!(await one(env, "SELECT id FROM outbox WHERE dedupe=?", values[8])))
+    throw quotaExhausted();
+}
+
+export async function assertNumberQuotaAvailable(
+  env: Env,
+  connection: string,
+  freeOnly = false,
+) {
+  const usage = await numberUsage(env, connection);
+  if (
+    usage &&
+    (freeOnly || !usage.service_overage_allowed) &&
+    usage.free_remaining <= 0
+  )
+    throw quotaExhausted();
+}
+
+export async function assertNumberQuotaDelivery(env: Env, row: any) {
+  if (!row.connection_id || row.quota_category !== "service") return;
+  const number = await one(
+    env,
+    "SELECT a.timezone FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE n.connection_id=?",
+    row.connection_id,
+  );
+  if (!number && json(row.payload).free_only === true)
+    throw new ApiError(
+      409,
+      "quota_exhausted",
+      "O envio exige franquia gratuita, mas o contador desta linha não está disponível. A conversa mantém o mesmo remetente.",
+    );
+  if (!number) return;
+  // Already sent/ambiguous messages always hold capacity. Among pending
+  // messages only reservations up to this one have priority, so tightening a
+  // policy or lowering the allowance cancels the excess, not the entire queue.
+  const reserved =
+    "o.status IN ('sending','unknown','sent') OR (o.status='pending' AND (o.created<r.created OR (o.created=r.created AND o.rowid<=r.row_order)))";
+  const blocked = await one(
+    env,
+    `WITH b(period) AS (VALUES (?)),r AS (SELECT rowid row_order,* FROM outbox WHERE id=?) SELECT n.connection_id FROM meta_numbers n JOIN connections c ON c.id=n.connection_id,b,r WHERE n.connection_id=? AND (json_extract(r.payload,'$.free_only')=1 OR json_extract(c.config,'$.number_policy.service_overage')=0) AND ${usage(reserved)}>n.service_limit`,
+    billingPeriod(now(), number.timezone),
+    row.id,
+    row.connection_id,
+  );
+  if (blocked) throw quotaExhausted();
 }
 export async function observeMetaUsage(env: Env, conn: any, data: any) {
   if (

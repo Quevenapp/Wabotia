@@ -12,6 +12,20 @@ Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado 
 
 A confirmação compara o commit solicitado com o código em execução. O banco, as mídias, os domínios e os secrets permanecem na sua conta. Migrações são aplicadas com recibo na mesma transação antes de ativar código. Alterações incompatíveis em Durable Objects precisam de procedimento manual.
 
+## Atualizações automáticas
+
+Em **Sistema → Atualizações automáticas**, ligue **Instalar novas versões automaticamente**, escolha a hora inicial e uma janela de uma a seis horas e salve. O padrão sugerido é das 03:00 às 05:00, no fuso `America/Sao_Paulo`; a opção começa desligada. É necessário que a instalação direta já tenha autorização Cloudflare. O painel reutiliza essa autorização, sem pedir outro token.
+
+O agendamento existente verifica a janela a cada cinco minutos. Dentro dela, consulta uma vez o catálogo oficial e inicia somente uma versão de número maior que a instalada. Não faz downgrade, não troca o código de uma versão com o mesmo número e não executa pacotes que falhem na conferência de integridade ou compatibilidade. A janela define quando um trabalho pode começar; uma publicação iniciada termina normalmente mesmo depois da janela.
+
+A checagem e a instalação compartilham uma trava persistente com os comandos manuais. Falhas temporárias de consulta e falhas de rede antes da publicação têm até três tentativas, com espera crescente e dentro da janela. Pacote inválido, erro de migração, falha não temporária e publicação com resultado incerto exigem revisão. O painel mostra estado, última consulta, tentativa e erro. A confirmação continua dependendo do novo código estar em execução, sem considerar apenas a resposta do upload.
+
+Desligar a opção cancela a criação de novos trabalhos e um trabalho automático que ainda não começou. Uma atualização já iniciada continua; desligar não tenta reverter migrações. Os processos Hermes e QR continuam sendo mantidos separadamente. Mantenha uma rotina de backup: não há rollback automático do banco.
+
+Contrato administrativo: `POST /api/v1/system/updates/automatic`, com `{"enabled":true,"hour":3,"window_hours":2}` e `Idempotency-Key`. A política e seu acompanhamento ficam em `updates.automatic` de `GET /api/v1/system`. A migração aditiva `0011_auto_updates.sql` cria a trava de concorrência; a configuração permanece protegida na instalação.
+
+A versão `0.10.0` inclui as migrações `0010` a `0013`: pareamento, trava de atualizações, setores/menus e decisões JEV. Aplique-as antes de ativar o Worker novo. O agendador só instala versões maiores; cada pacote publicado é imutável.
+
 ## Autorização Cloudflare
 
 O instalador configura automaticamente a atualização com o token usado na instalação. Para renovar, abra **Alterar configuração de atualização**, cole um token com **Workers Scripts: Edit** limitado à conta da instalação e salve. O servidor confere a identidade do Worker antes de aceitar o token. Ele é criptografado e nunca aparece nas consultas do painel.

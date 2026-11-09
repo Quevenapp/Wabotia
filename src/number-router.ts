@@ -1,7 +1,12 @@
 import { all, one, exec, batch } from "./db";
 import { Env, Actor, ApiError, json, uid, now, requireValue } from "./types";
 import { access, admin, random } from "./security";
-import { numberUsage } from "./number-quota";
+import {
+  numberUsage,
+  assertNumberQuotaAvailable,
+  quotaExhausted,
+  vinkiFreeOnly,
+} from "./number-quota";
 import { conversation, enqueue, perform } from "./service";
 import { outgoingContent } from "./whatsapp";
 import { paidTemplate } from "./router-templates";
@@ -150,6 +155,7 @@ export async function selectPoolNumbers(
   poolId: string,
   paid = false,
   actor?: Actor,
+  freeOnly = false,
 ) {
   const pool = await one(
     env,
@@ -170,6 +176,7 @@ export async function selectPoolNumbers(
       "Grupo de números não encontrado ou pausado.",
     );
   const candidates = [];
+  let exhausted = 0;
   for (const row of await all(
     env,
     "SELECT c.*,m.last_selected FROM connections c JOIN number_pool_members m ON m.connection_id=c.id JOIN meta_numbers n ON n.connection_id=c.id WHERE m.pool_id=? AND c.profile_id=? AND c.status='active' AND n.account_id=?",
@@ -181,12 +188,22 @@ export async function selectPoolNumbers(
     if (!policy.pool || !(paid ? policy.templates : policy.service)) continue;
     if (actor && !(actor.kind === "app" ? policy.api : policy.human)) continue;
     const usage = await numberUsage(env, row.id);
+    if (
+      !paid &&
+      (freeOnly || !policy.service_overage) &&
+      usage &&
+      usage.free_remaining <= 0
+    ) {
+      exhausted++;
+      continue;
+    }
     if (usage)
       candidates.push({
         ...row,
         usage,
       });
   }
+  if (!candidates.length && exhausted) throw quotaExhausted();
   candidates.sort(
     (a, b) =>
       // Templates have independent pricing; service first rotates among free
@@ -274,7 +291,11 @@ export async function routerCommand(
     );
     requireValue(
       ["official", "service_only", "custom"].includes(policy.purpose) &&
-        numberPolicyFlags.every((flag) => typeof policy[flag] === "boolean") &&
+        numberPolicyFlags.every(
+          (flag) =>
+            (flag === "service_overage" && policy[flag] === undefined) ||
+            typeof policy[flag] === "boolean",
+        ) &&
         Object.keys(policy).every(
           (key) => key === "purpose" || numberPolicyFlags.includes(key as any),
         ),
@@ -282,20 +303,25 @@ export async function routerCommand(
     );
     const row = await one(
       env,
-      "SELECT c.id FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=?",
+      "SELECT c.id,c.config FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=?",
       data.id,
       profile,
     );
     requireValue(row, "Número não encontrado neste perfil.");
+    // Older clients cannot silently switch off a cap enabled elsewhere.
+    // With no saved policy, the historical overage behavior still applies.
+    const normalized = numberPolicy({
+      number_policy: { ...numberPolicy(json(row.config)), ...policy },
+    });
     await exec(
       env,
       "UPDATE connections SET config=json_set(config,'$.number_policy',json(?)) WHERE id=?",
-      JSON.stringify(policy),
+      JSON.stringify(normalized),
       row.id,
     );
     // Pending sends are checked again by deliver; an in-flight/ambiguous send
     // must keep its receipt and reservation, never be retried on another number.
-    return { id: row.id, policy };
+    return { id: row.id, policy: normalized };
   }
   if (op === "router.pool.save") {
     const id = data.id || uid(),
@@ -498,6 +524,8 @@ export async function routedMessage(
     provider_category: row.provider_category || null,
     billable: row.billable === null ? null : !!row.billable,
     error: row.error,
+    free_only: payload.free_only === true,
+    expires_at: payload.expires_at ?? null,
     source: payload.router_source,
     created: row.created,
     updated: row.updated,
@@ -513,6 +541,20 @@ async function routedSend(
   access(actor, profile, "routing:send");
   access(actor, profile, "conversations:write");
   requireValue(
+    data.free_only === undefined || typeof data.free_only === "boolean",
+    "free_only deve ser verdadeiro ou falso.",
+  );
+  const freeOnly =
+    data.free_only === true || (await vinkiFreeOnly(env, actor.id));
+  const requestedAt = now();
+  requireValue(
+    data.expires_at === undefined ||
+      (Number.isSafeInteger(data.expires_at) &&
+        data.expires_at > requestedAt &&
+        data.expires_at <= requestedAt + 86400000),
+    "expires_at deve ser um horário futuro em milissegundos Unix, no máximo 24 horas a partir de agora.",
+  );
+  requireValue(
     !!data.number_id !== !!data.pool_id,
     "Escolha number_id ou pool_id, nunca ambos.",
   );
@@ -521,6 +563,10 @@ async function routedSend(
     "Informe o identificador do número ou grupo.",
   );
   const paid = !!data.template;
+  requireValue(
+    !paid || !freeOnly,
+    "Somente franquia gratuita não permite modelos pagos.",
+  );
   if (paid) {
     access(actor, profile, "routing:paid");
     requireValue(
@@ -566,7 +612,7 @@ async function routedSend(
     );
   const candidates =
     type === "pool"
-      ? await selectPoolNumbers(env, profile, source, paid, actor)
+      ? await selectPoolNumbers(env, profile, source, paid, actor, freeOnly)
       : await all(
           env,
           "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=? AND c.status='active'",
@@ -581,6 +627,8 @@ async function routedSend(
       {},
     );
     if (denied) throw numberPolicyError(denied);
+    if (!paid)
+      await assertNumberQuotaAvailable(env, candidates[0].id, freeOnly);
   }
   const pinned = existing?.conversation_id || data.conversation_id;
   let c: any, chosen: any;
@@ -606,6 +654,8 @@ async function routedSend(
             c.connection_id,
           );
     requireValue(belongs, "A conversa não pertence à origem escolhida.");
+    if (!paid && c.connection_id)
+      await assertNumberQuotaAvailable(env, c.connection_id, freeOnly);
     chosen = candidates.find((n) => n.id === c.connection_id);
     if (!chosen)
       throw new ApiError(
@@ -811,7 +861,12 @@ async function routedSend(
     c,
     actor.id,
     paid ? "template" : "text",
-    { ...payload, router_source: { type, id: source } },
+    {
+      ...payload,
+      router_source: { type, id: source },
+      ...(freeOnly ? { free_only: true } : {}),
+      ...(data.expires_at === undefined ? {} : { expires_at: data.expires_at }),
+    },
     `router:${actor.id}:${key}`,
   );
   // Existing chats do not advance the new-admission rotation.
@@ -823,6 +878,8 @@ async function routedSend(
     source_type: type,
     source_id: source,
     status: "pending",
+    free_only: freeOnly,
+    expires_at: data.expires_at ?? null,
     billing: paid
       ? {
           mode: "paid_template",
@@ -836,7 +893,8 @@ async function routedSend(
               : "service_paid",
           category: "service",
           estimated: true,
-          service_overage_allowed: true,
+          service_overage_allowed:
+            !freeOnly && (usageBefore?.service_overage_allowed ?? true),
         },
     usage: await numberUsage(env, c.connection_id),
   };

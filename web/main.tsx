@@ -58,33 +58,18 @@ import { MaintenanceGuide } from "./maintenance-guide";
 import { ContactGuide } from "./ContactGuide";
 import { WhatsAppGuide } from "./WhatsAppGuide";
 import { ContactsPanel, ContactEditor, demoContacts } from "./ContactsPanel";
+import { SetupWizard } from "./SetupWizard";
+import { PairingPanel } from "./PairingPanel";
+import {
+  sections,
+  visibleGroups,
+  canOpenPage,
+  pageDescriptions,
+  type PanelMode,
+  type PageId,
+} from "./workspace-navigation";
+import "./workspace.css";
 type Row = Record<string, any>;
-const sections = [
-  ["overview", "Visão geral", LayoutDashboard],
-  ["conversations", "Conversas", MessageCircle],
-  ["groups", "Grupos WhatsApp", Users],
-  ["calls", "Ligações", Phone],
-  ["contacts", "Agenda de contatos", BookOpen],
-  ["tickets", "Protocolos", FileText],
-  ["bots", "Equipe Bot", Bot],
-  ["team", "Conversas internas", Users],
-  ["knowledge", "Conhecimento", BookOpen],
-  ["presence", "Disponibilidade", Headphones],
-  ["reports", "Relatórios", Activity],
-  ["surveys", "Avaliações", Star],
-  ["consents", "Consentimentos", ShieldCheck],
-  ["menus", "Menus e submenus", Menu],
-  ["settings", "Preferências", Settings],
-  ["connections", "Conexões", Plug],
-  ["lines", "Linhas de atendimento", Phone],
-  ["router", "Roteador de números", Phone],
-  ["users", "Pessoas", Users],
-  ["applications", "API e integrações", Code2],
-  ["bot-runs", "Execuções", Bot],
-  ["deliveries", "Entregas", Send],
-  ["webhook-deliveries", "Webhooks", Zap],
-  ["system", "Sistema e atualizações", Cloud],
-] as const;
 async function api(
   path: string,
   method = "GET",
@@ -146,6 +131,8 @@ const statusNames: Row = {
   open: "Aberto",
   in_progress: "Em andamento",
   active: "Conectado",
+  enabled: "Habilitado",
+  disabled: "Desabilitado",
   paused: "Pausado",
   pending: "Pendente",
   sent: "Enviado",
@@ -238,6 +225,44 @@ function Field({
   );
 }
 function Modal({ title, children, close }: any) {
+  const dialog = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        dialog.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
+        ) || [],
+      ).filter((element) => element.getClientRects().length);
+    (focusable()[0] || dialog.current)?.focus();
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0],
+        last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.current?.addEventListener("keydown", keyboard);
+    const element = dialog.current;
+    return () => {
+      element?.removeEventListener("keydown", keyboard);
+      previous?.focus();
+    };
+  }, []);
   return (
     <div className="modal-backdrop" onClick={close}>
       <section
@@ -246,6 +271,8 @@ function Modal({ title, children, close }: any) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        ref={dialog}
+        tabIndex={-1}
       >
         <header>
           <h2>{title}</h2>
@@ -826,7 +853,11 @@ function App() {
       demo ? { name: "Administrador", role: "admin", id: "demo-user" } : null,
     ),
     [checked, setChecked] = useState(demo),
-    [page, setPage] = useState("overview"),
+    [page, setPage] = useState(
+      new URLSearchParams(location.search).has("pair")
+        ? "applications"
+        : "overview",
+    ),
     [profiles, setProfiles] = useState<Row[]>(demo ? [demoProfile] : []),
     [profile, setProfile] = useState(demo ? "demo" : ""),
     [pageData, setPageData] = useState<{
@@ -846,11 +877,114 @@ function App() {
     [contactEditing, setContactEditing] = useState(false),
     [reply, setReply] = useState(""),
     [search, setSearch] = useState(""),
+    [departmentFilter, setDepartmentFilter] = useState(""),
     [mobile, setMobile] = useState(false),
     [section, setSection] = useState("tickets"),
     [cursor, setCursor] = useState("");
   const [ringingCalls, setRingingCalls] = useState<Row[]>([]);
-  const loadScope = JSON.stringify([profile, page, section, cursor]);
+  const [panelMode, setPanelMode] = useState<PanelMode>(() => {
+    try {
+      return localStorage.getItem("wabotia:panel-mode") === "advanced"
+        ? "advanced"
+        : "guided";
+    } catch {
+      return "guided";
+    }
+  });
+  const [setupActive, setSetupActive] = useState(false);
+  const [setupRevision, setSetupRevision] = useState(0);
+  const [setupDirty, setSetupDirty] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    page?: string;
+    profile?: string;
+    conversation?: string;
+  } | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const settingsDirtyRef = useRef(false);
+  const settingsChanges = useRef<Row>({});
+  settingsDirtyRef.current = settingsDirty;
+  useEffect(() => {
+    if (!settingsDirty && !setupDirty) return;
+    const preventLoss = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventLoss);
+    return () => window.removeEventListener("beforeunload", preventLoss);
+  }, [settingsDirty, setupDirty]);
+  function navigate(next: string, discard = false) {
+    if (!me || !canOpenPage(next, me.role)) return;
+    if (next === page) {
+      setMobile(false);
+      return;
+    }
+    if (!discard && (settingsDirty || setupDirty)) {
+      setPendingNavigation({ page: next });
+      return;
+    }
+    if (next === "setup") setSetupActive(true);
+    setPage(next);
+    setCursor("");
+    setSelection(null);
+    setContactEditing(false);
+    setMobile(false);
+    setSearch("");
+    setError("");
+    setNotice("");
+    setSettingsDirty(false);
+    settingsDirtyRef.current = false;
+    settingsChanges.current = {};
+  }
+  function chooseProfile(next: string, discard = false) {
+    if (next === profile) return;
+    if (!discard && (settingsDirty || setupDirty)) {
+      setPendingNavigation({ profile: next });
+      return;
+    }
+    setProfile(next);
+    setDepartmentFilter("");
+    setCursor("");
+    setSelection(null);
+    setContactEditing(false);
+    setSettingsDirty(false);
+    setSetupDirty(false);
+    settingsDirtyRef.current = false;
+    settingsChanges.current = {};
+    setSettings({});
+    setOverview({});
+    setBots([]);
+    setError("");
+    setNotice("");
+  }
+  function changeMode(mode: PanelMode) {
+    setPanelMode(mode);
+    try {
+      localStorage.setItem("wabotia:panel-mode", mode);
+    } catch {
+      /* optional preference */
+    }
+    if (
+      page !== "setup" &&
+      !visibleGroups(me?.role || "operator", mode).some((group) =>
+        group.pages.includes(page as PageId),
+      )
+    )
+      navigate("overview");
+  }
+  function editSettings(patch: Row) {
+    settingsChanges.current = { ...settingsChanges.current, ...patch };
+    settingsDirtyRef.current = true;
+    setSettingsDirty(true);
+    setSettings((current) => ({ ...current, ...patch }));
+  }
+  const loadScope = JSON.stringify([
+    profile,
+    page,
+    section,
+    cursor,
+    departmentFilter,
+    search,
+  ]);
   const currentScope = useRef(loadScope);
   const latestLoad = useRef(0);
   const transferKeys = useRef(new Map<string, string>());
@@ -878,6 +1012,9 @@ function App() {
   useEffect(() => {
     if (!demo) init();
   }, []);
+  useEffect(() => {
+    if (me && !canOpenPage(page, me.role)) setPage("overview");
+  }, [me?.role, page]);
   const run = async (
     fn: () => Promise<any>,
     success = "Salvo com sucesso.",
@@ -902,10 +1039,6 @@ function App() {
   };
   async function load() {
     const request = ++latestLoad.current;
-    if (
-      ["system", "contacts", "router", "lines", "menus", "team"].includes(page)
-    )
-      return;
     if (demo) {
       setOverview({
         enabled: false,
@@ -923,7 +1056,7 @@ function App() {
           enabled: 1,
         },
       ]);
-      setSettings(demoProfile.settings);
+      if (!settingsDirtyRef.current) setSettings(demoProfile.settings);
       setRows(
         page === "conversations"
           ? demoConversations
@@ -973,6 +1106,8 @@ function App() {
           root +
             "/conversations?q=" +
             encodeURIComponent(search) +
+            "&department_id=" +
+            encodeURIComponent(departmentFilter) +
             "&cursor=" +
             encodeURIComponent(cursor),
         );
@@ -984,14 +1119,31 @@ function App() {
             "&cursor=" +
             encodeURIComponent(cursor),
         );
-      else if (!["overview", "settings"].includes(page))
+      else if (
+        ![
+          "overview",
+          "settings",
+          "system",
+          "contacts",
+          "router",
+          "lines",
+          "menus",
+          "team",
+          "setup",
+        ].includes(page)
+      )
         data = await api(
-          root + "/" + page + "?cursor=" + encodeURIComponent(cursor),
+          root +
+            "/" +
+            page +
+            "?cursor=" +
+            encodeURIComponent(cursor) +
+            (page === "tickets" ? "&q=" + encodeURIComponent(search) : ""),
         );
       if (currentScope.current !== loadScope || request !== latestLoad.current)
         return;
       setOverview(o);
-      setSettings(o.settings || {});
+      if (!settingsDirtyRef.current) setSettings(o.settings || {});
       setBots(b.data || b);
       setRows(
         page === "reports" ? data : data.data || data,
@@ -1008,7 +1160,7 @@ function App() {
       const timer = setInterval(load, 15000);
       return () => clearInterval(timer);
     }
-  }, [profile, page, me, section, cursor]);
+  }, [profile, page, me, section, cursor, departmentFilter, search]);
   useEffect(() => {
     if (!me || !profile || demo) return;
     let alive = true;
@@ -1231,6 +1383,8 @@ function App() {
         setModal("secret");
       } else {
         setModal("");
+        if (modal === "profile" && result.id) chooseProfile(result.id);
+        setSetupRevision((revision) => revision + 1);
         await init();
         await load();
       }
@@ -1244,6 +1398,10 @@ function App() {
     );
   if (!me) return <Login ready={init} />;
   const nav = sections.find((s) => s[0] === page)!;
+  const groups = visibleGroups(me.role, panelMode);
+  const activeGroup = groups.find((group) =>
+    group.pages.includes(page as PageId),
+  );
   const list = Array.isArray(rows) ? rows : [];
   const total = (overview.conversations || []).reduce(
     (a: number, b: any) => a + b.count,
@@ -1254,59 +1412,75 @@ function App() {
     0;
   return (
     <div className="app-shell">
-      <aside className={"sidebar " + (mobile ? "visible" : "")}>
+      {mobile && (
+        <button
+          className="mobile-nav-backdrop"
+          aria-label="Fechar menu de navegação"
+          onClick={() => setMobile(false)}
+        />
+      )}
+      <aside
+        id="workspace-sidebar"
+        className={"sidebar " + (mobile ? "visible" : "")}
+      >
         <Logo light />
         <div className="workspace">
           <span className="workspace-avatar">Q</span>
           <div>
             <strong>Seu atendimento</strong>
-            <small>Workspace Wabotia</small>
+            <small>
+              {profiles.find((item) => item.id === profile)?.name || "Wabotia"}
+            </small>
           </div>
           <ChevronDown size={15} />
         </div>
-        <div className="nav-label">OPERAÇÃO</div>
-        <nav>
-          {sections
-            .filter(
-              ([id]) =>
-                me.role === "admin" ||
-                ![
-                  "settings",
-                  "menus",
-                  "lines",
-                  "connections",
-                  "router",
-                  "users",
-                  "applications",
-                  "webhook-deliveries",
-                  "system",
-                ].includes(id),
-            )
-            .map(([id, title, Icon], i) => (
-              <React.Fragment key={id}>
-                {id === "connections" && (
-                  <div className="nav-label">ADMINISTRAÇÃO</div>
-                )}
-                <button
-                  onClick={() => {
-                    setPage(id);
-                    setCursor("");
-                    setSelection(null);
-                    setContactEditing(false);
-                    setMobile(false);
-                    setError("");
-                  }}
-                  className={page === id ? "active" : ""}
-                >
-                  <Icon size={18} />
-                  <span>{title}</span>
-                  {id === "conversations" && total > 0 && <b>{total}</b>}
-                  {id === "calls" && ringingCalls.length > 0 && (
-                    <b>{ringingCalls.length}</b>
-                  )}
-                </button>
-              </React.Fragment>
-            ))}
+        <div className="panel-mode">
+          <span>Modo do painel</span>
+          <div role="group" aria-label="Modo do painel">
+            <button
+              aria-pressed={panelMode === "guided"}
+              onClick={() => changeMode("guided")}
+            >
+              Simplificado
+            </button>
+            <button
+              aria-pressed={panelMode === "advanced"}
+              onClick={() => changeMode("advanced")}
+            >
+              Avançado
+            </button>
+          </div>
+        </div>
+        <nav aria-label="Navegação principal">
+          {me.role === "admin" && (
+            <button
+              className={"setup-nav " + (page === "setup" ? "active" : "")}
+              aria-current={page === "setup" ? "page" : undefined}
+              onClick={() => navigate("setup")}
+            >
+              <Zap size={18} />
+              <span>Configuração guiada</span>
+            </button>
+          )}
+          {groups.map(({ id, label, icon: Icon, pages }) => (
+            <button
+              key={id}
+              onClick={() => navigate(pages[0])}
+              className={activeGroup?.id === id ? "active" : ""}
+              aria-current={activeGroup?.id === id ? "page" : undefined}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+              {id === "service" && count("waiting") > 0 && (
+                <b aria-label={`${count("waiting")} conversas na fila`}>
+                  {count("waiting")}
+                </b>
+              )}
+              {id === "service" && ringingCalls.length > 0 && (
+                <Phone size={14} aria-label="Ligação recebida" />
+              )}
+            </button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <a href="/install">
@@ -1340,11 +1514,14 @@ function App() {
             className="icon-button mobile-toggle"
             onClick={() => setMobile(!mobile)}
             aria-label="Abrir menu"
+            aria-expanded={mobile}
+            aria-controls="workspace-sidebar"
           >
             <Menu />
           </button>
           <div className="breadcrumbs">
-            Workspace <ChevronRight size={14} />
+            {activeGroup?.label || "Primeiros passos"}{" "}
+            <ChevronRight size={14} />
             <strong>{nav[1]}</strong>
           </div>
           <div className="topbar-actions">
@@ -1377,7 +1554,14 @@ function App() {
                 WhatsApp.{" "}
                 <button
                   onClick={() => {
-                    setPage("conversations");
+                    if (settingsDirty || setupDirty) {
+                      setPendingNavigation({
+                        page: "conversations",
+                        conversation: ringingCalls[0].conversation_id,
+                      });
+                      return;
+                    }
+                    navigate("conversations");
                     openConversation({
                       id: ringingCalls[0].conversation_id,
                     }).catch((e) => setError(e.message));
@@ -1392,27 +1576,15 @@ function App() {
               <div className="eyebrow">SEU CENTRO DE ATENDIMENTO</div>
               <h1>{nav[1]}</h1>
               <p>
-                {page === "overview"
-                  ? "Tudo o que sua equipe precisa para cuidar de cada conversa."
-                  : page === "conversations"
-                    ? "Contexto, pessoas e respostas no mesmo lugar."
-                    : page === "contacts"
-                      ? "Guarde os dados dos clientes e encontre cada contato com facilidade."
-                      : page === "applications"
-                        ? "Conecte outros sistemas com acesso controlado."
-                        : "Organize seu atendimento com clareza."}
+                {pageDescriptions[page as PageId] ||
+                  "Organize seu atendimento com clareza."}
               </p>
             </div>
             <div className="heading-actions">
               <select
                 aria-label="Perfil de atendimento"
                 value={profile}
-                onChange={(e) => {
-                  setProfile(e.target.value);
-                  setCursor("");
-                  setSelection(null);
-                  setContactEditing(false);
-                }}
+                onChange={(e) => chooseProfile(e.target.value)}
               >
                 <option value="">Escolha um perfil</option>
                 {profiles.map((p) => (
@@ -1432,6 +1604,49 @@ function App() {
               )}
             </div>
           </div>
+          {activeGroup && activeGroup.pages.length > 1 && (
+            <nav
+              className="workspace-tabs"
+              aria-label={`Áreas de ${activeGroup.label}`}
+            >
+              {activeGroup.pages.map((id) => {
+                const [, label, Icon] = sections.find(
+                  (item) => item[0] === id,
+                )!;
+                return (
+                  <button
+                    key={id}
+                    aria-current={page === id ? "page" : undefined}
+                    onClick={() => navigate(id)}
+                  >
+                    <Icon size={16} />
+                    {label}
+                    {id === "calls" && ringingCalls.length > 0 && (
+                      <b>{ringingCalls.length}</b>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+          {setupActive && page !== "setup" && me.role === "admin" && (
+            <div className="setup-return">
+              <span>
+                Você abriu uma etapa da configuração. Ao terminar, continue pelo
+                assistente.
+              </span>
+              <button className="text-link" onClick={() => navigate("setup")}>
+                Voltar à configuração guiada <ArrowRight size={14} />
+              </button>
+              <button
+                className="icon-button"
+                aria-label="Fechar lembrete de configuração"
+                onClick={() => setSetupActive(false)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
           {error && (
             <div role="alert" className="notice error">
               {error}
@@ -1448,18 +1663,40 @@ function App() {
               </button>
             </div>
           )}
-          {!profile && !["users", "applications", "system"].includes(page) ? (
+          {!profile &&
+          !["users", "applications", "system", "setup"].includes(page) ? (
             <div className="card">
               <Empty
                 title="Vamos criar seu primeiro perfil?"
                 description="Um perfil organiza os bots, os canais e a equipe de um atendimento."
               />
-              <Button onClick={() => open("profile")}>
-                <Plus size={17} /> Criar perfil de atendimento
-              </Button>
+              {me.role === "admin" ? (
+                <Button onClick={() => navigate("setup")}>
+                  <Zap size={17} /> Começar configuração guiada
+                </Button>
+              ) : (
+                <p>
+                  Peça ao administrador para liberar seu acesso a um perfil.
+                </p>
+              )}
             </div>
           ) : (
             <>
+              {page === "setup" && me.role === "admin" && (
+                <SetupWizard
+                  key={profile}
+                  api={api}
+                  root={root}
+                  demo={demo}
+                  hasProfile={!!profile}
+                  onNavigate={navigate}
+                  onConnect={(kind: string) => open("connection", { kind })}
+                  onCreateProfile={() => open("profile")}
+                  onRefresh={load}
+                  refreshKey={setupRevision}
+                  onDirtyChange={setSetupDirty}
+                />
+              )}
               {page === "system" && me.role === "admin" && (
                 <SystemPanel api={api} demo={demo} />
               )}
@@ -1497,6 +1734,55 @@ function App() {
               )}
               {page === "overview" && (
                 <>
+                  {me.role === "admin" && (
+                    <section className="card welcome-card">
+                      <div>
+                        <h2>
+                          {overview.enabled
+                            ? "Seu atendimento, em um só lugar"
+                            : "Vamos preparar seu atendimento?"}
+                        </h2>
+                        <p>
+                          Conecte o WhatsApp, escolha quem atende e organize os
+                          caminhos do cliente. O assistente acompanha cada
+                          etapa.
+                        </p>
+                      </div>
+                      <Button onClick={() => navigate("setup")}>
+                        <Zap size={17} /> Abrir configuração guiada
+                      </Button>
+                    </section>
+                  )}
+                  <div className="workspace-quick-actions">
+                    {[
+                      [
+                        "conversations",
+                        MessageCircle,
+                        "Atender clientes",
+                        "Abra as conversas e assuma quem aguarda na fila.",
+                      ],
+                      [
+                        "tickets",
+                        FileText,
+                        "Acompanhar protocolos",
+                        "Veja solicitações e prazos de resposta.",
+                      ],
+                      [
+                        "presence",
+                        Headphones,
+                        "Marcar disponibilidade",
+                        "Avise a equipe quando você pode atender.",
+                      ],
+                    ].map(([target, Icon, title, description]: any) => (
+                      <button key={target} onClick={() => navigate(target)}>
+                        <Icon size={21} />
+                        <span>
+                          <strong>{title}</strong>
+                          <small>{description}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                   <div className="metric-grid">
                     {[
                       [
@@ -1511,12 +1797,7 @@ function App() {
                         count("waiting"),
                         "Prontas para assumir",
                       ],
-                      [
-                        Bot,
-                        "Com a inteligência",
-                        count("ai"),
-                        "Atendidas pelos bots",
-                      ],
+                      [Bot, "Com o bot", count("ai"), "Atendidas pelos bots"],
                       [
                         Check,
                         "Concluídas",
@@ -1538,48 +1819,33 @@ function App() {
                     <section className="card getting-started">
                       <div className="section-heading">
                         <div>
-                          <h2>Seu próximo passo</h2>
-                          <p>Prepare uma base sólida para boas conversas.</p>
+                          <h2>Como o atendimento funciona</h2>
+                          <p>Cada parte tem um papel claro.</p>
                         </div>
                         <span className="soft-icon">
                           <Zap size={20} />
                         </span>
                       </div>
-                      {[
-                        [
-                          "connections",
-                          "Conecte o Hermes",
-                          "Descubra os bots que você já configurou.",
-                        ],
-                        [
-                          "bots",
-                          "Escolha sua Equipe Bot",
-                          "Defina quem atende e quem ajuda nos bastidores.",
-                        ],
-                        [
-                          "knowledge",
-                          "Adicione conhecimento",
-                          "Dê aos bots informações confiáveis para responder.",
-                        ],
-                        [
-                          "presence",
-                          "Prepare sua equipe",
-                          "Marque presença antes de receber atendimentos.",
-                        ],
-                      ].map(([id, title, desc], i) => (
-                        <button
-                          className="checklist-row"
-                          key={id}
-                          onClick={() => setPage(id)}
-                        >
-                          <span>{i + 1}</span>
-                          <div>
-                            <strong>{title}</strong>
-                            <small>{desc}</small>
-                          </div>
-                          <ChevronRight size={18} />
-                        </button>
-                      ))}
+                      <div
+                        className="service-flow"
+                        aria-label="Fluxo de atendimento"
+                      >
+                        <span>Cliente no WhatsApp</span>
+                        <ArrowRight size={16} />
+                        <span>Menu ou Bot Atendente</span>
+                        <ArrowRight size={16} />
+                        <span>Resposta ou equipe humana</span>
+                      </div>
+                      <p className="workspace-help">
+                        O Atendente pode consultar especialistas pelo Hermes,
+                        como o bot financeiro do Fagoo, e trazer o resultado
+                        para o cliente. As credenciais dos sistemas ficam com os
+                        especialistas.
+                      </p>
+                      <p className="workspace-help">
+                        Quando a equipe está ausente, uma solicitação
+                        encaminhada gera um protocolo para acompanhamento.
+                      </p>
                     </section>
                     <section className="card status-card">
                       <div className="section-heading">
@@ -1602,9 +1868,14 @@ function App() {
                           description="Conecte o Hermes e seus canais para acompanhar o estado de cada serviço."
                         />
                       )}
-                      <Button secondary onClick={() => setPage("connections")}>
-                        Gerenciar conexões <ArrowRight size={16} />
-                      </Button>
+                      {me.role === "admin" && (
+                        <Button
+                          secondary
+                          onClick={() => navigate("connections")}
+                        >
+                          Conferir canais <ArrowRight size={16} />
+                        </Button>
+                      )}
                     </section>
                   </div>
                   <div className="bottom-note">
@@ -1627,10 +1898,33 @@ function App() {
                       <input
                         placeholder="Buscar cliente ou telefone"
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => {
+                          setSearch(e.target.value);
+                          setCursor("");
+                        }}
                         onKeyDown={(e) => e.key === "Enter" && load()}
                       />
                     </div>
+                    {(settings.departments || []).length > 0 && (
+                      <label className="field">
+                        Setor de atendimento
+                        <select
+                          aria-label="Filtrar conversas por setor"
+                          value={departmentFilter}
+                          onChange={(e) => {
+                            setDepartmentFilter(e.target.value);
+                            setCursor("");
+                          }}
+                        >
+                          <option value="">Todos os setores</option>
+                          {(settings.departments || []).map((d: Row) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     {list.length ? (
                       list.map((row) => (
                         <button
@@ -1656,6 +1950,13 @@ function App() {
                                 row.external_id}
                             </strong>
                             <small>{date(row.updated)}</small>
+                            {row.department_id && (
+                              <small>
+                                {(settings.departments || []).find(
+                                  (d: Row) => d.id === row.department_id,
+                                )?.name || "Setor indisponível"}
+                              </small>
+                            )}
                           </div>
                           <Badge value={row.state} />
                         </button>
@@ -1890,24 +2191,64 @@ function App() {
               )}
               {page === "connections" && (
                 <>
-                  <CloudflareDeploy
-                    key={profile}
-                    api={api}
-                    demo={demo}
-                    profile={profile}
-                    openSystem={() => setPage("system")}
-                    refreshConnections={load}
-                  />
+                  <div className="callout">
+                    <Plug size={22} />
+                    <div>
+                      <strong>Um lugar para cada conexão</strong>
+                      <p>
+                        Cadastre o Hermes para usar seus bots e o Telegram para
+                        a equipe humana. A conta Meta e seus telefones ficam em{" "}
+                        <button
+                          className="text-link"
+                          onClick={() => navigate("router")}
+                        >
+                          Conta Meta e números
+                        </button>
+                        .
+                      </p>
+                    </div>
+                  </div>
+                  <details className="workspace-disclosure">
+                    <summary>
+                      Meu Hermes está no computador ou em uma rede privada
+                    </summary>
+                    <CloudflareDeploy
+                      key={profile}
+                      api={api}
+                      demo={demo}
+                      profile={profile}
+                      openSystem={() => setPage("system")}
+                      refreshConnections={load}
+                    />
+                  </details>
                   <div className="toolbar">
                     <p>
                       Hermes fornece a inteligência. Os canais trazem as
                       conversas.
                     </p>
-                    <Button
-                      onClick={() => open("connection", { kind: "hermes" })}
-                    >
-                      <Plus size={17} /> Nova conexão
-                    </Button>
+                    {panelMode === "guided" ? (
+                      <div className="card-actions">
+                        <Button
+                          onClick={() => open("connection", { kind: "hermes" })}
+                        >
+                          <Bot size={17} /> Conectar Hermes
+                        </Button>
+                        <Button
+                          secondary
+                          onClick={() =>
+                            open("connection", { kind: "telegram" })
+                          }
+                        >
+                          <Send size={17} /> Conectar Telegram
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        onClick={() => open("connection", { kind: "hermes" })}
+                      >
+                        <Plus size={17} /> Nova conexão
+                      </Button>
+                    )}
                   </div>
                   <div className="cards-grid">
                     {list.map((row) => (
@@ -1929,7 +2270,13 @@ function App() {
                         <button
                           className="text-link"
                           onClick={() =>
-                            open("connection", { ...row, ...parse(row.config) })
+                            row.kind === "meta" &&
+                            parse(row.config).meta_account_id
+                              ? navigate("router")
+                              : open("connection", {
+                                  ...row,
+                                  ...parse(row.config),
+                                })
                           }
                         >
                           Editar conexão
@@ -2073,9 +2420,11 @@ function App() {
                             />
                           </div>
                         )}
-                        <small className="resource-id">
-                          ID: {row.id} <CopyButton value={row.id} />
-                        </small>
+                        {panelMode === "advanced" && (
+                          <small className="resource-id">
+                            ID: {row.id} <CopyButton value={row.id} />
+                          </small>
+                        )}
                       </section>
                     ))}
                   </div>
@@ -2091,6 +2440,23 @@ function App() {
               )}
               {page === "bots" && (
                 <>
+                  <section className="card">
+                    <h2>O Atendente conversa. Os especialistas executam.</h2>
+                    <p className="workspace-help">
+                      Escolha um bot principal para receber o cliente. Em uma
+                      ação interna, ele consulta outro bot do Hermes e recebe o
+                      resultado para responder. Por exemplo: o especialista
+                      financeiro do Fagoo usa suas próprias credenciais para
+                      buscar a segunda via de um boleto.
+                    </p>
+                    <div className="service-flow">
+                      <span>Bot Atendente</span>
+                      <ArrowRight size={16} />
+                      <span>Especialista no Hermes</span>
+                      <ArrowRight size={16} />
+                      <span>API do sistema</span>
+                    </div>
+                  </section>
                   <div className="toolbar">
                     <p>
                       Selecione os bots criados no Hermes. Permissões continuam
@@ -2107,7 +2473,7 @@ function App() {
                           <span className="integration-icon">
                             <Bot />
                           </span>
-                          <Badge value={bot.enabled ? "active" : "paused"} />
+                          <Badge value={bot.enabled ? "enabled" : "disabled"} />
                         </div>
                         <h2>{bot.name}</h2>
                         <p>Perfil Hermes: {bot.remote_profile}</p>
@@ -2138,10 +2504,12 @@ function App() {
                             ? "✓ Bot Atendente selecionado"
                             : "Usar como Bot Atendente"}
                         </button>
-                        <small className="resource-id">
-                          {bot.id}
-                          <CopyButton value={bot.id} />
-                        </small>
+                        {panelMode === "advanced" && (
+                          <small className="resource-id">
+                            {bot.id}
+                            <CopyButton value={bot.id} />
+                          </small>
+                        )}
                         {me.role === "admin" && (
                           <BotLinesEditor
                             key={bot.id}
@@ -2242,6 +2610,18 @@ function App() {
                     <h2>Protocolos de atendimento</h2>
                     <span className="muted">{list.length} registros</span>
                   </div>
+                  <div className="search-box">
+                    <Search size={17} />
+                    <input
+                      aria-label="Buscar protocolos"
+                      placeholder="Número do protocolo ou telefone do cliente"
+                      value={search}
+                      onChange={(e) => {
+                        setSearch(e.target.value);
+                        setCursor("");
+                      }}
+                    />
+                  </div>
                   {list.length ? (
                     <Table
                       rows={list}
@@ -2322,7 +2702,7 @@ function App() {
                       type="textarea"
                       value={settings.instructions}
                       onChange={(v: string) =>
-                        setSettings({ ...settings, instructions: v })
+                        editSettings({ instructions: v })
                       }
                     />
                     <Field
@@ -2330,7 +2710,7 @@ function App() {
                       type="textarea"
                       value={settings.absence_instructions}
                       onChange={(v: string) =>
-                        setSettings({ ...settings, absence_instructions: v })
+                        editSettings({ absence_instructions: v })
                       }
                     />
                     <Field
@@ -2338,9 +2718,8 @@ function App() {
                       type="number"
                       value={settings.protocol_response_hours}
                       onChange={(v: string) =>
-                        setSettings({
-                          ...settings,
-                          protocol_response_hours: Number(v),
+                        editSettings({
+                          protocol_response_hours: v === "" ? null : Number(v),
                         })
                       }
                     />
@@ -2351,22 +2730,23 @@ function App() {
                         ["direct", "Texto direto após assumir"],
                       ]}
                       value={settings.reply_mode}
-                      onChange={(v: string) =>
-                        setSettings({ ...settings, reply_mode: v })
-                      }
+                      onChange={(v: string) => editSettings({ reply_mode: v })}
                     />
                     <Field
-                      label="ID da conexão Telegram"
+                      label="Conexão para a equipe no Telegram"
+                      options={(overview.connections || []).filter(
+                        (connection: Row) => connection.kind === "telegram",
+                      )}
                       value={settings.telegram_connection}
                       onChange={(v: string) =>
-                        setSettings({ ...settings, telegram_connection: v })
+                        editSettings({ telegram_connection: v })
                       }
                     />
                     <Field
                       label="ID do grupo Telegram"
                       value={settings.telegram_group}
                       onChange={(v: string) =>
-                        setSettings({ ...settings, telegram_group: v })
+                        editSettings({ telegram_group: v })
                       }
                     />
                     <label className="check-field">
@@ -2374,23 +2754,64 @@ function App() {
                         type="checkbox"
                         checked={!!settings.surveys_enabled}
                         onChange={(e) =>
-                          setSettings({
-                            ...settings,
+                          editSettings({
                             surveys_enabled: e.target.checked,
                           })
                         }
                       />{" "}
                       Pedir avaliação ao concluir
                     </label>
-                    <Button
-                      onClick={() =>
-                        run(() =>
-                          api(root + "/settings", "PUT", settings),
-                        ).then(load)
-                      }
+                    <label className="check-field">
+                      <input
+                        type="checkbox"
+                        checked={!!settings.jev_enabled}
+                        onChange={(e) =>
+                          editSettings({ jev_enabled: e.target.checked })
+                        }
+                      />
+                      Usar JEV na tomada de decisão
+                    </label>
+                    <p className="workspace-help">
+                      Desligado: o Bot Atendente decide os encaminhamentos.
+                      Ligado: o Atendente interpreta a solicitação e propõe uma
+                      ação; o JEV decide se ela pode seguir, se é preciso
+                      esclarecer ou encaminhar para uma pessoa. Se a decisão
+                      falhar ou for incerta, o atendimento vai para a equipe
+                      humana.
+                    </p>
+                    <button
+                      className="text-link block"
+                      onClick={() => open("jev")}
                     >
-                      Salvar preferências
+                      Cadastrar ou substituir chave JEV
+                    </button>
+                    <Button
+                      disabled={busy || !settingsDirty}
+                      onClick={async () => {
+                        const patch = { ...settingsChanges.current };
+                        const scope = loadScope;
+                        const saved = await run(() =>
+                          api(root + "/settings", "PUT", patch),
+                        );
+                        if (saved && currentScope.current === scope) {
+                          for (const key of Object.keys(patch)) {
+                            if (settingsChanges.current[key] === patch[key])
+                              delete settingsChanges.current[key];
+                          }
+                          settingsDirtyRef.current =
+                            Object.keys(settingsChanges.current).length > 0;
+                          setSettingsDirty(settingsDirtyRef.current);
+                          await load();
+                        }
+                      }}
+                    >
+                      {busy ? "Salvando…" : "Salvar regras"}
                     </Button>
+                    {settingsDirty && (
+                      <p className="workspace-help" role="status">
+                        Há alterações ainda não salvas.
+                      </p>
+                    )}
                   </section>
                   <section>
                     <div className="card">
@@ -2399,6 +2820,7 @@ function App() {
                         Confira bots, canais e conhecimento antes de ativar.
                       </p>
                       <Button
+                        disabled={busy || settingsDirty}
                         onClick={() =>
                           run(() =>
                             api(
@@ -2416,25 +2838,14 @@ function App() {
                       </Button>
                     </div>
                     <div className="card">
-                      <div className="section-heading">
-                        <h2>Menu de atendimento</h2>
-                        <button
-                          className="icon-button"
-                          aria-label="Abrir menus e submenus"
-                          onClick={() => setPage("menus")}
-                        >
-                          <Plus size={18} />
-                        </button>
-                      </div>
-                      {(settings.menus || []).map((m: any) => (
-                        <div className="connection-row" key={m.id}>
-                          <strong>{m.label}</strong>
-                          <small>{m.type}</small>
-                        </div>
-                      ))}
-                      {!settings.menus?.length && (
-                        <p>Adicione opções para orientar seus clientes.</p>
-                      )}
+                      <h2>Precisa de orientação?</h2>
+                      <p>
+                        O assistente ajuda a conectar os serviços e conferir
+                        cada parte antes de ativar o atendimento.
+                      </p>
+                      <Button secondary onClick={() => navigate("setup")}>
+                        Abrir configuração guiada
+                      </Button>
                     </div>
                   </section>
                 </div>
@@ -2489,95 +2900,119 @@ function App() {
               )}
               {page === "applications" && (
                 <>
-                  <div className="toolbar">
+                  <PairingPanel api={api} demo={demo} profiles={profiles} />
+                  <section className="card integration-explainer">
+                    <h2>Depois de conectar</h2>
                     <p>
-                      Crie chaves com as permissões necessárias para cada
-                      sistema.
+                      Para o Vinki, autorize as linhas e os grupos em{" "}
+                      <strong>
+                        Conta Meta e números → Acesso dos sistemas
+                      </strong>
+                      . Para consultas internas do Fagoo, configure um
+                      especialista no Hermes e uma ação permitida para o
+                      Atendente.
                     </p>
-                    <Button onClick={() => open("application")}>
-                      <Plus size={17} /> Nova aplicação
-                    </Button>
-                  </div>
-                  <section className="card">
-                    {rows.applications?.length ? (
+                    <div className="card-actions">
+                      <Button secondary onClick={() => navigate("router")}>
+                        Configurar linhas e distribuição
+                      </Button>
+                      <Button secondary onClick={() => navigate("bots")}>
+                        Configurar especialista Hermes
+                      </Button>
+                    </div>
+                  </section>
+                  <details className="card" open={panelMode === "advanced"}>
+                    <summary>Integração manual pela API · avançado</summary>
+                    <div className="toolbar">
+                      <p>
+                        Crie chaves com as permissões necessárias para cada
+                        sistema.
+                      </p>
+                      <Button onClick={() => open("application")}>
+                        <Plus size={17} /> Nova aplicação
+                      </Button>
+                    </div>
+                    <section className="card">
+                      {rows.applications?.length ? (
+                        <Table
+                          rows={rows.applications}
+                          columns={[
+                            ["name", "Aplicação"],
+                            ["rate", "Requisições/min"],
+                            ["run_limit", "Execuções simultâneas"],
+                          ]}
+                          action={(row: Row) => (
+                            <div className="card-actions">
+                              <Button
+                                secondary
+                                onClick={() =>
+                                  run(() =>
+                                    api("v1/applications/" + row.id, "PATCH", {
+                                      disabled: !row.disabled,
+                                    }),
+                                  ).then(load)
+                                }
+                              >
+                                {row.disabled ? "Ativar" : "Desativar"}
+                              </Button>
+                              <Button
+                                secondary
+                                onClick={() =>
+                                  open("key", { app_id: row.id, days: 90 })
+                                }
+                              >
+                                Gerar chave
+                              </Button>
+                              <Button
+                                secondary
+                                onClick={() =>
+                                  open("webhook", { app_id: row.id })
+                                }
+                              >
+                                Webhook
+                              </Button>
+                            </div>
+                          )}
+                        />
+                      ) : (
+                        <Empty
+                          title="O Wabotia dentro dos seus sistemas"
+                          description="Cadastre uma aplicação para integrar mensagens, protocolos e bots à sua operação."
+                        />
+                      )}
+                    </section>
+                    <section className="card">
+                      <h2>Chaves emitidas</h2>
                       <Table
-                        rows={rows.applications}
+                        rows={rows.keys || []}
                         columns={[
-                          ["name", "Aplicação"],
-                          ["rate", "Requisições/min"],
-                          ["run_limit", "Execuções simultâneas"],
+                          ["prefix", "Identificador"],
+                          ["expires", "Validade"],
+                          ["created", "Criação"],
                         ]}
-                        action={(row: Row) => (
-                          <div className="card-actions">
-                            <Button
-                              secondary
+                        action={(row: Row) =>
+                          row.revoked ? (
+                            <Badge value="revoked" />
+                          ) : (
+                            <button
+                              className="text-link"
                               onClick={() =>
                                 run(() =>
-                                  api("v1/applications/" + row.id, "PATCH", {
-                                    disabled: !row.disabled,
-                                  }),
+                                  api("v1/keys/" + row.id, "DELETE"),
                                 ).then(load)
                               }
                             >
-                              {row.disabled ? "Ativar" : "Desativar"}
-                            </Button>
-                            <Button
-                              secondary
-                              onClick={() =>
-                                open("key", { app_id: row.id, days: 90 })
-                              }
-                            >
-                              Gerar chave
-                            </Button>
-                            <Button
-                              secondary
-                              onClick={() =>
-                                open("webhook", { app_id: row.id })
-                              }
-                            >
-                              Webhook
-                            </Button>
-                          </div>
-                        )}
+                              Revogar
+                            </button>
+                          )
+                        }
                       />
-                    ) : (
-                      <Empty
-                        title="O Wabotia dentro dos seus sistemas"
-                        description="Cadastre uma aplicação para integrar mensagens, protocolos e bots à sua operação."
-                      />
-                    )}
-                  </section>
-                  <section className="card">
-                    <h2>Chaves emitidas</h2>
-                    <Table
-                      rows={rows.keys || []}
-                      columns={[
-                        ["prefix", "Identificador"],
-                        ["expires", "Validade"],
-                        ["created", "Criação"],
-                      ]}
-                      action={(row: Row) =>
-                        row.revoked ? (
-                          <Badge value="revoked" />
-                        ) : (
-                          <button
-                            className="text-link"
-                            onClick={() =>
-                              run(() =>
-                                api("v1/keys/" + row.id, "DELETE"),
-                              ).then(load)
-                            }
-                          >
-                            Revogar
-                          </button>
-                        )
-                      }
-                    />
-                  </section>
-                  <a className="bottom-note" href="/api-docs">
-                    <Code2 size={20} /> Abra a documentação interativa da API{" "}
-                    <ArrowUpRight size={16} />
-                  </a>
+                    </section>
+                    <a className="bottom-note" href="/api-docs">
+                      <Code2 size={20} /> Abra a documentação interativa da API{" "}
+                      <ArrowUpRight size={16} />
+                    </a>
+                  </details>
                 </>
               )}
               {page === "reports" && (
@@ -2806,6 +3241,38 @@ function App() {
           </footer>
         </div>
       </main>
+      {pendingNavigation && (
+        <Modal
+          title="Alterações ainda não salvas"
+          close={() => setPendingNavigation(null)}
+        >
+          <p>
+            Suas regras foram editadas. Volte para salvá-las ou descarte as
+            alterações antes de sair.
+          </p>
+          <div className="modal-actions">
+            <Button secondary onClick={() => setPendingNavigation(null)}>
+              Continuar editando
+            </Button>
+            <Button
+              onClick={() => {
+                const target = pendingNavigation;
+                setPendingNavigation(null);
+                setSetupDirty(false);
+                if (target.page) navigate(target.page, true);
+                else if (target.profile !== undefined)
+                  chooseProfile(target.profile, true);
+                if (target.conversation)
+                  openConversation({ id: target.conversation }).catch((e) =>
+                    setError(e.message),
+                  );
+              }}
+            >
+              Descartar e continuar
+            </Button>
+          </div>
+        </Modal>
+      )}
       {contactEditing && selection && (
         <ContactEditor
           key={profile + selection.conversation.id}
@@ -3025,6 +3492,21 @@ function App() {
                     iniciá-lo junto do Hermes.
                   </p>
                 )}
+              </>
+            )}
+            {modal === "jev" && (
+              <>
+                <p>
+                  A chave será guardada de forma protegida. Depois de salvar,
+                  ligue ou desligue o JEV nas regras de atendimento.
+                </p>
+                <Field
+                  label="Chave da API JEV"
+                  type="password"
+                  value={form.key}
+                  onChange={(value: string) => change("key", value)}
+                  required
+                />
               </>
             )}
             {modal === "knowledge" && (

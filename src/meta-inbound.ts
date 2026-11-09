@@ -107,6 +107,10 @@ export async function metaInbound(
               ?.profile?.name || from,
         };
         if (m.context?.id) content.reply_external_id = m.context.id;
+        const interactiveReply =
+          m.interactive?.button_reply?.id || m.interactive?.list_reply?.id;
+        if (typeof interactiveReply === "string")
+          content.interactive_reply_id = interactiveReply;
         if (m.location) content.location = m.location;
         if (m.contacts)
           content.contacts = m.contacts.map((x: any) => ({

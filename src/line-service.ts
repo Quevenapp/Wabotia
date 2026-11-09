@@ -12,6 +12,8 @@ import { access, admin } from "./security";
 import { numberPolicy, numberPolicyFlags } from "./number-policy";
 import { getNumberPolicy, numberPolicyError } from "./number-permissions";
 import { settings, enqueue } from "./service";
+import { sha } from "./security";
+import { departmentFor } from "./departments";
 
 export function lineService(config: any) {
   const value = config?.service || {};
@@ -204,6 +206,7 @@ export async function availableMenus(
   connection: string | null,
   parent: string | null = null,
   includeManual = false,
+  chatType = "direct",
 ) {
   const cfg = await settings(env, profile),
     policy = await getNumberPolicy(env, connection),
@@ -218,6 +221,16 @@ export async function availableMenus(
       continue;
     if (item.type === "human" && !policy.human) continue;
     if (
+      item.type === "human" &&
+      item.department_id &&
+      !(await departmentFor(env, profile, item.department_id))
+    )
+      continue;
+    if (["protocols", "survey"].includes(item.type) && !policy.service)
+      continue;
+    if (chatType === "group" && ["protocols", "survey"].includes(item.type))
+      continue;
+    if (
       item.type === "bot" &&
       (!policy.bots ||
         !(await botAllowsLine(env, item.bot_id, profile, connection)))
@@ -226,6 +239,103 @@ export async function availableMenus(
     result.push(item);
   }
   return result;
+}
+export function menuPayload(
+  items: any[],
+  title: string,
+  token: string,
+  interactive: boolean,
+  submenu = false,
+) {
+  const text = `${title}\n${items.map((item, index) => `${index + 1}. ${item.label}`).join("\n")}${submenu ? "\nEnvie MENU para voltar." : ""}`;
+  if (!interactive || items.length > 10 || !items.length)
+    return { text, automation: "menu" };
+  const buttons =
+    items.length <= 3 &&
+    items.every((item) => Array.from(item.label).length <= 20);
+  const body = {
+    text:
+      title +
+      (submenu ? "\nEnvie MENU para voltar." : "\nEscolha uma opção abaixo."),
+  };
+  return {
+    text,
+    automation: "menu",
+    content: {
+      type: "interactive",
+      interactive: buttons
+        ? {
+            type: "button",
+            body,
+            action: {
+              buttons: items.map((item) => ({
+                type: "reply",
+                reply: { id: `wmenu:${token}:${item.id}`, title: item.label },
+              })),
+            },
+          }
+        : {
+            type: "list",
+            body,
+            action: {
+              button: "Escolher opção",
+              sections: [
+                {
+                  title: "Atendimento",
+                  rows: items.map((item, index) => ({
+                    id: `wmenu:${token}:${item.id}`,
+                    title: Array.from(`${index + 1}. ${item.label}`)
+                      .slice(0, 24)
+                      .join(""),
+                    description: Array.from(item.label).slice(0, 72).join(""),
+                  })),
+                },
+              ],
+            },
+          },
+    },
+  };
+}
+
+export function selectedMenu(
+  c: Conversation,
+  items: any[],
+  text: string,
+  replyId?: string,
+) {
+  const snapshot = json(c.menu_items, []) as string[];
+  const active =
+    !!c.menu_active &&
+    !!c.menu_token?.startsWith(c.session + ".") &&
+    (c.menu_expires_at || 0) > now();
+  if (replyId) {
+    if (!active) return null;
+    const prefix = `wmenu:${c.menu_token}:`;
+    if (!replyId.startsWith(prefix)) return null;
+    const id = replyId.slice(prefix.length);
+    return snapshot.includes(id)
+      ? items.find((item) => item.id === id) || null
+      : null;
+  }
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim();
+  if (/^\d+$/.test(text) && c.menu_token) {
+    if (!active) return null;
+    return items.find((item) => item.id === snapshot[Number(text) - 1]) || null;
+  }
+  return (
+    items.find(
+      (item, index) =>
+        (!c.menu_token && String(index + 1) === text) ||
+        item.label
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/\p{Diacritic}/gu, "") === normalized,
+    ) || null
+  );
 }
 export async function listMenus(
   env: Env,
@@ -290,28 +400,57 @@ export async function sendMenu(
     c.connection_id,
     menuId,
     manual,
+    c.chat_type,
   );
   requireValue(
     items.length,
     "Nenhuma opção de menu disponível para esta linha.",
   );
-  const text = `${parent?.label || "Como podemos ajudar?"}\n${items.map((m: any, i: number) => `${i + 1}. ${m.label}`).join("\n")}${menuId ? "\nEnvie MENU para voltar." : ""}`;
+  const token =
+    c.session + "." + (await sha(`${c.id}:${c.session}:${key}`)).slice(0, 24);
+  const connection = c.connection_id
+    ? await one(env, "SELECT kind FROM connections WHERE id=?", c.connection_id)
+    : null;
+  const payload = menuPayload(
+    items,
+    parent?.label || "Como podemos ajudar?",
+    token,
+    connection?.kind === "meta" && c.chat_type !== "group",
+    !!menuId,
+  );
   // Use the person's own authorization for a manual send. Bot menus retain the
   // automation capability check; no ownership or channel authorization is bypassed.
-  const delivery = await enqueue(
-    env,
-    c,
-    actor.id,
-    "text",
-    { text, automation: "menu" },
-    key,
-  );
-  await exec(
-    env,
-    "UPDATE conversations SET menu_parent=?,menu_active=1,menu_manual=? WHERE id=?",
-    menuId,
-    manual ? 1 : 0,
-    c.id,
-  );
-  return { delivery_id: delivery, status: "pending", menu_id: menuId };
+  const parts = payload.content
+    ? [payload.text]
+    : payload.text.match(/[\s\S]{1,3800}/g) || [payload.text];
+  const deliveries = [];
+  for (const [index, part] of parts.entries())
+    deliveries.push(
+      await enqueue(
+        env,
+        c,
+        actor.id,
+        "text",
+        { ...payload, text: part },
+        index === 0 ? key : `${key}:${index}`,
+      ),
+    );
+  await batch(env, [
+    [
+      "UPDATE surveys SET status='cancelled' WHERE conversation_id=? AND status='pending'",
+      [c.id],
+    ],
+    [
+      "UPDATE conversations SET menu_parent=?,menu_active=1,menu_manual=?,menu_token=?,menu_expires_at=?,menu_items=? WHERE id=?",
+      [
+        menuId,
+        manual ? 1 : 0,
+        token,
+        now() + 86400000,
+        JSON.stringify(items.map((item: any) => item.id)),
+        c.id,
+      ],
+    ],
+  ]);
+  return { delivery_id: deliveries[0], status: "pending", menu_id: menuId };
 }

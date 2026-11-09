@@ -1,5 +1,6 @@
 export const numberPolicyFlags = [
   "service",
+  "service_overage",
   "templates",
   "human",
   "api",
@@ -17,6 +18,7 @@ export type NumberPolicy = Record<NumberPolicyFlag, boolean> & {
 export const defaultNumberPolicy: NumberPolicy = {
   purpose: "custom",
   service: true,
+  service_overage: true,
   templates: true,
   human: true,
   api: true,
@@ -30,6 +32,7 @@ export const numberPolicyPresets: Record<NumberPurpose, NumberPolicy> = {
   service_only: {
     purpose: "service_only",
     service: true,
+    service_overage: false,
     templates: false,
     human: false,
     api: true,

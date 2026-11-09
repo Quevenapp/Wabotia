@@ -4,7 +4,12 @@ import {
   retryCloudflareJob,
   saveCloudflareSettings,
 } from "./cloudflare";
-import { configureUpdates, resetUpdate, startUpdate } from "./updates";
+import {
+  configureUpdates,
+  configureAutomaticUpdates,
+  resetUpdate,
+  startUpdate,
+} from "./updates";
 import { configurePush } from "./push";
 export async function maintenanceCommand(
   env: Env,
@@ -21,6 +26,8 @@ export async function maintenanceCommand(
       return retryCloudflareJob(env, actor, data.id);
     case "system.updates.configure":
       return configureUpdates(env, actor, data);
+    case "system.updates.automatic":
+      return configureAutomaticUpdates(env, actor, data);
     case "system.updates.start":
       return startUpdate(env, actor, data);
     case "system.updates.reset":

@@ -1,5 +1,10 @@
 import { routerOperations, routerSchemas } from "./router-openapi";
 import {
+  integrationOperations,
+  integrationSchemas,
+  describeIntegrationOperation,
+} from "./integration-openapi";
+import {
   serviceOperations,
   serviceSchemas,
   describeServiceOperation,
@@ -22,6 +27,7 @@ const contactProperties = {
 };
 const schemas = {
   ...routerSchemas,
+  ...integrationSchemas,
   ...serviceSchemas,
   MessageContent: {
     type: "object",
@@ -316,6 +322,8 @@ const schemas = {
           "resume",
           "tags",
           "menu",
+          "protocols",
+          "survey",
         ],
       },
       content: { $ref: "#/components/schemas/MessageContent" },
@@ -329,6 +337,15 @@ const schemas = {
         type: ["string", "null"],
         description:
           "Na ação menu: ID de submenu ou null para o menu principal. Respeita linhas, responsabilidade e janela de 24 horas.",
+      },
+      number: {
+        type: "string",
+        description:
+          "Na ação protocols, número exato opcional. Sem ele lista protocolos do telefone verificado e perfil; não consulta terceiros.",
+      },
+      department_id: {
+        type: ["string", "null"],
+        description: "Setor responsável ao transferir para atendimento humano.",
       },
       attachments: { type: "array", items: { type: "string" } },
       tags: { type: "array", items: { type: "string" } },
@@ -1009,6 +1026,7 @@ export function openapi(origin: string) {
     ...routerOperations,
     ...mobileOperations,
     ...serviceOperations,
+    ...integrationOperations,
   ]) {
     const mobile = isMobilePath(path);
     const successCode =
@@ -1023,13 +1041,14 @@ export function openapi(origin: string) {
       !path.endsWith("/contacts/import/preview") &&
       !(path === "/devices/{id}" && method === "put") &&
       path !== "/auth/mobile/login";
+    const idempotent = mutation && !path.startsWith("/pairing");
     const parameters: any[] = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({
       in: "path",
       name: m[1],
       required: true,
       schema: { type: "string" },
     }));
-    if (mutation)
+    if (idempotent)
       parameters.push({
         in: "header",
         name: "Idempotency-Key",
@@ -1038,7 +1057,7 @@ export function openapi(origin: string) {
       });
     if (path.endsWith("/conversations") && method === "get")
       parameters.push(
-        ...["cursor", "state", "q", "limit"].map((name) => ({
+        ...["cursor", "state", "q", "limit", "department_id"].map((name) => ({
           in: "query",
           name,
           schema: { type: "string" },
@@ -1092,6 +1111,13 @@ export function openapi(origin: string) {
       });
     if (path.endsWith("/tickets") && method === "get")
       parameters.push(
+        {
+          in: "query",
+          name: "q",
+          schema: { type: "string", maxLength: 200 },
+          description:
+            "Pesquisa pelo número do protocolo ou telefone, dentro dos recursos autorizados.",
+        },
         {
           in: "query",
           name: "status",
@@ -1253,7 +1279,7 @@ export function openapi(origin: string) {
     }
     success.headers = {
       "X-Request-Id": { schema: { type: "string" } },
-      ...(mutation
+      ...(idempotent
         ? {
             "Idempotency-Replayed": {
               schema: { type: "string", enum: ["true"] },
@@ -1395,6 +1421,7 @@ export function openapi(origin: string) {
           " Segredo do gateway e conta de serviço FCM são guardados criptografados e nunca devolvidos; a resposta informa apenas se estão configurados.";
     }
     describeServiceOperation(path, method, entry, success);
+    describeIntegrationOperation(path, entry, origin);
     (paths[path] ??= {})[method] = entry;
   }
   return {

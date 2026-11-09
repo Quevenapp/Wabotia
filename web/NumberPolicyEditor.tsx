@@ -12,7 +12,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   [
     "service",
     "Respostas dentro de 24 horas",
-    "Mensagens de serviço, com cobrança do excedente após a franquia gratuita.",
+    "Mensagens de serviço no número que recebeu contato do cliente nas últimas 24 horas.",
   ],
   [
     "templates",
@@ -99,8 +99,32 @@ export function NumberPolicyEditor({
         </label>
         <p>
           Escolher uma função preenche as opções abaixo. Confira e salve para
-          aplicar.
+          aplicar. A opção Vinki seleciona somente franquia gratuita; linhas
+          existentes mudam apenas depois de salvar.
         </p>
+        <label className="check-line">
+          <input
+            type="checkbox"
+            checked={!draft.service_overage}
+            disabled={busy}
+            onChange={(event) => {
+              setDraft({
+                ...draft,
+                purpose: "custom",
+                service_overage: !event.target.checked,
+              });
+              setDirty(true);
+            }}
+          />
+          <span>
+            <strong>Somente franquia gratuita</strong>
+            <small>
+              Bloqueia novas mensagens de serviço quando o contador conservador
+              atingir a franquia. O número da conversa permanece o mesmo. O
+              contador não substitui a fatura Meta.
+            </small>
+          </span>
+        </label>
         <div className="number-policy-options">
           {options.map(([flag, title, description]) => (
             <label className="check-line" key={flag}>
@@ -127,7 +151,10 @@ export function NumberPolicyEditor({
         <p className="number-policy-note">
           Receber mensagens e guardar o histórico continuam disponíveis. A
           janela de 24 horas vale somente para o número que recebeu a mensagem
-          do cliente. Mensagens de serviço podem ser cobradas após a franquia.
+          do cliente.{" "}
+          {draft.service_overage
+            ? "O excedente de serviço está permitido e pode ser cobrado."
+            : "O excedente de serviço está bloqueado pelo contador local. Templates seguem suas permissões próprias."}{" "}
           Ativar esta permissão não ativa o canal ou o perfil.
         </p>
         <button className="primary" disabled={busy || !dirty}>
