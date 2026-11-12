@@ -1,5 +1,17 @@
 # Validação e limites
 
+## Publicação 0.11.0 de 12/11/2026: Zernio e exclusão de telefones
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, com o commit `d9708df369bc481833a7997e9dafe2e6a47e74e6`. O catálogo oficial oferece o pacote 0.11.0 e preserva as 12 versões anteriores. A integridade SHA-256 do pacote baixado foi conferida, assim como versão/commit, painel, arquivos web, autenticação e contrato REST.
+
+Backups completos D1/R2 foram concluídos antes da migração `0014_zernio.sql`. A comparação antes/depois confirmou a preservação de dez tabelas e dos bindings nos dois ambientes; nas conexões legadas, somente a pausa e a marcação para reconexão pela Zernio foram esperadas. Os dois números Meta operacionais ficaram pausados e o perfil permaneceu desativado como já estava. Nenhuma migração ficou pendente. Evidências sanitizadas: [distribuição](reference/release-0.11.0-distribution.json) e [instalação operacional](reference/release-0.11.0-operational.json).
+
+Uma instalação remota descartável recebeu o pacote 0.10.0 e foi atualizada para 0.11.0 pelo próprio atualizador, usando o catálogo publicado. Passaram 55 verificações HTTP, incluindo preservação de oito tabelas, arquivo privado R2, bindings, aplicação única da migração e pausa de uma linha Meta fictícia. A exclusão de telefones sintéticos pela API cancelou filas ainda não enviadas e preservou conversas, protocolos e arquivos. Os recursos temporários foram removidos, com confirmação de ausência do Worker, D1, R2 e namespace Durable Object. [Evidência da atualização](reference/release-0.11.0-upgrade.json).
+
+A suíte local passou novamente com **284 testes em 23 arquivos**; TypeScript, build web e empacotamento do Worker passaram. Não houve envio de mensagens a provedores reais. As credenciais e a entrega real pela Zernio continuam por configurar e homologar antes de ativar o atendimento; consulte o [guia Zernio](ZERNIO-WHATSAPP.md).
+
+No Chrome, a sessão administrativa operacional exibiu **Zernio e números**, o aviso de migração e as duas linhas legadas pausadas, com **Ativar** desabilitado e **Excluir telefone** visível. O guia público Zernio e suas orientações expansíveis renderizaram corretamente. Não foram observados erros no console nem sobreposição no layout desktop. Esta inspeção não alterou nem excluiu dados de produção.
+
 ## Revisão local de 10/11/2026: Zernio e exclusão de telefones
 
 Revisão local realizada antes da publicação. A conexão direta Meta foi substituída pela Zernio; as linhas legadas são pausadas pela migração `0014_zernio.sql`. Conversas, mensagens e protocolos são preservados. Excluir um telefone cancela a fila ainda não enviada; envios iniciados ou sem confirmação e chamadas abertas exigem resolução antes da exclusão.
