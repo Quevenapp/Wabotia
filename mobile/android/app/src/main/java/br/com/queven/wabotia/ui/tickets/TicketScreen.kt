@@ -3,7 +3,9 @@
 package br.com.queven.wabotia.ui.tickets
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
@@ -65,6 +68,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,8 +78,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.PresenceEntry
 import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketCategory
 import br.com.queven.wabotia.core.model.TicketDetail
+import br.com.queven.wabotia.core.model.TicketStatus
 import br.com.queven.wabotia.core.model.TicketUpdate
+import br.com.queven.wabotia.core.model.nameOf
 import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
@@ -90,7 +97,6 @@ import br.com.queven.wabotia.ui.components.PrimaryButton
 import br.com.queven.wabotia.ui.components.RoundIconButton
 import br.com.queven.wabotia.ui.components.SecondaryButton
 import br.com.queven.wabotia.ui.components.SectionLabel
-import br.com.queven.wabotia.ui.components.SegmentedTabs
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WbBottomSheet
 import br.com.queven.wabotia.ui.components.WbCard
@@ -137,6 +143,9 @@ class TicketViewModel(private val container: AppContainer, private val profileId
         private set
     var pending by mutableStateOf<PendingUpdate?>(null)
         private set
+    /** Categorias de `settings.ticket_categories`; vazio em servidores 0.13 ou sem categorias configuradas. */
+    var categories by mutableStateOf<List<TicketCategory>>(container.profileData.cached(profileId)?.ticketCategories().orEmpty())
+        private set
 
     private var started = false
 
@@ -178,8 +187,10 @@ class TicketViewModel(private val container: AppContainer, private val profileId
                 coroutineScope {
                     val d = async { container.api.ticket(profileId, ticketId) }
                     val p = async { runCatching { container.api.presence(profileId) }.getOrNull() }
+                    val s = async { container.profileData.load(profileId) }
                     detail = d.await()
                     p.await()?.let { presence = it }
+                    s.await()?.let { categories = it.ticketCategories() }
                 }
                 started = true
             } catch (e: CancellationException) {
@@ -211,6 +222,8 @@ class TicketViewModel(private val container: AppContainer, private val profileId
     fun registerProgress(text: String) = update(buildJsonObject { put("text", text.trim()) }, "registrar andamento")
     fun changeStatus(status: String) = update(buildJsonObject { put("status", status) }, "mudar estado")
     fun changeOwner(owner: String) = update(buildJsonObject { put("owner", owner) }, "mudar responsável")
+    /** `null` limpa a categoria (o servidor espera `category: null` explícito). */
+    fun changeCategory(category: String?) = update(buildJsonObject { if (category == null) put("category", JsonNull) else put("category", category) }, "mudar categoria")
     fun setDue(ms: Long) = update(buildJsonObject { put("response_due_at", ms) }, "ajustar prazo")
     fun clearDue() = update(buildJsonObject { put("response_due_at", JsonNull) }, "remover prazo")
 
@@ -287,7 +300,9 @@ fun TicketScreen(container: AppContainer, ticketId: String, onBack: () -> Unit, 
 
     var progressText by rememberSaveable { mutableStateOf("") }
     var showOwnerSheet by remember { mutableStateOf(false) }
-    var showCloseConfirm by remember { mutableStateOf(false) }
+    var showCategorySheet by remember { mutableStateOf(false) }
+    /** Estado final (`resolved` ou `closed`) aguardando confirmação. */
+    var confirmStatus by remember { mutableStateOf<String?>(null) }
     var dueStep by remember { mutableStateOf(0) } // 0 fechado, 1 data, 2 hora
     var dueDateMillis by remember { mutableStateOf<Long?>(null) }
     val haptics = rememberHaptics()
@@ -326,7 +341,8 @@ fun TicketScreen(container: AppContainer, ticketId: String, onBack: () -> Unit, 
                     now = now,
                     onOpenConversation = { openConversation(ticket.conversation_id) },
                     onChangeOwner = { showOwnerSheet = true },
-                    onChangeStatus = { s -> if (s == "closed") showCloseConfirm = true else vm.changeStatus(s) },
+                    onChangeStatus = { s -> if (!TicketStatus.isActive(s) && ticket.isActive) confirmStatus = s else vm.changeStatus(s) },
+                    onChangeCategory = { showCategorySheet = true },
                     onAdjustDue = { dueStep = 1 },
                     onClearDue = { vm.clearDue() },
                 )
@@ -361,13 +377,23 @@ fun TicketScreen(container: AppContainer, ticketId: String, onBack: () -> Unit, 
         )
     }
 
-    if (showCloseConfirm) {
+    if (showCategorySheet && ticket != null) {
+        CategorySheet(
+            categories = vm.categories,
+            current = ticket.category,
+            onDismiss = { showCategorySheet = false },
+            onPick = { category -> showCategorySheet = false; vm.changeCategory(category) },
+        )
+    }
+
+    confirmStatus?.let { target ->
+        val resolved = target == TicketStatus.RESOLVED
         AlertDialog(
-            onDismissRequest = { showCloseConfirm = false },
-            title = { Text("Concluir protocolo?") },
-            text = { Text("O protocolo passa para Concluído. O prazo deixa de ser acompanhado.") },
-            confirmButton = { TextButton(onClick = { showCloseConfirm = false; vm.changeStatus("closed") }) { Text("Concluir") } },
-            dismissButton = { TextButton(onClick = { showCloseConfirm = false }) { Text("Cancelar") } },
+            onDismissRequest = { confirmStatus = null },
+            title = { Text(if (resolved) "Marcar como resolvido?" else "Encerrar protocolo?") },
+            text = { Text("O protocolo passa para ${ticketStatusLabel(target)} e deixa de contar como ativo. O prazo deixa de ser acompanhado.") },
+            confirmButton = { TextButton(onClick = { confirmStatus = null; vm.changeStatus(target) }) { Text(if (resolved) "Resolver" else "Encerrar") } },
+            dismissButton = { TextButton(onClick = { confirmStatus = null }) { Text("Cancelar") } },
         )
     }
 
@@ -425,6 +451,7 @@ private fun TicketBody(
     onOpenConversation: () -> Unit,
     onChangeOwner: () -> Unit,
     onChangeStatus: (String) -> Unit,
+    onChangeCategory: () -> Unit,
     onAdjustDue: () -> Unit,
     onClearDue: () -> Unit,
 ) {
@@ -432,7 +459,9 @@ private fun TicketBody(
     val tone = ticket.dueTone(now)
     val canEdit = vm.canEdit
     val editable = canEdit && !vm.busy
-    val dueEditable = ticket.first_response_at == null && ticket.status != "closed"
+    val dueEditable = ticket.first_response_at == null && ticket.isActive
+    val categoryName = vm.categories.nameOf(ticket.category)
+    val hasCategories = vm.categories.any { it.enabled }
     val conv = detail.conversation
     val contactName = conv?.string("contact_name")?.takeIf { it.isNotBlank() }
     val phone = conv?.string("phone")?.takeIf { it.isNotBlank() }
@@ -489,14 +518,51 @@ private fun TicketBody(
                         style = MaterialTheme.typography.bodySmall,
                         color = c.textSecondary,
                     )
+                    if (categoryName != null || hasCategories) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(c.field)
+                                .clickable(enabled = editable, role = Role.Button, onClick = onChangeCategory)
+                                .heightIn(min = 48.dp)
+                                .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.Category, contentDescription = null, tint = c.ticket, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Categoria", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                                Text(
+                                    categoryName ?: "Sem categoria",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (categoryName != null) c.textPrimary else c.textSecondary,
+                                )
+                            }
+                            if (canEdit) {
+                                Spacer(Modifier.width(8.dp))
+                                Text("Alterar", color = if (editable) c.brand else c.muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(14.dp))
-                    SegmentedTabs(
-                        options = listOf("open" to "Aberto", "in_progress" to "Em andamento", "closed" to "Concluído"),
-                        selected = ticket.status,
+                    Text("Estado", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    StatusSelector(
+                        current = ticket.status,
+                        enabled = editable,
                         onSelect = { s -> if (editable && ticket.status != s) onChangeStatus(s) },
-                        modifier = Modifier.alpha(if (editable) 1f else 0.6f),
-                        accent = ticketStatusColor(ticket.status),
                     )
+                    if (!TicketStatus.isKnown(ticket.status)) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Estado atual: ${ticketStatusLabel(ticket.status)}. Atualize o aplicativo para ver todos os estados deste servidor.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.textSecondary,
+                        )
+                    }
                     if (!canEdit) {
                         Spacer(Modifier.height(10.dp))
                         Text(
@@ -548,7 +614,7 @@ private fun TicketBody(
                             fontWeight = FontWeight.SemiBold,
                             color = if (tone == DueTone.Scheduled) c.textPrimary else tone.textColor(),
                         )
-                        if (ticket.first_response_at != null && ticket.response_due_at != null) {
+                        if (tone == DueTone.Responded && ticket.response_due_at != null) {
                             Text("Prazo era ${formatWhen(ticket.response_due_at)}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                         }
                     }
@@ -564,7 +630,7 @@ private fun TicketBody(
                     }
                 } else {
                     Text(
-                        if (ticket.status == "closed") "O prazo não pode ser alterado em protocolos concluídos." else "O prazo só pode ser alterado antes da primeira resposta.",
+                        if (!ticket.isActive) "O prazo não pode ser alterado em protocolos resolvidos ou encerrados." else "O prazo só pode ser alterado antes da primeira resposta.",
                         style = MaterialTheme.typography.bodySmall,
                         color = c.textSecondary,
                         modifier = Modifier.padding(start = 72.dp, end = 16.dp, top = 6.dp, bottom = 14.dp),
@@ -607,6 +673,92 @@ private fun TicketBody(
         } else {
             itemsIndexed(updates, key = { _, u -> u.id }) { index, u ->
                 TimelineRow(u, vm.actorName(u.actor), first = index == 0, last = index == updates.lastIndex)
+            }
+        }
+    }
+}
+
+/**
+ * Seletor dos seis estados em pílulas, duas por linha (cabe em 375 pt sem cortar "Aguardando terceiro"):
+ * Recebido · Em análise / Aguardando cliente · Aguardando terceiro / Resolvido · Encerrado.
+ */
+@Composable
+private fun StatusSelector(current: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    val c = Wb.colors
+    Column(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.6f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TicketStatus.all.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { status ->
+                    val selected = status == current
+                    val color = ticketStatusColor(status)
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) c.soft(color, 0.18f) else c.field)
+                            .then(if (selected) Modifier.border(1.5.dp, color, CircleShape) else Modifier)
+                            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton) { onSelect(status) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        if (selected) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                        } else {
+                            Box(Modifier.size(8.dp).background(color, CircleShape))
+                            Spacer(Modifier.width(7.dp))
+                        }
+                        Text(
+                            ticketStatusLabel(status),
+                            color = c.textPrimary,
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            // Mesmo peso nos dois estados: o selecionado se distingue pelo contorno, fundo e check, e o
+                            // rótulo mais longo ("Aguardando terceiro") continua em uma linha.
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Folha de escolha da categoria: "Sem categoria" + habilitadas (+ a atual, se foi desabilitada ou removida). */
+@Composable
+private fun CategorySheet(categories: List<TicketCategory>, current: String?, onDismiss: () -> Unit, onPick: (String?) -> Unit) {
+    val c = Wb.colors
+    val options: List<Pair<String?, String>> = buildList {
+        add(null to "Sem categoria")
+        categories.filter { it.enabled || it.id == current }.forEach { add(it.id to it.name) }
+        if (current != null && categories.none { it.id == current }) add(current to current)
+    }
+    WbBottomSheet(onDismiss = onDismiss, title = "Categoria do protocolo", subtitle = "Aplicativo ou assunto a que a solicitação se refere.") {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+            itemsIndexed(options, key = { _, o -> o.first ?: " sem-categoria" }) { _, (id, name) ->
+                val selected = id == current
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .selectable(selected = selected, role = Role.RadioButton) { if (selected) onDismiss() else onPick(id) }
+                        .background(if (selected) c.soft(c.ticket, 0.1f) else androidx.compose.ui.graphics.Color.Transparent)
+                        .heightIn(min = 52.dp)
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (id == null && !selected) c.textSecondary else c.textPrimary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selected) Icon(Icons.Filled.Check, contentDescription = "Selecionada", tint = c.ticket)
+                }
             }
         }
     }

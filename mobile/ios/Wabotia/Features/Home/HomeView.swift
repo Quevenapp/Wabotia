@@ -109,7 +109,7 @@ struct HomeView: View {
         }
     }
 
-    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou abertos, internas não lidas, ligações tocando.
+    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou recebidos (só os ativos contam), internas não lidas, ligações tocando.
     private func badge(_ t: HomeTab) -> (count: Int, color: Color)? {
         switch t {
         case .conversations:

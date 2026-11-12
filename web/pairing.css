@@ -1,70 +1,52 @@
+/* Pareamento de sistemas (cores por tokens.css). */
 .pairing-panel h2 {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 .pairing-panel p {
-  line-height: 1.65;
   max-width: 850px;
 }
 .pairing-code {
   display: flex;
-  align-items: end;
-  gap: 14px;
+  align-items: flex-end;
   flex-wrap: wrap;
-  margin: 22px 0;
+  gap: 12px;
+  margin: 16px 0;
 }
-.pairing-panel label:not(.check-line) {
-  display: grid;
-  gap: 8px;
+.pairing-code label {
+  flex: 1;
+  min-width: min(220px, 100%);
+  max-width: 320px;
 }
 .pairing-code input {
-  font-family: monospace;
-  letter-spacing: 2px;
-  min-width: 190px;
-}
-.pairing-panel input:not([type="checkbox"]),
-.pairing-panel select {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
-  background: white;
-  color: var(--ink);
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
 }
 .pairing-review {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 20px;
-  margin: 20px 0;
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+}
+[data-theme="dark"] .pairing-review {
+  border-color: var(--hairline);
 }
 .pairing-review fieldset {
-  border: 0;
-  margin: 0 0 20px;
-  padding: 0;
   display: grid;
   gap: 10px;
+  margin: 0 0 16px;
 }
 .pairing-review legend {
-  margin-top: 18px;
+  margin: 14px 0 8px;
   font-weight: 600;
-  padding: 0;
-}
-.pairing-review .check-line {
-  display: flex;
-  align-items: start;
-  gap: 10px;
-}
-.pairing-review .card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
 }
 @media (max-width: 600px) {
   .pairing-code > * {
     width: 100%;
+    max-width: none;
   }
   .pairing-panel .connection-row {
     flex-wrap: wrap;
-    gap: 12px;
   }
 }

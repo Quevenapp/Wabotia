@@ -1,0 +1,453 @@
+/* Ligações: histórico, cartão tocando e tela da ligação (web/DESIGN.md §7). */
+.calls-notice {
+  padding: 8px 12px 0;
+}
+.calls-notice .notice {
+  margin: 0 0 8px;
+}
+.call-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.call-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  padding: 10px 16px;
+  color: var(--text);
+  text-decoration: none;
+}
+.call-row:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+.call-row.live {
+  background: var(--ok-soft);
+}
+.call-row-text {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.call-row-text strong {
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.call-row-text strong.missed {
+  color: var(--danger-ink);
+}
+.call-row-text small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.call-row-phone {
+  display: block !important;
+  font-size: 12px !important;
+}
+.call-arrow {
+  flex: none;
+}
+.call-arrow.in {
+  color: var(--ok);
+}
+.call-arrow.out {
+  color: var(--ticket);
+}
+.call-arrow.missed,
+.call-history .missed {
+  color: var(--danger);
+}
+.call-row-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: none;
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.call-row-action {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--brand);
+}
+.call-row:hover .call-row-action {
+  background: var(--brand-soft);
+}
+.call-more {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+}
+
+/* ---------- ligação tocando ---------- */
+.ringing-stack {
+  display: grid;
+  gap: 8px;
+  padding: 4px 12px 8px;
+}
+.ringing-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-card);
+  background: var(--ok-soft);
+  --avatar-ring: var(--ok-soft);
+}
+.ringing-text {
+  flex: 1;
+  min-width: 0;
+}
+.ringing-text strong,
+.ringing-text small {
+  display: block;
+}
+.ringing-text small {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+@keyframes ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+.ringing-avatar {
+  display: grid;
+  border-radius: 50%;
+  animation: ring-pulse 1.4s ease-out infinite;
+}
+.ringing-open {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--ok);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+/* botões redondos da ligação */
+.call-round {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--on-avatar) 18%, transparent);
+  color: var(--on-avatar);
+  transition:
+    filter 0.15s var(--ease),
+    transform 0.15s var(--ease);
+}
+.call-round:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.call-round:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.call-round:disabled {
+  opacity: 0.5;
+}
+.call-round:focus-visible {
+  outline-color: var(--on-avatar);
+}
+.call-round.small {
+  width: 42px;
+  height: 42px;
+}
+.call-round.small:focus-visible {
+  outline-color: var(--brand);
+}
+.call-round.danger {
+  background: var(--danger);
+}
+.call-round.ok {
+  background: var(--ok);
+}
+.call-round.on {
+  background: var(--on-avatar);
+  color: var(--brand-strong);
+}
+
+/* ---------- tela da ligação ---------- */
+.call-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--overlay);
+  animation: fade-in 0.15s ease-out;
+}
+.call-screen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(400px, 100%);
+  max-height: calc(100dvh - 40px);
+  padding: 14px 24px 22px;
+  border-radius: var(--radius-dialog);
+  background: linear-gradient(
+    165deg,
+    var(--brand-gradient-end),
+    var(--brand-strong) 55%,
+    color-mix(in srgb, var(--brand-strong) 70%, var(--wallpaper-ink))
+  );
+  color: var(--on-avatar);
+  box-shadow: var(--shadow-3);
+  overflow-y: auto;
+  text-align: center;
+  animation: pop-in 0.2s var(--ease);
+}
+[data-theme="dark"] .call-screen {
+  background: linear-gradient(
+    165deg,
+    var(--brand-gradient-end),
+    var(--brand-strong) 50%,
+    var(--wallpaper)
+  );
+}
+.call-screen-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  margin: 0 -10px 18px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+.call-screen-top span {
+  flex: 1;
+  margin-right: 40px;
+}
+.call-screen-top button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+}
+.call-screen-top button:hover {
+  background: color-mix(in srgb, var(--on-avatar) 14%, transparent);
+}
+.call-screen button:focus-visible {
+  outline-color: var(--on-avatar);
+}
+.call-avatar {
+  display: grid;
+  border-radius: 50%;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--on-avatar) 14%, transparent);
+}
+.call-avatar.pulsing {
+  animation: call-pulse 1.6s ease-out infinite;
+}
+@keyframes call-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--on-avatar) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 26px color-mix(in srgb, var(--on-avatar) 0%, transparent);
+  }
+}
+.call-name {
+  margin-top: 18px;
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.call-state {
+  margin-top: 4px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+.call-note {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--on-avatar) 12%, transparent);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.call-note.error {
+  background: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.call-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  margin: 26px 0 18px;
+}
+.call-control {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+}
+.call-control small {
+  opacity: 0.9;
+}
+.call-permissions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.call-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 4px 13px;
+  border: 1px solid color-mix(in srgb, var(--on-avatar) 38%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.call-permissions .call-chip {
+  margin-top: 0;
+}
+.call-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--on-avatar) 14%, transparent);
+}
+.call-chip:disabled {
+  opacity: 0.5;
+}
+.call-chip.solid {
+  border-color: transparent;
+  background: var(--on-avatar);
+  color: var(--brand-strong);
+}
+.call-confirm {
+  margin-top: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--on-avatar) 12%, transparent);
+  font-size: 13.5px;
+}
+.call-confirm > div {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.call-history {
+  align-self: stretch;
+  margin-top: 16px;
+  font-size: 13px;
+  text-align: left;
+}
+.call-history summary {
+  padding: 6px 0;
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.call-history ul {
+  display: grid;
+  gap: 6px;
+  max-height: 150px;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.call-history li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.92;
+}
+.call-history .missed {
+  color: var(--danger-soft);
+}
+/* ligação recolhida: pílula flutuante */
+.call-mini {
+  position: fixed;
+  right: 20px;
+  bottom: 84px;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px 8px 6px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-strong);
+  color: var(--on-avatar);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-3);
+  animation: pop-in 0.15s var(--ease);
+}
+.call-mini > span {
+  flex: 1;
+}
+.call-mini button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--on-avatar) 16%, transparent);
+  color: inherit;
+}
+.call-mini button:focus-visible {
+  outline-color: var(--on-avatar);
+}
+.call-mini button.end {
+  background: var(--danger);
+}
+@media (max-width: 759px) {
+  .call-overlay {
+    padding: 0;
+  }
+  .call-screen {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    justify-content: flex-start;
+    padding-top: 18px;
+  }
+  .call-controls {
+    margin-top: auto;
+    padding-top: 26px;
+  }
+  .call-row-action {
+    display: none;
+  }
+}

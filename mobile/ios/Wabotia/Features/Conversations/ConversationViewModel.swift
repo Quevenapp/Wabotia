@@ -522,11 +522,11 @@ final class ConversationViewModel: ObservableObject {
     }
 
     /// Abre um protocolo para esta conversa (`POST /tickets`). Devolve o protocolo ou nil (erro em `actionError`).
-    func openTicket(title: String, key: String) async -> Ticket? {
+    func openTicket(title: String, category: String? = nil, key: String) async -> Ticket? {
         guard let p = profileId else { return nil }
         actionError = nil
         do {
-            let ticket = try await container.api.createTicket(p, TicketCreate(conversation_id: conversationId, title: title), key: key)
+            let ticket = try await container.api.createTicket(p, TicketCreate(conversation_id: conversationId, title: title, category: category), key: key)
             workspace.addLocalEvent("ticket", "Protocolo \(ticket.number) aberto", to: conversationId)
             workspace.show("Protocolo \(ticket.number) aberto", style: .success)
             await loadTickets()

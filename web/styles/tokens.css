@@ -1,0 +1,166 @@
+/*
+ * Tokens do Wabotia web (web/DESIGN.md §1, mobile/DESIGN.md §1).
+ * Este é o ÚNICO arquivo com cor literal. Todo o resto usa var(--token)
+ * ou color-mix() sobre os tokens.
+ */
+:root {
+  color-scheme: light;
+
+  /* Marca */
+  --brand: #008069;
+  --brand-strong: #075e54;
+  --accent: #25d366;
+  --on-brand: #ffffff;
+  --on-accent: #ffffff;
+  --brand-gradient-start: #00a884;
+  --brand-gradient-end: #075e54;
+
+  /* Superfícies */
+  --bg: #ffffff;
+  --surface: #f7f8fa;
+  --panel: #f0f2f5;
+  --field: #f0f2f5;
+  --wallpaper: #efeae2;
+  --wallpaper-ink: #d9d2c5;
+  --overlay: rgba(11, 20, 26, 0.55);
+  --viewer: rgba(11, 20, 26, 0.94);
+  --on-viewer: #e9edef;
+
+  /* Bolhas */
+  --bubble-out: #d9fdd3;
+  --bubble-in: #ffffff;
+  --bubble-note: #fff3c4;
+  --bubble-system: rgba(255, 255, 255, 0.9);
+  --bubble-out-meta: #667781;
+  --bubble-out-accent: #075e54;
+  --note-label: #8a6a00;
+
+  /* Texto e linhas */
+  --text: #111b21;
+  --text-2: #667781;
+  --divider: #e9edef;
+  --hairline: #e9edef;
+  --tick-read: #53bdeb;
+
+  /* Estados */
+  --ok: #1fa855;
+  --warn: #f59e0b;
+  --danger: #e53935;
+  --muted: #8696a0;
+  --bot: #7c4dff;
+  --ticket: #0277bd;
+  /* Texto legível (AA) sobre fundos suaves das cores de estado. */
+  --ok-ink: #12753a;
+  --warn-ink: #9a5b00;
+  --danger-ink: #c62828;
+  --muted-ink: #54656f;
+  --bot-ink: #5b33d6;
+  --ticket-ink: #02629b;
+
+  /* Mapa da localização */
+  --map-land: #ddefd9;
+  --map-road: #ffffff;
+  --map-water: #bfe3f2;
+
+  /* Avatares: paleta fixa de 8 cores, derivada do id. */
+  --avatar-0: #00a884;
+  --avatar-1: #5b8def;
+  --avatar-2: #e26d5c;
+  --avatar-3: #e59a2f;
+  --avatar-4: #9b6bdf;
+  --avatar-5: #2ba6b8;
+  --avatar-6: #d8619b;
+  --avatar-7: #6e8f3d;
+  --on-avatar: #ffffff;
+
+  /* Sombras */
+  --shadow-1: 0 1px 1px rgba(11, 20, 26, 0.08);
+  --shadow-2: 0 2px 8px rgba(11, 20, 26, 0.12);
+  --shadow-3: 0 12px 32px rgba(11, 20, 26, 0.2);
+  --focus-ring: 0 0 0 3px rgba(0, 128, 105, 0.32);
+
+  /* Derivados (não são cores novas: misturas dos tokens acima). */
+  --hover: color-mix(in srgb, var(--text) 5%, transparent);
+  --pressed: color-mix(in srgb, var(--text) 9%, transparent);
+  --selected: var(--panel);
+  --brand-soft: color-mix(in srgb, var(--brand) 12%, var(--bg));
+  --ok-soft: color-mix(in srgb, var(--ok) 15%, var(--bg));
+  --warn-soft: color-mix(in srgb, var(--warn) 16%, var(--bg));
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, var(--bg));
+  --muted-soft: color-mix(in srgb, var(--muted) 16%, var(--bg));
+  --bot-soft: color-mix(in srgb, var(--bot) 13%, var(--bg));
+  --ticket-soft: color-mix(in srgb, var(--ticket) 12%, var(--bg));
+
+  /* Forma e tipografia */
+  --radius-bubble: 12px;
+  --radius-card: 16px;
+  --radius-dialog: 20px;
+  --radius-field: 10px;
+  --radius-pill: 999px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", Consolas,
+    monospace;
+  --rail-width: 72px;
+  --list-width: 380px;
+  --info-width: 340px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --brand: #00a884;
+  --brand-strong: #005c4b;
+  --accent: #25d366;
+  --on-brand: #0b141a;
+  --on-accent: #0b141a;
+
+  --bg: #111b21;
+  --surface: #1f2c34;
+  --panel: #202c33;
+  --field: #2a3942;
+  --wallpaper: #0b141a;
+  --wallpaper-ink: #16222a;
+  --overlay: rgba(0, 0, 0, 0.66);
+  --viewer: rgba(5, 10, 13, 0.96);
+
+  --bubble-out: #005c4b;
+  --bubble-in: #202c33;
+  --bubble-note: #3a3320;
+  --bubble-system: #182229;
+  --bubble-out-meta: #a7c4bc;
+  --bubble-out-accent: #d9fdd3;
+  --note-label: #ffb02e;
+
+  --text: #e9edef;
+  --text-2: #8696a0;
+  --divider: #222d34;
+  --hairline: rgba(255, 255, 255, 0.09);
+
+  --ok: #25d366;
+  --warn: #ffb02e;
+  --danger: #f15c6d;
+  --muted: #8696a0;
+  --bot: #a78bfa;
+  --ticket: #4fc3f7;
+  --ok-ink: #4ade80;
+  --warn-ink: #ffc35c;
+  --danger-ink: #ff8f9c;
+  --muted-ink: #aebac1;
+  --bot-ink: #c4b5fd;
+  --ticket-ink: #7dd3fc;
+
+  --map-land: #1d3b36;
+  --map-road: #2d4a52;
+  --map-water: #16323f;
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --focus-ring: 0 0 0 3px rgba(0, 168, 132, 0.45);
+
+  --hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --pressed: color-mix(in srgb, var(--text) 11%, transparent);
+  --selected: var(--field);
+}

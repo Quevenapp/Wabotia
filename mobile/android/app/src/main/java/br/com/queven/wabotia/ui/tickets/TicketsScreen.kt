@@ -4,6 +4,8 @@ package br.com.queven.wabotia.ui.tickets
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
@@ -42,7 +45,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.model.Page
 import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketCategory
+import br.com.queven.wabotia.core.model.TicketStatus
+import br.com.queven.wabotia.core.model.nameOf
+import br.com.queven.wabotia.core.net.ApiException
 import br.com.queven.wabotia.ui.components.ConnectionStrip
 import br.com.queven.wabotia.ui.components.EmptyState
 import br.com.queven.wabotia.ui.components.ErrorState
@@ -61,17 +69,42 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Filtros da aba Protocolos (mobile/README.md): status= ou overdue=1. */
-enum class TicketFilter(val label: String, val status: String?, val overdue: String?) {
-    Open("Abertos", "open", null),
-    InProgress("Em andamento", "in_progress", null),
-    Overdue("Atrasados", null, "1"),
-    Closed("Concluídos", "closed", null),
-    All("Todos", null, null),
+/**
+ * Filtros da aba Protocolos (mobile/README.md). [statuses] vazio = sem filtro de estado; com mais de um valor a lista
+ * junta uma consulta `status=` por estado (o servidor aceita um estado por consulta). [active] usa `active=1` (0.14+).
+ */
+enum class TicketFilter(val label: String, val statuses: List<String> = emptyList(), val active: Boolean = false, val overdue: Boolean = false) {
+    Active("Ativos", active = true),
+    Open("Recebidos", listOf(TicketStatus.OPEN)),
+    InProgress("Em análise", listOf(TicketStatus.IN_PROGRESS)),
+    Waiting("Aguardando", TicketStatus.waiting),
+    Overdue("Atrasados", overdue = true),
+    Resolved("Resolvidos", TicketStatus.finished),
+    All("Todos"),
+    ;
+
+    /** O que o filtro mostra, aplicado também no app: um servidor 0.13 ignora `active=1` e devolve tudo. */
+    fun matches(ticket: Ticket, now: Long): Boolean = when {
+        overdue -> ticket.isOverdueAt(now)
+        active -> ticket.isActive
+        statuses.isNotEmpty() -> ticket.status in statuses
+        else -> true
+    }
 }
 
+/** Contadores dos chips a partir da lista de protocolos ativos (uma consulta `active=1`). */
+internal fun ticketCounts(active: List<Ticket>, now: Long): Map<TicketFilter, Int> =
+    listOf(TicketFilter.Active, TicketFilter.Open, TicketFilter.InProgress, TicketFilter.Waiting, TicketFilter.Overdue)
+        .associateWith { f -> active.count { it.isActive && f.matches(it, now) } }
+
 class TicketsViewModel(private val container: AppContainer, private val profileId: String) : ViewModel() {
-    var filter by mutableStateOf(TicketFilter.Open)
+    var filter by mutableStateOf(TicketFilter.Active)
+        private set
+    /** Categoria escolhida no filtro (`id`), ou null para todas. */
+    var category by mutableStateOf<String?>(null)
+        private set
+    /** Categorias de `settings.ticket_categories`; vazio em servidores 0.13 ou sem categorias configuradas. */
+    var categories by mutableStateOf<List<TicketCategory>>(container.profileData.cached(profileId)?.ticketCategories().orEmpty())
         private set
     var tickets by mutableStateOf<List<Ticket>>(emptyList())
         private set
@@ -89,7 +122,7 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
     var query by mutableStateOf("")
     var appliedQuery by mutableStateOf("")
         private set
-    /** Contadores dos chips Abertos, Em andamento e Atrasados. */
+    /** Contadores dos chips Ativos, Recebidos, Em análise, Aguardando e Atrasados. */
     var counts by mutableStateOf<Map<TicketFilter, Int>>(emptyMap())
         private set
     /** `id da pessoa` → nome, de GET /presence (para o responsável no cartão). */
@@ -106,7 +139,66 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
         if (!started) {
             refresh()
             loadNames()
+            loadCategories()
         }
+    }
+
+    fun categoryName(id: String?): String? = categories.nameOf(id)
+
+    private fun loadCategories(force: Boolean = false) {
+        if (profileId.isBlank()) return
+        viewModelScope.launch {
+            val loaded = container.profileData.load(profileId, maxAgeMs = if (force) 0 else 30_000)?.ticketCategories() ?: return@launch
+            categories = loaded
+            // A categoria filtrada deixou de existir: volta a mostrar todas.
+            if (category != null && loaded.none { it.id == category }) selectCategory(null)
+        }
+    }
+
+    fun selectCategory(id: String?) {
+        if (category == id) return
+        category = id
+        tickets = emptyList()
+        nextCursor = null
+        refresh()
+    }
+
+    /**
+     * Uma página do filtro atual. Filtros com mais de um estado (Aguardando, Resolvidos) fazem uma consulta por estado e
+     * juntam o resultado, sem paginação; um estado que o servidor não conhece (0.13) conta como lista vazia.
+     */
+    private suspend fun fetch(f: TicketFilter, cursor: String? = null): Page<Ticket> {
+        val now = System.currentTimeMillis()
+        if (f.statuses.size > 1) {
+            val merged = ArrayList<Ticket>()
+            var answered = false
+            var failure: Exception? = null
+            for (status in f.statuses) {
+                try {
+                    merged += container.api.tickets(profileId, status = status, q = q, category = category).data
+                    answered = true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: ApiException) {
+                    if (e.isUnauthorized) throw e
+                    if (e.status == 400 || e.status == 422) answered = true else failure = e
+                } catch (e: Exception) {
+                    failure = e
+                }
+            }
+            if (!answered) failure?.let { throw it }
+            return Page(merged.distinctBy { it.id }.filter { f.matches(it, now) }.sortedByDescending { it.created }, null)
+        }
+        val page = container.api.tickets(
+            profileId,
+            status = f.statuses.firstOrNull(),
+            overdue = if (f.overdue) "1" else null,
+            cursor = cursor,
+            q = q,
+            active = if (f.active) "1" else null,
+            category = category,
+        )
+        return page.copy(data = page.data.filter { f.matches(it, now) })
     }
 
     fun ownerName(owner: String?): String? {
@@ -129,22 +221,19 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
         }
     }
 
-    /** Contadores dos chips: três consultas leves, usando o tamanho de cada lista. */
+    /** Contadores dos chips: uma consulta `active=1`, contada no app por estado e por atraso. */
     private fun loadCounts() {
         if (profileId.isBlank()) return
         countsJob?.cancel()
         countsJob = viewModelScope.launch {
-            val result = HashMap(counts)
-            for (f in listOf(TicketFilter.Open, TicketFilter.InProgress, TicketFilter.Overdue)) {
-                try {
-                    result[f] = container.api.tickets(profileId, status = f.status, overdue = f.overdue).data.size
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // mantém o último contador conhecido
-                }
+            try {
+                val active = container.api.tickets(profileId, active = "1", category = category).data
+                counts = ticketCounts(active, System.currentTimeMillis())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // mantém os últimos contadores conhecidos
             }
-            counts = result
         }
     }
 
@@ -157,7 +246,7 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
         job?.cancel()
         job = viewModelScope.launch {
             try {
-                val page = container.api.tickets(profileId, status = filter.status, overdue = filter.overdue, q = q)
+                val page = fetch(filter)
                 tickets = page.data
                 nextCursor = page.next_cursor
                 error = null
@@ -195,7 +284,7 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
             if (pull) refreshing = true else loading = true
             error = null
             try {
-                val page = container.api.tickets(profileId, status = filter.status, overdue = filter.overdue, q = q)
+                val page = fetch(filter)
                 tickets = page.data
                 nextCursor = page.next_cursor
                 started = true
@@ -209,7 +298,10 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
             }
         }
         loadCounts()
-        if (pull) loadNames()
+        if (pull) {
+            loadNames()
+            loadCategories(force = true)
+        }
     }
 
     fun loadMore() {
@@ -218,7 +310,7 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
         viewModelScope.launch {
             loadingMore = true
             try {
-                val page = container.api.tickets(profileId, status = filter.status, overdue = filter.overdue, cursor = cursor, q = q)
+                val page = fetch(filter, cursor)
                 val known = tickets.map { it.id }.toHashSet()
                 tickets = tickets + page.data.filter { it.id !in known }
                 nextCursor = page.next_cursor
@@ -235,10 +327,20 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
 
 /** Aba Protocolos: busca por número/telefone, chips com contador, cartões com prazo, pull-to-refresh e paginação. */
 @Composable
-fun TicketsScreen(container: AppContainer, modifier: Modifier = Modifier, openTicket: (String) -> Unit, openConversation: (String) -> Unit) {
+fun TicketsScreen(
+    container: AppContainer,
+    modifier: Modifier = Modifier,
+    openTicket: (String) -> Unit,
+    openConversation: (String) -> Unit,
+    /** Filtro inicial pelo nome (atalho de demonstração): `active`, `open`, `waiting`, `resolved`, `all`… */
+    initialFilter: String? = null,
+) {
     val profileId = container.session.profileId ?: ""
     val vm: TicketsViewModel = viewModel(key = "tickets-$profileId") { TicketsViewModel(container, profileId) }
     LaunchedEffect(vm) { vm.start() }
+    LaunchedEffect(initialFilter) {
+        TicketFilter.entries.firstOrNull { it.name.equals(initialFilter, ignoreCase = true) }?.let { vm.selectFilter(it) }
+    }
 
     // Em primeiro plano: eventos `ticket.*` recarregam a lista; voltar à aba recarrega uma vez.
     EventPolling(container, profileId, onStart = { vm.reloadSilently() }) { events ->
@@ -304,6 +406,22 @@ fun TicketsScreen(container: AppContainer, modifier: Modifier = Modifier, openTi
                 )
             }
         }
+        // Filtro por categoria (aplicativo ou assunto): só aparece quando o perfil tem categorias configuradas.
+        val categories = vm.categories.filter { it.enabled || it.id == vm.category }
+        if (categories.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Category, contentDescription = "Categoria", tint = c.textSecondary, modifier = Modifier.size(18.dp))
+                WbFilterChip("Todas", selected = vm.category == null, onClick = { vm.selectCategory(null) }, tone = if (vm.category == null) c.ticket else null)
+                categories.forEach { category ->
+                    val selected = vm.category == category.id
+                    WbFilterChip(category.name, selected = selected, onClick = { vm.selectCategory(category.id) }, tone = if (selected) c.ticket else null)
+                }
+            }
+        }
         PullToRefreshBox(
             isRefreshing = vm.refreshing,
             onRefresh = { vm.refresh(pull = true) },
@@ -331,6 +449,7 @@ fun TicketsScreen(container: AppContainer, modifier: Modifier = Modifier, openTi
                             now = now,
                             onClick = { openTicket(t.id) },
                             onOpenConversation = if (t.conversation_id.isNotBlank()) ({ openConversation(t.conversation_id) }) else null,
+                            categoryName = vm.categoryName(t.category),
                         )
                     }
                     if (vm.error != null) {
@@ -353,15 +472,18 @@ fun TicketsScreen(container: AppContainer, modifier: Modifier = Modifier, openTi
 }
 
 private fun emptyTitle(filter: TicketFilter) = when (filter) {
-    TicketFilter.Open -> "Nenhum protocolo aberto"
-    TicketFilter.InProgress -> "Nenhum protocolo em andamento"
+    TicketFilter.Active -> "Nenhum protocolo ativo"
+    TicketFilter.Open -> "Nenhum protocolo recebido"
+    TicketFilter.InProgress -> "Nenhum protocolo em análise"
+    TicketFilter.Waiting -> "Nenhum protocolo aguardando"
     TicketFilter.Overdue -> "Nenhum protocolo atrasado"
-    TicketFilter.Closed -> "Nenhum protocolo concluído"
+    TicketFilter.Resolved -> "Nenhum protocolo resolvido ou encerrado"
     TicketFilter.All -> "Nenhum protocolo neste perfil"
 }
 
 private fun emptySubtitle(filter: TicketFilter) = when (filter) {
     TicketFilter.Overdue -> "Tudo dentro do prazo. Bom trabalho!"
-    TicketFilter.All, TicketFilter.Open -> "Abra um protocolo a partir de uma conversa."
+    TicketFilter.All, TicketFilter.Active, TicketFilter.Open -> "Abra um protocolo a partir de uma conversa."
+    TicketFilter.Waiting -> "Aqui ficam os protocolos que dependem do cliente ou de um terceiro."
     else -> null
 }

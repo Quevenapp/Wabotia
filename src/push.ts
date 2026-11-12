@@ -9,6 +9,7 @@ import {
   requireValue,
 } from "./types";
 import { admin, secret, setSecret, publicUrl } from "./security";
+import { isActiveTicket, ticketTeamLabels } from "./protocols";
 import {
   sendFcm,
   type PushMessage,
@@ -212,13 +213,9 @@ interface Notification {
 export const MAX_EVENT_AGE_MS = 10 * 60000;
 /** Sending budget per processPush run; the rest waits for the next alarm. */
 export const SEND_BUDGET_MS = 20000;
-/** push_log retention; ticket_alerts of tickets closed longer ago are dropped. */
+/** push_log retention; ticket_alerts of tickets resolved or closed longer ago are dropped. */
 export const PUSH_LOG_RETENTION_MS = 7 * 86400000;
-const ticketStates: Record<string, string> = {
-  open: "Aberto",
-  in_progress: "Em andamento",
-  closed: "Concluído",
-};
+const ticketStates = ticketTeamLabels;
 // Event that keeps failing inside processPush, per profile (isolate memory).
 const stuck = new Map<string, { id: number; attempts: number }>();
 const truncate = (value: string, max: number) =>
@@ -296,13 +293,13 @@ export async function sendTest(env: Env, devices: Device[]) {
   );
   return results;
 }
-/** Removes old push_log rows and alerts of tickets closed long ago. */
+/** Removes old push_log rows and alerts of tickets resolved or closed long ago. */
 export async function prunePush(env: Env) {
   const cutoff = now() - PUSH_LOG_RETENTION_MS;
   await exec(env, "DELETE FROM push_log WHERE created<?", cutoff);
   await exec(
     env,
-    "DELETE FROM ticket_alerts WHERE ticket_id IN (SELECT id FROM tickets WHERE status='closed' AND updated<?) OR ticket_id NOT IN (SELECT id FROM tickets)",
+    "DELETE FROM ticket_alerts WHERE ticket_id IN (SELECT id FROM tickets WHERE status IN ('resolved','closed') AND updated<?) OR ticket_id NOT IN (SELECT id FROM tickets)",
     cutoff,
   );
 }
@@ -312,7 +309,7 @@ async function seedTicketAlerts(env: Env, profile: string) {
   for (const kind of ["due_soon", "overdue"])
     await exec(
       env,
-      "INSERT OR IGNORE INTO ticket_alerts(ticket_id,kind,created) SELECT id,?,? FROM tickets WHERE profile_id=? AND status!='closed' AND first_response_at IS NULL AND response_due_at IS NOT NULL AND response_due_at<=?",
+      "INSERT OR IGNORE INTO ticket_alerts(ticket_id,kind,created) SELECT id,?,? FROM tickets WHERE profile_id=? AND status NOT IN ('resolved','closed') AND first_response_at IS NULL AND response_due_at IS NOT NULL AND response_due_at<=?",
       kind,
       now(),
       profile,
@@ -601,7 +598,7 @@ export async function processPush(env: Env, profile: string) {
           conversation_id: ticket.conversation_id,
         };
         if (ev.kind === "ticket.created") {
-          if (ticket.status === "closed") return;
+          if (!isActiveTicket(ticket.status)) return;
           queue(
             ticket.owner ? [ticket.owner] : "all",
             actor,
@@ -706,7 +703,7 @@ export async function processPush(env: Env, profile: string) {
       // a backlog of old overdue tickets never hides newer ones (LIMIT 100).
       const tickets = await all(
         env,
-        "SELECT * FROM tickets t WHERE t.profile_id=? AND t.status!='closed' AND t.first_response_at IS NULL AND t.response_due_at IS NOT NULL AND t.response_due_at<=? AND NOT EXISTS(SELECT 1 FROM ticket_alerts a WHERE a.ticket_id=t.id AND a.kind=CASE WHEN t.response_due_at<=? THEN 'overdue' ELSE 'due_soon' END) ORDER BY t.response_due_at LIMIT 100",
+        "SELECT * FROM tickets t WHERE t.profile_id=? AND t.status NOT IN ('resolved','closed') AND t.first_response_at IS NULL AND t.response_due_at IS NOT NULL AND t.response_due_at<=? AND NOT EXISTS(SELECT 1 FROM ticket_alerts a WHERE a.ticket_id=t.id AND a.kind=CASE WHEN t.response_due_at<=? THEN 'overdue' ELSE 'due_soon' END) ORDER BY t.response_due_at LIMIT 100",
         profile,
         horizon,
         now(),

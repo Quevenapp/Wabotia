@@ -69,10 +69,14 @@ interface WabotiaApi {
         @Query("limit") limit: Int = 100,
         /** Número do protocolo ou dígitos do telefone. */
         @Query("q") q: String? = null,
+        /** Servidor 0.14+: `1` = só protocolos ativos (nem `resolved` nem `closed`). Servidores antigos ignoram. */
+        @Query("active") active: String? = null,
+        /** Servidor 0.14+: `id` da categoria. */
+        @Query("category") category: String? = null,
     ): Page<Ticket>
     @GET("api/v1/profiles/{p}/tickets/{id}") suspend fun ticket(@Path("p") p: String, @Path("id") id: String): TicketDetail
     @POST("api/v1/profiles/{p}/tickets") suspend fun createTicket(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: TicketCreate): Ticket
-    /** Corpo livre porque `response_due_at: null` precisa ser enviado explicitamente para remover o prazo. */
+    /** Corpo livre porque `response_due_at: null` e `category: null` precisam ser enviados explicitamente para limpar o campo. */
     @PATCH("api/v1/profiles/{p}/tickets/{id}") suspend fun updateTicket(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): Ticket
 
     // --- bots ---

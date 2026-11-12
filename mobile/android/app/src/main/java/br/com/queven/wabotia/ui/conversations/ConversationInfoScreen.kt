@@ -67,6 +67,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.media.AuthenticatedMedia
 import br.com.queven.wabotia.core.model.MediaFile
+import br.com.queven.wabotia.core.model.nameOf
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.AvatarKind
 import br.com.queven.wabotia.ui.components.DetailTopBar
@@ -280,7 +281,14 @@ fun ConversationInfoScreen(
                                 tickets == null -> WbCard { Text("Carregando…", color = c.textSecondary, modifier = Modifier.padding(16.dp)) }
                                 tickets.isEmpty() -> WbCard { Text("Esta conversa ainda não tem protocolos.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp)) }
                                 else -> tickets.forEach { ticket ->
-                                    TicketCard(ticket, ownerName = ticket.owner?.let { if (it == vm.meId) "Você" else team[it]?.name }, now = now, onClick = { openTicket(ticket.id) }, compact = true)
+                                    TicketCard(
+                                        ticket,
+                                        ownerName = ticket.owner?.let { if (it == vm.meId) "Você" else team[it]?.name },
+                                        now = now,
+                                        onClick = { openTicket(ticket.id) },
+                                        compact = true,
+                                        categoryName = vm.ticketCategories.nameOf(ticket.category),
+                                    )
                                 }
                             }
                             if (canHandOff) {

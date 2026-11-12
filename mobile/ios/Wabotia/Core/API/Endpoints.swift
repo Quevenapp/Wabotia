@@ -69,12 +69,14 @@ extension APIClient {
 
     // MARK: Protocolos
     /// `q`: número do protocolo (`WA-…`) ou dígitos do telefone do cliente.
-    func tickets(_ p: String, status: String? = nil, overdue: Bool = false, q: String? = nil, cursor: String? = nil) async throws -> Page<Ticket> {
-        try await request(.get, "api/v1/profiles/\(p)/tickets", query: ["status": status, "overdue": overdue ? "1" : nil, "q": q, "cursor": cursor, "limit": "100"])
+    /// `active` (servidor 0.14+): só protocolos ativos, nem `resolved` nem `closed`; servidores antigos ignoram.
+    /// `category` (0.14+): `id` da categoria.
+    func tickets(_ p: String, status: String? = nil, overdue: Bool = false, q: String? = nil, cursor: String? = nil, active: Bool = false, category: String? = nil) async throws -> Page<Ticket> {
+        try await request(.get, "api/v1/profiles/\(p)/tickets", query: ["status": status, "overdue": overdue ? "1" : nil, "active": active ? "1" : nil, "category": category, "q": q, "cursor": cursor, "limit": "100"])
     }
     func ticket(_ p: String, id: String) async throws -> TicketDetail { try await request(.get, "api/v1/profiles/\(p)/tickets/\(id)") }
     func createTicket(_ p: String, _ body: TicketCreate, key: String = APIClient.newIdempotencyKey()) async throws -> Ticket { try await request(.post, "api/v1/profiles/\(p)/tickets", body: body, key: key) }
-    /// `fields` livre porque `response_due_at: null` precisa ser enviado explicitamente para remover o prazo.
+    /// `fields` livre porque `response_due_at: null` e `category: null` precisam ser enviados explicitamente para limpar o campo.
     func updateTicket(_ p: String, id: String, fields: [String: JSONValue], key: String = APIClient.newIdempotencyKey()) async throws -> Ticket { try await request(.patch, "api/v1/profiles/\(p)/tickets/\(id)", body: fields, key: key) }
 
     // MARK: Bots

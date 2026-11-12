@@ -97,6 +97,7 @@ internal fun MessagePreview.label(): String {
         "location" -> "📍 Localização"
         "contacts" -> "👤 Contato"
         "attachment" -> "📎 Anexo"
+        "interactive" -> if (caption.isBlank()) "📋 Mensagem interativa" else null
         "deleted" -> return "Mensagem apagada"
         else -> null
     }

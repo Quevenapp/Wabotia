@@ -1,4 +1,5 @@
 import { routerOperations, routerSchemas } from "./router-openapi";
+import { ticketStatuses } from "./protocols";
 import {
   integrationOperations,
   integrationSchemas,
@@ -433,13 +434,69 @@ const schemas = {
     properties: {
       conversation_id: { type: "string" },
       title: { type: "string", maxLength: 300 },
+      category: {
+        type: ["string", "null"],
+        description:
+          "ID de uma categoria habilitada em ticket_categories. Valor desconhecido retorna 400. Protocolo aberto pela equipe não envia confirmação automática ao cliente.",
+      },
+    },
+  },
+  TicketStatus: {
+    enum: ticketStatuses,
+    description:
+      "open Recebido; in_progress Em análise; waiting_customer Aguardando cliente; waiting_third Aguardando terceiro; resolved Resolvido; closed Encerrado. Ativo é todo estado diferente de resolved e closed. Clientes devem exibir um estado desconhecido como texto neutro.",
+  },
+  TicketCategory: {
+    type: "object",
+    required: ["id", "name"],
+    properties: {
+      id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" },
+      name: { type: "string", minLength: 1, maxLength: 100 },
+      enabled: { type: "boolean", default: true },
+    },
+  },
+  ConversationLastMessage: {
+    type: ["object", "null"],
+    description:
+      "Mensagem mais recente da conversa, para a prévia da lista; null sem mensagens. Notas internas só entram para sessão de pessoa ou aplicação com notes:read.",
+    properties: {
+      text: {
+        type: "string",
+        description:
+          "Texto da mensagem, limitado aos primeiros 300 caracteres.",
+      },
+      direction: { enum: ["customer", "outbound", "note"] },
+      created: { type: "integer" },
+      delivery_status: {
+        type: "string",
+        description: "Vazio, sent, delivered, read, played ou failed.",
+      },
+      attachments: { type: "integer", description: "Quantidade de anexos." },
+      kind: {
+        enum: [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "document",
+          "location",
+          "contacts",
+          "sticker",
+          "interactive",
+        ],
+      },
     },
   },
   TicketUpdate: {
     type: "object",
     properties: {
       text: { type: "string" },
-      status: { enum: ["open", "in_progress", "closed"] },
+      status: { $ref: "#/components/schemas/TicketStatus" },
+      category: {
+        type: ["string", "null"],
+        description:
+          "ID de uma categoria habilitada, ou null para remover. Valor desconhecido retorna 400.",
+      },
       owner: { type: "string" },
       response_due_at: {
         type: ["integer", "null"],
@@ -661,7 +718,17 @@ const schemas = {
       profile_id: { type: "string" },
       conversation_id: { type: "string" },
       title: { type: "string" },
-      status: { enum: ["open", "in_progress", "closed"] },
+      status: { $ref: "#/components/schemas/TicketStatus" },
+      category: {
+        type: ["string", "null"],
+        description:
+          "ID da categoria (aplicativo ou assunto). Uma categoria removida das configurações continua gravada no protocolo.",
+      },
+      source_key: {
+        type: ["string", "null"],
+        description:
+          "Origem automática: inbox:… aberto pelo cliente, run:… aberto pelo bot; null quando aberto pela equipe ou na ausência dela.",
+      },
       owner: { type: ["string", "null"] },
       response_due_at: { type: ["integer", "null"] },
       first_response_at: { type: ["integer", "null"] },
@@ -1220,15 +1287,32 @@ export function openapi(origin: string) {
         {
           in: "query",
           name: "status",
-          schema: { enum: ["open", "in_progress", "closed"] },
-          description: "Filtra pelo estado do protocolo.",
+          schema: {
+            type: "string",
+            pattern: `^(${ticketStatuses.join("|")})(,(${ticketStatuses.join("|")}))*$`,
+          },
+          description:
+            "Filtra pelo estado do protocolo: um dos seis valores de TicketStatus ou uma lista separada por vírgulas, combinada com OU (por exemplo resolved,closed ou waiting_customer,waiting_third). Qualquer valor fora dos seis retorna 400. Combina com active, category, overdue e q.",
+        },
+        {
+          in: "query",
+          name: "active",
+          schema: { enum: ["1"] },
+          description:
+            "Somente protocolos ativos (estado diferente de resolved e closed).",
+        },
+        {
+          in: "query",
+          name: "category",
+          schema: { type: "string", maxLength: 100 },
+          description: "Filtra pelo ID da categoria gravada no protocolo.",
         },
         {
           in: "query",
           name: "overdue",
           schema: { enum: ["1"] },
           description:
-            "Somente protocolos com prazo da primeira resposta vencido e sem resposta.",
+            "Somente protocolos ativos com prazo da primeira resposta vencido e sem resposta.",
         },
       );
     if (path.endsWith("/reports"))
@@ -1538,6 +1622,23 @@ export function openapi(origin: string) {
           next_cursor: { type: ["string", "null"] },
         },
       };
+    if (path.endsWith("/conversations") && method === "get") {
+      entry.description +=
+        " Cada conversa traz last_message, a mensagem mais recente para a prévia da lista. A contagem de não lidas é local em cada cliente.";
+      success.content["application/json"].schema.properties.data.items = {
+        type: "object",
+        properties: {
+          last_message: {
+            $ref: "#/components/schemas/ConversationLastMessage",
+          },
+          ticket_prompt_expires_at: {
+            type: ["integer", "null"],
+            description:
+              "Enquanto for futuro, a conversa aguarda a descrição de um protocolo pedido pelo cliente.",
+          },
+        },
+      };
+    }
     if (path.endsWith("/contacts") && method === "get")
       success.content["application/json"].schema.properties.data.items = {
         allOf: [
@@ -1616,6 +1717,12 @@ export function openapi(origin: string) {
       success.content["application/json"].schema = {
         $ref: "#/components/schemas/TicketDetail",
       };
+    if (path.endsWith("/tickets/{id}") && method === "patch")
+      entry.description +=
+        " Aceita qualquer transição entre os seis estados. Um protocolo em waiting_customer volta sozinho para in_progress quando o cliente envia mensagem na conversa, gerando ticket.updated com actor system e reason customer_message. O prazo só pode ser alterado antes da primeira resposta e enquanto o protocolo está ativo.";
+    if (path.endsWith("/tickets") && method === "post")
+      entry.description +=
+        " O prazo da primeira resposta (response_due_at) é calculado na abertura conforme protocol_response_unit: horas corridas ou dias úteis no horário de Brasília.";
     if (mobile) {
       entry.tags = ["Aplicativos móveis"];
       const ref = (name: string) => ({

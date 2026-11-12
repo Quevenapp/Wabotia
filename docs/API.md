@@ -48,7 +48,92 @@ curl "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/conversations" \
 
 Use `/inbound` para novas mensagens do cliente. Para operar o atendimento, faça `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"claim"}` e depois `{"action":"reply","text":"Como posso ajudar?"}`. Outras ações: `note`, `transfer` (target é ID de usuário autorizado), `tags`, `resolve` e `resume`. Assumir invalida inferências antigas. Respostas externas obedecem às mesmas janelas, consentimentos e templates do painel.
 
-Abra um protocolo com `POST /profiles/{perfil}/tickets`, corpo `{"conversation_id":"ID","title":"Solicitação"}`. Atualize com `PATCH /profiles/{perfil}/tickets/{id}` e `status`, `text`, `owner` ou `response_due_at`. O prazo só é alterável antes da primeira resposta e enquanto aberto.
+Abra um protocolo com `POST /profiles/{perfil}/tickets`, corpo `{"conversation_id":"ID","title":"Solicitação","category":"printher"}` (`category` é opcional). Atualize com `PATCH /profiles/{perfil}/tickets/{id}` e `status`, `text`, `owner`, `category` ou `response_due_at`. O prazo só é alterável antes da primeira resposta e enquanto o protocolo está ativo. Protocolos abertos pela API ou pelo painel não enviam confirmação automática ao cliente.
+
+## Protocolos, prévia e modelos (0.14.0)
+
+Todos os campos abaixo são aditivos e opcionais; clientes escritos para a 0.13 continuam funcionando. O contrato completo, com as regras de negócio, está em [Central de atendimento por modelo](CENTRAL-ATENDIMENTO.md).
+
+### Estados, categoria e filtros
+
+`status` aceita seis valores: `open` (Recebido), `in_progress` (Em análise), `waiting_customer` (Aguardando cliente), `waiting_third` (Aguardando terceiro), `resolved` (Resolvido) e `closed` (Encerrado). **Ativo** é todo protocolo que não está `resolved` nem `closed`. `PATCH` aceita qualquer transição, com as permissões de sempre. Exiba um estado desconhecido como texto neutro: valores novos podem surgir.
+
+Quando o cliente envia mensagem em uma conversa com protocolo em `waiting_customer`, o protocolo volta para `in_progress` e gera `ticket.updated` com `actor: "system"`, `reason: "customer_message"`, `conversation_id` e `message_id`, além dos campos habituais.
+
+Cada protocolo traz `category` (o `id` de uma categoria de `ticket_categories`, ou `null`) e `source_key` (`inbox:…` quando aberto pelo cliente, `run:…` quando aberto pelo bot, `null` quando aberto pela equipe ou na ausência dela). `POST` e `PATCH` aceitam `category` como texto ou `null`; um valor que não é uma categoria habilitada retorna `400`. Reenviar no `PATCH` o valor já gravado é aceito mesmo depois de a categoria ter sido removida das configurações. `ticket.created` inclui `category` quando houver; `ticket.updated` inclui `category` e `previous_category` quando o pedido altera a categoria.
+
+`GET /profiles/{perfil}/tickets` aceita, além de `q`, `cursor` e `limit`:
+
+| Parâmetro | Efeito |
+|---|---|
+| `status` | Um dos seis estados, ou uma lista separada por vírgulas combinada com OU (`status=resolved,closed`); qualquer outro valor retorna `400`. |
+| `active=1` | Somente protocolos ativos. |
+| `category` | Somente protocolos com esse `id` de categoria. |
+| `overdue=1` | Protocolos ativos com o prazo da primeira resposta vencido e sem resposta. |
+
+Os filtros se combinam.
+
+### Configurações
+
+`PUT /profiles/{perfil}/settings` (administrador) aceita também:
+
+| Campo | Tipo | Padrão |
+|---|---|---|
+| `protocol_response_unit` | `"hours"` ou `"business_days"` | `"hours"` |
+| `protocol_response_days` | inteiro de 1 a 60 | `3` |
+| `business_hours` | `{ "days": [1,2,3,4,5], "start": "09:00", "end": "18:00", "holidays": ["2026-12-25"] }` | segunda a sexta, 09:00–18:00, sem feriados |
+| `ticket_categories` | até 50 `{ "id", "name", "enabled" }`, `id` no formato `[a-zA-Z0-9_-]{1,100}` | `[]` |
+| `protocol_confirmation` | texto de até 1500 caracteres com `{numero}`, `{assunto}`, `{aplicativo}` e `{prazo}`; vazio restaura o padrão | texto padrão |
+
+`business_hours` aceita envio parcial: as chaves omitidas mantêm o valor salvo. `days` tem de um a sete valores de 0 (domingo) a 6, `start` precisa ser anterior a `end` e `holidays` aceita até 100 datas `AAAA-MM-DD`. Os horários são sempre de Brasília (UTC−3). O menu aceita o destino `type: "ticket"`, descrito em [Menus e protocolos](MENUS-PROTOCOLOS.md#abrir-protocolo-pelo-cliente).
+
+### Prévia da última mensagem
+
+Cada linha de `GET /profiles/{perfil}/conversations` traz `last_message`, ou `null` quando a conversa não tem mensagens visíveis para quem consulta:
+
+```json
+{
+  "text": "Segue o comprovante",
+  "direction": "customer",
+  "created": 1794000000000,
+  "delivery_status": "",
+  "attachments": 1,
+  "kind": "image"
+}
+```
+
+`text` vem limitado aos primeiros 300 caracteres. `direction` é `customer`, `outbound` ou `note`. `delivery_status` é vazio, `sent`, `delivered`, `read`, `played` ou `failed`. `attachments` é a quantidade de anexos. `kind` resume o conteúdo: `text`, `image`, `video`, `audio`, `document`, `location`, `contacts`, `sticker` ou `interactive`. Notas internas só entram para sessões de pessoa e aplicações com `notes:read`; para as demais, a prévia é a mensagem anterior que não é nota. A paginação por cursor não muda. A linha também traz `ticket_prompt_expires_at`: enquanto for uma data futura, a conversa aguarda a descrição de um protocolo pedido pelo cliente.
+
+### Modelos de central
+
+`GET /api/v1/service-templates` exige sessão de pessoa (cookie do painel ou Bearer `wabu_`); chaves de aplicação recebem `403`. Retorna `{ "data": [ modelo ] }`, e cada modelo tem:
+
+| Campo | Conteúdo |
+|---|---|
+| `id`, `name`, `description` | Identificação e apresentação. |
+| `summary` | Resumo em uma frase. |
+| `settings` | O conteúdo completo, com as mesmas chaves de `PUT /settings`: `departments`, `ticket_categories`, `menus`, `protocol_response_unit`, `protocol_response_days`, `business_hours`, `instructions` e `protocol_confirmation`. Os destinos de bot vêm com `bot_id: null` e `fallback_content`, a mensagem usada quando a área não tem bot. |
+| `manual_steps` | Lista de textos com o que o modelo não configura. |
+
+`POST /api/v1/profiles/{perfil}/service-templates/{id}/apply` exige administrador e `Idempotency-Key`. Corpo: `{ "mode": "merge" | "replace", "bot_id": "ID" }`, ambos opcionais (`merge` é o padrão). A aplicação passa pela mesma validação de `PUT /settings`; se ela recusar, nada é gravado. Modelo desconhecido retorna `404`, modo inválido ou bot de outra área, `400`. Resposta:
+
+```json
+{
+  "template_id": "central-aplicativos",
+  "mode": "merge",
+  "bot_id": null,
+  "created": { "departments": ["central-setor-suporte"], "categories": [], "menus": [], "settings": ["instructions"] },
+  "kept": { "departments": [], "categories": [], "menus": [], "settings": ["protocol_confirmation"] },
+  "replaced": { "departments": [], "categories": [], "menus": [], "settings": [] },
+  "removed": { "departments": [], "categories": [], "menus": [], "settings": [] },
+  "skipped": { "departments": [], "categories": [], "menus": [], "settings": [] },
+  "pending": [
+    { "code": "department_members", "department_id": "central-setor-suporte", "message": "Adicione pessoas ao setor Suporte e protocolos em Menus e ações → Setores de atendimento." }
+  ]
+}
+```
+
+Os cinco grupos listam `id`s (e, em `settings`, nomes de campos). `replaced` e `removed` só são preenchidos no modo `replace`; `skipped.menus` lista opções que o `merge` deixou de criar porque o item pai, com o mesmo `id` do modelo, existe e não é um submenu. `pending` é o que ainda depende do administrador; cada item tem `code` e `message`, e alguns trazem `department_id` ou `bot_id`. Códigos atuais: `department_members`, `bot_missing`, `bot_disabled`, `attendant_bot`, `connect_whatsapp`, `activate`, `menu_conflict`, `review_texts`, `knowledge`, `notification_template` e `contract_identification`. Trate códigos desconhecidos mostrando a mensagem.
 
 O endpoint legado `/profiles/{perfil}/media` aceita multipart `file` de até 20 MiB. Para arquivos de até 100 MiB, use upload em partes abaixo. Use os IDs retornados em `attachments`. Baixe por `/media/{id}/content` com a chave autorizada; não há URLs públicas do bucket. Cadastre conhecimento em `/knowledge` com `kind: text`, `url`, `file` ou `youtube`; importações de arquivos/URLs são assíncronas e têm limites próprios.
 
@@ -158,7 +243,7 @@ Retorna `202 {id,status:"queued"}`. Consulte `GET /api/v1/bot-runs/{id}` até `c
 
 ## Webhooks
 
-Cadastre `POST /profiles/{perfil}/webhook-subscriptions`, corpo `{"url":"https://seusistema.com/wabotia","events":["message.received","ticket.updated","bot.run.completed"]}`. Guarde `signing_secret` retornado. O corpo contém `id`, `type`, `created_at`, `profile_id` e `data`. Desde a 0.8.0, `conversation.updated` com `action: "transfer"` inclui `owner` (novo responsável) e `actor`; `ticket.updated` inclui `actor`, `number`, `previous_status`, `owner`, `previous_owner` e `text_added`. Campos novos são aditivos; trate campos desconhecidos com tolerância.
+Cadastre `POST /profiles/{perfil}/webhook-subscriptions`, corpo `{"url":"https://seusistema.com/wabotia","events":["message.received","ticket.updated","bot.run.completed"]}`. Guarde `signing_secret` retornado. O corpo contém `id`, `type`, `created_at`, `profile_id` e `data`. Desde a 0.8.0, `conversation.updated` com `action: "transfer"` inclui `owner` (novo responsável) e `actor`; `ticket.updated` inclui `actor`, `number`, `previous_status`, `owner`, `previous_owner` e `text_added`. Desde a 0.14.0, `ticket.created` inclui `category` quando o protocolo tem categoria, e `ticket.updated` pode trazer `category`, `previous_category` e, no retorno automático de `waiting_customer`, `reason: "customer_message"` com `actor: "system"`. Campos novos são aditivos; trate campos desconhecidos com tolerância.
 
 Valide `Wabotia-Signature: v1=<HMAC-SHA256>` sobre `Wabotia-Timestamp + "." + bytes_originais`. Recuse timestamps com diferença superior a cinco minutos, compare a assinatura em tempo constante e confira `Wabotia-Event-Id` contra `body.id`. A assinatura é recalculada a cada tentativa; o ID do evento permanece estável. Persista esse ID para deduplicar. Consulte entregas em `/webhook-deliveries`; use `/{id}/retry` para reenvio manual. Há dez tentativas automáticas, com espera progressiva limitada a uma hora entre tentativas.
 

@@ -11,8 +11,33 @@ struct MessagePreview: Codable, Equatable {
     var created: Int64
     var status: String?
 
-    var isOutgoing: Bool { direction == "outbound" }
+    var isOutgoing: Bool { direction == "outbound" || direction == "operator" }
     var isNote: Bool { direction == "note" || kind == "note" }
+
+    /// `last_message` do servidor (0.14+) no formato da prévia da lista.
+    init(_ last: LastMessage) {
+        kind = last.direction == "note" ? "note" : (last.kind == "text" && last.attachments > 0 ? "attachment" : last.kind)
+        text = last.text
+        direction = last.direction
+        created = last.created
+        status = last.direction == "outbound" || last.direction == "operator" ? last.deliveryStatus : nil
+    }
+
+    init(kind: String, text: String, direction: String, created: Int64, status: String?) {
+        self.kind = kind; self.text = text; self.direction = direction; self.created = created; self.status = status
+    }
+
+    /// Prévia mostrada na linha da conversa: `last_message` do servidor quando vier (0.14+); o cache local fica como
+    /// reserva para servidores antigos e só passa na frente quando é mais novo (evento que chegou antes da recarga da
+    /// lista). Para a mesma mensagem, o cache mantém o que só o detalhe sabe (áudio de voz).
+    static func forList(_ conversation: Conversation, cached: MessagePreview?) -> MessagePreview? {
+        guard let last = conversation.lastMessage else { return cached }
+        var server = MessagePreview(last)
+        guard let cached else { return server }
+        if cached.created > server.created { return cached }
+        if cached.created == server.created, cached.kind == "voice" { server.kind = "voice" }
+        return server
+    }
 
     /// Ícone e rótulo do anexo ("Foto", "Áudio", "Documento", "Localização"…); nil para texto puro.
     var attachmentLabel: (icon: String, title: String)? {
@@ -26,6 +51,7 @@ struct MessagePreview: Codable, Equatable {
         case "location": return ("mappin.circle.fill", "Localização")
         case "contacts": return ("person.crop.circle.fill", "Contato")
         case "attachment": return ("paperclip", "Anexo")
+        case "interactive": return text.isEmpty ? ("list.bullet.rectangle", "Mensagem interativa") : nil
         default: return nil
         }
     }
@@ -97,13 +123,26 @@ final class Workspace: ObservableObject {
     /// Eventos novos do perfil, para as telas abertas reagirem.
     let events = PassthroughSubject<[Event], Never>()
 
+    /// Contadores dos protocolos ativos (nem resolvidos nem encerrados), para os chips e o contador da aba.
     struct TicketCounts: Equatable {
+        var active = 0
         var open = 0
         var inProgress = 0
+        var waiting = 0
         var overdue = 0
-        var closed = 0
-        var total = 0
         var hasMore = false
+
+        /// Conta a partir da lista de protocolos (só os ativos entram; atrasado = ativo sem resposta e com prazo vencido).
+        init(_ tickets: [Ticket] = [], now: Date = Date(), hasMore: Bool = false) {
+            for t in tickets where t.isActive {
+                active += 1
+                if t.status == TicketStatus.open { open += 1 }
+                if t.status == TicketStatus.inProgress { inProgress += 1 }
+                if TicketStatus.waiting.contains(t.status) { waiting += 1 }
+                if t.isOverdue(at: now) { overdue += 1 }
+            }
+            self.hasMore = hasMore
+        }
     }
 
     private var container: AppContainer { AppContainer.shared }
@@ -131,6 +170,11 @@ final class Workspace: ObservableObject {
     var nowMillis: Int64 { Int64((now.timeIntervalSince1970 * 1000).rounded()) + clockOffset }
     var mePresent: Bool { (presence.first { $0.actor == meId }?.present ?? 0) == 1 }
     var departments: [Department] { (status?.departments ?? []).filter(\.enabled) }
+    /// Categorias de protocolo do perfil (inclusive desabilitadas, para nomear protocolos antigos); vazio em servidores 0.13.
+    var ticketCategories: [TicketCategory] { status?.ticketCategories ?? [] }
+    func categoryName(_ id: String?) -> String? { ticketCategories.name(of: id) }
+    /// Prévia da linha da conversa: `last_message` do servidor, com o cache local como reserva.
+    func preview(for conversation: Conversation) -> MessagePreview? { MessagePreview.forList(conversation, cached: previews[conversation.id]) }
     var people: [TeamContact] { team.filter { !$0.isBot } }
     var bots: [TeamContact] { team.filter(\.isBot) }
     var onlinePeople: Int { people.filter(\.online).count }
@@ -306,20 +350,9 @@ final class Workspace: ObservableObject {
 
     func refreshTicketCounts() async {
         guard let p = container.profileId else { return }
-        guard let page = try? await container.api.tickets(p) else { return }
-        var counts = TicketCounts()
-        for t in page.data {
-            counts.total += 1
-            switch t.status {
-            case "open": counts.open += 1
-            case "in_progress": counts.inProgress += 1
-            case "closed": counts.closed += 1
-            default: break
-            }
-            if t.isOverdue { counts.overdue += 1 }
-        }
-        counts.hasMore = page.next_cursor != nil
-        ticketCounts = counts
+        // Uma consulta dos ativos (`active=1`); um servidor 0.13 ignora o filtro e o app conta só os ativos.
+        guard let page = try? await container.api.tickets(p, active: true) else { return }
+        ticketCounts = TicketCounts(page.data, hasMore: page.next_cursor != nil)
     }
 
     // MARK: Presença
@@ -524,7 +557,8 @@ final class Workspace: ObservableObject {
     /// Preenche em segundo plano a prévia das 15 primeiras conversas sem prévia (duas chamadas por vez).
     func backfill(_ conversations: [Conversation]) {
         guard let p = container.profileId else { return }
-        let missing = conversations.prefix(30).filter { previews[$0.id] == nil && !backfilling.contains($0.id) }.prefix(15).map(\.id)
+        // Servidor 0.14+ já manda `last_message` na lista: nada a buscar para essas conversas.
+        let missing = conversations.prefix(30).filter { $0.lastMessage == nil && previews[$0.id] == nil && !backfilling.contains($0.id) }.prefix(15).map(\.id)
         guard !missing.isEmpty else { return }
         missing.forEach { backfilling.insert($0) }
         let api = container.api

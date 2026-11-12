@@ -704,7 +704,7 @@ it("avisa fila, transferência e protocolos excluindo quem agiu", async () => {
   );
   await processPush(env, p);
   expect(sentTokens()).toEqual([da.token]);
-  expect(sentMessages()[0].body).toBe("Novo estado: Concluído");
+  expect(sentMessages()[0].body).toBe("Novo estado: Encerrado");
   // A closed ticket created before (or replayed) is not announced as open.
   calls = [];
   await event(

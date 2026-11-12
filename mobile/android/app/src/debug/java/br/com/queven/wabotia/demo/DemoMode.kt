@@ -81,7 +81,9 @@ object DemoMode {
                 ticketId = when (option) {
                     "overdue" -> Ids.T_OVERDUE
                     "soon" -> Ids.T_SOON
-                    "answered" -> Ids.T_ANSWERED
+                    "answered", "waiting" -> Ids.T_ANSWERED
+                    "third" -> Ids.T_THIRD
+                    "resolved" -> Ids.T_RESOLVED
                     "closed" -> Ids.T_CLOSED
                     else -> Ids.T_PROGRESS
                 },

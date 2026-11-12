@@ -1,5 +1,7 @@
 package br.com.queven.wabotia.ui.tickets
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,8 +11,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PriorityHigh
@@ -29,10 +33,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketCategory
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.Pill
 import br.com.queven.wabotia.ui.components.ProgressRing
 import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.components.WbFilterChip
 import br.com.queven.wabotia.ui.theme.Wb
 
 /**
@@ -49,6 +55,8 @@ fun TicketCard(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     onOpenConversation: (() -> Unit)? = null,
+    /** Nome da categoria (aplicativo ou assunto) já resolvido; null quando o protocolo não tem categoria. */
+    categoryName: String? = null,
 ) {
     val c = Wb.colors
     WbCard(modifier = modifier, onClick = onClick) {
@@ -78,6 +86,10 @@ fun TicketCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = if (onOpenConversation != null) 10.dp else 0.dp),
             )
+            if (!categoryName.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                CategoryTag(categoryName, Modifier.padding(end = if (onOpenConversation != null) 10.dp else 0.dp))
+            }
             Spacer(Modifier.height(if (compact) 8.dp else 6.dp))
             Row(Modifier.fillMaxWidth().heightIn(min = if (onOpenConversation != null) 48.dp else 24.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (!compact) {
@@ -99,6 +111,37 @@ fun TicketCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Categoria do protocolo (aplicativo ou assunto): ícone + nome em texto secundário, sem competir com a pílula de estado. */
+@Composable
+fun CategoryTag(name: String, modifier: Modifier = Modifier) {
+    val c = Wb.colors
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.Category, contentDescription = "Categoria", tint = c.textSecondary, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(name, color = c.textSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * Escolha da categoria ao abrir um protocolo: chips em linha rolável, "Sem categoria" primeiro. Só as habilitadas
+ * são oferecidas. [selected] nulo = sem categoria.
+ */
+@Composable
+fun CategoryChips(categories: List<TicketCategory>, selected: String?, onSelect: (String?) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val c = Wb.colors
+    Row(
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        WbFilterChip("Sem categoria", selected = selected == null, onClick = { if (enabled) onSelect(null) }, tone = if (selected == null) c.ticket else null)
+        categories.filter { it.enabled }.forEach { category ->
+            val isSelected = selected == category.id
+            WbFilterChip(category.name, selected = isSelected, onClick = { if (enabled) onSelect(category.id) }, tone = if (isSelected) c.ticket else null)
         }
     }
 }

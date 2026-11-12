@@ -168,11 +168,28 @@ Protocolos de uma conversa: `GET /tickets?q=<telefone só dígitos>` filtrado no
 
 ## 8. Protocolos (aba 2)
 
-Chips com contador: `Abertos`, `Em andamento`, `Atrasados` (em `danger`), `Concluídos`, `Todos`. Busca por número ou telefone (`q`).
+**Estados (0.14.0).** O protocolo tem seis estados, cada um com texto e cor próprios; a mesma pílula aparece na lista, no detalhe, em Dados da conversa e na folha de transferência.
 
-Cartão: número `WA-…` em `ticket` monoespaçado, título em duas linhas, pílula de estado, avatar do responsável e **prazo** com o mesmo anel do relógio (vermelho atrasado "atrasado há 2h", laranja abaixo de 1 h, "Respondido" com check quando `first_response_at`). Toque abre o detalhe.
+| Valor | Texto | Cor | Ativo |
+|---|---|---|---|
+| `open` | Recebido | `ticket` | sim |
+| `in_progress` | Em análise | `warn` | sim |
+| `waiting_customer` | Aguardando cliente | `bot` | sim |
+| `waiting_third` | Aguardando terceiro | `bot` | sim |
+| `resolved` | Resolvido | `ok` | não |
+| `closed` | Encerrado | `muted` | não |
 
-Detalhe: cabeçalho com número, estado (seletor em pílulas Aberto / Em andamento / Concluído), responsável, prazo; botão "Abrir conversa"; **linha do tempo** vertical dos andamentos (ponto + linha, autor, horário, interno com cadeado); campo fixo embaixo "Registrar andamento" com enviar. Todas as regras atuais permanecem (prazo só antes da primeira resposta, erros do servidor exibidos).
+**Ativo** = não é Resolvido nem Encerrado. Só protocolo ativo fica atrasado, entra nos contadores e pode ter o prazo alterado. Um estado que o aplicativo não conhece (servidor mais novo) aparece como texto neutro em `muted`, sem seleção no seletor, e conta como ativo.
+
+Chips com contador: `Ativos` (o padrão), `Recebidos`, `Em análise`, `Aguardando` (cliente + terceiro), `Atrasados` (em `danger`), `Resolvidos` (resolvidos + encerrados), `Todos`. Busca por número ou telefone (`q`). Contador da aba: atrasados em `danger`; sem atrasados, os recebidos.
+
+**Categoria** (aplicativo ou assunto, de `ticket_categories`). Quando o perfil tem categorias, uma segunda linha rolável de chips fica abaixo dos filtros: ícone de categoria, `Todas` e uma categoria por chip, em `ticket` quando selecionada. No cartão, a categoria aparece abaixo do título como ícone + nome em `textSecondary` (não é pílula, para não competir com o estado). Sem categorias configuradas nada disso aparece.
+
+Cartão: número `WA-…` em `ticket` monoespaçado, título em duas linhas, pílula de estado, categoria, avatar do responsável e **prazo** com o mesmo anel do relógio (vermelho atrasado "atrasado há 2h", laranja abaixo de 1 h, "Respondido" com check quando `first_response_at`; Resolvido e Encerrado mostram o estado em `muted` no lugar do prazo). Toque abre o detalhe.
+
+Detalhe: cabeçalho com número, título, **categoria** (linha "Categoria · {nome}" com "Alterar", que abre uma folha com "Sem categoria" e as categorias habilitadas) e o **seletor de estado**: seis pílulas em grade de duas colunas e três linhas (Recebido · Em análise / Aguardando cliente · Aguardando terceiro / Resolvido · Encerrado), cada uma com o ponto da cor do estado; a selecionada ganha check e destaque na cor. A grade de duas colunas cabe em 375 pt sem cortar "Aguardando terceiro". Resolvido e Encerrado pedem confirmação ("deixa de contar como ativo"). Depois vêm responsável, prazo, botão "Abrir conversa", a **linha do tempo** vertical dos andamentos (ponto + linha, autor, horário, interno com cadeado) e o campo fixo embaixo "Registrar andamento" com enviar. Todas as regras atuais permanecem (prazo só antes da primeira resposta e com o protocolo ativo, erros do servidor exibidos).
+
+Abrir protocolo (tela própria e aba Protocolo da folha de transferência): título e, quando há categorias, uma linha rolável de chips "Sem categoria" + categorias habilitadas; a escolha é opcional.
 
 ## 9. Equipe (aba 3)
 

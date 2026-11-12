@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +66,13 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
     var retryable by remember { mutableStateOf(false) }
     // Chave de idempotência por intenção: renovada quando o texto muda, mantida ao repetir após falha de rede.
     var key by rememberSaveable { mutableStateOf(ApiClient.newIdempotencyKey()) }
+    // Categoria (aplicativo ou assunto): opcional, só oferecida quando o perfil tem categorias (servidor 0.14+).
+    var category by rememberSaveable { mutableStateOf<String?>(null) }
+    var categories by remember { mutableStateOf(container.profileData.cached(profileId)?.ticketCategories().orEmpty()) }
+    LaunchedEffect(profileId) {
+        if (profileId.isNotBlank()) container.profileData.load(profileId)?.let { categories = it.ticketCategories() }
+    }
+    val offered = categories.filter { it.enabled }
     val scope = rememberCoroutineScope()
     val c = Wb.colors
 
@@ -76,7 +84,8 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
         busy = true; error = null; retryable = false
         scope.launch {
             try {
-                val ticket = container.api.createTicket(profileId, key, TicketCreate(conversation_id = conversationId, title = t))
+                val chosen = category?.takeIf { id -> offered.any { it.id == id } }
+                val ticket = container.api.createTicket(profileId, key, TicketCreate(conversation_id = conversationId, title = t, category = chosen))
                 onCreated(ticket.id)
             } catch (e: ApiException) {
                 if (e.isIdempotencyConflict) {
@@ -151,6 +160,33 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
                         color = if (title.length > TITLE_MAX) c.danger else c.textSecondary,
                         modifier = Modifier.align(Alignment.End),
                     )
+                }
+            }
+            if (offered.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                WbCard {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                        Text("Categoria", style = MaterialTheme.typography.titleSmall, color = c.textPrimary, modifier = Modifier.padding(horizontal = 16.dp))
+                        Text(
+                            "Aplicativo ou assunto da solicitação. Opcional.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.textSecondary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 10.dp),
+                        )
+                        CategoryChips(
+                            offered,
+                            selected = category,
+                            onSelect = { id ->
+                                if (id != category) {
+                                    category = id
+                                    key = ApiClient.newIdempotencyKey()
+                                    retryable = false
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            enabled = !busy,
+                        )
+                    }
                 }
             }
             error?.let {

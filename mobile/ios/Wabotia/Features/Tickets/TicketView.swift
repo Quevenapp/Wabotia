@@ -31,10 +31,10 @@ final class TicketViewModel: ObservableObject {
     var ticket: Ticket? { detail?.ticket }
     var updates: [TicketUpdate] { (detail?.updates ?? []).sorted { $0.created < $1.created } }
 
-    /// O prazo só pode mudar antes da primeira resposta e enquanto o protocolo não estiver concluído.
+    /// O prazo só pode mudar antes da primeira resposta e enquanto o protocolo estiver ativo.
     var canEditDue: Bool {
         guard let t = ticket else { return false }
-        return t.first_response_at == nil && t.status != "closed"
+        return t.first_response_at == nil && t.isActive
     }
 
     /// Dica local; a decisão final é do servidor ("Somente o responsável pode alterar o protocolo").
@@ -122,7 +122,7 @@ final class TicketViewModel: ObservableObject {
 }
 
 private enum TicketSheet: String, Identifiable {
-    case owner, due
+    case owner, due, category
     var id: String { rawValue }
 }
 
@@ -144,6 +144,9 @@ struct TicketView: View {
     @Environment(\.pushRoute) private var push
     @StateObject private var model: TicketViewModel
     @State private var sheet: TicketSheet?
+    @ObservedObject private var workspace = Workspace.shared
+    /// Estado final (`resolved` ou `closed`) aguardando confirmação.
+    @State private var confirmStatus: String?
     @State private var progress = ""
     @State private var progressError: String?
     @FocusState private var focused: Bool
@@ -198,6 +201,7 @@ struct TicketView: View {
         .task {
             await model.load(quiet: model.ticket != nil)
             #if DEBUG
+            if DemoMode.takeSheet("ticket-category") != nil { sheet = .category }
             if DemoMode.takeSheet("do-progress") != nil {
                 _ = await model.update(["text": .string("Coleta agendada com a transportadora para amanhã, das 9h às 12h.")], summary: "andamento")
             }
@@ -207,7 +211,14 @@ struct TicketView: View {
             switch item {
             case .owner: TicketOwnerSheet(model: model)
             case .due: TicketDueSheet(model: model)
+            case .category: TicketCategorySheet(model: model, categories: workspace.ticketCategories)
             }
+        }
+        .alert(confirmStatus == TicketStatus.resolved ? "Marcar como resolvido?" : "Encerrar protocolo?", isPresented: confirmPresented, presenting: confirmStatus) { status in
+            Button(status == TicketStatus.resolved ? "Resolver" : "Encerrar") { setStatus(status) }
+            Button("Cancelar", role: .cancel) {}
+        } message: { status in
+            Text("O protocolo passa para \(TicketsSupport.statusTitle(status)) e deixa de contar como ativo. O prazo deixa de ser acompanhado.")
         }
         .alert("Não foi possível atualizar", isPresented: failurePresented, presenting: model.failure) { failure in
             if failure.retryable {
@@ -237,35 +248,80 @@ struct TicketView: View {
             }
             Text(ticket.title.isEmpty ? "Sem título" : ticket.title)
                 .font(Theme.font(20, .bold)).foregroundStyle(Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                ForEach(TicketsSupport.statuses, id: \.self) { status in
-                    let selected = ticket.status == status
-                    let color = TicketsSupport.statusColor(status)
-                    Button {
-                        guard !selected else { return }
-                        Task { await model.update(["status": .string(status)], summary: "estado \(TicketsSupport.statusTitle(status))") }
-                    } label: {
-                        Text(TicketsSupport.statusTitle(status))
-                            .font(Theme.font(13, .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .padding(.horizontal, 10)
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                            .foregroundStyle(selected ? Theme.onBrand : Theme.textSecondary)
-                            .background(Capsule().fill(selected ? color : Theme.surface))
-                            .overlay(Capsule().stroke(selected ? Color.clear : Theme.divider, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
+            statusSelector(ticket)
+            if !TicketStatus.isKnown(ticket.status) {
+                Text("Estado atual: \(TicketsSupport.statusTitle(ticket.status)). Atualize o aplicativo para ver todos os estados deste servidor.")
+                    .font(Theme.font(12)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Seletor dos seis estados em pílulas, duas por linha (cabe em 375 pt sem cortar "Aguardando terceiro"):
+    /// Recebido · Em análise / Aguardando cliente · Aguardando terceiro / Resolvido · Encerrado.
+    private func statusSelector(_ ticket: Ticket) -> some View {
+        let statuses = TicketsSupport.statuses
+        let rows = stride(from: 0, to: statuses.count, by: 2).map { Array(statuses[$0..<min($0 + 2, statuses.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(rows, id: \.self) { row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.self) { status in statusPill(status, ticket: ticket) }
                 }
             }
-            .disabled(model.busy)
         }
+        .disabled(model.busy)
+        .id("status")
+    }
+
+    private func statusPill(_ status: String, ticket: Ticket) -> some View {
+        let selected = ticket.status == status
+        let color = TicketsSupport.statusColor(status)
+        return Button {
+            guard !selected else { return }
+            if !TicketStatus.isActive(status), ticket.isActive { confirmStatus = status } else { setStatus(status) }
+        } label: {
+            HStack(spacing: 6) {
+                if selected {
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
+                } else {
+                    Circle().fill(color).frame(width: 8, height: 8)
+                }
+                Text(TicketsSupport.statusTitle(status))
+                    .font(Theme.font(13, .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .foregroundStyle(selected ? Theme.onBrand : Theme.textPrimary)
+            .background(Capsule().fill(selected ? color : Theme.surface))
+            .overlay(Capsule().stroke(selected ? Color.clear : Theme.divider, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func setStatus(_ status: String) {
+        Task { await model.update(["status": .string(status)], summary: "estado \(TicketsSupport.statusTitle(status))") }
+    }
+
+    private var confirmPresented: Binding<Bool> {
+        Binding(get: { confirmStatus != nil }, set: { if !$0 { confirmStatus = nil } })
     }
 
     private func details(_ ticket: Ticket) -> some View {
         let due = TicketsSupport.due(for: ticket)
+        let categoryName = workspace.categoryName(ticket.category)
         return SectionCard {
+            // Categoria (aplicativo ou assunto): aparece quando o perfil tem categorias ou o protocolo já tem uma.
+            if categoryName != nil || workspace.ticketCategories.contains(where: \.enabled) {
+                Button { sheet = .category } label: {
+                    CardRow(title: "Categoria", chevron: true) {
+                        Text(categoryName ?? "Sem categoria").font(Theme.font(15)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(model.busy)
+            }
             Button { sheet = .owner } label: {
                 CardRow(title: "Responsável", chevron: true) {
                     HStack(spacing: 6) {
@@ -320,8 +376,8 @@ struct TicketView: View {
         if let first = ticket.first_response_at {
             list.append(TimelineEntry(id: "first", title: "Primeira resposta registrada", when: first, text: nil, color: Theme.ok, icon: "checkmark"))
         }
-        if ticket.status == "closed" {
-            list.append(TimelineEntry(id: "closed", title: "Concluído", when: ticket.updated, text: nil, color: Theme.ok, icon: "checkmark.circle.fill"))
+        if !ticket.isActive {
+            list.append(TimelineEntry(id: "closed", title: TicketsSupport.statusTitle(ticket.status), when: ticket.updated, text: nil, color: TicketsSupport.statusColor(ticket.status), icon: "checkmark.circle.fill"))
         }
         return list.enumerated().sorted { a, b in a.element.when != b.element.when ? a.element.when < b.element.when : a.offset < b.offset }.map(\.element)
     }
@@ -479,6 +535,70 @@ struct TicketOwnerSheet: View {
         error = nil
         Task { @MainActor in
             let ok = await model.update(["owner": .string(person.actor)], summary: "responsável \(person.name)")
+            saving = nil
+            if ok { dismiss() } else { error = model.takeFailureMessage() }
+        }
+    }
+}
+
+/// Categoria do protocolo: "Sem categoria" (envia `category: null`) + habilitadas (+ a atual, se foi desabilitada ou removida).
+struct TicketCategorySheet: View {
+    @ObservedObject var model: TicketViewModel
+    let categories: [TicketCategory]
+    @Environment(\.dismiss) private var dismiss
+    @State private var saving: String?
+    @State private var error: String?
+
+    private struct Option: Identifiable { var id: String; var value: String?; var name: String }
+
+    private var options: [Option] {
+        let current = model.ticket?.category
+        var list = [Option(id: " none", value: nil, name: "Sem categoria")]
+        list += categories.filter { $0.enabled || $0.id == current }.map { Option(id: $0.id, value: $0.id, name: $0.name) }
+        if let current, !current.isEmpty, !categories.contains(where: { $0.id == current }) { list.append(Option(id: current, value: current, name: current)) }
+        return list
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SheetHeader(title: "Categoria", subtitle: "Aplicativo ou assunto da solicitação") { dismiss() }
+            ScrollView {
+                VStack(spacing: 0) {
+                    if let error { InlineError(text: error).padding(.horizontal, 16).padding(.bottom, 8) }
+                    ForEach(options) { option in
+                        let selected = model.ticket?.category == option.value
+                        Button { choose(option) } label: {
+                            HStack(spacing: 12) {
+                                Text(option.name).font(Theme.font(16, selected ? .semibold : .regular))
+                                    .foregroundStyle(option.value == nil && !selected ? Theme.textSecondary : Theme.textPrimary).lineLimit(2)
+                                Spacer()
+                                if saving == option.id { ProgressView() } else if selected { Image(systemName: "checkmark.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.ticket) }
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 52)
+                            .contentShape(Rectangle())
+                            .overlay(alignment: .bottom) { ThinDivider(leading: 16) }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(saving != nil)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .interactiveDismissDisabled(saving != nil)
+        .appSheetDetents()
+    }
+
+    private func choose(_ option: Option) {
+        guard option.value != model.ticket?.category else { dismiss(); return }
+        saving = option.id
+        error = nil
+        let field: JSONValue
+        if let value = option.value { field = JSONValue.string(value) } else { field = JSONValue.null }
+        Task { @MainActor in
+            let ok = await model.update(["category": field], summary: option.value == nil ? "remover categoria" : "categoria \(option.name)")
             saving = nil
             if ok { dismiss() } else { error = model.takeFailureMessage() }
         }

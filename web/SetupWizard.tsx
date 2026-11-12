@@ -359,9 +359,11 @@ export function SetupWizard({
         ],
         [
           "Prazo de resposta",
-          cfg.protocol_response_hours
-            ? `${cfg.protocol_response_hours} hora(s)`
-            : "Sem prazo padrão",
+          cfg.protocol_response_unit === "business_days"
+            ? `${cfg.protocol_response_days || 3} dia(s) útil(eis)`
+            : cfg.protocol_response_hours
+              ? `${cfg.protocol_response_hours} hora(s)`
+              : "Sem prazo padrão",
           "settings",
         ],
         [
@@ -728,6 +730,10 @@ export function SetupWizard({
                         <small>
                           Em branco: sem prazo padrão. Vale para novos
                           protocolos.
+                          {snapshot?.status?.settings?.protocol_response_unit ===
+                          "business_days"
+                            ? ` Hoje o prazo é contado em dias úteis (${snapshot.status.settings.protocol_response_days || 3}); este campo só vale se a unidade voltar para horas em Regras de atendimento → Protocolos.`
+                            : " Para contar em dias úteis, use Regras de atendimento → Protocolos."}
                         </small>
                       </label>
                       <label>

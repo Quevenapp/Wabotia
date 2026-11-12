@@ -78,7 +78,7 @@ export function ContactGuide() {
         <img
           src={agendaImage}
           alt="Agenda com os botões Modelo CSV, Importar CSV e Novo contato e três contatos fictícios"
-          style={{ width: "100%", borderRadius: 10 }}
+          className="guide-reference-image"
         />
       </details>
       <p>

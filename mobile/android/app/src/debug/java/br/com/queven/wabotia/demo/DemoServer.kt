@@ -183,7 +183,7 @@ internal object DemoServer {
         if (segments.firstOrNull() != "api") return notFound()
         val path = segments.drop(1)
         when (path) {
-            listOf("health") -> return ok(j("service" to "wabotia", "version" to "0.13.0-demo", "commit" to "demo0000", "runtime" to "demo"))
+            listOf("health") -> return ok(j("service" to "wabotia", "version" to "0.14.0-demo", "commit" to "demo0000", "runtime" to "demo"))
             listOf("auth", "status") -> return ok(j("initialized" to true, "configured" to true))
             listOf("auth", "mobile", "login") -> return ok(sessionJson(now))
         }
@@ -292,7 +292,36 @@ internal object DemoServer {
     // Perfil, equipe
     // -----------------------------------------------------------------------------------------------------------
 
-    private fun settings(s: DemoState): JsonObject = j("departments" to s.departments, "menus" to s.menus, "apps" to emptyList<String>())
+    private fun settings(s: DemoState): JsonObject =
+        j("departments" to s.departments, "menus" to s.menus, "apps" to emptyList<String>(), "ticket_categories" to s.ticketCategories)
+
+    /** Ativo = não é `resolved` nem `closed` (docs/CENTRAL-ATENDIMENTO.md §2). */
+    private fun isActive(ticket: Map<String, JsonElement>): Boolean = ticket.str("status").let { it != "resolved" && it != "closed" }
+
+    private val ticketStatuses = setOf("open", "in_progress", "waiting_customer", "waiting_third", "resolved", "closed")
+
+    /** `last_message` de GET /conversations (§6): última mensagem que não é evento do sistema, ou null. */
+    private fun lastMessage(s: DemoState, conversationId: String): JsonElement {
+        val last = s.messages[conversationId].orEmpty().lastOrNull { it.str("direction") != "system" } ?: return JsonNull
+        val attachments = attachmentIds(last)
+        val content = runCatching { Json.parseToJsonElement(last.str("content") ?: "{}") as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())
+        val mime = attachments.firstOrNull()?.let { s.media[it]?.type }.orEmpty()
+        val kind = when {
+            content.containsKey("location") -> "location"
+            content.containsKey("contacts") -> "contacts"
+            content.str("type") == "voice" -> "audio"
+            content.str("type") in setOf("image", "video", "audio", "document", "sticker", "interactive") -> content.str("type")
+            mime.startsWith("image/") -> "image"
+            mime.startsWith("video/") -> "video"
+            mime.startsWith("audio/") -> "audio"
+            attachments.isNotEmpty() -> "document"
+            else -> "text"
+        }
+        return j(
+            "text" to last.str("text"), "direction" to last.str("direction"), "created" to last.long("created"),
+            "delivery_status" to last.str("delivery_status"), "attachments" to attachments.size, "kind" to kind,
+        )
+    }
 
     private fun status(s: DemoState): JsonObject {
         val counts = s.conversations.values.groupingBy { it.str("state") ?: "ai" }.eachCount()
@@ -372,7 +401,7 @@ internal object DemoServer {
                 }
                 .sortedByDescending { it.long("updated") }
                 .take(limit)
-            return ok(j("data" to list.map { it.json() }, "next_cursor" to null))
+            return ok(j("data" to list.map { JsonObject(it + ("last_message" to lastMessage(s, it.str("id").orEmpty()))) }, "next_cursor" to null))
         }
         val id = r[0]
         val c = s.conversations[id] ?: return notFound("Conversa não encontrada.")
@@ -495,13 +524,23 @@ internal object DemoServer {
             c.assign("last_customer", at)
             c.assign("updated", at)
             emit("message.received", message.str("id"), j("conversation_id" to id, "message_id" to message.str("id"), "text" to text, "attachments" to emptyList<String>()), at)
+            // O cliente respondeu: protocolo que estava "Aguardando cliente" volta sozinho para "Em análise" (§2).
+            tickets.values.filter { it.str("conversation_id") == id && it.str("status") == "waiting_customer" }.forEach { ticket ->
+                ticket.assign("status", "in_progress")
+                ticket.assign("updated", at)
+                emit("ticket.updated", ticket.str("id"), j("ticket_id" to ticket.str("id"), "conversation_id" to id), at)
+            }
         }
     }
 
+    /** Textos da coluna "Para o cliente" (consulta de protocolos). */
     private fun statusLabel(status: String?): String = when (status) {
-        "open" -> "Aberto"
-        "in_progress" -> "Em andamento"
-        "closed" -> "Concluído"
+        "open" -> "Recebido"
+        "in_progress" -> "Em análise"
+        "waiting_customer" -> "Aguardando você"
+        "waiting_third" -> "Aguardando atualização"
+        "resolved" -> "Resolvido"
+        "closed" -> "Encerrado"
         else -> status.orEmpty()
     }
 
@@ -517,7 +556,7 @@ internal object DemoServer {
                 c.assign("state", "human")
                 c.assign("owner", me)
                 c.assign("assigned_bot_id", null)
-                tickets.values.filter { it.str("conversation_id") == id && it.str("owner") == null && it.str("status") != "closed" }.forEach { it.assign("owner", me) }
+                tickets.values.filter { it.str("conversation_id") == id && it.str("owner") == null && isActive(it) }.forEach { it.assign("owner", me) }
                 system(id, "Conversa assumida por ${userName(me)}", now)
                 touch(c, now)
                 ok(c.json())
@@ -534,7 +573,7 @@ internal object DemoServer {
                     if (quoted.isNullOrBlank() || content.containsKey("reply_text")) content else JsonObject(content + ("reply_text" to JsonPrimitive(quoted)))
                 } ?: content
                 val message = outbound(c, text, now, enriched, attachments)
-                tickets.values.filter { it.str("conversation_id") == id && it.str("status") != "closed" && it.longOrNull("first_response_at") == null }.forEach {
+                tickets.values.filter { it.str("conversation_id") == id && isActive(it) && it.longOrNull("first_response_at") == null }.forEach {
                     it.assign("first_response_at", now)
                     it.assign("updated", now)
                 }
@@ -739,12 +778,16 @@ internal object DemoServer {
                 val c = conversations[conversationId] ?: return invalid("Conversa não encontrada.")
                 val title = body.str("title")?.trim().orEmpty()
                 if (title.isEmpty() || title.length > 300) return invalid("Informe o título do protocolo (até 300 caracteres).")
+                val category = body.str("category")?.takeIf { it.isNotBlank() }
+                if (category != null && ticketCategories.none { it.str("id") == category && it.bool("enabled") != false }) {
+                    return Reply.error(400, "invalid", "Categoria de protocolo desconhecida.")
+                }
                 val id = nextId("t-novo")
                 val number = "WA-2026-" + (++ticketSeq).toString().padStart(6, '0')
                 val ticket = row(
                     "id" to id, "number" to number, "profile_id" to Ids.PROFILE, "conversation_id" to conversationId, "title" to title,
                     "status" to "open", "owner" to (c.str("owner") ?: Ids.ME), "response_due_at" to now + 4 * 3_600_000L, "first_response_at" to null,
-                    "created" to now, "updated" to now,
+                    "created" to now, "updated" to now, "category" to category,
                 )
                 tickets[id] = ticket
                 ticketUpdates[id] = arrayListOf(row("id" to "tu-$id-1", "ticket_id" to id, "actor" to "system", "text" to "Protocolo aberto por ${userName(Ids.ME)}.", "internal" to 0, "created" to now))
@@ -756,15 +799,20 @@ internal object DemoServer {
             }
             val url = request.url
             val status = url.queryParameter("status")?.takeIf { it.isNotBlank() }
+            if (status != null && status !in ticketStatuses) return Reply.error(400, "invalid", "Estado de protocolo inválido.")
             val overdue = url.queryParameter("overdue") == "1"
+            val active = url.queryParameter("active") == "1"
+            val category = url.queryParameter("category")?.takeIf { it.isNotBlank() }
             val query = url.queryParameter("q")?.trim()?.takeIf { it.isNotEmpty() }
             val digits = query?.filter { it.isDigit() }.orEmpty()
             val list = tickets.values
                 .filter { status == null || it.str("status") == status }
+                .filter { !active || isActive(it) }
+                .filter { category == null || it.str("category") == category }
                 .filter { t ->
                     if (!overdue) return@filter true
                     val due = t.longOrNull("response_due_at")
-                    t.str("status") != "closed" && t.longOrNull("first_response_at") == null && due != null && due < now
+                    isActive(t) && t.longOrNull("first_response_at") == null && due != null && due < now
                 }
                 .filter { t ->
                     if (query == null) return@filter true
@@ -792,15 +840,23 @@ internal object DemoServer {
                 }
             }
             body.str("status")?.let { status ->
-                if (status !in setOf("open", "in_progress", "closed")) return invalid("Estado inválido.")
+                if (status !in ticketStatuses) return invalid("Estado inválido.")
                 ticket.assign("status", status)
+            }
+            if (body.containsKey("category")) {
+                // `category: null` limpa; valor desconhecido (ou desabilitado) é recusado com 400.
+                val category = body.str("category")?.takeIf { it.isNotBlank() }
+                if (category != null && ticketCategories.none { it.str("id") == category && it.bool("enabled") != false }) {
+                    return Reply.error(400, "invalid", "Categoria de protocolo desconhecida.")
+                }
+                ticket.assign("category", category)
             }
             body.str("owner")?.let { owner ->
                 if (owner !in users) return invalid("Responsável inválido.")
                 ticket.assign("owner", owner)
             }
             if (body.containsKey("response_due_at")) {
-                if (ticket.longOrNull("first_response_at") != null || ticket.str("status") == "closed") {
+                if (ticket.longOrNull("first_response_at") != null || !isActive(ticket)) {
                     return invalid("O prazo só pode ser alterado antes da primeira resposta.")
                 }
                 ticket.assign("response_due_at", body.longOrNull("response_due_at"))

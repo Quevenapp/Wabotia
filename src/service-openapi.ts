@@ -44,7 +44,15 @@ export const serviceSchemas = {
           "content",
           "protocols",
           "survey",
+          "ticket",
         ],
+        description:
+          "ticket (Abrir protocolo) pergunta a descrição ao cliente e abre um protocolo gratuito, sem mover a conversa para a fila humana. Como protocols e survey, exige permissão de serviço na linha e não existe em grupos.",
+      },
+      category_id: {
+        type: ["string", "null"],
+        description:
+          "Destino ticket: categoria de ticket_categories gravada no protocolo aberto. Opcional.",
       },
       parent_id: {
         type: ["string", "null"],
@@ -66,7 +74,7 @@ export const serviceSchemas = {
         type: "string",
         maxLength: 3500,
         description:
-          "Mensagem do destino content (obrigatória) ou texto do link (até3000).",
+          "Mensagem do destino content (obrigatória), texto do link (até 3000) ou pergunta do destino ticket (opcional).",
       },
       question: {
         type: "string",
@@ -109,8 +117,148 @@ export const serviceSchemas = {
         exclusiveMinimum: 0,
         maximum: 8760,
       },
+      protocol_response_unit: {
+        enum: ["hours", "business_days"],
+        default: "hours",
+        description:
+          "Como contar o prazo da primeira resposta: horas corridas (protocol_response_hours) ou dias úteis (protocol_response_days e business_hours). Alterar não recalcula protocolos já abertos.",
+      },
+      protocol_response_days: {
+        type: "integer",
+        minimum: 1,
+        maximum: 60,
+        default: 3,
+      },
+      business_hours: { $ref: "#/components/schemas/BusinessHours" },
+      ticket_categories: {
+        type: "array",
+        maxItems: 50,
+        items: { $ref: "#/components/schemas/TicketCategory" },
+        description:
+          "Categorias de protocolo (aplicativo ou assunto). Remover uma categoria não altera protocolos antigos.",
+      },
+      menu_greeting: {
+        type: "string",
+        maxLength: 900,
+        description:
+          "Texto de abertura do menu principal. Vazio usa “Como podemos ajudar?”. Submenus continuam usando o próprio título.",
+      },
+      protocol_confirmation: {
+        type: "string",
+        maxLength: 1500,
+        description:
+          "Mensagem enviada ao cliente quando um protocolo é aberto para ele. Marcadores {numero}, {assunto}, {aplicativo} e {prazo}; a linha cujo marcador não tem valor é omitida. Vazio restaura o texto padrão.",
+      },
       surveys_enabled: { type: "boolean" },
       jev_enabled: { type: "boolean" },
+    },
+  },
+  BusinessHours: {
+    type: "object",
+    description:
+      "Atendimento humano no horário de Brasília (UTC-3). Campos omitidos preservam o valor salvo.",
+    properties: {
+      days: {
+        type: "array",
+        minItems: 1,
+        maxItems: 7,
+        uniqueItems: true,
+        items: { type: "integer", minimum: 0, maximum: 6 },
+        default: [1, 2, 3, 4, 5],
+        description: "0 = domingo … 6 = sábado.",
+      },
+      start: {
+        type: "string",
+        pattern: "^([01]\\d|2[0-3]):[0-5]\\d$",
+        default: "09:00",
+      },
+      end: {
+        type: "string",
+        pattern: "^([01]\\d|2[0-3]):[0-5]\\d$",
+        default: "18:00",
+      },
+      holidays: {
+        type: "array",
+        maxItems: 100,
+        uniqueItems: true,
+        items: { type: "string", format: "date" },
+        default: [],
+      },
+    },
+  },
+  ServiceTemplate: {
+    type: "object",
+    properties: {
+      id,
+      name: { type: "string" },
+      description: { type: "string" },
+      summary: { type: "string", description: "Resumo em uma frase." },
+      settings: {
+        type: "object",
+        description:
+          "Conteúdo completo, com as mesmas chaves de PUT /settings: departments, ticket_categories, menus, protocol_response_unit, protocol_response_days, business_hours, instructions e protocol_confirmation. Destinos de bot trazem bot_id null e fallback_content, a mensagem usada quando a área não tem bot.",
+      },
+      manual_steps: {
+        type: "array",
+        items: { type: "string" },
+        description: "O que o modelo não configura.",
+      },
+    },
+  },
+  ServiceTemplateApply: {
+    type: "object",
+    properties: {
+      mode: {
+        enum: ["merge", "replace"],
+        default: "merge",
+        description:
+          "merge acrescenta setores, categorias e ramos de menu que ainda não existem (por id) e só grava textos e prazo que ainda estão no padrão. replace substitui menus, setores, categorias, prazo, horário e textos; pessoas já colocadas em um setor do modelo e os feriados são mantidos.",
+      },
+      bot_id: {
+        ...id,
+        description:
+          "Bot dos destinos de bot. Sem ele: o atendente da área, senão o primeiro bot habilitado; sem bot nenhum, os destinos viram mensagens informativas.",
+      },
+    },
+  },
+  ServiceTemplateGroups: {
+    type: "object",
+    properties: {
+      departments: { type: "array", items: id },
+      categories: { type: "array", items: id },
+      menus: { type: "array", items: id },
+      settings: {
+        type: "array",
+        items: { type: "string" },
+        description: "Nomes dos campos de configuração.",
+      },
+    },
+  },
+  ServiceTemplateResult: {
+    type: "object",
+    properties: {
+      template_id: id,
+      mode: { enum: ["merge", "replace"] },
+      bot_id: { type: ["string", "null"] },
+      created: { $ref: "#/components/schemas/ServiceTemplateGroups" },
+      kept: { $ref: "#/components/schemas/ServiceTemplateGroups" },
+      replaced: { $ref: "#/components/schemas/ServiceTemplateGroups" },
+      removed: { $ref: "#/components/schemas/ServiceTemplateGroups" },
+      skipped: { $ref: "#/components/schemas/ServiceTemplateGroups" },
+      pending: {
+        type: "array",
+        description: "O que ainda precisa de ação do administrador.",
+        items: {
+          type: "object",
+          required: ["code", "message"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            department_id: { type: "string" },
+            bot_id: { type: "string" },
+          },
+        },
+      },
     },
   },
   ServiceDepartment: {
@@ -210,6 +358,14 @@ export const serviceOperations: [string, string, string, string?, string?][] = [
     undefined,
     "MenuSettings",
   ],
+  ["get", "/service-templates", "Modelos de central de atendimento"],
+  [
+    "post",
+    "/profiles/{profile}/service-templates/{id}/apply",
+    "Aplicar um modelo de central (administrador)",
+    undefined,
+    "ServiceTemplateApply",
+  ],
   [
     "patch",
     "/profiles/{profile}/bots/{id}",
@@ -258,6 +414,24 @@ export function describeServiceOperation(
 ) {
   if (!serviceOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Linhas e equipe"];
+  if (path.includes("/service-templates")) {
+    const apply = method === "post";
+    entry.description = apply
+      ? "Exige administrador com sessão de pessoa. Preenche menus, setores, categorias, prazo e textos de uma vez, pela mesma validação de PUT /settings. Conversas e protocolos existentes não são tocados. A resposta resume o que foi criado, mantido, substituído ou removido e lista em pending o que ainda precisa de ação manual. Modelo desconhecido retorna 404."
+      : "Exige sessão de pessoa (cookie ou token wabu_); chaves de aplicação recebem 403. Lista os modelos com o conteúdo completo para pré-visualização.";
+    success.content["application/json"].schema = apply
+      ? { $ref: "#/components/schemas/ServiceTemplateResult" }
+      : {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ServiceTemplate" },
+            },
+          },
+        };
+    return;
+  }
   if (!path.endsWith("/menus"))
     entry.description +=
       " Exige sessão de pessoa (cookie ou token wabu_). Conversas internas são visíveis apenas aos participantes, inclusive para administradores.";

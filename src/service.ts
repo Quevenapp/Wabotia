@@ -58,6 +58,23 @@ import {
 } from "./departments";
 import { sendProtocolLookup } from "./protocol-lookup";
 import {
+  protocolDueAt,
+  businessHours,
+  validateBusinessHours,
+  validResponseDays,
+  responseUnits,
+} from "./business-time";
+import {
+  ticketStatuses,
+  isActiveTicket,
+  activeTicketSql,
+  validateTicketCategories,
+  enabledCategory,
+  protocolConfirmation,
+  defaultProtocolConfirmation,
+} from "./protocols";
+import { applyServiceTemplate } from "./service-templates";
+import {
   assertNumberDelivery,
   getNumberPolicy,
   numberPolicyError,
@@ -307,45 +324,130 @@ export async function message(
   );
   return id;
 }
+export interface TicketOptions {
+  /** Reuse the conversation's active protocol (automatic opening only). */
+  dedupe?: boolean;
+  /** Category id already checked against the settings, or null. */
+  category?: string | null;
+  /** Overrides the conversation owner; null opens it without a responsible person. */
+  owner?: string | null;
+  /** Makes a replayed inbox row or bot run find the protocol it already opened. */
+  sourceKey?: string;
+  /** Full request, stored as the first public update. */
+  description?: string;
+  descriptionActor?: string;
+}
+/** Opens a protocol and tells whether it is new or one that already existed. */
+export async function createTicket(
+  env: Env,
+  c: Conversation,
+  title: string,
+  options: TicketOptions = {},
+): Promise<{ ticket: any; created: boolean }> {
+  if (options.dedupe) {
+    const old = await one(
+      env,
+      `SELECT * FROM tickets WHERE conversation_id=? AND ${activeTicketSql()} ORDER BY created DESC,id DESC LIMIT 1`,
+      c.id,
+    );
+    if (old) return { ticket: old, created: false };
+  }
+  const config = await settings(env, c.profile_id);
+  const id = uid(),
+    at = now(),
+    number = `WA-${at.toString(36).toUpperCase()}-${id.slice(0, 4).toUpperCase()}`;
+  const writes: [string, any[]][] = [
+    [
+      "INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated,category,source_key) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING",
+      [
+        id,
+        number,
+        c.profile_id,
+        c.id,
+        title,
+        options.owner === undefined ? c.owner : options.owner,
+        protocolDueAt(at, config),
+        at,
+        at,
+        options.category || null,
+        options.sourceKey || null,
+      ],
+    ],
+  ];
+  // Written only when this call created the protocol (the SELECT finds no row
+  // after a source-key conflict).
+  if (options.description)
+    writes.push([
+      "INSERT OR IGNORE INTO ticket_updates(id,ticket_id,actor,text,internal,created) SELECT ?,id,?,?,0,? FROM tickets WHERE id=?",
+      [
+        "request:" + id,
+        options.descriptionActor || "customer",
+        options.description,
+        at,
+        id,
+      ],
+    ]);
+  await batch(env, writes);
+  const ticket = options.sourceKey
+    ? await one(
+        env,
+        "SELECT * FROM tickets WHERE source_key=?",
+        options.sourceKey,
+      )
+    : await one(env, "SELECT * FROM tickets WHERE id=?", id);
+  // ticket.created is source-keyed by the protocol id: emitting it again for a
+  // protocol found by its source key repairs an interruption without a duplicate.
+  await event(env, c.profile_id, "ticket.created", ticket.id, {
+    id: ticket.id,
+    number: ticket.number,
+    conversation_id: c.id,
+    ...(ticket.category ? { category: ticket.category } : {}),
+  });
+  return { ticket, created: ticket.id === id };
+}
 export async function openTicket(
   env: Env,
   c: Conversation,
   actor: string,
   title: string,
   dedupe = false,
+  options: TicketOptions = {},
 ) {
-  if (dedupe) {
-    const old = await one(
-      env,
-      "SELECT * FROM tickets WHERE conversation_id=? AND status!='closed'",
-      c.id,
-    );
-    if (old) return old;
-  }
-  const config = await settings(env, c.profile_id);
-  const id = uid(),
-    number = `WA-${now().toString(36).toUpperCase()}-${id.slice(0, 4).toUpperCase()}`;
-  await exec(
+  return (await createTicket(env, c, title, { ...options, dedupe })).ticket;
+}
+/** Records the automatic return to in_progress caused by a customer message. */
+export async function ticketResumedEvent(
+  env: Env,
+  profile: string,
+  ticketId: string,
+  messageId: string,
+) {
+  const ticket = await one(
     env,
-    "INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?)",
-    id,
-    number,
-    c.profile_id,
-    c.id,
-    title,
-    c.owner,
-    config.protocol_response_hours
-      ? now() + Number(config.protocol_response_hours) * 3600000
-      : null,
-    now(),
-    now(),
+    "SELECT * FROM tickets WHERE id=? AND profile_id=?",
+    ticketId,
+    profile,
   );
-  await event(env, c.profile_id, "ticket.created", id, {
-    id,
-    number,
-    conversation_id: c.id,
-  });
-  return await one(env, "SELECT * FROM tickets WHERE id=?", id);
+  if (!ticket) return;
+  await event(
+    env,
+    profile,
+    "ticket.updated",
+    ticket.id,
+    {
+      status: "in_progress",
+      previous_status: "waiting_customer",
+      owner: ticket.owner,
+      previous_owner: ticket.owner,
+      text_added: false,
+      actor: "system",
+      number: ticket.number,
+      reason: "customer_message",
+      conversation_id: ticket.conversation_id,
+      message_id: messageId,
+    },
+    `${profile}:ticket.resumed:${ticket.id}:${messageId}`,
+  );
 }
 export async function requestSurvey(
   env: Env,
@@ -384,7 +486,17 @@ export async function requestSurvey(
       c.id,
       now(),
     );
+  // The latest question wins: the next "3 ..." is a rating, not a protocol description.
+  await clearTicketPrompt(env, c.id);
   return { survey_id: id, delivery_id: delivery, status: "pending" };
+}
+/** Leaves the "awaiting the protocol description" state, if the conversation is in it. */
+export async function clearTicketPrompt(env: Env, conversationId: string) {
+  await exec(
+    env,
+    "UPDATE conversations SET ticket_prompt_expires_at=NULL,ticket_prompt_category=NULL,ticket_prompt_session=NULL,ticket_prompt_source=NULL WHERE id=? AND ticket_prompt_expires_at IS NOT NULL",
+    conversationId,
+  );
 }
 export async function handoff(
   env: Env,
@@ -404,7 +516,7 @@ export async function handoff(
       [departmentId, now(), c.id],
     ],
     [
-      "UPDATE tickets SET owner=NULL WHERE conversation_id=? AND status!='closed'",
+      `UPDATE tickets SET owner=NULL WHERE conversation_id=? AND ${activeTicketSql()}`,
       [c.id],
     ],
   ]);
@@ -415,8 +527,16 @@ export async function handoff(
     ? `Vou encaminhar sua solicitação para o setor ${department.name}.`
     : "Vou encaminhar sua solicitação para nossa equipe.";
   if (!present) {
-    const ticket = await openTicket(env, c, "system", reason, true);
-    reply = `${department ? `O setor ${department.name} está sem atendentes disponíveis.\n` : ""}${cfg.absence_instructions}\nProtocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`;
+    // One active protocol per conversation in this automatic opening. A new
+    // protocol gets the configured confirmation; a reused one is only cited.
+    const { ticket, created } = await createTicket(env, c, reason, {
+      dedupe: true,
+    });
+    reply = `${department ? `O setor ${department.name} está sem atendentes disponíveis.\n` : ""}${cfg.absence_instructions}\n${
+      created
+        ? "\n" + protocolConfirmation(cfg, ticket)
+        : `Protocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`
+    }`;
   }
   if (policy.human && policy.service && (policy.menu || policy.bots))
     await enqueue(
@@ -599,6 +719,14 @@ export async function inbound(
     c = await conversation(env, c.id, profile);
   }
   const msgId = uid();
+  // A protocol waiting for the customer goes back to analysis when they write.
+  const resumed = (
+    await all(
+      env,
+      "SELECT id FROM tickets WHERE conversation_id=? AND status='waiting_customer'",
+      c.id,
+    )
+  ).map((ticket) => ticket.id as string);
   await batch(env, [
     [
       "INSERT INTO inbox(id,profile_id,event_key,conversation_id,payload,created) VALUES(?,?,?,?,?,?)",
@@ -613,9 +741,14 @@ export async function inbound(
           attachments,
           epoch: c.epoch,
           session: c.session,
+          ...(resumed.length ? { resumed_tickets: resumed } : {}),
         }),
         now(),
       ],
+    ],
+    [
+      "UPDATE tickets SET status='in_progress',updated=? WHERE status='waiting_customer' AND id IN (SELECT value FROM json_each(?))",
+      [now(), JSON.stringify(resumed)],
     ],
     [
       "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,content) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -643,6 +776,8 @@ export async function inbound(
     text: data.text,
     attachments,
   });
+  for (const ticketId of resumed)
+    await ticketResumedEvent(env, profile, ticketId, msgId);
   if (connectionId)
     await applyChannelEvents(env, connectionId, data.message_id);
   return { conversation_id: c.id, message_id: msgId };
@@ -728,6 +863,8 @@ export async function perform(
   requestId: string,
 ): Promise<any> {
   if (op === "line.save") return saveLine(env, actor, profile, data);
+  if (op === "service-template.apply")
+    return applyServiceTemplate(env, actor, profile, data, requestId);
   if (op.startsWith("internal."))
     return internalCommand(env, actor, profile, op, data, requestId);
   if (op === "zernio-account.resolve")
@@ -991,6 +1128,46 @@ export async function perform(
     if (next.departments === undefined) next.departments = [];
     if (data.departments !== undefined)
       await validateDepartments(env, profile, next.departments);
+    // Service-center fields. A partial business_hours keeps the saved parts.
+    next.ticket_categories = validateTicketCategories(
+      next.ticket_categories ?? [],
+    );
+    requireValue(
+      responseUnits.includes(next.protocol_response_unit),
+      "Unidade do prazo inválida: use hours ou business_days.",
+    );
+    requireValue(
+      validResponseDays(next.protocol_response_days),
+      "Informe o prazo em dias úteis, de 1 a 60.",
+    );
+    if (data.business_hours !== undefined) {
+      requireValue(
+        data.business_hours &&
+          typeof data.business_hours === "object" &&
+          !Array.isArray(data.business_hours),
+        "Horário de atendimento inválido.",
+      );
+      next.business_hours = validateBusinessHours({
+        ...businessHours(old.business_hours),
+        ...data.business_hours,
+      });
+    } else next.business_hours = businessHours(old.business_hours);
+    requireValue(
+      typeof next.protocol_confirmation === "string" &&
+        next.protocol_confirmation.length <= 1500,
+      "A confirmação do protocolo deve ter até 1500 caracteres.",
+    );
+    if (!next.protocol_confirmation.trim())
+      next.protocol_confirmation = defaultProtocolConfirmation;
+    // Fits the 1024-character body of a WhatsApp interactive message together
+    // with the "Escolha uma opção abaixo." line added on send.
+    next.menu_greeting = next.menu_greeting ?? "";
+    requireValue(
+      typeof next.menu_greeting === "string" &&
+        Array.from(next.menu_greeting).length <= 900,
+      "A saudação do menu deve ter até 900 caracteres.",
+    );
+    next.menu_greeting = next.menu_greeting.trim();
     requireValue(
       JSON.stringify(next).length <= 150000,
       "Configuração muito grande.",
@@ -1057,9 +1234,18 @@ export async function perform(
           "content",
           "protocols",
           "survey",
+          "ticket",
         ].includes(item.type),
         "Destino de menu inválido.",
       );
+      if (item.type === "ticket") {
+        if (item.category_id)
+          requireValue(
+            next.ticket_categories.some((c: any) => c.id === item.category_id),
+            "Categoria do menu não encontrada.",
+          );
+        if (item.content) text(item.content, 3500);
+      }
       if (item.type === "human" && item.department_id)
         requireValue(
           next.departments.some((d: any) => d.id === item.department_id),
@@ -1494,10 +1680,12 @@ export async function perform(
       );
       await exec(
         env,
-        "UPDATE tickets SET owner=? WHERE conversation_id=? AND owner IS NULL AND status!='closed'",
+        `UPDATE tickets SET owner=? WHERE conversation_id=? AND owner IS NULL AND ${activeTicketSql()}`,
         actor.id,
         c.id,
       );
+      // A person took over: the automatic "describe your request" step ends.
+      await clearTicketPrompt(env, c.id);
     } else if (action === "note") {
       await message(env, c, "note", actor.id, text(data.text));
     } else if (action === "tags") {
@@ -1552,7 +1740,7 @@ export async function perform(
 
         await exec(
           env,
-          "UPDATE tickets SET first_response_at=coalesce(first_response_at,?),updated=? WHERE conversation_id=? AND status!='closed'",
+          `UPDATE tickets SET first_response_at=coalesce(first_response_at,?),updated=? WHERE conversation_id=? AND ${activeTicketSql()}`,
           now(),
           now(),
           c.id,
@@ -1619,6 +1807,9 @@ export async function perform(
                   actions: (cfg.capabilities || []).filter(
                     (a: any) => a.enabled !== false,
                   ),
+                  categories: (cfg.ticket_categories || [])
+                    .filter((item: any) => item.enabled !== false)
+                    .map((item: any) => ({ id: item.id, name: item.name })),
                 }),
               },
               {
@@ -1732,7 +1923,15 @@ export async function perform(
       c.owner === actor.id || actor.role === "admin",
       "Assuma a conversa antes de abrir o protocolo.",
     );
-    return openTicket(env, c, actor.id, text(data.title, 300));
+    // Opened by the team: no automatic confirmation is sent to the customer.
+    let category: string | null = null;
+    if (data.category !== undefined && data.category !== null) {
+      category = enabledCategory(await settings(env, profile), data.category);
+      requireValue(category, "Categoria de protocolo desconhecida.");
+    }
+    return openTicket(env, c, actor.id, text(data.title, 300), false, {
+      category,
+    });
   }
   if (op === "ticket.update") {
     access(actor, profile, "tickets:write");
@@ -1755,17 +1954,24 @@ export async function perform(
       "Somente o responsável pode alterar o protocolo.",
     );
     const status = data.status || ticket.status;
-    requireValue(
-      ["open", "in_progress", "closed"].includes(status),
-      "Estado inválido.",
-    );
+    requireValue(ticketStatuses.includes(status), "Estado inválido.");
     if (data.response_due_at !== undefined)
       requireValue(
         !ticket.first_response_at &&
-          ticket.status !== "closed" &&
+          isActiveTicket(ticket.status) &&
           (data.response_due_at === null ||
             Number.isFinite(data.response_due_at)),
         "Não é possível alterar este prazo.",
+      );
+    // Resending the stored value is accepted even after the category was
+    // removed from the settings; any other value must be an enabled category.
+    const category =
+      data.category === undefined ? ticket.category : data.category;
+    if (data.category !== undefined && category !== ticket.category)
+      requireValue(
+        category === null ||
+          enabledCategory(await settings(env, profile), category),
+        "Categoria de protocolo desconhecida.",
       );
     if (data.owner)
       requireValue(
@@ -1792,13 +1998,14 @@ export async function perform(
     const publicText = data.text ? text(data.text) : "";
     await exec(
       env,
-      "UPDATE tickets SET status=?,owner=?,response_due_at=?,first_response_at=coalesce(first_response_at,?),updated=? WHERE id=?",
+      "UPDATE tickets SET status=?,owner=?,response_due_at=?,first_response_at=coalesce(first_response_at,?),category=?,updated=? WHERE id=?",
       status,
       data.owner ?? ticket.owner,
       data.response_due_at !== undefined
         ? data.response_due_at
         : ticket.response_due_at,
       publicText ? now() : null,
+      category ?? null,
       now(),
       ticket.id,
     );
@@ -1833,6 +2040,9 @@ export async function perform(
       text_added: !!publicText,
       actor: actor.id,
       number: ticket.number,
+      ...(data.category !== undefined
+        ? { category: category ?? null, previous_category: ticket.category }
+        : {}),
     });
     return await one(env, "SELECT * FROM tickets WHERE id=?", ticket.id);
   }
