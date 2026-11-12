@@ -1378,22 +1378,12 @@ function App() {
         });
       if (modal === "capability") {
         const next = {
-          ...settings,
           capabilities: [
             ...(settings.capabilities || []),
             { ...form, id: crypto.randomUUID(), enabled: true },
           ],
         };
         return api(root + "/settings", "PUT", next);
-      }
-      if (modal === "menu") {
-        return api(root + "/settings", "PUT", {
-          ...settings,
-          menus: [
-            ...(settings.menus || []),
-            { ...form, id: crypto.randomUUID(), enabled: true },
-          ],
-        });
       }
       if (modal === "reconcile-run")
         return api(root + `/bot-runs/${form.id}/reconcile`, "POST", {
@@ -2554,7 +2544,6 @@ function App() {
                           onClick={() =>
                             run(() =>
                               api(root + "/settings", "PUT", {
-                                ...settings,
                                 attendant_bot: bot.id,
                               }),
                             ).then(load)
@@ -2603,7 +2592,6 @@ function App() {
                           onClick={() =>
                             run(() =>
                               api(root + "/settings", "PUT", {
-                                ...settings,
                                 capabilities: settings.capabilities.filter(
                                   (x: any) => x.id !== a.id,
                                 ),
@@ -3367,7 +3355,6 @@ function App() {
                 "reconcile-run": "Vincular execução confirmada",
                 "reconcile-delivery": "Conferir entrega no canal",
                 capability: "Ação de especialista",
-                menu: "Opção do menu",
                 webhook: "Cadastrar webhook",
               } as Row
             )[modal]
@@ -3836,46 +3823,6 @@ function App() {
                   value={form.instructions}
                   onChange={(v: string) => change("instructions", v)}
                 />
-              </>
-            )}
-            {modal === "menu" && (
-              <>
-                <Field
-                  label="Texto da opção"
-                  value={form.label}
-                  onChange={(v: string) => change("label", v)}
-                />
-                <Field
-                  label="Destino"
-                  value={form.type}
-                  onChange={(v: string) => change("type", v)}
-                  options={[
-                    ["human", "Atendente humano"],
-                    ["bot", "Bot Hermes"],
-                    ["app", "Aplicativo"],
-                    ["submenu", "Submenu"],
-                  ]}
-                />
-                <Field
-                  label="ID do menu pai (opcional)"
-                  value={form.parent_id}
-                  onChange={(v: string) => change("parent_id", v)}
-                />
-                {form.type === "app" && (
-                  <Field
-                    label="ID do aplicativo"
-                    value={form.app_id}
-                    onChange={(v: string) => change("app_id", v)}
-                  />
-                )}
-                {form.type === "bot" && (
-                  <Field
-                    label="Bot"
-                    value={form.bot_id}
-                    onChange={(v: string) => change("bot_id", v)}
-                    options={bots}
-                  />
-                )}
               </>
             )}
             {modal === "transfer" && (

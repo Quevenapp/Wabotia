@@ -6,6 +6,17 @@ Na Meta, até três opções com títulos de até 20 caracteres usam botões de 
 
 As respostas dos botões identificam uma opção da apresentação enviada, da conversa e da sessão. A apresentação expira após 24 horas. Botões antigos, de outra conversa ou de uma opção removida/desabilitada não executam ações: o cliente recebe a orientação para enviar **MENU**. Reordenar opções no painel não muda o significado de um botão já enviado. Nos menus de texto, os números seguem a ordem da apresentação enviada enquanto ela estiver ativa.
 
+## Cadastrar a hierarquia
+
+1. Crie um submenu, por exemplo **Suporte Técnico**. Ele organiza as opções e pode ser salvo antes dos filhos.
+2. No submenu, clique **Adicionar opção dentro**. Dê um nome à opção e escolha o destino: equipe, bot, mensagem, link ou outro submenu.
+3. Para criar mais níveis, adicione outro submenu dentro do primeiro e cadastre suas opções da mesma forma. A árvore mostra o caminho completo; salvar e reabrir mantém os vínculos.
+4. Para mover um item, edite o menu pai. O seletor exclui o próprio item e seus descendentes. Um submenu com filhos precisa continuar sendo submenu até que os filhos sejam movidos ou removidos.
+
+Um submenu vazio permanece no editor com indicação de que falta cadastrar opções. Ele não aparece para o cliente enquanto não tiver um destino utilizável. A mesma regra vale quando todos os filhos estão desabilitados ou indisponíveis para aquela linha. **VOLTAR** sobe para o menu pai; **MENU** abre o principal. Navegar entre níveis mantém o responsável pela conversa.
+
+A exclusão de um ramo pede confirmação mostrando os itens envolvidos. Se outra aba alterar o item ou o ramo durante a edição, o painel informa o conflito e preserva o rascunho, sem substituir os dados novos. Reabra a edição para revisar a versão atual antes de salvar novamente.
+
 ## Setores de atendimento
 
 No fim da tela de menus, abra **Setores de atendimento → Adicionar setor**, dê um nome e selecione pessoas com acesso ao perfil. Depois escolha esse setor no destino **Equipe humana** de uma opção.
@@ -61,3 +72,7 @@ Para conteúdo simples, use **Mensagem informativa**. Para direcionar a uma pág
 ```
 
 Os destinos existentes `human`, `bot`, `app` e `submenu` permanecem compatíveis. A migração aditiva `0012_service_destinations.sql` acrescenta o setor e o estado de apresentação dos menus às conversas. Nenhum protocolo anterior é apagado ou renumerado.
+
+Para editar menus pela API, consulte `GET /api/v1/profiles/{profile}/menus` sem filtro. A resposta contém a lista completa em `data` e sua `revision`. Envie `{"menus":[...],"menus_revision":"REVISAO_RECEBIDA"}` para substituir a lista. Se outra alteração tiver sido salva, a API retorna `409 menus_changed` e mantém a configuração atual. Recarregue, revise a árvore e envie uma nova intenção. A revisão é opcional para compatibilidade com clientes antigos; sem ela, a substituição da lista não detecta alterações concorrentes. Não use uma lista filtrada por telefone para substituir a configuração inteira.
+
+`parent_id` guarda o ID de outro item do tipo `submenu`, ou `null` para o menu principal. Todos os itens continuam na mesma lista; ciclos, pais ausentes e pais de outro tipo são recusados. Não é necessário informar IDs manualmente no painel.

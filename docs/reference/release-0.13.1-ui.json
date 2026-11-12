@@ -1,0 +1,29 @@
+{
+  "release": "0.13.1",
+  "date": "2026-11-12",
+  "environment": "Local Vite mock with synthetic menus and revision conflicts; no production edits",
+  "cause": "The existing UI saved a submenu container but rendered a flat list and provided no action to add children. The unused legacy modal asked for raw parent IDs and always appended a new UUID.",
+  "checks": [
+    "An empty submenu is clearly identified and offers Add option inside and Create submenu inside",
+    "Created Suporte fictício > Equipamentos > Falar sobre impressoras; save and browser reload preserved all three levels",
+    "Missing legacy enabled value is rendered and edited as enabled",
+    "Root parent choices exclude self and descendants; submenu type is locked while it has children",
+    "Changing an existing item before the editor latest GET preserves the draft and blocks overwriting; Reopen saved version loads the latest item",
+    "409 menus_changed between GET and PUT preserves the draft and reloads the tree; manual retry uses a new revision and preserves unrelated concurrent items",
+    "Moved the third-level option to the main menu without changing its ID or losing other items",
+    "Inline removal cancellation sends no write",
+    "A newly added descendant blocks removal until the branch is reviewed again",
+    "Confirmed branch removal removes exactly that branch and preserves outside items",
+    "Confirmed leaf removal removes only that item",
+    "Desktop and 390x844 mobile layouts reviewed; mobile content width343 equals scrollWidth343",
+    "Legacy modal removed after confirming no callers; unrelated main settings writers send field-only patches"
+  ],
+  "validation": {
+    "typescript": "npx tsc --noEmit passed after final source changes",
+    "unit_tests": "4 menu-tree tests passed",
+    "diff_check": "passed"
+  },
+  "cleanup": { "created_tab_closed": true, "viewport_reset": true, "qa_server_stopped": true, "cua_completion_reported": true, "user_tabs_preserved": true },
+  "production_modified": false,
+  "mobile_source_modified": false
+}

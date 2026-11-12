@@ -19,7 +19,13 @@ Um perfil pode ser ativado com atendimento configurado por linha, sem exigir um 
 
 ## Menus e submenus
 
+O painel mostra a hierarquia em árvore. Crie um submenu e use **Adicionar opção dentro** no próprio item para cadastrar seus filhos. Um submenu recém-criado fica vazio até receber opções; ele continua visível para edição, mas não aparece para o cliente enquanto não houver uma opção disponível. O seletor de menu pai mostra o caminho completo e permite mover uma opção para outro ramo. Não é possível colocar um item dentro dele mesmo ou de um descendente.
+
 Cada opção aceita `line_ids` (lista vazia significa todas as linhas) e `trigger`, com `automatic` ou `manual`. Os filhos herdam as restrições dos ancestrais: um submenu não reaparece em outra linha por omitir a própria lista.
+
+Na conversa, **VOLTAR** sobe um nível e **MENU** abre o menu principal, mantendo o responsável pelo atendimento. A lista considera as permissões de cada linha: um ramo sem nenhuma opção utilizável é omitido.
+
+Ao salvar ou excluir, o painel confere se outra aba ou pessoa alterou o menu. Em conflito, mantém a edição para revisão e não substitui silenciosamente os dados novos. Alterar o Bot Atendente ou outras configurações não reenvia uma cópia antiga da árvore.
 
 Uma pessoa responsável pelo atendimento pode apresentar o menu principal ou um submenu. Bots também podem responder com a ação estruturada `{"action":"menu","menu_id":null}` ou com o ID de um submenu autorizado. A apresentação cria um contexto de seleção: o usuário pode digitar a opção mesmo durante atendimento humano. Navegar em submenus e abrir um aplicativo mantém o responsável; escolher atendimento humano ou um bot encaminha o atendimento correspondente.
 
@@ -47,8 +53,8 @@ Todas as rotas abaixo começam com `/api/v1/profiles/{profile}`. Escritas exigem
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | `GET /lines`                         | `{data:[{id,name,kind,mode,status,number,number_policy,service}]}`                                                           |
 | `PUT /lines/{id}`                    | `{service:{mode,bot_id,menu_mode},number_policy?:{...}}`                                                                     |
-| `GET /menus?connection_id=...`       | `{data:[...]}`; o parâmetro filtra opções permitidas naquela linha                                                           |
-| `PUT /settings`                      | `{menus:[...]}`; preserva as demais configurações do perfil                                                                  |
+| `GET /menus?connection_id=...`       | `{data:[...],revision:"..."}`; o parâmetro filtra opções permitidas naquela linha; sem filtro retorna a lista completa para edição |
+| `PUT /settings`                      | `{menus:[...],menus_revision:"..."}`; revisão opcional protege contra sobrescrita concorrente; preserva os demais campos omitidos |
 | `PATCH /bots/{id}`                   | `{line_ids:null,enabled?:boolean,name?:string}`; `line_ids` também aceita uma lista de IDs. Campos omitidos são preservados. |
 | `GET /team`                          | `{data:[{id,kind,name,online,bot_id?,line_ids?}]}`; ID de bot: `bot:{id}`                                                    |
 | `POST /conversations/{id}/actions`   | `{action:"transfer",target:"ID_PESSOA"}`; `target` também aceita `"bot:ID_BOT"`.                                             |

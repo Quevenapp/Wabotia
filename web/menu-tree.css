@@ -1,0 +1,88 @@
+.menu-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.menu-tree .menu-tree {
+  padding-left: 18px;
+  margin-left: 10px;
+  border-left: 2px solid var(--line, #dce4df);
+}
+.menu-tree .menu-tree .menu-tree .menu-tree .menu-tree {
+  padding-left: 0;
+  margin-left: 0;
+}
+.menu-tree-node {
+  min-width: 0;
+}
+.menu-tree-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line, #dce4df);
+}
+.menu-tree-content {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.menu-tree-content strong {
+  display: block;
+}
+.menu-tree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 8px;
+}
+.menu-tree-actions button {
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.menu-tree-empty {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.menu-breadcrumb {
+  overflow-wrap: anywhere;
+}
+.menu-delete-review {
+  padding: 14px;
+  border: 1px solid #bd7345;
+  border-radius: 10px;
+  background: #fff8f0;
+  margin-top: 12px;
+}
+.menu-delete-review ul {
+  padding-left: 20px;
+}
+.menu-editor-heading:focus {
+  outline: none;
+}
+.service-panel fieldset.menu-editor-fields {
+  display: grid;
+  gap: 14px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+@media (max-width: 560px) {
+  .menu-tree .menu-tree {
+    padding-left: 12px;
+    margin-left: 4px;
+  }
+  .menu-tree .menu-tree .menu-tree .menu-tree .menu-tree {
+    padding-left: 0;
+    margin-left: 0;
+  }
+  .menu-tree-actions {
+    width: 100%;
+  }
+  .menu-tree-actions button {
+    flex: 1 1 auto;
+  }
+}

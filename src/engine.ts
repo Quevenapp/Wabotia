@@ -289,6 +289,66 @@ export async function processInbox(env: Env, profile: string) {
       );
       return;
     }
+    const replyId = data.content?.interactive_reply_id;
+    if (
+      menuInteraction &&
+      !replyId &&
+      ["menu", "voltar"].includes(normalized)
+    ) {
+      const current = (cfg.menus || []).find(
+        (item: any) => item.id === c.menu_parent,
+      );
+      let parent = normalized === "voltar" ? current?.parent_id || null : null;
+      let options = await availableMenus(
+        env,
+        profile,
+        c.connection_id,
+        parent,
+        !!c.menu_manual,
+        c.chat_type,
+      );
+      // If an administrator removed the branch while it was open, return to
+      // the current root rather than handing the conversation to another owner.
+      if (!options.length && parent) {
+        parent = null;
+        options = await availableMenus(
+          env,
+          profile,
+          c.connection_id,
+          null,
+          !!c.menu_manual,
+          c.chat_type,
+        );
+      }
+      if (options.length)
+        await sendMenu(
+          env,
+          system,
+          c,
+          parent,
+          `menu:${row.id}`,
+          !!c.menu_manual,
+        );
+      else {
+        await exec(
+          env,
+          "UPDATE conversations SET menu_parent=NULL,menu_active=0 WHERE id=?",
+          c.id,
+        );
+        await enqueue(
+          env,
+          c,
+          "system",
+          "text",
+          {
+            automation: "menu",
+            text: "Nenhuma opção de menu está disponível neste momento.",
+          },
+          `empty-menu:${row.id}`,
+        );
+      }
+      return;
+    }
     const menus = menuInteraction
       ? await availableMenus(
           env,
@@ -299,7 +359,6 @@ export async function processInbox(env: Env, profile: string) {
           c.chat_type,
         )
       : [];
-    const replyId = data.content?.interactive_reply_id;
     const trustedReply =
       !replyId ||
       (c.connection_id &&
@@ -462,10 +521,6 @@ export async function processInbox(env: Env, profile: string) {
         );
         return;
       }
-    }
-    if (menuInteraction && normalized === "menu") {
-      await sendMenu(env, system, c, null, `menu:${row.id}`, !!c.menu_manual);
-      return;
     }
     if (
       policy.human &&

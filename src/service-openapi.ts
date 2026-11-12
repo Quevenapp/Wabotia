@@ -46,7 +46,11 @@ export const serviceSchemas = {
           "survey",
         ],
       },
-      parent_id: { type: ["string", "null"] },
+      parent_id: {
+        type: ["string", "null"],
+        description:
+          "ID de um submenu da mesma lista; null coloca a opção no menu principal. Ciclos e pais inexistentes são recusados.",
+      },
       bot_id: id,
       app_id: id,
       department_id: {
@@ -80,11 +84,18 @@ export const serviceSchemas = {
   },
   MenuSettings: {
     type: "object",
+    dependentRequired: { menus_revision: ["menus"] },
     properties: {
       menus: {
         type: "array",
         maxItems: 200,
         items: { $ref: "#/components/schemas/MenuItem" },
+      },
+      menus_revision: {
+        type: "string",
+        pattern: "^[a-f0-9]{64}$",
+        description:
+          "Opcional: revision retornada pelo GET /menus sem filtro. Ao substituir menus, recusa com 409 menus_changed se outra alteração já foi salva. Não é persistida nas configurações. Clientes antigos podem omitir, sem proteção contra sobrescrita concorrente.",
       },
       departments: {
         type: "array",
@@ -291,4 +302,17 @@ export function describeServiceOperation(
           },
         }
       : { $ref: `#/components/schemas/${model}` };
+  if (path.endsWith("/menus") && method === "get") {
+    entry.description +=
+      " Sem connection_id, retorna a lista completa para edição, inclusive submenus vazios. A revision representa a lista inteira, mesmo quando a consulta é filtrada. O atendimento omite ramos sem opções executáveis na linha e modo atuais.";
+    success.content["application/json"].schema.properties.revision = {
+      type: "string",
+      pattern: "^[a-f0-9]{64}$",
+      description:
+        "Use como menus_revision ao salvar a lista completa de menus.",
+    };
+  }
+  if (path.endsWith("/settings") && method === "put")
+    entry.description +=
+      " Envie apenas campos alterados. Para menus, envie a lista completa e menus_revision obtida em GET /menus sem filtro. Conflito retorna 409 menus_changed sem alterar a configuração; recarregue e revise antes de salvar novamente.";
 }

@@ -196,29 +196,25 @@ export function menuAllowed(
       return false;
     if (!current.parent_id) return true;
     current = items.find((m) => m.id === current.parent_id);
-    if (!current) return false;
+    if (!current || current.type !== "submenu") return false;
   }
   return false;
 }
-export async function availableMenus(
+async function availableMenuTree(
   env: Env,
   profile: string,
   connection: string | null,
-  parent: string | null = null,
   includeManual = false,
   chatType = "direct",
+  cfg?: any,
 ) {
-  const cfg = await settings(env, profile),
-    policy = await getNumberPolicy(env, connection),
+  cfg ||= await settings(env, profile);
+  const policy = await getNumberPolicy(env, connection),
     service = await serviceForLine(env, connection);
-  if (!policy.menu || service.menu_mode === "off") return [];
+  if (!policy.menu || !policy.service || service.menu_mode === "off") return [];
   const result = [];
   for (const item of cfg.menus || []) {
-    if (
-      (item.parent_id || null) !== parent ||
-      !menuAllowed(item, cfg.menus, connection, includeManual)
-    )
-      continue;
+    if (!menuAllowed(item, cfg.menus, connection, includeManual)) continue;
     if (item.type === "human" && !policy.human) continue;
     if (
       item.type === "human" &&
@@ -238,7 +234,37 @@ export async function availableMenus(
       continue;
     result.push(item);
   }
-  return result;
+  const children = new Map<string, any[]>();
+  for (const item of result) {
+    const siblings = children.get(item.parent_id) || [];
+    siblings.push(item);
+    children.set(item.parent_id, siblings);
+  }
+  const visible = new Map<string, boolean>();
+  function hasDestination(item: any): boolean {
+    if (visible.has(item.id)) return visible.get(item.id)!;
+    // A container is usable only when its current line/mode has a terminal
+    // destination. Guard old malformed cycles as well as newly validated trees.
+    visible.set(item.id, false);
+    const allowed =
+      item.type !== "submenu" ||
+      (children.get(item.id) || []).some(hasDestination);
+    visible.set(item.id, allowed);
+    return allowed;
+  }
+  return result.filter(hasDestination);
+}
+export async function availableMenus(
+  env: Env,
+  profile: string,
+  connection: string | null,
+  parent: string | null = null,
+  includeManual = false,
+  chatType = "direct",
+) {
+  return (
+    await availableMenuTree(env, profile, connection, includeManual, chatType)
+  ).filter((item: any) => (item.parent_id || null) === parent);
 }
 export function menuPayload(
   items: any[],
@@ -247,16 +273,17 @@ export function menuPayload(
   interactive: boolean,
   submenu = false,
 ) {
-  const text = `${title}\n${items.map((item, index) => `${index + 1}. ${item.label}`).join("\n")}${submenu ? "\nEnvie MENU para voltar." : ""}`;
+  const navigation = submenu
+    ? "\nEnvie VOLTAR para subir um nível ou MENU para voltar ao menu principal."
+    : "";
+  const text = `${title}\n${items.map((item, index) => `${index + 1}. ${item.label}`).join("\n")}${navigation}`;
   if (!interactive || items.length > 10 || !items.length)
     return { text, automation: "menu" };
   const buttons =
     items.length <= 3 &&
     items.every((item) => Array.from(item.label).length <= 20);
   const body = {
-    text:
-      title +
-      (submenu ? "\nEnvie MENU para voltar." : "\nEscolha uma opção abaixo."),
+    text: title + (navigation || "\nEscolha uma opção abaixo."),
   };
   return {
     text,
@@ -322,18 +349,22 @@ export function selectedMenu(
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .trim();
-  if (/^\d+$/.test(text) && c.menu_token) {
-    if (!active) return null;
-    return items.find((item) => item.id === snapshot[Number(text) - 1]) || null;
+  if (c.menu_token && !active) return null;
+  if (/^\d+$/.test(normalized) && c.menu_token) {
+    return (
+      items.find((item) => item.id === snapshot[Number(normalized) - 1]) || null
+    );
   }
   return (
     items.find(
       (item, index) =>
-        (!c.menu_token && String(index + 1) === text) ||
-        item.label
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/\p{Diacritic}/gu, "") === normalized,
+        (!c.menu_token && String(index + 1) === normalized) ||
+        ((!c.menu_token || snapshot.includes(item.id)) &&
+          item.label
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .trim() === normalized),
     ) || null
   );
 }
@@ -356,9 +387,10 @@ export async function listMenus(
       "Linha não encontrada.",
     );
   return {
-    data: (cfg.menus || []).filter(
-      (m: any) => !connection || menuAllowed(m, cfg.menus, connection, true),
-    ),
+    data: connection
+      ? await availableMenuTree(env, profile, connection, true, "direct", cfg)
+      : cfg.menus || [],
+    revision: await sha(JSON.stringify(cfg.menus || [])),
   };
 }
 export async function sendMenu(
@@ -371,6 +403,7 @@ export async function sendMenu(
 ) {
   const policy = await getNumberPolicy(env, c.connection_id);
   if (!policy.menu) throw numberPolicyError("menu");
+  if (!policy.service) throw numberPolicyError("service");
   const service = await serviceForLine(env, c.connection_id);
   requireValue(service.menu_mode !== "off", "Menus desativados nesta linha.");
   if (c.connection_id) {

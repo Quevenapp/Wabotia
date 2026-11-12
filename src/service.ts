@@ -963,7 +963,26 @@ export async function perform(
   if (op === "settings") {
     admin(actor);
     const old = await settings(env, profile);
-    const next = { ...old, ...data };
+    const { menus_revision, ...changes } = data;
+    if (menus_revision !== undefined) {
+      requireValue(
+        typeof menus_revision === "string" &&
+          /^[a-f0-9]{64}$/i.test(menus_revision) &&
+          data.menus !== undefined,
+        "A revisão dos menus deve acompanhar uma árvore de menus válida.",
+      );
+      if (
+        menus_revision.toLowerCase() !==
+        (await sha(JSON.stringify(old.menus || [])))
+      )
+        throw new ApiError(
+          409,
+          "menus_changed",
+          "Os menus foram alterados por outra pessoa. Atualize a árvore antes de salvar novamente.",
+        );
+    }
+    const next = { ...old, ...changes };
+    delete next.menus_revision;
     requireValue(
       typeof next.jev_enabled === "boolean" &&
         typeof next.surveys_enabled === "boolean",
@@ -999,8 +1018,28 @@ export async function perform(
       item.url = publicUrl(item.url);
       if (item.review_url) item.review_url = publicUrl(item.review_url);
     }
+    if (data.menus !== undefined)
+      next.menus = next.menus.map((item: any) => {
+        requireValue(
+          item.parent_id === undefined ||
+            item.parent_id === null ||
+            (typeof item.parent_id === "string" &&
+              item.parent_id.length <= 100),
+          "Menu pai inválido.",
+        );
+        return {
+          ...item,
+          label: text(item.label, 100),
+          parent_id: item.parent_id || null,
+        };
+      });
     for (const item of next.menus) {
       text(item.label, 100);
+      if (item.enabled !== undefined)
+        requireValue(
+          typeof item.enabled === "boolean",
+          "Ativação de menu inválida.",
+        );
       if (item.line_ids !== undefined)
         await validateLineIds(env, profile, item.line_ids);
       if (item.trigger !== undefined)
