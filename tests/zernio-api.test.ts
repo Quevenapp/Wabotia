@@ -1,11 +1,12 @@
 import { env, SELF } from "cloudflare:test";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { all, exec, one } from "../src/db";
-import { hmac, setSecret, sha } from "../src/security";
+import { canonical, hmac, seal, setSecret, sha } from "../src/security";
 import { defaults, json, now, uid } from "../src/types";
 
 const objectId = () => uid().replaceAll("-", "").slice(0, 24);
 const webhookSecret = "test-zernio-signature-secret";
+afterEach(() => vi.restoreAllMocks());
 
 async function fixture() {
   const profile = uid(),
@@ -383,6 +384,142 @@ it("DELETE exige administrador, respeita perfil e repete o recibo idempotente ap
   ).toBe(1);
 });
 
+async function localIntegration(profile: string, remoteProfile: string) {
+  const id = uid();
+  await exec(
+    env,
+    "INSERT INTO meta_accounts(id,profile_id,name,waba_id,provider,zernio_profile_id,created) VALUES(?,?,'Integração',?,'zernio',?,?)",
+    id,
+    profile,
+    `zernio:${remoteProfile}`,
+    remoteProfile,
+    now(),
+  );
+  return id;
+}
+
+it.each(["plain", "sealed"])(
+  "endpoint de conexão removido retorna 410 antes de reproduzir recibo %s antigo",
+  async (encoding) => {
+    const f = await fixture(),
+      admin = await user(f.profile),
+      integration = await localIntegration(f.profile, f.remoteProfile),
+      key = uid(),
+      scope = `${admin.id}:${f.profile}:zernio-account.connect`,
+      old = { authUrl: "https://example.invalid/old-oauth-url" };
+    await exec(
+      env,
+      "INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)",
+      scope,
+      key,
+      await sha(canonical({ id: integration, origin: "https://test" })),
+      encoding === "sealed"
+        ? "sealed:" + (await seal(env, old))
+        : JSON.stringify(old),
+      now(),
+    );
+    const before = await all(
+      env,
+      "SELECT * FROM receipts WHERE scope=?",
+      scope,
+    );
+    const fetch = vi.spyOn(globalThis, "fetch");
+    for (const requestKey of [key, uid()]) {
+      const response = await command(
+        f.profile,
+        admin.token,
+        `/router/accounts/${integration}/connect`,
+        "POST",
+        {},
+        requestKey,
+      );
+      expect(response.status).toBe(410);
+      expect(response.headers.get("Idempotency-Replayed")).toBeNull();
+      const body = await response.json<any>();
+      expect(body.error).toMatchObject({
+        code: "zernio_connect_removed",
+        message: expect.stringContaining("Buscar telefones"),
+      });
+      expect(body.authUrl).toBeUndefined();
+      expect(JSON.stringify(body)).not.toContain(old.authUrl);
+    }
+    expect(
+      await all(env, "SELECT * FROM receipts WHERE scope=?", scope),
+    ).toEqual(before);
+    expect(
+      await all(
+        env,
+        "SELECT * FROM audit WHERE operation='zernio-account.connect' AND profile_id=?",
+        f.profile,
+      ),
+    ).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+it("endpoint removido mantém autenticação, administrador, escopo e isolamento de área", async () => {
+  const f = await fixture(),
+    integration = await localIntegration(f.profile, f.remoteProfile),
+    admin = await user(f.profile),
+    operator = await user(f.profile, "operator"),
+    application = uid(),
+    token = "wab_" + uid(),
+    path = `/router/accounts/${integration}/connect`;
+  await exec(
+    env,
+    "INSERT INTO applications(id,name,profiles,scopes,bots,created) VALUES(?,'Sistema',?,'[]','[]',?)",
+    application,
+    JSON.stringify([f.profile]),
+    now(),
+  );
+  await exec(
+    env,
+    "INSERT INTO api_keys(id,app_id,hash,prefix,expires,created) VALUES(?,?,?,?,?,?)",
+    uid(),
+    application,
+    await sha(token),
+    "wab_test",
+    now() + 600000,
+    now(),
+  );
+  const fetch = vi.spyOn(globalThis, "fetch");
+  expect((await command(f.profile, null, path, "POST")).status).toBe(401);
+  expect((await command(f.profile, operator.token, path, "POST")).status).toBe(
+    403,
+  );
+  const missingScope = await command(f.profile, token, path, "POST");
+  expect(missingScope.status).toBe(403);
+  expect((await missingScope.json<any>()).error.code).toBe("missing_scope");
+  await exec(
+    env,
+    "UPDATE applications SET scopes='[\"routing:read\"]' WHERE id=?",
+    application,
+  );
+  const appResponse = await command(f.profile, token, path, "POST");
+  expect(appResponse.status).toBe(403);
+  expect((await appResponse.json<any>()).error.code).toBe("admin_required");
+  expect((await command(uid(), admin.token, path, "POST")).status).toBe(404);
+  expect((await command(uid(), operator.token, path, "POST")).status).toBe(404);
+  const noKey = await SELF.fetch(
+    `https://test/api/v1/profiles/${f.profile}${path}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${admin.token}` },
+      body: "not-json",
+    },
+  );
+  expect(noKey.status).toBe(410);
+  expect((await noKey.json<any>()).error.code).toBe("zernio_connect_removed");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(
+    await all(
+      env,
+      "SELECT * FROM receipts WHERE instr(scope,?)>0",
+      `:${f.profile}:zernio-account.connect`,
+    ),
+  ).toEqual([]);
+});
+
 it("publica contrato Zernio e exclusão sem parâmetros de autenticação Meta", async () => {
   const response = await SELF.fetch("https://test/api/openapi.json");
   expect(response.status).toBe(200);
@@ -395,8 +532,9 @@ it("publica contrato Zernio e exclusão sem parâmetros de autenticação Meta",
     "webhook_secret",
   ]);
   expect(
-    spec.paths["/profiles/{profile}/router/accounts/{id}/connect"].post,
-  ).toBeDefined();
+    spec.paths["/profiles/{profile}/router/accounts/{id}/connect"],
+  ).toBeUndefined();
+  expect(JSON.stringify(spec)).not.toContain("authUrl");
   const resolution =
     spec.paths["/profiles/{profile}/router/accounts/{id}/resolve"].post;
   expect(resolution).toBeDefined();

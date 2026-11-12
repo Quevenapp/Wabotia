@@ -467,7 +467,7 @@ const installSteps = [
   ],
   [
     "Escolha seus canais",
-    "Conecte Zernio ou QR e configure o bot Telegram dedicado. Use apenas um modo por número.",
+    "Importe os telefones já conectados na Zernio ou use QR. Configure o bot Telegram dedicado. Use apenas um modo por número.",
   ],
   [
     "Teste e atualize pelo painel",
@@ -532,7 +532,7 @@ function Install() {
         <CloudflarePrerequisites />
         <div className="guide-actions">
           <a className="button secondary" href="#zernio-whatsapp">
-            Conectar WhatsApp pela Zernio <ArrowRight size={18} />
+            Importar telefones da Zernio <ArrowRight size={18} />
           </a>
         </div>
         <details>
@@ -2405,8 +2405,8 @@ function App() {
                           <p className="notice">
                             A integração direta com a Meta foi desativada.
                             Resolva operações em andamento ou sem confirmação,
-                            exclua esta linha e conecte o número pela Zernio. O
-                            histórico é preservado.
+                            exclua esta linha e importe o telefone já conectado
+                            na Zernio. O histórico é preservado.
                           </p>
                         )}
                         {["meta", "zernio", "qr", "hermes-whatsapp"].includes(
@@ -3501,9 +3501,9 @@ function App() {
                 {form.kind === "zernio" && (
                   <>
                     <p>
-                      Conecte primeiro o número na Zernio. Para conectar e
-                      importar vários telefones, use Integração Zernio no menu
-                      Canais.
+                      Este cadastro usa um telefone já conectado na Zernio. Para
+                      encontrar e importar seus telefones, use Integração Zernio
+                      no menu WhatsApp e canais.
                     </p>
                     {[
                       ["account_id", "ID do telefone na Zernio"],

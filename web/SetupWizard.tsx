@@ -471,24 +471,26 @@ export function SetupWizard({
             </header>
             {step === 0 && (
               <>
-                <h3>Conecte seus telefones pela Integração Zernio</h3>
+                <h3>Importe seus telefones da Zernio</h3>
                 <p>
-                  A integração reúne os telefones do WhatsApp da empresa. O
-                  Wabotia recebe as mensagens e encaminha cada conversa para o
-                  atendimento escolhido.
+                  A integração reúne os telefones do WhatsApp já cadastrados e
+                  conectados na Zernio. O Wabotia recebe as mensagens e
+                  encaminha cada conversa para o atendimento escolhido.
                 </p>
                 <ol className="setup-instructions">
                   <li>
-                    Prepare sua chave API, ID da integração e segredo de webhook
-                    na Zernio.
+                    Salve a Integração Zernio com sua API key e o segredo de
+                    webhook.
                   </li>
                   <li>
-                    Configure a Integração Zernio no Wabotia e configure o
-                    endereço de recebimento de mensagens mostrado na tela.
+                    Use <strong>Encontrar ID na Zernio</strong> e escolha a
+                    integração pelo nome. Configure o endereço de recebimento de
+                    mensagens mostrado na tela.
                   </li>
                   <li>
                     Use <strong>Buscar telefones na Zernio</strong> e adicione
-                    os telefones que deseja usar.
+                    os telefones já conectados que deseja usar. Se uma linha não
+                    aparecer, confira seu cadastro no painel da Zernio.
                   </li>
                   <li>
                     Em <strong>Quem atende cada linha</strong>, escolha uma
@@ -513,7 +515,7 @@ export function SetupWizard({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Ver o guia da Zernio ↗
+                    Ver o guia de importação da Zernio ↗
                   </a>
                 </div>
                 <details className="setup-detail">

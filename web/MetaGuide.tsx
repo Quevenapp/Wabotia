@@ -3,62 +3,57 @@ export function MetaGuide() {
     <section id="zernio-whatsapp" className="system-card card hermes-guide">
       <span id="meta-whatsapp" />
       <div className="eyebrow">WHATSAPP OFICIAL · ZERNIO</div>
-      <h2>Conecte seu WhatsApp pela Zernio</h2>
+      <h2>Importe seus telefones da Zernio</h2>
       <p>
-        A Zernio é a intermediária entre o Wabotia e a Meta. O Wabotia usa a API
-        key da Zernio para enviar mensagens e recebe os eventos pelo webhook
-        dela. A autorização da empresa e do telefone acontece no fluxo de
-        conexão da Zernio.
+        O Wabotia usa os telefones já cadastrados e conectados na Zernio. A API
+        key permite encontrar a integração e suas linhas, além de enviar
+        mensagens. Os eventos chegam pelo webhook da Zernio.
       </p>
       <details open>
         <summary>1. Prepare sua integração Zernio</summary>
         <ol>
           <li>
-            Prepare a integração na Zernio e copie o campo Profile ID. No
-            Wabotia, esse valor é o ID da integração na Zernio.
+            Confira no painel da Zernio quais telefones já estão cadastrados e
+            conectados.
           </li>
           <li>
             Crie uma API key com acesso à integração e prepare um segredo para
             assinar o webhook.
           </li>
           <li>
-            Tenha acesso à conta empresarial Meta e ao telefone que deseja
-            conectar.
+            Se um telefone não estiver disponível, gerencie seu cadastro no
+            painel da Zernio.
           </li>
         </ol>
         <p>
-          <a
-            href="https://docs.zernio.com/platforms/whatsapp/connect"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Guia oficial de conexão da Zernio ↗
+          <a href="https://zernio.com" target="_blank" rel="noreferrer">
+            Abrir painel Zernio ↗
           </a>
         </p>
       </details>
       <details>
-        <summary>2. Salve a integração no Wabotia e conecte o WhatsApp</summary>
+        <summary>2. Salve a API key e encontre sua integração</summary>
         <ol>
           <li>
-            Abra <strong>Canais → Integração Zernio</strong> e clique em{" "}
-            <strong>Nova integração</strong>.
+            Abra <strong>WhatsApp e canais → Integração Zernio</strong> e clique
+            em <strong>Nova integração</strong>.
           </li>
           <li>
-            Informe nome, ID da integração na Zernio, fuso, API key e segredo de
-            assinatura do webhook. Salve.
+            Informe nome, fuso, API key e segredo de assinatura do webhook. O ID
+            da integração é opcional neste momento. Salve.
           </li>
           <li>
-            Clique em <strong>Conectar WhatsApp pela Zernio</strong> e conclua a
-            autorização exibida pelo provedor.
+            Clique em <strong>Encontrar ID na Zernio</strong>, confira o nome e
+            confirme com <strong>Usar esta integração</strong>.
           </li>
           <li>
-            Ao retornar ao Wabotia, abra a mesma integração e use{" "}
+            Abra a etapa <strong>Telefones</strong> e use{" "}
             <strong>Buscar telefones na Zernio</strong>.
           </li>
         </ol>
         <p>
-          Cada telefone conectado possui seu próprio ID do telefone na Zernio,
-          identificado pelo campo Account ID no provedor. A API key e o segredo
+          O ID da integração é o Profile ID. Cada telefone possui seu próprio
+          Account ID, que é diferente do ID da integração. A API key e o segredo
           ficam protegidos no servidor.
         </p>
       </details>
@@ -79,7 +74,8 @@ export function MetaGuide() {
           </li>
           <li>
             Selecione cada telefone encontrado, confira o consumo inicial e
-            adicione ao Wabotia.
+            clique em <strong>Adicionar telefone ao Wabotia</strong>. A linha
+            entra pausada, sem alterar seu cadastro na Zernio.
           </li>
           <li>
             Ative a linha, escolha quem atende e faça um teste de entrada,
@@ -93,8 +89,8 @@ export function MetaGuide() {
           As conexões diretas são pausadas na atualização. As credenciais
           antigas não viram credenciais Zernio automaticamente. Resolva envios
           em andamento ou sem confirmação e ligações abertas, exclua a linha
-          antiga do Wabotia e conecte o telefone pela Zernio. O histórico
-          anterior permanece disponível, separado da nova conexão.
+          antiga do Wabotia e importe o telefone já conectado na Zernio. O
+          histórico anterior permanece disponível, separado da nova conexão.
         </p>
         <p>
           <strong>Excluir telefone</strong> remove a configuração local e seus

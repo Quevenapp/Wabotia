@@ -7,7 +7,7 @@ const routerSteps = [
   {
     id: "account",
     title: "Integração Zernio",
-    description: "Conecte a Zernio ao WhatsApp da sua empresa.",
+    description: "Use os telefones já conectados na Zernio.",
   },
   {
     id: "numbers",
@@ -367,9 +367,9 @@ export function NumberRouter({
           </button>
         </div>
         <p>
-          Conecte sua integração Zernio, escolha os telefones e defina como
-          distribuir novos atendimentos. Cada etapa abaixo cuida de uma parte da
-          configuração.
+          Cadastre sua integração Zernio, encontre os telefones já conectados no
+          provedor e defina como distribuir novos atendimentos. Cada etapa
+          abaixo cuida de uma parte da configuração.
         </p>
         {step === "account" && (
           <p>
@@ -378,7 +378,7 @@ export function NumberRouter({
               target="_blank"
               rel="noopener noreferrer"
             >
-              Conecte seu WhatsApp pela Zernio: passo a passo ↗
+              Importe seus telefones da Zernio: passo a passo ↗
             </a>
           </p>
         )}
@@ -448,12 +448,13 @@ export function NumberRouter({
                   : "Cadastrar integração Zernio"
                 : account
                   ? account.name
-                  : "Conectar integração Zernio"}
+                  : "Cadastrar integração Zernio"}
             </h3>
             <p>
-              A Zernio faz a conexão com a Meta. Cadastre as credenciais abaixo
-              para importar seus telefones e receber mensagens no Wabotia. As
-              credenciais ficam protegidas no servidor.
+              Use sua API key para encontrar a integração e importar os
+              telefones já cadastrados e conectados na Zernio. O webhook permite
+              receber mensagens no Wabotia. As credenciais ficam protegidas no
+              servidor.
             </p>
             {!accountEditing && data.accounts.length > 0 && (
               <p className="router-credential-links">
@@ -542,7 +543,7 @@ export function NumberRouter({
                   <p className="notice">
                     O ID da integração ainda não foi definido. Use{" "}
                     <strong>Encontrar ID na Zernio</strong> e escolha pelo nome
-                    antes de conectar o WhatsApp ou buscar telefones.
+                    antes de buscar os telefones já conectados na Zernio.
                   </p>
                 )}
                 <p className="router-field-help">
@@ -705,11 +706,11 @@ export function NumberRouter({
                         Abrir Zernio ↗
                       </a>{" "}
                       <a
-                        href="https://zernio.com/blog/how-to-build-whatsapp-ai-agent"
+                        href="/install#zernio-whatsapp"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Ver passo a passo ↗
+                        Ver guia de importação ↗
                       </a>
                     </small>
                   </label>
@@ -827,25 +828,12 @@ export function NumberRouter({
                 Esta integração se conectava diretamente à Meta e foi pausada na
                 atualização. Resolva operações em andamento ou sem confirmação,
                 exclua as linhas antigas e cadastre uma integração Zernio para
-                conectá-las novamente. O histórico permanece disponível.
+                importar os telefones já conectados no provedor. O histórico
+                permanece disponível.
               </p>
             )}
             {account && !legacyAccount && (
               <>
-                <button
-                  type="button"
-                  disabled={!!busy || !account.zernio_profile_id}
-                  onClick={async () => {
-                    const result = await write(
-                      "router/accounts/" + accountId + "/connect",
-                      { redirect_url: location.origin + "/app" },
-                      "Preparar conexão WhatsApp",
-                    );
-                    if (result?.authUrl) location.assign(result.authUrl);
-                  }}
-                >
-                  Conectar WhatsApp pela Zernio
-                </button>
                 <h3>Webhook único desta integração</h3>
                 <p>
                   Copie a URL abaixo e cadastre-a em{" "}
@@ -858,8 +846,8 @@ export function NumberRouter({
                   </a>
                   , com o mesmo segredo de assinatura salvo no Wabotia.
                   Selecione os eventos de recebimento, envio, entrega, leitura e
-                  falha de mensagens. Depois de concluir a conexão, use Buscar
-                  telefones na Zernio.
+                  falha de mensagens. Na etapa Telefones, use Buscar telefones
+                  na Zernio para listar as linhas já conectadas no provedor.
                 </p>
                 <CopyValue
                   value={
@@ -883,7 +871,7 @@ export function NumberRouter({
           <section className="card router-step-empty">
             <h3>Comece pela integração Zernio</h3>
             <p>
-              Conecte ou selecione uma integração para buscar seus telefones e
+              Cadastre ou selecione uma integração para buscar seus telefones e
               organizar a distribuição.
             </p>
             <button type="button" onClick={() => setStep("account")}>
@@ -895,9 +883,10 @@ export function NumberRouter({
           <section className="card">
             <h3>Trazer telefones da Zernio</h3>
             <p>
-              Conclua primeiro a conexão do WhatsApp pela Zernio. A busca lista
-              os telefones da integração informada. O ID do telefone na Zernio
-              corresponde ao campo técnico Account ID.
+              A busca lista os telefones já cadastrados e conectados na Zernio,
+              na integração escolhida. Se um telefone não aparecer, confira seu
+              cadastro e o acesso da API key no painel da Zernio. O ID do
+              telefone corresponde ao campo técnico Account ID.
             </p>
             {!account.zernio_profile_id && (
               <p className="notice">
@@ -1042,8 +1031,8 @@ export function NumberRouter({
               <p className="notice">
                 Linhas da integração Meta anterior, pausadas na atualização.
                 Resolva operações em andamento ou sem confirmação e exclua as
-                linhas antigas antes de conectá-las pela Zernio. O histórico é
-                preservado.
+                linhas antigas antes de importar os telefones já conectados na
+                Zernio. O histórico é preservado.
               </p>
             )}
             <p>

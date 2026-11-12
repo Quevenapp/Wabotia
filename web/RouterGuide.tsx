@@ -4,17 +4,18 @@ export function RouterGuide() {
       <div className="eyebrow">WHATSAPP · DISTRIBUIÇÃO POR TELEFONE</div>
       <h2>Uma entrada para seus telefones WhatsApp</h2>
       <p>
-        Conecte os telefones por uma integração Zernio e escolha quais linhas
+        Importe os telefones já conectados na Zernio e escolha quais linhas
         podem atender, receber bots, participar de grupos de roteamento ou ser
         usadas por sistemas externos. Comece pelo{" "}
-        <a href="#zernio-whatsapp">guia de conexão da Zernio</a>.
+        <a href="#zernio-whatsapp">guia de importação da Zernio</a>.
       </p>
       <details open>
         <summary>1. Importe os telefones conectados à Zernio</summary>
         <ol>
           <li>
-            Em <strong>Integração Zernio</strong>, salve sua integração e
-            conclua <strong>Conectar WhatsApp pela Zernio</strong>.
+            Em <strong>Integração Zernio</strong>, salve sua API key e use{" "}
+            <strong>Encontrar ID na Zernio</strong> para escolher a integração
+            pelo nome.
           </li>
           <li>
             Configure o webhook da integração e clique em{" "}
@@ -22,13 +23,18 @@ export function RouterGuide() {
           </li>
           <li>
             Selecione um telefone, informe seu consumo inicial e a cota local
-            que deseja configurar.
+            que deseja configurar. Clique em{" "}
+            <strong>Adicionar telefone ao Wabotia</strong>.
           </li>
           <li>
-            O telefone entra pausado. Confira a conexão, ative e teste uma
+            O telefone entra pausado. Confira o webhook, ative e teste uma
             conversa antes de receber clientes.
           </li>
         </ol>
+        <p>
+          Se uma linha não aparecer, confira o cadastro e o acesso da API key no
+          painel da Zernio.
+        </p>
       </details>
       <details>
         <summary>2. Escolha a função de cada linha</summary>

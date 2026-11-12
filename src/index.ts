@@ -7,6 +7,7 @@ import {
   verifyZernioWebhook,
 } from "./zernio";
 import { routerView, routedMessage } from "./number-router";
+import { zernioAccountCommand } from "./zernio-accounts";
 import { listLines, listMenus } from "./line-service";
 import { teamDirectory, listInternalChats, internalChatDetail } from "./team";
 import { MAX_DEVICES_PER_USER } from "./mobile-limits";
@@ -675,6 +676,19 @@ for (const [method, path, op] of [
     });
   });
 }
+// A retired authorization URL must never be replayed from Coordinator receipts.
+// The local handler still enforces administrator and integration-area access.
+app.post("/api/v1/profiles/:profile/router/accounts/:id/connect", async (c) =>
+  c.json(
+    await zernioAccountCommand(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      "zernio-account.connect",
+      { id: c.req.param("id") },
+    ),
+  ),
+);
 const commands = [
   ["PUT", "lines/:id", "line.save"],
   ["POST", "internal-chats", "internal.create"],
@@ -682,7 +696,6 @@ const commands = [
   ["POST", "router/accounts", "zernio-account.save"],
   ["DELETE", "router/accounts/:id", "integration.delete"],
   ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
-  ["POST", "router/accounts/:id/connect", "zernio-account.connect"],
   ["POST", "router/accounts/:id/resolve", "zernio-account.resolve"],
   ["POST", "router/numbers", "zernio-number.save"],
   ["PUT", "router/numbers/:id/limit", "router.number.limit"],
@@ -745,9 +758,6 @@ for (const [method, path, op] of commands)
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-      ...(op === "zernio-account.connect"
-        ? { origin: new URL(c.req.url).origin }
-        : {}),
     }),
   );
 app.post("/api/v1/bot-runs", async (c) => {

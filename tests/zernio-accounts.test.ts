@@ -194,14 +194,16 @@ it("salva integração pendente sem ID remoto e permite editar nome e segredos a
       zernio_profile_id: remoteId(),
     }),
   ).rejects.toThrow(/não pode ser alterado/);
-  for (const op of ["zernio-account.connect", "zernio-account.discover"]) {
-    await expect(
-      zernioAccountCommand(env, admin, f.profile, op, {
-        id: saved.id,
-        origin: "https://example.com",
-      }),
-    ).rejects.toThrow(/Use Encontrar ID na Zernio primeiro/);
-  }
+  await expect(
+    zernioAccountCommand(env, admin, f.profile, "zernio-account.discover", {
+      id: saved.id,
+    }),
+  ).rejects.toThrow(/Use Encontrar ID na Zernio primeiro/);
+  await expect(
+    zernioAccountCommand(env, admin, f.profile, "zernio-account.connect", {
+      id: saved.id,
+    }),
+  ).rejects.toMatchObject({ status: 410, code: "zernio_connect_removed" });
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -406,48 +408,48 @@ it("cadastra somente número descoberto, com contador confirmado, e impede dupli
   ).rejects.toThrow(/já está cadastrado/);
 });
 
-it("abre o cadastro intermediado com retorno ao painel, sem devolver a API key", async () => {
+it("recusa o comando legado de conexão com orientação de importar e sem chamar o provedor", async () => {
   const f = await fixture();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = new URL(new Request(input, init).url);
-    expect(url.pathname).toBe("/api/v1/connect/whatsapp");
-    expect(url.searchParams.get("profileId")).toBe(f.remote);
-    expect(url.searchParams.get("redirect_url")).toBe(
-      "https://wabotia.example/app",
-    );
-    expect(url.searchParams.get("onboarding")).toBe("api");
-    return Response.json({
-      authUrl: "https://www.facebook.com/dialog/oauth?state=test",
-      state: "test",
-    });
-  });
-  expect(
-    await zernioAccountCommand(
-      env,
-      admin,
-      f.profile,
-      "zernio-account.connect",
-      { id: f.account, origin: "https://wabotia.example" },
-    ),
-  ).toEqual({ authUrl: "https://www.facebook.com/dialog/oauth?state=test" });
-});
-
-it.each([
-  "javascript:alert(1)",
-  "http://example.com",
-  "https://user:pass@example.com",
-  "invalid",
-])("rejeita redirecionamento de cadastro inválido: %s", async (authUrl) => {
-  const f = await fixture();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-    Response.json({ authUrl }),
+  const before = await one(
+    env,
+    "SELECT * FROM meta_accounts WHERE id=?",
+    f.account,
   );
+  const fetch = vi.spyOn(globalThis, "fetch");
   await expect(
     zernioAccountCommand(env, admin, f.profile, "zernio-account.connect", {
       id: f.account,
       origin: "https://wabotia.example",
     }),
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({
+    status: 410,
+    code: "zernio_connect_removed",
+    message: expect.stringContaining("Buscar telefones"),
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(
+    await one(env, "SELECT * FROM meta_accounts WHERE id=?", f.account),
+  ).toEqual(before);
+});
+
+it("mantém a autorização e o isolamento da integração no comando legado", async () => {
+  const f = await fixture();
+  const fetch = vi.spyOn(globalThis, "fetch");
+  await expect(
+    zernioAccountCommand(
+      env,
+      { ...admin, role: "operator", profiles: [f.profile] },
+      f.profile,
+      "zernio-account.connect",
+      { id: f.account },
+    ),
+  ).rejects.toMatchObject({ status: 403, code: "admin_required" });
+  await expect(
+    zernioAccountCommand(env, admin, uid(), "zernio-account.connect", {
+      id: f.account,
+    }),
+  ).rejects.toMatchObject({ status: 404, code: "not_found" });
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it("não aceita uma identidade WhatsApp sem telefone válido", () => {

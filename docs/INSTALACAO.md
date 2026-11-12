@@ -288,9 +288,9 @@ Arquivos produzidos por bots precisam ser exportados como artefatos da API nativ
 
 ### WhatsApp oficial pela Zernio
 
-1. Na Zernio, gere uma API key e copie o Profile ID que será usado pela integração.
-2. Em **Integração Zernio**, salve Profile ID, API key, fuso e segredo de assinatura do webhook.
-3. Use **Conectar WhatsApp pela Zernio**, conclua a autorização e depois busque os telefones na Zernio.
+1. No painel Zernio, confira seus telefones já cadastrados e obtenha uma API key.
+2. Em **Integração Zernio**, salve API key, fuso e segredo de assinatura do webhook. O ID pode ficar vazio inicialmente.
+3. Use **Encontrar ID na Zernio**, confirme a integração pelo nome e abra **Telefones → Buscar telefones na Zernio**. O Wabotia importa o que já está cadastrado no provedor.
 4. Cadastre na Zernio o webhook exibido, com o mesmo segredo e eventos de mensagens e recibos.
 5. Em **Telefones**, adicione os números, teste e ative. Fora da janela de 24 horas, templates continuam exigindo aprovação e consentimento.
 

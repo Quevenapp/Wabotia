@@ -1,17 +1,17 @@
-"""Current WhatsApp onboarding chapter; no direct Meta credentials are used."""
+"""Import existing Zernio WhatsApp phones; provider setup stays outside Wabotia."""
 
 
 def append_zernio_chapter(p, title, sub, steps, code, box, table, shot, link, n):
     title(n, 'WhatsApp com Zernio')
-    p('A Zernio intermedeia a conexão do Wabotia com a Meta. Você precisa de um número WhatsApp Business e de um perfil Zernio. Os requisitos empresariais e as regras do WhatsApp continuam valendo.')
+    p('O Wabotia importa telefones WhatsApp já cadastrados na Zernio. Gerencie o cadastro do telefone no painel Zernio; no Wabotia, informe as credenciais e escolha quais linhas importar.')
     steps([
-        'Crie seu perfil na Zernio e obtenha a chave API. Guarde o ID do perfil, composto por 24 caracteres.',
-        'No Wabotia, abra Roteador de números e cadastre a conta Zernio. Informe nome, ID do perfil, fuso, chave API e um segredo para o webhook.',
-        'Clique Conectar WhatsApp. Conclua o cadastro guiado pela Zernio e volte ao Wabotia.',
-        'Clique Buscar números na Zernio. Confira o telefone, nome, contador inicial e limite local; adicione o número ao roteador.',
+        'Confira os telefones já cadastrados no painel Zernio e obtenha a chave API.',
+        'No Wabotia, abra Integração Zernio. Informe nome, fuso, chave API e segredo para o webhook; o ID pode ficar vazio inicialmente.',
+        'Salve, clique Encontrar ID na Zernio e confirme a integração pelo nome.',
+        'Em Telefones, clique Buscar telefones na Zernio. Confira a linha encontrada, contador inicial e limite local; adicione o telefone ao Wabotia.',
     ])
     box('A conta local Wabotia e o accountId WhatsApp da Zernio são identificadores diferentes. Não informe Phone Number ID, WABA ID, App Secret ou Verify Token da antiga integração direta.')
-    p(link('Conexão WhatsApp na Zernio', 'https://docs.zernio.com/platforms/whatsapp/connect'), 'small')
+    p(link('Telefones cadastrados na Zernio', 'https://docs.zernio.com/accounts/list-accounts'), 'small')
 
     title(n + 1, 'Webhook e primeiro atendimento')
     steps([
@@ -28,7 +28,7 @@ def append_zernio_chapter(p, title, sub, steps, code, box, table, shot, link, n)
 
     title(n + 2, 'Trocar ou excluir telefones')
     steps([
-        'As conexões antigas da Meta ficam pausadas após a atualização. Cadastre o telefone pela Zernio e homologue o novo caminho.',
+        'As conexões antigas da Meta ficam pausadas após a atualização. Importe o telefone já cadastrado na Zernio e homologue o novo caminho.',
         'Para excluir, conclua ou reconcilie envios já iniciados, ligações e operações de grupos sem confirmação.',
         'Em Conexões ou Linhas, clique Excluir telefone e confirme. O Wabotia cancela envios ainda na fila e remove credenciais locais e vínculos de roteamento.',
         'O histórico de mensagens, conversas e protocolos é preservado. A exclusão no Wabotia não remove a conta na Zernio.',

@@ -111,9 +111,9 @@ Exemplos de corpos: `{action:"create",connection_id:"ID",subject:"Equipe",partic
 
 O histórico anterior permanece em `GET /calls` e `GET /calls/{id}`, com escopo `calls:read` e as mesmas restrições da área de atendimento e identidade. Para uma ligação antiga sem confirmação, o responsável pode usar `POST /calls/{id}/reconcile` com `{confirmed_ended:true}` após confirmar o encerramento no WhatsApp. Essa operação atualiza apenas o registro local. Sessões privadas não aparecem nos eventos da aplicação.
 
-### Conectar e excluir telefones
+### Importar e excluir telefones
 
-`POST /connections` aceita `kind:"zernio"`, `config:{number,account_id,zernio_profile_id}` e `secrets:{api_key,webhook_secret}`. Teste com `POST /connections/{id}/test` antes de ativar. Para várias linhas, cadastre a integração Zernio em `POST /router/accounts`, obtenha a autorização em `POST /router/accounts/{id}/connect` e descubra os números em `POST /router/accounts/{id}/discover`. O contrato completo está na [API interativa](https://wabotia.queven.app/api-docs) e no [guia Zernio](ZERNIO-WHATSAPP.md).
+`POST /connections` aceita `kind:"zernio"`, `config:{number,account_id,zernio_profile_id}` e `secrets:{api_key,webhook_secret}` para um telefone já cadastrado na Zernio. Teste com `POST /connections/{id}/test` antes de ativar. Para várias linhas, cadastre a integração em `POST /router/accounts`, encontre e confirme seu ID em `POST /router/accounts/{id}/resolve` e descubra os telefones em `POST /router/accounts/{id}/discover`. O Wabotia não inicia autorização ou cadastro do telefone no provedor. A antiga rota `POST /router/accounts/{id}/connect` retorna `410 zernio_connect_removed`, inclusive para solicitações com recibos antigos. O contrato completo está na [API interativa](https://wabotia.queven.app/api-docs) e no [guia Zernio](ZERNIO-WHATSAPP.md).
 
 `DELETE /connections/{id}` exige administrador, acesso autorizado à área de atendimento e Idempotency-Key. Remove somente o telefone no Wabotia, cancela mensagens e operações de grupo ainda não enviadas e preserva conversas, mensagens e protocolos. Envios iniciados ou sem confirmação e chamadas abertas bloqueiam a exclusão. A conta e os serviços na Zernio permanecem ativos.
 

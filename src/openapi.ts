@@ -1387,15 +1387,6 @@ export function openapi(origin: string) {
             },
           },
         };
-      if (path.endsWith("/router/accounts/{id}/connect")) {
-        entry.description +=
-          " Abra authUrl no navegador. A Zernio retorna para /app na origem desta instalação. Após conectar, execute discover e cadastre o número encontrado. Não envia chaves API ao navegador.";
-        success.content["application/json"].schema = {
-          type: "object",
-          required: ["authUrl"],
-          properties: { authUrl: { type: "string", format: "uri" } },
-        };
-      }
       if (path.endsWith("/router/accounts/{id}") && method === "delete") {
         entry.description +=
           " Exclui o cadastro local Zernio ou legado Meta e suas credenciais. Não desconecta a conta no provedor. Preserva conversas, mensagens e protocolos. Remove apenas grupos desativados sem vínculos; retorna 409 integration_in_use enquanto houver telefones ou grupos em uso, inclusive vínculos históricos.";

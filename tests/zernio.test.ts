@@ -127,7 +127,7 @@ it("exposes provider validation without echoing credentials or retrying", async 
     ),
   );
   await expect(
-    zernioRequest(env, conn, "connect/whatsapp"),
+    zernioRequest(env, conn, "accounts?profileId=invalid"),
   ).rejects.toMatchObject({
     code: "zernio_rejected",
     message:

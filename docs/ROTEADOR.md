@@ -20,7 +20,7 @@ Cada pedido de serviço também pode enviar `free_only: true`. Essa restrição 
 
 ## 1. Prepare a integração Zernio
 
-Siga o [guia WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). Em **Integração Zernio**, cadastre nome, ID da integração na Zernio, API key, fuso e segredo de assinatura do webhook. O ID é o valor do campo técnico **Profile ID** na Zernio. Clique em **Conectar WhatsApp pela Zernio** e conclua a autorização. Ao retornar, selecione a mesma integração. Campos de credencial vazios na edição mantêm os valores atuais.
+Siga o [guia WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). Em **Integração Zernio**, cadastre nome, API key, fuso e segredo de assinatura do webhook. Depois de salvar, use **Encontrar ID na Zernio** e confirme a integração pelo nome. Em **Telefones**, busque e importe somente os telefones já cadastrados na Zernio. Campos de credencial vazios na edição mantêm os valores atuais; o cadastro do telefone no provedor é gerenciado no painel Zernio.
 
 ## 2. Configure o webhook na Zernio
 

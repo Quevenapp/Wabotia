@@ -39,7 +39,7 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 
 1. Na área de atendimento criada automaticamente, cadastre a conexão Hermes com as URLs administrativas/API, o token administrativo e as chaves dos bots autorizados no Hermes.
 2. Teste a conexão, descubra os bots, habilite os selecionados e escolha o Atendente. A API Hermes deve anunciar `features.runs_idempotency.durable`.
-3. Conecte um canal WhatsApp: Zernio como intermediária da Meta; QR pelo [conector Baileys](connectors/qr); ou WhatsApp pelo Hermes com o [transporte exclusivo](connectors/hermes).
+3. Adicione um canal WhatsApp: importe um telefone já cadastrado na Zernio; use QR pelo [conector Baileys](connectors/qr); ou WhatsApp pelo Hermes com o [transporte exclusivo](connectors/hermes).
 4. Use um bot Telegram dedicado em grupo privado com tópicos. Cadastre cada atendente e seu ID Telegram. O Telegram não requer plugin no Hermes.
 5. Cadastre conhecimento, menus, ações de especialistas e presença. Teste antes de ativar.
 

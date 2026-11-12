@@ -1,14 +1,14 @@
 # WhatsApp pela Zernio
 
-O Wabotia usa a Zernio como intermediária da API oficial do WhatsApp. A conexão direta com a Meta foi retirada do fluxo de configuração. QR e WhatsApp pelo Hermes continuam disponíveis.
+O Wabotia importa telefones WhatsApp já cadastrados na Zernio, que intermedeia o envio e o recebimento das mensagens. O cadastro e a autorização do telefone são gerenciados fora do Wabotia, no painel Zernio. QR e WhatsApp pelo Hermes continuam disponíveis.
 
-## Conectar a integração
+## Importar telefones da Zernio
 
 1. Abra [API Keys da Zernio](https://zernio.com/dashboard/api-keys), clique em **Create API key** e copie a chave imediatamente: ela é exibida uma vez. Consulte as [instruções oficiais](https://docs.zernio.com/quickstart#create-an-api-key).
-2. No [painel Zernio](https://zernio.com), abra **Connections** para conferir seu WhatsApp. O **Account ID** identifica o telefone; o ID empresarial da Meta identifica a conta WhatsApp Business. Nenhum deles é o ID da integração exigido para iniciar a conexão. O Wabotia pode encontrar esse último usando a API key, sem precisar copiá-lo do painel Zernio.
+2. No [painel Zernio](https://zernio.com), abra **Connections** para conferir os telefones já cadastrados. O **Account ID** identifica o telefone; o ID empresarial da Meta identifica a conta WhatsApp Business. O Wabotia encontra o ID da integração usando a API key, sem precisar copiá-lo do painel Zernio.
 3. Crie uma senha aleatória longa para o **Segredo de assinatura do webhook Zernio** e guarde-a. A Zernio não gera esse segredo: use o mesmo valor nos dois sistemas. [Documentação de webhooks](https://docs.zernio.com/webhooks).
 4. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, fuso, API key e segredo do webhook. Pode deixar **ID da integração na Zernio** vazio. Salve e clique em **Encontrar ID na Zernio**. Escolha pelo nome, confira o ID encontrado e clique em **Usar esta integração**. Isso usa a chave já salva e não cria cadastros na Zernio. Se tiver informado um Account ID por engano, o Wabotia consegue reconhecer a integração à qual aquele telefone pertence. A correção só é permitida antes de vincular telefones ou grupos, preservando as credenciais e a URL do webhook.
-5. Se o WhatsApp ainda não estiver conectado, clique em **Conectar WhatsApp pela Zernio** e conclua a autorização da empresa e do telefone. A Zernio conduz a conexão com a Meta.
+5. Confira se o telefone desejado já está disponível na Zernio. Se estiver ausente, gerencie o cadastro diretamente no painel Zernio antes de refazer a busca no Wabotia.
 6. Abra **Telefones → Buscar telefones na Zernio**. Cada telefone tem seu próprio **ID do telefone na Zernio**, identificado pelo campo **Account ID** no provedor.
 7. Selecione o telefone, confira o consumo inicial, defina o limite local de serviço e adicione. Esse limite não garante gratuidade na Zernio. A linha começa pausada.
 
@@ -24,9 +24,9 @@ Também é possível cadastrar uma conexão individual em **Conexões → WhatsA
 
 ## Migrar da conexão direta com a Meta
 
-As linhas Meta anteriores são pausadas pela atualização. Não ocorre conversão automática de credenciais ou transferência de telefones no provedor. Resolva envios em andamento ou sem confirmação e ligações abertas, exclua a linha antiga do Wabotia e conecte o telefone pela Zernio. O histórico anterior permanece disponível, desvinculado da nova conexão.
+As linhas Meta anteriores são pausadas pela atualização. Não ocorre conversão automática de credenciais ou transferência de telefones no provedor. Resolva envios em andamento ou sem confirmação e ligações abertas, exclua a linha antiga do Wabotia e importe o telefone já cadastrado na Zernio. O histórico anterior permanece disponível, desvinculado da nova conexão.
 
-Não mantenha dois sistemas respondendo pelo mesmo telefone. A preparação e a migração de um telefone já utilizado devem seguir o [fluxo oficial da Zernio](https://docs.zernio.com/platforms/whatsapp/connect).
+Não mantenha dois sistemas respondendo pelo mesmo telefone. Gerencie o cadastro do telefone no [painel Zernio](https://zernio.com).
 
 ## Excluir um telefone
 
@@ -38,7 +38,7 @@ Excluir no Wabotia não cancela o telefone, a conta nem serviços e cobranças d
 
 Depois de remover seus telefones, selecione o cadastro em **Integração Zernio** e use **Excluir integração**. Isso também permite retirar cadastros antigos da Meta. A exclusão remove o cadastro e suas credenciais locais, preservando conversas, mensagens e protocolos. Grupos desativados sem vínculos são removidos junto; telefones ou grupos com histórico, permissões ou outros vínculos impedem a exclusão. A ação não desconecta o WhatsApp na Zernio ou na Meta.
 
-Se a Zernio recusar **Conectar WhatsApp** ou **Buscar telefones**, o painel apresenta o motivo informado pelo provedor, incluindo código e campo quando disponíveis, sem exibir suas credenciais. Confira esse motivo antes de alterar a integração; um HTTP 400 sozinho não identifica qual configuração precisa ser corrigida.
+Se a Zernio recusar **Encontrar ID na Zernio** ou **Buscar telefones**, o painel apresenta o motivo informado pelo provedor, incluindo código e campo quando disponíveis, sem exibir suas credenciais. Confira esse motivo antes de alterar a integração; um HTTP 400 sozinho não identifica qual configuração precisa ser corrigida.
 
 ## Regras e limites
 
@@ -49,4 +49,4 @@ Se a Zernio recusar **Conectar WhatsApp** ou **Buscar telefones**, o painel apre
 - Grupos empresariais exigem telefone elegível sem coexistência com o aplicativo. Confira a Zernio antes de habilitar o recurso e sincronize os grupos em **Grupos WhatsApp** antes de receber mensagens deles, para que sejam identificados corretamente.
 - O áudio de chamadas pelo navegador do Wabotia não está disponível na integração Zernio. Históricos anteriores são mantidos; as [opções de chamada da Zernio](https://docs.zernio.com/platforms/whatsapp/calling) possuem configuração própria.
 
-Referências: [WhatsApp Zernio](https://docs.zernio.com/platforms/whatsapp), [conexão](https://docs.zernio.com/platforms/whatsapp/connect), [inbox](https://docs.zernio.com/platforms/whatsapp/inbox), [grupos](https://docs.zernio.com/platforms/whatsapp/groups).
+Referências: [WhatsApp Zernio](https://docs.zernio.com/platforms/whatsapp), [telefones cadastrados](https://docs.zernio.com/accounts/list-accounts), [inbox](https://docs.zernio.com/platforms/whatsapp/inbox), [grupos](https://docs.zernio.com/platforms/whatsapp/groups).

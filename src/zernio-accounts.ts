@@ -205,6 +205,19 @@ export async function zernioAccountCommand(
     data.account_id || data.id,
     profile,
   );
+  if (op === "zernio-account.connect") {
+    if (!account)
+      throw new ApiError(
+        404,
+        "not_found",
+        "Integração Zernio não encontrada nesta área de atendimento.",
+      );
+    throw new ApiError(
+      410,
+      "zernio_connect_removed",
+      "A conexão do WhatsApp pelo Wabotia foi removida. Cadastre o telefone diretamente na Zernio e use Buscar telefones para importá-lo.",
+    );
+  }
   requireValue(
     account,
     "Integração Zernio não encontrada. Cadastre uma integração Zernio para substituir a integração antiga.",
@@ -213,35 +226,11 @@ export async function zernioAccountCommand(
     profile_id: profile,
     config: JSON.stringify({ zernio_workspace_id: account.id }),
   };
-  if (op === "zernio-account.connect" || op === "zernio-account.discover")
+  if (op === "zernio-account.discover")
     requireValue(
       objectId(account.zernio_profile_id),
       "Use Encontrar ID na Zernio primeiro para identificar esta integração.",
     );
-  if (op === "zernio-account.connect") {
-    requireValue(typeof data.origin === "string", "Origem do painel ausente.");
-    const query = new URLSearchParams({
-      profileId: account.zernio_profile_id,
-      redirect_url: `${data.origin}/app`,
-      onboarding: "api",
-    });
-    const result = await zernioRequest(env, conn, `connect/whatsapp?${query}`);
-    let url: URL;
-    try {
-      url = new URL(result.authUrl);
-    } catch {
-      throw new ApiError(
-        502,
-        "invalid_connect_url",
-        "A Zernio não retornou um endereço de conexão válido.",
-      );
-    }
-    requireValue(
-      url.protocol === "https:" && !url.username && !url.password,
-      "Endereço de conexão inválido.",
-    );
-    return { authUrl: url.toString() };
-  }
   if (op === "zernio-account.discover") {
     const found = await zernioAccountList(env, conn, account.zernio_profile_id);
     await exec(

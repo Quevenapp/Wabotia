@@ -569,12 +569,6 @@ export const routerOperations: [string, string, string, string, string?][] = [
   ],
   [
     "post",
-    "/profiles/{profile}/router/accounts/{id}/connect",
-    "Abrir cadastro do WhatsApp intermediado pela Zernio",
-    "administrador humano",
-  ],
-  [
-    "post",
     "/profiles/{profile}/router/accounts/{id}/resolve",
     "Encontrar e corrigir o ID da integração usando a chave Zernio salva",
     "administrador humano",
