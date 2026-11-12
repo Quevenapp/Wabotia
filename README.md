@@ -2,13 +2,15 @@
 
 Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pelo Telegram e API para integrações. O painel e seus dados operacionais são hospedados na sua conta Cloudflare. O Hermes continua no computador, Docker ou servidor de sua escolha.
 
+Cada nova instalação cria automaticamente uma **Área de atendimento**, compartilhada pela equipe da empresa. Nela ficam telefones, conversas, bots e configurações de automação. A automação começa desativada. Instalações existentes mantêm suas áreas e permissões, sem unir dados.
+
 **Instalação direta na Cloudflare, sem conta GitHub, cópia de repositório ou Deploy Hook.**
 
 **[Instalação ilustrada](https://wabotia.queven.app/install)** · **[API interativa](https://wabotia.queven.app/api-docs)** · **[WhatsApp pela Zernio](docs/ZERNIO-WHATSAPP.md)**
 
 ## Estado da versão
 
-Versão 0.11.0, com conexão WhatsApp pela Zernio e exclusão de telefones com preservação do histórico. Inclui atendimento por linha, menus e submenus por número, bots atribuídos a uma ou várias linhas e conversas internas entre pessoas e bots. O roteador alterna novos atendimentos desde o início, prioriza saldo nas cotas locais e mantém conversas no mesmo número, respeitando a janela de 24 horas e a política de bloquear ou permitir excedentes da cota. Web, Android e iOS usam as mesmas configurações e permissões. Mantém login móvel por token de sessão (`wabu_`), push, protocolos, mídia, voz, grupos conforme o canal, histórico de ligações, agenda/CSV e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** perfis e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
+Versão 0.12.0, com Área de atendimento automática e configuração organizada em Integração Zernio e Telefones. Mantém conexão WhatsApp pela Zernio e exclusão de telefones com preservação do histórico. Inclui atendimento por linha, menus e submenus por telefone, bots atribuídos a uma ou várias linhas e conversas internas entre pessoas e bots. O roteador alterna novos atendimentos desde o início, prioriza saldo nas cotas locais e mantém conversas no mesmo telefone, respeitando a janela de 24 horas e a política de bloquear ou permitir excedentes da cota. Web, Android e iOS usam as mesmas configurações e permissões. Mantém login móvel por token de sessão (`wabu_`), push, protocolos, mídia, voz, grupos conforme o canal, histórico de ligações, agenda/CSV e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. A conexão de produção exige homologar **seus** bots e canais com as respectivas credenciais. Consulte [validação e limitações](docs/VALIDACAO.md) antes de ativar o atendimento.
 
 ## Navegação e configuração guiada
 
@@ -35,7 +37,7 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 
 **WhatsApp oficial pela Zernio:** [passo a passo](docs/ZERNIO-WHATSAPP.md) · [guia no site](https://wabotia.queven.app/install#zernio-whatsapp).
 
-1. Crie um perfil no painel e cadastre a conexão Hermes com as URLs administrativas/API, o token administrativo e as chaves de cada perfil autorizado.
+1. Na área de atendimento criada automaticamente, cadastre a conexão Hermes com as URLs administrativas/API, o token administrativo e as chaves dos bots autorizados no Hermes.
 2. Teste a conexão, descubra os bots, habilite os selecionados e escolha o Atendente. A API Hermes deve anunciar `features.runs_idempotency.durable`.
 3. Conecte um canal WhatsApp: Zernio como intermediária da Meta; QR pelo [conector Baileys](connectors/qr); ou WhatsApp pelo Hermes com o [transporte exclusivo](connectors/hermes).
 4. Use um bot Telegram dedicado em grupo privado com tópicos. Cadastre cada atendente e seu ID Telegram. O Telegram não requer plugin no Hermes.
@@ -53,23 +55,23 @@ Atualize também o processo QR ou o transporte Hermes; o botão do painel atuali
 
 ## Aplicativos Android e iOS
 
-Os aplicativos nativos em [`mobile/`](mobile) funcionam com qualquer servidor Wabotia: na primeira tela a pessoa digita o endereço da própria instalação (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`) e entra com o e-mail e a senha cadastrados em **Pessoas**. O aplicativo recebe um token de sessão de usuário (`wabu_`), com os mesmos perfis e papel do painel, e oferece conversas, mensagens WhatsApp com mídia, ligações, protocolos, bots, presença e notificações push de mensagens, fila, transferências, protocolos e ligações.
+Os aplicativos nativos em [`mobile/`](mobile) funcionam com qualquer servidor Wabotia: na primeira tela a pessoa digita o endereço da própria instalação (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`) e entra com o e-mail e a senha cadastrados em **Pessoas**. O aplicativo recebe um token de sessão de usuário (`wabu_`), com os mesmos acessos e papel do painel, e oferece conversas, mensagens WhatsApp com mídia, ligações, protocolos, bots, presença e notificações push de mensagens, fila, transferências, protocolos e ligações.
 
 As notificações saem do seu servidor para um gateway de push (padrão operado pela Queven; pode ser o seu) ou direto para o Firebase Cloud Messaging; o administrador escolhe em **Sistema e atualizações → Notificações dos aplicativos**, inclusive o conteúdo mínimo para não expor trechos de mensagens. Rotas, contrato do gateway, compilação e limites estão em [docs/MOBILE.md](docs/MOBILE.md).
 
 ## Agenda de contatos
 
-Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe arquivos CSV UTF-8 de até 500 contatos/1 MB, conferindo erros e linhas idênticas antes de salvar. Em **Conversas → Salvar contato**, crie um cadastro ou vincule uma pessoa da agenda. Nome, telefone, e-mail, empresa e observações ficam salvos no perfil; telefones não unem clientes automaticamente. [Passo a passo com telas](docs/CONTATOS.md) · [Modelo CSV](public/modelo-contatos.csv).
+Abra **Agenda de contatos** para cadastrar, buscar e editar clientes. Importe arquivos CSV UTF-8 de até 500 contatos/1 MB, conferindo erros e linhas idênticas antes de salvar. Em **Conversas → Salvar contato**, crie um cadastro ou vincule uma pessoa da agenda. Nome, telefone, e-mail, empresa e observações ficam salvos na área de atendimento; telefones não unem clientes automaticamente. [Passo a passo com telas](docs/CONTATOS.md) · [Modelo CSV](public/modelo-contatos.csv).
 
 ## Roteador WhatsApp
 
-Em **Zernio e números**, salve o Profile ID e a API key, conecte o WhatsApp pela Zernio, importe os números e configure um único webhook na Zernio. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. Os grupos alternam os números desde o primeiro atendimento e priorizam linhas com saldo na cota local. Autorize os números/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse número. O link público distribui novos contatos entre números disponíveis e respeita o bloqueio de excedentes configurado por linha.
+Em **Integração Zernio**, salve o **ID da integração na Zernio** (campo técnico Profile ID) e a API key, conecte o WhatsApp pela Zernio, importe os telefones e configure um único webhook na Zernio. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. Os grupos alternam os telefones desde o primeiro atendimento e priorizam linhas com saldo na cota local. Autorize os telefones/grupos de cada aplicação. A API aceita `number_id` ou `pool_id`. O atendimento mantém o remetente original e respeita a janela de 24 horas desse telefone. O link público distribui novos contatos entre telefones disponíveis e respeita o bloqueio de excedentes configurado por linha.
 
 Em cada cartão, **Função e permissões** permite separar a linha oficial das linhas de integração com 24 horas, ou escolher cada capacidade individualmente. Restrições do número prevalecem sobre grupos/aplicações e são conferidas novamente antes do envio. Alterar a função preserva histórico e consumo.
 
 O limite mensal local configurável orienta o rodízio e a estimativa de consumo. Confirme a franquia aplicável ao seu plano na Zernio. O preset Vinki bloqueia excedentes; se o excedente estiver permitido, pode haver cobrança. Templates exigem autorização e consentimento. Os contadores não substituem as faturas da Zernio ou da Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Tarifas Zernio](https://docs.zernio.com/platforms/whatsapp/pricing).
 
-**Excluir telefones:** em Números ou Conexões, use **Excluir telefone**. O histórico é preservado; mensagens ainda na fila serão canceladas. Envios em andamento ou sem confirmação e ligações abertas devem ser resolvidos antes. Isso não cancela a conta no provedor. Linhas da integração Meta anterior são pausadas na atualização e precisam ser conectadas novamente pela Zernio.
+**Excluir telefones:** em Telefones ou Conexões, use **Excluir telefone**. O histórico é preservado; mensagens ainda na fila serão canceladas. Envios em andamento ou sem confirmação e ligações abertas devem ser resolvidos antes. Isso não cancela a conta no provedor. Linhas da integração Meta anterior são pausadas na atualização e precisam ser conectadas novamente pela Zernio.
 
 ## Linhas, menus e equipe interna
 
@@ -82,7 +84,7 @@ As migrações aditivas `0010` a `0013` acrescentam pareamento, trava de atualiz
 
 ## API
 
-REST/JSON em `/api/v1`, OpenAPI 3.1 em `/api/openapi.json`. Cada integração tem identidade própria, permissões, perfis e bots autorizados. Chaves Bearer são exibidas na emissão, persistidas como hash e podem expirar, ser rotacionadas ou revogadas. Recibos de operações que devolvem secrets são criptografados.
+REST/JSON em `/api/v1`, OpenAPI 3.1 em `/api/openapi.json`. Cada integração tem identidade própria, permissões de acesso à área de atendimento e bots autorizados. Chaves Bearer são exibidas na emissão, persistidas como hash e podem expirar, ser rotacionadas ou revogadas. Recibos de operações que devolvem secrets são criptografados.
 
 As escritas operacionais exigem `Idempotency-Key`; o pareamento usa códigos de uso único e transições atômicas próprias. Execuções de bots retornam `202` e são acompanhadas por consulta ou webhooks HMAC. Timeouts sem confirmação exigem reconciliação; não iniciam outra execução automaticamente. [Exemplos cURL, JavaScript e Python](docs/API.md).
 

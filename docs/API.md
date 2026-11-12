@@ -1,14 +1,22 @@
 # Integração com a API v1
 
-O contrato está em `/api/openapi.json` e o explorador de consultas em `/api-docs`. Use chaves somente no backend do seu sistema. O administrador cadastra a aplicação em **API e integrações**, seleciona perfis, permissões e bots, depois emite uma chave. Guarde-a imediatamente. Para rotacionar, emita outra chave, atualize o integrador e revogue a anterior.
+O contrato está em `/api/openapi.json` e o explorador de consultas em `/api-docs`. Use chaves somente no backend do seu sistema. O administrador cadastra a aplicação em **API e integrações**, define as permissões e os bots da área de atendimento, depois emite uma chave. Guarde-a imediatamente. Para rotacionar, emita outra chave, atualize o integrador e revogue a anterior.
+
+## Área de atendimento da instalação
+
+Uma instalação nova cria automaticamente sua área de atendimento, compartilhada pela equipe e com automação inicialmente desativada. Os nomes técnicos `profiles`, `profile_id` e os parâmetros das rotas permanecem no contrato por compatibilidade; eles identificam a **Área de atendimento** exibida no painel. Use `GET /api/v1/profiles` para consultar as áreas autorizadas.
+
+`POST /api/v1/installation/area/bootstrap` prepara a área quando o banco ainda não tem nenhuma. Exige sessão humana de administrador, por cookie do painel ou Bearer `wabu_`; chaves de aplicação são recusadas. Não exige corpo nem `Idempotency-Key`. Retorna `200` com `{created:boolean,profile_id:string|null}`: quando cria, devolve `created:true` e o ID; quando já existe alguma área, devolve `created:false` e `profile_id:null`. Nesse caso, consulte novamente a lista autorizada.
+
+Repetir a chamada, inclusive simultaneamente, não cria áreas adicionais. Instalações antigas preservam suas áreas, seus dados e suas permissões de acesso. A operação não une áreas nem escolhe uma área legada em nome do usuário.
 
 ## Identidade e autorização
 
-`Authorization: Bearer SUA_CHAVE` autentica a aplicação. Ela não escolhe o autor por `actor`, `user_id` ou campos semelhantes: a identidade vem da chave. Cada cliente externo é vinculado à aplicação; telefones informados não unem cadastros. Aplicações não acessam conversas externas de outras aplicações. Canais compartilhados seguem as permissões de perfil. Notas internas precisam de `notes:read`; relatórios não contornam essa restrição. Somente contas humanas registram presença.
+`Authorization: Bearer SUA_CHAVE` autentica a aplicação. Ela não escolhe o autor por `actor`, `user_id` ou campos semelhantes: a identidade vem da chave. Cada cliente externo é vinculado à aplicação; telefones informados não unem cadastros. Aplicações não acessam conversas externas de outras aplicações. Canais compartilhados seguem as permissões da área de atendimento. Notas internas precisam de `notes:read`; relatórios não contornam essa restrição. Somente contas humanas registram presença.
 
 Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `tickets:read/write`, `knowledge:read/write`, `media:read/write`, `groups:manage`, `calls:read/write`, `routing:read/send/paid`, `reports:read`, `presence:read`, `bots:read/invoke`, `events:read`, `webhooks:manage`. O administrador também define requisições por minuto e execuções simultâneas. Cada chave possui expiração de até 365 dias.
 
-Tokens com prefixo `wabu_` **não são chaves de aplicação**: são sessões humanas dos aplicativos Android e iOS, emitidas por `POST /api/auth/mobile/login` (fora de `/v1`) para uma pessoa cadastrada em **Pessoas**, com os mesmos perfis e papel do painel. Eles valem 30 dias, são renovados por `POST /v1/auth/mobile/refresh` e revogados por `POST /v1/logout`. As rotas de dispositivos (`/v1/devices`), de notificações (`/v1/system/push`, administrador) e o detalhe de protocolo `GET /profiles/{perfil}/tickets/{id}` com filtros `status` e `overdue` fazem parte do mesmo contrato; as de dispositivos e notificações aceitam somente sessão de usuário ou cookie do painel e respondem `403` a chaves de aplicação. Integrações servidor-servidor continuam usando chaves de aplicação; não use um token `wabu_` em um backend. Detalhes em [MOBILE.md](MOBILE.md).
+Tokens com prefixo `wabu_` **não são chaves de aplicação**: são sessões humanas dos aplicativos Android e iOS, emitidas por `POST /api/auth/mobile/login` (fora de `/v1`) para uma pessoa cadastrada em **Pessoas**, com os mesmos acessos e papel do painel. Eles valem 30 dias, são renovados por `POST /v1/auth/mobile/refresh` e revogados por `POST /v1/logout`. As rotas de dispositivos (`/v1/devices`), de notificações (`/v1/system/push`, administrador) e o detalhe de protocolo `GET /profiles/{perfil}/tickets/{id}` com filtros `status` e `overdue` fazem parte do mesmo contrato; as de dispositivos e notificações aceitam somente sessão de usuário ou cookie do painel e respondem `403` a chaves de aplicação. Integrações servidor-servidor continuam usando chaves de aplicação; não use um token `wabu_` em um backend. Detalhes em [MOBILE.md](MOBILE.md).
 
 ## Roteador de números WhatsApp pela Zernio
 
@@ -24,7 +32,7 @@ Toda operação de escrita recebe `Idempotency-Key`, com até 200 caracteres ASC
 
 Respostas de erro usam `{"error":{"code":"...","message":"...","request_id":"..."}}` e cabeçalho `X-Request-Id`. `401` indica chave expirada/revogada, `403` permissão, `404` recurso fora do acesso, `409` conflito e `429` limite. Respeite `Retry-After`. IDs são opacos; datas são Unix em milissegundos.
 
-Listas de conversas e recursos de perfil usam `{data, next_cursor}`. Passe o cursor inalterado na consulta seguinte. Eventos usam `after` numérico e devolvem `cursor`, inclusive quando eventos não autorizados são omitidos. Perfis e presença são listas diretas. Relatórios permitem `section`, `start`, `end` (YYYY-MM-DD, São Paulo), `cursor` e `limit`; `format=jsonl` exporta por streaming.
+Listas de conversas e recursos da área de atendimento usam `{data, next_cursor}`. Passe o cursor inalterado na consulta seguinte. Eventos usam `after` numérico e devolvem `cursor`, inclusive quando eventos não autorizados são omitidos. Áreas de atendimento e presença são listas diretas. Relatórios permitem `section`, `start`, `end` (YYYY-MM-DD, São Paulo), `cursor` e `limit`; `format=jsonl` exporta por streaming.
 
 ## Exemplo cURL
 
@@ -56,7 +64,7 @@ Estas rotas partem de `/api/v1/profiles/{perfil}`. Consulte `GET /connections/{i
 4. Assuma a conversa e envie `action:reply`, `attachments:[id]` e `content`. Cada anexo resulta em uma entrega; `delivery_id`/`delivery_ids` são filas, não comprovantes do WhatsApp. Preserve todos os IDs para acompanhar Entregas.
 5. `GET /media/{id}/content` requer `media:read`; aceita `Range: bytes=...` (206/416). `?inline=1` permite visualização segura de imagens/áudio/vídeo. Não abre HTML inline. Apps só obtêm arquivos próprios ou anexos de conversas autorizadas com `conversations:read`.
 
-Tipos de `content.type`: `text` (detecta o tipo dos anexos), `image`, `video`, `audio`, `voice`, `document`, `sticker`, `location`, `contacts`. `voice` exige OGG/Opus; `sticker` exige WebP 512 × 512. `content.reply_to` é o ID Wabotia de uma mensagem da mesma conversa. `content.mentions` recebe IDs dos participantes conhecidos do grupo QR. Não forneça IDs/identidades de outro perfil.
+Tipos de `content.type`: `text` (detecta o tipo dos anexos), `image`, `video`, `audio`, `voice`, `document`, `sticker`, `location`, `contacts`. `voice` exige OGG/Opus; `sticker` exige WebP 512 × 512. `content.reply_to` é o ID Wabotia de uma mensagem da mesma conversa. `content.mentions` recebe IDs dos participantes conhecidos do grupo QR. Não forneça IDs/identidades de outra área de atendimento.
 
 ```sh
 curl "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/conversations/$WABOTIA_CONVERSATION/actions" \
@@ -101,13 +109,13 @@ Exemplos de corpos: `{action:"create",connection_id:"ID",subject:"Equipe",partic
 
 Áudio pelo navegador não está disponível na integração Zernio. As rotas de iniciar, configurar, consultar permissão, aceitar, rejeitar ou encerrar áudio retornam `422 unsupported_capability`, sem contactar a Meta. A configuração de encaminhamento de chamadas é feita na Zernio.
 
-O histórico anterior permanece em `GET /calls` e `GET /calls/{id}`, com escopo `calls:read` e as mesmas restrições de perfil e identidade. Para uma ligação antiga sem confirmação, o responsável pode usar `POST /calls/{id}/reconcile` com `{confirmed_ended:true}` após confirmar o encerramento no WhatsApp. Essa operação atualiza apenas o registro local. Sessões privadas não aparecem nos eventos da aplicação.
+O histórico anterior permanece em `GET /calls` e `GET /calls/{id}`, com escopo `calls:read` e as mesmas restrições da área de atendimento e identidade. Para uma ligação antiga sem confirmação, o responsável pode usar `POST /calls/{id}/reconcile` com `{confirmed_ended:true}` após confirmar o encerramento no WhatsApp. Essa operação atualiza apenas o registro local. Sessões privadas não aparecem nos eventos da aplicação.
 
 ### Conectar e excluir telefones
 
-`POST /connections` aceita `kind:"zernio"`, `config:{number,account_id,zernio_profile_id}` e `secrets:{api_key,webhook_secret}`. Teste com `POST /connections/{id}/test` antes de ativar. Para várias linhas, cadastre o perfil Zernio em `POST /router/accounts`, obtenha a autorização em `POST /router/accounts/{id}/connect` e descubra os números em `POST /router/accounts/{id}/discover`. O contrato completo está na [API interativa](https://wabotia.queven.app/api-docs) e no [guia Zernio](ZERNIO-WHATSAPP.md).
+`POST /connections` aceita `kind:"zernio"`, `config:{number,account_id,zernio_profile_id}` e `secrets:{api_key,webhook_secret}`. Teste com `POST /connections/{id}/test` antes de ativar. Para várias linhas, cadastre a integração Zernio em `POST /router/accounts`, obtenha a autorização em `POST /router/accounts/{id}/connect` e descubra os números em `POST /router/accounts/{id}/discover`. O contrato completo está na [API interativa](https://wabotia.queven.app/api-docs) e no [guia Zernio](ZERNIO-WHATSAPP.md).
 
-`DELETE /connections/{id}` exige administrador, perfil autorizado e Idempotency-Key. Remove somente o telefone no Wabotia, cancela mensagens e operações de grupo ainda não enviadas e preserva conversas, mensagens e protocolos. Envios iniciados ou sem confirmação e chamadas abertas bloqueiam a exclusão. A conta e os serviços na Zernio permanecem ativos.
+`DELETE /connections/{id}` exige administrador, acesso autorizado à área de atendimento e Idempotency-Key. Remove somente o telefone no Wabotia, cancela mensagens e operações de grupo ainda não enviadas e preserva conversas, mensagens e protocolos. Envios iniciados ou sem confirmação e chamadas abertas bloqueiam a exclusão. A conta e os serviços na Zernio permanecem ativos.
 
 ## Agenda de contatos
 
@@ -124,9 +132,9 @@ Todas as rotas abaixo partem de `/api/v1/profiles/{perfil}`:
 | `PUT /conversations/{id}/contact`    | `contacts:write` e `conversations:read` | Cria com os campos do contato ou vincula explicitamente com `{contact_id}`.                                                                                                |
 | `DELETE /conversations/{id}/contact` | `contacts:write` e `conversations:read` | Corpo `{expected_contact_id}`. Remove somente o vínculo; contato diferente do esperado retorna 409.                                                                        |
 
-Escritas exigem `Idempotency-Key`. Cada aplicação acessa apenas seu namespace, definido pelo servidor. Autor, perfil e namespace não podem ser forjados no corpo. Aplicações só vinculam contatos às suas próprias conversas externas; o telefone não une cadastros. Contatos de equipe e de outras integrações são inacessíveis à aplicação, mesmo se ela tentar filtrar outro namespace.
+Escritas exigem `Idempotency-Key`. Cada aplicação acessa apenas seu namespace, definido pelo servidor. Autor, área de atendimento e namespace não podem ser forjados no corpo. Aplicações só vinculam contatos às suas próprias conversas externas; o telefone não une cadastros. Contatos de equipe e de outras integrações são inacessíveis à aplicação, mesmo se ela tentar filtrar outro namespace.
 
-O CSV aceita cabeçalhos em português e inglês, vírgula ou ponto e vírgula, BOM UTF-8 e campos entre aspas. Colunas desconhecidas aparecem em `ignored_columns`. Linhas com todos os campos normalizados idênticos são ignoradas no mesmo arquivo e em reimportações no mesmo perfil/namespace. Uma reimportação não sobrescreve edições feitas depois. Nenhuma operação de agenda envia mensagens ou concede consentimento. Veja o [guia de CSV](CONTATOS.md).
+O CSV aceita cabeçalhos em português e inglês, vírgula ou ponto e vírgula, BOM UTF-8 e campos entre aspas. Colunas desconhecidas aparecem em `ignored_columns`. Linhas com todos os campos normalizados idênticos são ignoradas no mesmo arquivo e em reimportações na mesma área de atendimento e namespace. Uma reimportação não sobrescreve edições feitas depois. Nenhuma operação de agenda envia mensagens ou concede consentimento. Veja o [guia de CSV](CONTATOS.md).
 
 ```sh
 curl "$WABOTIA_URL/api/v1/profiles/$WABOTIA_PROFILE/contacts" \

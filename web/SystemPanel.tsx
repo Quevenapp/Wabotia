@@ -1198,7 +1198,7 @@ export function CloudflareDeploy({
             </div>
             <div className="system-grid">
               <Input
-                label="Nome exato do perfil no Hermes"
+                label="Nome exato no Hermes"
                 value={form.remote_profile}
                 pattern="[a-z0-9][a-z0-9_-]{0,63}"
                 onChange={(e) => set("remote_profile", e.target.value)}
@@ -1234,7 +1234,7 @@ export function CloudflareDeploy({
                 required
               />
               <Input
-                label="Chave da API do perfil Hermes (API_SERVER_KEY)"
+                label="Chave da API do atendimento Hermes (API_SERVER_KEY)"
                 type="password"
                 autoComplete="new-password"
                 minLength={16}
@@ -1246,7 +1246,7 @@ export function CloudflareDeploy({
             <p>
               Essas duas chaves já devem existir no Hermes. Veja{" "}
               <a className="text-link" href="/install#hermes" target="_blank">
-                como preparar o perfil e ligar a API
+                como preparar o atendimento Hermes e ligar a API
               </a>
               . As chaves MASTER_KEY e SETUP_TOKEN do Wabotia têm outra
               finalidade.
@@ -1260,7 +1260,7 @@ export function CloudflareDeploy({
                 }
                 required
               />{" "}
-              Ativei Zero Trust. O perfil e as duas APIs do Hermes estão
+              Ativei Zero Trust. O atendimento Hermes e as duas APIs estão
               ligados, nas portas acima, na mesma máquina em que vou executar o
               conector.
             </label>
@@ -1274,7 +1274,7 @@ export function CloudflareDeploy({
                 <strong>Será criado nesta conta Cloudflare:</strong>
                 <ul>
                   <li>
-                    Um túnel exclusivo para o perfil{" "}
+                    Um túnel exclusivo para o atendimento Hermes{" "}
                     <strong>{form.remote_profile}</strong>.
                   </li>
                   <li>
@@ -1284,10 +1284,10 @@ export function CloudflareDeploy({
                   <li>
                     DNS <strong>{form.admin_hostname}</strong> e{" "}
                     <strong>{form.api_hostname}</strong>, com acesso somente à
-                    descoberta de perfis e à API do bot escolhido.
+                    descoberta de bots e à API do bot escolhido.
                   </li>
                   <li>
-                    Uma conexão pausada neste perfil de atendimento do Wabotia.
+                    Uma conexão pausada nesta área de atendimento do Wabotia.
                   </li>
                 </ul>
                 <p>

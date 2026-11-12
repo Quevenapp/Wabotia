@@ -134,7 +134,7 @@ export function canProfile(actor: Actor, id: string) {
 }
 export function access(actor: Actor, profile: string, scope: string) {
   if (!canProfile(actor, profile))
-    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   if (actor.kind === "app" && !actor.scopes.includes(scope))
     throw new ApiError(403, "missing_scope", `Permissão necessária: ${scope}`);
 }

@@ -5,6 +5,18 @@ const ids = {
   items: { type: "string" },
 };
 export const integrationSchemas = {
+  InstallationAreaBootstrap: {
+    type: "object",
+    required: ["created", "profile_id"],
+    properties: {
+      created: { type: "boolean" },
+      profile_id: {
+        type: ["string", "null"],
+        description:
+          "ID da área criada nesta chamada; null quando já existia alguma área de atendimento.",
+      },
+    },
+  },
   PairingStart: {
     type: "object",
     required: ["client", "instance_name"],
@@ -64,6 +76,11 @@ export const integrationOperations: [
 ][] = [
   [
     "post",
+    "/installation/area/bootstrap",
+    "Preparar a área de atendimento da instalação (administrador)",
+  ],
+  [
+    "post",
     "/pairing/start",
     "Iniciar pareamento no servidor do Vinki ou Fagoo",
     "",
@@ -87,7 +104,7 @@ export const integrationOperations: [
   [
     "post",
     "/pairings/{id}/approve",
-    "Autorizar perfil, recursos e permissões (administrador)",
+    "Autorizar área de atendimento, recursos e permissões (administrador)",
     "",
     "PairingApprove",
   ],
@@ -115,6 +132,17 @@ export function describeIntegrationOperation(
   entry: any,
   origin: string,
 ) {
+  if (path === "/installation/area/bootstrap") {
+    entry.tags = ["Instalação"];
+    entry.description =
+      "Exige sessão humana de administrador (cookie do painel ou Bearer wabu_); chaves de aplicação são recusadas. Cria automaticamente uma área de atendimento com automação desativada somente se a instalação não tiver nenhuma. Se já houver áreas, retorna created=false e profile_id=null; consulte GET /profiles para obter as áreas autorizadas. Não altera nem une áreas legadas e não modifica permissões de acesso. Não exige corpo nem Idempotency-Key. Repetições e chamadas simultâneas não criam áreas adicionais.";
+    entry.parameters = entry.parameters.filter(
+      (parameter: any) => parameter.name !== "Idempotency-Key",
+    );
+    entry.responses["200"].content["application/json"].schema = {
+      $ref: "#/components/schemas/InstallationAreaBootstrap",
+    };
+  }
   if (path.startsWith("/pairing")) {
     entry.tags = ["Pareamento"];
     entry.description =

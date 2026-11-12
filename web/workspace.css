@@ -225,3 +225,28 @@
     display: none;
   }
 }
+.installation-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid #dce8e3;
+  border-radius: 12px;
+  background: #f6faf8;
+}
+.installation-area strong {
+  font-size: 13px;
+}
+.installation-area small {
+  color: #61716b;
+}
+.legacy-areas {
+  max-width: 280px;
+  font-size: 13px;
+}
+.legacy-areas summary {
+  cursor: pointer;
+}
+.legacy-areas p {
+  font-size: 12px;
+}

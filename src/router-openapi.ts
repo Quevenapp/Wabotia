@@ -81,7 +81,7 @@ export const routerSchemas = {
       },
       menu: {
         type: "boolean",
-        description: "Menu e saudação automática do perfil.",
+        description: "Menu e saudação automática da área de atendimento.",
       },
       bots: {
         type: "boolean",
@@ -355,7 +355,7 @@ export const routerSchemas = {
   RouterDelivery: {
     type: "object",
     description:
-      "sent confirma aceitação pelo canal. Consulte provider_status para entrega/leitura. unknown exige reconciliação; não repita com outro número. Somente a aplicação autora ou equipe do perfil pode consultar.",
+      "sent confirma aceitação pelo canal. Consulte provider_status para entrega/leitura. unknown exige reconciliação; não repita com outro número. Somente a aplicação autora ou equipe da área de atendimento pode consultar.",
     properties: {
       id,
       delivery_id: id,
@@ -382,7 +382,7 @@ export const routerSchemas = {
     type: "object",
     required: ["name"],
     description:
-      "Perfil Zernio compartilhado por vários números. Ao criar, informe zernio_profile_id e os dois segredos. Ao editar, omita segredos para preservá-los. O perfil remoto não pode mudar; credenciais alteradas exigem revalidar as linhas. Contas antigas da Meta devem ser substituídas por uma nova conta Zernio.",
+      "Integração Zernio compartilhada por vários telefones. Ao criar, informe zernio_profile_id e os dois segredos. Ao editar, omita segredos para preservá-los. O ID da integração na Zernio não pode mudar; credenciais alteradas exigem revalidar as linhas. Integrações antigas da Meta devem ser substituídas por uma nova integração Zernio.",
     properties: {
       id,
       name: { type: "string", maxLength: 100 },
@@ -406,17 +406,18 @@ export const routerSchemas = {
     required: ["account_id", "baseline_confirmed"],
     anyOf: [{ required: ["accountId"] }, { required: ["phone_id"] }],
     description:
-      "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é a conta local Wabotia; accountId é a conta WhatsApp remota. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
+      "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é o ID local da integração Zernio no Wabotia; accountId é o ID do telefone na Zernio. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
     properties: {
       account_id: {
         ...id,
         description:
-          "ID local retornado ao cadastrar a conta Zernio no Wabotia.",
+          "ID local retornado ao cadastrar a integração Zernio no Wabotia.",
       },
       accountId: {
         type: "string",
         pattern: "^[a-fA-F0-9]{24}$",
-        description: "accountId WhatsApp retornado pela descoberta na Zernio.",
+        description:
+          "ID do telefone na Zernio (campo Account ID), retornado pela descoberta.",
       },
       phone_id: {
         type: "string",
@@ -497,7 +498,7 @@ export const routerSchemas = {
         type: "boolean",
         default: false,
         description:
-          "Adiciona routing:read/send e conversations:read/write; adiciona routing:paid se allow_paid. Substitui as origens deste perfil, sem remover escopos de outros perfis.",
+          "Adiciona routing:read/send e conversations:read/write; adiciona routing:paid se allow_paid. Substitui as origens desta área de atendimento, sem remover escopos de outras áreas de atendimento.",
       },
     },
   },
@@ -531,14 +532,14 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "post",
     "/profiles/{profile}/router/accounts",
-    "Cadastrar ou editar perfil e credenciais Zernio",
+    "Cadastrar ou editar integração e credenciais Zernio",
     "administrador humano",
     "RouterAccount",
   ],
   [
     "post",
     "/profiles/{profile}/router/accounts/{id}/discover",
-    "Buscar números WhatsApp conectados no perfil Zernio",
+    "Buscar telefones WhatsApp conectados na integração Zernio",
     "administrador humano",
   ],
   [
@@ -571,14 +572,14 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "post",
     "/profiles/{profile}/router/pools",
-    "Criar ou editar grupo do mesmo perfil Zernio",
+    "Criar ou editar grupo da mesma integração Zernio",
     "administrador humano",
     "RouterPool",
   ],
   [
     "put",
     "/profiles/{profile}/router/grants",
-    "Substituir origens permitidas à aplicação neste perfil",
+    "Substituir origens permitidas à aplicação nesta área de atendimento",
     "administrador humano",
     "RouterGrants",
   ],

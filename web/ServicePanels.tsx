@@ -154,7 +154,9 @@ function LineChoices({
           </span>
         </label>
       ))}
-      {!lines.length && <p>Nenhuma linha cadastrada neste perfil.</p>}
+      {!lines.length && (
+        <p>Nenhuma linha cadastrada nesta área de atendimento.</p>
+      )}
     </div>
   );
 }
@@ -213,7 +215,7 @@ function LineCard({
               })
             }
           >
-            <option value="inherit">Bot padrão do perfil</option>
+            <option value="inherit">Bot padrão da área de atendimento</option>
             <option value="human">Equipe humana</option>
             <option value="bot">Bot específico</option>
           </select>
@@ -302,9 +304,8 @@ export function LinesPanel(props: Props) {
           grupos de roteamento.
         </p>
         <p>
-          Cadastre novas linhas em Conexões ou Roteador de números. Os
-          atendimentos mantêm o número de origem, inclusive após atingir a cota
-          local.
+          Cadastre novas linhas em Telefones. Os atendimentos mantêm o número de
+          origem, inclusive após atingir a cota local.
         </p>
         {error && (
           <div className="notice error" role="alert">
@@ -371,7 +372,7 @@ export function BotLinesEditor({ bot, ...props }: Props & { bot: Row }) {
               )
             }
           >
-            <option value="all">Todas as linhas do perfil</option>
+            <option value="all">Todas as linhas da área de atendimento</option>
             <option value="selected" disabled={!lines.length}>
               Somente linhas selecionadas
             </option>
@@ -603,10 +604,10 @@ export function MenusPanel(props: Props) {
             )}
             {draft.type === "protocols" && (
               <p>
-                A opção reconhece os protocolos do telefone do cliente neste
-                perfil, inclusive em outras linhas. Depois, o cliente pode
-                digitar o número completo para consultar um protocolo
-                específico.
+                A opção reconhece os protocolos do telefone do cliente nesta
+                área de atendimento, inclusive em outras linhas. Depois, o
+                cliente pode digitar o número completo para consultar um
+                protocolo específico.
               </p>
             )}
             {draft.type === "survey" && (
@@ -664,7 +665,8 @@ export function MenusPanel(props: Props) {
                 </select>
                 {!apps.length && (
                   <small>
-                    Cadastre o aplicativo nas configurações do perfil pela API.
+                    Cadastre o aplicativo nas configurações da área de
+                    atendimento pela API.
                   </small>
                 )}
               </label>
@@ -870,7 +872,9 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
               )
               .map((id: string) => (
                 <div className="check-line" key={id}>
-                  <span>Pessoa sem acesso ativo a este perfil</span>
+                  <span>
+                    Pessoa sem acesso ativo a esta área de atendimento
+                  </span>
                   <button
                     type="button"
                     onClick={() =>
@@ -908,7 +912,7 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
             {!people.length && (
               <p>
                 Cadastre pessoas em Equipe → Pessoas e acessos, com acesso a
-                este perfil.
+                esta área de atendimento.
               </p>
             )}
           </fieldset>

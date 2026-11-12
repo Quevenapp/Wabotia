@@ -39,7 +39,7 @@ export const sections = [
   ["menus", "Menus e ações", Menu],
   ["knowledge", "Conhecimento", BookOpen],
   ["settings", "Regras de atendimento", Settings],
-  ["router", "Zernio e números", Phone],
+  ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
   ["surveys", "Avaliações", Star],
@@ -150,8 +150,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Organize os caminhos do cliente para conteúdo, aplicativos, pessoas e bots.",
   settings: "Defina orientações, prazos, avaliações e a participação do JEV.",
   router:
-    "Conecte a conta Zernio, encontre seus números e configure a distribuição de mensagens.",
-  lines: "Escolha o bot ou a equipe responsável por cada número conectado.",
+    "Configure a Integração Zernio, encontre seus telefones e configure a distribuição de mensagens.",
+  lines: "Escolha o bot ou a equipe responsável por cada telefone conectado.",
   connections:
     "Conecte o Hermes e o Telegram e confira o funcionamento dos canais.",
   applications: "Gerencie o acesso de sistemas como Vinki e Fagoo ao Wabotia.",

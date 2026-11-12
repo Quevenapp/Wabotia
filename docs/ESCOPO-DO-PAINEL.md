@@ -1,8 +1,10 @@
 # Escopo e organização do painel
 
-O Wabotia conecta o WhatsApp à operação de atendimento: recebe os números da conta Meta, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas e que a equipe atenda pelo Telegram. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e acesso aos detalhes pelo modo avançado.
+O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas e que a equipe atenda pelo Telegram. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e acesso aos detalhes pelo modo avançado.
 
 Este documento descreve as capacidades verificadas no código e as dependências de configuração e homologação dos serviços externos.
+
+Cada instalação possui uma **Área de atendimento** da empresa, criada automaticamente e compartilhada pela equipe. As pessoas acessam o mesmo atendimento com suas próprias contas e permissões; não precisam criar uma área pessoal para começar. Instalações com áreas existentes preservam seus dados e controles de acesso.
 
 ## Navegação por tarefa
 
@@ -13,14 +15,14 @@ Este documento descreve as capacidades verificadas no código e as dependências
 | Contatos | Cadastro, busca, importação e vínculo de clientes às conversas. |
 | Equipe | Pessoas, disponibilidade e conversa interna. |
 | Automação | Bot Atendente, especialistas, menus, conhecimento e regras de atendimento. |
-| Canais | Conta Meta e números, destino de atendimento por linha, Hermes e Telegram. |
+| Canais | Integração Zernio, Telefones, destino de atendimento por linha, Hermes e Telegram. |
 | Avaliações e relatórios | Notas, comentários e acompanhamento da operação. |
 | Integrações | Aplicações externas, chaves e permissões de acesso. |
 | Sistema | Instalação, atualizações e configuração da infraestrutura. |
 
 O assistente de configuração tem um atalho próprio e conduz às mesmas configurações usadas pelo restante do painel. O modo avançado revela consentimentos, execuções, entregas, webhooks e detalhes técnicos. Ambos os modos devem compartilhar os mesmos dados; não são instalações nem configurações independentes.
 
-Uma conexão identifica o serviço e guarda sua autorização. Uma linha é o número de WhatsApp recebido por essa conexão. O destino da linha define quem atende; o roteamento define quais números uma integração pode usar. Esses conceitos devem aparecer juntos em **Canais**, sem exigir que a pessoa recadastre credenciais em telas diferentes.
+Uma conexão identifica o serviço e guarda sua autorização. **Integração Zernio** reúne a autorização do provedor; **Telefones** reúne os números de WhatsApp disponíveis. O destino de cada linha define quem atende; o roteamento define quais números uma integração pode usar. Esses conceitos devem aparecer juntos em **Canais**, sem exigir que a pessoa recadastre credenciais em telas diferentes.
 
 ## Atendente e especialistas Hermes
 
@@ -50,13 +52,13 @@ O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A ch
 
 | Função solicitada | Estado | O que existe e o que falta |
 | --- | --- | --- |
-| Conectar o WhatsApp e receber os números da conta | Implementado | Chave API e perfil Zernio, autorização pelo provedor, descoberta paginada, importação e webhook compartilhado. Exclusão local de telefone preserva histórico e cancela a fila não enviada. [Contas Zernio](../src/zernio-accounts.ts), [guia](ZERNIO-WHATSAPP.md). |
+| Conectar o WhatsApp e receber os telefones | Implementado | Chave API e Profile ID da integração Zernio, autorização pelo provedor, descoberta paginada, importação e webhook compartilhado. Exclusão local de telefone preserva histórico e cancela a fila não enviada. [Integração Zernio](../src/zernio-accounts.ts), [guia](ZERNIO-WHATSAPP.md). |
 | Conectar bot ou pessoa a mensagens e ligações | Parcial | Mensagens têm destino por linha, fila humana e transferência para pessoa ou bot. Áudio de chamadas no navegador não está disponível pela Zernio; históricos anteriores são preservados. [Linhas](../src/line-service.ts), [atendimento](../src/service.ts), [ligações](../src/calls.ts). |
 | Menus, ações rápidas, conteúdo e encaminhamento | Implementado | Botões/listas interativas Meta, texto nos demais canais, submenus, conteúdo, links, protocolos, avaliações, bots e setores. Respeita linha, sessão e validade da apresentação. [Guia](MENUS-PROTOCOLOS.md). |
-| Protocolo com prazo e consulta pelo cliente | Implementado | Consulta por número completo e telefone verificado entre conversas do mesmo perfil, pelo cliente, menu, bot ou pessoa. Pesquisa no painel por protocolo/telefone. Prazo da primeira resposta e andamento público; notas internas não são enviadas. [Guia](MENUS-PROTOCOLOS.md). |
+| Protocolo com prazo e consulta pelo cliente | Implementado | Consulta por número completo e telefone verificado entre conversas da mesma área de atendimento, pelo cliente, menu, bot ou pessoa. Pesquisa no painel por protocolo/telefone. Prazo da primeira resposta e andamento público; notas internas não são enviadas. [Guia](MENUS-PROTOCOLOS.md). |
 | Sistema de avaliações | Implementado | Pesquisa de 1 a 5 com comentário após encerramento, consulta de resultados e convite associado a aplicativo. Depende de habilitação nas configurações. [Pesquisa e leitura de respostas](../src/engine.ts), [encerramento](../src/service.ts), [consulta](../src/index.ts). |
 | Roteamento para Vinki com janela de 24 horas e franquia | Implementado | Reserva atômica de franquia e opção de bloquear excedentes, aplicada no preset Vinki. Janela pertence ao número que recebeu a mensagem; remetente permanece fixo. Estimativa local não substitui a fatura Meta. [Regras operacionais](ROTEADOR.md). |
-| Parear Vinki e Fagoo sem digitar credenciais ou tokens | Implementado | Código temporário com aprovação administrativa de perfil, permissões, números, grupos e bots. Troca automática entre servidores, armazenamento protegido e revogação. Exige instalar também as alterações dos clientes Vinki/Fagoo. [Guia](PAREAMENTO.md). |
+| Parear Vinki e Fagoo sem digitar credenciais ou tokens | Implementado | Código temporário com aprovação administrativa da área de atendimento, permissões, telefones, grupos e bots. Troca automática entre servidores, armazenamento protegido e revogação. Exige instalar também as alterações dos clientes Vinki/Fagoo. [Guia](PAREAMENTO.md). |
 | Contatos | Implementado | Cadastro, busca, edição, importação CSV e vínculo com conversas. Telefones não unem clientes automaticamente. [Contatos](../src/contacts.ts), [guia](CONTATOS.md). |
 | Atualizações automáticas | Implementado | Ativação opcional, janela diária, publicação oficial verificada, bloqueio de concorrência e recuperação conservadora. Exige instalador direto e autorização Cloudflare configurada. QR e Hermes permanecem processos separados. [Guia](ATUALIZACOES.md). |
 | Ponte WhatsApp–Telegram | Implementado | Encaminhamento para tópicos, mensagens e anexos, presença, assumir conversa e transferir atendimento. Exige bot dedicado, grupo privado com tópicos e usuários autorizados. [Webhook Telegram](../src/index.ts), [validação da conexão](../src/integrations.ts), [entrega à equipe](../src/engine.ts). |

@@ -843,7 +843,7 @@ export function ContactsPanel({
         <div className="section-heading">
           <div>
             <h2>Seus contatos</h2>
-            <p>Cadastros do perfil de atendimento selecionado.</p>
+            <p>Cadastros da área de atendimento da empresa.</p>
           </div>
           <BookUser size={24} />
         </div>

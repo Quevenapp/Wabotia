@@ -30,7 +30,7 @@ export async function removeConnection(
     throw new ApiError(
       404,
       "not_found",
-      "Telefone não encontrado neste perfil.",
+      "Telefone não encontrado nesta área de atendimento.",
     );
   requireValue(
     ["meta", "zernio", "qr", "hermes-whatsapp"].includes(connection.kind),

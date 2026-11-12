@@ -104,7 +104,7 @@ export function ConnectionDiagnostics({
           <p className="connection-progress">
             {pending === "test"
               ? "Verificando o acesso ao serviço. Aguarde…"
-              : "Consultando os perfis do Hermes. Aguarde…"}
+              : "Consultando os atendimentos Hermes. Aguarde…"}
           </p>
         )}
         {result && !result.error && (
@@ -116,7 +116,7 @@ export function ConnectionDiagnostics({
               <>
                 <p>
                   {result.bots.length === 0
-                    ? "Nenhum bot encontrado. Confira os perfis criados no Hermes e tente novamente."
+                    ? "Nenhum bot encontrado. Confira os atendimentos criados no Hermes e tente novamente."
                     : `${result.bots.length} ${result.bots.length === 1 ? "bot encontrado" : "bots encontrados"}.`}
                 </p>
                 {result.bots.length > 0 && (
@@ -130,7 +130,7 @@ export function ConnectionDiagnostics({
                       ))}
                     </ul>
                     <p>
-                      Na Equipe Bot, habilite os perfis autorizados e escolha o
+                      Na Equipe Bot, habilite os bots autorizados e escolha o
                       Atendente.
                     </p>
                     <button className="text-link" onClick={showBots}>

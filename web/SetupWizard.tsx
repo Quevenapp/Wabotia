@@ -26,10 +26,10 @@ type Props = {
   api: Api;
   root: string;
   demo: boolean;
-  hasProfile: boolean;
+  hasArea: boolean;
   onNavigate: (page: string) => void;
   onConnect: (kind: string) => void;
-  onCreateProfile: () => void;
+  onRetryArea: () => void;
   onRefresh: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   refreshKey?: number;
@@ -53,7 +53,7 @@ type Rules = {
   reply_mode: string;
 };
 const steps = [
-  { title: "WhatsApp", caption: "Conta e números", icon: MessageCircle },
+  { title: "WhatsApp", caption: "Integração e telefones", icon: MessageCircle },
   { title: "Atendimento", caption: "Bots e especialistas", icon: Bot },
   { title: "Equipe humana", caption: "Pessoas e Telegram", icon: Headphones },
   { title: "Regras", caption: "Prazos e decisões", icon: Settings },
@@ -135,10 +135,10 @@ export function SetupWizard({
   api,
   root,
   demo,
-  hasProfile,
+  hasArea,
   onNavigate,
   onConnect,
-  onCreateProfile,
+  onRetryArea,
   onRefresh,
   onDirtyChange,
   refreshKey = 0,
@@ -163,7 +163,7 @@ export function SetupWizard({
   notifyDirty.current = onDirtyChange;
 
   async function refresh() {
-    if (!hasProfile) return;
+    if (!hasArea) return;
     const request = ++sequence.current,
       requestRoot = root;
     setLoading(true);
@@ -232,7 +232,7 @@ export function SetupWizard({
       sequence.current++;
       notifyDirty.current?.(false);
     };
-  }, [root, demo, hasProfile]);
+  }, [root, demo, hasArea]);
   useEffect(() => {
     if (previousRefreshKey.current === refreshKey) return;
     previousRefreshKey.current = refreshKey;
@@ -305,7 +305,7 @@ export function SetupWizard({
       );
       setDraft(rulesFrom(result));
       setNotice(
-        "Regras salvas neste perfil. O estado do atendimento permanece como estava.",
+        "Regras salvas na Área de atendimento. O estado do atendimento permanece como estava.",
       );
       void Promise.resolve(onRefresh()).catch(() => {});
     } catch (e: any) {
@@ -384,7 +384,7 @@ export function SetupWizard({
             cliente. Você pode voltar a qualquer etapa.
           </p>
         </div>
-        {hasProfile && (
+        {hasArea && (
           <Action
             secondary
             disabled={loading || saving}
@@ -395,16 +395,16 @@ export function SetupWizard({
           </Action>
         )}
       </section>
-      {!hasProfile ? (
+      {!hasArea ? (
         <section className="card setup-welcome">
           <MessageCircle size={30} />
-          <h3>Primeiro, dê um nome ao seu atendimento</h3>
+          <h3>Área de atendimento</h3>
           <p>
-            O perfil reúne números de WhatsApp, bots, equipe e regras. Por
-            exemplo: “Atendimento da empresa”.
+            Sua instalação tem uma área compartilhada pela equipe. Não foi
+            possível abri-la; tente novamente.
           </p>
-          <Action onClick={onCreateProfile}>
-            Criar meu atendimento <ArrowRight size={16} />
+          <Action onClick={onRetryArea}>
+            Tentar novamente <ArrowRight size={16} />
           </Action>
         </section>
       ) : (
@@ -471,24 +471,24 @@ export function SetupWizard({
             </header>
             {step === 0 && (
               <>
-                <h3>Traga os números da sua conta Zernio</h3>
+                <h3>Conecte seus telefones pela Integração Zernio</h3>
                 <p>
-                  Uma conta reúne os números do WhatsApp da empresa. O Wabotia
-                  recebe as mensagens e encaminha cada conversa para o
+                  A integração reúne os telefones do WhatsApp da empresa. O
+                  Wabotia recebe as mensagens e encaminha cada conversa para o
                   atendimento escolhido.
                 </p>
                 <ol className="setup-instructions">
                   <li>
-                    Prepare sua API key, Profile ID e segredo de webhook na
-                    Zernio.
+                    Prepare sua chave API, ID da integração e segredo de webhook
+                    na Zernio.
                   </li>
                   <li>
-                    Cadastre a conta no Wabotia e configure o endereço de
-                    recebimento de mensagens mostrado na tela.
+                    Configure a Integração Zernio no Wabotia e configure o
+                    endereço de recebimento de mensagens mostrado na tela.
                   </li>
                   <li>
-                    Use <strong>Buscar números na Zernio</strong> e adicione os
-                    números que deseja usar.
+                    Use <strong>Buscar telefones na Zernio</strong> e adicione
+                    os telefones que deseja usar.
                   </li>
                   <li>
                     Em <strong>Quem atende cada linha</strong>, escolha uma
@@ -497,12 +497,12 @@ export function SetupWizard({
                 </ol>
                 <div className="setup-status">
                   {snapshot
-                    ? `${snapshot.lines.length} linha(s) cadastrada(s) neste perfil. O cadastro não confirma o recebimento de mensagens.`
-                    : "Os números ainda não foram consultados."}
+                    ? `${snapshot.lines.length} telefone(s) cadastrado(s) na Área de atendimento. O cadastro não confirma o recebimento de mensagens.`
+                    : "Os telefones ainda não foram consultados."}
                 </div>
                 <div className="setup-actions">
                   <Action onClick={() => onNavigate("router")}>
-                    Configurar conta e números <ArrowRight size={16} />
+                    Configurar integração e telefones <ArrowRight size={16} />
                   </Action>
                   <Action secondary onClick={() => onNavigate("lines")}>
                     Quem atende cada linha
@@ -659,8 +659,8 @@ export function SetupWizard({
               <>
                 <h3>Como o atendimento deve funcionar?</h3>
                 <p>
-                  Estas opções são salvas no perfil atual. Menus, especialistas
-                  e permissões já cadastrados são preservados.
+                  Estas opções são salvas na Área de atendimento. Menus,
+                  especialistas e permissões já cadastrados são preservados.
                 </p>
                 <form
                   className="setup-rules"
@@ -883,7 +883,7 @@ export function SetupWizard({
                   <article>
                     <h4>Linhas para envio</h4>
                     <p>
-                      Crie grupos de números e autorize os sistemas que podem
+                      Crie grupos de telefones e autorize os sistemas que podem
                       usá-los. Confira janela de atendimento, consumo e
                       permissão de envio pago antes de habilitar o roteamento.
                     </p>
@@ -906,7 +906,7 @@ export function SetupWizard({
                   O cliente pode consultar protocolos pelo menu, pelo bot ou
                   digitando o número. No WhatsApp, o telefone identifica os
                   protocolos do próprio cliente, inclusive em outras linhas
-                  deste perfil.
+                  desta área de atendimento.
                 </p>
               </>
             )}

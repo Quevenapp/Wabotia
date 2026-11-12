@@ -6,12 +6,12 @@ import "./router-workspace.css";
 const routerSteps = [
   {
     id: "account",
-    title: "Conta Zernio",
+    title: "Integração Zernio",
     description: "Conecte a Zernio ao WhatsApp da sua empresa.",
   },
   {
     id: "numbers",
-    title: "Números",
+    title: "Telefones",
     description: "Importe as linhas e acompanhe o uso.",
   },
   {
@@ -284,8 +284,8 @@ export function NumberRouter({
           </button>
         </div>
         <p>
-          Conecte sua conta Zernio, escolha os números e defina como distribuir
-          novos atendimentos. Cada área abaixo cuida de uma parte da
+          Conecte sua integração Zernio, escolha os telefones e defina como
+          distribuir novos atendimentos. Cada etapa abaixo cuida de uma parte da
           configuração.
         </p>
         {step === "account" && (
@@ -297,7 +297,7 @@ export function NumberRouter({
         )}
         <nav
           className="router-step-nav"
-          aria-label="Configuração dos números WhatsApp"
+          aria-label="Configuração dos telefones WhatsApp"
         >
           {routerSteps.map((item, index) => (
             <button
@@ -318,7 +318,7 @@ export function NumberRouter({
         </nav>
         {demo && (
           <p className="notice">
-            Tela de referência · todos os números e contadores abaixo são
+            Tela de referência · todos os telefones e contadores abaixo são
             fictícios.
           </p>
         )}
@@ -335,13 +335,13 @@ export function NumberRouter({
         )}
         {step !== "access" && data.accounts.length > 0 && (
           <label>
-            Conta que você está configurando
+            Integração que você está configurando
             <select
               value={accountId}
               disabled={!!busy}
               onChange={(e) => chooseAccount(e.target.value)}
             >
-              <option value="">Selecione uma conta</option>
+              <option value="">Selecione uma integração</option>
               {data.accounts.map((a: Row) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -357,21 +357,21 @@ export function NumberRouter({
             <h3>
               {accountEditing
                 ? accountForm.id
-                  ? "Editar conta Zernio"
-                  : "Cadastrar conta Zernio"
+                  ? "Editar integração Zernio"
+                  : "Cadastrar integração Zernio"
                 : account
                   ? account.name
-                  : "Conectar conta Zernio"}
+                  : "Conectar integração Zernio"}
             </h3>
             <p>
-              A Zernio faz a conexão com a Meta. Informe o Profile ID da Zernio,
-              sua API key e o segredo de assinatura do webhook. Depois conecte
-              seu WhatsApp e importe os números. As credenciais ficam protegidas
-              no servidor.
+              A Zernio faz a conexão com a Meta. Informe o ID da integração na
+              Zernio, sua API key e o segredo de assinatura do webhook. Depois
+              conecte seu WhatsApp e importe os telefones. As credenciais ficam
+              protegidas no servidor.
             </p>
             <div className="router-actions">
               <button disabled={!!busy} onClick={() => editAccount()}>
-                Nova conta
+                Nova integração
               </button>
               {account && !legacyAccount && (
                 <button disabled={!!busy} onClick={() => editAccount(account)}>
@@ -395,7 +395,7 @@ export function NumberRouter({
                         webhook_secret: accountForm.webhook_secret,
                       },
                     },
-                    "Salvar conta",
+                    "Salvar integração",
                   );
                   if (r) {
                     setAccountId(r.id);
@@ -411,7 +411,7 @@ export function NumberRouter({
               >
                 <div className="router-fields">
                   <label>
-                    Nome da conta
+                    Nome da integração
                     <input
                       required
                       maxLength={100}
@@ -422,7 +422,7 @@ export function NumberRouter({
                     />
                   </label>
                   <label>
-                    Profile ID da Zernio
+                    ID da integração na Zernio
                     <input
                       required
                       readOnly={!!accountForm.id}
@@ -434,9 +434,10 @@ export function NumberRouter({
                         })
                       }
                     />
+                    <small>Na Zernio, copie o valor do campo Profile ID.</small>
                   </label>
                   <label>
-                    Fuso da conta Zernio
+                    Fuso da integração Zernio
                     <input
                       required
                       value={accountForm.timezone}
@@ -476,7 +477,7 @@ export function NumberRouter({
                   ))}
                 </div>
                 <button disabled={!!busy} type="submit">
-                  Salvar conta Zernio
+                  Salvar integração Zernio
                 </button>
                 {data.accounts.length > 0 && (
                   <button
@@ -498,9 +499,9 @@ export function NumberRouter({
             )}
             {legacyAccount && (
               <p className="notice">
-                Esta conta usava a integração direta com a Meta, pausada na
+                Esta integração se conectava diretamente à Meta e foi pausada na
                 atualização. Resolva operações em andamento ou sem confirmação,
-                exclua as linhas antigas e cadastre uma conta Zernio para
+                exclua as linhas antigas e cadastre uma integração Zernio para
                 conectá-las novamente. O histórico permanece disponível.
               </p>
             )}
@@ -520,12 +521,12 @@ export function NumberRouter({
                 >
                   Conectar WhatsApp pela Zernio
                 </button>
-                <h3>Webhook único desta conta</h3>
+                <h3>Webhook único desta integração</h3>
                 <p>
                   Cadastre esta URL nos webhooks da Zernio, com o mesmo segredo
                   de assinatura salvo acima. Selecione os eventos de
                   recebimento, envio, entrega, leitura e falha de mensagens.
-                  Depois de concluir a conexão, use Buscar números na Zernio.
+                  Depois de concluir a conexão, use Buscar telefones na Zernio.
                 </p>
                 <CopyValue
                   value={
@@ -538,7 +539,7 @@ export function NumberRouter({
                     disabled={!!busy}
                     onClick={() => setStep("numbers")}
                   >
-                    Continuar para os números →
+                    Continuar para os telefones →
                   </button>
                 </div>
               </>
@@ -547,23 +548,23 @@ export function NumberRouter({
         )}
         {!account && ["numbers", "distribution"].includes(step) && (
           <section className="card router-step-empty">
-            <h3>Comece pela conta Zernio</h3>
+            <h3>Comece pela integração Zernio</h3>
             <p>
-              Conecte ou selecione uma conta para buscar seus números e
+              Conecte ou selecione uma integração para buscar seus telefones e
               organizar a distribuição.
             </p>
             <button type="button" onClick={() => setStep("account")}>
-              Configurar conta Zernio
+              Configurar integração Zernio
             </button>
           </section>
         )}
         {step === "numbers" && account && !legacyAccount && (
           <section className="card">
-            <h3>Trazer números da Zernio</h3>
+            <h3>Trazer telefones da Zernio</h3>
             <p>
               Conclua primeiro a conexão do WhatsApp pela Zernio. A busca lista
-              os números conectados ao Profile ID informado. Cada número tem seu
-              próprio Account ID na Zernio.
+              os telefones da integração informada. O ID do telefone na Zernio
+              corresponde ao campo técnico Account ID.
             </p>
             <button
               disabled={!!busy}
@@ -571,11 +572,11 @@ export function NumberRouter({
                 write(
                   `router/accounts/${accountId}/discover`,
                   {},
-                  "Buscar números",
+                  "Buscar telefones",
                 )
               }
             >
-              Buscar números na Zernio
+              Buscar telefones na Zernio
             </button>
             <form
               onSubmit={async (e) => {
@@ -589,7 +590,7 @@ export function NumberRouter({
                     baseline_used: Number(numberForm.baseline_used),
                     service_limit: Number(numberForm.service_limit),
                   },
-                  "Adicionar número",
+                  "Adicionar telefone",
                 );
                 if (r)
                   setNumberForm({
@@ -602,7 +603,7 @@ export function NumberRouter({
             >
               <div className="router-fields">
                 <label>
-                  Número encontrado
+                  Telefone encontrado
                   <select
                     required
                     value={numberForm.phone_id}
@@ -685,19 +686,19 @@ export function NumberRouter({
                 O valor inicial não inclui mensagens futuras.
               </label>
               <p>
-                O número será adicionado pausado. Se ele já está no Wabotia,
+                O telefone será adicionado pausado. Se ele já está no Wabotia,
                 pause e reconcilie as entregas antes. Depois confira o webhook e
                 clique em Ativar na lista.
               </p>
               <button type="submit" disabled={!!busy}>
-                Adicionar número ao Wabotia
+                Adicionar telefone ao Wabotia
               </button>
             </form>
           </section>
         )}
         {step === "numbers" && account && (
           <section className="card">
-            <h3>Seus números e consumo</h3>
+            <h3>Seus telefones e consumo</h3>
             {legacyAccount && (
               <p className="notice">
                 Linhas da integração Meta anterior, pausadas na atualização.
@@ -715,8 +716,9 @@ export function NumberRouter({
             </p>
             {!numbers.length && (
               <p>
-                Nenhum número cadastrado nesta conta. Use Buscar números na
-                Zernio acima e escolha os que deseja trazer para o Wabotia.
+                Nenhum telefone cadastrado nesta integração. Use Buscar
+                telefones na Zernio acima e escolha os que deseja trazer para o
+                Wabotia.
               </p>
             )}
             <div className="router-number-grid">
@@ -789,8 +791,8 @@ export function NumberRouter({
                             status: n.status === "active" ? "paused" : "active",
                           },
                           n.status === "active"
-                            ? "Pausar número"
-                            : "Ativar número",
+                            ? "Pausar telefone"
+                            : "Ativar telefone",
                           "PUT",
                         )
                       }
@@ -854,7 +856,7 @@ export function NumberRouter({
                   <p className="number-policy-note">
                     {n.policy?.service_overage === false
                       ? "Bloquear excedente da cota local: ao atingir o contador, novas mensagens de serviço são bloqueadas. O remetente da conversa é mantido."
-                      : "Ao atingir a cota local, as conversas continuam neste número com possível cobrança de serviço."}
+                      : "Ao atingir a cota local, as conversas continuam neste telefone com possível cobrança de serviço."}
                   </p>
                   <details className="router-technical-details">
                     <summary>Identificador para integração</summary>
@@ -883,31 +885,31 @@ export function NumberRouter({
             <h3>Distribuir novos atendimentos</h3>
             <div className="notice">
               <strong>Vinki e janela de 24 horas:</strong> a janela é aberta
-              pelo cliente e pertence ao número que recebeu a mensagem. O
+              pelo cliente e pertence ao telefone que recebeu a mensagem. O
               rodízio prioriza a cota local configurada; a conversa mantém o
-              mesmo número. Nas permissões da linha, selecione{" "}
+              mesmo telefone. Nas permissões da linha, selecione{" "}
               <strong>Bloquear excedente da cota local</strong> para bloquear
               excedente de serviço. Linhas sem saldo e com essa opção ligada
               saem da seleção de novos atendimentos. O contador local não
               garante uma fatura sem cobrança.
             </div>
             <p>
-              Um grupo pertence a uma conta Zernio. A escolha ocorre no início
-              do atendimento e fica vinculada a ele. Grupos podem compartilhar
-              números; o consumo do número continua único. Apenas números que
-              permitem participar do roteamento são escolhidos. Permitir
-              templates no grupo não libera templates em um número que os
-              bloqueia.
+              Um grupo pertence a uma integração Zernio. A escolha ocorre no
+              início do atendimento e fica vinculada a ele. Grupos podem
+              compartilhar telefones; o consumo do telefone continua único.
+              Apenas telefones que permitem participar do roteamento são
+              escolhidos. Permitir templates no grupo não libera templates em um
+              telefone que os bloqueia.
             </p>
             {!numbers.length && (
               <p className="notice">
-                Adicione números na área Números antes de criar um grupo.
+                Adicione telefones na etapa Telefones antes de criar um grupo.
               </p>
             )}
             {!data.pools.some((p: Row) => p.account_id === accountId) && (
               <p>
-                Nenhum grupo nesta conta. Crie um grupo abaixo para alternar os
-                números a cada novo atendimento.
+                Nenhum grupo nesta integração. Crie um grupo abaixo para
+                alternar os telefones a cada novo atendimento.
               </p>
             )}
             {data.pools
@@ -916,7 +918,7 @@ export function NumberRouter({
                 <div className="router-pool" key={p.id}>
                   <strong>{p.name}</strong>
                   <span>
-                    {p.members.length} números ·{" "}
+                    {p.members.length} telefones ·{" "}
                     {p.enabled ? "Ativo" : "Pausado"} ·{" "}
                     {p.allow_paid
                       ? "Modelos pagos permitidos com autorização"
@@ -942,7 +944,7 @@ export function NumberRouter({
                   {p.public_token && (
                     <>
                       <small>
-                        Link para o cliente iniciar contato num número
+                        Link para o cliente iniciar contato num telefone
                         disponível
                       </small>
                       <CopyValue
@@ -1077,17 +1079,18 @@ export function NumberRouter({
         {step === "access" && (
           <>
             <section className="card">
-              <h3>Quais números cada sistema pode usar</h3>
+              <h3>Quais telefones cada sistema pode usar</h3>
               <p>
                 Cadastre Vinki, Fagoo ou outro sistema em{" "}
-                <strong>Integrações</strong>, com acesso a este perfil. Depois
-                escolha aqui os números ou grupos que ele poderá usar. O
-                pareamento por código temporário fica em Integrações; a
-                autorização de linhas continua limitada pelas permissões abaixo.
+                <strong>Integrações</strong>, com acesso a esta área de
+                atendimento. Depois escolha aqui os telefones ou grupos que ele
+                poderá usar. O pareamento por código temporário fica em
+                Integrações; a autorização de linhas continua limitada pelas
+                permissões abaixo.
               </p>
               <p className="muted">
-                As permissões abaixo abrangem todas as contas Zernio deste
-                perfil.
+                As permissões abaixo abrangem todas as integrações Zernio desta
+                área de atendimento.
               </p>
               {!data.applications.length && (
                 <p className="notice">
@@ -1123,7 +1126,7 @@ export function NumberRouter({
                     );
                   }}
                 >
-                  <h4>Número escolhido diretamente</h4>
+                  <h4>Telefone escolhido diretamente</h4>
                   {data.numbers.map((n: Row) => (
                     <label key={n.id} className="check-line">
                       <input
@@ -1158,9 +1161,9 @@ export function NumberRouter({
                   </label>
                   <p>
                     Salvar também autoriza a aplicação a consultar o roteador e
-                    operar conversas deste perfil. Autorizar um grupo permite
-                    seus membros atuais e futuros; a escolha direta de um número
-                    exige a autorização individual.
+                    operar conversas desta área de atendimento. Autorizar um
+                    grupo permite seus membros atuais e futuros; a escolha
+                    direta de um telefone exige a autorização individual.
                   </p>
                   <button disabled={!!busy} type="submit">
                     Salvar acesso do sistema
@@ -1184,7 +1187,7 @@ export function NumberRouter({
                   value={location.origin + "/api/" + root + "/router/messages"}
                 />
                 <h4>
-                  Atendimento: exige mensagem recente do cliente neste número
+                  Atendimento: exige mensagem recente do cliente neste telefone
                 </h4>
                 <pre>
                   {JSON.stringify(
@@ -1229,7 +1232,7 @@ export function NumberRouter({
                 <p>
                   Não altere o identificador externo durante o atendimento para
                   forçar troca de remetente. Um resultado sem confirmação exige
-                  reconciliação; repetir com outro número pode duplicar a
+                  reconciliação; repetir com outro telefone pode duplicar a
                   mensagem.
                 </p>
                 <a href="/api-docs">Abrir documentação da API</a>

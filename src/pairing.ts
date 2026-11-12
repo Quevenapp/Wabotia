@@ -173,7 +173,7 @@ export async function pairingApprove(
   requireValue(
     typeof profile === "string" &&
       (await one(env, "SELECT id FROM profiles WHERE id=?", profile)),
-    "Escolha um perfil existente.",
+    "Área de atendimento não encontrada.",
   );
   const scopes = ids(body.scopes, "permissões"),
     numbers = ids(body.number_ids || [], "números"),
@@ -207,7 +207,7 @@ export async function pairingApprove(
         number,
         profile,
       ),
-      "Número não pertence ao perfil selecionado.",
+      "Número não pertence à área de atendimento.",
     );
   for (const pool of pools)
     requireValue(
@@ -217,7 +217,7 @@ export async function pairingApprove(
         pool,
         profile,
       ),
-      "Grupo não pertence ao perfil selecionado.",
+      "Grupo não pertence à área de atendimento.",
     );
   for (const bot of bots)
     requireValue(
@@ -227,7 +227,7 @@ export async function pairingApprove(
         bot,
         profile,
       ),
-      "Bot não está habilitado neste perfil.",
+      "Bot não está habilitado nesta área de atendimento.",
     );
   const appId = uid(),
     keyId = uid(),

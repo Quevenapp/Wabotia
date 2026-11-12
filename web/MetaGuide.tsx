@@ -7,19 +7,22 @@ export function MetaGuide() {
       <p>
         A Zernio é a intermediária entre o Wabotia e a Meta. O Wabotia usa a API
         key da Zernio para enviar mensagens e recebe os eventos pelo webhook
-        dela. A autorização da empresa e do número acontece no fluxo de conexão
-        da Zernio.
+        dela. A autorização da empresa e do telefone acontece no fluxo de
+        conexão da Zernio.
       </p>
       <details open>
-        <summary>1. Prepare sua conta Zernio</summary>
+        <summary>1. Prepare sua integração Zernio</summary>
         <ol>
-          <li>Crie ou escolha um perfil na Zernio e copie seu Profile ID.</li>
           <li>
-            Crie uma API key com acesso ao perfil e prepare um segredo para
+            Prepare a integração na Zernio e copie o campo Profile ID. No
+            Wabotia, esse valor é o ID da integração na Zernio.
+          </li>
+          <li>
+            Crie uma API key com acesso à integração e prepare um segredo para
             assinar o webhook.
           </li>
           <li>
-            Tenha acesso à conta empresarial Meta e ao número que deseja
+            Tenha acesso à conta empresarial Meta e ao telefone que deseja
             conectar.
           </li>
         </ol>
@@ -34,36 +37,37 @@ export function MetaGuide() {
         </p>
       </details>
       <details>
-        <summary>2. Salve a conta no Wabotia e conecte o WhatsApp</summary>
+        <summary>2. Salve a integração no Wabotia e conecte o WhatsApp</summary>
         <ol>
           <li>
-            Abra <strong>Canais → Zernio e números</strong> e clique em{" "}
-            <strong>Nova conta</strong>.
+            Abra <strong>Canais → Integração Zernio</strong> e clique em{" "}
+            <strong>Nova integração</strong>.
           </li>
           <li>
-            Informe nome, Profile ID, fuso, API key e segredo de assinatura do
-            webhook. Salve.
+            Informe nome, ID da integração na Zernio, fuso, API key e segredo de
+            assinatura do webhook. Salve.
           </li>
           <li>
             Clique em <strong>Conectar WhatsApp pela Zernio</strong> e conclua a
             autorização exibida pelo provedor.
           </li>
           <li>
-            Ao retornar ao Wabotia, abra a mesma conta e use{" "}
-            <strong>Buscar números na Zernio</strong>.
+            Ao retornar ao Wabotia, abra a mesma integração e use{" "}
+            <strong>Buscar telefones na Zernio</strong>.
           </li>
         </ol>
         <p>
-          Cada número conectado possui seu próprio Account ID. A API key e o
-          segredo ficam protegidos no servidor.
+          Cada telefone conectado possui seu próprio ID do telefone na Zernio,
+          identificado pelo campo Account ID no provedor. A API key e o segredo
+          ficam protegidos no servidor.
         </p>
       </details>
       <details>
         <summary>3. Configure o recebimento e importe as linhas</summary>
         <ol>
           <li>
-            Copie o <strong>Webhook único desta conta</strong> usando o domínio
-            da sua instalação HTTPS.
+            Copie o <strong>Webhook único desta integração</strong> usando o
+            domínio da sua instalação HTTPS.
           </li>
           <li>
             Cadastre essa URL nos webhooks da Zernio, com o mesmo segredo
@@ -74,7 +78,7 @@ export function MetaGuide() {
             de mensagens.
           </li>
           <li>
-            Selecione cada número encontrado, confira o consumo inicial e
+            Selecione cada telefone encontrado, confira o consumo inicial e
             adicione ao Wabotia.
           </li>
           <li>
@@ -89,14 +93,14 @@ export function MetaGuide() {
           As conexões diretas são pausadas na atualização. As credenciais
           antigas não viram credenciais Zernio automaticamente. Resolva envios
           em andamento ou sem confirmação e ligações abertas, exclua a linha
-          antiga do Wabotia e conecte o número pela Zernio. O histórico anterior
-          permanece disponível, separado da nova conexão.
+          antiga do Wabotia e conecte o telefone pela Zernio. O histórico
+          anterior permanece disponível, separado da nova conexão.
         </p>
         <p>
           <strong>Excluir telefone</strong> remove a configuração local e seus
           acessos. Mensagens e operações de grupo ainda na fila serão
-          canceladas. A ação não apaga conversas e não cancela o número, a conta
-          ou cobranças do provedor.
+          canceladas. A ação não apaga conversas e não cancela o telefone, a
+          conta ou cobranças do provedor.
         </p>
       </details>
       <p>

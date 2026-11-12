@@ -197,8 +197,8 @@ export function TeamPanel({
           <div>
             <h2>Equipe e conversas internas</h2>
             <p>
-              Converse com pessoas e bots do perfil. Estas mensagens ficam
-              dentro do Wabotia.
+              Converse com pessoas e bots da área de atendimento. Estas
+              mensagens ficam dentro do Wabotia.
             </p>
           </div>
         </div>
@@ -264,7 +264,9 @@ export function TeamPanel({
                 </button>
               ))}
             {!team.length && (
-              <p>Nenhum contato interno disponível neste perfil.</p>
+              <p>
+                Nenhum contato interno disponível nesta área de atendimento.
+              </p>
             )}
           </div>
           {!!chats.length && (

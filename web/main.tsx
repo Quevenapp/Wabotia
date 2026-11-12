@@ -975,6 +975,8 @@ function App() {
     setSettings((current) => ({ ...current, ...patch }));
   }
   const loadScope = JSON.stringify([
+    me?.id,
+    me?.role,
     profile,
     page,
     section,
@@ -994,14 +996,52 @@ function App() {
   const root = "v1/profiles/" + profile;
   const change = (key: string, value: any) =>
     setForm((f) => ({ ...f, [key]: value }));
+  function clearAreaState() {
+    latestLoad.current++;
+    currentScope.current = "";
+    setProfiles([]);
+    setProfile("");
+    setPageData({ scope: "", rows: [], nextCursor: null });
+    setOverview({});
+    setBots([]);
+    setSettings({});
+    setSelection(null);
+    setRingingCalls([]);
+    setContactEditing(false);
+    setModal("");
+    setForm({});
+    setReply("");
+    setSearch("");
+    setDepartmentFilter("");
+    setCursor("");
+    setSetupActive(false);
+    setPendingNavigation(null);
+    setSettingsDirty(false);
+    setSetupDirty(false);
+    settingsDirtyRef.current = false;
+    settingsChanges.current = {};
+    setNotice("");
+  }
   async function init() {
     try {
-      setMe(await api("v1/me"));
-      const p = await api("v1/profiles");
+      const actor = await api("v1/me");
+      let p = await api("v1/profiles");
+      if (actor.role === "admin" && p.length === 0) {
+        await api("v1/installation/area/bootstrap", "POST", {});
+        p = await api("v1/profiles");
+      }
+      if (me?.id !== actor.id || me?.role !== actor.role) clearAreaState();
       setProfiles(p);
-      setProfile((old) => old || p[0]?.id || "");
-    } catch {
+      setProfile((old) =>
+        p.some((area: Row) => area.id === old) ? old : p[0]?.id || "",
+      );
+      setMe(actor);
+      setError("");
+    } catch (e: any) {
+      clearAreaState();
       setMe(null);
+      if (e.status !== 401)
+        setError(e.message || "Não foi possível abrir a Área de atendimento.");
     } finally {
       setChecked(true);
     }
@@ -1220,7 +1260,6 @@ function App() {
   }
   async function saveModal() {
     const result = await run(async () => {
-      if (modal === "profile") return api("v1/profiles", "POST", form);
       if (modal === "user")
         return api("v1/users", "POST", {
           ...form,
@@ -1381,7 +1420,6 @@ function App() {
         setModal("secret");
       } else {
         setModal("");
-        if (modal === "profile" && result.id) chooseProfile(result.id);
         setSetupRevision((revision) => revision + 1);
         await init();
         await load();
@@ -1496,9 +1534,10 @@ function App() {
               className="icon-button"
               aria-label="Sair"
               onClick={() =>
-                run(() => api("v1/logout", "POST", {})).then(
-                  () => !demo && setMe(null),
-                )
+                run(async () => {
+                  await api("v1/logout", "POST", {});
+                  window.location.assign("/app");
+                })
               }
             >
               <LogOut size={17} />
@@ -1579,26 +1618,35 @@ function App() {
               </p>
             </div>
             <div className="heading-actions">
-              <select
-                aria-label="Perfil de atendimento"
-                value={profile}
-                onChange={(e) => chooseProfile(e.target.value)}
-              >
-                <option value="">Escolha um perfil</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              {me.role === "admin" && (
-                <button
-                  className="icon-button"
-                  title="Novo perfil"
-                  onClick={() => open("profile")}
-                >
-                  <Plus size={19} />
-                </button>
+              <div className="installation-area">
+                <strong>Área de atendimento</strong>
+                <small>
+                  {profiles.find((area) => area.id === profile)?.name ===
+                  "Área de atendimento"
+                    ? "Compartilhada pela equipe"
+                    : profiles.find((area) => area.id === profile)?.name ||
+                      "Atendimento da empresa"}
+                </small>
+              </div>
+              {profiles.length > 1 && (
+                <details className="legacy-areas">
+                  <summary>Áreas anteriores</summary>
+                  <p>
+                    Os dados anteriores permanecem separados para preservar os
+                    acessos.
+                  </p>
+                  <select
+                    aria-label="Área de atendimento anterior"
+                    value={profile}
+                    onChange={(e) => chooseProfile(e.target.value)}
+                  >
+                    {profiles.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.name}
+                      </option>
+                    ))}
+                  </select>
+                </details>
               )}
             </div>
           </div>
@@ -1665,17 +1713,15 @@ function App() {
           !["users", "applications", "system", "setup"].includes(page) ? (
             <div className="card">
               <Empty
-                title="Vamos criar seu primeiro perfil?"
-                description="Um perfil organiza os bots, os canais e a equipe de um atendimento."
+                title="Área de atendimento"
+                description={
+                  me.role === "admin"
+                    ? "Não foi possível abrir o atendimento da empresa. Tente novamente."
+                    : "Peça ao administrador para liberar seu acesso ao atendimento da empresa."
+                }
               />
-              {me.role === "admin" ? (
-                <Button onClick={() => navigate("setup")}>
-                  <Zap size={17} /> Começar configuração guiada
-                </Button>
-              ) : (
-                <p>
-                  Peça ao administrador para liberar seu acesso a um perfil.
-                </p>
+              {me.role === "admin" && (
+                <Button onClick={() => void init()}>Tentar novamente</Button>
               )}
             </div>
           ) : (
@@ -1686,10 +1732,10 @@ function App() {
                   api={api}
                   root={root}
                   demo={demo}
-                  hasProfile={!!profile}
+                  hasArea={!!profile}
                   onNavigate={navigate}
                   onConnect={(kind: string) => open("connection", { kind })}
-                  onCreateProfile={() => open("profile")}
+                  onRetryArea={() => void init()}
                   onRefresh={load}
                   refreshKey={setupRevision}
                   onDirtyChange={setSetupDirty}
@@ -2197,13 +2243,13 @@ function App() {
                       <strong>Um lugar para cada conexão</strong>
                       <p>
                         Cadastre o Hermes para usar seus bots e o Telegram para
-                        a equipe humana. A conta Zernio e seus telefones ficam
-                        em{" "}
+                        a equipe humana. A Integração Zernio e seus telefones
+                        ficam em{" "}
                         <button
                           className="text-link"
                           onClick={() => navigate("router")}
                         >
-                          Zernio e números
+                          Integração Zernio
                         </button>
                         .
                       </p>
@@ -2472,7 +2518,7 @@ function App() {
                   <div className="toolbar">
                     <p>
                       Selecione os bots criados no Hermes. Permissões continuam
-                      no perfil original.
+                      no atendimento original.
                     </p>
                     <Button onClick={() => open("capability")}>
                       <Plus size={17} /> Ação de especialista
@@ -2488,7 +2534,7 @@ function App() {
                           <Badge value={bot.enabled ? "enabled" : "disabled"} />
                         </div>
                         <h2>{bot.name}</h2>
-                        <p>Perfil Hermes: {bot.remote_profile}</p>
+                        <p>Atendimento Hermes: {bot.remote_profile}</p>
                         <Button
                           secondary
                           onClick={() =>
@@ -2917,7 +2963,7 @@ function App() {
                     <h2>Depois de conectar</h2>
                     <p>
                       Para o Vinki, autorize as linhas e os grupos em{" "}
-                      <strong>Zernio e números → Acesso dos sistemas</strong>.
+                      <strong>Integração Zernio → Acesso dos sistemas</strong>.
                       Para consultas internas do Fagoo, configure um
                       especialista no Hermes e uma ação permitida para o
                       Atendente.
@@ -3306,7 +3352,6 @@ function App() {
           title={
             (
               {
-                profile: "Novo perfil de atendimento",
                 transfer: "Transferir atendimento",
                 jev: "Chave JEV",
                 "user-edit": "Editar pessoa",
@@ -3334,7 +3379,6 @@ function App() {
             }}
           >
             {[
-              "profile",
               "user",
               "user-edit",
               "application",
@@ -3364,7 +3408,7 @@ function App() {
                 />
                 {["qr", "zernio", "hermes-whatsapp"].includes(form.kind) && (
                   <Field
-                    label="Número com DDI (somente dígitos)"
+                    label="Telefone com DDI (somente dígitos)"
                     value={form.number}
                     onChange={(v: string) => change("number", v)}
                     placeholder="5511999999999"
@@ -3404,25 +3448,25 @@ function App() {
                       onChange={(v: string) => change("dashboard_token", v)}
                     />
                     <Field
-                      label="Nome do perfil Hermes"
+                      label="Nome do atendimento no Hermes"
                       value={form.remote_profile}
                       onChange={(v: string) => change("remote_profile", v)}
                       placeholder="default"
                     />
                     <Field
-                      label="API_SERVER_KEY desse perfil"
+                      label="API_SERVER_KEY desse atendimento"
                       type="password"
                       value={form.profile_key}
                       onChange={(v: string) => change("profile_key", v)}
                     />
                     <details>
-                      <summary>Chaves de vários perfis Hermes</summary>
+                      <summary>Chaves de vários atendimentos Hermes</summary>
                       <p>
-                        Informe um objeto JSON com nome do perfil e chave. Deixe
-                        vazio para manter as chaves já cadastradas.
+                        Informe um objeto JSON com nome do atendimento e chave.
+                        Deixe vazio para manter as chaves já cadastradas.
                       </p>
                       <Field
-                        label="Chaves por perfil (JSON)"
+                        label="Chaves por atendimento (JSON)"
                         type="textarea"
                         value={form.profile_keys_json}
                         onChange={(v: string) => change("profile_keys_json", v)}
@@ -3458,12 +3502,12 @@ function App() {
                   <>
                     <p>
                       Conecte primeiro o número na Zernio. Para conectar e
-                      importar vários números, use Zernio e números no menu
+                      importar vários telefones, use Integração Zernio no menu
                       Canais.
                     </p>
                     {[
-                      ["account_id", "Account ID do número na Zernio"],
-                      ["zernio_profile_id", "Profile ID da Zernio"],
+                      ["account_id", "ID do telefone na Zernio"],
+                      ["zernio_profile_id", "ID da integração na Zernio"],
                       ["api_key", "API key da Zernio"],
                       [
                         "webhook_secret",
@@ -3495,8 +3539,9 @@ function App() {
                       ))}
                     {form.zernio_workspace_id && (
                       <p>
-                        As credenciais desta linha são gerenciadas em Zernio e
-                        números. Pause a linha antes de editar sua configuração.
+                        As credenciais deste telefone são gerenciadas em
+                        Integração Zernio. Pause a linha antes de editar sua
+                        configuração.
                       </p>
                     )}
                     <label className="check-line">
@@ -3625,33 +3670,38 @@ function App() {
                 />
               </>
             )}
-            {["user", "user-edit", "application"].includes(modal) && (
-              <fieldset className="scope-grid">
-                <legend>Perfis autorizados</legend>
-                {profiles.map((p) => (
-                  <label className="check-field" key={p.id}>
-                    <input
-                      type="checkbox"
-                      checked={(form.profiles || [profile]).includes(p.id)}
-                      onChange={(e) =>
-                        change(
-                          "profiles",
-                          e.target.checked
-                            ? [...(form.profiles || [profile]), p.id]
-                            : (form.profiles || [profile]).filter(
-                                (id: string) => id !== p.id,
-                              ),
-                        )
-                      }
-                    />
-                    {p.name}
-                  </label>
-                ))}
-              </fieldset>
-            )}
+            {["user", "application"].includes(modal) &&
+              profiles.length === 1 && (
+                <p>Acesso à Área de atendimento compartilhada pela equipe.</p>
+              )}
+            {["user", "user-edit", "application"].includes(modal) &&
+              (profiles.length > 1 || modal === "user-edit") && (
+                <fieldset className="scope-grid">
+                  <legend>Acesso à Área de atendimento</legend>
+                  {profiles.map((p) => (
+                    <label className="check-field" key={p.id}>
+                      <input
+                        type="checkbox"
+                        checked={(form.profiles || [profile]).includes(p.id)}
+                        onChange={(e) =>
+                          change(
+                            "profiles",
+                            e.target.checked
+                              ? [...(form.profiles || [profile]), p.id]
+                              : (form.profiles || [profile]).filter(
+                                  (id: string) => id !== p.id,
+                                ),
+                          )
+                        }
+                      />
+                      {p.name}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
             {modal === "application" && (
               <>
-                <p>Permissões para o perfil selecionado:</p>
+                <p>Permissões na Área de atendimento:</p>
                 <div className="scope-grid">
                   {(
                     (rows.scopes?.length ? rows.scopes : null) || [

@@ -75,7 +75,7 @@ export async function validateLineIds(
         id,
         profile,
       ),
-      "A linha não pertence a este perfil.",
+      "A linha não pertence a esta área de atendimento.",
     );
 }
 export async function listLines(env: Env, actor: Actor, profile: string) {

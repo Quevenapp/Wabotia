@@ -37,7 +37,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   [
     "bots",
     "Atendimento pelos bots Hermes",
-    "Permite o Atendente e os especialistas autorizados no perfil.",
+    "Permite o Atendente e os especialistas autorizados na área de atendimento.",
   ],
   [
     "pool",
@@ -156,7 +156,7 @@ export function NumberPolicyEditor({
           {draft.service_overage
             ? "O excedente de serviço está permitido e pode ser cobrado."
             : "O excedente de serviço está bloqueado pelo contador local. Templates seguem suas permissões próprias."}{" "}
-          Ativar esta permissão não ativa o canal ou o perfil.
+          Ativar esta permissão não ativa o canal ou a área de atendimento.
         </p>
         <button className="primary" disabled={busy || !dirty}>
           Salvar função e permissões

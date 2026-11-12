@@ -51,12 +51,13 @@ const schemas = {
             type: "string",
             pattern: "^[a-fA-F0-9]{24}$",
             description:
-              "accountId do WhatsApp na Zernio, obrigatório para kind=zernio.",
+              "ID do telefone na Zernio (campo Account ID), obrigatório para kind=zernio.",
           },
           zernio_profile_id: {
             type: "string",
             pattern: "^[a-fA-F0-9]{24}$",
-            description: "Perfil remoto Zernio, obrigatório para kind=zernio.",
+            description:
+              "ID da integração na Zernio (campo Profile ID), obrigatório para kind=zernio.",
           },
         },
       },
@@ -280,7 +281,7 @@ const schemas = {
           contact_id: {
             type: "string",
             description:
-              "Contato existente do mesmo perfil e namespace da aplicação.",
+              "Contato existente na mesma área de atendimento e no mesmo namespace da aplicação.",
           },
         },
       },
@@ -407,7 +408,7 @@ const schemas = {
       number: {
         type: "string",
         description:
-          "Na ação protocols, número exato opcional. Sem ele lista protocolos do telefone verificado e perfil; não consulta terceiros.",
+          "Na ação protocols, número exato opcional. Sem ele lista protocolos do telefone verificado e área de atendimento; não consulta terceiros.",
       },
       department_id: {
         type: ["string", "null"],
@@ -487,7 +488,7 @@ const schemas = {
         type: "array",
         items: { type: "string" },
         description:
-          "IDs de mídias autorizadas, obtidos pela rota de conteúdo do perfil.",
+          "IDs de mídias autorizadas, obtidos pela rota de conteúdo da área de atendimento.",
       },
       error: { type: ["string", "null"] },
     },
@@ -532,7 +533,7 @@ const schemas = {
           profiles: {
             type: "array",
             items: { type: "string" },
-            description: "IDs dos perfis autorizados à pessoa.",
+            description: "IDs das áreas de atendimento autorizadas à pessoa.",
           },
         },
       },
@@ -555,7 +556,7 @@ const schemas = {
         type: "array",
         items: { type: "string" },
         description:
-          "Perfis a notificar; vazio recebe de todos os perfis autorizados.",
+          "Áreas de atendimento a notificar; vazio recebe de todas as áreas autorizadas.",
       },
       enabled: { type: "boolean", default: true },
     },
@@ -690,7 +691,7 @@ const schemas = {
   },
 };
 const operations: [string, string, string, string?, string?][] = [
-  ["get", "/profiles", "Listar perfis autorizados"],
+  ["get", "/profiles", "Listar áreas de atendimento autorizadas"],
   [
     "get",
     "/profiles/{profile}/contacts",
@@ -1260,7 +1261,7 @@ export function openapi(origin: string) {
         ? `${USER_ONLY} Datas no formato Unix em milissegundos.`
         : scope
           ? `Permissão: ${scope}. Datas no formato Unix em milissegundos.`
-          : "Retorna somente perfis autorizados.",
+          : "Retorna somente áreas de atendimento autorizadas.",
       operationId: method + "_" + path.replace(/[^a-zA-Z]+/g, "_"),
       parameters,
       security: [{ BearerAuth: [] }],
@@ -1406,7 +1407,7 @@ export function openapi(origin: string) {
                 properties: {
                   account_id: {
                     type: "string",
-                    description: "accountId remoto Zernio.",
+                    description: "ID do telefone na Zernio (campo Account ID).",
                   },
                   phone_id: {
                     type: "string",
@@ -1495,7 +1496,7 @@ export function openapi(origin: string) {
       };
     if (path.includes("/contacts") || path.endsWith("/contact"))
       entry.description +=
-        " A aplicação acessa somente seus contatos no perfil. Namespace e autor vêm da autenticação. Nenhuma operação envia mensagens, concede consentimento ou une clientes pelo telefone. Importações repetidas ignoram linhas com todos os campos idênticos normalizados. Vínculos exigem conversa da própria aplicação.";
+        " A aplicação acessa somente seus contatos na área de atendimento. Namespace e autor vêm da autenticação. Nenhuma operação envia mensagens, concede consentimento ou une clientes pelo telefone. Importações repetidas ignoram linhas com todos os campos idênticos normalizados. Vínculos exigem conversa da própria aplicação.";
     if (path.endsWith("/events"))
       success.content["application/json"].schema = {
         type: "object",
@@ -1585,13 +1586,13 @@ export function openapi(origin: string) {
     paths[path] = {
       post: {
         summary: path.includes("zernio-accounts")
-          ? "Receber webhook dos números de uma conta Zernio"
+          ? "Receber webhook dos números de uma integração Zernio"
           : "Receber webhook de uma conexão Zernio",
         tags: ["WhatsApp Zernio"],
         servers: [{ url: origin }],
         security: [],
         description:
-          "Configure esta URL na Zernio. O id é local Wabotia. Assinatura X-Zernio-Signature: HMAC-SHA256 hexadecimal do corpo original usando webhook_secret, sem prefixo de timestamp. Não exige Bearer nem Idempotency-Key. Eventos são deduplicados pelo identificador da mensagem; accountId, plataforma e perfil remoto são conferidos antes de encaminhar. O webhook da conta atende todos os números importados dela.",
+          "Configure esta URL na Zernio. O id é local Wabotia. Assinatura X-Zernio-Signature: HMAC-SHA256 hexadecimal do corpo original usando webhook_secret, sem prefixo de timestamp. Não exige Bearer nem Idempotency-Key. Eventos são deduplicados pelo identificador da mensagem; accountId, plataforma e ID da integração na Zernio são conferidos antes de encaminhar. O webhook da integração atende todos os telefones importados dela.",
         parameters: [
           {
             in: "path",

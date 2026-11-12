@@ -27,6 +27,10 @@ import {
 } from "./types";
 import { all, one, exec, batch } from "./db";
 import {
+  ensureInstallationArea,
+  installationAreaInsert,
+} from "./installation-area";
+import {
   authenticate,
   access,
   admin,
@@ -224,6 +228,7 @@ app.post("/api/auth/setup", async (c) => {
         now(),
       ],
     ],
+    installationAreaInsert(),
   ]);
   return c.json({ created: true }, 201);
 });
@@ -338,6 +343,11 @@ const mobileToken = (c: any) => {
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
 };
 app.get("/api/v1/me", (c) => c.json(c.get("actor")));
+app.post("/api/v1/installation/area/bootstrap", async (c) =>
+  c.json(
+    await ensureInstallationArea(c.env, c.get("actor"), c.get("requestId")),
+  ),
+);
 app.get("/api/v1/pairings", async (c) =>
   c.json(await pairingList(c.env, c.get("actor"))),
 );

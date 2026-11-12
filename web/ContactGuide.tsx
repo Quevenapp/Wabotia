@@ -6,7 +6,7 @@ export function ContactGuide() {
       <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.4.0</div>
       <h2>Organize sua agenda de contatos</h2>
       <p>
-        No painel, escolha o perfil de atendimento e abra{" "}
+        No painel da sua área de atendimento, abra{" "}
         <strong>Agenda de contatos</strong>. Use <strong>Novo contato</strong>{" "}
         para cadastrar nome, telefone, e-mail, empresa e observações. Só o nome
         é obrigatório. Clique no nome de uma pessoa para editar ou abrir suas
@@ -69,8 +69,9 @@ export function ContactGuide() {
       </ol>
       <p>
         Importar não envia mensagens nem concede consentimento. O mesmo telefone
-        não une clientes automaticamente. Os contatos ficam separados por
-        perfil; integrações externas acessam apenas seus próprios cadastros.
+        não une clientes automaticamente. Os contatos ficam na área de
+        atendimento da empresa; integrações externas acessam apenas seus
+        próprios cadastros.
       </p>
       <details>
         <summary>Ver a tela de referência</summary>

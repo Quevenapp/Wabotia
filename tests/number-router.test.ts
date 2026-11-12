@@ -871,7 +871,7 @@ it("salva permissões por número somente com administrador e preserva identidad
       },
       uid(),
     ),
-  ).rejects.toThrow("neste perfil");
+  ).rejects.toThrow("nesta área de atendimento");
   await expect(
     setPolicy(f, 0, {
       ...numberPolicyPresets.official,

@@ -26,8 +26,12 @@ export function PairingPanel({
   const [items, setItems] = useState<Row[]>([]),
     [code, setCode] = useState(""),
     [request, setRequest] = useState<Row | null>(null);
-  const [profile, setProfile] = useState(profiles[0]?.id || ""),
+  const [selectedProfile, setProfile] = useState(""),
     [scopes, setScopes] = useState<string[]>([]);
+  const profile =
+    profiles.length === 1
+      ? profiles[0].id
+      : profiles.find((p) => p.id === selectedProfile)?.id || "";
   const [numbers, setNumbers] = useState<Row[]>([]),
     [pools, setPools] = useState<Row[]>([]),
     [bots, setBots] = useState<Row[]>([]);
@@ -39,9 +43,6 @@ export function PairingPanel({
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const sequence = useRef(0);
-  useEffect(() => {
-    if (!profile && profiles[0]?.id) setProfile(profiles[0].id);
-  }, [profiles, profile]);
   async function load() {
     if (!demo) setItems((await api("v1/pairings")).data);
   }
@@ -56,7 +57,10 @@ export function PairingPanel({
     setNumbers([]);
     setPools([]);
     setBots([]);
-    if (demo || !request || !profile) return;
+    if (demo || !request || !profile) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     Promise.all([
       api(`v1/profiles/${profile}/router`),
@@ -199,21 +203,33 @@ export function PairingPanel({
             sistema dela.
           </p>
           <fieldset disabled={busy || loading}>
-            <label>
-              Perfil de atendimento
-              <select
-                required
-                value={profile}
-                onChange={(e) => setProfile(e.target.value)}
-              >
-                <option value="">Escolha um perfil</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {profiles.length === 1 ? (
+              <p>
+                <strong>Área de atendimento:</strong> {profiles[0].name}.
+                Compartilhada pela equipe desta instalação.
+              </p>
+            ) : profiles.length > 1 ? (
+              <label>
+                Área de atendimento
+                <select
+                  required
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                >
+                  <option value="">Escolha uma área de atendimento</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p role="alert">
+                Você não tem acesso a uma área de atendimento. Solicite acesso
+                ao administrador desta instalação para autorizar o pareamento.
+              </p>
+            )}
             <legend>O que este sistema poderá fazer</legend>
             {request.allowed_scopes.map((scope: string) => (
               <label className="check-line" key={scope}>
@@ -250,8 +266,7 @@ export function PairingPanel({
                 ))}
                 {!numbers.length && !pools.length && (
                   <p>
-                    Cadastre os números em WhatsApp e canais antes de autorizar
-                    envios.
+                    Cadastre os números em Telefones antes de autorizar envios.
                   </p>
                 )}
                 <small>
@@ -328,7 +343,8 @@ export function PairingPanel({
                 } as Row
               )[item.status] || item.status}{" "}
               ·{" "}
-              {profiles.find((p) => p.id === item.profile_id)?.name || "Perfil"}
+              {profiles.find((p) => p.id === item.profile_id)?.name ||
+                "Área de atendimento"}
             </small>
           </div>
           {item.status !== "revoked" && (

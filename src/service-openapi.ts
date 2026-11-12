@@ -187,7 +187,7 @@ export const serviceOperations: [string, string, string, string?, string?][] = [
   [
     "get",
     "/profiles/{profile}/menus",
-    "Menus e submenus do perfil",
+    "Menus e submenus da área de atendimento",
     "conversations:read",
   ],
   [

@@ -239,17 +239,17 @@ Use um nome novo, por exemplo `wabotia-atendimento`, preservando a instalação 
 
 Pause os canais antigos antes de ativar os mesmos números/bots na nova instalação. Só depois de conferir os dados e canais você pode desativar os recursos antigos e remover a cópia GitHub anterior. A instalação nova não depende dela.
 
-## 3. Crie a conta e o perfil de atendimento
+## 3. Crie sua conta e acesse a área de atendimento
 
 1. Na sua URL `/app`, preencha nome, e-mail, senha de pelo menos 12 caracteres e código `SETUP_TOKEN`.
 2. Clique **Criar conta e entrar**. O código inicial não cria outras contas depois que o administrador existe.
-3. Clique **Criar perfil de atendimento** ou no botão **+** ao lado do seletor de perfil. Exemplo de nome: `Atendimento da loja`.
+3. A **Área de atendimento** é criada automaticamente para a empresa nesta instalação e compartilhada pela equipe. Não é necessário criar uma área para cada pessoa.
 4. Mantenha o atendimento pausado enquanto prepara os serviços.
-5. Em **Pessoas**, adicione uma conta para cada atendente e marque os perfis autorizados. Evite compartilhar uma única conta. A edição permite alterar nome, perfis, identidade Telegram e senha; a desativação encerra o acesso.
+5. Em **Pessoas**, adicione uma conta para cada atendente da mesma área de atendimento. Evite compartilhar uma única conta. A edição permite alterar nome, acesso, identidade Telegram e senha; a desativação encerra o acesso.
 
 ## 4. Ligue a API do Hermes, mesmo se estiver desligada
 
-Siga o [roteiro completo Hermes + Cloudflare](HERMES-CLOUDFLARE.md). Ele mostra onde abrir o terminal, como criar o perfil `wabotia`, gerar e guardar as chaves, habilitar a API, iniciar os serviços e testar. Há caminhos separados para **Ubuntu/Linux/WSL2/macOS nativo** e **VPS Ubuntu com Docker**, preservando o Hermes existente.
+Siga o [roteiro completo Hermes + Cloudflare](HERMES-CLOUDFLARE.md). Ele mostra onde abrir o terminal, como criar o atendimento Hermes `wabotia`, gerar e guardar as chaves, habilitar a API, iniciar os serviços e testar. Há caminhos separados para **Ubuntu/Linux/WSL2/macOS nativo** e **VPS Ubuntu com Docker**, preservando o Hermes existente.
 
 O assistente `python3 scripts/prepare-hermes.py --profile wabotia --create-profile` faz backup e configura a API nativa. Ele não inicia serviços sozinho. O manual mostra os comandos de início, reinício e diagnóstico, inclusive quando a API é desligada depois. Dois serviços precisam responder: backend administrativo na 9119 e API dos bots na 8642, ambos autenticados e restritos ao loopback. Use `--check` para verificar os dois antes de abrir um túnel.
 
@@ -275,10 +275,10 @@ O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele
 ## 6. Conecte e escolha a Equipe Bot
 
 1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, dê um nome e preencha as URLs HTTPS administrativa e da API.
-2. Cole o token administrativo e a `API_SERVER_KEY` de cada perfil. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários perfis, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 perfis por conexão.
+2. Cole o token administrativo e a `API_SERVER_KEY` de cada atendimento Hermes. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários atendimentos Hermes, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 atendimentos Hermes por conexão.
 3. Salve, clique **Testar conexão** e **Descobrir bots**. A verificação exige idempotência durável anunciada pelo Hermes.
 4. Ative a conexão. Em **Equipe Bot**, habilite os bots autorizados e selecione o **Atendente**.
-5. Crie ações de especialistas: informe qual bot consultar, em que condição e qual ação ele pode executar. Os perfis não recebem permissão para chamar outros especialistas livremente.
+5. Crie ações de especialistas: informe qual bot consultar, em que condição e qual ação ele pode executar. Os bots não recebem permissão para chamar outros especialistas livremente.
 6. Em **Conhecimento**, cadastre texto, URL pública, PDF com texto, DOCX ou legendas autorizadas. Vídeos exigem legendas públicas; a importação não contorna restrições da plataforma. Arquivos: até 20 MB.
 7. Em **Menus e preferências**, escolha o modo de resposta, prazo, avaliações, menus e instruções. Aplicativos/menus avançados podem ser editados em JSON. JEV é opcional e usa uma chave no backend.
 
@@ -288,11 +288,11 @@ Arquivos produzidos por bots precisam ser exportados como artefatos da API nativ
 
 ### WhatsApp oficial pela Zernio
 
-1. Crie um perfil e uma API key na Zernio.
-2. Em **Zernio e números**, salve Profile ID, API key, fuso e segredo de assinatura do webhook.
-3. Use **Conectar WhatsApp pela Zernio**, conclua a autorização e depois **Buscar números na Zernio**.
+1. Na Zernio, gere uma API key e copie o Profile ID que será usado pela integração.
+2. Em **Integração Zernio**, salve Profile ID, API key, fuso e segredo de assinatura do webhook.
+3. Use **Conectar WhatsApp pela Zernio**, conclua a autorização e depois busque os telefones na Zernio.
 4. Cadastre na Zernio o webhook exibido, com o mesmo segredo e eventos de mensagens e recibos.
-5. Adicione os números, teste e ative. Fora da janela de 24 horas, templates continuam exigindo aprovação e consentimento.
+5. Em **Telefones**, adicione os números, teste e ative. Fora da janela de 24 horas, templates continuam exigindo aprovação e consentimento.
 
 O [guia Zernio](ZERNIO-WHATSAPP.md) detalha o processo, a migração das linhas Meta anteriores e a exclusão de telefones preservando o histórico. O Worker conversa com a Zernio; o Hermes fornece os bots.
 
@@ -328,7 +328,7 @@ O Worker recebe o webhook Telegram e executa as regras. Nenhum plugin Telegram �
 ## 9. Conecte seus outros sistemas
 
 1. Abra **API e integrações > Nova aplicação**.
-2. Dê um nome, marque os perfis, as operações e os bots permitidos. Selecione só o que o sistema precisa.
+2. Dê um nome e autorize as operações e os bots necessários na área de atendimento. Selecione só o que o sistema precisa.
 3. Clique **Gerar chave** e defina a validade. Copie o valor exibido uma vez para o backend do seu sistema.
 4. Use a [documentação interativa](/api-docs) da sua própria instalação e os [exemplos](API.md). A chave não deve aparecer no JavaScript público de um site.
 5. Para eventos, cadastre uma URL HTTPS de webhook e guarde o segredo de assinatura. **Webhooks** mostra as entregas e oferece reenvio. O destinatário precisa verificar HMAC e deduplicar IDs.

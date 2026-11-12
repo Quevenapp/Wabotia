@@ -45,10 +45,11 @@ export function HermesInstall() {
             <code>{prepare}</code>
           </pre>
           <p>
-            O assistente cria o perfil <strong>wabotia</strong> se necessário,
-            faz backup, gera chaves ausentes e habilita a API no loopback.
-            Canais e bots existentes são preservados. As chaves ficam no arquivo
-            privado <code>~/.config/wabotia/hermes/chaves.local.txt</code>.
+            O assistente cria o atendimento Hermes <strong>wabotia</strong> se
+            necessário, faz backup, gera chaves ausentes e habilita a API no
+            loopback. Canais e bots existentes são preservados. As chaves ficam
+            no arquivo privado{" "}
+            <code>~/.config/wabotia/hermes/chaves.local.txt</code>.
           </p>
           <p>
             <strong>Depois, ligue os processos.</strong> No Ubuntu com o gateway
@@ -74,7 +75,7 @@ python3 scripts/prepare-hermes.py --check`}</code>
             No macOS ou para execução manual, mantenha{" "}
             <code>python3 scripts/prepare-hermes.py --serve-admin</code> em
             outro terminal e reinicie o gateway pelo método existente. Confira
-            modelo e provedor no perfil novo.
+            modelo e provedor no novo atendimento Hermes.
           </p>
         </div>
       </details>
@@ -147,8 +148,8 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
             </li>
             <li>
               Em <strong>Conexões → Preparar Hermes na Cloudflare</strong>,
-              informe dois subdomínios novos, o nome do perfil Hermes, as portas
-              e as duas chaves Hermes do arquivo privado{" "}
+              informe dois subdomínios novos, o nome no Hermes, as portas e as
+              duas chaves Hermes do arquivo privado{" "}
               <code>chaves.local.txt</code>. Para outra máquina, escolha outros
               endereços.
             </li>
@@ -338,8 +339,8 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
         <summary>5. Wabotia: onde colar cada URL e cada chave</summary>
         <div className="guide-detail">
           <p>
-            Na <strong>sua instalação</strong>, crie um perfil de atendimento e
-            abra <strong>Conexões → Nova conexão → Hermes</strong>. Mantenha o
+            Na área de atendimento da <strong>sua instalação</strong>, abra{" "}
+            <strong>Conexões → Nova conexão → Hermes</strong>. Mantenha o
             atendimento pausado até concluir os testes.
           </p>
           <div className="guide-table-scroll">
@@ -364,12 +365,12 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
                   <td>Token administrativo Hermes de chaves.local.txt</td>
                 </tr>
                 <tr>
-                  <td>Nome do perfil Hermes</td>
+                  <td>Nome no Hermes</td>
                   <td>wabotia</td>
                 </tr>
                 <tr>
                   <td>API_SERVER_KEY</td>
-                  <td>Chave desse perfil de chaves.local.txt</td>
+                  <td>Chave desse atendimento Hermes em chaves.local.txt</td>
                 </tr>
                 <tr>
                   <td>Cloudflare Access: Client ID e Client Secret</td>
@@ -420,8 +421,8 @@ python3 scripts/prepare-hermes.py --check`}</code>
             <strong>1033:</strong> ligue o túnel. <strong>401/403:</strong>{" "}
             confira chaves, validade e Service Auth.{" "}
             <strong>Invalid Host:</strong> confira o HTTP Host Header.{" "}
-            <strong>Perfil não executa:</strong> confira modelo e autenticação
-            do provedor no Hermes.
+            <strong>Atendimento Hermes não executa:</strong> confira modelo e
+            autenticação do provedor no Hermes.
           </p>
           <p>
             Mantenha a máquina e o WSL ligados, sem suspensão. Com Hermes

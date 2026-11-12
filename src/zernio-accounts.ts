@@ -41,7 +41,7 @@ export async function zernioAccountList(
 ) {
   requireValue(
     objectId(profileId),
-    "Informe o ID do perfil Zernio (24 caracteres).",
+    "Informe o ID da integração na Zernio (24 caracteres).",
   );
   const found: any[] = [],
     cursors = new Set<string>();
@@ -57,7 +57,7 @@ export async function zernioAccountList(
     const result = await zernioRequest(env, conn, `accounts?${query}`);
     requireValue(
       Array.isArray(result.accounts),
-      "A Zernio não retornou a lista de contas.",
+      "A Zernio não retornou a lista de telefones.",
     );
     for (const item of result.accounts) {
       const identity = zernioAccountIdentity(item, profileId);
@@ -93,21 +93,21 @@ export async function zernioAccountCommand(
     const old = await one(env, "SELECT * FROM meta_accounts WHERE id=?", id);
     requireValue(
       !old || (old.profile_id === profile && old.provider === "zernio"),
-      "Conta de outro perfil ou da integração antiga.",
+      "Integração de outra área de atendimento ou da conexão antiga.",
     );
     const name = String(data.name || "").trim(),
       remote = String(data.zernio_profile_id || old?.zernio_profile_id || "");
     requireValue(
       name.length > 0 && name.length <= 100,
-      "Informe o nome da conta.",
+      "Informe o nome da integração.",
     );
     requireValue(
       objectId(remote),
-      "Informe o ID do perfil Zernio (24 caracteres).",
+      "Informe o ID da integração na Zernio (24 caracteres).",
     );
     requireValue(
       !old || old.zernio_profile_id === remote,
-      "O perfil Zernio de uma conta existente não pode ser alterado.",
+      "O ID da integração na Zernio não pode ser alterado após o cadastro.",
     );
     requireValue(
       !(await one(
@@ -116,7 +116,7 @@ export async function zernioAccountCommand(
         remote,
         id,
       )),
-      "Este perfil Zernio já está cadastrado.",
+      "Esta integração na Zernio já está cadastrada.",
     );
     const timezone = String(
       data.timezone || old?.timezone || "America/Sao_Paulo",
@@ -167,7 +167,7 @@ export async function zernioAccountCommand(
           "SELECT o.id FROM outbox o JOIN meta_numbers n ON n.connection_id=o.connection_id WHERE n.account_id=? AND o.status IN ('pending','sending','unknown') LIMIT 1",
           id,
         )),
-        "Reconcilie as entregas antes de alterar as credenciais da conta.",
+        "Reconcilie as entregas antes de alterar as credenciais da integração.",
       );
     if (old && changed)
       requireValue(
@@ -176,7 +176,7 @@ export async function zernioAccountCommand(
           "SELECT g.id FROM group_operations g JOIN meta_numbers n ON n.connection_id=g.connection_id WHERE n.account_id=? AND g.status IN ('pending','sending','unknown') LIMIT 1",
           id,
         )),
-        "Reconcilie as operações de grupos antes de alterar as credenciais da conta.",
+        "Reconcilie as operações de grupos antes de alterar as credenciais da integração.",
       );
     await exec(
       env,
@@ -207,7 +207,7 @@ export async function zernioAccountCommand(
   );
   requireValue(
     account,
-    "Conta Zernio não encontrada. Cadastre um perfil Zernio para substituir a integração antiga.",
+    "Integração Zernio não encontrada. Cadastre uma integração Zernio para substituir a integração antiga.",
   );
   const conn = {
     profile_id: profile,
@@ -254,14 +254,11 @@ export async function zernioAccountCommand(
       "Clique em Buscar números antes de cadastrar.",
     );
     const remote = data.accountId || data.phone_id;
-    requireValue(
-      objectId(remote),
-      "Informe o accountId do WhatsApp na Zernio.",
-    );
+    requireValue(objectId(remote), "Informe o ID do telefone na Zernio.");
     const found = json(account.discovered, []).find(
       (n: any) => n.account_id === remote,
     );
-    requireValue(found, "Número não encontrado neste perfil Zernio.");
+    requireValue(found, "Telefone não encontrado nesta integração Zernio.");
     requireValue(
       !(await one(
         env,

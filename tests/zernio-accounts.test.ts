@@ -148,7 +148,7 @@ it("exige administrador e mantém a identidade da conta dentro do perfil", async
       name: "Duplicada",
       zernio_profile_id: f.remote,
     }),
-  ).rejects.toThrow(/já está cadastrado/);
+  ).rejects.toThrow(/já está cadastrada/);
 });
 
 it.each([

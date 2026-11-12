@@ -107,7 +107,8 @@ const text = (value: any, max = 3800) => {
 };
 export async function settings(env: Env, profile: string) {
   const row = await one(env, "SELECT * FROM profiles WHERE id=?", profile);
-  if (!row) throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  if (!row)
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   return { ...defaults, ...json(row.settings) };
 }
 export async function conversation(
@@ -136,7 +137,7 @@ export async function mediaIds(env: Env, profile: string, ids: any) {
         id,
         profile,
       ),
-      "Anexo não encontrado neste perfil.",
+      "Anexo não encontrado nesta área de atendimento.",
     );
   return ids;
 }
@@ -879,7 +880,7 @@ export async function perform(
     );
     requireValue(
       Array.isArray(data.profiles) && data.profiles.length > 0,
-      "Selecione perfis.",
+      "Informe a área de atendimento.",
     );
     const id = uid();
     await exec(
@@ -1033,7 +1034,7 @@ export async function perform(
             item.bot_id,
             profile,
           ),
-          "Bot do menu não pertence ao perfil.",
+          "Bot do menu não pertence à área de atendimento.",
         );
       const visited = new Set([item.id]);
       let parent = item.parent_id;
@@ -1067,7 +1068,7 @@ export async function perform(
           next.attendant_bot,
           profile,
         ),
-        "Atendente não pertence ao perfil.",
+        "Atendente não pertence à área de atendimento.",
       );
     for (const action of next.capabilities || [])
       requireValue(
@@ -1077,7 +1078,7 @@ export async function perform(
           action.bot_id,
           profile,
         ),
-        "Especialista não pertence ao perfil.",
+        "Especialista não pertence à área de atendimento.",
       );
     await exec(
       env,
@@ -1098,7 +1099,7 @@ export async function perform(
       );
       requireValue(
         cfg.attendant_bot || configuredLine,
-        "Selecione o Bot Atendente do perfil ou configure o atendimento por linha.",
+        "Selecione o Bot Atendente da área de atendimento ou configure o atendimento por linha.",
       );
     }
     await exec(
@@ -1127,7 +1128,7 @@ export async function perform(
     const old = await one(env, "SELECT * FROM connections WHERE id=?", id);
     requireValue(
       !old || old.profile_id === profile,
-      "Conexão de outro perfil.",
+      "Conexão de outra área de atendimento.",
     );
     if (old) {
       requireValue(
@@ -1172,7 +1173,7 @@ export async function perform(
       cfg.number_policy = previous.number_policy;
       requireValue(
         !data.secrets?.api_key && !data.secrets?.webhook_secret,
-        "Edite as credenciais na conta Zernio do roteador.",
+        "Edite as credenciais na integração Zernio do roteador.",
       );
     }
     if (cfg.url) cfg.url = publicUrl(cfg.url);
@@ -1186,7 +1187,7 @@ export async function perform(
       requireValue(
         /^[a-f0-9]{24}$/i.test(cfg.account_id || "") &&
           /^[a-f0-9]{24}$/i.test(cfg.zernio_profile_id || ""),
-        "Informe o accountId e o ID do perfil Zernio (24 caracteres).",
+        "Informe o ID do telefone e o ID da integração na Zernio (24 caracteres).",
       );
       requireValue(
         !cfg.zernio_workspace_id || managed,
@@ -1312,7 +1313,7 @@ export async function perform(
       const keys = await secret(env, `connection:${bot.connection_id}`);
       requireValue(
         keys.profile_keys?.[bot.remote_profile],
-        "Cadastre a API_SERVER_KEY desse perfil Hermes antes de habilitar.",
+        "Cadastre a API_SERVER_KEY desse bot no Hermes antes de habilitar.",
       );
     }
     await exec(
@@ -1895,7 +1896,7 @@ export async function perform(
     );
     requireValue(
       app && json(app.profiles, []).includes(profile),
-      "Aplicação não autorizada neste perfil.",
+      "Aplicação não autorizada nesta área de atendimento.",
     );
     requireValue(
       Array.isArray(data.events) &&

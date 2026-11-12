@@ -14,7 +14,7 @@ export const cloudflareSteps = [
   "Conferir domínio e conflitos",
   "Criar credencial Access",
   "Criar política Service Auth",
-  "Proteger descoberta de perfis",
+  "Proteger descoberta de bots",
   "Proteger API do bot",
   "Validar proteção Access",
   "Criar túnel exclusivo",
@@ -176,7 +176,7 @@ export async function createCloudflareJob(env: Env, actor: Actor, data: any) {
   );
   requireValue(
     await one(env, "SELECT id FROM profiles WHERE id=?", data.profile_id),
-    "Escolha um perfil de atendimento existente.",
+    "Área de atendimento não encontrada.",
   );
   const names = [data.admin_hostname, data.api_hostname];
   requireValue(
@@ -191,7 +191,7 @@ export async function createCloudflareJob(env: Env, actor: Actor, data: any) {
   );
   requireValue(
     /^[a-z0-9][a-z0-9_-]{0,63}$/.test(data.remote_profile || ""),
-    "Nome de perfil Hermes inválido.",
+    "Nome no Hermes inválido.",
   );
   const adminPort = Number(data.admin_port || 9119),
     apiPort = Number(data.api_port || 8642);

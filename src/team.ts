@@ -192,7 +192,7 @@ export async function internalCommand(
     );
     requireValue(
       peer && peer.id !== actor.id,
-      "Escolha outra pessoa ou bot deste perfil.",
+      "Escolha outra pessoa ou bot desta área de atendimento.",
     );
     const [a, b] = [actor.id, peer.id].sort();
     const id = uid();
@@ -220,7 +220,10 @@ export async function internalCommand(
   const peer = (await teamDirectory(env, actor, profile)).data.find(
     (entry) => entry.id === peerId,
   );
-  requireValue(peer, "Este contato não está mais disponível no perfil.");
+  requireValue(
+    peer,
+    "Este contato não está mais disponível na área de atendimento.",
+  );
   requireValue(
     typeof data.text === "string" &&
       data.text.trim().length &&

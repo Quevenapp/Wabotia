@@ -20,7 +20,7 @@ export async function zernioCredentials(env: Env, conn: any) {
       workspace,
       conn.profile_id,
     ),
-    "Conta Zernio não pertence a este perfil.",
+    "Integração Zernio não pertence a esta área de atendimento.",
   );
   return secret(env, `zernio-account:${workspace}`);
 }
@@ -29,7 +29,7 @@ function accountId(conn: any): string {
   const id = json(conn.config).account_id;
   requireValue(
     typeof id === "string" && id.length > 0,
-    "Configure o ID da conta WhatsApp na Zernio.",
+    "Configure o ID do telefone na Zernio.",
   );
   return id;
 }
@@ -114,7 +114,7 @@ async function zernioRawRequest(
     throw new ApiError(
       uncertain ? 502 : 400,
       uncertain ? "zernio_unknown" : "zernio_rejected",
-      `Zernio recusou a operação (HTTP ${response.status}${code}). Confira a conexão e as permissões da conta.`,
+      `Zernio recusou a operação (HTTP ${response.status}${code}). Confira a conexão e as permissões da integração.`,
     );
   }
   if (!result || typeof result !== "object")

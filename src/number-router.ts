@@ -313,7 +313,7 @@ export async function routerCommand(
       data.id,
       profile,
     );
-    requireValue(row, "Número não encontrado neste perfil.");
+    requireValue(row, "Número não encontrado nesta área de atendimento.");
     // Older clients cannot silently switch off a cap enabled elsewhere.
     // With no saved policy, the historical overage behavior still applies.
     const normalized = numberPolicy({
@@ -332,7 +332,10 @@ export async function routerCommand(
   if (op === "router.pool.save") {
     const id = data.id || uid(),
       old = await one(env, "SELECT * FROM number_pools WHERE id=?", id);
-    requireValue(!old || old.profile_id === profile, "Grupo de outro perfil.");
+    requireValue(
+      !old || old.profile_id === profile,
+      "Grupo de outra área de atendimento.",
+    );
     const account = await one(
       env,
       "SELECT id FROM meta_accounts WHERE id=? AND profile_id=?",
@@ -375,7 +378,10 @@ export async function routerCommand(
       "SELECT count(*) n FROM number_pools WHERE profile_id=?",
       profile,
     );
-    requireValue(old || count.n < 100, "Limite de 100 grupos por perfil.");
+    requireValue(
+      old || count.n < 100,
+      "Limite de 100 grupos por área de atendimento.",
+    );
     const publicToken = data.public_enabled
       ? old?.public_token || random()
       : null;
@@ -417,7 +423,7 @@ export async function routerCommand(
     );
     requireValue(
       app && json(app.profiles, []).includes(profile),
-      "A aplicação precisa estar autorizada neste perfil.",
+      "A aplicação precisa estar autorizada nesta área de atendimento.",
     );
     requireValue(
       Array.isArray(data.numbers) &&
@@ -451,7 +457,7 @@ export async function routerCommand(
                 id,
                 profile,
               );
-        requireValue(item, "Origem não encontrada neste perfil.");
+        requireValue(item, "Origem não encontrada nesta área de atendimento.");
         writes.push([
           "INSERT INTO number_router_grants(app_id,profile_id,source_type,source_id,allow_paid) VALUES(?,?,?,?,?)",
           [app.id, profile, type, id, data.allow_paid ? 1 : 0],

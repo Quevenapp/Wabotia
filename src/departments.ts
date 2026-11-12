@@ -52,7 +52,7 @@ export async function validateDepartments(
             member,
             profile,
           )),
-        "Uma pessoa do setor não está autorizada neste perfil.",
+        "Uma pessoa do setor não está autorizada nesta área de atendimento.",
       );
   }
 }

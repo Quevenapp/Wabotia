@@ -28,7 +28,7 @@ export async function hermesRequest(
     : keys.dashboard_token;
   requireValue(
     token,
-    `Configure a chave ${api ? "API_SERVER_KEY do perfil " + profile : "do backend administrativo"} do Hermes.`,
+    `Configure a chave ${api ? "API_SERVER_KEY de " + profile : "do backend administrativo"} do Hermes.`,
   );
   const prefix =
     api && profile && profile !== "default"
@@ -80,7 +80,7 @@ export async function hermesArtifact(
     keys = await secret(env, `connection:${connection.id}`);
   requireValue(
     keys.profile_keys?.[profile],
-    "Configure a API_SERVER_KEY do perfil Hermes.",
+    "Configure a API_SERVER_KEY do bot no Hermes.",
   );
   const prior = await one(
     env,
@@ -196,7 +196,7 @@ export async function discover(env: Env, id: string, profile: string) {
   const remoteProfiles = Object.keys(keys.profile_keys || {});
   requireValue(
     remoteProfiles.length <= 20,
-    "Use no máximo 20 perfis por conexão Hermes.",
+    "Use no máximo 20 bots por conexão Hermes.",
   );
   await Promise.all(
     remoteProfiles.map(async (remote) => {
@@ -217,7 +217,7 @@ export async function discover(env: Env, id: string, profile: string) {
   );
   requireValue(
     Object.keys(checks).length,
-    "Configure pelo menos uma API_SERVER_KEY de perfil.",
+    "Configure a API_SERVER_KEY de pelo menos um bot no Hermes.",
   );
   await exec(
     env,
@@ -281,7 +281,7 @@ export async function probe(
     const account = found.find((a: any) => a.account_id === cfg.account_id);
     requireValue(
       account && account.number === cfg.number,
-      "A Zernio não confirmou este telefone no perfil informado.",
+      "A Zernio não confirmou este telefone na integração informada.",
     );
     details = {
       account_id: account.account_id,
