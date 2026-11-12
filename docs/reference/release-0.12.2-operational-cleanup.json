@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-12T16:11:27.383Z",
+  "version": "0.12.2",
+  "removed_legacy_integrations": 2,
+  "remaining_zernio_integrations": 1,
+  "removed_via_authenticated_api": true,
+  "audit_recorded": true,
+  "temporary_session_revoked": true,
+  "zernio_credentials_preserved": true,
+  "history_preserved": true,
+  "provider_error": {
+    "http": 404,
+    "code": "profile_not_found",
+    "cause": "Account ID entered in Profile ID field"
+  },
+  "external_messages_sent": false,
+  "meta_authorization_performed": false
+}

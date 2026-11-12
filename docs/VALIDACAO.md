@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.12.2 de 12/11/2026: exclusão de integrações e diagnóstico Zernio
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `dfa22b734d6816a0d5d11ca320d3ca4a78639e8f`. **Excluir integração** remove cadastros locais Meta ou Zernio sem telefones, preservando o histórico. Grupos desativados sem vínculos são limpos atomicamente; vínculos ativos ou históricos bloqueiam a exclusão. O painel atualiza a seleção depois da remoção e libera nova tentativa manual após rejeições definitivas, sem repetir operações automaticamente.
+
+Erros Zernio apresentam mensagem, código e campo retornados pelo provedor, com ocultação de credenciais. Timeout, falhas 5xx e operações sem confirmação continuam tratados como resultado incerto. A suíte geral passou com **320 testes em 26 arquivos**; após reforçar a ocultação de credenciais em mensagens com HTML, passaram os **34 testes** focados de normalização e adaptador. TypeScript, build e empacotamento passaram. A interface foi conferida em desktop e 390 × 844, incluindo erro 400 seguido de nova tentativa manual, barreira 409 na exclusão, seleção atualizada e descarte de formulário de uma integração removida.
+
+Backups D1/R2 completos precederam a publicação. Não houve migrações novas; dez tabelas e os bindings ficaram idênticos durante o deploy. O catálogo mantém as 15 versões anteriores e oferece o pacote 0.12.2 com SHA-256 conferido. Uma instalação temporária recebeu 0.12.1 e atualizou pelo próprio atualizador para 0.12.2: **85 verificações** passaram, incluindo preservação de dados, mídia, permissões e exclusão de integrações sintéticas. Worker, D1, R2 e Durable Object temporários foram removidos e sua ausência foi confirmada. Evidências: [distribuição](reference/release-0.12.2-distribution.json), [operacional](reference/release-0.12.2-operational.json) e [atualizador](reference/release-0.12.2-upgrade.json).
+
+Após verificar a preservação, os dois cadastros Meta operacionais sem telefones foram removidos pela API autenticada, com auditoria. A comparação confirmou histórico e credenciais Zernio preservados. Um teste de **Conectar WhatsApp** revelou `profile_not_found` (HTTP 404): o Account ID de um telefone havia sido informado no campo Profile ID. Não houve envio de mensagens nem autorização adicional na Meta.
+
 ## Publicação 0.12.1 de 12/11/2026: ajuda das credenciais Zernio
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `59bd2add2a8ea72ffc516958eac61bbd2e56f007`. A tela **Integração Zernio** mostra links e instruções junto de API key, ID da integração e segredo de assinatura. O painel explica os campos técnicos **Profile ID** e **Account ID**, a exibição única da API key e o uso do mesmo segredo nos dois sistemas. Após salvar, há um link direto para cadastrar a URL em Webhooks da Zernio.
