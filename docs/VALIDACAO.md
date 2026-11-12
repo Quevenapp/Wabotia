@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.12.4 de 12/11/2026: importar somente telefones existentes na Zernio
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `9ea8dfee3595f217d930964895b552dd73744bd1`. O fluxo de autorização do telefone pela Meta foi retirado do Wabotia. Painel, assistente e guias agora orientam **API key → Encontrar ID → Buscar telefones → Adicionar ao Wabotia**, usando telefones já cadastrados na Zernio. Webhooks e operação das linhas permanecem disponíveis.
+
+A rota antiga `POST /router/accounts/{id}/connect` responde `410 zernio_connect_removed` após validar autenticação, administrador e área, antes de consultar recibos ou credenciais. Isso impede reproduzir uma URL de autorização salva em um recibo antigo. A operação deixou o OpenAPI e o bundle web não contém mais botão, handler ou redirecionamento OAuth. **356 testes em 27 arquivos**, TypeScript, build e empacotamento passaram. QA desktop/mobile confirmou busca e importação preservadas, sem chamada de conexão ou overflow.
+
+Backups D1/R2 completos precederam a publicação. Não houve migrações novas; dez tabelas e os bindings permaneceram idênticos nos dois ambientes. O catálogo oferece 0.12.4 com SHA-256 verificado e preserva as 17 versões anteriores. A instalação temporária atualizou de 0.12.3 para 0.12.4 na primeira tentativa e passou **86 verificações**: hashes exatos de 16 tabelas, três credenciais cifradas, mídia, bindings e recibo legado preservados. O teste reproduziu um recibo OAuth cifrado na versão anterior e confirmou sua recusa com a mesma chave após a atualização, sem acesso ao provedor. Todos os recursos temporários foram removidos e a ausência foi conferida. Evidências: [distribuição](reference/release-0.12.4-distribution.json), [operacional](reference/release-0.12.4-operational.json) e [atualizador](reference/release-0.12.4-upgrade.json).
+
+A inspeção visual operacional confirmou somente a integração Zernio, **Encontrar ID**, **Buscar telefones** e o telefone anteriormente descoberto com qualidade GREEN e opção de adicionar. Nenhuma importação, ativação, alteração de credencial ou chamada ao provedor foi realizada durante essa inspeção.
+
 ## Publicação 0.12.3 de 12/11/2026: identificação da integração pela chave salva
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `8e232b09f316f6c6248b635b342f87ffe9e46bfa`. **Encontrar ID na Zernio** consulta as integrações acessíveis pela chave salva, reconhece um Account ID informado por engano e permite escolher pelo nome antes de aplicar. A correção revalida o acesso, impede duplicidade e vínculos com telefones ou grupos, preservando credenciais, ID local e webhook. Novos cadastros podem deixar o ID vazio e identificá-lo depois de salvar; conectar e buscar telefones ficam bloqueados até concluir essa etapa.
