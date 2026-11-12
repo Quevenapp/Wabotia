@@ -71,7 +71,7 @@ export async function validateLineIds(
     requireValue(
       await one(
         env,
-        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('meta','qr','hermes-whatsapp')",
+        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp')",
         id,
         profile,
       ),
@@ -86,7 +86,7 @@ export async function listLines(env: Env, actor: Actor, profile: string) {
   );
   const rows = await all(
     env,
-    "SELECT id,name,kind,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('meta','qr','hermes-whatsapp') ORDER BY name,id",
+    "SELECT id,name,kind,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY name,id",
     profile,
   );
   return {
@@ -108,7 +108,7 @@ export async function saveLine(
   access(actor, profile, "conversations:write");
   const row = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('meta','qr','hermes-whatsapp')",
+    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp')",
     data.id,
     profile,
   );
@@ -380,7 +380,8 @@ export async function sendMenu(
       c.connection_id,
     );
     requireValue(
-      line?.kind !== "meta" || now() - c.last_customer < 86400000,
+      !["meta", "zernio"].includes(line?.kind) ||
+        now() - c.last_customer < 86400000,
       "O cliente precisa enviar mensagem para este mesmo número nas últimas 24 horas.",
     );
   }
@@ -415,7 +416,7 @@ export async function sendMenu(
     items,
     parent?.label || "Como podemos ajudar?",
     token,
-    connection?.kind === "meta" && c.chat_type !== "group",
+    ["meta", "zernio"].includes(connection?.kind) && c.chat_type !== "group",
     !!menuId,
   );
   // Use the person's own authorization for a manual send. Bot menus retain the

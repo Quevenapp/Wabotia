@@ -471,7 +471,7 @@ export function SetupWizard({
             </header>
             {step === 0 && (
               <>
-                <h3>Traga os números da sua conta Meta</h3>
+                <h3>Traga os números da sua conta Zernio</h3>
                 <p>
                   Uma conta reúne os números do WhatsApp da empresa. O Wabotia
                   recebe as mensagens e encaminha cada conversa para o
@@ -479,14 +479,15 @@ export function SetupWizard({
                 </p>
                 <ol className="setup-instructions">
                   <li>
-                    Prepare a conta e o aplicativo seguindo o guia da Meta.
+                    Prepare sua API key, Profile ID e segredo de webhook na
+                    Zernio.
                   </li>
                   <li>
                     Cadastre a conta no Wabotia e configure o endereço de
                     recebimento de mensagens mostrado na tela.
                   </li>
                   <li>
-                    Use <strong>Buscar números na Meta</strong> e adicione os
+                    Use <strong>Buscar números na Zernio</strong> e adicione os
                     números que deseja usar.
                   </li>
                   <li>
@@ -508,11 +509,11 @@ export function SetupWizard({
                   </Action>
                   <a
                     className="text-link"
-                    href="/install#meta-whatsapp"
+                    href="/install#zernio-whatsapp"
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Ver o guia da Meta ↗
+                    Ver o guia da Zernio ↗
                   </a>
                 </div>
                 <details className="setup-detail">

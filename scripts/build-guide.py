@@ -15,8 +15,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import A4
 ROOT=Path(__file__).resolve().parents[1]
-META_ONLY='--meta-only' in sys.argv
-OUT=ROOT/('output/pdf/wabotia-meta-whatsapp.pdf' if META_ONLY else 'output/pdf/wabotia-instalacao.pdf'); OUT.parent.mkdir(parents=True,exist_ok=True)
+WHATSAPP_ONLY='--zernio-only' in sys.argv or '--meta-only' in sys.argv
+OUT=ROOT/('output/pdf/wabotia-zernio-whatsapp.pdf' if WHATSAPP_ONLY else 'output/pdf/wabotia-instalacao.pdf'); OUT.parent.mkdir(parents=True,exist_ok=True)
 SHOTS=ROOT/'docs/screenshots'
 font_root=Path('/usr/share/fonts/truetype/dejavu')
 for name,file in [('Sans','DejaVuSans.ttf'),('SansBold','DejaVuSans-Bold.ttf'),('Mono','DejaVuSansMono.ttf'),('Serif','DejaVuSerif.ttf')]:
@@ -75,8 +75,8 @@ steps(['Instale Node.js e npm no computador ou na VPS de onde vai publicar. O ro
 box('<b>Vai reinstalar?</b> Use um nome novo, como wabotia-atendimento. A instalação nova começa vazia e não importa o histórico antigo. Mantenha a anterior até conferir o novo painel. O roteiro de transição está na página 39.')
 p('O computador usado para instalar pode ser desligado depois. Hermes, QR e cloudflared precisam permanecer ligados no local onde executam os bots e canais.','sub')
 p('Agenda de contatos: cadastro, importação CSV e vínculo com conversas nas páginas 40 a 42.','small')
-p('Roteador Meta: números da sua conta, webhook único, contadores e modelos pagos autorizados nas páginas 50 a 54. A quantidade de linhas permitida é definida pela Meta.','small')
-p('Primeiro número na API oficial? Empresa, cadastro Meta, tokens e webhook: páginas 55 a 69. Também há um caderno separado no site.','small')
+p('Roteador Zernio: números do seu perfil, webhook único, contadores locais e modelos pagos autorizados nas páginas 50 a 54. Os limites externos dependem da Zernio e Meta.','small')
+p('Primeiro número pela Zernio? Consulte o capítulo WhatsApp com Zernio ao fim deste guia. A integração direta com a Meta foi substituída.','small')
 p('WhatsApp: atualização dos conectores, arquivos, voz, grupos, ligações e teste final nas páginas 43 a 49.','small')
 # Node.js before Cloudflare provisioning
 title(3,'Node.js: prepare o Ubuntu')
@@ -283,13 +283,13 @@ p('Se desativou a configuração da API, repita a preparação dentro do contêi
 table([['Sintoma','Ação'],['Connection refused','Iniciar gateway/backend e conferir portas.'],['502 na Cloudflare','Túnel não alcança a API. Execute --check local.'],['1033 / túnel offline','Ligar cloudflared; conferir token e internet.'],['401/403 ou login HTML','Conferir chaves, validade e política Service Auth.'],['Invalid Host','HTTP Host Header = 127.0.0.1:9119.'],['Perfil não executa','Conferir modelo/provedor e chave do perfil.']])
 p('Com dois OK locais e túnel Íntegro, volte ao Wabotia e teste a conexão. Computador/WSL precisam ficar ligados. O painel permanece disponível quando o Hermes está offline.','small')
 # 9
-title(26,'WhatsApp: Meta direto')
-p('Escolha este modo para receber a API oficial Meta diretamente no Worker. O Hermes é chamado pelas APIs nativas; não há plugin Wabotia nesse caminho.')
-steps(['Na Meta, prepare a aplicação WhatsApp Business e um número de teste. Separe o token, <b>Phone Number ID</b>, <b>WABA ID</b> e <b>App Secret</b>.','No Wabotia, abra <b>Conexões > Nova conexão</b> e escolha <b>WhatsApp · API oficial Meta</b>. Informe o número com DDI, somente dígitos, e os dados da etapa anterior.','Crie um <b>Verify Token</b> aleatório e preencha o campo. Salve a conexão.','Copie o webhook exibido no cartão da conexão. Na aplicação Meta, cadastre essa URL e o mesmo Verify Token. Assine os eventos <b>messages</b>.','Clique <b>Testar conexão</b>, ative o canal e use somente destinatários de teste autorizados na Meta.','Teste uma mensagem, a resposta pelo painel e um anexo. Só depois prepare o número de produção.'])
-code('https://SUA_URL/webhooks/meta/ID_DA_CONEXAO')
+title(26,'WhatsApp com Zernio')
+p('A Zernio intermedeia a API oficial do WhatsApp com a Meta. No Wabotia, informe as credenciais Zernio; o Hermes continua sendo chamado pelas APIs nativas.')
+steps(['Na Zernio, prepare um perfil e conecte seu número WhatsApp Business pelo cadastro guiado.','No Wabotia, abra <b>Conexões > Nova conexão</b> e escolha <b>WhatsApp · Zernio</b>. Informe número, ID do perfil Zernio e accountId do WhatsApp.','Preencha a chave API Zernio e um segredo para assinar o webhook. Salve a conexão.','Na Zernio, cadastre a URL exibida no Wabotia e o mesmo segredo. Assine message.received, message.sent, message.delivered, message.read, message.failed e reaction.received.','Clique <b>Testar conexão</b>, ative o canal e teste recebimento, resposta e anexo com um destinatário autorizado.'])
+code('https://SUA_URL/webhooks/zernio/ID_DA_CONEXAO')
 sub('Janela, consentimento e templates')
 p('Fora da janela de atendimento de 24 horas, esta versão permite notificações de protocolo somente com consentimento e template <b>UTILITY aprovado</b>. O corpo deve ter <b>{{1}}</b> para protocolo e <b>{{2}}</b> para andamento. Configure nome e idioma em Menus e preferências.')
-box('<b>Um número, um consumidor.</b> Antes de trocar entre Meta direto, QR ou Hermes, pause o antigo, pare o conector correspondente e confira as pendências em Entregas. Ative o novo modo somente depois da reconciliação.')
+box('<b>Um número, um consumidor.</b> Antes de trocar entre Zernio, QR ou Hermes, pause o antigo, pare o conector correspondente e confira as pendências em Entregas. Ative o novo modo somente depois da reconciliação.')
 p('A confirmação perdida de um envio pode produzir estado unknown. Confira no canal antes de autorizar nova tentativa: ela pode duplicar uma mensagem já recebida.','small')
 # 10
 title(27,'QR direto ou WhatsApp Hermes')
@@ -402,8 +402,8 @@ box('Um contato pode ser vinculado a várias conversas. O mesmo telefone não un
 p(link('Guia da agenda no site','https://wabotia.queven.app/install#agenda')+' · '+link('Baixar modelo CSV','https://wabotia.queven.app/modelo-contatos.csv'),'small')
 
 title(43,'Atualize o WhatsApp do Wabotia')
-p('A versão 0.5.0 acrescenta mídias nativas, voz gravada, grupos e ligações pela Meta. O painel na Cloudflare e o conector externo são atualizados separadamente. Preserve a sessão do WhatsApp e os diários de entrega.')
-steps(['Faça backup. No painel, abra <b>Sistema e atualizações > Verificar atualização > Atualizar Wabotia</b>. Espere a confirmação e reabra o painel. Não precisa reinstalar.','Se usa <b>Meta direto</b>, o código do canal já é atualizado com o Worker. Confira no aplicativo Meta os eventos assinados no webhook.','Se usa <b>QR direto</b>, pause a conexão, confira as entregas e pare o conector. Faça backup privado de .env e data/ (ou volume Docker). Atualize a cópia do repositório oficial e reinstale as dependências na pasta connectors/qr.','Se usa <b>WhatsApp pelo Hermes</b>, atualize o transporte e a extensão compatível com o gateway parado. O roteiro abaixo confere a versão antes de alterar arquivos. Preserve os perfis, bots e dados.'])
+p('O painel na Cloudflare e os conectores externos são atualizados separadamente. Preserve as sessões e os diários de entrega. A conexão oficial agora usa a Zernio; as antigas conexões diretas da Meta permanecem pausadas até a substituição.')
+steps(['Faça backup. No painel, abra <b>Sistema e atualizações > Verificar atualização > Atualizar Wabotia</b>. Espere a confirmação e reabra o painel.','Se usava <b>Meta direto</b>, cadastre a conta e o webhook Zernio conforme este guia. Reconcilie as entregas anteriores antes de ativar a nova linha.','Se usa <b>QR direto</b>, pause a conexão, confira as entregas e pare o conector. Faça backup privado de .env e data/ (ou volume Docker). Atualize a cópia do repositório oficial e reinstale as dependências na pasta connectors/qr.','Se usa <b>WhatsApp pelo Hermes</b>, atualize o transporte e a extensão compatível com o gateway parado. Preserve os perfis, bots e dados.'])
 table([['Seu modo','Depois de atualizar o código'],['QR com Node.js','Na pasta connectors/qr: npm ci e npm start. Use a mesma pasta de dados e as mesmas credenciais.'],['QR com Docker','docker compose stop; faça backup; atualize o código; docker compose up -d --build. Não use down -v.'],['Pelo Hermes','Siga o roteiro específico; não aplique patches à força nem substitua o perfil inteiro.']])
 p(link('Roteiro de atualização QR','https://github.com/Quevenapp/Wabotia/blob/main/connectors/qr/README.md#atualizar-sem-perder-a-sessão')+'<br/>'+link('Roteiro de atualização Hermes','https://github.com/Quevenapp/Wabotia/blob/main/connectors/hermes/README.md#atualização-050'))
 box('O botão do painel não atualiza o computador/VPS. Reative a conexão somente após atualizar o conector. Não execute duas cópias para o mesmo número. Se não souber qual processo usa, confira Conexões antes de prosseguir.')
@@ -415,7 +415,7 @@ steps(['Em <b>Conversas</b>, abra o atendimento e clique <b>Assumir conversa</b>
 title(45,'Áudio e limites dos arquivos')
 sub('Grave uma mensagem de voz')
 steps(['Assuma a conversa e clique <b>Gravar áudio</b>. Permita o microfone no navegador. Use o painel em HTTPS.','Grave por até dois minutos e clique em parar. Ouça a prévia. Você pode descartar antes de enviar.','Clique <b>Enviar</b>. A gravação é preparada em OGG/Opus, formato compatível com voz no WhatsApp.'])
-table([['Conteúdo','Limites de envio'],['Foto','Meta: JPG/PNG até 5 MB. QR direto: até 20 MB.'],['Vídeo','Meta: MP4/3GP até 16 MB, H.264/AAC. QR direto: até 100 MB; prefira MP4 compatível.'],['Áudio e voz','Meta até 16 MB; voz em OGG/Opus. QR: arquivo de áudio até 100 MB, voz até 16 MB.'],['Documento','Até 100 MB. Na Meta, use PDF, TXT ou formatos Office aceitos.'],['Figurinha','WebP 512 x 512 pixels. Meta: estática até 100 KB, animada até 500 KB. QR: até 1 MB.']])
+table([['Conteúdo','Limites de envio'],['Foto','Zernio: JPG/PNG até 5 MB. QR direto: até 20 MB.'],['Vídeo','Zernio: MP4/3GP até 16 MB, H.264/AAC. QR direto: até 100 MB; prefira MP4 compatível.'],['Áudio e voz','Zernio até 16 MB; voz em OGG/Opus. QR: arquivo de áudio até 100 MB, voz até 16 MB.'],['Documento','Até 100 MB. Na Zernio, use PDF, TXT ou formatos Office aceitos.'],['Figurinha','Envio indisponível pela Zernio nesta integração. QR: WebP 512 x 512 pixels até 1 MB.']])
 p('O upload Wabotia aceita até 100 MB, mas o canal pode aceitar menos. Não há conversão automática de vídeo/documento. O formato e o codec ainda precisam ser aceitos pelo WhatsApp. O transporte Hermes pode oferecer menos funções, conforme o adaptador instalado.','small')
 sub('Outras ações da mensagem')
 p('Reaja pelo ícone de rosto. Editar e Apagar aparecem quando o canal permite; a Meta não oferece essas ações neste fluxo. No QR, edição de texto tem limite local de 15 minutos. Localização e Compartilhar contato estão no seletor de conteúdo.')
@@ -427,23 +427,18 @@ steps(['Abra <b>Grupos WhatsApp</b>, selecione a conexão QR e use <b>Buscar gru
 box('<b>Meta tem regras diferentes:</b> grupos empresariais exigem conta oficial elegível, têm até oito participantes na referência consultada e entrada por convite. Não acessam todos os grupos pessoais. Sem ligações, editar/apagar ou interativos no grupo Meta.')
 p('Pelo Hermes, configure também a política normal de grupos dele. Mensagens podem ser filtradas antes de chegar ao Wabotia. O transporte não oferece administração completa de grupos. Grupos não são salvos como uma pessoa na agenda.','small')
 
-title(47,'Prepare ligações pela Meta')
-p('Ligações ao vivo usam <b>WhatsApp direto pela Meta</b> e o microfone do navegador. Não funcionam pelo QR nem pelo transporte Hermes. Videochamadas não são oferecidas.')
-steps(['Na sua conta Meta, confirme que o número tem acesso à <b>Calling API</b>. A referência de produção consultada exige nível de mensagens de pelo menos 2.000 destinatários únicos por dia, país/número elegível e permissões do token. A Meta define a elegibilidade final.','No aplicativo Meta, abra a configuração de webhooks do WhatsApp. Use a mesma URL de conexão exibida no Wabotia. Assine <b>calls</b>, além de <b>messages</b>. Mantenha o segredo do aplicativo cadastrado para validar a assinatura.','No Wabotia, abra <b>Conexões</b>. Na conexão Meta, clique <b>Habilitar ligações de voz</b>. Aguarde o resultado. Se houver recusa, confira as permissões e a elegibilidade na Meta.','Abra uma conversa individual e clique <b>Assumir conversa</b>. Use <b>Verificar permissão</b> para consultar a autorização e os limites atuais.','Se necessário, clique <b>Pedir permissão</b>. O cliente recebe uma solicitação e precisa autorizar. Para esse pedido, a janela de atendimento deve estar aberta por uma mensagem recente dele.'])
-box('Permissão de enviar mensagens não é permissão para ligar. Não basta habilitar o botão no painel: a Meta precisa liberar o número e o cliente precisa autorizar a ligação iniciada pela empresa. Cobranças e limites Meta continuam aplicáveis.')
-sub('Deixe o navegador pronto')
-p('Use HTTPS, permita o microfone e confira o dispositivo de áudio do computador. Firewall ou VPN podem impedir WebRTC. O áudio passa entre navegador e Meta; não é gravado nem armazenado pelo Wabotia. O modo de ligação deste painel usa WebRTC com SIP desativado.')
-p(link('Requisitos oficiais da Calling API','https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/')+'<br/>'+link('Permissão do cliente','https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-call-permissions/'),'small')
+title(47,'Ligações e recursos disponíveis')
+p('Nesta integração, o Wabotia oferece mensagens, mídias e recibos pela Zernio. Ligações ao vivo no navegador não estão implementadas. O histórico de ligações anteriores permanece disponível.')
+box('A Zernio possui recursos próprios de voz, mas eles não equivalem ao antigo WebRTC direto da Meta. Confira os recursos disponíveis no cartão da conexão; não tente reativar a integração antiga.')
+p(link('Documentação de voz Zernio','https://docs.zernio.com/platforms/whatsapp/calling'),'small')
 
-title(48,'Atenda, ligue e encerre')
-shot('28-whatsapp-ligacoes.jpg','Chamada recebida simulada. Os botões são reais, mas não há ligação com um número nesta imagem.',width=CW)
-steps(['Para ligar, assuma a conversa, confirme a autorização e clique <b>Ligar</b>. Permita o microfone quando o navegador solicitar.','Quando o cliente ligar, o painel mostra um aviso e o menu <b>Ligações</b>. Abra a conversa e clique <b>Atender com microfone</b> ou <b>Recusar</b>. Apenas um responsável pode assumir.','Use o controle de áudio e Silenciar microfone quando necessário. Ao terminar, clique <b>Encerrar</b>. O histórico fica na conversa e no menu Ligações.','Mantenha a conversa aberta. Sair dela fecha o áudio e solicita encerramento. Se o navegador cair, o servidor solicita encerramento depois de aproximadamente 90 segundos sem presença.'])
-box('Se aparecer <b>Sem confirmação</b>, aguarde a atualização do provedor. Use <b>Confirmar encerramento</b> somente depois de conferir no WhatsApp que a chamada acabou. Esse botão corrige o registro; não desliga uma chamada ainda ativa.')
-p('O Wabotia não liga novamente por conta própria depois de uma falha de rede. Não abre ligação em grupo nem videochamada. Faça o teste completo com seu número antes de atender clientes.','small')
+title(48,'Excluir um telefone')
+steps(['Abra <b>Conexões</b> ou <b>Linhas</b> e localize o telefone.','Conclua ou reconcilie envios já iniciados, ligações anteriores e operações de grupos sem confirmação.','Clique <b>Excluir telefone</b> e confira a confirmação. A exclusão cancela mensagens e operações ainda na fila, remove a conexão e suas credenciais locais.','Mensagens, conversas e protocolos permanecem no histórico. Os atendimentos daquela linha são encerrados. Para voltar a atender, conecte novamente e inicie uma nova conversa.'])
+box('Excluir no Wabotia não desconecta nem remove a conta WhatsApp na Zernio. Se desejar encerrar também a conexão no provedor, faça isso na Zernio depois de conferir suas pendências.')
 
 title(49,'Teste com seu número real')
 p('Os testes automatizados conferem as regras usando serviços simulados. Esta etapa confirma seu número, o conector, a rede e as permissões reais. Use destinatários e grupo de teste autorizados.')
-table([['Teste','O que conferir'],['Mídias','Receba e envie foto, vídeo MP4, documento e áudio. Grave voz no painel e ouça nos dois lados.'],['Ações','Cite e reaja; confira recibos. No QR, edite/apague uma mensagem enviada.'],['Reconexão','Desligue e religue o QR. Confira mensagens recebidas enquanto ficou offline, sem duplicação.'],['Grupos','Participantes separados, menção, /bot, IA desligada e restrições de administrador.'],['Voz Meta','Permissão negada/concedida; ligar, atender, recusar, silenciar e encerrar. Confira recuperação ao fechar o navegador.'],['Responsabilidade','Assuma durante resposta da IA. Nenhuma resposta antiga deve ser enviada depois.'],['API externa','Chave sem permissão recusada; mesma intenção repetida sem duplicar; webhook validado e deduplicado.']])
+table([['Teste','O que conferir'],['Mídias','Receba e envie foto, vídeo MP4, documento e áudio. Grave voz no painel e ouça nos dois lados.'],['Ações','Cite e reaja; confira recibos. No QR, edite/apague uma mensagem enviada.'],['Reconexão','Desligue e religue o QR. Confira mensagens recebidas enquanto ficou offline, sem duplicação.'],['Grupos','Confira as capacidades do canal antes de testar participantes e automação.'],['Ligações','Somente histórico nesta integração; não tente iniciar chamadas ao vivo no navegador.'],['Responsabilidade','Assuma durante resposta da IA. Nenhuma resposta antiga deve ser enviada depois.'],['API externa','Chave sem permissão recusada; mesma intenção repetida sem duplicar; webhook validado e deduplicado.']])
 p('Anote a versão Wabotia, versão Hermes/conector, modo WhatsApp, data e resultado. <b>Na fila não é prova de entrega.</b> Não marque uma função como homologada apenas porque a simulação passou.')
 sub('Integrar com outro sistema')
 p('Cadastre a aplicação em API e integrações. Selecione somente os perfis e permissões necessários. A API oferece mídias, grupos e chamadas, com chaves individuais. O sistema integrador protege a chave no seu servidor; para voz ele também precisa de um cliente WebRTC.')
@@ -451,32 +446,32 @@ p(link('Guia completo WhatsApp','https://wabotia.queven.app/install#whatsapp-rec
 box('Você pode manter o painel disponível enquanto Hermes/QR estão desligados. Os bots dependem do Hermes ligado; o canal QR depende do seu conector. Cada número deve ter apenas um consumidor ativo.')
 
 title(50,'Seus números, uma entrada')
-p('O <b>Roteador de números</b> conecta os telefones da mesma conta empresarial WhatsApp, chamada WABA, usando <b>Meta direto no Worker</b>. A quantidade permitida é definida pela Meta, sem limite fixo de linhas no Wabotia. QR e transporte Hermes continuam separados; não é preciso alterar o Hermes para usar este recurso.')
-steps(['Faça backup. Em <b>Sistema e atualizações</b>, clique <b>Verificar atualização</b> e <b>Atualizar Wabotia</b>. Aguarde a confirmação e reabra o painel.','Selecione o perfil e abra <b>Roteador de números</b>. Prepare a conta Meta, o webhook, os números e um grupo conforme as próximas páginas.'])
+p('O <b>Roteador de números</b> conecta os telefones de um perfil Zernio. A Zernio intermedeia a integração com a Meta. QR e transporte Hermes continuam separados; não é preciso alterar o Hermes para usar este recurso.')
+steps(['Faça backup e atualize o Wabotia pelo painel.','Selecione o perfil e abra <b>Roteador de números</b>. Prepare a conta Zernio, o webhook, os números e um grupo conforme as próximas páginas.'])
 sub('Atendimento e modelos pagos são diferentes')
 table([['Tipo','Como funciona'],['Atendimento','O cliente falou com este mesmo número nas últimas 24 horas. O roteador respeita um teto local de até 1.000 mensagens por número/mês.'],['Modelo pago','Use modelo aprovado pela Meta, autorização explícita naquele envio e prova de consentimento na mesma categoria. A aplicação e a origem também precisam permitir pagos.'],['Novos contatos','O link público do grupo abre o WhatsApp num número ativo com saldo. O cliente inicia a conversa; o link sozinho não envia mensagem.'],['Conversa em andamento','Mantém o remetente original. Fim de cota, pausa ou falha não fazem o sistema enviar por outro número.']])
 box('A janela de 24 horas pertence ao cliente e ao número com que ele falou. <b>Saldo em outro telefone não transfere essa janela.</b> O Wabotia não converte atendimento ou notificação automática de um número do roteador em modelo pago.')
-p('O FAQ Meta consultado em 06/11/2026 informa que as primeiras 1.000 mensagens de atendimento por número empresarial/mês são gratuitas desde 01/10/2026. Modelos têm regras próprias de cobrança. Confirme as condições da sua conta. O contador local não substitui a fatura Meta.','small')
-p(link('FAQ oficial da Meta','https://whatsappbusiness.com/resources/faq/')+' · '+link('Guia do roteador no site','https://wabotia.queven.app/install#roteador'),'small')
+p('O contador local é uma estimativa para limitar e distribuir envios. Ele não garante gratuidade nem substitui as faturas da Zernio e Meta. Confira os preços e as condições da sua conta.','small')
+p(link('Preços e custos WhatsApp na Zernio','https://docs.zernio.com/platforms/whatsapp/pricing')+' · '+link('Guia do roteador no site','https://wabotia.queven.app/install#roteador'),'small')
 
-title(51,'Cadastre a WABA e o webhook')
-shot('30-router-conta.jpg','Tela de referência com dados fictícios. Os campos protegidos ficam vazios ao editar para manter os valores atuais.',width=CW)
-steps(['Na Meta, tenha uma <b>WABA</b> com os números habilitados na Cloud API. O Wabotia não compra nem registra números.','Separe <b>WABA ID</b>, <b>token Meta</b> com acesso à conta/números e <b>App Secret</b> do aplicativo. Escolha também um <b>Verify Token</b>, que será colocado igual nos dois lados.','No Wabotia, abra <b>Cadastrar ou editar a conta Meta</b>. Preencha nome, WABA ID, fuso igual ao da conta Meta e os três campos protegidos. Salve e aguarde a confirmação.','Copie <b>Webhook único desta conta</b>. No aplicativo Meta, procure <b>WhatsApp > Configuração > Webhook</b>. Cole a URL e o mesmo Verify Token, verifique e salve.','Assine <b>messages</b> e confirme que a WABA está inscrita nesse aplicativo. Ligações e grupos precisam também dos eventos próprios. Use uma única URL para os números desta conta.'])
-box('Use o endereço da <b>sua instalação</b>. Não copie o endereço 127.0.0.1 da imagem: ele é apenas do teste local. O App Secret confere a assinatura dos eventos. Evite outro sistema respondendo ao mesmo tempo pelo mesmo número.')
-p('O token Meta precisa permitir consultar WABA/modelos e enviar pelos números. Ele é diferente da chave de integração Wabotia, da senha de login e das chaves Cloudflare. Na edição, campo de segredo vazio preserva o valor anterior.','small')
+title(51,'Cadastre a Zernio e o webhook')
+steps(['Crie um perfil na Zernio. Separe o ID do perfil e sua chave API.','No Wabotia, cadastre a conta com nome, ID do perfil Zernio, fuso, chave API e segredo do webhook.','Use <b>Conectar WhatsApp</b> para abrir o cadastro guiado pela Zernio. Ao voltar ao Wabotia, busque os números conectados.','Na Zernio, cadastre o webhook único da conta exibido no Wabotia, com o mesmo segredo e os eventos de mensagens, recibos e reações.'])
+code('https://SUA_URL/webhooks/zernio-accounts/ID_DA_CONTA_LOCAL')
+box('Use o endereço da sua instalação. A assinatura é validada com o segredo do webhook Zernio. Evite outro sistema respondendo simultaneamente pelo mesmo número.')
+p('A chave API Zernio é diferente da chave de integração Wabotia, da senha de login e das chaves Cloudflare. Na edição, omita os segredos para mantê-los.','small')
 
 title(52,'Números e contadores')
 shot('29-router-contadores.jpg','Dois números e consumos fictícios. O uso inclui reservas; mensagens pagas e cobrança não informada aparecem separadas.',width=CW)
-steps(['Clique <b>Buscar números na Meta</b> e escolha um número encontrado. Dê um nome para reconhecê-lo.','Confira na Meta as mensagens de atendimento já usadas neste mês. Informe o consumo inicial e o teto local, no máximo <b>1.000</b>. Zero somente se não houve uso.','Confirme o uso e o fuso, depois clique <b>Adicionar ao roteador</b>. O número entra pausado. Confira o webhook e clique <b>Ativar</b>. Repita para os demais números habilitados na sua conta Meta.','Se o número já está em Conexões, pause-o, reconcilie filas desconhecidas e aguarde os comprovantes das entregas anteriores. Seu histórico é preservado.'])
+steps(['Clique <b>Buscar números na Zernio</b> e escolha um número encontrado. Dê um nome para reconhecê-lo.','Confira o consumo já conhecido neste mês. Informe o consumo inicial e o limite local, no máximo <b>1.000</b>. Esse limite não corresponde a uma promessa de gratuidade.','Confirme o uso e o fuso, depois clique <b>Adicionar ao roteador</b>. O número entra pausado. Confira o webhook e clique <b>Ativar</b>. Repita para os demais números do perfil Zernio.','Se o telefone estava em outra conexão, pause-a e reconcilie entregas antes de cadastrar. Use Excluir telefone para remover a conexão antiga preservando o histórico.'])
 sub('Leia o uso protegido')
 p('<b>Uso = histórico inicial do mês + entregas de atendimento + reservas.</b> Envios humanos, bots e API compartilham a contagem. Falha definitiva ou cancelamento antes do envio libera a reserva. Sem confirmação mantém a reserva, inclusive na mudança de mês.')
 box('O mês segue o fuso da conta. Recibos repetidos não somam novamente. Envios feitos fora do Wabotia só aparecem se os recibos chegarem ao webhook; pode haver atraso. <b>Confira também o WhatsApp Manager.</b> Cobrança não informada não significa gratuito.')
 
 title(53,'Grupo e programas autorizados')
 shot('31-router-grupo.jpg','Grupo fictício com sorteio, link de entrada e permissão para pedidos pagos. O envio ainda exige autorização individual.',width=CW)
-steps(['Abra <b>Criar grupo de roteamento</b>, informe um nome e selecione os números da mesma conta Meta.','Escolha <b>Menor consumo</b>, <b>Em sequência</b> ou <b>Aleatório entre os disponíveis</b>. A escolha vale para novos atendimentos; o remetente depois fica vinculado.','Ative o grupo. Marque <b>Criar link público</b> para divulgar uma entrada única. Para modelos pagos, marque a permissão específica. Salve.','Copie o link público para novos clientes iniciarem contato. Copie o ID do grupo para o seu programa integrador. Um número em vários grupos mantém um só contador.','Em <b>API e integrações</b>, crie a aplicação e sua chave com acesso ao perfil. Em <b>Autorizar programas externos</b>, selecione a aplicação, seus números diretos ou grupos e salve.'])
+steps(['Abra <b>Criar grupo de roteamento</b>, informe um nome e selecione os números da mesma conta Zernio.','O rodízio prioriza números com saldo no contador local. A escolha vale para novos atendimentos; o remetente depois fica vinculado.','Ative o grupo. Marque <b>Criar link público</b> para divulgar uma entrada única. Para modelos pagos, marque a permissão específica. Salve.','Copie o link público para novos clientes iniciarem contato. Copie o ID do grupo para o seu programa integrador. Um número em vários grupos mantém um só contador.','Em <b>API e integrações</b>, crie a aplicação e sua chave com acesso ao perfil. Em <b>Autorizar programas externos</b>, selecione a aplicação, seus números diretos ou grupos e salve.'])
 box('Autorizar um grupo inclui seus membros atuais e futuros. Escolher um número diretamente exige a permissão individual. Ativar modelos pagos nessa tela <b>não autoriza envios automaticamente</b>: cada pedido precisa da confirmação e do consentimento.')
-p('A chave da aplicação fica no servidor do programa integrador. Ela não deve aparecer no navegador dos clientes. As credenciais Meta permanecem protegidas no Wabotia.','small')
+p('A chave da aplicação fica no servidor do programa integrador. Ela não deve aparecer no navegador dos clientes. As credenciais Zernio permanecem protegidas no Wabotia.','small')
 
 title(54,'Envio pago: confirme cada pedido')
 p('Para o programa integrador: faça <b>POST /api/v1/profiles/{perfil}/router/messages</b>, com chave Bearer e Idempotency-Key. Escolha <b>number_id</b> ou <b>pool_id</b>. Reutilize external_id para o mesmo cliente/atendimento e origem.')
@@ -486,19 +481,19 @@ table([['Resultado','O que fazer'],['202 / pending','O pedido entrou na fila. Gu
 p('Antes de atender clientes, teste os números reais: webhook de cada telefone, remetente escolhido/fixo, cota, modelo autorizado, recibos e repetição da mesma chave sem duplicar. Os testes do projeto usam dados fictícios; não substituem essa homologação.','small')
 p(link('Exemplos cURL, JavaScript e Python','https://github.com/Quevenapp/Wabotia/blob/main/docs/ROTEADOR.md')+' · '+link('Documentação interativa','https://wabotia.queven.app/api-docs'),'small')
 
-if META_ONLY:
+if WHATSAPP_ONLY:
     story=[]
-append_meta_chapter=runpy.run_path(str(ROOT/'scripts/meta-guide-pages.py'))['append_meta_chapter']
-append_meta_chapter(p,title,sub,steps,code,box,table,shot,link,1 if META_ONLY else 55)
+append_zernio_chapter=runpy.run_path(str(ROOT/'scripts/zernio-guide-pages.py'))['append_zernio_chapter']
+append_zernio_chapter(p,title,sub,steps,code,box,table,shot,link,1 if WHATSAPP_ONLY else 55)
 
 def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)
     c.setFillColor(GREEN);c.rect(0,H-8,W,8,fill=1,stroke=0)
     c.setStrokeColor(LINE);c.line(M,39,W-M,39)
-    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  '+('WhatsApp: do chip à API' if META_ONLY else 'Instalação na Cloudflare')+'  |  06/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
+    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  '+('WhatsApp com Zernio' if WHATSAPP_ONLY else 'Instalação na Cloudflare')+'  |  10/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
 class NumberedCanvas(canvas.Canvas):
-    def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - WhatsApp: do chip à API' if META_ONLY else 'Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Cadastro Meta e conexão WhatsApp ao Wabotia' if META_ONLY else 'Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
-doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - WhatsApp: do chip à API' if META_ONLY else 'Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
+    def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - WhatsApp com Zernio' if WHATSAPP_ONLY else 'Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Conexão WhatsApp pela Zernio' if WHATSAPP_ONLY else 'Instalação Cloudflare e conexão Hermes, WhatsApp, Telegram e API')
+doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - WhatsApp com Zernio' if WHATSAPP_ONLY else 'Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
 doc.build(story,onFirstPage=on_page,onLaterPages=on_page,canvasmaker=NumberedCanvas)
 public=ROOT/'public/guide'/OUT.name;public.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(OUT,public)
 print(OUT)

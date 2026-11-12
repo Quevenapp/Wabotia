@@ -19,8 +19,6 @@ import {
   expireUploads,
 } from "../src/media";
 import { finishDelivery } from "../src/delivery";
-import { metaMedia, metaContent } from "../src/integrations";
-import { metaInbound } from "../src/meta-inbound";
 import { processInbox, deliverWebhook } from "../src/engine";
 import { callCommand, callWebhook, callView, expireCalls } from "../src/calls";
 import { setSecret, sha, hmac } from "../src/security";
@@ -357,7 +355,7 @@ it("nega chamadas QR e formatos/tamanhos incompatíveis antes de enviar", async 
       { conversation_id: qr.c.id, session: sdp },
       uid(),
     ),
-  ).rejects.toThrow("não oferece");
+  ).rejects.toMatchObject({ code: "unsupported_capability" });
   expect(() =>
     validateMedia({ type: "video/mp4", size: 17 * 1024 * 1024 }, "video", {
       kind: "meta",
@@ -468,229 +466,36 @@ it("reprodução privada suporta ranges válidos e bloqueia HTML inline", async 
   );
   expect(html.headers.get("Content-Disposition")).toContain("attachment");
 });
-it("Meta envia mídia como vídeo nativo por streaming, com citação e legenda", async () => {
-  const f = await seed("meta"),
-    id = await media(f.p, "video/mp4");
-  const sent: any[] = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(
-    async (_input: any, init: any) => {
-      sent.push(init);
-      if (sent.length === 1) {
-        expect(init.body).toBeInstanceOf(ReadableStream);
-        await new Response(init.body).arrayBuffer();
-        return Response.json({ id: "asset" });
-      }
-      return Response.json({ messages: [{ id: "native-video" }] });
-    },
-  );
-  expect(
-    await metaMedia(env, f.conn, f.c.external_id, id, {
-      text: "Vídeo",
-      content: { type: "video", reply_external_id: "quoted" },
-    }),
-  ).toBe("native-video");
-  expect(JSON.parse(sent[1].body)).toMatchObject({
-    type: "video",
-    video: { id: "asset", caption: "Vídeo" },
-    context: { message_id: "quoted" },
-  });
-});
-it("webhook Meta normaliza vídeo, grupo e status de participante", async () => {
-  const f = await seed("meta"),
-    events: any[] = [];
-  const id = (await sha(`${f.conn.id}:incoming:asset`)).slice(0, 32);
-  await env.MEDIA.put(f.p + "/" + id, "fake");
-  await exec(
-    env,
-    "INSERT INTO media VALUES(?,?,?,?,?,?,?,?)",
-    id,
-    f.p,
-    "video.mp4",
-    "video/mp4",
-    4,
-    f.p + "/" + id,
-    "transport",
-    now(),
-  );
-  const response = await metaInbound(
-    env,
-    f.conn,
-    {
-      entry: [
-        {
-          changes: [
-            {
-              value: {
-                metadata: { phone_number_id: "1234" },
-                contacts: [{ wa_id: "person", profile: { name: "Pessoa" } }],
-                messages: [
-                  {
-                    from: "person",
-                    id: "incoming",
-                    group_id: "group",
-                    type: "video",
-                    video: { id: "asset", caption: "Legenda" },
-                  },
-                ],
-                statuses: [
-                  {
-                    id: "out",
-                    recipient_id: "group",
-                    recipient_participant_id: "person",
-                    status: "read",
-                    timestamp: "10",
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    },
-    async (data) => {
-      events.push(data);
-      return Response.json({ ok: true });
-    },
-  );
-  expect(response.ok).toBe(true);
-  expect(events[0]).toMatchObject({ event: "status", participant: "person" });
-  expect(events[1]).toMatchObject({
-    chat_type: "group",
-    external_id: "group",
-    text: "Legenda",
-    content: { type: "video", participant_name: "Pessoa" },
-    attachments: [id],
-  });
-});
-it.each([200, 302])(
-  "download Meta no Workers preserva mídia ou rejeita redirecionamento (HTTP %i)",
-  async (status) => {
-    const f = await seed("meta"),
-      events: any[] = [];
-    const id = (await sha(`${f.conn.id}:download:asset`)).slice(0, 32);
-    const fetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async (input, init) => {
-        const request = new Request(input, init);
-        expect(request.headers.get("Authorization")).toBe("Bearer fake-token");
-        expect(request.redirect).toBe("manual");
-        if (new URL(request.url).hostname === "graph.facebook.com")
-          return Response.json({
-            url: "https://lookaside.fbsbx.com/asset",
-            mime_type: "video/mp4",
-          });
-        expect(request.url).toBe("https://lookaside.fbsbx.com/asset");
-        return status === 200
-          ? new Response("sample", { headers: { "Content-Length": "6" } })
-          : new Response(null, {
-              status,
-              headers: { Location: "https://example.com/" },
-            });
-      });
-    await metaInbound(
-      env,
-      f.conn,
-      {
-        entry: [
-          {
-            changes: [
-              {
-                value: {
-                  metadata: { phone_number_id: "1234" },
-                  messages: [
-                    {
-                      from: "person",
-                      id: "download",
-                      type: "video",
-                      video: { id: "asset", caption: "Legenda" },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        ],
-      },
-      async (data) => {
-        events.push(data);
-        return Response.json({ ok: true });
-      },
-    );
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(events).toHaveLength(1);
-    const object = await env.MEDIA.get(f.p + "/" + id);
-    if (status === 200) {
-      expect(events[0].attachments).toEqual([id]);
-      expect(events[0].content.media_error).toBeUndefined();
-      expect(await object?.text()).toBe("sample");
-    } else {
-      expect(events[0].attachments).toEqual([]);
-      expect(events[0].content.media_error).toBe(true);
-      expect(object).toBeNull();
-    }
+it.each(["meta", "zernio"])(
+  "recusa ligações de navegador pelo canal %s sem chamar o provedor",
+  async (kind) => {
+    const f = await seed(kind),
+      network = vi.spyOn(globalThis, "fetch");
+    for (const op of [
+      "call.configure",
+      "call.start",
+      "call.permission",
+      "call.pre_accept",
+      "call.accept",
+      "call.reject",
+      "call.terminate",
+    ])
+      await expect(
+        callCommand(
+          env,
+          admin,
+          f.p,
+          op,
+          { id: f.conn.id, conversation_id: f.c.id, session: sdp },
+          uid(),
+        ),
+      ).rejects.toMatchObject({ code: "unsupported_capability", status: 422 });
+    expect(network).not.toHaveBeenCalled();
+    expect(
+      await all(env, "SELECT id FROM calls WHERE profile_id=?", f.p),
+    ).toHaveLength(0);
   },
 );
-it("chamada de saída exige permissão, registra incerteza e não repete a execução", async () => {
-  const f = await seed("meta");
-  let posts = 0;
-  vi.spyOn(globalThis, "fetch").mockImplementation(
-    async (_url: any, init: any) => {
-      if (init.method === "GET")
-        return Response.json({
-          permission: { status: "temporary" },
-          actions: [{ action_name: "start_call", can_perform_action: true }],
-        });
-      posts++;
-      throw Error("timeout");
-    },
-  );
-  const r = await callCommand(
-    env,
-    admin,
-    f.p,
-    "call.start",
-    { conversation_id: f.c.id, session: sdp },
-    uid(),
-  );
-  expect(r.status).toBe("unknown");
-  expect(posts).toBe(1);
-  await expect(
-    callCommand(
-      env,
-      admin,
-      f.p,
-      "call.start",
-      { conversation_id: f.c.id, session: sdp },
-      uid(),
-    ),
-  ).rejects.toThrow("anterior");
-  expect(posts).toBe(1);
-  expect(r.local_session).toBeUndefined();
-  expect(r.remote_session).toBeUndefined();
-});
-it("chamada sem autorização Meta é recusada antes de conectar", async () => {
-  const f = await seed("meta");
-  const mock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    Response.json({
-      permission: { status: "no_permission" },
-      actions: [{ action_name: "start_call", can_perform_action: false }],
-    }),
-  );
-  await expect(
-    callCommand(
-      env,
-      admin,
-      f.p,
-      "call.start",
-      { conversation_id: f.c.id, session: sdp },
-      uid(),
-    ),
-  ).rejects.toThrow("não autoriza");
-  expect(mock).toHaveBeenCalledTimes(1);
-  expect(
-    await all(env, "SELECT * FROM calls WHERE profile_id=?", f.p),
-  ).toHaveLength(0);
-});
 it("recepção de chamada tem dono único, SDP privado, evento deduplicado e fim definitivo", async () => {
   const f = await seed("meta");
   const hook = {
@@ -760,56 +565,7 @@ it("recepção de chamada tem dono único, SDP privado, evento deduplicado e fim
     ),
   ).toHaveLength(2);
 });
-it("preparação e aceitação da ligação usam a mesma sessão e desligamento respeita o dono", async () => {
-  const f = await seed("meta");
-  await callWebhook(env, f.conn, {
-    event: "call",
-    call: {
-      id: "in-" + uid(),
-      event: "connect",
-      direction: "USER_INITIATED",
-      from: "5511999993333",
-      timestamp: "100",
-      session: sdp,
-    },
-  });
-  const row = await one(env, "SELECT * FROM calls WHERE profile_id=?", f.p);
-  await callCommand(env, admin, f.p, "call.claim", { id: row.id }, uid());
-  const mock = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async () => Response.json({ success: true })),
-    answer = { ...sdp, sdp_type: "answer" };
-  await callCommand(
-    env,
-    admin,
-    f.p,
-    "call.pre_accept",
-    { id: row.id, session: answer },
-    uid(),
-  );
-  await callCommand(
-    env,
-    admin,
-    f.p,
-    "call.accept",
-    { id: row.id, session: answer },
-    uid(),
-  );
-  await expect(
-    callCommand(
-      env,
-      { ...admin, id: "other" },
-      f.p,
-      "call.terminate",
-      { id: row.id },
-      uid(),
-    ),
-  ).rejects.toThrow("responsável");
-  await callCommand(env, admin, f.p, "call.terminate", { id: row.id }, uid());
-  expect(mock).toHaveBeenCalledTimes(3);
-  expect((await callView(env, admin, f.p, row.id)).status).toBe("completed");
-});
-it("alarme encerra áudio abandonado sem repetir desligamento ambíguo", async () => {
+it("alarme marca chamadas antigas para reconciliação sem contatar a Meta", async () => {
   const f = await seed("meta");
   await callWebhook(env, f.conn, {
     event: "call",
@@ -828,7 +584,7 @@ it("alarme encerra áudio abandonado sem repetir desligamento ambíguo", async (
     .mockRejectedValue(Error("timeout"));
   await expireCalls(env, f.p);
   await expireCalls(env, f.p);
-  expect(mock).toHaveBeenCalledTimes(1);
+  expect(mock).not.toHaveBeenCalled();
   expect(
     (await one(env, "SELECT status FROM calls WHERE profile_id=?", f.p)).status,
   ).toBe("unknown");
@@ -918,84 +674,6 @@ async function appFixture(p: string, scopes: string[]) {
   }
   return { actor, request };
 }
-it("Meta lê data.groups e aguarda webhook para concluir criação assíncrona", async () => {
-  const f = await seed("meta");
-  vi.spyOn(globalThis, "fetch").mockImplementation(
-    async (_url: any, init: any) =>
-      Response.json(
-        init?.method === "POST"
-          ? { request_id: "create-request" }
-          : {
-              data: { groups: [{ id: "meta-group", subject: "Equipe Meta" }] },
-              paging: {
-                cursors: { after: "next-page" },
-                next: "https://graph.facebook.com/next",
-              },
-            },
-      ),
-  );
-  const sync = await perform(
-    env,
-    admin,
-    f.p,
-    "group.action",
-    { connection_id: f.conn.id, action: "sync" },
-    uid(),
-  );
-  expect(sync.result).toEqual({ count: 1, cursor: "next-page" });
-  expect(
-    (
-      await one(
-        env,
-        "SELECT title FROM conversations WHERE connection_id=? AND external_id='meta-group'",
-        f.conn.id,
-      )
-    ).title,
-  ).toBe("Equipe Meta");
-  const created = await perform(
-    env,
-    admin,
-    f.p,
-    "group.action",
-    { connection_id: f.conn.id, action: "create", subject: "Equipe" },
-    uid(),
-  );
-  expect(created.status).toBe("sending");
-  await metaInbound(
-    env,
-    f.conn,
-    {
-      entry: [
-        {
-          changes: [
-            {
-              value: {
-                metadata: { phone_number_id: "1234" },
-                groups: [
-                  {
-                    request_id: "create-request",
-                    type: "group_create",
-                    errors: [{ code: 123 }],
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    },
-    async (data) => Response.json(await channelEvent(env, f.conn, data)),
-  );
-  expect(
-    (
-      await one(
-        env,
-        "SELECT status FROM group_operations WHERE id=?",
-        created.id,
-      )
-    ).status,
-  ).toBe("failed");
-});
 it("webhook externo de ligação usa calls:read, assinatura e nunca inclui SDP", async () => {
   const f = await seed("meta"),
     app = await appFixture(f.p, ["calls:read", "webhooks:manage"]);
@@ -1107,7 +785,7 @@ it("API de ligações permite assumir chamada livre e isola responsável, sessã
   expect(claimed.status).toBe(200);
   expect((await claimed.json<any>()).actor).toBe(a.actor.id);
   expect((await b.request(`/calls/${row.id}`)).status).toBe(404);
-  expect((await b.request(`/calls/${row.id}/terminate`, {})).status).toBe(400);
+  expect((await b.request(`/calls/${row.id}/terminate`, {})).status).toBe(422);
   expect((await (await b.request("/calls")).json<any>()).data).toHaveLength(0);
   expect(
     await visibleEvent(env, b.actor, {
@@ -1163,57 +841,16 @@ it("histórico de ligações pagina por data e recebe duração depois do deslig
   expect(row.status).toBe("completed");
   expect(row.ended).toBe(3000);
 });
-it("webhook de chamada recusa assinatura incorreta e deduplica evento assinado", async () => {
+it("recusa o webhook da integração Meta desativada sem criar ligações", async () => {
   const f = await seed("meta");
-  await setSecret(env, "connection:" + f.conn.id, {
-    app_secret: "test-signature",
-    token: "fake",
+  const response = await SELF.fetch("https://test/webhooks/meta/" + f.conn.id, {
+    method: "POST",
+    body: JSON.stringify({ entry: [] }),
   });
-  const body = JSON.stringify({
-    entry: [
-      {
-        changes: [
-          {
-            field: "calls",
-            value: {
-              metadata: { phone_number_id: "1234" },
-              calls: [
-                {
-                  id: "signed-" + uid(),
-                  direction: "USER_INITIATED",
-                  event: "connect",
-                  from: "5511999900002",
-                  timestamp: "100",
-                  session: sdp,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    ],
-  });
-  const url = "https://test/webhooks/meta/" + f.conn.id;
-  expect((await SELF.fetch(url, { method: "POST", body })).status).toBe(403);
-  const headers = {
-    "X-Hub-Signature-256": "sha256=" + (await hmac("test-signature", body)),
-  };
+  expect(response.status).toBe(410);
   expect(
-    (await SELF.fetch(url, { method: "POST", body, headers })).status,
-  ).toBe(200);
-  expect(
-    (await SELF.fetch(url, { method: "POST", body, headers })).status,
-  ).toBe(200);
-  expect(
-    await all(env, "SELECT * FROM calls WHERE profile_id=?", f.p),
-  ).toHaveLength(1);
-  expect(
-    await all(
-      env,
-      "SELECT * FROM call_events WHERE connection_id=?",
-      f.conn.id,
-    ),
-  ).toHaveLength(1);
+    await all(env, "SELECT id FROM calls WHERE profile_id=?", f.p),
+  ).toHaveLength(0);
 });
 it("envios abandonados expiram e arquivos concluídos antes de interrupção são recuperados", async () => {
   const f = await seed(),

@@ -34,7 +34,7 @@ async function fixture() {
       id,
       profile,
       id,
-      id === qr ? "qr" : "meta",
+      id === qr ? "qr" : "zernio",
       now(),
     );
   const people: Actor[] = [];

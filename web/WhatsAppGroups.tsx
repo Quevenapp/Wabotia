@@ -37,9 +37,20 @@ export function WhatsAppGroups({
       api(root + "/status"),
       api(root + "/group-operations"),
     ]);
-    setConnections(
-      status.connections.filter((c: Row) => ["meta", "qr"].includes(c.kind)),
+    const eligible = await Promise.all(
+      status.connections
+        .filter(
+          (c: Row) =>
+            ["zernio", "qr"].includes(c.kind) && c.status === "active",
+        )
+        .map(async (c: Row) => ({
+          ...c,
+          capabilities: await api(
+            root + "/connections/" + c.id + "/capabilities",
+          ),
+        })),
     );
+    setConnections(eligible.filter((c: Row) => c.capabilities.group_manage));
     setJobs(ops.data || []);
   }
   useEffect(() => {
@@ -78,21 +89,25 @@ export function WhatsAppGroups({
       <section className="card">
         <h2>Grupos do WhatsApp</h2>
         <p>
-          Use QR para participar de grupos existentes. Na Meta, é necessário ter
-          acesso à API de Grupos; a empresa cria o grupo e convida participantes
-          por link.
+          Use QR para participar de grupos existentes. Na Zernio, habilite
+          grupos na conexão somente para números empresariais elegíveis, sem
+          coexistência. Apenas conexões ativas com administração de grupos
+          aparecem abaixo.
         </p>
         <div className="special-fields">
           <label>
             Conexão
             <select
               value={connection}
-              onChange={(e) => setConnection(e.target.value)}
+              onChange={(e) => {
+                setConnection(e.target.value);
+                setAction("sync");
+              }}
             >
               <option value="">Escolher conexão</option>
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} · {c.kind === "qr" ? "QR" : "Meta"}
+                  {c.name} · {c.kind === "qr" ? "QR" : "Zernio"}
                 </option>
               ))}
             </select>
@@ -102,7 +117,9 @@ export function WhatsAppGroups({
             <select value={action} onChange={(e) => setAction(e.target.value)}>
               <option value="sync">Buscar meus grupos</option>
               <option value="create">Criar grupo</option>
-              <option value="join">Entrar por convite (QR)</option>
+              {connections.find((c) => c.id === connection)?.kind === "qr" && (
+                <option value="join">Entrar por convite</option>
+              )}
             </select>
           </label>
         </div>
@@ -221,6 +238,7 @@ export function WhatsAppGroups({
                     sending: "Executando",
                     sent: "Concluída",
                     failed: "Falhou",
+                    cancelled: "Cancelada",
                     unknown: "Sem confirmação",
                   } as Row
                 )[job.status]
@@ -309,11 +327,13 @@ export function GroupControls({
   api,
   root,
   c,
+  capabilities,
   refresh,
 }: {
   api: any;
   root: string;
   c: Row;
+  capabilities: Row;
   refresh: () => Promise<any>;
 }) {
   const [action, setAction] = useState("refresh"),
@@ -322,10 +342,19 @@ export function GroupControls({
     [busy, setBusy] = useState(false),
     [note, setNote] = useState("");
   const intent = useRef({ body: "", key: crypto.randomUUID() });
+  const qr = capabilities.mentions === true;
   async function send() {
     if (
       ["leave", "participants"].includes(action) &&
       !confirm("Confirmar esta alteração no grupo do WhatsApp?")
+    )
+      return;
+    if (
+      action === "invite" &&
+      !qr &&
+      !confirm(
+        "Renovar o link de convite? O link anterior deixará de funcionar.",
+      )
     )
       return;
     setBusy(true);
@@ -377,12 +406,16 @@ export function GroupControls({
           }}
         >
           <option value="refresh">Atualizar participantes e permissões</option>
-          <option value="invite">Obter link de convite</option>
+          <option value="invite">
+            {qr
+              ? "Obter link de convite"
+              : "Renovar convite (revoga o link anterior)"}
+          </option>
           <option value="subject">Alterar nome</option>
           <option value="description">Alterar descrição</option>
           <option value="participants">Alterar participantes</option>
-          <option value="announcement">Quem pode enviar (QR)</option>
-          <option value="leave">Sair do grupo (QR)</option>
+          {qr && <option value="announcement">Quem pode enviar</option>}
+          {qr && <option value="leave">Sair do grupo</option>}
         </select>
       </label>
       {action === "participants" && (
@@ -392,15 +425,17 @@ export function GroupControls({
           onChange={(e) => setOperation(e.target.value)}
         >
           <option value="remove">Remover</option>
-          <option value="add">Adicionar (QR)</option>
-          <option value="promote">Tornar administrador (QR)</option>
-          <option value="demote">Remover administrador (QR)</option>
+          <option value="add">Adicionar</option>
+          {qr && <option value="promote">Tornar administrador</option>}
+          {qr && <option value="demote">Remover administrador</option>}
         </select>
       )}
       {["subject", "description", "participants"].includes(action) && (
         <label>
           {action === "participants"
-            ? "Telefones/IDs separados por vírgula"
+            ? qr
+              ? "Telefones/IDs separados por vírgula"
+              : "Até 8 telefones com DDI, separados por vírgula"
             : "Novo texto"}
           <input value={value} onChange={(e) => setValue(e.target.value)} />
         </label>

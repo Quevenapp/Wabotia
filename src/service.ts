@@ -35,7 +35,8 @@ import {
 } from "./whatsapp";
 import { callCommand } from "./calls";
 import { groupCommand } from "./groups";
-import { accountCommand } from "./meta-accounts";
+import { zernioAccountCommand } from "./zernio-accounts";
+import { removeConnection } from "./connection-removal";
 import { routerCommand, managedAppAllowed } from "./number-router";
 import { queueWithNumberQuota } from "./number-quota";
 import {
@@ -148,6 +149,16 @@ export async function enqueue(
   dedupe: string,
 ) {
   await assertNumberDelivery(env, c.connection_id, actor, kind, payload);
+  if (
+    kind !== "team" &&
+    !c.connection_id &&
+    (c.external_namespace.startsWith("channel:") || c.recipient_id)
+  )
+    throw new ApiError(
+      410,
+      "connection_removed",
+      "Este telefone foi excluído. Conecte uma linha e inicie uma nova conversa.",
+    );
   if (payload.attachments?.length) {
     const ids: string[] = [];
     const firstMedia = await one(
@@ -711,8 +722,16 @@ export async function perform(
   if (op === "line.save") return saveLine(env, actor, profile, data);
   if (op.startsWith("internal."))
     return internalCommand(env, actor, profile, op, data, requestId);
+  if (op.startsWith("zernio-account.") || op.startsWith("zernio-number."))
+    return zernioAccountCommand(env, actor, profile, op, data);
   if (op.startsWith("meta-account.") || op.startsWith("meta-number."))
-    return accountCommand(env, actor, profile, op, data);
+    throw new ApiError(
+      410,
+      "meta_removed",
+      "A integração direta Meta foi substituída pela Zernio.",
+    );
+  if (op === "connection.delete")
+    return removeConnection(env, actor, profile, data.id);
   if (op.startsWith("router."))
     return routerCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("upload."))
@@ -1074,7 +1093,7 @@ export async function perform(
       const cfg = await settings(env, profile);
       const configuredLine = await one(
         env,
-        "SELECT id FROM connections WHERE profile_id=? AND kind IN ('meta','qr','hermes-whatsapp') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
+        "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
         profile,
       );
       requireValue(
@@ -1099,7 +1118,7 @@ export async function perform(
   if (op === "connection.save") {
     admin(actor);
     requireValue(
-      ["hermes", "meta", "qr", "telegram", "hermes-whatsapp"].includes(
+      ["hermes", "zernio", "qr", "telegram", "hermes-whatsapp"].includes(
         data.kind,
       ),
       "Conector inválido.",
@@ -1111,6 +1130,10 @@ export async function perform(
       "Conexão de outro perfil.",
     );
     if (old) {
+      requireValue(
+        old.kind === data.kind,
+        "Exclua a conexão anterior e cadastre uma nova para trocar o provedor.",
+      );
       const pending = await one(
         env,
         "SELECT id FROM outbox WHERE connection_id=? AND status IN ('pending','sending','unknown') LIMIT 1",
@@ -1138,41 +1161,65 @@ export async function perform(
     if (managed) {
       const previous = json(old.config);
       requireValue(
-        data.kind === "meta" &&
-          cfg.phone_id === previous.phone_id &&
+        data.kind === "zernio" &&
+          cfg.account_id === previous.account_id &&
           cfg.number === previous.number,
         "O número do roteador não pode mudar de identidade ou de modo.",
       );
-      cfg.meta_account_id = previous.meta_account_id;
-      cfg.waba_id = previous.waba_id;
+      cfg.zernio_workspace_id = previous.zernio_workspace_id;
+      cfg.zernio_profile_id = previous.zernio_profile_id;
       // Editing connection credentials must not reset per-number restrictions.
       cfg.number_policy = previous.number_policy;
       requireValue(
-        !data.secrets?.token &&
-          !data.secrets?.app_secret &&
-          !data.secrets?.verify_token,
-        "Edite as credenciais na conta Meta do roteador.",
+        !data.secrets?.api_key && !data.secrets?.webhook_secret,
+        "Edite as credenciais na conta Zernio do roteador.",
       );
     }
     if (cfg.url) cfg.url = publicUrl(cfg.url);
     if (cfg.api_url) cfg.api_url = publicUrl(cfg.api_url);
-    if (["qr", "hermes-whatsapp", "meta"].includes(data.kind))
+    if (["qr", "hermes-whatsapp", "zernio"].includes(data.kind))
       requireValue(
         /^\d{8,16}$/.test(cfg.number || ""),
         "Informe o número completo com DDI, somente dígitos.",
       );
-    if (data.kind === "meta") {
+    if (data.kind === "zernio") {
       requireValue(
-        /^\d+$/.test(cfg.phone_id || ""),
-        "Informe o Phone Number ID da Meta.",
+        /^[a-f0-9]{24}$/i.test(cfg.account_id || "") &&
+          /^[a-f0-9]{24}$/i.test(cfg.zernio_profile_id || ""),
+        "Informe o accountId e o ID do perfil Zernio (24 caracteres).",
       );
+      requireValue(
+        !cfg.zernio_workspace_id || managed,
+        "Cadastre números gerenciados pelo roteador.",
+      );
+      if (old)
+        requireValue(
+          cfg.account_id === json(old.config).account_id &&
+            cfg.zernio_profile_id === json(old.config).zernio_profile_id &&
+            cfg.number === json(old.config).number,
+          "Exclua e cadastre novamente para trocar a identidade do telefone.",
+        );
       const duplicate = await one(
         env,
-        "SELECT id FROM connections WHERE kind='meta' AND json_extract(config,'$.phone_id')=? AND id!=?",
-        cfg.phone_id,
+        "SELECT id FROM connections WHERE kind='zernio' AND json_extract(config,'$.account_id')=? AND id!=?",
+        cfg.account_id,
         id,
       );
       requireValue(!duplicate, "Este número já está cadastrado.");
+      if (!managed) {
+        const previous = await secret(env, `connection:${id}`);
+        for (const key of ["api_key", "webhook_secret"]) {
+          const value = data.secrets?.[key] || previous[key];
+          requireValue(
+            typeof value === "string" &&
+              value.length > 0 &&
+              value.length <= 4096 &&
+              !/[\r\n]/.test(value),
+            "Preencha a chave API e o segredo do webhook Zernio.",
+          );
+        }
+      }
+      delete cfg.verified_at;
     }
     await exec(
       env,
@@ -1187,9 +1234,14 @@ export async function perform(
     );
     if (data.secrets) {
       const previous = await secret(env, `connection:${id}`);
+      const supplied = { ...data.secrets };
+      if (data.kind === "zernio") {
+        for (const key of ["api_key", "webhook_secret"])
+          if (!supplied[key]) delete supplied[key];
+      }
       await setSecret(env, `connection:${id}`, {
         ...previous,
-        ...data.secrets,
+        ...supplied,
         profile_keys: {
           ...previous.profile_keys,
           ...data.secrets.profile_keys,
@@ -1212,6 +1264,12 @@ export async function perform(
       "Estado inválido.",
     );
     if (data.status === "active") {
+      if (row.kind === "meta")
+        throw new ApiError(
+          410,
+          "meta_removed",
+          "Conecte este telefone pela Zernio. A integração direta Meta foi removida.",
+        );
       requireValue(
         json(row.config).verified_at,
         "Teste a conexão antes de ativar.",

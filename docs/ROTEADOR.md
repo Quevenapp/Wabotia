@@ -1,54 +1,44 @@
 # Roteador de números WhatsApp
 
-O roteador permite cadastrar os números da **conta empresarial do WhatsApp (WABA)**, receber todos pelo mesmo webhook e escolher o remetente pela API: um número específico ou um grupo autorizado. A quantidade permitida é definida pela Meta; o Wabotia não impõe um limite fixo de linhas por conta ou grupo. É para **Meta direto no Worker**. QR e transporte Hermes continuam separados. Hermes não precisa de alteração para este recurso.
+O roteador permite importar números WhatsApp conectados a um perfil Zernio, receber pelo mesmo webhook e escolher o remetente pela API: um número específico ou um grupo autorizado. O Wabotia não impõe um limite fixo de linhas. QR e transporte Hermes continuam separados.
 
 ## Franquia, janela e cobrança
 
-O [FAQ oficial da Meta](https://whatsappbusiness.com/resources/faq/), consultado em 07/11/2026, informa uma franquia de 1.000 mensagens de atendimento por número empresarial/mês desde 01/10/2026. Modelos de marketing, utilidade e autenticação têm suas próprias regras de cobrança. O texto livre enviado depois de um template continua sendo mensagem de serviço: iniciar a conversa por template não isenta as respostas seguintes. Consulte a Meta para as condições e tarifas da sua conta.
+Consulte a [cobrança de WhatsApp pela Zernio](https://docs.zernio.com/platforms/whatsapp/pricing) e configure os limites locais conforme seu plano. Templates e serviços podem ter cobranças distintas. O contador local não substitui as faturas.
 
 - **Atendimento:** o cliente precisa ter enviado mensagem para aquele mesmo número nas últimas 24 horas. Ter saldo em outro número não transfere essa janela.
-- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. Se **Somente franquia gratuita** estiver ligada, o fim do saldo bloqueia novas mensagens de serviço com `quota_exhausted`. Caso contrário, o atendimento pode continuar com serviço pago. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
-- **Novos clientes:** divulgue o link público do grupo. Ele alterna os números ativos desde a primeira entrada, priorizando os que ainda têm franquia gratuita; o cliente inicia a conversa. Linhas sem saldo que bloqueiam excedente saem da seleção. As demais podem continuar com serviço pago. O link sozinho não envia nada nem reserva uma mensagem.
+- **Remetente fixo:** depois da primeira escolha, o atendimento permanece no número original. Se **Bloquear excedente da cota local** estiver ligada, o fim do saldo bloqueia novas mensagens de serviço com `quota_exhausted`. Caso contrário, o atendimento pode continuar com serviço pago. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
+- **Novos clientes:** divulgue o link público do grupo. Ele alterna os números ativos desde a primeira entrada, priorizando os que ainda têm cota local; o cliente inicia a conversa. Linhas sem saldo que bloqueiam excedente saem da seleção. As demais podem continuar com serviço pago. O link sozinho não envia nada nem reserva uma mensagem.
 - **Modelos pagos:** cada pedido precisa de `allow_paid: true`, comprovação do consentimento e modelo aprovado. A aplicação, a origem e o grupo precisam autorizar pagos. Uma configuração geral não substitui a autorização por envio.
 - **Notificações automáticas de números gerenciados:** não são convertidas em modelos pagos. Ao acabar a janela, falham com orientação para pedir nova mensagem ou usar o envio explícito de modelo.
 
-A franquia gratuita configurada pode ser de 0 a 1.000. Em **Função e permissões → Somente franquia gratuita**, escolha se ela deve bloquear o excedente de serviço. A opção começa desligada nas linhas existentes. Selecionar e salvar o preset **Integração com janela de 24 horas (Vinki)** liga esse bloqueio e mantém templates desabilitados. Com excedente permitido, a 1.001ª mensagem pode continuar no mesmo número com cobrança, dentro da janela de 24 horas. Serviço pago não vira template e não depende de `allow_paid` ou `routing:paid`; essas autorizações continuam específicas para templates. A regra de janela vencida permanece: aguardar nova mensagem do cliente ou solicitar explicitamente um template aprovado.
+A cota local configurada pode ser de 0 a 1.000. Em **Função e permissões → Bloquear excedente da cota local**, escolha se ela deve bloquear o excedente de serviço. A opção começa desligada nas linhas existentes. Selecionar e salvar o preset **Integração com janela de 24 horas (Vinki)** liga esse bloqueio e mantém templates desabilitados. Com excedente permitido, a 1.001ª mensagem pode continuar no mesmo número com cobrança, dentro da janela de 24 horas. Serviço pago não vira template e não depende de `allow_paid` ou `routing:paid`; essas autorizações continuam específicas para templates. A regra de janela vencida permanece: aguardar nova mensagem do cliente ou solicitar explicitamente um template aprovado.
 
 Na API, a opção corresponde a `policy.service_overage: false`. Omitir esse campo em um cliente antigo preserva a opção já salva; linhas sem essa opção continuam permitindo excedente. A reserva e a conferência do saldo são feitas no mesmo comando de banco, incluindo envios simultâneos. A política é conferida novamente antes da entrega: reduzir a franquia ou ligar o bloqueio cancela mensagens pendentes que excedam o novo saldo, respeitando a ordem das reservas. Mensagens já enviadas ou sem confirmação continuam contando; não são repetidas em outro número. A permissão de templates continua separada: para uma linha restrita ao serviço dentro da franquia, mantenha também `templates: false`.
 
 Cada pedido de serviço também pode enviar `free_only: true`. Essa restrição permanece na mensagem enfileirada mesmo que a linha permita excedentes ou sua configuração mude depois. Aplicações conectadas pelo pareamento **Vinki** sempre usam essa restrição por regra do servidor, inclusive se omitirem o campo, enviarem `false` ou usarem o envio direto de conversa. Templates pagos são recusados para esses pedidos e para Vinki pareado. Outras aplicações antigas mantêm o comportamento anterior. O contador continua sendo uma estimativa local, sem garantia de fatura zero.
 
-## 1. Prepare a conta Meta
+## 1. Prepare a conta Zernio
 
-Primeiro número ou dúvida sobre tokens? Siga o [guia do chip à API](META-WHATSAPP.md), com requisitos da empresa, cadastro do telefone, conta de mensagens, aplicativo, token de produção, App Secret e webhook. Há uma [versão ilustrada no site](https://wabotia.queven.app/install#meta-whatsapp).
+Siga o [guia WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). Em **Zernio e números**, cadastre nome, Profile ID, API key, fuso e segredo de assinatura do webhook. Clique em **Conectar WhatsApp pela Zernio** e conclua a autorização. Ao retornar, selecione a mesma conta. Campos de credencial vazios na edição mantêm os valores atuais.
 
-No aplicativo Meta, confira os números cadastrados na WABA, sua habilitação na Cloud API e a qualidade dos números. O Wabotia não cria números, registra SIM nem amplia o limite concedido pela Meta.
+## 2. Configure o webhook na Zernio
 
-Tenha: **WABA ID**, token Meta com acesso aos números (`whatsapp_business_management` para descoberta/modelos e `whatsapp_business_messaging` para enviar), **App Secret** do aplicativo e um **Verify Token** escolhido por você. Os nomes e acessos disponíveis dependem do aplicativo e da sua conta Meta. Não use uma chave Wabotia no lugar do token Meta.
-
-No painel, escolha o perfil e abra **Roteador de números → Cadastrar ou editar a conta Meta**. Preencha nome, WABA ID, fuso igual ao da conta Meta e os três campos protegidos. Clique **Salvar conta Meta**. O WABA ID não pode ser trocado depois; o fuso deve estar correto antes de adicionar números. Para atualizar credenciais, use **Editar**; campo vazio mantém o valor anterior.
-
-## 2. Configure um webhook compartilhado
-
-Copie a URL exibida: `https://SUA-INSTALACAO/webhooks/meta-accounts/ID_DA_CONTA`.
-
-No aplicativo Meta, abra **WhatsApp → Configuração → Webhook** (o nome pode variar). Cole a URL e o mesmo Verify Token. Verifique e salve; assine o campo **messages**. A WABA deve estar inscrita nesse aplicativo (`/{WABA_ID}/subscribed_apps` na Graph API, conforme o fluxo Meta). Se usa chamadas ou grupos, mantenha também os eventos exigidos por esses recursos. O App Secret valida a assinatura de cada entrega.
-
-Não repita uma URL por telefone: o Wabotia separa as entradas pelo Phone Number ID e confere o WABA ID. Números desconhecidos são ignorados. Mantenha apenas um consumidor ativo por número, evitando que um Hermes/QR antigo responda ao mesmo atendimento.
+Copie a URL exibida, terminada em /webhooks/zernio-accounts/ID_DA_CONTA. Cadastre-a nos webhooks da Zernio, com o mesmo segredo de assinatura, e habilite os eventos de recebimento, envio, entrega, leitura e falha. A assinatura é verificada pelo Wabotia.
 
 ## 3. Adicione os números e o consumo inicial
 
-1. Clique **Buscar números na Meta**. A busca apenas consulta a conta.
+1. Clique **Buscar números na Zernio**. A busca apenas consulta a conta.
 2. Escolha um número encontrado e dê um nome fácil de reconhecer.
-3. Confira na Meta quantas mensagens de atendimento esse número já usou no mês. Informe em **Mensagens de atendimento já usadas neste mês**. Zero somente se realmente não houve uso.
-4. Defina a **Franquia gratuita mensal**, no máximo 1.000. Ela limita os envios de serviço quando **Somente franquia gratuita** estiver ligada; com a opção desligada, pode haver excedente pago. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para os números habilitados na sua conta Meta.
+3. Confira no provedor quantas mensagens de atendimento esse número já usou no mês. Informe em **Mensagens de atendimento já usadas neste mês**. Zero somente se realmente não houve uso.
+4. Defina a **Limite local mensal de serviço**, no máximo 1.000. Ela limita os envios de serviço quando **Bloquear excedente da cota local** estiver ligada; com a opção desligada, pode haver excedente pago. Confirme o uso inicial e o fuso, depois clique **Adicionar ao roteador**. Repita para os números habilitados na sua conta Zernio.
 5. Os números entram pausados. Confira o webhook e clique **Ativar** na lista de uso. O perfil também precisa estar pronto para o atendimento normal.
 
-Se o telefone já está em Conexões, pause-o e reconcilie filas desconhecidas antes de adotá-lo no roteador. Aguarde os comprovantes de entregas anteriores aceitas pela Meta; não basta o estado `sent`. O histórico e a identidade da conexão são preservados. O contador inicial não deve ser reiniciado para obter saldo artificial.
+Para números de uma integração Meta anterior, resolva operações em andamento ou sem confirmação e exclua a linha antiga antes de conectar pela Zernio. O histórico anterior é preservado separado da nova conexão. Não reinicie o contador para obter saldo artificial.
 
 **Como ler o painel:** uso estimado = histórico inicial do mês + entregas de atendimento + reservas de envios ainda não confirmados. Um anexo é uma mensagem; texto separado é outra. Envios humanos, bots e API no número gerenciado compartilham o mesmo contador. Falha definitiva e cancelamento antes do envio liberam a reserva. `unknown` mantém a reserva e exige conferência. Na mudança de mês, o histórico inicial deixa de contar; mensagens ainda sem confirmação continuam reservadas.
 
-Recibos Meta registram mensagens gratuitas, cobradas e sem informação de cobrança. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma estimativa local e não garante uma fatura sem cobrança, mesmo com Somente franquia gratuita ligada.** A opção limita os envios pelo contador conservador do Wabotia; a Meta confirma a cobrança de cada entrega. Confira o WhatsApp Manager, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
+Recibos confirmam entrega e leitura quando disponíveis. Informações de cobrança podem não estar presentes nos eventos da Zernio; nesse caso o estado continua sem confirmação de preço. Recibos repetidos não somam novamente. O horário da entrega, no fuso da conta, define o mês confirmado. Envios feitos fora do Wabotia só são observados se seus recibos chegarem a esse webhook; podem consumir saldo antes de o Wabotia saber. **O contador é uma estimativa local e não garante uma fatura sem cobrança, mesmo com Bloquear excedente da cota local ligada.** A opção limita os envios pelo contador conservador do Wabotia; a cobrança real deve ser conferida nas faturas da Zernio e da Meta. Confira seu painel do provedor, sobretudo após interrupções ou se outro sistema usar o número. O painel não estima preço em reais.
 
 ## 3.1. Defina o que cada número pode fazer
 
@@ -62,7 +52,7 @@ Desde a versão 0.7.0, cada cartão em **Uso por número** tem **Função e perm
 | Opção | Atendimento oficial | Integração de 24 horas |
 |---|---|---|
 | Respostas sem template dentro de 24 horas | Sim | Sim |
-| Somente franquia gratuita | Não | Sim |
+| Bloquear excedente da cota local | Não | Sim |
 | Templates aprovados, autorizados por envio | Sim | Bloqueados |
 | Atendimento manual no painel/Telegram | Sim | Bloqueado por padrão |
 | Envios de aplicações já autorizadas | Sim | Sim |
@@ -86,7 +76,7 @@ Uma permissão de grupo ou de aplicação nunca libera o que o número bloqueou.
 
 Antes de criar o grupo, configure a função de cada telefone conforme o passo abaixo.
 
-Em **Grupos de números → Criar grupo de roteamento**, informe um nome e selecione membros da mesma conta. O grupo usa **rodízio com prioridade à franquia gratuita**: alterna entre os números que ainda têm franquia, mesmo que seus consumos sejam diferentes. Quando todos a consumirem, continua apenas com os números ativos que permitem excedente. Se todos bloquearem excedente, retorna `quota_exhausted`. Grupos antigos configurados como menor consumo ou aleatório também passam a seguir essa regra.
+Em **Grupos de números → Criar grupo de roteamento**, informe um nome e selecione membros da mesma conta. O grupo usa **rodízio com prioridade à cota local**: alterna entre os números que ainda têm franquia, mesmo que seus consumos sejam diferentes. Quando todos a consumirem, continua apenas com os números ativos que permitem excedente. Se todos bloquearem excedente, retorna `quota_exhausted`. Grupos antigos configurados como menor consumo ou aleatório também passam a seguir essa regra.
 
 Entradas simultâneas são serializadas por perfil. Respostas de conversas já vinculadas mantêm seu número e não avançam a vez de novos atendimentos. Por exemplo: com três linhas disponíveis, as seis próximas entradas serão A, B, C, A, B, C; a conversa de A continua vinculada a A mesmo se sua franquia terminar. Com bloqueio de excedente, novas respostas aguardam saldo; não são transferidas automaticamente para B ou C.
 
@@ -98,7 +88,7 @@ Crie a aplicação e sua chave em **API e integrações**, concedendo acesso ao 
 
 Salvar adiciona `routing:read`, `routing:send`, `conversations:read` e `conversations:write`. A opção de modelos pagos adiciona `routing:paid` e habilita pagos nas origens selecionadas. Remover essa opção revoga a autorização paga dessas origens; o escopo pode continuar necessário em outro perfil. Para anexos, conceda também `media:read/write`. Para acompanhar eventos, use `events:read`/`webhooks:manage` conforme o uso.
 
-Aplicações não recebem tokens Meta nem segredos. O autor é definido pela chave Bearer. As permissões são conferidas na fila e novamente antes de enviar; revogar a origem cancela uma entrega ainda pendente.
+Aplicações não recebem chaves Zernio nem segredos. O autor é definido pela chave Bearer. As permissões são conferidas na fila e novamente antes de enviar; revogar a origem cancela uma entrega ainda pendente.
 
 ## 6. Envie pela API
 
@@ -108,7 +98,7 @@ Base: `/api/v1/profiles/{perfil}`. Todas as escritas exigem `Idempotency-Key`. G
 |---|---|
 | `GET /router` | Números, grupos autorizados, franquia, excedente estimado e reservas |
 | `POST /router/messages` | `202`, `delivery_id`, conversa e remetente escolhido |
-| `GET /router/messages/{delivery_id}` | Fila, aceitação e recibo Meta quando disponível |
+| `GET /router/messages/{delivery_id}` | Fila, aceitação e recibo do provedor quando disponível |
 | `POST /router/messages/{delivery_id}/cancel` | Cancela somente `pending`, pelo autor ou administrador |
 
 Escolha **um** `number_id` ou `pool_id` retornado pela API, nunca ambos. `external_id` é um identificador estável do cliente/atendimento no integrador, separado por aplicação. Reutilize-o para esse destinatário e origem, inclusive ao abrir novos protocolos; não troque esse ID para tentar outro remetente. `conversation_id` é opcional para vincular uma conversa autorizada. `to` é obrigatório no primeiro pedido; use DDI/DDD e só dígitos.
@@ -163,4 +153,4 @@ Acompanhe `message.sent`, `message.updated` e `conversation.updated` nos eventos
 
 ## 7. Homologue antes de atender clientes
 
-Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número e confira que ele sai do rodízio. Simule o fim da franquia nos dois modos: com excedente permitido, conversas continuam na linha original; com **Somente franquia gratuita**, respostas são bloqueadas e novas entradas procuram linhas ainda com saldo. Quando todas bloquearem excedente e estiverem sem saldo, confira `quota_exhausted`. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.
+Use números/destinatários autorizados. Confira recebimento em cada telefone; envio individual; escolha de grupo; remetente fixo; janela vencida; negativa de pago sem autorização; um modelo autorizado; status e contagem Meta. Repita a mesma chave para verificar ausência de duplicação. Pause um número e confira que ele sai do rodízio. Simule o fim da franquia nos dois modos: com excedente permitido, conversas continuam na linha original; com **Bloquear excedente da cota local**, respostas são bloqueadas e novas entradas procuram linhas ainda com saldo. Quando todas bloquearem excedente e estiverem sem saldo, confira `quota_exhausted`. Não aumente artificialmente a franquia. Compare o contador com a Meta no fuso correto. Testes simulados aprovados não substituem esta homologação real.

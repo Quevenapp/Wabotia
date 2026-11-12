@@ -6,8 +6,8 @@ import "./router-workspace.css";
 const routerSteps = [
   {
     id: "account",
-    title: "Conta Meta",
-    description: "Conecte a conta da sua empresa.",
+    title: "Conta Zernio",
+    description: "Conecte a Zernio ao WhatsApp da sua empresa.",
   },
   {
     id: "numbers",
@@ -46,9 +46,10 @@ const sample = {
     {
       id: "conta-exemplo",
       name: "Minha empresa",
-      waba_id: "123456789000000",
+      zernio_profile_id: "66a1f0c2a4b9d3e8f1a2b3c4",
       timezone: "America/Sao_Paulo",
       discovered: "[]",
+      provider: "zernio",
     },
   ],
   numbers: [
@@ -136,7 +137,7 @@ export function NumberRouter({
     [accountId, setAccountId] = useState(demo ? "conta-exemplo" : ""),
     [accountForm, setAccountForm] = useState<Row>({
       name: "",
-      waba_id: "",
+      zernio_profile_id: "",
       timezone: "America/Sao_Paulo",
     }),
     [numberForm, setNumberForm] = useState<Row>({
@@ -175,6 +176,7 @@ export function NumberRouter({
     return () => clearInterval(timer);
   }, [root, demo, busy]);
   const account = data.accounts.find((a: Row) => a.id === accountId),
+    legacyAccount = !!account && account.provider === "meta",
     available = parse(account?.discovered),
     numbers = data.numbers.filter((n: Row) => n.account_id === accountId);
   async function write(
@@ -217,8 +219,13 @@ export function NumberRouter({
     setAccountEditing(true);
     setAccountForm(
       a
-        ? { id: a.id, name: a.name, waba_id: a.waba_id, timezone: a.timezone }
-        : { name: "", waba_id: "", timezone: "America/Sao_Paulo" },
+        ? {
+            id: a.id,
+            name: a.name,
+            zernio_profile_id: a.zernio_profile_id,
+            timezone: a.timezone,
+          }
+        : { name: "", zernio_profile_id: "", timezone: "America/Sao_Paulo" },
     );
   }
   function chooseAccount(id: string) {
@@ -277,14 +284,14 @@ export function NumberRouter({
           </button>
         </div>
         <p>
-          Conecte sua conta Meta, escolha os números e defina como distribuir
+          Conecte sua conta Zernio, escolha os números e defina como distribuir
           novos atendimentos. Cada área abaixo cuida de uma parte da
           configuração.
         </p>
         {step === "account" && (
           <p>
-            <a href="/install#meta-whatsapp" target="_blank" rel="noreferrer">
-              Ainda não configurou a Meta? Siga o passo a passo ↗
+            <a href="/install#zernio-whatsapp" target="_blank" rel="noreferrer">
+              Conecte seu WhatsApp pela Zernio: passo a passo ↗
             </a>
           </p>
         )}
@@ -350,24 +357,23 @@ export function NumberRouter({
             <h3>
               {accountEditing
                 ? accountForm.id
-                  ? "Editar conta Meta"
-                  : "Cadastrar conta Meta"
+                  ? "Editar conta Zernio"
+                  : "Cadastrar conta Zernio"
                 : account
                   ? account.name
-                  : "Conectar conta Meta"}
+                  : "Conectar conta Zernio"}
             </h3>
             <p>
-              A conta empresarial do WhatsApp é identificada pelo WABA ID. Use
-              um token com acesso a essa conta e aos seus números. App Secret é
-              o segredo do aplicativo Meta. Verify Token é uma chave escolhida
-              por você para confirmar o webhook. As credenciais ficam protegidas
-              no backend.
+              A Zernio faz a conexão com a Meta. Informe o Profile ID da Zernio,
+              sua API key e o segredo de assinatura do webhook. Depois conecte
+              seu WhatsApp e importe os números. As credenciais ficam protegidas
+              no servidor.
             </p>
             <div className="router-actions">
               <button disabled={!!busy} onClick={() => editAccount()}>
                 Nova conta
               </button>
-              {account && (
+              {account && !legacyAccount && (
                 <button disabled={!!busy} onClick={() => editAccount(account)}>
                   Editar {account.name}
                 </button>
@@ -382,12 +388,11 @@ export function NumberRouter({
                     {
                       id: accountForm.id,
                       name: accountForm.name,
-                      waba_id: accountForm.waba_id,
+                      zernio_profile_id: accountForm.zernio_profile_id,
                       timezone: accountForm.timezone,
                       secrets: {
-                        token: accountForm.token,
-                        app_secret: accountForm.app_secret,
-                        verify_token: accountForm.verify_token,
+                        api_key: accountForm.api_key,
+                        webhook_secret: accountForm.webhook_secret,
                       },
                     },
                     "Salvar conta",
@@ -397,7 +402,7 @@ export function NumberRouter({
                     setAccountForm({
                       id: r.id,
                       name: accountForm.name,
-                      waba_id: accountForm.waba_id,
+                      zernio_profile_id: accountForm.zernio_profile_id,
                       timezone: accountForm.timezone,
                     });
                     setAccountEditing(false);
@@ -417,21 +422,21 @@ export function NumberRouter({
                     />
                   </label>
                   <label>
-                    Identificador da conta WhatsApp (WABA ID)
+                    Profile ID da Zernio
                     <input
                       required
                       readOnly={!!accountForm.id}
-                      value={accountForm.waba_id}
+                      value={accountForm.zernio_profile_id}
                       onChange={(e) =>
                         setAccountForm({
                           ...accountForm,
-                          waba_id: e.target.value,
+                          zernio_profile_id: e.target.value,
                         })
                       }
                     />
                   </label>
                   <label>
-                    Fuso da conta Meta
+                    Fuso da conta Zernio
                     <input
                       required
                       value={accountForm.timezone}
@@ -444,9 +449,11 @@ export function NumberRouter({
                     />
                   </label>
                   {[
-                    ["token", "Token Meta"],
-                    ["app_secret", "App Secret"],
-                    ["verify_token", "Verify Token do webhook"],
+                    ["api_key", "API key da Zernio"],
+                    [
+                      "webhook_secret",
+                      "Segredo de assinatura do webhook Zernio",
+                    ],
                   ].map(([field, label]) => (
                     <label key={field}>
                       {label}
@@ -469,7 +476,7 @@ export function NumberRouter({
                   ))}
                 </div>
                 <button disabled={!!busy} type="submit">
-                  Salvar conta Meta
+                  Salvar conta Zernio
                 </button>
                 {data.accounts.length > 0 && (
                   <button
@@ -479,7 +486,7 @@ export function NumberRouter({
                       setAccountEditing(false);
                       setAccountForm({
                         name: "",
-                        waba_id: "",
+                        zernio_profile_id: "",
                         timezone: "America/Sao_Paulo",
                       });
                     }}
@@ -489,19 +496,40 @@ export function NumberRouter({
                 )}
               </form>
             )}
-            {account && (
+            {legacyAccount && (
+              <p className="notice">
+                Esta conta usava a integração direta com a Meta, pausada na
+                atualização. Resolva operações em andamento ou sem confirmação,
+                exclua as linhas antigas e cadastre uma conta Zernio para
+                conectá-las novamente. O histórico permanece disponível.
+              </p>
+            )}
+            {account && !legacyAccount && (
               <>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={async () => {
+                    const result = await write(
+                      "router/accounts/" + accountId + "/connect",
+                      { redirect_url: location.origin + "/app" },
+                      "Preparar conexão WhatsApp",
+                    );
+                    if (result?.authUrl) location.assign(result.authUrl);
+                  }}
+                >
+                  Conectar WhatsApp pela Zernio
+                </button>
                 <h3>Webhook único desta conta</h3>
                 <p>
-                  Cadastre esta URL no aplicativo Meta, com o Verify Token
-                  cadastrado para esta conta. Assine <code>messages</code>. A
-                  WABA precisa estar inscrita no mesmo aplicativo. Se usa
-                  ligações ou grupos, mantenha também os eventos desses
-                  recursos.
+                  Cadastre esta URL nos webhooks da Zernio, com o mesmo segredo
+                  de assinatura salvo acima. Selecione os eventos de
+                  recebimento, envio, entrega, leitura e falha de mensagens.
+                  Depois de concluir a conexão, use Buscar números na Zernio.
                 </p>
                 <CopyValue
                   value={
-                    location.origin + "/webhooks/meta-accounts/" + account.id
+                    location.origin + "/webhooks/zernio-accounts/" + account.id
                   }
                 />
                 <div className="router-actions">
@@ -519,23 +547,23 @@ export function NumberRouter({
         )}
         {!account && ["numbers", "distribution"].includes(step) && (
           <section className="card router-step-empty">
-            <h3>Comece pela conta Meta</h3>
+            <h3>Comece pela conta Zernio</h3>
             <p>
               Conecte ou selecione uma conta para buscar seus números e
               organizar a distribuição.
             </p>
             <button type="button" onClick={() => setStep("account")}>
-              Configurar conta Meta
+              Configurar conta Zernio
             </button>
           </section>
         )}
-        {step === "numbers" && account && (
+        {step === "numbers" && account && !legacyAccount && (
           <section className="card">
-            <h3>Trazer números da Meta</h3>
+            <h3>Trazer números da Zernio</h3>
             <p>
-              Os números precisam estar cadastrados e habilitados na Meta.
-              Buscar números apenas consulta sua conta; não cria nem ativa
-              telefones.
+              Conclua primeiro a conexão do WhatsApp pela Zernio. A busca lista
+              os números conectados ao Profile ID informado. Cada número tem seu
+              próprio Account ID na Zernio.
             </p>
             <button
               disabled={!!busy}
@@ -547,7 +575,7 @@ export function NumberRouter({
                 )
               }
             >
-              Buscar números na Meta
+              Buscar números na Zernio
             </button>
             <form
               onSubmit={async (e) => {
@@ -557,6 +585,7 @@ export function NumberRouter({
                   {
                     ...numberForm,
                     account_id: accountId,
+                    accountId: numberForm.phone_id,
                     baseline_used: Number(numberForm.baseline_used),
                     service_limit: Number(numberForm.service_limit),
                   },
@@ -624,7 +653,7 @@ export function NumberRouter({
                   />
                 </label>
                 <label>
-                  Franquia gratuita mensal (até 1.000)
+                  Limite local mensal de serviço (0 a 1.000)
                   <input
                     required
                     type="number"
@@ -652,8 +681,8 @@ export function NumberRouter({
                     })
                   }
                 />
-                Conferi na Meta o uso deste mês e o fuso {account.timezone}. O
-                valor inicial não inclui mensagens futuras.
+                Conferi no provedor o uso deste mês e o fuso {account.timezone}.
+                O valor inicial não inclui mensagens futuras.
               </label>
               <p>
                 O número será adicionado pausado. Se ele já está no Wabotia,
@@ -669,15 +698,25 @@ export function NumberRouter({
         {step === "numbers" && account && (
           <section className="card">
             <h3>Seus números e consumo</h3>
+            {legacyAccount && (
+              <p className="notice">
+                Linhas da integração Meta anterior, pausadas na atualização.
+                Resolva operações em andamento ou sem confirmação e exclua as
+                linhas antigas antes de conectá-las pela Zernio. O histórico é
+                preservado.
+              </p>
+            )}
             <p>
               Uso protegido = histórico inicial + entregas de atendimento +
               reservas. Reservas sem confirmação não são liberadas
-              automaticamente. A mudança de mês segue o fuso da conta Meta.
+              automaticamente. A mudança de mês segue o fuso configurado. A cota
+              local não garante gratuidade; confira as cobranças da Zernio e da
+              Meta.
             </p>
             {!numbers.length && (
               <p>
-                Nenhum número cadastrado nesta conta. Use Buscar números na Meta
-                acima e escolha os que deseja trazer para o Wabotia.
+                Nenhum número cadastrado nesta conta. Use Buscar números na
+                Zernio acima e escolha os que deseja trazer para o Wabotia.
               </p>
             )}
             <div className="router-number-grid">
@@ -705,7 +744,7 @@ export function NumberRouter({
                   />
                   <dl>
                     <div>
-                      <dt>Franquia gratuita restante</dt>
+                      <dt>Saldo da cota local</dt>
                       <dd>{n.usage.remaining}</dd>
                     </div>
                     <div>
@@ -713,7 +752,7 @@ export function NumberRouter({
                       <dd>{n.usage.reserved}</dd>
                     </div>
                     <div>
-                      <dt>Serviço grátis confirmado pela Meta</dt>
+                      <dt>Serviço gratuito confirmado pelo provedor</dt>
                       <dd>{n.usage.free_confirmed}</dd>
                     </div>
                     <div>
@@ -721,7 +760,7 @@ export function NumberRouter({
                       <dd>{n.usage.template_delivered ?? 0}</dd>
                     </div>
                     <div>
-                      <dt>Serviço além da franquia (estimado)</dt>
+                      <dt>Serviço além da cota local (estimado)</dt>
                       <dd>
                         {n.usage.paid_service_estimated ??
                           Math.max(0, n.usage.used - n.usage.limit)}
@@ -742,7 +781,7 @@ export function NumberRouter({
                   </dl>
                   <div className="router-actions">
                     <button
-                      disabled={!!busy}
+                      disabled={!!busy || legacyAccount}
                       onClick={() =>
                         write(
                           `connections/${n.id}/state`,
@@ -758,10 +797,33 @@ export function NumberRouter({
                     >
                       {n.status === "active" ? "Pausar" : "Ativar"}
                     </button>
+                    <button
+                      disabled={!!busy}
+                      onClick={() => {
+                        if (
+                          demo ||
+                          window.confirm(
+                            "Excluir " +
+                              n.name +
+                              " (+" +
+                              n.number +
+                              ") do Wabotia? O histórico será preservado. Isso não desconecta nem exclui a conta no provedor. Mensagens e operações de grupo ainda na fila serão canceladas. Resolva envios em andamento, operações sem confirmação e ligações abertas antes de excluir.",
+                          )
+                        )
+                          write(
+                            "connections/" + n.id,
+                            {},
+                            "Excluir telefone",
+                            "DELETE",
+                          );
+                      }}
+                    >
+                      Excluir telefone
+                    </button>
                     <label>
-                      Franquia
+                      Limite local
                       <input
-                        aria-label={"Franquia de " + n.name}
+                        aria-label={"Limite local de " + n.name}
                         type="number"
                         min="0"
                         max="1000"
@@ -781,18 +843,18 @@ export function NumberRouter({
                               limits[n.id] ?? n.usage.limit,
                             ),
                           },
-                          "Atualizar franquia",
+                          "Atualizar limite local",
                           "PUT",
                         )
                       }
                     >
-                      Salvar franquia
+                      Salvar limite
                     </button>
                   </div>
                   <p className="number-policy-note">
                     {n.policy?.service_overage === false
-                      ? "Somente franquia gratuita: ao atingir o contador, novas mensagens de serviço são bloqueadas. O remetente da conversa é mantido."
-                      : "Ao terminar a franquia, as conversas continuam neste número com possível cobrança de serviço."}
+                      ? "Bloquear excedente da cota local: ao atingir o contador, novas mensagens de serviço são bloqueadas. O remetente da conversa é mantido."
+                      : "Ao atingir a cota local, as conversas continuam neste número com possível cobrança de serviço."}
                   </p>
                   <details className="router-technical-details">
                     <summary>Identificador para integração</summary>
@@ -822,16 +884,16 @@ export function NumberRouter({
             <div className="notice">
               <strong>Vinki e janela de 24 horas:</strong> a janela é aberta
               pelo cliente e pertence ao número que recebeu a mensagem. O
-              rodízio prioriza a franquia gratuita estimada; a conversa mantém o
+              rodízio prioriza a cota local configurada; a conversa mantém o
               mesmo número. Nas permissões da linha, selecione{" "}
-              <strong>Somente franquia gratuita</strong> para bloquear excedente
-              de serviço. Linhas sem saldo e com essa opção ligada saem da
-              seleção de novos atendimentos. O contador local não garante uma
-              fatura sem cobrança.
+              <strong>Bloquear excedente da cota local</strong> para bloquear
+              excedente de serviço. Linhas sem saldo e com essa opção ligada
+              saem da seleção de novos atendimentos. O contador local não
+              garante uma fatura sem cobrança.
             </div>
             <p>
-              Um grupo pertence a uma conta Meta. A escolha ocorre no início do
-              atendimento e fica vinculada a ele. Grupos podem compartilhar
+              Um grupo pertence a uma conta Zernio. A escolha ocorre no início
+              do atendimento e fica vinculada a ele. Grupos podem compartilhar
               números; o consumo do número continua único. Apenas números que
               permitem participar do roteamento são escolhidos. Permitir
               templates no grupo não libera templates em um número que os
@@ -940,7 +1002,7 @@ export function NumberRouter({
                     Distribuição dos novos atendimentos
                     <select value="round_robin" disabled>
                       <option value="round_robin">
-                        Rodízio com prioridade à franquia gratuita
+                        Rodízio com prioridade ao saldo local
                       </option>
                     </select>
                   </label>
@@ -1024,7 +1086,8 @@ export function NumberRouter({
                 autorização de linhas continua limitada pelas permissões abaixo.
               </p>
               <p className="muted">
-                As permissões abaixo abrangem todas as contas Meta deste perfil.
+                As permissões abaixo abrangem todas as contas Zernio deste
+                perfil.
               </p>
               {!data.applications.length && (
                 <p className="notice">

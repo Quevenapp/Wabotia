@@ -17,7 +17,7 @@ export const demoLines: Row[] = [
     name: "Filial Centro",
     number: "5511999990001",
     status: "active",
-    kind: "meta",
+    kind: "zernio",
     number_policy: numberPolicyPresets.official,
     service: { mode: "bot", bot_id: "demo-bot", menu_mode: "automatic" },
   },
@@ -26,7 +26,7 @@ export const demoLines: Row[] = [
     name: "Atendimento da loja",
     number: "5511999990002",
     status: "active",
-    kind: "meta",
+    kind: "zernio",
     number_policy: numberPolicyPresets.official,
     service: { mode: "human", bot_id: null, menu_mode: "manual" },
   },
@@ -303,8 +303,8 @@ export function LinesPanel(props: Props) {
         </p>
         <p>
           Cadastre novas linhas em Conexões ou Roteador de números. Os
-          atendimentos mantêm o número de origem, inclusive após a franquia
-          gratuita.
+          atendimentos mantêm o número de origem, inclusive após atingir a cota
+          local.
         </p>
         {error && (
           <div className="notice error" role="alert">
@@ -476,9 +476,10 @@ export function MenusPanel(props: Props) {
         </div>
         <p>
           Crie caminhos para conteúdo, links, bots, setores, protocolos e
-          avaliações. Na API Meta, até três opções curtas viram botões e até dez
-          viram uma lista. Nos demais casos, o cliente recebe opções numeradas.
-          As permissões da linha e dos menus pais continuam valendo.
+          avaliações. No WhatsApp pela Zernio, até três opções curtas viram
+          botões e até dez viram uma lista. Nos demais casos, o cliente recebe
+          opções numeradas. As permissões da linha e dos menus pais continuam
+          valendo.
         </p>
         <Feedback {...state} />
       </div>

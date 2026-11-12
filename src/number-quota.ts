@@ -187,7 +187,7 @@ export async function assertNumberQuotaDelivery(env: Env, row: any) {
 }
 export async function observeMetaUsage(env: Env, conn: any, data: any) {
   if (
-    conn.kind !== "meta" ||
+    !["meta", "zernio"].includes(conn.kind) ||
     !["sent", "delivered", "read", "failed"].includes(data.status)
   )
     return;

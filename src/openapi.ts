@@ -29,6 +29,72 @@ const schemas = {
   ...routerSchemas,
   ...integrationSchemas,
   ...serviceSchemas,
+  ConnectionInput: {
+    type: "object",
+    required: ["name", "kind", "config"],
+    description:
+      "Conexão individual. Use o roteador para compartilhar credenciais entre números Zernio. Edição exige conexão pausada e sem entregas pendentes; provedor e identidade de telefone não podem mudar. O modo Meta direto foi removido.",
+    properties: {
+      id: { type: "string" },
+      name: { type: "string", minLength: 1, maxLength: 100 },
+      kind: { enum: ["zernio", "qr", "hermes-whatsapp", "hermes", "telegram"] },
+      mode: { type: "string", default: "direct" },
+      config: {
+        type: "object",
+        properties: {
+          number: {
+            type: "string",
+            pattern: "^[0-9]{8,16}$",
+            description: "Número WhatsApp com DDI, somente dígitos.",
+          },
+          account_id: {
+            type: "string",
+            pattern: "^[a-fA-F0-9]{24}$",
+            description:
+              "accountId do WhatsApp na Zernio, obrigatório para kind=zernio.",
+          },
+          zernio_profile_id: {
+            type: "string",
+            pattern: "^[a-fA-F0-9]{24}$",
+            description: "Perfil remoto Zernio, obrigatório para kind=zernio.",
+          },
+        },
+      },
+      secrets: {
+        type: "object",
+        description:
+          "Para Zernio: api_key e webhook_secret obrigatórios na criação. Campos omitidos preservam valores na edição. Segredos ficam cifrados e não são devolvidos.",
+        properties: {
+          api_key: {
+            type: "string",
+            writeOnly: true,
+            minLength: 1,
+            maxLength: 4096,
+          },
+          webhook_secret: {
+            type: "string",
+            writeOnly: true,
+            minLength: 1,
+            maxLength: 4096,
+          },
+        },
+      },
+    },
+  },
+  ConnectionState: {
+    type: "object",
+    required: ["status"],
+    properties: { status: { enum: ["active", "paused"] } },
+  },
+  ConnectionRemoved: {
+    type: "object",
+    required: ["id", "deleted", "conversations_preserved"],
+    properties: {
+      id: { type: "string" },
+      deleted: { const: true },
+      conversations_preserved: { type: "integer", minimum: 0 },
+    },
+  },
   MessageContent: {
     type: "object",
     properties: {
@@ -833,6 +899,38 @@ const operations: [string, string, string, string?, string?][] = [
 operations.push(
   [
     "get",
+    "/profiles/{profile}/connections",
+    "Listar conexões sem segredos",
+    "administrador humano",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/connections",
+    "Cadastrar ou editar conexão",
+    "administrador humano",
+    "ConnectionInput",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/connections/{id}/state",
+    "Ativar ou pausar conexão verificada",
+    "administrador humano",
+    "ConnectionState",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/connections/{id}/test",
+    "Validar credenciais e identidade da conexão",
+    "administrador humano",
+  ],
+  [
+    "delete",
+    "/profiles/{profile}/connections/{id}",
+    "Excluir telefone local preservando o histórico",
+    "administrador humano",
+  ],
+  [
+    "get",
     "/profiles/{profile}/connections/{id}/capabilities",
     "Recursos disponíveis neste canal",
     "conversations:read",
@@ -1264,7 +1362,7 @@ export function openapi(origin: string) {
     if (path.includes("/router")) {
       entry.tags = ["Roteador WhatsApp"];
       entry.description +=
-        " A quantidade de números da WABA é definida pela Meta, sem teto imposto pelo roteador. Sem troca automática do remetente de uma conversa. A franquia local não garante ausência de cobranças Meta.";
+        " A Zernio intermedeia a conexão WhatsApp com a Meta. Os limites externos e a cobrança dependem da Zernio e Meta. Sem troca automática do remetente de uma conversa. O contador local não garante ausência de cobranças.";
       const resultSchema = path.endsWith("/router")
         ? "RouterView"
         : path.endsWith("/router/messages")
@@ -1276,7 +1374,63 @@ export function openapi(origin: string) {
         success.content["application/json"].schema = {
           $ref: "#/components/schemas/" + resultSchema,
         };
+      if (path.endsWith("/router/accounts") && method === "post")
+        success.content["application/json"].schema = {
+          type: "object",
+          required: ["id", "webhook_path"],
+          properties: {
+            id: { type: "string" },
+            webhook_path: {
+              type: "string",
+              example: "/webhooks/zernio-accounts/ID_CONTA_LOCAL",
+            },
+          },
+        };
+      if (path.endsWith("/router/accounts/{id}/connect")) {
+        entry.description +=
+          " Abra authUrl no navegador. A Zernio retorna para /app na origem desta instalação. Após conectar, execute discover e cadastre o número encontrado. Não envia chaves API ao navegador.";
+        success.content["application/json"].schema = {
+          type: "object",
+          required: ["authUrl"],
+          properties: { authUrl: { type: "string", format: "uri" } },
+        };
+      }
+      if (path.endsWith("/router/accounts/{id}/discover"))
+        success.content["application/json"].schema = {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  account_id: {
+                    type: "string",
+                    description: "accountId remoto Zernio.",
+                  },
+                  phone_id: {
+                    type: "string",
+                    description: "Alias do accountId remoto.",
+                  },
+                  number: { type: "string" },
+                  name: { type: "string" },
+                  quality: { type: "string" },
+                },
+              },
+            },
+          },
+        };
     }
+    if (path.endsWith("/connections/{id}") && method === "delete") {
+      entry.description +=
+        " Remove apenas a conexão local WhatsApp (Zernio, QR, Hermes WhatsApp ou legado Meta), suas credenciais e vínculos no roteador. Não desconecta a conta no provedor. Preserva mensagens, protocolos e conversas, encerrando o atendimento e impedindo novos envios por essa linha. Cancela mensagens e operações de grupo ainda na fila (pending). Retorna 409 connection_busy com envios ou operações já iniciados/ambíguos (sending/unknown) ou ligações abertas; conclua ou reconcilie antes de repetir.";
+      success.content["application/json"].schema = {
+        $ref: "#/components/schemas/ConnectionRemoved",
+      };
+    }
+    if (path.endsWith("/connections/{id}/state"))
+      entry.description +=
+        " Ativação exige conexão testada. O provedor legado meta retorna 410 meta_removed; cadastre novamente pela Zernio.";
     success.headers = {
       "X-Request-Id": { schema: { type: "string" } },
       ...(idempotent
@@ -1423,6 +1577,55 @@ export function openapi(origin: string) {
     describeServiceOperation(path, method, entry, success);
     describeIntegrationOperation(path, entry, origin);
     (paths[path] ??= {})[method] = entry;
+  }
+  for (const path of [
+    "/webhooks/zernio/{id}",
+    "/webhooks/zernio-accounts/{id}",
+  ]) {
+    paths[path] = {
+      post: {
+        summary: path.includes("zernio-accounts")
+          ? "Receber webhook dos números de uma conta Zernio"
+          : "Receber webhook de uma conexão Zernio",
+        tags: ["WhatsApp Zernio"],
+        servers: [{ url: origin }],
+        security: [],
+        description:
+          "Configure esta URL na Zernio. O id é local Wabotia. Assinatura X-Zernio-Signature: HMAC-SHA256 hexadecimal do corpo original usando webhook_secret, sem prefixo de timestamp. Não exige Bearer nem Idempotency-Key. Eventos são deduplicados pelo identificador da mensagem; accountId, plataforma e perfil remoto são conferidos antes de encaminhar. O webhook da conta atende todos os números importados dela.",
+        parameters: [
+          {
+            in: "path",
+            name: "id",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            in: "header",
+            name: "X-Zernio-Signature",
+            required: true,
+            schema: { type: "string", pattern: "^[a-f0-9]{64}$" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                description:
+                  "Evento original da Zernio: message.received, message.sent, message.delivered, message.read, message.failed ou reaction.received.",
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Evento recebido, ignorado ou já processado" },
+          "202": { description: "Mensagem recebida para processamento" },
+          "400": { description: "Canal ou payload inválido" },
+          "403": { description: "Assinatura inválida" },
+        },
+      },
+    };
   }
   return {
     openapi: "3.1.0",

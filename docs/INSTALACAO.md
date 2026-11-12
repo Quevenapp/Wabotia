@@ -2,9 +2,9 @@
 
 Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
 
-O [PDF ilustrado](https://wabotia.queven.app/guide/wabotia-instalacao.pdf) reúne telas reais sem credenciais e referências de preenchimento identificadas. Os nomes de menus da Cloudflare e da Meta podem aparecer em inglês. Esta edição cobre a versão 0.6.2: valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
+O [guia online](https://wabotia.queven.app/install) reúne o fluxo atual de instalação e conexão pela Zernio. PDFs de versões anteriores são apenas referência histórica. Valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
-Para cadastrar seu primeiro telefone na API oficial, comece por [WhatsApp: do chip à API](META-WHATSAPP.md). O [caderno ilustrado da Meta](https://wabotia.queven.app/guide/wabotia-meta-whatsapp.pdf) explica os requisitos da empresa, telefone, aplicativo, tokens e conexão ao Wabotia.
+Para conectar o WhatsApp oficial, siga [WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). A Zernio intermedeia a Meta usando API key, Profile ID e webhook.
 
 Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
 
@@ -286,15 +286,15 @@ Arquivos produzidos por bots precisam ser exportados como artefatos da API nativ
 
 ## 7. Escolha um modo WhatsApp por número
 
-### Meta direto no Worker
+### WhatsApp oficial pela Zernio
 
-1. Na Meta, prepare uma aplicação WhatsApp Business, número de teste, token com as permissões necessárias, Phone Number ID, WABA ID e App Secret.
-2. Em Conexões, selecione **WhatsApp · API oficial Meta**. Preencha número com DDI (somente dígitos), IDs e tokens. Crie um Verify Token aleatório.
-3. Salve. Copie o endereço de webhook exibido (`SUA_URL/webhooks/meta/ID_DA_CONEXAO`). Na aplicação Meta, cadastre essa URL e o mesmo Verify Token; assine os eventos `messages`.
-4. Teste a conexão, ative-a e use o número de teste autorizado no painel Meta.
-5. Fora da janela de atendimento de 24 horas, notificações exigem consentimento e um template **UTILITY aprovado**, no idioma configurado. Nesta versão o corpo deve usar `{{1}}` para protocolo e `{{2}}` para andamento. Templates com outros componentes/formato não são liberados automaticamente.
+1. Crie um perfil e uma API key na Zernio.
+2. Em **Zernio e números**, salve Profile ID, API key, fuso e segredo de assinatura do webhook.
+3. Use **Conectar WhatsApp pela Zernio**, conclua a autorização e depois **Buscar números na Zernio**.
+4. Cadastre na Zernio o webhook exibido, com o mesmo segredo e eventos de mensagens e recibos.
+5. Adicione os números, teste e ative. Fora da janela de 24 horas, templates continuam exigindo aprovação e consentimento.
 
-Neste modo, o Worker recebe o WhatsApp e usa as APIs nativas Hermes; não há plugin Wabotia no Hermes.
+O [guia Zernio](ZERNIO-WHATSAPP.md) detalha o processo, a migração das linhas Meta anteriores e a exclusão de telefones preservando o histórico. O Worker conversa com a Zernio; o Hermes fornece os bots.
 
 ### QR direto, ao lado do Hermes
 

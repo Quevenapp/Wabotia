@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Revisão local de 10/11/2026: Zernio e exclusão de telefones
+
+Revisão local realizada antes da publicação. A conexão direta Meta foi substituída pela Zernio; as linhas legadas são pausadas pela migração `0014_zernio.sql`. Conversas, mensagens e protocolos são preservados. Excluir um telefone cancela a fila ainda não enviada; envios iniciados ou sem confirmação e chamadas abertas exigem resolução antes da exclusão.
+
+Validação final: **284 testes aprovados em 23 arquivos**, executados no workerd com D1, R2 e Durable Objects. TypeScript, build web e empacotamento do Worker por `wrangler deploy --dry-run` passaram. O build web mantém um aviso de tamanho do bundle principal; não houve erro de compilação.
+
+Os testes cobrem descoberta paginada, permissões e isolamento de contas/perfis, HMAC do webhook, deduplicação, roteamento e janela de atendimento, templates/consentimento, anexos por URL e multipart, grupos e cancelamento de fila com preservação do histórico. A migração foi testada sobre dados legados usando as próprias instruções SQL de atualização. Credenciais reais, número real e entrega na Zernio não foram homologados. Esta etapa local não enviou mensagens nem alterou a instalação em produção.
+
+Ligações de áudio no navegador e envio de figurinhas não estão disponíveis pelo adaptador Zernio. Grupos precisam ser sincronizados antes do recebimento. Consulte formatos, limites e configuração no [guia Zernio](ZERNIO-WHATSAPP.md). Os PDFs antigos foram retirados dos links principais; seus geradores foram atualizados, mas os PDFs não foram regenerados nesta revisão. As publicações e evidências a seguir são históricas.
+
 ## Publicação 0.10.0 de 09/11/2026: configuração e integrações
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `ba85167da900e087c9c6241c17d452b14996268d`. O painel simplificado e o assistente compartilham as configurações existentes. Foram acrescentados pareamento Vinki/Fagoo por código, atualização automática opcional, menus interativos, destinos por setor, consulta de protocolos por titularidade e interpretação do Atendente antes da decisão JEV.

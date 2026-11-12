@@ -14,10 +14,37 @@ import { access } from "./security";
 import { event } from "./events";
 import { mediaKind, authorizedMedia } from "./media";
 import { conversation, enqueue } from "./service";
+import { zernioPresignType } from "./zernio-media";
 
 export function capabilities(conn: any, chatType = "direct") {
+  if (conn?.kind === "zernio") {
+    const group = chatType === "group",
+      cfg = json(conn.config);
+    return {
+      text: true,
+      document: true,
+      image: true,
+      video: true,
+      audio: true,
+      voice: true,
+      sticker: false,
+      reply: true,
+      reaction: !group,
+      location: !group,
+      contacts: !group,
+      edit: false,
+      delete: false,
+      read: true,
+      mentions: false,
+      groups: cfg.groups_enabled === true,
+      group_manage: cfg.groups_enabled === true,
+      calls: false,
+      video_calls: false,
+      upgrade_required: false,
+    };
+  }
   const cfg = json(conn?.config),
-    direct = conn?.kind === "meta",
+    direct = false,
     qr = conn?.kind === "qr",
     modern = Number(cfg.protocol_version) >= 2;
   const advertised = cfg.features || [];
@@ -206,7 +233,8 @@ export async function outgoingContent(
 export function validateMedia(m: any, kind: string, conn: any) {
   const mime = m.type.split(";")[0].toLowerCase(),
     meta =
-      conn.kind === "meta" || json(conn.config).platform === "whatsapp_cloud";
+      ["meta", "zernio"].includes(conn.kind) ||
+      json(conn.config).platform === "whatsapp_cloud";
   const limits: any = meta
     ? { image: 5, video: 16, audio: 16, voice: 16, document: 100, sticker: 0.5 }
     : {
@@ -221,6 +249,11 @@ export function validateMedia(m: any, kind: string, conn: any) {
     m.size <= (limits[kind] || 100) * 1024 * 1024,
     `O limite deste canal para ${kind} é ${limits[kind]} MB.`,
   );
+  if (conn.kind === "zernio" && !zernioPresignType(m.type))
+    requireValue(
+      m.size <= 25 * 1024 * 1024,
+      "A Zernio aceita até 25 MB para envio direto deste formato de anexo.",
+    );
   if (kind === "voice")
     requireValue(
       mime === "audio/ogg",

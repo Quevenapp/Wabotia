@@ -736,8 +736,8 @@ export function WhatsAppConversation({
         {progress && <p role="status">{progress}</p>}
         <div className="compose-send">
           <small>
-            Meta: foto até 5 MB; vídeo/áudio até 16 MB; documento até 100 MB.
-            Gravação até 2 minutos.
+            WhatsApp oficial: foto até 5 MB; vídeo/áudio até 16 MB; documento
+            até 100 MB. Gravação até 2 minutos.
           </small>
           <button
             disabled={busy || !own || recording}

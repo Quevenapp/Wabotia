@@ -10,13 +10,13 @@ Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `t
 
 Tokens com prefixo `wabu_` **não são chaves de aplicação**: são sessões humanas dos aplicativos Android e iOS, emitidas por `POST /api/auth/mobile/login` (fora de `/v1`) para uma pessoa cadastrada em **Pessoas**, com os mesmos perfis e papel do painel. Eles valem 30 dias, são renovados por `POST /v1/auth/mobile/refresh` e revogados por `POST /v1/logout`. As rotas de dispositivos (`/v1/devices`), de notificações (`/v1/system/push`, administrador) e o detalhe de protocolo `GET /profiles/{perfil}/tickets/{id}` com filtros `status` e `overdue` fazem parte do mesmo contrato; as de dispositivos e notificações aceitam somente sessão de usuário ou cookie do painel e respondem `403` a chaves de aplicação. Integrações servidor-servidor continuam usando chaves de aplicação; não use um token `wabu_` em um backend. Detalhes em [MOBILE.md](MOBILE.md).
 
-## Roteador de números Meta
+## Roteador de números WhatsApp pela Zernio
 
 Cada número retorna `policy` com `purpose`, `service`, `templates`, `human`, `api`, `menu`, `bots` e `pool`. As opções do número prevalecem sobre permissões de grupo/aplicação. Somente administrador humano pode alterá-las por `PUT /profiles/{perfil}/router/numbers/{id}/policy`, corpo `{"policy":{...}}` completo e `Idempotency-Key`. `403 number_policy_denied` indica capacidade desabilitada. A conferência ocorre no pedido e antes da entrega; uma restrição nova cancela envios ainda pendentes. Mensagens já enviadas ou sem confirmação não são repetidas nem movidas para outro número. O histórico e os eventos recebidos continuam disponíveis.
 
 Consulte `GET /profiles/{perfil}/router` para números/grupos autorizados e contadores. Envie por `POST /profiles/{perfil}/router/messages`, com `number_id` **ou** `pool_id`, `to`, `external_id` estável e texto/anexo. Retorna `202` com `delivery_id`; consulte `GET /profiles/{perfil}/router/messages/{id}`. Somente uma entrega `pending` pode ser cancelada, por `POST /profiles/{perfil}/router/messages/{id}/cancel`. Todas as escritas exigem idempotência.
 
-Atendimento exige janela de 24 horas real no mesmo número. Novas entradas fazem rodízio entre linhas com franquia gratuita; quando todas a consomem, o rodízio continua com serviço pago. O remetente fica vinculado e continua enviando serviço pago após a franquia, sem converter em template nem alterar a janela. `usage.free_allowance`, `free_remaining` e `paid_service_estimated` informam a estimativa local; `limit` e `remaining` permanecem como aliases da franquia, sem bloquear envio. `billing.mode` pode ser `service_allowance`, `service_paid` ou `paid_template`; a cobrança final depende dos recibos Meta. Templates continuam exigindo `routing:paid`, origem/grupo autorizados, `allow_paid:true`, consentimento da mesma categoria e aprovação na WABA. Essas permissões de template não são exigidas para serviço excedente. A chave não escolhe o autor. Consulte o [guia do roteador e exemplos cURL/JavaScript/Python](ROTEADOR.md). Uma resposta `sent` é aceitação pelo canal; confira `provider_status`. Não repita um resultado `unknown` em outro número.
+Atendimento exige janela de 24 horas real no mesmo número. O roteador alterna novas entradas e prioriza a cota local configurada. O remetente permanece vinculado ao atendimento; o excedente depende da política da linha. Os campos legados `usage.free_allowance`, `free_remaining`, `paid_service_estimated`, `limit` e `remaining` são estimativas locais e não garantem gratuidade na Zernio. Templates exigem `routing:paid`, origem autorizada, `allow_paid:true`, consentimento na categoria correta e aprovação consultada pela Zernio. A chave não escolhe o autor. Consulte o [guia do roteador](ROTEADOR.md). `sent` significa aceitação; confira os recibos de entrega. Não repita um resultado `unknown` em outro número.
 
 ## Repetição e erros
 
@@ -95,28 +95,19 @@ Use um novo REQUEST_ID para uma nova intenção. Ao repetir após falha de rede,
 | `GET /group-operations` | Últimas 30 operações acessíveis à identidade |
 | `POST /group-operations/{id}/reconcile` | `{status:"sent" ou "failed",confirmed:true}` após conferência do grupo |
 
-Exemplos de corpos: `{action:"create",connection_id:"ID",subject:"Equipe",participants:["5511999990000"]}` (QR); `{action:"join",connection_id:"ID",invite:"https://chat.whatsapp.com/CODIGO"}`; `{action:"participants",operation:"add",participants:["5511999990000"]}`; `{action:"announcement",enabled:true}`. Meta cria grupos elegíveis e admite participantes por convite, não por `add`. A confirmação QR é assíncrona. `unknown` bloqueia novas operações de grupo naquela conexão até reconciliação. Resultados por participante podem indicar sucesso parcial.
+Exemplos de corpos: `{action:"create",connection_id:"ID",subject:"Equipe",participants:["5511999990000"]}` (QR); `{action:"join",connection_id:"ID",invite:"https://chat.whatsapp.com/CODIGO"}`; `{action:"participants",operation:"add",participants:["5511999990000"]}`; `{action:"announcement",enabled:true}`. Zernio permite criar grupos empresariais elegíveis, adicionar/remover até oito participantes por pedido e renovar convites; renovar revoga o link anterior. Entrar por convite, sair e alterar administradores ficam disponíveis somente no QR. A confirmação QR é assíncrona. `unknown` bloqueia novas operações de grupo naquela conexão até reconciliação. Resultados por participante podem indicar sucesso parcial.
 
-### Ligações de voz
+### Histórico de ligações
 
-O administrador habilita Calling API em Conexões. Escritas exigem `calls:read` **e** `calls:write`; assumir entrada exige também `conversations:write`. Apps podem ver chamadas livres no perfil autorizado e assumir uma delas em sua própria identidade. Depois, apenas o responsável controla/obtém a sessão; outra aplicação não vê a chamada nem recebe seus novos eventos. Atendentes humanos mantêm a visibilidade de equipe, mas só o responsável recebe o SDP.
+Áudio pelo navegador não está disponível na integração Zernio. As rotas de iniciar, configurar, consultar permissão, aceitar, rejeitar ou encerrar áudio retornam `422 unsupported_capability`, sem contactar a Meta. A configuração de encaminhamento de chamadas é feita na Zernio.
 
-| Método e rota | Uso |
-|---|---|
-| `GET /calls` | Histórico por data, `limit` 1–100, `cursor`, `conversation_id` |
-| `GET /calls/{id}` | Estado; `?session=1` só para o responsável com escrita |
-| `GET /conversations/{id}/call-permission` | Permissão/limites atuais da Meta, `calls:read` |
-| `POST /calls/permission` | `{conversation_id}`; exige ser responsável e janela de atendimento aberta |
-| `POST /calls` | `{conversation_id,session:{sdp_type:"offer",sdp:"..."}}` de WebRTC áudio |
-| `POST /calls/{id}/claim` | Assumir chamada recebida; também toma a conversa e invalida a IA |
-| `POST /calls/{id}/pre_accept` e `/accept` | Mesma `session:{sdp_type:"answer",sdp:"..."}` nas duas ações |
-| `POST /calls/{id}/keepalive` | Renovar presença; enviar a cada 20 s durante a chamada |
-| `POST /calls/{id}/reject` ou `/terminate` | Recusar entrada ou encerrar; sem repetição automática em timeout |
-| `POST /calls/{id}/reconcile` | `{confirmed_ended:true}` somente após confirmar que encerrou no WhatsApp |
+O histórico anterior permanece em `GET /calls` e `GET /calls/{id}`, com escopo `calls:read` e as mesmas restrições de perfil e identidade. Para uma ligação antiga sem confirmação, o responsável pode usar `POST /calls/{id}/reconcile` com `{confirmed_ended:true}` após confirmar o encerramento no WhatsApp. Essa operação atualiza apenas o registro local. Sessões privadas não aparecem nos eventos da aplicação.
 
-O JSON é a sinalização, não o áudio. Um integrador precisa de um cliente WebRTC ou servidor de mídia próprio para produzir/consumir o SDP. Não basta enviar texto em `sdp`. Recolha os candidatos ICE antes de enviar a oferta/resposta; vídeo e data channels são recusados. Não exponha a chave Bearer nem credenciais Meta no navegador externo: seu backend deve autenticar a interface e repassar somente a sessão da chamada autorizada.
+### Conectar e excluir telefones
 
-Uma resposta HTTP bem-sucedida não significa que alguém atendeu. Consulte os estados `dialing`, `connecting`, `ringing`, `preaccepted`, `active`, `completed`, `rejected`, `missed`, `failed` e `unknown`, ou assine `call.updated`. Receipts, SDP e credenciais dinâmicas são criptografados em repouso; SDP não é enviado nos webhooks da aplicação. Depois do fim, as sessões da tabela de chamadas são eliminadas. Ausência de keepalive por cerca de 90 s solicita encerramento uma vez, sem repetir uma ação ambígua. Não há gravação de chamadas.
+`POST /connections` aceita `kind:"zernio"`, `config:{number,account_id,zernio_profile_id}` e `secrets:{api_key,webhook_secret}`. Teste com `POST /connections/{id}/test` antes de ativar. Para várias linhas, cadastre o perfil Zernio em `POST /router/accounts`, obtenha a autorização em `POST /router/accounts/{id}/connect` e descubra os números em `POST /router/accounts/{id}/discover`. O contrato completo está na [API interativa](https://wabotia.queven.app/api-docs) e no [guia Zernio](ZERNIO-WHATSAPP.md).
+
+`DELETE /connections/{id}` exige administrador, perfil autorizado e Idempotency-Key. Remove somente o telefone no Wabotia, cancela mensagens e operações de grupo ainda não enviadas e preserva conversas, mensagens e protocolos. Envios iniciados ou sem confirmação e chamadas abertas bloqueiam a exclusão. A conta e os serviços na Zernio permanecem ativos.
 
 ## Agenda de contatos
 

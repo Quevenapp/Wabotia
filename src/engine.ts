@@ -39,14 +39,11 @@ import {
   hermesArtifact,
   telegram,
   telegramMedia,
-  metaSend,
-  metaMedia,
-  metaContent,
-  templatePayload,
 } from "./integrations";
 import { secret, hmac, safeFetch } from "./security";
 import { event } from "./events";
 import { finishDelivery } from "./delivery";
+import { zernioSend, zernioTemplatePayload } from "./zernio";
 import { visibleEvent } from "./visibility";
 const system: Actor = {
   id: "bot:attendant",
@@ -1125,18 +1122,23 @@ export async function deliver(env: Env, row: any) {
     "SELECT * FROM connections WHERE id=?",
     row.kind === "team" ? cfg.telegram_connection : c.connection_id,
   );
-  if (!connection && c.external_namespace.startsWith("app:")) {
+  if (
+    !connection &&
+    !c.recipient_id &&
+    c.external_namespace.startsWith("app:")
+  ) {
     await finishDelivery(env, row, row.id);
     return;
   }
   if (
     !connection ||
     connection.status !== "active" ||
+    connection.kind === "meta" ||
     ["qr", "hermes-whatsapp"].includes(connection.kind)
   )
     return;
   const managed =
-    connection.kind === "meta" &&
+    ["meta", "zernio"].includes(connection.kind) &&
     (await one(
       env,
       "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
@@ -1186,7 +1188,7 @@ export async function deliver(env: Env, row: any) {
       ? await preparePaidTemplate(env, connection, c, payload)
       : { type: "text", text: { body: payload.text } };
     if (
-      connection.kind === "meta" &&
+      ["meta", "zernio"].includes(connection.kind) &&
       !payload.template_message &&
       c.chat_type !== "group" &&
       payload.content?.type !== "read" &&
@@ -1206,7 +1208,7 @@ export async function deliver(env: Env, row: any) {
         );
         return;
       }
-      body = await templatePayload(env, connection, c, payload, cfg);
+      body = await zernioTemplatePayload(env, connection, c, payload, cfg);
     }
     const claimed = await exec(
       env,
@@ -1227,7 +1229,7 @@ export async function deliver(env: Env, row: any) {
     );
     await assertNumberQuotaDelivery(env, row);
     if (
-      connection.kind === "meta" &&
+      ["meta", "zernio"].includes(connection.kind) &&
       payload.router_source &&
       !(await managedAppAllowed(
         env,
@@ -1306,31 +1308,21 @@ export async function deliver(env: Env, row: any) {
         external = String(r.result.message_id);
       }
     } else {
-      external = payload.media_id
-        ? await metaMedia(
-            env,
-            connection,
-            c.recipient_id || c.external_id,
-            payload.media_id,
-            payload,
-            c.chat_type === "group",
-          )
-        : body.type === "template"
-          ? await metaSend(
-              env,
-              connection,
-              c.recipient_id || c.external_id,
-              body,
-              true,
-              payload.expires_at,
-            )
-          : await metaContent(
-              env,
-              connection,
-              c.recipient_id || c.external_id,
-              payload,
-              c.chat_type === "group",
-            );
+      requireValue(
+        connection.kind === "zernio",
+        "Canal de envio não suportado.",
+      );
+      external = await zernioSend(
+        env,
+        connection,
+        c.recipient_id || c.external_id,
+        {
+          ...payload,
+          chat_type: c.chat_type,
+          ...(body.type === "template" ? { template_message: body } : {}),
+        },
+        row.id,
+      );
     }
     await finishDelivery(env, row, external);
   } catch (error) {

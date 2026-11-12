@@ -119,6 +119,7 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
     const cfg = json(n.config);
     list.push({
       id: n.id,
+      kind: n.kind,
       name: n.name,
       number: cfg.number,
       phone_id: n.phone_id,
@@ -136,6 +137,11 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
       "SELECT * FROM meta_accounts WHERE profile_id=? ORDER BY created,id",
       profile,
     );
+    result.accounts = result.accounts.map((a: any) => ({
+      ...a,
+      webhook_path:
+        a.provider === "zernio" ? `/webhooks/zernio-accounts/${a.id}` : null,
+    }));
     result.applications = await all(
       env,
       "SELECT id,name,scopes,disabled FROM applications WHERE EXISTS(SELECT 1 FROM json_each(applications.profiles) WHERE value=?) ORDER BY name,id",

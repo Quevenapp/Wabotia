@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, one, exec, batch } from "../src/db";
 import { uid, now, defaults, json, type Actor } from "../src/types";
-import { sha, setSecret } from "../src/security";
+import { sha, setSecret, secret } from "../src/security";
 import { inbound, perform, conversation, enqueue } from "../src/service";
 import { processInbox, processRun } from "../src/engine";
 import { listLines, saveLine, availableMenus } from "../src/line-service";
@@ -34,12 +34,14 @@ async function fixture() {
   for (const id of [line, second])
     await exec(
       env,
-      "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'meta','direct','active',?,?)",
+      "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'zernio','direct','active',?,?)",
       id,
       p,
       id,
       JSON.stringify({
         number: "5511999999999",
+        account_id: id.replaceAll("-", "").slice(0, 24),
+        zernio_profile_id: "abcdef1234567890abcdef12",
         secret_marker: "preservar",
         service: { mode: "inherit", menu_mode: "manual" },
       }),
@@ -491,8 +493,16 @@ describe("linhas, menus e equipe interna", () => {
       {
         id: f.line,
         name: "Nova descrição",
-        kind: "meta",
-        config: { number: "5511999999999", phone_id: "111222" },
+        kind: "zernio",
+        secrets: {
+          api_key: "test-zernio-key",
+          webhook_secret: "test-zernio-secret",
+        },
+        config: {
+          number: "5511999999999",
+          account_id: f.line.replaceAll("-", "").slice(0, 24),
+          zernio_profile_id: "abcdef1234567890abcdef12",
+        },
       },
       uid(),
     );
@@ -505,6 +515,24 @@ describe("linhas, menus e equipe interna", () => {
       menu_mode: "manual",
     });
     expect(config.number_policy.pool).toBe(false);
+    await perform(
+      env,
+      f.admin,
+      f.p,
+      "connection.save",
+      {
+        id: f.line,
+        name: "Sem alterar credenciais",
+        kind: "zernio",
+        config,
+        secrets: { api_key: "", webhook_secret: "" },
+      },
+      uid(),
+    );
+    expect(await secret(env, `connection:${f.line}`)).toMatchObject({
+      api_key: "test-zernio-key",
+      webhook_secret: "test-zernio-secret",
+    });
   });
   it("coloca linha humana na fila sem executar bot", async () => {
     const f = await fixture();

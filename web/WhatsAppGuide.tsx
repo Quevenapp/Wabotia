@@ -1,6 +1,5 @@
 import mediaImage from "../docs/screenshots/26-whatsapp-midias.jpg";
 import groupsImage from "../docs/screenshots/27-whatsapp-grupos.jpg";
-import callsImage from "../docs/screenshots/28-whatsapp-ligacoes.jpg";
 
 export function WhatsAppGuide() {
   return (
@@ -35,10 +34,10 @@ export function WhatsAppGuide() {
         </li>
       </ol>
       <p>
-        Meta: foto JPG/PNG até 5 MB, vídeo MP4 e áudio até 16 MB, documento
-        PDF/TXT/Office até 100 MB. Voz gravada: até dois minutos. Figurinhas:
-        WebP 512 × 512. O limite do upload Wabotia é 100 MB; o canal pode impor
-        limites menores.
+        WhatsApp oficial: foto JPG/PNG até 5 MB, vídeo MP4 e áudio até 16 MB,
+        PDF até 100 MB e TXT/Office até 25 MB pela Zernio. Voz gravada: até dois
+        minutos. Figurinhas: WebP 512 × 512. O limite do upload Wabotia é 100
+        MB; o canal pode impor limites menores.
       </p>
       <details>
         <summary>Ver a tela de mídias</summary>
@@ -57,10 +56,10 @@ export function WhatsAppGuide() {
         administrador.
       </p>
       <p>
-        A Meta tem uma API de grupos empresariais com elegibilidade própria, até
-        oito participantes na referência consultada e entrada por convite. Ela
-        não dá acesso geral aos grupos do aplicativo pessoal. Pelo Hermes, a
-        política de grupos dele também precisa permitir a entrada.
+        Grupos empresariais têm requisitos próprios do WhatsApp e do provedor.
+        Eles não dão acesso geral aos grupos do aplicativo pessoal. Consulte as
+        capacidades da conexão; pelo Hermes, a política de grupos dele também
+        precisa permitir a entrada.
       </p>
       <details>
         <summary>Ver a tela de grupos</summary>
@@ -70,42 +69,22 @@ export function WhatsAppGuide() {
           className="guide-reference-image"
         />
       </details>
-      <h3>Fazer e receber ligação de voz</h3>
-      <ol>
-        <li>
-          Use <strong>Meta direto</strong> com Calling API elegível. No
-          aplicativo Meta, assine o evento <strong>calls</strong> na mesma URL
-          de webhook, além de messages.
-        </li>
-        <li>
-          Em <strong>Conexões</strong>, clique{" "}
-          <strong>Habilitar ligações de voz</strong>. O token precisa ter as
-          permissões Meta necessárias.
-        </li>
-        <li>
-          Assuma uma conversa individual. Use{" "}
-          <strong>Verificar permissão</strong> e, se necessário,{" "}
-          <strong>Pedir permissão</strong>. O cliente deve autorizar a chamada.
-        </li>
-        <li>
-          Clique <strong>Ligar</strong> ou abra o aviso de ligação recebida e
-          escolha <strong>Atender com microfone</strong>. Mantenha a conversa
-          aberta até encerrar.
-        </li>
-      </ol>
+      <h3>Ligações de voz</h3>
       <p>
-        O áudio usa o navegador e a infraestrutura Meta. QR e transporte Hermes
-        não oferecem ligações neste projeto. Videochamadas não são suportadas.
-        Permissões, limites e cobranças Meta continuam aplicáveis.
+        A Zernio oferece recursos de chamadas com configuração própria. O áudio
+        pelo navegador do Wabotia não está disponível nesta integração. O
+        histórico de ligações anteriores continua acessível. QR e transporte
+        Hermes também não oferecem chamadas neste projeto.
       </p>
-      <details>
-        <summary>Ver a tela de ligações</summary>
-        <img
-          src={callsImage}
-          alt="Controles de voz com dados fictícios, sem ligação real"
-          className="guide-reference-image"
-        />
-      </details>
+      <p>
+        <a
+          href="https://docs.zernio.com/platforms/whatsapp/calling"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Consulte as opções de chamadas na Zernio ↗
+        </a>
+      </p>
       <p>
         <strong>Antes de usar com clientes:</strong> teste com seu número real
         todos os tipos de mídia, grupos, recuperação após queda e ligações

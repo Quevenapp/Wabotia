@@ -39,7 +39,7 @@ export const sections = [
   ["menus", "Menus e ações", Menu],
   ["knowledge", "Conhecimento", BookOpen],
   ["settings", "Regras de atendimento", Settings],
-  ["router", "Conta Meta e números", Phone],
+  ["router", "Zernio e números", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
   ["surveys", "Avaliações", Star],
@@ -143,14 +143,14 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Receba mensagens, assuma conversas e encaminhe para pessoas ou bots.",
   tickets: "Acompanhe solicitações, responsáveis e prazos de resposta.",
   calls:
-    "Atenda ligações de voz pelo navegador nas linhas habilitadas pela Meta.",
+    "Consulte o histórico de ligações. Áudio pelo navegador indisponível na Zernio.",
   contacts: "Encontre clientes, organize cadastros e importe sua agenda.",
   bots: "Escolha quem conversa com o cliente e quais especialistas ajudam internamente.",
   menus:
     "Organize os caminhos do cliente para conteúdo, aplicativos, pessoas e bots.",
   settings: "Defina orientações, prazos, avaliações e a participação do JEV.",
   router:
-    "Conecte a conta Meta, encontre seus números e configure a distribuição de mensagens.",
+    "Conecte a conta Zernio, encontre seus números e configure a distribuição de mensagens.",
   lines: "Escolha o bot ou a equipe responsável por cada número conectado.",
   connections:
     "Conecte o Hermes e o Telegram e confira o funcionamento dos canais.",

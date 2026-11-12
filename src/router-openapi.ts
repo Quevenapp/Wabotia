@@ -13,7 +13,8 @@ const sourceProperties = {
   },
   number_id: {
     ...id,
-    description: "ID Wabotia do número, não o Phone Number ID da Meta.",
+    description:
+      "ID local Wabotia do número, diferente do accountId da Zernio.",
   },
   pool_id: {
     ...id,
@@ -100,7 +101,7 @@ export const routerSchemas = {
   RouterUsage: {
     type: "object",
     description:
-      "Estimativa de uso e franquia; não é uma fatura Meta. Uso inclui o histórico inicial, entregas e reservas. service_overage_allowed=false bloqueia excedentes de serviço pelo contador conservador. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
+      "Estimativa local de uso; não é uma fatura da Zernio ou Meta. Uso inclui o histórico inicial, entregas e reservas. service_overage_allowed=false bloqueia excedentes de serviço pelo contador conservador. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
     properties: Object.fromEntries([
       ["period", { type: "string", example: "2026-11" }],
       ["timezone", { type: "string", example: "America/Sao_Paulo" }],
@@ -217,7 +218,7 @@ export const routerSchemas = {
     required: ["external_id", "allow_paid", "consent", "template"],
     ...sources,
     description:
-      "Modelo aprovado da WABA. Exige routing:paid, permissão paga da origem, grupo habilitado para pagos, autorização por pedido e consentimento da mesma categoria. Não abre uma janela de atendimento artificialmente.",
+      "Modelo aprovado para o número WhatsApp conectado pela Zernio. Exige routing:paid, permissão paga da origem, grupo habilitado para pagos, autorização por pedido e consentimento da mesma categoria. Não abre uma janela de atendimento artificialmente.",
     properties: {
       ...sourceProperties,
       free_only: {
@@ -379,18 +380,20 @@ export const routerSchemas = {
   },
   RouterAccount: {
     type: "object",
-    required: ["name", "waba_id"],
+    required: ["name"],
+    description:
+      "Perfil Zernio compartilhado por vários números. Ao criar, informe zernio_profile_id e os dois segredos. Ao editar, omita segredos para preservá-los. O perfil remoto não pode mudar; credenciais alteradas exigem revalidar as linhas. Contas antigas da Meta devem ser substituídas por uma nova conta Zernio.",
     properties: {
       id,
       name: { type: "string", maxLength: 100 },
-      waba_id: { type: "string", pattern: "^[0-9]{3,40}$" },
+      zernio_profile_id: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
       timezone: { type: "string", default: "America/Sao_Paulo" },
       secrets: {
         type: "object",
         description:
           "Todos obrigatórios ao criar; campos vazios mantêm credenciais existentes ao editar.",
         properties: Object.fromEntries(
-          ["token", "app_secret", "verify_token"].map((key) => [
+          ["api_key", "webhook_secret"].map((key) => [
             key,
             { type: "string", writeOnly: true, maxLength: 4096 },
           ]),
@@ -400,14 +403,34 @@ export const routerSchemas = {
   },
   RouterNumber: {
     type: "object",
-    required: ["account_id", "phone_id", "baseline_used", "baseline_confirmed"],
+    required: ["account_id", "baseline_confirmed"],
+    anyOf: [{ required: ["accountId"] }, { required: ["phone_id"] }],
     description:
-      "Números autorizados pela Meta na WABA, descobertos há menos de uma hora, sem teto de quantidade imposto pelo roteador. Cria pausado; conexão existente deve estar pausada e sem entregas não confirmadas.",
+      "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é a conta local Wabotia; accountId é a conta WhatsApp remota. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
     properties: {
-      account_id: id,
-      phone_id: id,
+      account_id: {
+        ...id,
+        description:
+          "ID local retornado ao cadastrar a conta Zernio no Wabotia.",
+      },
+      accountId: {
+        type: "string",
+        pattern: "^[a-fA-F0-9]{24}$",
+        description: "accountId WhatsApp retornado pela descoberta na Zernio.",
+      },
+      phone_id: {
+        type: "string",
+        pattern: "^[a-fA-F0-9]{24}$",
+        description:
+          "Alias de accountId; não aceita mais Phone Number ID da Meta.",
+      },
       name: { type: "string" },
-      baseline_used: { type: "integer", minimum: 0, maximum: 100000000 },
+      baseline_used: {
+        type: "integer",
+        minimum: 0,
+        maximum: 100000000,
+        default: 0,
+      },
       baseline_confirmed: { const: true },
       service_limit: {
         type: "integer",
@@ -415,7 +438,7 @@ export const routerSchemas = {
         maximum: 1000,
         default: 1000,
         description:
-          "Franquia gratuita mensal para priorizar novas entradas e limitar o envio quando service_overage=false.",
+          "Limite local mensal estimado para priorizar novas entradas e limitar o envio quando service_overage=false. Não representa uma gratuidade contratada da Zernio ou Meta.",
       },
     },
   },
@@ -508,14 +531,20 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "post",
     "/profiles/{profile}/router/accounts",
-    "Cadastrar ou editar conta Meta",
+    "Cadastrar ou editar perfil e credenciais Zernio",
     "administrador humano",
     "RouterAccount",
   ],
   [
     "post",
     "/profiles/{profile}/router/accounts/{id}/discover",
-    "Buscar números da WABA sem ativar nem enviar",
+    "Buscar números WhatsApp conectados no perfil Zernio",
+    "administrador humano",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/router/accounts/{id}/connect",
+    "Abrir cadastro do WhatsApp intermediado pela Zernio",
     "administrador humano",
   ],
   [
@@ -542,7 +571,7 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "post",
     "/profiles/{profile}/router/pools",
-    "Criar ou editar grupo da mesma WABA",
+    "Criar ou editar grupo do mesmo perfil Zernio",
     "administrador humano",
     "RouterPool",
   ],

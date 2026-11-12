@@ -467,7 +467,7 @@ const installSteps = [
   ],
   [
     "Escolha seus canais",
-    "Conecte Meta ou QR e configure o bot Telegram dedicado. Use apenas um modo por número.",
+    "Conecte Zernio ou QR e configure o bot Telegram dedicado. Use apenas um modo por número.",
   ],
   [
     "Teste e atualize pelo painel",
@@ -491,6 +491,7 @@ function Install() {
           "#atualizacoes",
           "#agenda",
           "#meta-whatsapp",
+          "#zernio-whatsapp",
           "#whatsapp-recursos",
           "#roteador",
         ].includes(location.hash)
@@ -530,12 +531,8 @@ function Install() {
         <DirectInstall />
         <CloudflarePrerequisites />
         <div className="guide-actions">
-          <a
-            className="button secondary"
-            href="/guide/wabotia-instalacao.pdf"
-            download
-          >
-            Baixar guia em PDF <Download size={18} />
+          <a className="button secondary" href="#zernio-whatsapp">
+            Conectar WhatsApp pela Zernio <ArrowRight size={18} />
           </a>
         </div>
         <details>
@@ -1252,8 +1249,9 @@ function App() {
         for (const k of [
           "url",
           "api_url",
-          "phone_id",
-          "waba_id",
+          "account_id",
+          "zernio_profile_id",
+          "zernio_workspace_id",
           "group",
           "number",
           "platform",
@@ -1261,8 +1259,8 @@ function App() {
           if (form[k]) config[k] = form[k];
         for (const k of [
           "token",
-          "app_secret",
-          "verify_token",
+          "api_key",
+          "webhook_secret",
           "dashboard_token",
           "access_client_id",
           "access_client_secret",
@@ -2025,11 +2023,13 @@ function App() {
                           demo={demo}
                         />
                         {selection.conversation.chat_type === "group" &&
+                          selection.capabilities?.group_manage &&
                           !demo && (
                             <GroupControls
                               api={api}
                               root={root}
                               c={selection.conversation}
+                              capabilities={selection.capabilities}
                               refresh={() =>
                                 openConversation(selection.conversation)
                               }
@@ -2161,8 +2161,8 @@ function App() {
                 <section className="card">
                   <h2>Ligações de voz</h2>
                   <p>
-                    Chamadas pela Meta. Abra a conversa para atender, ligar ou
-                    consultar o histórico.
+                    Consulte o histórico de ligações. O atendimento de áudio
+                    pelo navegador não está disponível na integração Zernio.
                   </p>
                   {list.length ? (
                     list.map((row) => (
@@ -2197,12 +2197,13 @@ function App() {
                       <strong>Um lugar para cada conexão</strong>
                       <p>
                         Cadastre o Hermes para usar seus bots e o Telegram para
-                        a equipe humana. A conta Meta e seus telefones ficam em{" "}
+                        a equipe humana. A conta Zernio e seus telefones ficam
+                        em{" "}
                         <button
                           className="text-link"
                           onClick={() => navigate("router")}
                         >
-                          Conta Meta e números
+                          Zernio e números
                         </button>
                         .
                       </p>
@@ -2267,71 +2268,74 @@ function App() {
                             alt="Leia o código com o WhatsApp para conectar"
                           />
                         )}
-                        <button
-                          className="text-link"
-                          onClick={() =>
-                            row.kind === "meta" &&
-                            parse(row.config).meta_account_id
-                              ? navigate("router")
-                              : open("connection", {
-                                  ...row,
-                                  ...parse(row.config),
-                                })
-                          }
-                        >
-                          Editar conexão
-                        </button>
+                        {row.kind !== "meta" && (
+                          <button
+                            className="text-link"
+                            onClick={() =>
+                              open("connection", {
+                                ...row,
+                                ...parse(row.config),
+                              })
+                            }
+                          >
+                            Editar conexão
+                          </button>
+                        )}
                         <p>
                           {row.kind === "hermes"
                             ? "Bots e ferramentas"
                             : row.kind === "telegram"
                               ? "Equipe humana via Telegram"
                               : row.kind === "meta"
-                                ? "WhatsApp Cloud API"
-                                : row.kind === "qr"
-                                  ? "WhatsApp por QR"
-                                  : "WhatsApp pelo Hermes"}
+                                ? "WhatsApp Meta · integração anterior"
+                                : row.kind === "zernio"
+                                  ? "WhatsApp pela Zernio"
+                                  : row.kind === "qr"
+                                    ? "WhatsApp por QR"
+                                    : "WhatsApp pelo Hermes"}
                         </p>
                         <small>Último contato: {date(row.last_seen)}</small>
-                        <ConnectionDiagnostics
-                          hermes={row.kind === "hermes"}
-                          demo={demo}
-                          disabled={busy}
-                          request={(action, signal) =>
-                            api(
-                              root + `/connections/${row.id}/${action}`,
-                              "POST",
-                              {},
-                              signal,
-                            )
-                          }
-                          refresh={load}
-                          showBots={() => {
-                            setPage("bots");
-                            setCursor("");
-                            setError("");
-                          }}
-                        >
-                          <Button
-                            secondary
-                            onClick={() =>
-                              run(() =>
-                                api(
-                                  root + `/connections/${row.id}/state`,
-                                  "PUT",
-                                  {
-                                    status:
-                                      row.status === "active"
-                                        ? "paused"
-                                        : "active",
-                                  },
-                                ),
-                              ).then(load)
+                        {row.kind !== "meta" && (
+                          <ConnectionDiagnostics
+                            hermes={row.kind === "hermes"}
+                            demo={demo}
+                            disabled={busy}
+                            request={(action, signal) =>
+                              api(
+                                root + `/connections/${row.id}/${action}`,
+                                "POST",
+                                {},
+                                signal,
+                              )
                             }
+                            refresh={load}
+                            showBots={() => {
+                              setPage("bots");
+                              setCursor("");
+                              setError("");
+                            }}
                           >
-                            {row.status === "active" ? "Pausar" : "Ativar"}
-                          </Button>
-                        </ConnectionDiagnostics>
+                            <Button
+                              secondary
+                              onClick={() =>
+                                run(() =>
+                                  api(
+                                    root + `/connections/${row.id}/state`,
+                                    "PUT",
+                                    {
+                                      status:
+                                        row.status === "active"
+                                          ? "paused"
+                                          : "active",
+                                    },
+                                  ),
+                                ).then(load)
+                              }
+                            >
+                              {row.status === "active" ? "Pausar" : "Ativar"}
+                            </Button>
+                          </ConnectionDiagnostics>
+                        )}
                         {row.kind === "telegram" && (
                           <button
                             className="text-link"
@@ -2352,34 +2356,41 @@ function App() {
                           </button>
                         )}
                         {row.kind === "meta" && (
-                          <div className="call-configuration">
-                            <p>
-                              Ligações de voz exigem habilitação pela Meta,
-                              permissão do aplicativo e assinatura do webhook{" "}
-                              <code>calls</code>. O áudio será atendido no
-                              navegador.
-                            </p>
-                            <Button
-                              secondary
-                              disabled={busy}
-                              onClick={() =>
-                                run(() =>
-                                  api(
-                                    root + `/connections/${row.id}/calling`,
-                                    "PUT",
-                                    {
-                                      enabled: !parse(row.config)
-                                        .calling_enabled,
-                                    },
-                                  ),
-                                ).then(load)
-                              }
-                            >
-                              {parse(row.config).calling_enabled
-                                ? "Desabilitar ligações"
-                                : "Habilitar ligações de voz"}
-                            </Button>
-                          </div>
+                          <p className="notice">
+                            A integração direta com a Meta foi desativada.
+                            Resolva operações em andamento ou sem confirmação,
+                            exclua esta linha e conecte o número pela Zernio. O
+                            histórico é preservado.
+                          </p>
+                        )}
+                        {["meta", "zernio", "qr", "hermes-whatsapp"].includes(
+                          row.kind,
+                        ) && (
+                          <Button
+                            secondary
+                            disabled={busy}
+                            onClick={() => {
+                              if (
+                                demo ||
+                                window.confirm(
+                                  "Excluir o telefone " +
+                                    row.name +
+                                    " do Wabotia? O histórico será preservado. A conta no provedor não será desconectada nem excluída. Mensagens e operações de grupo ainda na fila serão canceladas. Resolva envios em andamento, operações sem confirmação e ligações abertas antes de excluir.",
+                                )
+                              )
+                                run(
+                                  () =>
+                                    api(
+                                      root + "/connections/" + row.id,
+                                      "DELETE",
+                                      {},
+                                    ),
+                                  "Telefone excluído. Histórico preservado.",
+                                ).then(load);
+                            }}
+                          >
+                            Excluir telefone
+                          </Button>
                         )}
                         {["qr", "hermes-whatsapp"].includes(row.kind) && (
                           <button
@@ -2400,22 +2411,23 @@ function App() {
                             Gerar chave do conector
                           </button>
                         )}
-                        {row.kind === "meta" && (
+                        {row.kind === "zernio" && (
                           <div className="resource-id">
-                            <span>
-                              Webhook Meta: {location.origin}
-                              {parse(row.config).meta_account_id
-                                ? "/webhooks/meta-accounts/" +
-                                  parse(row.config).meta_account_id
-                                : "/webhooks/meta/" + row.id}
-                            </span>
+                            <span>Webhook Zernio</span>
+                            <code>
+                              {location.origin +
+                                (parse(row.config).zernio_workspace_id
+                                  ? "/webhooks/zernio-accounts/" +
+                                    parse(row.config).zernio_workspace_id
+                                  : "/webhooks/zernio/" + row.id)}
+                            </code>
                             <CopyButton
                               value={
                                 location.origin +
-                                (parse(row.config).meta_account_id
-                                  ? "/webhooks/meta-accounts/" +
-                                    parse(row.config).meta_account_id
-                                  : "/webhooks/meta/" + row.id)
+                                (parse(row.config).zernio_workspace_id
+                                  ? "/webhooks/zernio-accounts/" +
+                                    parse(row.config).zernio_workspace_id
+                                  : "/webhooks/zernio/" + row.id)
                               }
                             />
                           </div>
@@ -2905,10 +2917,8 @@ function App() {
                     <h2>Depois de conectar</h2>
                     <p>
                       Para o Vinki, autorize as linhas e os grupos em{" "}
-                      <strong>
-                        Conta Meta e números → Acesso dos sistemas
-                      </strong>
-                      . Para consultas internas do Fagoo, configure um
+                      <strong>Zernio e números → Acesso dos sistemas</strong>.
+                      Para consultas internas do Fagoo, configure um
                       especialista no Hermes e uma ação permitida para o
                       Atendente.
                     </p>
@@ -3346,13 +3356,13 @@ function App() {
                   onChange={(v: string) => change("kind", v)}
                   options={[
                     ["hermes", "Hermes"],
-                    ["meta", "WhatsApp · API oficial Meta"],
+                    ["zernio", "WhatsApp · Zernio"],
                     ["qr", "WhatsApp · QR direto"],
                     ["hermes-whatsapp", "WhatsApp · pelo Hermes"],
                     ["telegram", "Telegram"],
                   ]}
                 />
-                {["qr", "meta", "hermes-whatsapp"].includes(form.kind) && (
+                {["qr", "zernio", "hermes-whatsapp"].includes(form.kind) && (
                   <Field
                     label="Número com DDI (somente dígitos)"
                     value={form.number}
@@ -3436,46 +3446,74 @@ function App() {
                     </details>
                   </>
                 )}
-                {form.kind === "meta" && (
-                  <label className="check-line">
-                    <input
-                      type="checkbox"
-                      checked={!!form.groups_enabled}
-                      onChange={(e) =>
-                        change("groups_enabled", e.target.checked)
-                      }
-                    />
-                    Minha conta Meta tem acesso à API de Grupos (OBA)
-                  </label>
-                )}
-                {["meta", "telegram"].includes(form.kind) && (
+                {form.kind === "telegram" && (
                   <Field
                     label="Token do serviço"
                     type="password"
                     value={form.token}
                     onChange={(v: string) => change("token", v)}
                   />
-                )}{" "}
-                {form.kind === "meta" && (
+                )}
+                {form.kind === "zernio" && (
                   <>
+                    <p>
+                      Conecte primeiro o número na Zernio. Para conectar e
+                      importar vários números, use Zernio e números no menu
+                      Canais.
+                    </p>
                     {[
-                      ["phone_id", "Phone Number ID"],
-                      ["waba_id", "WABA ID"],
-                      ["app_secret", "App Secret"],
-                      ["verify_token", "Verify Token do webhook"],
-                    ].map(([key, label]) => (
-                      <Field
-                        key={key}
-                        label={label}
-                        type={
-                          key.includes("secret") || key.includes("token")
-                            ? "password"
-                            : "text"
+                      ["account_id", "Account ID do número na Zernio"],
+                      ["zernio_profile_id", "Profile ID da Zernio"],
+                      ["api_key", "API key da Zernio"],
+                      [
+                        "webhook_secret",
+                        "Segredo de assinatura do webhook Zernio",
+                      ],
+                    ]
+                      .filter(
+                        ([key]) =>
+                          !form.zernio_workspace_id ||
+                          !["api_key", "webhook_secret"].includes(key),
+                      )
+                      .map(([key, label]) => (
+                        <Field
+                          key={key}
+                          label={label}
+                          type={
+                            key === "api_key" || key === "webhook_secret"
+                              ? "password"
+                              : "text"
+                          }
+                          value={form[key]}
+                          onChange={(v: string) => change(key, v)}
+                          required={
+                            !form.id ||
+                            key === "account_id" ||
+                            key === "zernio_profile_id"
+                          }
+                        />
+                      ))}
+                    {form.zernio_workspace_id && (
+                      <p>
+                        As credenciais desta linha são gerenciadas em Zernio e
+                        números. Pause a linha antes de editar sua configuração.
+                      </p>
+                    )}
+                    <label className="check-line">
+                      <input
+                        type="checkbox"
+                        checked={!!form.groups_enabled}
+                        onChange={(e) =>
+                          change("groups_enabled", e.target.checked)
                         }
-                        value={form[key]}
-                        onChange={(v: string) => change(key, v)}
                       />
-                    ))}
+                      Este número tem grupos empresariais habilitados na Zernio,
+                      sem coexistência com o aplicativo
+                    </label>
+                    <p>
+                      Após salvar, cadastre a URL exibida nos webhooks da Zernio
+                      e teste a conexão.
+                    </p>
                   </>
                 )}
                 {form.kind === "telegram" && (

@@ -9,9 +9,7 @@ import {
   requireValue,
 } from "./types";
 import { mediaKind, putStream, multipartStream } from "./media";
-import { validateMedia } from "./whatsapp";
-import { metaRequest } from "./meta";
-import { metaCredentials } from "./meta-accounts";
+import { zernioAccountList } from "./zernio-accounts";
 import { secret, setSecret, safeFetch, random, sha } from "./security";
 export async function hermesRequest(
   env: Env,
@@ -248,10 +246,7 @@ export async function probe(
   );
   requireValue(c, "Conexão não encontrada.");
   const cfg = json(c.config),
-    keys =
-      c.kind === "meta"
-        ? await metaCredentials(env, c)
-        : await secret(env, `connection:${id}`);
+    keys = await secret(env, `connection:${id}`);
   let details: any = {};
   if (c.kind === "hermes")
     return { ok: true, bots: await discover(env, id, profile) };
@@ -275,16 +270,24 @@ export async function probe(
     details = { username: me.result.username, group: cfg.group };
   }
   if (c.kind === "meta") {
+    throw new ApiError(
+      410,
+      "meta_removed",
+      "Conecte este telefone pela Zernio. A integração direta Meta foi removida.",
+    );
+  }
+  if (c.kind === "zernio") {
+    const found = await zernioAccountList(env, c, cfg.zernio_profile_id);
+    const account = found.find((a: any) => a.account_id === cfg.account_id);
     requireValue(
-      keys.token && keys.app_secret && keys.verify_token,
-      "Preencha token, App Secret e Verify Token.",
+      account && account.number === cfg.number,
+      "A Zernio não confirmou este telefone no perfil informado.",
     );
-    const response = await safeFetch(
-      `https://graph.facebook.com/v23.0/${cfg.phone_id}?fields=id,display_phone_number`,
-      { headers: { Authorization: `Bearer ${keys.token}` } },
-    );
-    requireValue(response.ok, "A Meta não validou as credenciais.");
-    details = await response.json();
+    details = {
+      account_id: account.account_id,
+      number: account.number,
+      provider: "zernio",
+    };
   }
   if (["qr", "hermes-whatsapp"].includes(c.kind)) {
     requireValue(
@@ -453,252 +456,6 @@ export async function telegramMedia(
       "Telegram recusou o anexo.",
     );
   return String(data.result.message_id);
-}
-export async function metaSend(
-  env: Env,
-  c: any,
-  to: string,
-  payload: any,
-  template = false,
-  expiresAt?: number,
-) {
-  const keys = await metaCredentials(env, c),
-    cfg = json(c.config);
-  const body: any = { messaging_product: "whatsapp", to, ...payload };
-  if (typeof expiresAt === "number" && expiresAt <= now())
-    throw new ApiError(
-      410,
-      "message_expired",
-      "Validade da mensagem encerrada antes do envio.",
-    );
-  const r = await safeFetch(
-    `https://graph.facebook.com/v23.0/${cfg.phone_id}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${keys.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
-  );
-  if (!r.ok)
-    throw new ApiError(
-      r.status >= 500 ? 502 : 400,
-      "meta_error",
-      `Meta recusou o envio (HTTP ${r.status}).`,
-    );
-  const data = await r.json<any>();
-  return data.messages?.[0]?.id;
-}
-export async function metaUpload(
-  env: Env,
-  c: any,
-  mediaId: string,
-  kind: string,
-) {
-  const m = await one(
-    env,
-    "SELECT * FROM media WHERE id=? AND profile_id=?",
-    mediaId,
-    c.profile_id,
-  );
-  requireValue(m, "Anexo não encontrado.");
-  validateMedia(m, kind, c);
-  const obj = await env.MEDIA.get(m.object_key);
-  requireValue(obj, "Arquivo ausente.");
-  const keys = await metaCredentials(env, c),
-    cfg = json(c.config);
-  const body = multipartStream(
-    { messaging_product: "whatsapp" },
-    "file",
-    m.name,
-    m.type,
-    obj.body,
-    m.size,
-  );
-  const r = await fetch(
-    `https://graph.facebook.com/v23.0/${cfg.phone_id}/media`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${keys.token}`,
-        "Content-Type": body.type,
-        "Content-Length": String(body.length),
-      },
-      body: body.stream,
-      signal: AbortSignal.timeout(60000),
-    },
-  );
-  const data = await r.json<any>();
-  if (!r.ok || !data.id)
-    throw new ApiError(
-      400,
-      "meta_media_error",
-      "Meta recusou o arquivo. Confira tamanho, formato e codecs.",
-    );
-  return { id: String(data.id), name: m.name };
-}
-export async function metaMedia(
-  env: Env,
-  c: any,
-  to: string,
-  mediaId: string,
-  payload: any = {},
-  group = false,
-) {
-  const m = await one(
-    env,
-    "SELECT * FROM media WHERE id=? AND profile_id=?",
-    mediaId,
-    c.profile_id,
-  );
-  requireValue(m, "Anexo não encontrado.");
-  const kind =
-    payload.content?.type && payload.content.type !== "text"
-      ? payload.content.type
-      : mediaKind(m.type);
-  const data = await metaUpload(env, c, mediaId, kind);
-  const type = kind === "voice" ? "audio" : kind;
-  const details: any = { id: data.id };
-  if (type === "document") details.filename = m.name;
-  if (["document", "image", "video"].includes(type) && payload.text)
-    details.caption = payload.text;
-  if (kind === "voice") details.voice = true;
-  return metaSend(
-    env,
-    c,
-    to,
-    {
-      type,
-      [type]: details,
-      ...(group ? { recipient_type: "group" } : {}),
-      ...(payload.content?.reply_external_id
-        ? { context: { message_id: payload.content.reply_external_id } }
-        : {}),
-    },
-    false,
-    payload.expires_at,
-  );
-}
-export async function metaContent(
-  env: Env,
-  c: any,
-  to: string,
-  payload: any,
-  group = false,
-) {
-  const content = payload.content || {},
-    kind = content.type || "text";
-  let body: any = { type: "text", text: { body: payload.text } };
-  if (kind === "reaction")
-    body = {
-      type: "reaction",
-      reaction: {
-        message_id: content.target_external_id,
-        emoji: content.emoji,
-      },
-    };
-  if (kind === "location")
-    body = { type: "location", location: content.location };
-  if (kind === "contacts")
-    body = {
-      type: "contacts",
-      contacts: content.contacts.map((x: any) => ({
-        name: { formatted_name: x.name, first_name: x.name },
-        phones: [{ phone: x.phone, type: "CELL" }],
-      })),
-    };
-  if (kind === "call_permission")
-    body = {
-      type: "interactive",
-      interactive: {
-        type: "call_permission_request",
-        action: { name: "call_permission_request" },
-        body: { text: payload.text },
-      },
-    };
-  if (kind === "interactive" && !group) {
-    requireValue(
-      content.interactive &&
-        ["button", "list"].includes(content.interactive.type),
-      "Menu interativo inválido.",
-    );
-    body = { type: "interactive", interactive: content.interactive };
-  }
-  if (kind === "read") {
-    await metaRequest(env, c, `${json(c.config).phone_id}/messages`, "POST", {
-      messaging_product: "whatsapp",
-      status: "read",
-      message_id: content.target_external_id,
-    });
-    return content.target_external_id;
-  }
-  if (content.reply_external_id)
-    body.context = { message_id: content.reply_external_id };
-  if (group) body.recipient_type = "group";
-  return metaSend(env, c, to, body, false, payload.expires_at);
-}
-export async function templatePayload(
-  env: Env,
-  c: any,
-  conversation: any,
-  payload: any,
-  cfg: any,
-) {
-  const consent = await one(
-    env,
-    "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
-    conversation.id,
-  );
-  if (consent?.status !== "granted" || !cfg.notifications?.enabled)
-    throw new ApiError(
-      409,
-      "notification_waiting",
-      "Aguardando consentimento e template.",
-    );
-  const keys = await metaCredentials(env, c);
-  const config = json(c.config);
-  requireValue(config.waba_id, "Configure WABA ID para verificar templates.");
-  const response = await safeFetch(
-    `https://graph.facebook.com/v23.0/${config.waba_id}/message_templates?name=${encodeURIComponent(cfg.notifications.template_name)}`,
-    { headers: { Authorization: `Bearer ${keys.token}` } },
-  );
-  if (!response.ok)
-    throw new ApiError(
-      409,
-      "template_unverified",
-      "Não foi possível verificar o template.",
-    );
-  const templates = await response.json<any>();
-  const t = templates.data?.find(
-    (t: any) =>
-      t.name === cfg.notifications.template_name &&
-      t.language === cfg.notifications.language &&
-      t.status === "APPROVED" &&
-      t.category === "UTILITY",
-  );
-  requireValue(t, "Template UTILITY ainda não aprovado pela Meta.");
-  requireValue(
-    approvedTemplate(t),
-    "Use um template UTILITY com corpo contendo {{1}} e {{2}}, cabeçalho textual estático e sem botões dinâmicos.",
-  );
-  return {
-    type: "template",
-    template: {
-      name: t.name,
-      language: { code: t.language },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            { type: "text", text: payload.ticket_id || "Atendimento" },
-            { type: "text", text: payload.text.slice(0, 1000) },
-          ],
-        },
-      ],
-    },
-  };
 }
 export function approvedTemplate(t: any) {
   if (t?.status !== "APPROVED" || t?.category !== "UTILITY") return false;

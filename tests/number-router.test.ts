@@ -3,7 +3,8 @@ import { it, expect, vi, afterEach } from "vitest";
 import { all, one, exec } from "../src/db";
 import { Actor, defaults, uid, now, json } from "../src/types";
 import { setSecret, sha, hmac } from "../src/security";
-import { accountCommand, metaCredentials } from "../src/meta-accounts";
+import { zernioAccountCommand as accountCommand } from "../src/zernio-accounts";
+import { zernioCredentials, zernioRememberConversation } from "../src/zernio";
 import {
   numberUsage,
   billingPeriod,
@@ -25,7 +26,6 @@ import {
   type NumberPolicy,
 } from "../src/number-policy";
 import { finishDelivery } from "../src/delivery";
-import { metaInbound } from "../src/meta-inbound";
 import { visibleConversation } from "../src/visibility";
 const admin: Actor = {
   id: "router-admin",
@@ -45,7 +45,7 @@ afterEach(() => {
 async function fixture(count = 2, baseline = 0) {
   const profile = uid(),
     account = uid(),
-    waba = "123" + uid().replace(/\D/g, "");
+    waba = uid().replaceAll("-", "").slice(0, 24);
   await exec(
     env,
     "INSERT INTO profiles(id,name,settings,created) VALUES(?,?,?,?)",
@@ -56,33 +56,33 @@ async function fixture(count = 2, baseline = 0) {
   );
   await exec(
     env,
-    "INSERT INTO meta_accounts(id,profile_id,name,waba_id,timezone,created) VALUES(?,?,?,?,?,?)",
+    "INSERT INTO meta_accounts(id,profile_id,name,waba_id,timezone,created,provider,zernio_profile_id) VALUES(?,?,?,?,?,?,'zernio',?)",
     account,
     profile,
     "Conta teste",
     waba,
     "America/Sao_Paulo",
     now(),
+    waba,
   );
-  await setSecret(env, "meta-account:" + account, {
-    token: "fake-account-token",
-    app_secret: "fake-app-secret",
-    verify_token: "fake-verify-token",
+  await setSecret(env, "zernio-account:" + account, {
+    api_key: "fake-account-token",
+    webhook_secret: "fake-webhook-secret",
   });
   const numbers: any[] = [];
   for (let i = 0; i < count; i++) {
     const id = uid(),
-      phone = waba + String(i + 1),
+      phone = uid().replaceAll("-", "").slice(0, 24),
       config = {
-        meta_account_id: account,
-        waba_id: waba,
-        phone_id: phone,
+        zernio_workspace_id: account,
+        zernio_profile_id: waba,
+        account_id: phone,
         number: "551199999" + String(i + 1).padStart(4, "0"),
         verified_at: now(),
       };
     await exec(
       env,
-      "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'meta','direct','active',?,?)",
+      "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'zernio','direct','active',?,?)",
       id,
       profile,
       "Número " + (i + 1),
@@ -172,6 +172,7 @@ async function fixture(count = 2, baseline = 0) {
   return { profile, account, waba, numbers, appId, actor, token, pool };
 }
 async function customer(f: any, n = 0, to = "5511999991111", at = now()) {
+  await zernioRememberConversation(env, f.numbers[n], to, "thread-" + to);
   const r = await inbound(
     env,
     f.profile,
@@ -205,17 +206,22 @@ const paid = (f: any, more: any = {}) => ({
   },
   ...more,
 });
-function metaMock(
+function zernioMock(
   components: any[] = [{ type: "BODY", text: "Pedido {{1}} atualizado." }],
 ) {
   const sent: any[] = [];
   const fetch = vi.fn(async (input: any, init: any = {}) => {
-    const url = String(input);
-    expect(url.startsWith("https://graph.facebook.com/")).toBe(true);
+    const url = new URL(String(input));
+    if (url.origin === "https://storage.example.com") {
+      expect(init.method).toBe("PUT");
+      expect(init.headers.Authorization).toBeUndefined();
+      return new Response(null, { status: 200 });
+    }
+    expect(url.origin).toBe("https://zernio.com");
     expect(init.headers.Authorization).toBe("Bearer fake-account-token");
-    if (url.includes("/message_templates?"))
+    if (url.pathname === "/api/v1/whatsapp/templates")
       return Response.json({
-        data: [
+        templates: [
           {
             name: "pedido_atualizado",
             language: "pt_BR",
@@ -225,12 +231,28 @@ function metaMock(
           },
         ],
       });
-    if (url.endsWith("/media")) return Response.json({ id: "provider-media" });
-    if (url.endsWith("/messages")) {
+    if (url.pathname === "/api/v1/media/presign")
+      return Response.json({
+        uploadUrl: "https://storage.example.com/upload",
+        publicUrl: "https://storage.example.com/provider-media.jpg",
+      });
+    if (url.pathname === "/api/v1/inbox/conversations" && init.method === "GET")
+      return Response.json({
+        data: [
+          {
+            id: "paid-thread",
+            accountId: url.searchParams.get("accountId"),
+            platform: "whatsapp",
+            participantId: "5511999992222",
+          },
+        ],
+        pagination: { hasMore: false },
+      });
+    if (url.pathname.endsWith("/messages")) {
       sent.push(JSON.parse(init.body));
-      return Response.json({ messages: [{ id: "wamid." + uid() }] });
+      return Response.json({ data: { messageId: "wamid." + uid() } });
     }
-    throw Error("Unexpected Graph call");
+    throw Error("Unexpected Zernio call: " + url.pathname);
   });
   vi.stubGlobal("fetch", fetch);
   return { sent, fetch };
@@ -377,7 +399,7 @@ it("Vinki pareado força free_only mesmo omitido ou falso e impede desvio pelo e
   const unmanagedId = uid();
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,'Sem contador','meta','direct','active',?,?)",
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,'Sem contador','zernio','direct','active',?,?)",
     unmanagedId,
     f.profile,
     f.numbers[0].config,
@@ -427,17 +449,23 @@ it("cancela aviso que vence durante upload de mídia sem enviar a mensagem à Me
     service(f, { text: "", attachments: [media], free_only: true, expires_at }),
     uid(),
   );
-  const fetcher = vi.fn(async (url: any) => {
-    expect(String(url)).toMatch(/\/media$/);
+  const fetcher = vi.fn(async (input: any) => {
+    const url = String(input);
+    if (url.endsWith("/media/presign"))
+      return Response.json({
+        uploadUrl: "https://storage.example.com/upload",
+        publicUrl: "https://storage.example.com/media.jpg",
+      });
+    expect(url).toBe("https://storage.example.com/upload");
     vi.spyOn(Date, "now").mockReturnValue(expires_at + 1);
-    return Response.json({ id: "provider-media" });
+    return new Response(null, { status: 200 });
   });
   vi.stubGlobal("fetch", fetcher);
   await deliver(
     env,
     await one(env, "SELECT * FROM outbox WHERE id=?", queued.delivery_id),
   );
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher).toHaveBeenCalledTimes(2);
   expect(
     await routedMessage(env, f.actor, f.profile, queued.delivery_id),
   ).toMatchObject({
@@ -476,7 +504,7 @@ it("a restrição do pedido persiste na entrega quando a política da linha perm
   await expect(assertNumberQuotaDelivery(env, row)).rejects.toMatchObject({
     code: "quota_exhausted",
   });
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(env, row);
   expect(mock.sent).toHaveLength(0);
   expect((await routedMessage(env, f.actor, f.profile, row.id)).status).toBe(
@@ -555,7 +583,7 @@ it("valida free_only e validade do aviso, preserva expires_at no recibo e cancel
     now() - 1,
     queued.delivery_id,
   );
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(
     env,
     await one(env, "SELECT * FROM outbox WHERE id=?", queued.delivery_id),
@@ -669,7 +697,7 @@ it("respeita ordem das reservas ao reduzir limite e cancela apenas o excedente a
   await expect(assertNumberQuotaDelivery(env, row2)).rejects.toMatchObject({
     code: "quota_exhausted",
   });
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(env, row2);
   expect(mock.sent).toHaveLength(0);
   expect(
@@ -799,7 +827,7 @@ it("o bloqueio de excedente de serviço não gasta saldo com leitura nem autoriz
     ...numberPolicyPresets.custom,
     service_overage: false,
   });
-  metaMock();
+  zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -894,7 +922,7 @@ it("roteia a entrada para a linha Vinki, permite sua API e recusa templates e at
       uid(),
     ),
   ).rejects.toMatchObject({ code: "number_policy_denied" });
-  const mock = metaMock();
+  const mock = zernioMock();
   await expect(
     routerCommand(
       env,
@@ -926,7 +954,7 @@ it("roteia a entrada para a linha Vinki, permite sua API e recusa templates e at
   expect(row.connection_id).toBe(f.numbers[1].id);
   await deliver(env, row);
   expect(mock.sent).toHaveLength(1);
-  expect(mock.sent[0].text.body).toBe("Resposta de atendimento");
+  expect(mock.sent[0].message).toBe("Resposta de atendimento");
 });
 
 it("restrições do número prevalecem sobre grupos e impedem envio direto por outra rota da API", async () => {
@@ -952,7 +980,7 @@ it("restrições do número prevalecem sobre grupos e impedem envio direto por o
   );
   expect(row.connection_id).toBe(f.numbers[1].id);
   await setPolicy(f, 1, { ...numberPolicyPresets.custom, api: false });
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(env, row);
   expect(
     (await one(env, "SELECT status FROM outbox WHERE id=?", row.id)).status,
@@ -1026,7 +1054,7 @@ it("processa menu sem executar Hermes e cancela saudação enfileirada se o menu
     await all(env, "SELECT id FROM bot_runs WHERE profile_id=?", f.profile),
   ).toHaveLength(0);
   await setPolicy(f, 0, { ...numberPolicyPresets.official, menu: false });
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(env, row);
   expect(
     (await one(env, "SELECT status FROM outbox WHERE id=?", row.id)).status,
@@ -1036,7 +1064,7 @@ it("processa menu sem executar Hermes e cancela saudação enfileirada se o menu
 
 it("bloqueia template já na fila quando a linha passa a ser exclusiva de serviço", async () => {
   const f = await fixture(1);
-  const mock = metaMock();
+  const mock = zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -1064,7 +1092,7 @@ it("configura número para templates apenas sem gastar cota de serviço ou permi
   await expect(
     enqueue(env, c, admin.id, "text", { text: "Livre" }, uid()),
   ).rejects.toMatchObject({ code: "number_policy_denied" });
-  const mock = metaMock();
+  const mock = zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -1078,7 +1106,7 @@ it("configura número para templates apenas sem gastar cota de serviço ou permi
     await one(env, "SELECT * FROM outbox WHERE id=?", result.delivery_id),
   );
   expect(mock.sent).toHaveLength(1);
-  expect(mock.sent[0].type).toBe("template");
+  expect(mock.sent[0].template.elements).toHaveLength(1);
   expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(1000);
 });
 
@@ -1108,7 +1136,7 @@ it("desligar bots impede novas execuções e cancela respostas antigas já na fi
     uid(),
   );
   await setPolicy(f, 0, { ...numberPolicyPresets.official, bots: false });
-  const mock = metaMock();
+  const mock = zernioMock();
   await processRun(
     env,
     (await one(env, "SELECT * FROM bot_runs WHERE id=?", runId))!,
@@ -1463,7 +1491,7 @@ it("entrega serviço excedente sem autorizar templates e mantém a janela de 24h
     ...f.actor,
     scopes: f.actor.scopes.filter((scope) => scope !== "routing:paid"),
   };
-  const mock = metaMock();
+  const mock = zernioMock();
   const result = await routerCommand(
     env,
     actor,
@@ -1480,8 +1508,7 @@ it("entrega serviço excedente sem autorizar templates e mantém a janela de 24h
   );
   expect(mock.sent).toHaveLength(1);
   expect(mock.sent[0]).toMatchObject({
-    type: "text",
-    text: { body: "Resposta de atendimento" },
+    message: "Resposta de atendimento",
   });
   expect(
     (await one(env, "SELECT status FROM outbox WHERE id=?", result.delivery_id))
@@ -1554,78 +1581,74 @@ it("respostas já vinculadas não alteram a vez dos próximos atendimentos", asy
     ),
   ).toEqual(before);
 });
-it("webhook compartilhado valida assinatura e WABA, separa números e deduplica entradas", async () => {
-  const f = await fixture(20);
-  const body = {
-    object: "whatsapp_business_account",
-    entry: [
-      {
-        id: f.waba,
-        changes: f.numbers.map((n: any, i: number) => ({
-          value: {
-            metadata: { phone_number_id: json(n.config).phone_id },
-            messages: [
-              {
-                id: "shared-" + i,
-                from: "5511999994444",
-                timestamp: String(Math.floor(now() / 1000)),
-                type: "text",
-                text: { body: "Olá " + i },
-              },
-            ],
-          },
-        })),
-      },
-      {
-        id: "other-waba",
-        changes: [
-          {
-            value: {
-              metadata: { phone_number_id: json(f.numbers[0].config).phone_id },
-              messages: [
-                {
-                  id: "wrong-account",
-                  from: "5511999994444",
-                  type: "text",
-                  text: { body: "Não aceitar" },
-                },
-              ],
-            },
-          },
-        ],
-      },
-    ],
-  };
-  const raw = JSON.stringify(body),
-    url = "https://test/webhooks/meta-accounts/" + f.account;
+it("webhook compartilhado Zernio valida assinatura e perfil, separa números e deduplica entradas", async () => {
+  const f = await fixture(20),
+    url = "https://test/webhooks/zernio-accounts/" + f.account;
+  const payload = (n: any, index: number) => ({
+    id: "event-" + index,
+    event: "message.received",
+    account: {
+      accountId: json(n.config).account_id,
+      platform: "whatsapp",
+      profileId: f.waba,
+    },
+    conversation: { id: "thread-" + index, participantId: "5511999994444" },
+    message: {
+      id: "message-" + index,
+      conversationId: "thread-" + index,
+      platformMessageId: "shared-" + index,
+      platform: "whatsapp",
+      direction: "incoming",
+      sender: { id: "5511999994444" },
+      sentAt: new Date(now()).toISOString(),
+      text: "Olá " + index,
+      attachments: [],
+    },
+  });
+  expect(
+    (
+      await SELF.fetch(url, {
+        method: "POST",
+        body: JSON.stringify(payload(f.numbers[0], 0)),
+        headers: { "X-Zernio-Signature": "invalid" },
+      })
+    ).status,
+  ).toBe(403);
+  for (let index = 0; index < f.numbers.length; index++) {
+    const raw = JSON.stringify(payload(f.numbers[index], index));
+    const signature = await hmac("fake-webhook-secret", raw);
+    for (let retry = 0; retry < 2; retry++)
+      expect(
+        (
+          await SELF.fetch(url, {
+            method: "POST",
+            body: raw,
+            headers: { "X-Zernio-Signature": signature },
+          })
+        ).status,
+      ).toBe(200);
+  }
+  const wrong = payload(f.numbers[0], 99);
+  wrong.account.profileId = "other-profile";
+  const raw = JSON.stringify(wrong);
   expect(
     (
       await SELF.fetch(url, {
         method: "POST",
         body: raw,
-        headers: { "X-Hub-Signature-256": "invalid" },
+        headers: {
+          "X-Zernio-Signature": await hmac("fake-webhook-secret", raw),
+        },
       })
     ).status,
-  ).toBe(403);
-  for (let i = 0; i < 2; i++)
-    expect(
-      (
-        await SELF.fetch(url, {
-          method: "POST",
-          body: raw,
-          headers: {
-            "X-Hub-Signature-256":
-              "sha256=" + (await hmac("fake-app-secret", raw)),
-          },
-        })
-      ).status,
-    ).toBe(200);
-  const convs = await all(
-    env,
-    "SELECT * FROM conversations WHERE profile_id=?",
-    f.profile,
-  );
-  expect(convs).toHaveLength(20);
+  ).toBe(200);
+  expect(
+    await all(
+      env,
+      "SELECT id FROM conversations WHERE profile_id=?",
+      f.profile,
+    ),
+  ).toHaveLength(20);
   expect(
     (
       await one(
@@ -1635,16 +1658,8 @@ it("webhook compartilhado valida assinatura e WABA, separa números e deduplica 
       )
     ).n,
   ).toBe(20);
-  expect(
-    (
-      await SELF.fetch(
-        url +
-          "?hub.mode=subscribe&hub.verify_token=fake-verify-token&hub.challenge=123",
-      )
-    ).status,
-  ).toBe(200);
-  expect(await metaCredentials(env, f.numbers[0])).toMatchObject({
-    token: "fake-account-token",
+  expect(await zernioCredentials(env, f.numbers[0])).toMatchObject({
+    api_key: "fake-account-token",
   });
 });
 it("API exige idempotência, repete o recibo e recusa conteúdo diferente com a mesma chave", async () => {
@@ -1692,7 +1707,7 @@ it("API exige idempotência, repete o recibo e recusa conteúdo diferente com a 
 });
 it("modelo pago exige autorização por pedido, escopo, origem e consentimento da categoria", async () => {
   const f = await fixture();
-  const mock = metaMock();
+  const mock = zernioMock();
   await expect(
     routerCommand(
       env,
@@ -1736,7 +1751,7 @@ it("modelo pago exige autorização por pedido, escopo, origem e consentimento d
 });
 it("envia modelo aprovado ao telefone real sem abrir janela artificial e isola a conversa da aplicação", async () => {
   const f = await fixture(1, 1000),
-    mock = metaMock();
+    mock = zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -1765,9 +1780,8 @@ it("envia modelo aprovado ao telefone real sem abrir janela artificial e isola a
   );
   expect(mock.sent).toHaveLength(1);
   expect(mock.sent[0]).toMatchObject({
-    to: "5511999992222",
-    type: "template",
-    template: { name: "pedido_atualizado" },
+    accountId: json(f.numbers[0].config).account_id,
+    template: { elements: [{ name: "pedido_atualizado" }] },
   });
   expect((await numberUsage(env, f.numbers[0].id))!.used).toBe(1000);
   const response = await inbound(
@@ -1795,9 +1809,9 @@ it("envia modelo aprovado ao telefone real sem abrir janela artificial e isola a
     ).n,
   ).toBe(1);
 });
-it("modelo com mídia usa arquivo privado autorizado e envia somente o ID Meta", async () => {
+it("modelo com mídia usa arquivo privado autorizado e envia a URL preparada pela Zernio", async () => {
   const f = await fixture(1),
-    mock = metaMock([
+    mock = zernioMock([
       { type: "HEADER", format: "IMAGE" },
       { type: "BODY", text: "Pedido {{1}} atualizado." },
     ]),
@@ -1832,9 +1846,14 @@ it("modelo com mídia usa arquivo privado autorizado e envia somente o ID Meta",
     env,
     await one(env, "SELECT * FROM outbox WHERE id=?", result.delivery_id),
   );
-  expect(mock.sent[0].template.components[0]).toEqual({
+  expect(mock.sent[0].template.elements[0].components[0]).toEqual({
     type: "header",
-    parameters: [{ type: "image", image: { id: "provider-media" } }],
+    parameters: [
+      {
+        type: "image",
+        image: { link: "https://storage.example.com/provider-media.jpg" },
+      },
+    ],
   });
   expect(JSON.stringify(mock.sent)).not.toContain("wabotia_media_id");
 });
@@ -1849,7 +1868,7 @@ it("revogar origem antes da entrega cancela o envio e libera a reserva", async (
     service(f),
     uid(),
   );
-  const mock = metaMock();
+  const mock = zernioMock();
   await exec(env, "DELETE FROM number_router_grants WHERE app_id=?", f.appId);
   await deliver(
     env,
@@ -1864,18 +1883,23 @@ it("revogar origem antes da entrega cancela o envio e libera a reserva", async (
 });
 it("cadastra e roteia mais de 20 números, mantendo confirmação e validação da conta", async () => {
   const f = await fixture(20);
-  const phone = f.waba + "999";
+  const phone = uid().replaceAll("-", "").slice(0, 24);
   await exec(
     env,
     "UPDATE meta_accounts SET discovered=?,discovered_at=? WHERE id=?",
     JSON.stringify([
-      { phone_id: phone, number: "5511999988888", name: "Extra" },
+      {
+        account_id: phone,
+        phone_id: phone,
+        number: "5511999988888",
+        name: "Extra",
+      },
     ]),
     now(),
     f.account,
   );
   await expect(
-    accountCommand(env, admin, f.profile, "meta-number.save", {
+    accountCommand(env, admin, f.profile, "zernio-number.save", {
       account_id: f.account,
       phone_id: phone,
       baseline_used: 0,
@@ -1885,7 +1909,7 @@ it("cadastra e roteia mais de 20 números, mantendo confirmação e validação 
     env,
     admin,
     f.profile,
-    "meta-number.save",
+    "zernio-number.save",
     {
       account_id: f.account,
       phone_id: phone,
@@ -1904,13 +1928,13 @@ it("cadastra e roteia mais de 20 números, mantendo confirmação e validação 
     ).n,
   ).toBe(21);
   await expect(
-    accountCommand(env, admin, f.profile, "meta-number.save", {
+    accountCommand(env, admin, f.profile, "zernio-number.save", {
       account_id: f.account,
       phone_id: phone,
       baseline_used: 0,
       baseline_confirmed: true,
     }),
-  ).rejects.toThrow(/já está no roteador/);
+  ).rejects.toThrow(/já está cadastrado/);
   const members = [...f.numbers.map((n) => n.id), added.id];
   const savePool = (selected: string[]) =>
     routerCommand(
@@ -1984,7 +2008,7 @@ it("consulta e cancela somente envios autorizados ainda na fila, liberando a res
     uid(),
   );
   expect((await numberUsage(env, f.numbers[0].id))!.reserved).toBe(0);
-  const mock = metaMock();
+  const mock = zernioMock();
   await deliver(env, row);
   expect(mock.sent).toHaveLength(0);
   const next = await routerCommand(
@@ -2014,7 +2038,7 @@ it("consulta e cancela somente envios autorizados ainda na fila, liberando a res
 it("não transforma notificações automáticas em modelos pagos fora da janela", async () => {
   const f = await fixture(1),
     c = await customer(f, 0, "5511999991111", now() - 25 * 3600000),
-    mock = metaMock();
+    mock = zernioMock();
   const id = await enqueue(
     env,
     c,
@@ -2035,7 +2059,7 @@ it("não transforma notificações automáticas em modelos pagos fora da janela"
 });
 it("consentimento revogado impede modelo e uma declaração não substitui a revogação", async () => {
   const f = await fixture(1),
-    mock = metaMock();
+    mock = zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -2067,7 +2091,7 @@ it("consentimento revogado impede modelo e uma declaração não substitui a rev
 });
 it("confere a revogação novamente depois de preparar uma mídia paga", async () => {
   const f = await fixture(1),
-    mock = metaMock([{ type: "HEADER", format: "IMAGE" }]),
+    mock = zernioMock([{ type: "HEADER", format: "IMAGE" }]),
     media = uid();
   await env.MEDIA.put(f.profile + "/" + media, "fake-image");
   await exec(
@@ -2101,7 +2125,7 @@ it("confere a revogação novamente depois de preparar uma mídia paga", async (
   const original = mock.fetch.getMockImplementation()!;
   mock.fetch.mockImplementation(async (input: any, init: any) => {
     const response = await original(input, init);
-    if (String(input).endsWith("/media"))
+    if (String(input) === "https://storage.example.com/upload")
       await exec(
         env,
         "INSERT INTO consents(id,profile_id,conversation_id,status,evidence,created) VALUES(?,?,?,'revoked','Retirado durante upload',?)",
@@ -2120,7 +2144,7 @@ it("confere a revogação novamente depois de preparar uma mídia paga", async (
 });
 it("nova tentativa de modelo exige nova autorização explícita e registra o administrador", async () => {
   const f = await fixture(1);
-  metaMock();
+  zernioMock();
   const result = await routerCommand(
     env,
     f.actor,
@@ -2161,7 +2185,7 @@ it("nova tentativa de modelo exige nova autorização explícita e registra o ad
 });
 it("escopo pago não substitui permissão paga da origem e números pausados nunca entram no sorteio", async () => {
   const f = await fixture(3),
-    mock = metaMock();
+    mock = zernioMock();
   await exec(
     env,
     "UPDATE number_router_grants SET allow_paid=0 WHERE app_id=?",
@@ -2190,27 +2214,22 @@ it("escopo pago não substitui permissão paga da origem e números pausados nun
   ).toEqual([f.numbers[2].id, f.numbers[1].id]);
   expect(mock.sent).toHaveLength(0);
 });
-it("descobre todas as páginas da WABA sem teto local de números", async () => {
+it("descobre todas as páginas Zernio sem teto local de números", async () => {
   const f = await fixture(1);
   const mock = vi.fn(async (input: any) => {
     const url = new URL(String(input));
-    expect(url.pathname).toContain(`/${f.waba}/phone_numbers`);
-    const page = Number(url.searchParams.get("after") || 0);
+    expect(url.pathname).toBe("/api/v1/accounts");
+    expect(url.searchParams.get("profileId")).toBe(f.waba);
+    const page = Number(url.searchParams.get("cursor") || 0);
     return Response.json({
-      data: Array.from({ length: page === 5 ? 1 : 100 }, (_, index) => ({
-        id: String(900000 + page * 100 + index),
-        display_phone_number:
-          "5511999" + String(page * 100 + index).padStart(6, "0"),
-        verified_name: `Filial ${page * 100 + index + 1}`,
+      accounts: Array.from({ length: page === 5 ? 1 : 100 }, (_, index) => ({
+        _id: String(900000 + page * 100 + index).padStart(24, "0"),
+        profileId: f.waba,
+        platform: "whatsapp",
+        username: "5511999" + String(page * 100 + index).padStart(6, "0"),
+        displayName: "Filial " + (page * 100 + index + 1),
       })),
-      ...(page < 5
-        ? {
-            paging: {
-              next: "https://graph.facebook.com/next",
-              cursors: { after: String(page + 1) },
-            },
-          }
-        : {}),
+      pagination: { nextCursor: page < 5 ? String(page + 1) : null },
     });
   });
   vi.stubGlobal("fetch", mock);
@@ -2218,7 +2237,7 @@ it("descobre todas as páginas da WABA sem teto local de números", async () => 
     env,
     admin,
     f.profile,
-    "meta-account.discover",
+    "zernio-account.discover",
     { id: f.account },
   );
   expect(result.data).toHaveLength(501);
@@ -2236,24 +2255,28 @@ it("descobre todas as páginas da WABA sem teto local de números", async () => 
     ),
   ).toHaveLength(501);
 });
-it("recusa ciclos na paginação Meta sem salvar uma descoberta parcial", async () => {
+it("recusa ciclos na paginação Zernio sem salvar uma descoberta parcial", async () => {
   const f = await fixture(1);
   const mock = vi.fn(async (input: any) => {
-    const cursor = new URL(String(input)).searchParams.get("after");
+    const cursor = new URL(String(input)).searchParams.get("cursor");
     return Response.json({
-      data: [{ id: "99887766", display_phone_number: "+55 11 99999-3333" }],
-      paging: {
-        next: "https://graph.facebook.com/next",
-        cursors: { after: cursor === "first" ? "second" : "first" },
-      },
+      accounts: [
+        {
+          _id: "998877660000000000000000",
+          profileId: f.waba,
+          platform: "whatsapp",
+          username: "+55 11 99999-3333",
+        },
+      ],
+      pagination: { nextCursor: cursor === "first" ? "second" : "first" },
     });
   });
   vi.stubGlobal("fetch", mock);
   await expect(
-    accountCommand(env, admin, f.profile, "meta-account.discover", {
+    accountCommand(env, admin, f.profile, "zernio-account.discover", {
       id: f.account,
     }),
-  ).rejects.toThrow(/Paginação Meta inválida/);
+  ).rejects.toThrow(/Paginação Zernio inválida/);
   expect(mock).toHaveBeenCalledTimes(3);
   expect(
     (
@@ -2265,34 +2288,36 @@ it("recusa ciclos na paginação Meta sem salvar uma descoberta parcial", async 
     ).discovered_at,
   ).toBe(0);
 });
-it("descobre na WABA e adiciona número pausado com histórico, sem expor as credenciais", async () => {
+it("descobre na Zernio e adiciona número pausado com histórico, sem expor as credenciais", async () => {
   const f = await fixture(1);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: any) => {
-      expect(String(input)).toContain(`/${f.waba}/phone_numbers?`);
+      expect(new URL(String(input)).pathname).toBe("/api/v1/accounts");
       return Response.json({
-        data: [
+        accounts: [
           {
-            id: "99887766",
-            display_phone_number: "+55 11 99999-3333",
-            verified_name: "Loja",
+            _id: "998877660000000000000000",
+            profileId: f.waba,
+            platform: "whatsapp",
+            username: "+55 11 99999-3333",
+            displayName: "Loja",
           },
         ],
       });
     }),
   );
-  await accountCommand(env, admin, f.profile, "meta-account.discover", {
+  await accountCommand(env, admin, f.profile, "zernio-account.discover", {
     id: f.account,
   });
   const result = await accountCommand(
     env,
     admin,
     f.profile,
-    "meta-number.save",
+    "zernio-number.save",
     {
       account_id: f.account,
-      phone_id: "99887766",
+      phone_id: "998877660000000000000000",
       baseline_used: 345,
       baseline_confirmed: true,
     },

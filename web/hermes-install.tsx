@@ -24,7 +24,7 @@ export function HermesInstall() {
         <a href={manual} target="_blank" rel="noopener noreferrer">
           Abrir todos os comandos para computador local e VPS Docker ↗
         </a>{" "}
-        · <a href="/guide/wabotia-instalacao.pdf">Abrir PDF ilustrado</a>
+        · <a href="/install#zernio-whatsapp">Conectar WhatsApp pela Zernio</a>
       </p>
       <details open>
         <summary>1. API desligada? Prepare o Hermes primeiro</summary>

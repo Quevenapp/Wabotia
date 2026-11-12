@@ -99,7 +99,7 @@ export function NumberPolicyEditor({
         </label>
         <p>
           Escolher uma função preenche as opções abaixo. Confira e salve para
-          aplicar. A opção Vinki seleciona somente franquia gratuita; linhas
+          aplicar. A opção Vinki bloqueia o excedente da cota local; linhas
           existentes mudam apenas depois de salvar.
         </p>
         <label className="check-line">
@@ -117,11 +117,12 @@ export function NumberPolicyEditor({
             }}
           />
           <span>
-            <strong>Somente franquia gratuita</strong>
+            <strong>Bloquear excedente da cota local</strong>
             <small>
               Bloqueia novas mensagens de serviço quando o contador conservador
-              atingir a franquia. O número da conversa permanece o mesmo. O
-              contador não substitui a fatura Meta.
+              atingir a cota configurada. O número da conversa permanece o
+              mesmo. O contador não garante gratuidade e não substitui a fatura
+              do provedor.
             </small>
           </span>
         </label>

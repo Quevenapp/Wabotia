@@ -1,8 +1,11 @@
 import { capabilities } from "./whatsapp";
 import { authorizedMedia, mediaResponse, uploadPart } from "./media";
 import { callView, callPermission } from "./calls";
-import { metaInbound } from "./meta-inbound";
-import { metaCredentials } from "./meta-accounts";
+import {
+  zernioCredentials,
+  zernioInbound,
+  verifyZernioWebhook,
+} from "./zernio";
 import { routerView, routedMessage } from "./number-router";
 import { listLines, listMenus } from "./line-service";
 import { teamDirectory, listInternalChats, internalChatDetail } from "./team";
@@ -666,9 +669,10 @@ const commands = [
   ["PUT", "lines/:id", "line.save"],
   ["POST", "internal-chats", "internal.create"],
   ["POST", "internal-chats/:id/messages", "internal.send"],
-  ["POST", "router/accounts", "meta-account.save"],
-  ["POST", "router/accounts/:id/discover", "meta-account.discover"],
-  ["POST", "router/numbers", "meta-number.save"],
+  ["POST", "router/accounts", "zernio-account.save"],
+  ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
+  ["POST", "router/accounts/:id/connect", "zernio-account.connect"],
+  ["POST", "router/numbers", "zernio-number.save"],
   ["PUT", "router/numbers/:id/limit", "router.number.limit"],
   ["PUT", "router/numbers/:id/policy", "router.number.policy"],
   ["POST", "router/pools", "router.pool.save"],
@@ -680,6 +684,7 @@ const commands = [
   ["POST", "pause", "pause"],
   ["POST", "connections", "connection.save"],
   ["PUT", "connections/:id/state", "connection.state"],
+  ["DELETE", "connections/:id", "connection.delete"],
   ["PATCH", "bots/:id", "bot.update"],
   ["POST", "conversations", "conversation.create"],
   ["POST", "inbound", "inbound"],
@@ -728,6 +733,9 @@ for (const [method, path, op] of commands)
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
+      ...(op === "zernio-account.connect"
+        ? { origin: new URL(c.req.url).origin }
+        : {}),
     }),
   );
 app.post("/api/v1/bot-runs", async (c) => {
@@ -1325,8 +1333,8 @@ app.get(
         conv.connection_id,
       );
     requireValue(
-      conn?.kind === "meta" && conv.chat_type !== "group",
-      "Ligações exigem conversa individual na Meta.",
+      conn && conv.chat_type !== "group",
+      "Selecione uma conversa individual com canal WhatsApp.",
     );
     return c.json(
       await callPermission(c.env, conn, conv.recipient_id || conv.external_id),
@@ -1380,99 +1388,59 @@ async function ingest(env: Env, conn: any, data: any) {
     },
   );
 }
-app.get("/webhooks/meta/:id", async (c) => {
+// Retired endpoints explicitly reject requests instead of silently dropping messages.
+for (const path of ["/webhooks/meta/:id", "/webhooks/meta-accounts/:id"])
+  app.on(["GET", "POST"], path, () => {
+    throw new ApiError(410, "meta_removed", "Configure o webhook na Zernio.");
+  });
+app.post("/webhooks/zernio/:id", async (c) => {
   const conn = await one(
     c.env,
-    "SELECT * FROM connections WHERE id=? AND kind='meta'",
-    c.req.param("id"),
-  );
-  const keys = conn ? await metaCredentials(c.env, conn) : {};
-  if (
-    c.req.query("hub.mode") !== "subscribe" ||
-    !keys.verify_token ||
-    !equal(keys.verify_token, c.req.query("hub.verify_token") || "")
-  )
-    throw new ApiError(403, "verification_failed", "Verificação recusada.");
-  return c.text(c.req.query("hub.challenge") || "");
-});
-app.post("/webhooks/meta/:id", async (c) => {
-  const conn = await one(
-    c.env,
-    "SELECT * FROM connections WHERE id=? AND kind='meta'",
+    "SELECT * FROM connections WHERE id=? AND kind='zernio'",
     c.req.param("id"),
   );
   requireValue(conn, "Canal não encontrado.");
-  const keys = await metaCredentials(c.env, conn),
+  const keys = await zernioCredentials(c.env, conn),
     raw = await c.req.text();
   if (
-    !keys.app_secret ||
-    !equal(
-      c.req.header("X-Hub-Signature-256") || "",
-      `sha256=${await hmac(keys.app_secret, raw)}`,
-    )
+    !(await verifyZernioWebhook(
+      keys.webhook_secret,
+      raw,
+      c.req.header("X-Zernio-Signature") || "",
+    ))
   )
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
-  return metaInbound(c.env, conn, JSON.parse(raw), (data) =>
-    ingest(c.env, conn, data),
-  );
+  const body = json(raw, null);
+  requireValue(body && typeof body === "object", "Webhook Zernio inválido.");
+  return zernioInbound(c.env, conn, body, (data) => ingest(c.env, conn, data));
 });
-app.get("/webhooks/meta-accounts/:id", async (c) => {
+app.post("/webhooks/zernio-accounts/:id", async (c) => {
   const account = await one(
     c.env,
-    "SELECT id FROM meta_accounts WHERE id=?",
+    "SELECT * FROM meta_accounts WHERE id=? AND provider='zernio'",
     c.req.param("id"),
   );
-  const keys = account ? await secret(c.env, "meta-account:" + account.id) : {};
-  if (
-    c.req.query("hub.mode") !== "subscribe" ||
-    !keys.verify_token ||
-    !equal(keys.verify_token, c.req.query("hub.verify_token") || "")
-  )
-    throw new ApiError(403, "verification_failed", "Verificação recusada.");
-  return c.text(c.req.query("hub.challenge") || "");
-});
-app.post("/webhooks/meta-accounts/:id", async (c) => {
-  const account = await one(
-    c.env,
-    "SELECT * FROM meta_accounts WHERE id=?",
-    c.req.param("id"),
-  );
-  requireValue(account, "Conta Meta não encontrada.");
-  const keys = await secret(c.env, "meta-account:" + account.id),
+  requireValue(account, "Conta Zernio não encontrada.");
+  const keys = await secret(c.env, "zernio-account:" + account.id),
     raw = await c.req.text();
   if (
-    !keys.app_secret ||
-    !equal(
-      c.req.header("X-Hub-Signature-256") || "",
-      `sha256=${await hmac(keys.app_secret, raw)}`,
-    )
+    !(await verifyZernioWebhook(
+      keys.webhook_secret,
+      raw,
+      c.req.header("X-Zernio-Signature") || "",
+    ))
   )
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
-  const body = JSON.parse(raw);
-  requireValue(
-    body.object === "whatsapp_business_account" && Array.isArray(body.entry),
-    "Webhook Meta inválido.",
-  );
-  const filtered = {
-    ...body,
-    entry: body.entry.filter((entry: any) => entry.id === account.waba_id),
-  };
-  const ids = new Set(
-    filtered.entry.flatMap((entry: any) =>
-      (entry.changes || []).map(
-        (change: any) => change.value?.metadata?.phone_number_id,
-      ),
-    ),
-  );
+  const body = json(raw, null);
+  requireValue(body && typeof body === "object", "Webhook Zernio inválido.");
   const connections = await all(
     c.env,
-    "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE n.account_id=? AND c.profile_id=?",
+    "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE n.account_id=? AND c.profile_id=? AND c.kind='zernio'",
     account.id,
     account.profile_id,
   );
   for (const conn of connections) {
-    if (!ids.has(json(conn.config).phone_id)) continue;
-    const response = await metaInbound(c.env, conn, filtered, (data) =>
+    const response = await zernioInbound(c.env, conn, body, (data) =>
       ingest(c.env, conn, data),
     );
     if (!response.ok) return response;

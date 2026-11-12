@@ -1,10 +1,10 @@
 import { Env, Actor, ApiError, requireValue, json, now } from "./types";
 import { access } from "./security";
 import { one } from "./db";
-import { metaRequest } from "./meta";
+import { zernioTemplates, zernioUpload } from "./zernio";
+import { zernioPresignType } from "./zernio-media";
 import { authorizedMedia } from "./media";
 import { validateMedia } from "./whatsapp";
-import { metaUpload } from "./integrations";
 
 function textParameters(definition: string, supplied: any, named: boolean) {
   const names = [
@@ -21,7 +21,7 @@ function textParameters(definition: string, supplied: any, named: boolean) {
     "Quantidade de parâmetros diferente do modelo aprovado.",
   );
   const seen = new Set();
-  return params.map((p: any, i: number) => {
+  const normalized = params.map((p: any, i: number) => {
     requireValue(
       p?.type === "text" &&
         typeof p.text === "string" &&
@@ -46,6 +46,14 @@ function textParameters(definition: string, supplied: any, named: boolean) {
       ...(named ? { parameter_name: p.parameter_name } : {}),
     };
   });
+  // Zernio's create-conversation API accepts a flat array, including for
+  // named templates. Its slots follow the approved definition's appearance
+  // order, so accepting caller order here would silently swap named values.
+  return named
+    ? names.map((name) =>
+        normalized.find((p: any) => p.parameter_name === name)!,
+      )
+    : normalized;
 }
 export async function paidTemplate(
   env: Env,
@@ -73,11 +81,7 @@ export async function paidTemplate(
     "Informe nome e idioma do modelo.",
   );
   const cfg = json(conn.config);
-  const response = await metaRequest(
-    env,
-    conn,
-    `${cfg.waba_id}/message_templates?name=${encodeURIComponent(input.name)}&fields=name,language,status,category,components,parameter_format&limit=100`,
-  );
+  const response = await zernioTemplates(env, conn);
   const approved = response.data?.find(
     (t: any) =>
       t.name === input.name &&
@@ -154,6 +158,10 @@ export async function paidTemplate(
         supplied.parameters[0].media_id,
       );
       validateMedia(media, kind, conn);
+      requireValue(
+        zernioPresignType(media.type),
+        "Este formato não pode ser usado no cabeçalho de um template Zernio. Use PDF, JPG/PNG ou MP4.",
+      );
       mediaIds.push(media.id);
       components.push({
         type: "header",
@@ -292,14 +300,14 @@ export async function preparePaidTemplate(
   for (const component of body.template.components || [])
     for (const parameter of component.parameters || [])
       if (parameter.wabotia_media_id) {
-        const media = await metaUpload(
+        const media = await zernioUpload(
           env,
           conn,
           parameter.wabotia_media_id,
           parameter.type,
         );
         parameter[parameter.type] = {
-          id: media.id,
+          link: media.url,
           ...(parameter.type === "document" ? { filename: media.name } : {}),
         };
         delete parameter.wabotia_media_id;
