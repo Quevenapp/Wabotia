@@ -10,19 +10,19 @@ struct MenusView: View {
     @State private var editing: MenuDraft?
     var body: some View {
         List {
-            Section { Text("Defina opções, submenus e as linhas em que aparecem. O submenu também respeita as linhas permitidas pelo menu pai.").font(.footnote).foregroundStyle(.secondary) }
-            if let error { Text(error).foregroundStyle(.red); Button("Tentar novamente") { Task { await load() } } }
+            Section { Text("Defina opções, submenus e as linhas em que aparecem. O submenu também respeita as linhas permitidas pelo menu pai.").font(.footnote).foregroundStyle(Theme.textSecondary) }
+            if let error { Text(error).foregroundStyle(Theme.danger); Button("Tentar novamente") { Task { await load() } } }
             ForEach(menus, id: \.serviceId) { menu in
                 Button { editing = MenuDraft(value: menu) } label: {
                     VStack(alignment: .leading) {
-                        Text(menu["label"]?.stringValue ?? "Opção").foregroundStyle(.primary)
-                        Text("\(menu["parent_id"]?.stringValue.flatMap { parent in menus.first { $0.serviceId == parent }?["label"]?.stringValue } ?? "Menu principal") · \(menu["trigger"]?.stringValue == "manual" ? "Sob demanda" : "Automático")\(menu["enabled"]?.boolValue == false ? " · Desativado" : "")").font(.caption).foregroundStyle(.secondary)
+                        Text(menu["label"]?.stringValue ?? "Opção").foregroundStyle(Theme.textPrimary)
+                        Text("\(menu["parent_id"]?.stringValue.flatMap { parent in menus.first { $0.serviceId == parent }?["label"]?.stringValue } ?? "Menu principal") · \(menu["trigger"]?.stringValue == "manual" ? "Sob demanda" : "Automático")\(menu["enabled"]?.boolValue == false ? " · Desativado" : "")").font(.caption).foregroundStyle(Theme.textSecondary)
                     }
                 }
             }
             if menus.isEmpty && error == nil { Text("Nenhuma opção cadastrada.") }
         }
-        .navigationTitle("Menus e submenus")
+        .navigationTitle("Menus e submenus").navigationBarTitleDisplayMode(.inline).appNavigationBarHidden(false)
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { editing = MenuDraft(value: .object(["id": .string(UUID().uuidString.lowercased()), "label": .string(""), "type": .string("human"), "enabled": .bool(true), "trigger": .string("automatic"), "line_ids": .array([])]), isNew: true) } label: { Image(systemName: "plus") }.accessibilityLabel("Criar opção") } }
         .sheet(item: $editing) { draft in AppNavigationStack { MenuEditor(draft: draft, menus: menus, lines: lines, bots: bots, apps: apps) { Task { await load() } } } }
         .task { await load() }.refreshable { await load() }
@@ -85,7 +85,7 @@ private struct MenuEditor: View {
                 Toggle("Todas as linhas permitidas", isOn: $allLines)
                 if !allLines { ForEach(lines) { line in Toggle(line.name, isOn: Binding(get: { selected.contains(line.id) }, set: { if $0 { selected.insert(line.id) } else { selected.remove(line.id) } })) } }
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(Theme.danger) }
         }.disabled(busy)
         .navigationTitle(draft.isNew ? "Criar opção" : "Editar opção")
         .toolbar {
@@ -108,27 +108,4 @@ private struct MenuEditor: View {
             _ = try await container.api.saveMenus(p, menus: next, key: key); pending = nil; onSaved(); dismiss()
         } catch { self.error = container.serviceError(error); if (error as? APIError)?.isDefinitiveWriteRejection == true { pending = nil } }
     }
-}
-
-struct ConversationMenuSheet: View {
-    @ObservedObject var vm: ConversationViewModel
-    @EnvironmentObject private var container: AppContainer
-    @Environment(\.dismiss) private var dismiss
-    @State private var menus: [JSONValue] = []
-    @State private var error: String?
-    @State private var busy = false
-    var body: some View {
-        AppNavigationStack {
-            List {
-                Section { Text("Envie o menu para o cliente responder. O envio usa o número desta conversa e exige a janela de 24 horas.").font(.footnote) }
-                Button("Enviar menu principal") { send(nil) }
-                ForEach(menus.filter { $0["type"]?.stringValue == "submenu" }, id: \.serviceId) { m in Button(m["label"]?.stringValue ?? "Submenu") { send(m.serviceId) } }
-                if let error { Text(error).foregroundStyle(.red) }
-                if let error = vm.actionError { Text(error).foregroundStyle(.red) }
-            }.disabled(busy).navigationTitle("Enviar menu")
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } } }
-                .task { guard let p = container.profileId else { return }; do { menus = try await container.api.menus(p, connectionId: vm.conversation?.connection_id) } catch { self.error = container.serviceError(error) } }
-        }
-    }
-    private func send(_ id: String?) { busy = true; Task { if await vm.act("menu", menuId: id) { dismiss() }; busy = false } }
 }

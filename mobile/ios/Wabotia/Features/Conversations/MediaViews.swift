@@ -15,9 +15,15 @@ struct AuthenticatedImageView: View {
     @EnvironmentObject private var container: AppContainer
     let file: MediaFile
     let profileId: String
+    var width: CGFloat = 240
     @State private var image: UIImage?
     @State private var failed = false
     @State private var showViewer = false
+
+    private var height: CGFloat {
+        guard let image, image.size.width > 0 else { return width * 0.7 }
+        return min(max(width * image.size.height / image.size.width, 90), 300)
+    }
 
     var body: some View {
         Group {
@@ -26,18 +32,27 @@ struct AuthenticatedImageView: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(maxWidth: 240, maxHeight: 240)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .frame(width: width, height: height)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Foto. Abrir em tela cheia")
                 .fullScreenCover(isPresented: $showViewer) { ImageViewerView(file: file, profileId: profileId, image: image) }
-            } else if failed {
-                Label("Imagem indisponível", systemImage: "photo").font(.footnote).foregroundStyle(.secondary)
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.15)).frame(width: 180, height: 140)
-                    ProgressView()
+                    RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black.opacity(0.08))
+                    if failed {
+                        VStack(spacing: 6) {
+                            Image(systemName: "photo").font(.system(size: 24))
+                            Text("Imagem indisponível").font(Theme.font(12))
+                        }
+                        .foregroundStyle(Theme.textSecondary)
+                    } else {
+                        ProgressView()
+                    }
                 }
+                .frame(width: width, height: width * 0.7)
             }
         }
         .task(id: file.id) {
@@ -50,7 +65,7 @@ struct AuthenticatedImageView: View {
     }
 }
 
-/// Visualizador em tela cheia com zoom (pinça) e ShareLink.
+/// Visualizador em tela cheia com zoom (pinça) e compartilhar.
 struct ImageViewerView: View {
     @EnvironmentObject private var container: AppContainer
     @Environment(\.dismiss) private var dismiss
@@ -64,7 +79,8 @@ struct ImageViewerView: View {
     @State private var shareURL: URL?
 
     var body: some View {
-        AppNavigationStack {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
             GeometryReader { geo in
                 Image(uiImage: image)
                     .resizable()
@@ -89,48 +105,63 @@ struct ImageViewerView: View {
                         withAnimation { if scale > 1 { scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero } else { scale = 2.5; lastScale = 2.5 } }
                     }
             }
-            .background(Color.black)
             .ignoresSafeArea()
-            .navigationTitle(file.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .appDarkNavigationBar()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Fechar") { dismiss() } }
-                ToolbarItem(placement: .primaryAction) {
-                    if let shareURL {
-                        AppShareLink(item: shareURL) { Image(systemName: "square.and.arrow.up") }
-                    } else {
-                        ProgressView()
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(Color.white)
+                        .frame(width: Theme.touch, height: Theme.touch).background(Circle().fill(Color.white.opacity(0.18)))
+                }
+                .accessibilityLabel("Fechar")
+                Spacer()
+                if let shareURL {
+                    AppShareLink(item: shareURL) {
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .semibold)).foregroundStyle(Color.white)
+                            .frame(width: Theme.touch, height: Theme.touch).background(Circle().fill(Color.white.opacity(0.18)))
                     }
+                    .accessibilityLabel("Compartilhar")
                 }
             }
-            .task {
-                shareURL = try? await MediaLoader.shared.fileURL(for: file, profileId: profileId, api: container.api)
-            }
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+        }
+        .task {
+            shareURL = try? await MediaLoader.shared.fileURL(for: file, profileId: profileId, api: container.api)
         }
     }
 }
 
-/// Cartão de vídeo: abre um player autenticado (AVURLAsset com cabeçalho Authorization).
+/// Cartão de vídeo com botão de play: abre um player autenticado (AVURLAsset com cabeçalho Authorization).
 struct VideoAttachmentView: View {
     let file: MediaFile
     let profileId: String
+    var width: CGFloat = 240
     @State private var show = false
 
     var body: some View {
         Button { show = true } label: {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.75)).frame(width: 64, height: 64)
-                    Image(systemName: "play.fill").foregroundStyle(.white)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.name.isEmpty ? "Vídeo" : file.name).font(.footnote.weight(.medium)).lineLimit(2)
-                    Text("Vídeo · \(file.sizeLabel)").font(.caption).foregroundStyle(.secondary)
+            ZStack {
+                LinearGradient(colors: [Color(light: 0x34454E, dark: 0x1B262C), Color(light: 0x111B21, dark: 0x0B141A)], startPoint: .top, endPoint: .bottom)
+                Image(systemName: "play.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 52, height: 52)
+                    .background(Circle().fill(Color.black.opacity(0.45)))
+                VStack {
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Image(systemName: "video.fill").font(.system(size: 10))
+                        Text(file.size > 0 ? file.sizeLabel : "Vídeo").font(Theme.font(11, .medium))
+                        Spacer()
+                    }
+                    .foregroundStyle(Color.white.opacity(0.9))
+                    .padding(8)
                 }
             }
+            .frame(width: width, height: width * 0.62)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Vídeo. Reproduzir")
         .sheet(isPresented: $show) { VideoPlayerSheet(file: file, profileId: profileId) }
     }
 }
@@ -152,6 +183,7 @@ struct VideoPlayerSheet: View {
                     ProgressView()
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .navigationTitle(file.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -181,35 +213,71 @@ enum AuthenticatedAsset {
     }
 }
 
-/// Player de áudio/voz embutido na bolha: reproduzir/pausar e progresso.
+/// Player de áudio/voz embutido na bolha: play, onda com progresso, duração e velocidade.
 struct AudioPlayerView: View {
     @EnvironmentObject private var container: AppContainer
     let file: MediaFile
     let profileId: String
     let isVoice: Bool
+    var outgoing = false
+    var width: CGFloat = 230
     @StateObject private var model = AudioPlayerModel()
 
+    /// Alturas fixas da onda, derivadas do id (a mesma mensagem sempre tem o mesmo desenho).
+    private var bars: [CGFloat] {
+        var seed: UInt32 = 2166136261
+        for byte in file.id.utf8 { seed = (seed ^ UInt32(byte)) &* 16777619 }
+        return (0..<28).map { _ in
+            seed = seed &* 1664525 &+ 1013904223
+            return 0.25 + 0.75 * CGFloat((seed >> 16) & 0xFF) / 255
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
+        let tint = isVoice ? (outgoing ? Theme.brand : Theme.accent) : Theme.textSecondary
+        HStack(spacing: 8) {
             Button {
                 if model.player == nil {
                     model.prepare(asset: AuthenticatedAsset.make(file: file, profileId: profileId, api: container.api))
                 }
                 model.toggle()
             } label: {
-                Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 34))
+                Image(systemName: model.playing ? "pause.fill" : "play.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.onBrand)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(tint))
+                    .frame(width: 40, height: Theme.touch)
             }
             .buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 4) {
-                ProgressView(value: model.progress).progressViewStyle(.linear)
-                HStack {
-                    Text(isVoice ? "Mensagem de voz" : (file.name.isEmpty ? "Áudio" : file.name)).font(.caption).lineLimit(1)
-                    Spacer()
-                    Text(model.timeLabel).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            .accessibilityLabel(model.playing ? "Pausar áudio" : "Reproduzir áudio")
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .center, spacing: 2) {
+                    ForEach(Array(bars.enumerated()), id: \.offset) { index, level in
+                        Capsule()
+                            .fill(Double(index) / Double(bars.count) < model.progress ? tint : Theme.muted.opacity(0.5))
+                            .frame(width: 2.5, height: 4 + 18 * level)
+                    }
+                }
+                .frame(height: 24)
+                HStack(spacing: 6) {
+                    Image(systemName: isVoice ? "mic.fill" : "music.note").font(.system(size: 9)).foregroundStyle(tint)
+                    Text(model.started ? model.timeLabel : (file.size > 0 ? file.sizeLabel : (isVoice ? "Mensagem de voz" : "Áudio")))
+                        .font(Theme.font(11)).monospacedDigit().foregroundStyle(Theme.textSecondary).lineLimit(1)
                 }
             }
+            Button { model.cycleRate() } label: {
+                Text(model.rateLabel)
+                    .font(Theme.font(11, .bold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 34, height: 22)
+                    .background(Capsule().fill(Color.black.opacity(0.08)))
+                    .frame(height: Theme.touch)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Velocidade \(model.rateLabel)")
         }
-        .frame(minWidth: 200)
+        .frame(width: width, alignment: .leading)
         .onDisappear { model.stop() }
     }
 }
@@ -217,11 +285,15 @@ struct AudioPlayerView: View {
 @MainActor
 final class AudioPlayerModel: ObservableObject {
     @Published var playing = false
+    @Published var started = false
     @Published var progress: Double = 0
     @Published var timeLabel = "0:00"
+    @Published private(set) var rate: Float = 1
     private(set) var player: AVPlayer?
     private var observer: Any?
     private var endObserver: NSObjectProtocol?
+
+    var rateLabel: String { rate == 1 ? "1x" : (rate == 1.5 ? "1,5x" : "2x") }
 
     func prepare(asset: AVURLAsset) {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
@@ -252,7 +324,14 @@ final class AudioPlayerModel: ObservableObject {
 
     func toggle() {
         guard let player else { return }
-        if playing { player.pause(); playing = false } else { player.play(); playing = true }
+        started = true
+        if playing { player.pause(); playing = false } else { player.playImmediately(atRate: rate); playing = true }
+    }
+
+    /// 1x → 1,5x → 2x → 1x.
+    func cycleRate() {
+        rate = rate == 1 ? 1.5 : (rate == 1.5 ? 2 : 1)
+        if playing { player?.rate = rate }
     }
 
     func stop() {
@@ -266,46 +345,72 @@ final class AudioPlayerModel: ObservableObject {
     }
 }
 
-/// Documento: nome, tamanho, abrir (QuickLook) e compartilhar.
+/// Documento: ícone por tipo, nome, tamanho e baixar; toque abre (QuickLook) e depois oferece compartilhar.
 struct DocumentAttachmentView: View {
     @EnvironmentObject private var container: AppContainer
     let file: MediaFile
     let profileId: String
+    var width: CGFloat = 240
     @State private var downloading = false
     @State private var localURL: URL?
     @State private var preview: LocalFileItem?
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { Task { await open() } } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: icon).font(.title2).foregroundStyle(Color.accentColor)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(file.name.isEmpty ? "Documento" : file.name).font(.footnote.weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
-                        Text(file.size > 0 ? file.sizeLabel : "Baixar anexo").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Button { Task { await open() } } label: {
+                    HStack(spacing: 10) {
+                        VStack(spacing: 0) {
+                            Image(systemName: style.icon).font(.system(size: 17, weight: .semibold))
+                            Text(style.tag).font(.system(size: 8, weight: .heavy))
+                        }
+                        .foregroundStyle(Theme.onBrand)
+                        .frame(width: 38, height: 44)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(style.color))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.name.isEmpty ? "Documento" : file.name)
+                                .font(Theme.font(14, .medium)).foregroundStyle(Theme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                            Text(file.size > 0 ? file.sizeLabel : "Toque para baixar").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 4)
-                    if downloading { ProgressView() } else { Image(systemName: "arrow.down.circle").foregroundStyle(.secondary) }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Documento \(file.name). Abrir")
+                if downloading {
+                    ProgressView().frame(width: 32, height: 32)
+                } else if let localURL {
+                    AppShareLink(item: localURL) {
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.brand).frame(width: 32, height: Theme.touch)
+                    }
+                    .accessibilityLabel("Compartilhar documento")
+                } else {
+                    Button { Task { await open() } } label: {
+                        Image(systemName: "arrow.down.circle").font(.system(size: 22)).foregroundStyle(Theme.textSecondary).frame(width: 32, height: Theme.touch)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Baixar documento")
                 }
             }
-            .buttonStyle(.plain)
-            if let localURL {
-                AppShareLink(item: localURL) { Label("Compartilhar", systemImage: "square.and.arrow.up").font(.caption) }
-            }
-            if let error { Text(error).font(.caption2).foregroundStyle(.red) }
+            .padding(7)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black.opacity(0.05)))
+            if let error { Text(error).font(Theme.font(11)).foregroundStyle(Theme.danger) }
         }
-        .frame(minWidth: 200)
+        .frame(width: width, alignment: .leading)
         .sheet(item: $preview) { item in QuickLookPreview(url: item.url).ignoresSafeArea() }
     }
 
-    private var icon: String {
+    private var style: (icon: String, tag: String, color: Color) {
         let m = file.mimeBase
-        if m == "application/pdf" { return "doc.richtext" }
-        if m.contains("spreadsheet") || m.contains("excel") { return "tablecells" }
-        if m.contains("presentation") || m.contains("powerpoint") { return "rectangle.on.rectangle" }
-        if m.hasPrefix("text/") { return "doc.plaintext" }
-        return "doc"
+        let ext = (file.name as NSString).pathExtension.uppercased()
+        if m == "application/pdf" { return ("doc.richtext.fill", "PDF", Theme.danger) }
+        if m.contains("spreadsheet") || m.contains("excel") || m == "text/csv" { return ("tablecells.fill", ext.isEmpty ? "XLS" : String(ext.prefix(4)), Theme.ok) }
+        if m.contains("presentation") || m.contains("powerpoint") { return ("rectangle.on.rectangle", ext.isEmpty ? "PPT" : String(ext.prefix(4)), Theme.warn) }
+        if m.contains("word") || m.hasPrefix("text/") { return ("doc.text.fill", ext.isEmpty ? "DOC" : String(ext.prefix(4)), Theme.ticket) }
+        if m.contains("zip") || m.contains("compressed") { return ("doc.zipper", ext.isEmpty ? "ZIP" : String(ext.prefix(4)), Theme.muted) }
+        return ("doc.fill", ext.isEmpty ? "ARQ" : String(ext.prefix(4)), Theme.muted)
     }
 
     private func open() async {
@@ -347,11 +452,13 @@ struct AttachmentView: View {
     let file: MediaFile
     let profileId: String
     var isVoiceMessage = false
+    var outgoing = false
+    var width: CGFloat = 240
 
     var body: some View {
-        if file.isImage { AuthenticatedImageView(file: file, profileId: profileId) }
-        else if file.isVideo { VideoAttachmentView(file: file, profileId: profileId) }
-        else if file.isAudio { AudioPlayerView(file: file, profileId: profileId, isVoice: isVoiceMessage || file.mimeBase == "audio/ogg") }
-        else { DocumentAttachmentView(file: file, profileId: profileId) }
+        if file.isImage { AuthenticatedImageView(file: file, profileId: profileId, width: width) }
+        else if file.isVideo { VideoAttachmentView(file: file, profileId: profileId, width: width) }
+        else if file.isAudio { AudioPlayerView(file: file, profileId: profileId, isVoice: isVoiceMessage || file.mimeBase == "audio/ogg", outgoing: outgoing, width: min(width, 240)) }
+        else { DocumentAttachmentView(file: file, profileId: profileId, width: width) }
     }
 }

@@ -4,6 +4,7 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/window_background</item>
     </style>
     <style name="Theme.Wabotia.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/brand</item>

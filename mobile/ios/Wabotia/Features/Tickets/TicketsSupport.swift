@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// Auxiliares da área de protocolos (reaproveitados pela área de bots): datas curtas, rótulos,
-/// cores de prazo e tratamento padrão de erros (401 → volta ao login).
+/// prazo com anel e tratamento padrão de erros (401 → volta ao login).
 enum TicketsSupport {
     // MARK: Datas (Unix em milissegundos → texto curto no fuso do aparelho)
 
@@ -29,24 +29,15 @@ enum TicketsSupport {
         return (sameYear ? dayFormatter : fullFormatter).string(from: d)
     }
 
-    private static let timeFormatter: DateFormatter = {
+    private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = "HH:mm"
+        f.dateFormat = format
         return f
-    }()
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = "dd/MM HH:mm"
-        return f
-    }()
-    private static let fullFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = "dd/MM/yyyy HH:mm"
-        return f
-    }()
+    }
+    private static let timeFormatter = formatter("HH:mm")
+    private static let dayFormatter = formatter("dd/MM HH:mm")
+    private static let fullFormatter = formatter("dd/MM/yyyy HH:mm")
 
     // MARK: Erros
 
@@ -75,39 +66,59 @@ enum TicketsSupport {
 
     static func statusColor(_ status: String) -> Color {
         switch status {
-        case "open": return .blue
-        case "in_progress": return .orange
-        case "closed": return .green
-        default: return .secondary
+        case "open": return Theme.ticket
+        case "in_progress": return Theme.warn
+        case "closed": return Theme.ok
+        default: return Theme.textSecondary
         }
     }
 
-    struct Due {
+    struct Due: Equatable {
+        enum Kind: Equatable { case closed, answered, none, overdue, soon, scheduled }
+        var kind: Kind
         var text: String
-        var color: Color
-        var icon: String
+        /// Parte do prazo ainda disponível (1 = recém-aberto, 0 = vencido).
+        var fraction: Double
+
+        var color: Color {
+            switch kind {
+            case .overdue: return Theme.danger
+            case .soon: return Theme.warn
+            case .answered, .scheduled: return Theme.ok
+            case .closed, .none: return Theme.muted
+            }
+        }
+        var icon: String {
+            switch kind {
+            case .closed, .answered: return "checkmark"
+            case .overdue: return "exclamationmark"
+            case .none: return "minus"
+            case .soon, .scheduled: return "clock.fill"
+            }
+        }
     }
 
-    /// Texto e cor do prazo: vermelho atrasado, laranja vence em menos de 1 h, cinza sem prazo;
-    /// "Respondido" quando já houve a primeira resposta.
+    /// Prazo da primeira resposta: vermelho atrasado ("atrasado há 2h"), laranja abaixo de 1 h,
+    /// "Respondido" quando já houve a primeira resposta, cinza sem prazo.
     static func due(for ticket: Ticket, now: Date = Date()) -> Due {
-        if ticket.status == "closed" {
-            return Due(text: "Concluído \(shortDate(ticket.updated))", color: .secondary, icon: "checkmark.circle")
-        }
-        if let first = ticket.first_response_at {
-            return Due(text: "Respondido \(shortDate(first))", color: .green, icon: "checkmark.bubble")
-        }
-        guard let dueDate = date(ticket.response_due_at) else {
-            return Due(text: "Sem prazo", color: .secondary, icon: "clock")
-        }
+        if ticket.status == "closed" { return Due(kind: .closed, text: "Concluído", fraction: 1) }
+        if ticket.first_response_at != nil { return Due(kind: .answered, text: "Respondido", fraction: 1) }
+        guard let dueDate = date(ticket.response_due_at) else { return Due(kind: .none, text: "Sem prazo", fraction: 0) }
         let remaining = dueDate.timeIntervalSince(now)
-        if remaining < 0 {
-            return Due(text: "Atrasado desde \(shortDate(dueDate))", color: .red, icon: "exclamationmark.circle")
-        }
-        if remaining < 3600 {
-            return Due(text: "Vence em \(max(1, Int(remaining / 60))) min", color: .orange, icon: "clock.badge.exclamationmark")
-        }
-        return Due(text: "Vence \(shortDate(dueDate))", color: .secondary, icon: "clock")
+        if remaining < 0 { return Due(kind: .overdue, text: "atrasado há \(span(-remaining))", fraction: 0) }
+        let total = max(60, dueDate.timeIntervalSince(date(ticket.created) ?? now))
+        let fraction = min(1, max(0.04, remaining / total))
+        if remaining < 3600 { return Due(kind: .soon, text: "vence em \(max(1, Int(remaining / 60))) min", fraction: fraction) }
+        return Due(kind: .scheduled, text: "vence \(shortDate(dueDate).lowercased())", fraction: fraction)
+    }
+
+    /// "12 min", "2h", "3 dias".
+    static func span(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return "\(max(1, minutes)) min" }
+        let hours = minutes / 60
+        if hours < 48 { return "\(hours)h" }
+        return "\(hours / 24) dias"
     }
 
     // MARK: Pessoas
@@ -125,18 +136,8 @@ enum TicketsSupport {
         guard let c = conversation else { return "Conversa" }
         if let n = c["contact_name"]?.stringValue, !n.isEmpty { return n }
         if let t = c["title"]?.stringValue, !t.isEmpty { return t }
-        if let p = c["phone"]?.stringValue, !p.isEmpty { return p }
+        if let p = c["phone"]?.stringValue, !p.isEmpty { return ConversationFormatting.phone(p) }
         return c["external_id"]?.stringValue ?? "Conversa"
-    }
-
-    static func conversationStateTitle(_ state: String?) -> String {
-        switch state {
-        case "ai": return "Com a IA"
-        case "waiting": return "Na fila"
-        case "human": return "Com atendente"
-        case "closed": return "Concluída"
-        default: return ""
-        }
     }
 }
 
@@ -169,37 +170,25 @@ enum TicketFilter: String, CaseIterable, Identifiable {
     var overdue: Bool { self == .overdue }
 }
 
-/// Chip de estado do protocolo.
+/// Pílula de estado do protocolo.
 struct TicketStatusBadge: View {
     let status: String
-
-    var body: some View {
-        Text(TicketsSupport.statusTitle(status))
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(TicketsSupport.statusColor(status).opacity(0.15))
-            .foregroundStyle(TicketsSupport.statusColor(status))
-            .clipShape(Capsule())
-    }
+    var body: some View { Pill(text: TicketsSupport.statusTitle(status), color: TicketsSupport.statusColor(status)) }
 }
 
-/// Chip de filtro (barra horizontal acima da lista).
-struct TicketFilterChipView: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
+/// Prazo com o mesmo anel do relógio da janela.
+struct TicketDueView: View {
+    let due: TicketsSupport.Due
+    var size: CGFloat = 20
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(selected ? .semibold : .regular))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(selected ? Color.accentColor : Color(.secondarySystemBackground))
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .clipShape(Capsule())
+        HStack(spacing: 5) {
+            ProgressRing(fraction: due.fraction, color: due.color, size: size) {
+                Image(systemName: due.icon).font(.system(size: size * 0.42, weight: .bold)).foregroundStyle(due.color)
+            }
+            Text(due.text).font(Theme.font(13, .semibold)).foregroundStyle(due.kind == .none || due.kind == .closed ? Theme.textSecondary : due.color).lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Prazo: \(due.text)")
     }
 }

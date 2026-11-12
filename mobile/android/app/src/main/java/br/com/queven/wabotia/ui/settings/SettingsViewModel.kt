@@ -5,8 +5,6 @@ import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.HealthInfo
-import br.com.queven.wabotia.core.model.PresenceEntry
-import br.com.queven.wabotia.core.model.PresenceRequest
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.net.ApiClient
@@ -21,7 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
-/** Estado da aba Mais. Tudo que vem da sessão local é recarregado por [SettingsViewModel.syncLocal]. */
+/** Estado da aba Ajustes (a presença vem de ui/components/Presence.kt). Tudo que vem da sessão local é recarregado por [SettingsViewModel.syncLocal]. */
 data class SettingsUiState(
     // pessoa e perfil
     val userName: String = "",
@@ -30,12 +28,6 @@ data class SettingsUiState(
     val profileId: String? = null,
     val profiles: List<Profile> = emptyList(),
     val profilesError: String? = null,
-    // disponibilidade
-    val present: Boolean = false,
-    val presenceBusy: Boolean = false,
-    val presenceLoading: Boolean = true,
-    val presenceError: String? = null,
-    val team: List<PresenceEntry> = emptyList(),
     // notificações
     val notificationsEnabled: Boolean = true,
     val notificationsBusy: Boolean = false,
@@ -68,8 +60,6 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
     // Chaves de idempotência mantidas enquanto o pedido não for confirmado (repetição reutiliza a mesma).
-    private var presenceKey: String? = null
-    private var presenceTarget: Boolean? = null
     private var testKey: String? = null
     private var logoutKey: String? = null
 
@@ -96,14 +86,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Chamado quando a aba aparece: renova o token se faltar pouco, e recarrega perfis, presença e versão do servidor. */
+    /** Chamado quando a aba aparece: renova o token se faltar pouco, e recarrega perfis e versão do servidor. */
     fun refresh() {
         syncLocal()
         viewModelScope.launch {
             if (SessionRefresher.refreshIfNeeded(container)) syncLocal()
             if (!container.auth.value.isLoggedIn) return@launch
             loadProfiles()
-            loadPresence()
             loadHealth()
         }
     }
@@ -128,56 +117,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun selectProfile(profileId: String) {
         if (profileId == session.profileId) return
         container.onProfileSelected(profileId)
-        presenceKey = null; presenceTarget = null
-        _state.update { it.copy(profileId = profileId, team = emptyList(), present = false, presenceLoading = true, presenceError = null) }
-        loadPresence()
-    }
-
-    // --- disponibilidade ---
-
-    fun loadPresence() {
-        val profile = session.profileId ?: return
-        viewModelScope.launch {
-            _state.update { it.copy(presenceLoading = true) }
-            try {
-                val list = container.api.presence(profile)
-                val me = session.user?.id
-                val sorted = list.sortedWith(compareByDescending<PresenceEntry> { it.actor == me }.thenByDescending { it.present }.thenBy { it.name.lowercase() })
-                val mine = list.firstOrNull { it.actor == me }?.present == 1
-                _state.update { it.copy(team = sorted, present = mine, presenceLoading = false, presenceError = null) }
-            } catch (e: Exception) {
-                _state.update { it.copy(presenceLoading = false, presenceError = failure(e)) }
-            }
-        }
-    }
-
-    fun setPresent(value: Boolean) {
-        val profile = session.profileId ?: return
-        if (_state.value.presenceBusy) return
-        val key = presenceKey?.takeIf { presenceTarget == value } ?: ApiClient.newIdempotencyKey().also {
-            presenceKey = it
-            presenceTarget = value
-        }
-        val previous = _state.value.present
-        _state.update { it.copy(present = value, presenceBusy = true) }
-        viewModelScope.launch {
-            try {
-                container.api.setPresence(profile, key, PresenceRequest(present = value))
-                presenceKey = null; presenceTarget = null
-                val me = session.user?.id
-                _state.update { s ->
-                    s.copy(
-                        present = value,
-                        presenceBusy = false,
-                        team = s.team.map { if (it.actor == me) it.copy(present = if (value) 1 else 0) else it },
-                        message = if (value) "Você está presente. Novos atendimentos podem ser direcionados a você." else "Você está ausente. A equipe vê você como indisponível.",
-                    )
-                }
-            } catch (e: Exception) {
-                if (e is ApiException && e.isIdempotencyConflict) { presenceKey = null; presenceTarget = null }
-                _state.update { it.copy(present = previous, presenceBusy = false, message = failure(e)) }
-            }
-        }
+        _state.update { it.copy(profileId = profileId) }
     }
 
     // --- notificações ---

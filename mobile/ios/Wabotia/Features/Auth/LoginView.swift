@@ -8,48 +8,48 @@ struct LoginView: View {
     @State private var showPassword = false
     @State private var busy = false
     @State private var error: String?
+    private enum Field { case email, password }
+    @FocusState private var focus: Field?
 
     private var server: URL? { container.session.serverURL }
 
     var body: some View {
-        AppNavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text("Servidor")
-                        Spacer()
-                        Text(server?.host ?? "").foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Button("Trocar servidor") { container.onLoggedOut(keepServer: false) }.disabled(busy)
-                }
-                Section("Conta de atendente") {
-                    TextField("E-mail", text: $email)
-                        .keyboardType(.emailAddress).textContentType(.username)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    HStack {
-                        if showPassword { TextField("Senha", text: $password).textContentType(.password) }
-                        else { SecureField("Senha", text: $password).textContentType(.password) }
-                        Button { showPassword.toggle() } label: { Image(systemName: showPassword ? "eye.slash" : "eye") }
-                            .buttonStyle(.borderless)
-                    }
-                    .onSubmit(login)
-                }
-                if let error { Section { Text(error).foregroundStyle(.red).font(.footnote) } }
-                Section {
-                    Button(action: login) {
-                        if busy { ProgressView().frame(maxWidth: .infinity) } else { Text("Entrar").frame(maxWidth: .infinity) }
-                    }
-                    .disabled(busy || email.isEmpty || password.isEmpty)
-                } footer: {
-                    Text("Use a conta cadastrada em Pessoas no painel. A senha não é guardada no aparelho; apenas um token de sessão de 30 dias, no Keychain.")
-                }
+        AuthScaffold(title: "Entrar", subtitle: server?.host ?? "") {
+            AuthField(label: "E-mail") {
+                TextField("voce@empresa.com.br", text: $email)
+                    .keyboardType(.emailAddress).textContentType(.username)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .submitLabel(.next)
+                    .focused($focus, equals: .email)
+                    .onSubmit { focus = .password }
             }
-            .navigationTitle("Entrar")
+            AuthField(label: "Senha", error: error != nil) {
+                Group {
+                    if showPassword { TextField("Sua senha", text: $password) } else { SecureField("Sua senha", text: $password) }
+                }
+                .textContentType(.password)
+                .submitLabel(.go)
+                .focused($focus, equals: .password)
+                .onSubmit(login)
+                Button { showPassword.toggle() } label: {
+                    Image(systemName: showPassword ? "eye.slash" : "eye").foregroundStyle(Theme.textSecondary).frame(width: 36, height: Theme.touch)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showPassword ? "Ocultar senha" : "Mostrar senha")
+            }
+            if let error { InlineError(text: error) }
+            PrimaryButton(title: "Entrar", busy: busy, disabled: email.isEmpty || password.isEmpty, action: login)
+            Button("Trocar servidor") { container.onLoggedOut(keepServer: false) }
+                .font(Theme.font(15, .semibold)).foregroundStyle(Theme.brand)
+                .frame(maxWidth: .infinity, minHeight: Theme.touch)
+                .disabled(busy)
+            Text("Use a conta cadastrada em Pessoas no painel. A senha não fica no aparelho: só um token de sessão de 30 dias, guardado no Keychain.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func login() {
-        guard let server else { return }
+        guard let server, !busy, !email.isEmpty, !password.isEmpty else { return }
         busy = true; error = nil
         Task {
             do {

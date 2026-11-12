@@ -2,48 +2,50 @@
 
 package br.com.queven.wabotia.ui.tickets
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -55,24 +57,53 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.PresenceEntry
-import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.core.model.Ticket
 import br.com.queven.wabotia.core.model.TicketDetail
 import br.com.queven.wabotia.core.model.TicketUpdate
 import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
+import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.ui.components.Avatar
+import br.com.queven.wabotia.ui.components.AvatarKind
+import br.com.queven.wabotia.ui.components.DetailTopBar
+import br.com.queven.wabotia.ui.components.ErrorState
+import br.com.queven.wabotia.ui.components.EventPolling
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.RoundIconButton
+import br.com.queven.wabotia.ui.components.SecondaryButton
+import br.com.queven.wabotia.ui.components.SectionLabel
+import br.com.queven.wabotia.ui.components.SegmentedTabs
+import br.com.queven.wabotia.ui.components.SkeletonList
+import br.com.queven.wabotia.ui.components.WbBottomSheet
+import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.components.formatPhone
+import br.com.queven.wabotia.ui.components.formatWhen
+import br.com.queven.wabotia.ui.components.handleError
+import br.com.queven.wabotia.ui.components.rememberHaptics
+import br.com.queven.wabotia.ui.components.rememberNow
+import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -131,7 +162,7 @@ class TicketViewModel(private val container: AppContainer, private val profileId
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                if (e.isUnauthorized) container.describeError(e)
+                if (e.isUnauthorized) container.handleError(e)
             } catch (_: Exception) {
                 // Falha momentânea: a próxima rodada de eventos ou o botão Atualizar tenta de novo.
             }
@@ -154,7 +185,7 @@ class TicketViewModel(private val container: AppContainer, private val profileId
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = container.describeError(e)
+                error = container.handleError(e)
             } finally {
                 loading = false
             }
@@ -167,6 +198,9 @@ class TicketViewModel(private val container: AppContainer, private val profileId
         container.session.user?.takeIf { it.id == owner }?.let { return it.name.ifBlank { "Você" } }
         return "Atendente ${owner.take(8)}"
     }
+
+    /** Presença do responsável, ou null quando a pessoa não está na lista de presença. */
+    fun ownerOnline(owner: String?): Boolean? = presence.firstOrNull { it.actor == owner }?.let { it.present == 1 }
 
     fun actorName(actor: String): String = when {
         actor.isBlank() -> ""
@@ -193,6 +227,10 @@ class TicketViewModel(private val container: AppContainer, private val profileId
         actionError = null
     }
 
+    fun dismissActionError() {
+        if (pending == null) actionError = null
+    }
+
     fun clearInfo() { info = null }
 
     private fun send(request: PendingUpdate) {
@@ -215,7 +253,7 @@ class TicketViewModel(private val container: AppContainer, private val profileId
                     actionError = "O servidor já recebeu um pedido diferente com a mesma chave. Tente de novo."
                 } else {
                     pending = null
-                    actionError = container.describeError(e)
+                    actionError = container.handleError(e)
                 }
             } catch (e: IOException) {
                 // Falha de rede: mantém o pedido com a mesma chave para repetir.
@@ -231,7 +269,7 @@ class TicketViewModel(private val container: AppContainer, private val profileId
     }
 }
 
-/** Detalhe do protocolo: dados, conversa, responsável, prazo, estado, andamento e linha do tempo. */
+/** Detalhe do protocolo: cabeçalho com estado, responsável e prazo; conversa; linha do tempo; campo fixo de andamento. */
 @Composable
 fun TicketScreen(container: AppContainer, ticketId: String, onBack: () -> Unit, openConversation: (String) -> Unit) {
     val profileId = container.session.profileId ?: ""
@@ -243,82 +281,83 @@ fun TicketScreen(container: AppContainer, ticketId: String, onBack: () -> Unit, 
     LaunchedEffect(ticketId) { Notifications.cancelTicket(context, ticketId) }
 
     // Em primeiro plano, eventos `ticket.*` deste protocolo (outro atendente mudou estado/responsável) recarregam o detalhe.
-    TicketEventPolling(container, profileId) { event -> if (event.resource_id == ticketId) vm.reloadSilently() }
+    EventPolling(container, profileId) { events ->
+        if (events.any { it.kind.startsWith("ticket.") && it.resource_id == ticketId }) vm.reloadSilently()
+    }
 
     var progressText by rememberSaveable { mutableStateOf("") }
-    var showOwnerDialog by remember { mutableStateOf(false) }
+    var showOwnerSheet by remember { mutableStateOf(false) }
     var showCloseConfirm by remember { mutableStateOf(false) }
     var dueStep by remember { mutableStateOf(0) } // 0 fechado, 1 data, 2 hora
     var dueDateMillis by remember { mutableStateOf<Long?>(null) }
+    val haptics = rememberHaptics()
+    val now by rememberNow()
+    val c = Wb.colors
 
     // Mensagem informativa some sozinha depois de alguns segundos.
     LaunchedEffect(vm.info) {
         if (vm.info != null) {
-            kotlinx.coroutines.delay(3000)
+            delay(3000)
             vm.clearInfo()
         }
     }
 
     val ticket = vm.ticket
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(ticket?.number?.ifBlank { null } ?: "Protocolo")
-                        if (ticket != null) Text(ticketStatusLabel(ticket.status), style = MaterialTheme.typography.labelMedium, color = ticketStatusColor(ticket.status))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
-                },
-                actions = {
-                    IconButton(onClick = { vm.load() }, enabled = !vm.loading) { Icon(Icons.Filled.Refresh, contentDescription = "Atualizar") }
-                },
-            )
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+    val detail = vm.detail
+    Column(Modifier.fillMaxSize().background(c.background).imePadding()) {
+        DetailTopBar(
+            title = ticket?.number?.ifBlank { null } ?: "Protocolo",
+            onBack = onBack,
+            subtitle = ticket?.let { ticketStatusLabel(it.status) },
+        ) {
+            IconButton(onClick = { vm.load() }, enabled = !vm.loading) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Atualizar protocolo", tint = c.textPrimary)
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(2.dp)) {
+            if (vm.busy || (vm.loading && ticket != null)) LinearProgressIndicator(Modifier.fillMaxSize(), color = c.brand, trackColor = c.divider)
+        }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
             when {
-                vm.loading && ticket == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                vm.error != null && ticket == null -> Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(vm.error ?: "", color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { vm.load() }) { Text("Tentar novamente") }
-                }
-                ticket != null -> TicketBody(
+                ticket != null && detail != null -> TicketBody(
                     vm = vm,
                     ticket = ticket,
-                    detail = vm.detail!!,
-                    progressText = progressText,
-                    onProgressChange = { progressText = it },
-                    onSendProgress = {
-                        if (progressText.isNotBlank()) {
-                            vm.registerProgress(progressText)
-                            progressText = ""
-                        }
-                    },
+                    detail = detail,
+                    now = now,
                     onOpenConversation = { openConversation(ticket.conversation_id) },
-                    onChangeOwner = { showOwnerDialog = true },
+                    onChangeOwner = { showOwnerSheet = true },
                     onChangeStatus = { s -> if (s == "closed") showCloseConfirm = true else vm.changeStatus(s) },
                     onAdjustDue = { dueStep = 1 },
                     onClearDue = { vm.clearDue() },
                 )
+                vm.error != null -> ErrorState(vm.error ?: "", onRetry = { vm.load() })
+                else -> SkeletonList(Modifier.fillMaxSize(), rows = 6, avatar = false)
             }
-            if (vm.busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+        }
+        if (ticket != null) {
+            ProgressComposer(
+                ticket = ticket,
+                value = progressText,
+                onValueChange = { progressText = it },
+                canEdit = vm.canEdit,
+                busy = vm.busy,
+                onSend = {
+                    if (progressText.isNotBlank()) {
+                        haptics.tick()
+                        vm.registerProgress(progressText)
+                        progressText = ""
+                    }
+                },
+            )
         }
     }
 
-    if (showOwnerDialog && ticket != null) {
-        OwnerDialog(
+    if (showOwnerSheet && ticket != null) {
+        OwnerSheet(
             entries = vm.presence,
             current = ticket.owner,
-            onDismiss = { showOwnerDialog = false },
-            onPick = { owner -> showOwnerDialog = false; vm.changeOwner(owner) },
+            onDismiss = { showOwnerSheet = false },
+            onPick = { owner -> showOwnerSheet = false; vm.changeOwner(owner) },
         )
     }
 
@@ -382,259 +421,371 @@ private fun TicketBody(
     vm: TicketViewModel,
     ticket: Ticket,
     detail: TicketDetail,
-    progressText: String,
-    onProgressChange: (String) -> Unit,
-    onSendProgress: () -> Unit,
+    now: Long,
     onOpenConversation: () -> Unit,
     onChangeOwner: () -> Unit,
     onChangeStatus: (String) -> Unit,
     onAdjustDue: () -> Unit,
     onClearDue: () -> Unit,
 ) {
-    val tone = ticket.dueTone()
+    val c = Wb.colors
+    val tone = ticket.dueTone(now)
     val canEdit = vm.canEdit
+    val editable = canEdit && !vm.busy
     val dueEditable = ticket.first_response_at == null && ticket.status != "closed"
     val conv = detail.conversation
     val contactName = conv?.string("contact_name")?.takeIf { it.isNotBlank() }
     val phone = conv?.string("phone")?.takeIf { it.isNotBlank() }
-    val convTitle = contactName ?: conv?.string("title")?.takeIf { it.isNotBlank() } ?: phone ?: conv?.string("external_id") ?: "Conversa"
+    val convTitle = contactName ?: conv?.string("title")?.takeIf { it.isNotBlank() } ?: phone?.let { formatPhone(it) } ?: conv?.string("external_id") ?: "Conversa"
+    val isGroup = conv?.string("chat_type") == "group"
     val convSubtitle = listOfNotNull(
-        phone?.takeIf { it != convTitle },
+        phone?.takeIf { contactName != null || conv?.string("title")?.isNotBlank() == true }?.let { formatPhone(it) },
         conv?.string("state")?.let { conversationStateLabel(it) },
-        conv?.string("owner")?.let { "com ${vm.ownerName(it)}" },
+        conv?.string("owner")?.let { owner -> if (owner == vm.myId) "com você" else "com ${vm.ownerName(owner)}" },
     ).joinToString(" · ")
+    val updates = remember(detail.updates) { detail.updates.sortedByDescending { it.created } }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Erros de ação do servidor (ex.: "Somente o responsável pode alterar o protocolo.")
-        if (vm.actionError != null || vm.info != null) {
-            item {
-                val isError = vm.actionError != null
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isError) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
-                    ),
-                ) {
-                    Column(Modifier.padding(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
+        // Erros de ação do servidor (ex.: "Somente o responsável pode alterar o protocolo.") e retorno das ações.
+        val actionError = vm.actionError
+        val info = vm.info
+        if (actionError != null) {
+            item("action-error") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                    if (vm.pending != null) {
+                        InlineNotice(actionError, actionLabel = "Tentar de novo", onAction = { vm.retryPending() })
+                        TextButton(onClick = { vm.dismissPending() }, modifier = Modifier.align(Alignment.End)) {
+                            Text("Abandonar pedido", color = c.textSecondary)
+                        }
+                    } else {
+                        InlineNotice(actionError, onDismiss = { vm.dismissActionError() })
+                    }
+                }
+            }
+        } else if (info != null) {
+            item("info") {
+                InlineNotice(info, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp), color = c.ok, onDismiss = { vm.clearInfo() })
+            }
+        }
+
+        // Cabeçalho: número, título, datas e seletor de estado.
+        item("header") {
+            WbCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text(
+                        ticket.number.ifBlank { "Protocolo" },
+                        color = c.ticket,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(ticket.title.ifBlank { "Sem título" }, style = MaterialTheme.typography.titleLarge, color = c.textPrimary)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Aberto ${formatWhen(ticket.created)} · Atualizado ${formatWhen(ticket.updated)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.textSecondary,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    SegmentedTabs(
+                        options = listOf("open" to "Aberto", "in_progress" to "Em andamento", "closed" to "Concluído"),
+                        selected = ticket.status,
+                        onSelect = { s -> if (editable && ticket.status != s) onChangeStatus(s) },
+                        modifier = Modifier.alpha(if (editable) 1f else 0.6f),
+                        accent = ticketStatusColor(ticket.status),
+                    )
+                    if (!canEdit) {
+                        Spacer(Modifier.height(10.dp))
                         Text(
-                            vm.actionError ?: vm.info ?: "",
-                            color = if (isError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
-                            style = MaterialTheme.typography.bodyMedium,
+                            "Somente o responsável (ou um administrador) altera este protocolo.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = c.textSecondary,
                         )
-                        if (vm.pending != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                                Button(onClick = { vm.retryPending() }, enabled = !vm.busy) { Text("Tentar novamente") }
-                                TextButton(onClick = { vm.dismissPending() }) { Text("Abandonar pedido") }
-                            }
+                    }
+                }
+            }
+        }
+
+        // Responsável e prazo.
+        item("owner-due") {
+            SectionLabel("Responsável e prazo")
+            WbCard(Modifier.padding(horizontal = 16.dp)) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val online = vm.ownerOnline(ticket.owner)
+                    if (ticket.owner.isNullOrBlank()) {
+                        Avatar("?", seed = "sem-responsavel", size = 44.dp, ringColor = c.surface)
+                    } else {
+                        Avatar(vm.ownerName(ticket.owner), seed = ticket.owner, size = 44.dp, online = online, ringColor = c.surface)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(vm.ownerName(ticket.owner), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            when {
+                                ticket.owner.isNullOrBlank() -> "Ninguém assumiu este protocolo"
+                                online == true -> "Online"
+                                online == false -> "Offline"
+                                else -> "Responsável"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (online == true) c.ok else c.textSecondary,
+                        )
+                    }
+                    TextButton(onClick = onChangeOwner, enabled = editable) { Text("Alterar", fontWeight = FontWeight.SemiBold) }
+                }
+                HorizontalDivider(Modifier.padding(start = 72.dp), color = c.hairline)
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { DueRing(ticket, now, size = 36.dp) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Prazo da primeira resposta", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                        Text(
+                            ticket.dueDetail(now),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (tone == DueTone.Scheduled) c.textPrimary else tone.textColor(),
+                        )
+                        if (ticket.first_response_at != null && ticket.response_due_at != null) {
+                            Text("Prazo era ${formatWhen(ticket.response_due_at)}", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                         }
                     }
                 }
-            }
-        }
-
-        // Dados
-        item {
-            Column {
-                Text(ticket.title.ifBlank { "Sem título" }, style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
-                Text(ticket.dueLabel(), color = tone.color(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                Text(
-                    "Aberto ${formatWhen(ticket.created)} · Atualizado ${formatWhen(ticket.updated)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!canEdit) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Somente o responsável (ou um administrador) altera este protocolo.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        // Conversa
-        item {
-            SectionCard(title = "Conversa") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(convTitle, style = MaterialTheme.typography.bodyLarge)
-                        if (convSubtitle.isNotBlank()) Text(convSubtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    OutlinedButton(onClick = onOpenConversation) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Abrir")
-                    }
-                }
-            }
-        }
-
-        // Responsável
-        item {
-            SectionCard(title = "Responsável") {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(vm.ownerName(ticket.owner), style = MaterialTheme.typography.bodyLarge)
-                        val present = vm.presence.firstOrNull { it.actor == ticket.owner }?.present
-                        if (present != null) Text(if (present == 1) "Presente" else "Ausente", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    OutlinedButton(onClick = onChangeOwner, enabled = canEdit && !vm.busy) { Text("Alterar") }
-                }
-            }
-        }
-
-        // Estado
-        item {
-            SectionCard(title = "Estado") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("open", "in_progress", "closed").forEach { s ->
-                        FilterChip(
-                            selected = ticket.status == s,
-                            onClick = { if (ticket.status != s) onChangeStatus(s) },
-                            enabled = canEdit && !vm.busy,
-                            label = { Text(ticketStatusLabel(s)) },
-                        )
-                    }
-                }
-            }
-        }
-
-        // Prazo
-        item {
-            SectionCard(title = "Prazo da primeira resposta") {
-                Text(
-                    if (ticket.response_due_at != null) formatWhen(ticket.response_due_at) else "Sem prazo definido",
-                    color = tone.color(),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                if (ticket.first_response_at != null) {
-                    Text("Primeira resposta ${formatWhen(ticket.first_response_at)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Spacer(Modifier.height(8.dp))
                 if (dueEditable) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onAdjustDue, enabled = canEdit && !vm.busy) { Text(if (ticket.response_due_at != null) "Ajustar" else "Definir prazo") }
+                    Row(Modifier.fillMaxWidth().padding(start = 64.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onAdjustDue, enabled = editable) {
+                            Text(if (ticket.response_due_at != null) "Ajustar" else "Definir prazo", fontWeight = FontWeight.SemiBold)
+                        }
                         if (ticket.response_due_at != null) {
-                            TextButton(onClick = onClearDue, enabled = canEdit && !vm.busy) { Text("Remover prazo") }
+                            TextButton(onClick = onClearDue, enabled = editable) { Text("Remover prazo", color = if (editable) c.danger else c.muted) }
                         }
                     }
                 } else {
                     Text(
                         if (ticket.status == "closed") "O prazo não pode ser alterado em protocolos concluídos." else "O prazo só pode ser alterado antes da primeira resposta.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = c.textSecondary,
+                        modifier = Modifier.padding(start = 72.dp, end = 16.dp, top = 6.dp, bottom = 14.dp),
                     )
                 }
             }
         }
 
-        // Registrar andamento
-        item {
-            SectionCard(title = "Registrar andamento") {
-                OutlinedTextField(
-                    value = progressText,
-                    onValueChange = onProgressChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    maxLines = 6,
-                    enabled = canEdit && !vm.busy,
-                    label = { Text("Mensagem ao cliente") },
-                    supportingText = {
-                        Text("Enviado à conversa como “Protocolo ${ticket.number.ifBlank { "WA-…" }}: sua mensagem” e registrado na linha do tempo.")
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = onSendProgress, enabled = canEdit && !vm.busy && progressText.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                    Text("Registrar andamento")
-                }
-            }
-        }
-
-        // Linha do tempo
-        item {
-            Text("Linha do tempo", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
-        }
-        if (detail.updates.isEmpty()) {
-            item {
-                Text("Nenhum andamento registrado.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            items(detail.updates.sortedByDescending { it.created }, key = { it.id }) { u ->
-                TimelineRow(u, vm.actorName(u.actor))
-            }
-        }
-        item { Spacer(Modifier.height(24.dp)) }
-    }
-}
-
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
-            content()
-        }
-    }
-}
-
-@Composable
-private fun TimelineRow(u: TicketUpdate, actor: String) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(actor.ifBlank { "Atendente" }, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-            Text(formatWhen(u.created), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.height(2.dp))
-        Text(u.text, style = MaterialTheme.typography.bodyMedium)
-        if (u.internal == 1) Text("Interno", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
-        HorizontalDivider()
-    }
-}
-
-@Composable
-private fun OwnerDialog(entries: List<PresenceEntry>, current: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
-    var selected by remember { mutableStateOf(current) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Responsável pelo protocolo") },
-        text = {
-            if (entries.isEmpty()) {
-                Text("Nenhuma pessoa encontrada neste perfil.")
-            } else {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    entries.sortedWith(compareByDescending<PresenceEntry> { it.present }.thenBy { it.name.lowercase() }).forEach { p ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { selected = p.actor }.padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = selected == p.actor, onClick = { selected = p.actor })
-                            Column(Modifier.weight(1f)) {
-                                Text(p.name.ifBlank { p.actor })
-                                Text(
-                                    if (p.present == 1) "Presente" else "Ausente",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (p.present == 1) TicketDone else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+        // Conversa.
+        item("conversation") {
+            SectionLabel("Conversa")
+            WbCard(Modifier.padding(horizontal = 16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(convTitle, seed = ticket.conversation_id.ifBlank { convTitle }, size = 44.dp, kind = if (isGroup) AvatarKind.Group else AvatarKind.Person, ringColor = c.surface)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(convTitle, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (convSubtitle.isNotBlank()) {
+                                Text(convSubtitle, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
+                    Spacer(Modifier.height(14.dp))
+                    SecondaryButton("Abrir conversa", onClick = onOpenConversation, icon = Icons.AutoMirrored.Filled.Chat, enabled = ticket.conversation_id.isNotBlank())
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { selected?.let(onPick) }, enabled = selected != null && selected != current) { Text("Atribuir") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
+        }
+
+        // Linha do tempo.
+        item("timeline-title") { SectionLabel("Linha do tempo") }
+        if (updates.isEmpty()) {
+            item("timeline-empty") {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.History, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Nenhum andamento registrado.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary)
+                }
+            }
+        } else {
+            itemsIndexed(updates, key = { _, u -> u.id }) { index, u ->
+                TimelineRow(u, vm.actorName(u.actor), first = index == 0, last = index == updates.lastIndex)
+            }
+        }
+    }
+}
+
+/** Andamento na linha do tempo vertical: ponto + linha à esquerda, autor, horário e texto; interno leva cadeado. */
+@Composable
+private fun TimelineRow(u: TicketUpdate, actor: String, first: Boolean, last: Boolean) {
+    val c = Wb.colors
+    val internal = u.internal == 1
+    val system = u.actor == "system" || u.actor.isBlank()
+    val dotColor = when {
+        internal -> c.warn
+        system -> c.muted
+        else -> c.ticket
+    }
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(start = 20.dp, end = 16.dp)) {
+        Box(Modifier.width(20.dp).fillMaxHeight()) {
+            if (!first) Box(Modifier.align(Alignment.TopCenter).width(2.dp).height(8.dp).background(c.divider))
+            if (!last) Box(Modifier.align(Alignment.TopCenter).padding(top = 8.dp).width(2.dp).fillMaxHeight().background(c.divider))
+            Box(Modifier.align(Alignment.TopCenter).padding(top = 4.dp).size(12.dp).background(c.background, CircleShape), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(10.dp).background(dotColor, CircleShape))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f).padding(bottom = if (last) 4.dp else 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        actor.ifBlank { "Atendente" },
+                        style = MaterialTheme.typography.titleSmall,
+                        color = c.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (internal) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(Icons.Filled.Lock, contentDescription = "Andamento interno", tint = c.textSecondary, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Interno", style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(formatWhen(u.created), style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1)
+            }
+            Spacer(Modifier.height(4.dp))
+            if (internal) {
+                Text(
+                    u.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.textPrimary,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(c.bubbleNote).padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            } else {
+                Text(u.text, style = MaterialTheme.typography.bodyMedium, color = if (system) c.textSecondary else c.textPrimary)
+            }
+        }
+    }
+}
+
+/** Campo fixo embaixo: "Registrar andamento" com enviar. O texto vai ao cliente como "Protocolo WA-…: texto". */
+@Composable
+private fun ProgressComposer(ticket: Ticket, value: String, onValueChange: (String) -> Unit, canEdit: Boolean, busy: Boolean, onSend: () -> Unit) {
+    val c = Wb.colors
+    Column(Modifier.fillMaxWidth().background(c.background)) {
+        HorizontalDivider(color = c.hairline)
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)) {
+            if (!canEdit) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Somente o responsável (ou um administrador) registra andamentos neste protocolo.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.textSecondary,
+                    )
+                }
+            } else {
+                Text(
+                    "Vai ao cliente como “Protocolo ${ticket.number.ifBlank { "WA-…" }}: sua mensagem” e fica na linha do tempo.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary,
+                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
+                )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(c.field)
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (value.isEmpty()) {
+                            Text("Registrar andamento", style = MaterialTheme.typography.bodyLarge, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        BasicTextField(
+                            value = value,
+                            onValueChange = onValueChange,
+                            enabled = !busy,
+                            maxLines = 5,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.textPrimary),
+                            cursorBrush = SolidColor(c.brand),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    RoundIconButton(
+                        Icons.AutoMirrored.Filled.Send,
+                        "Registrar andamento",
+                        onSend,
+                        color = c.brand,
+                        contentColor = c.onBrand,
+                        enabled = !busy && value.isNotBlank(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Folha de escolha do responsável (lista de presença: online primeiro). */
+@Composable
+private fun OwnerSheet(entries: List<PresenceEntry>, current: String?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val c = Wb.colors
+    var selected by remember { mutableStateOf(current) }
+    val sorted = remember(entries) { entries.sortedWith(compareByDescending<PresenceEntry> { it.present }.thenBy { it.name.lowercase() }) }
+    WbBottomSheet(onDismiss = onDismiss, title = "Responsável pelo protocolo") {
+        if (sorted.isEmpty()) {
+            Text("Nenhuma pessoa encontrada neste perfil.", style = MaterialTheme.typography.bodyMedium, color = c.textSecondary, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+                itemsIndexed(sorted, key = { _, p -> p.actor }) { _, p ->
+                    val online = p.present == 1
+                    val isSelected = selected == p.actor
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.RadioButton) { selected = p.actor }
+                            .background(if (isSelected) c.soft(c.brand, 0.1f) else androidx.compose.ui.graphics.Color.Transparent)
+                            .heightIn(min = 60.dp)
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(p.name.ifBlank { p.actor }, seed = p.actor, size = 40.dp, online = online, ringColor = if (c.isDark) c.surface else c.background)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                p.name.ifBlank { p.actor } + if (p.actor == current) " (atual)" else "",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = c.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(if (online) "Online" else "Offline", style = MaterialTheme.typography.bodySmall, color = if (online) c.ok else c.textSecondary)
+                        }
+                        if (isSelected) Icon(Icons.Filled.Check, contentDescription = "Selecionado", tint = c.brand)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        PrimaryButton(
+            "Atribuir",
+            onClick = { selected?.let(onPick) },
+            modifier = Modifier.padding(horizontal = 20.dp),
+            enabled = selected != null && selected != current,
+        )
+    }
 }
 
 private fun conversationStateLabel(state: String) = when (state) {
-    "ai" -> "Com a IA"
+    "ai" -> "Com o bot"
     "waiting" -> "Na fila"
-    "human" -> "Com atendente"
+    "human" -> "Em atendimento"
     "closed" -> "Concluída"
     else -> state
 }

@@ -1,158 +1,423 @@
 import SwiftUI
 
-/// Aba Conversas: filtros Fila/Minhas/IA/Concluídas/Todas, busca, paginação por cursor, pull-to-refresh,
-/// faixa de ligações tocando e atualização por eventos a cada 4 s enquanto visível.
+/// Aba Conversas (mobile/DESIGN.md, seção 4): marca e perfil no topo, pílula de presença, busca, chips com
+/// contador, linhas com selo de estado, prévia, etiquetas, responsável, anel da janela e não lidas.
 struct ConversationsView: View {
+    let active: Bool
     @EnvironmentObject private var container: AppContainer
-    @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var vm = ConversationsViewModel()
+    @Environment(\.pushRoute) private var push
+    @ObservedObject var vm: ConversationsViewModel
+    @ObservedObject private var workspace = Workspace.shared
+
+    @State private var searching = false
+    @FocusState private var searchFocused: Bool
+    @State private var showPresence = false
+    @State private var confirmResolve: Conversation?
+    @State private var transferTarget: Conversation?
+    @State private var tagsTarget: Conversation?
 
     var body: some View {
-        List {
-            if !vm.ringing.isEmpty {
-                Section {
-                    ForEach(vm.ringing) { call in RingingCallRow(call: call, vm: vm) }
+        VStack(spacing: 0) {
+            header
+            if !workspace.ringing.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(workspace.ringing) { call in RingingCallCard(call: call) { await vm.reject(call: call) } }
                 }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
-            Section {
-                Picker("Filtro", selection: $vm.filter) {
-                    ForEach(ConversationsViewModel.Filter.allCases) { f in Text(f.title).tag(f) }
-                }
-                .pickerStyle(.segmented)
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                .listRowBackground(Color.clear)
-            }
-            if let error = vm.error {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(error).font(.footnote).foregroundStyle(.red)
-                        Button("Tentar novamente") { vm.load(reset: true) }.font(.footnote)
-                    }
-                }
-            }
-            Section {
-                if vm.loading && vm.items.isEmpty {
-                    HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
-                } else if vm.items.isEmpty && vm.error == nil {
-                    EmptyStateView(title: emptyTitle, systemImage: "tray", message: emptyMessage)
-                        .listRowBackground(Color.clear)
-                } else {
-                    ForEach(vm.items) { c in
-                        RouteLink(route: Route.conversation(id: c.id)) {
-                            ConversationRow(conversation: c, meId: vm.meId)
-                        }
-                        .onAppear { vm.loadMoreIfNeeded(current: c) }
-                    }
-                    if vm.loadingMore {
-                        HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
-                    }
-                }
-            }
+            filters
+            ThinDivider()
+            content
         }
-        .listStyle(.insetGrouped)
-        .navigationTitle("Conversas")
-        .searchable(text: $vm.query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Telefone ou nome")
+        .background(Theme.background.ignoresSafeArea())
+        .onAppear { if active { vm.appear() } }
+        .onDisappear { vm.disappear() }
+        .onChange(of: active) { now in if now { vm.appear() } else { vm.disappear() } }
         .onChange(of: vm.query) { _ in vm.queryChanged() }
-        .refreshable { await vm.refresh() }
-        .onAppear {
-            vm.appear()
-            vm.startPolling()
-        }
-        .onDisappear { vm.stopPolling() }
-        .onChange(of: scenePhase) { phase in
-            if phase == .active { vm.startPolling(); vm.load(reset: true, silent: true) } else { vm.stopPolling() }
-        }
-        .onChange(of: container.profileId) { _ in
-            vm.stopPolling()
-            vm.load(reset: true)
-            vm.startPolling()
-        }
+        .onChange(of: container.profileId) { _ in vm.load(reset: true) }
+        .sheet(isPresented: $showPresence) { PresenceSheet() }
+        .sheet(item: $transferTarget) { c in ConversationSheetHost(conversationId: c.id) { TransferSheet(vm: $0) } }
+        .sheet(item: $tagsTarget) { c in ConversationSheetHost(conversationId: c.id) { TagsSheet(vm: $0) } }
+        .confirmationDialog("Concluir este atendimento?", isPresented: Binding(get: { confirmResolve != nil }, set: { if !$0 { confirmResolve = nil } }), titleVisibility: .visible) {
+            Button("Concluir", role: .destructive) {
+                if let c = confirmResolve { Task { await vm.resolve(c) } }
+                confirmResolve = nil
+            }
+            Button("Cancelar", role: .cancel) { confirmResolve = nil }
+        } message: { Text("A conversa é marcada como concluída e sai da sua lista.") }
         .alert("Ligação", isPresented: Binding(get: { vm.callError != nil }, set: { if !$0 { vm.callError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(vm.callError ?? "") }
-    }
-
-    private var emptyTitle: String {
-        switch vm.filter {
-        case .queue: return "Fila vazia"
-        case .mine: return "Nenhum atendimento seu"
-        case .ai: return "Nenhuma conversa com a IA"
-        case .closed: return "Nenhuma conversa concluída"
-        case .all: return "Nenhuma conversa"
-        }
-    }
-
-    private var emptyMessage: String? {
-        if !vm.query.trimmingCharacters(in: .whitespaces).isEmpty { return "Nenhum resultado para \"\(vm.query)\"." }
-        switch vm.filter {
-        case .queue: return "Quando um cliente pedir atendimento humano, a conversa aparece aqui."
-        case .mine: return "Assuma uma conversa da fila para atender pelo celular."
-        default: return nil
-        }
-    }
-}
-
-/// Linha da lista: avatar, nome, horário, estado, grupo e etiquetas.
-struct ConversationRow: View {
-    let conversation: Conversation
-    let meId: String?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            InitialAvatar(name: conversation.displayName, isGroup: conversation.isGroup)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    if conversation.isGroup { Image(systemName: "person.3").font(.caption).foregroundStyle(.secondary) }
-                    Text(conversation.displayName).font(.body.weight(.medium)).lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(ConversationFormatting.listDate(conversation.updated)).font(.caption).foregroundStyle(.secondary)
-                }
-                if let phone = conversation.phone, !phone.isEmpty, phone != conversation.displayName {
-                    Text(phone).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                }
-                HStack(spacing: 6) {
-                    StateChip(state: conversation.state)
-                    if conversation.state == "human", let owner = conversation.owner, owner == meId {
-                        Text("Você").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    let tags = JSONValue.parseStringList(conversation.tags)
-                    ForEach(tags.prefix(3), id: \.self) { TagChip(text: $0) }
-                    if tags.count > 3 { Text("+\(tags.count - 3)").font(.caption2).foregroundStyle(.secondary) }
-                }
+        #if DEBUG
+        .onAppear {
+            switch DemoMode.takeSheet("presence", "search", "filter-queue", "filter-empty") {
+            case "presence": showPresence = true
+            case "search": searching = true; vm.query = "ma"
+            case "filter-queue": vm.filter = .queue
+            case "filter-empty": vm.filter = .closed; vm.query = "zzz"
+            default: break
             }
         }
-        .padding(.vertical, 2)
+        #endif
+    }
+
+    // MARK: Topo
+
+    @ViewBuilder private var header: some View {
+        if searching {
+            SearchField(placeholder: "Nome ou telefone", text: $vm.query, focused: $searchFocused) {
+                vm.query = ""
+                searching = false
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+            .onAppear { searchFocused = true }
+        } else {
+            ScreenHeader(title: "Wabotia", subtitle: workspace.profileName, brandTitle: true, onSubtitleTap: workspace.profiles.count > 1 ? { container.profileId = nil } : nil) {
+                Button { showPresence = true } label: { PresencePill(online: workspace.mePresent, busy: workspace.presenceBusy) }
+                    .buttonStyle(.plain)
+                IconButton(systemName: "magnifyingglass", label: "Buscar conversa") { searching = true }
+            }
+        }
+    }
+
+    private var filters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(ConversationsViewModel.Filter.allCases) { f in
+                    FilterChip(title: f.title, count: count(f), selected: vm.filter == f, attention: f == .queue && workspace.count("waiting") > 0 ? Theme.warn : nil) {
+                        vm.filter = f
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    private func count(_ f: ConversationsViewModel.Filter) -> Int? {
+        switch f {
+        case .all, .closed: return nil
+        case .queue: return workspace.count("waiting")
+        case .mine: return vm.mineCount
+        case .ai: return workspace.count("ai")
+        }
+    }
+
+    // MARK: Lista
+
+    @ViewBuilder private var content: some View {
+        if vm.loading && vm.items.isEmpty {
+            SkeletonList()
+        } else if vm.items.isEmpty, let error = vm.error {
+            VStack { InlineError(text: error) { vm.load(reset: true) }.padding(16); Spacer() }
+        } else if vm.items.isEmpty && vm.hasLoaded {
+            ScrollView { emptyState.padding(.top, 48) }
+        } else {
+            List {
+                if let error = vm.error {
+                    InlineError(text: error) { vm.load(reset: true) }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Theme.background)
+                }
+                ForEach(vm.items) { c in row(c) }
+                if vm.loadingMore {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Theme.background)
+                }
+            }
+            .listStyle(.plain)
+            .appListBackground(Theme.background)
+            .refreshable { await vm.refresh() }
+        }
+    }
+
+    private func row(_ c: Conversation) -> some View {
+        Button { push(.conversation(id: c.id)) } label: {
+            ConversationRow(conversation: c, workspace: workspace, busy: vm.busyId == c.id)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Theme.background)
+        .onAppear { vm.loadMoreIfNeeded(current: c) }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if vm.canClaim(c) {
+                Button { Task { await vm.claim(c) } } label: { Label(c.state == "closed" ? "Reabrir" : "Assumir", systemImage: "person.fill.checkmark") }
+                    .tint(Theme.brand)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if c.isOwned(by: vm.meId) {
+                Button { confirmResolve = c } label: { Label("Concluir", systemImage: "checkmark.circle") }
+                    .tint(Theme.muted)
+            }
+        }
+        .contextMenu {
+            if vm.canClaim(c) {
+                Button { Task { await vm.claim(c) } } label: { Label(c.state == "closed" ? "Reabrir e assumir" : "Assumir", systemImage: "person.fill.checkmark") }
+            }
+            if (c.isOwned(by: vm.meId) || workspace.isAdmin), c.state != "closed" {
+                Button { transferTarget = c } label: { Label("Transferir", systemImage: "arrowshape.turn.up.right") }
+            }
+            Button { tagsTarget = c } label: { Label("Etiquetas", systemImage: "tag") }
+            if c.isOwned(by: vm.meId) {
+                Button { push(.newTicket(conversationId: c.id)) } label: { Label("Abrir protocolo", systemImage: "doc.text") }
+                Button(role: .destructive) { confirmResolve = c } label: { Label("Concluir", systemImage: "checkmark.circle") }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        let info = emptyInfo
+        return EmptyStateView(title: info.title, systemImage: info.icon, message: info.message)
+    }
+
+    private var emptyInfo: (icon: String, title: String, message: String) {
+        if !vm.query.trimmingCharacters(in: .whitespaces).isEmpty {
+            return ("magnifyingglass", "Nada encontrado", "Nenhuma conversa com \"\(vm.query)\".")
+        }
+        switch vm.filter {
+        case .queue: return ("checkmark.circle", "Fila vazia", "Nenhuma conversa na fila. Bom trabalho!")
+        case .mine: return ("person.crop.circle", "Nenhum atendimento seu", "Assuma uma conversa da fila para atender por aqui.")
+        case .ai: return ("cpu", "Nenhuma conversa com bots", "Quando um bot estiver atendendo, a conversa aparece aqui.")
+        case .closed: return ("archivebox", "Nada concluído ainda", "As conversas concluídas ficam guardadas aqui.")
+        case .all: return ("bubble.left.and.bubble.right", "Nenhuma conversa", "As conversas dos clientes aparecem aqui assim que chegarem.")
+        }
     }
 }
 
-/// Faixa de ligação tocando: Atender abre a tela da ligação; Recusar faz claim + reject.
-struct RingingCallRow: View {
+/// Linha da lista (altura ~76): avatar com selo, nome, horário, prévia, etiquetas, responsável, anel e não lidas.
+struct ConversationRow: View {
+    let conversation: Conversation
+    @ObservedObject var workspace: Workspace
+    var busy = false
+
+    private var role: ConversationRole { conversation.role(me: workspace.meId) }
+    private var unread: Int { workspace.unread[conversation.id] ?? 0 }
+    private var preview: MessagePreview? { workspace.previews[conversation.id] }
+    private var tags: [String] { JSONValue.parseStringList(conversation.tags) }
+
+    /// Na fila há mais de 5 minutos: o horário vira "espera 12 min".
+    private var waitText: String? {
+        guard conversation.state == "waiting" else { return nil }
+        let minutes = (workspace.nowMillis - conversation.updated) / 60_000
+        return minutes > 5 ? "espera \(ConversationFormatting.elapsed(since: conversation.updated, now: workspace.nowMillis))" : nil
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            AvatarView(name: conversation.displayName, seed: conversation.id, kind: conversation.isGroup ? .group : .person, size: 50, badge: .role(role))
+                .overlay { if busy { ProgressView().frame(width: 50, height: 50).background(Circle().fill(Theme.background.opacity(0.7))) } }
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(conversation.displayName)
+                        .font(Theme.font(16, .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let waitText {
+                        Text(waitText).font(Theme.font(12, .semibold)).foregroundStyle(Theme.warn).lineLimit(1)
+                    } else {
+                        Text(ConversationFormatting.listDate(preview?.created ?? conversation.updated))
+                            .font(Theme.font(12, unread > 0 ? .semibold : .regular))
+                            .foregroundStyle(unread > 0 ? Theme.accent : Theme.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                HStack(alignment: .center, spacing: 6) {
+                    previewLine
+                    Spacer(minLength: 4)
+                    if let clock = workspace.window(for: conversation), conversation.state != "closed" {
+                        HStack(spacing: 3) {
+                            WindowRing(clock: clock, size: 20)
+                            if !clock.compact.isEmpty {
+                                Text(clock.compact).font(Theme.font(12, .semibold)).foregroundStyle(clock.level.color)
+                            }
+                        }
+                        .fixedSize()
+                    }
+                }
+                HStack(spacing: 5) {
+                    ForEach(tags.prefix(2), id: \.self) { TagChip(text: $0) }
+                    if tags.count > 2 { Text("+\(tags.count - 2)").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary) }
+                    if !tags.isEmpty { Text("·").font(Theme.font(12)).foregroundStyle(Theme.textSecondary) }
+                    Text(workspace.ownerLabel(conversation))
+                        .font(Theme.font(12, .medium))
+                        .foregroundStyle(role == .mine ? Theme.brand : (role == .waiting ? Theme.warn : (role == .bot ? Theme.bot : Theme.textSecondary)))
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Spacer(minLength: 4)
+                    if unread > 0 { CountBadge(count: unread) }
+                }
+                .frame(minHeight: 20)
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 14)
+        .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) { ThinDivider(leading: 78) }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Abre a conversa")
+    }
+
+    @ViewBuilder private var previewLine: some View {
+        if let preview {
+            HStack(spacing: 4) {
+                if preview.isNote {
+                    Image(systemName: "lock.fill").font(.system(size: 11)).foregroundStyle(Theme.noteText)
+                    Text(preview.text).italic().font(Theme.font(14)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                } else {
+                    if preview.isOutgoing { TickView(status: preview.status ?? "sent", size: 11) }
+                    if let attachment = preview.attachmentLabel {
+                        Image(systemName: attachment.icon).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                        Text(preview.text.isEmpty ? attachment.title : preview.text).font(Theme.font(14)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    } else {
+                        Text(preview.text.replacingOccurrences(of: "\n", with: " "))
+                            .font(Theme.font(14, unread > 0 ? .medium : .regular))
+                            .foregroundStyle(unread > 0 ? Theme.textPrimary : Theme.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        } else {
+            Text(workspace.statusSentence(conversation)).font(Theme.font(14)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+        }
+    }
+}
+
+/// Ligação tocando: cartão fixo no topo com avatar pulsando e botões redondos Recusar/Atender.
+struct RingingCallCard: View {
     let call: Call
-    @ObservedObject var vm: ConversationsViewModel
+    var onReject: () async -> Void
+    @Environment(\.pushRoute) private var push
+    @EnvironmentObject private var container: AppContainer
+    @State private var name = "Cliente"
     @State private var busy = false
+    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "phone.arrow.down.left.fill").font(.title3).foregroundStyle(.green)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ligação recebida").font(.subheadline.weight(.semibold))
-                Text(ConversationFormatting.callStatusLabel(call.status) + " · " + ConversationFormatting.date(call.created)).font(.caption).foregroundStyle(.secondary)
+            ZStack {
+                Circle().fill(Theme.accent.opacity(0.35)).frame(width: 46, height: 46).scaleEffect(pulse ? 1.25 : 0.95).opacity(pulse ? 0 : 1)
+                AvatarView(name: name, seed: call.conversation_id, size: 42, ring: Theme.brandStrong)
             }
-            Spacer()
-            RouteLink(route: Route.call(conversationId: call.conversation_id, callId: call.id)) {
-                Text("Atender").font(.footnote.weight(.semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ligação de \(name)").font(Theme.font(15, .semibold)).foregroundStyle(Color.white).lineLimit(2).minimumScaleFactor(0.85).fixedSize(horizontal: false, vertical: true)
+                Text("Chamada de voz").font(Theme.font(12)).foregroundStyle(Color.white.opacity(0.8)).lineLimit(1)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
-            Button(role: .destructive) {
+            Spacer(minLength: 4)
+            Button {
                 busy = true
-                Task { await vm.reject(call: call); busy = false }
+                Task { await onReject(); busy = false }
             } label: {
-                if busy { ProgressView() } else { Text("Recusar").font(.footnote.weight(.semibold)) }
+                Group { if busy { ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)) } else { Image(systemName: "phone.down.fill") } }
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.white)
+                    .frame(width: 44, height: 44).background(Circle().fill(Theme.danger))
             }
-            .buttonStyle(.bordered)
-            .disabled(busy)
+            .buttonStyle(.plain).disabled(busy).accessibilityLabel("Recusar ligação")
+            Button {
+                CallIntents.answerCallId = call.id
+                push(.call(conversationId: call.conversation_id, callId: call.id))
+            } label: {
+                Image(systemName: "phone.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.white)
+                    .frame(width: 44, height: 44).background(Circle().fill(Theme.accent))
+            }
+            .buttonStyle(.plain).disabled(busy).accessibilityLabel("Atender ligação")
         }
-        .listRowBackground(Color.green.opacity(0.08))
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.brandStrong))
+        .onAppear {
+            guard !UIAccessibility.isReduceMotionEnabled else { return }
+            withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true }
+        }
+        .task(id: call.conversation_id) {
+            guard let p = container.profileId, let detail = try? await container.api.conversation(p, id: call.conversation_id) else { return }
+            name = detail.displayName
+        }
+    }
+}
+
+/// Folha de presença: dois botões grandes, uma linha explicando o efeito e quem está online.
+struct PresenceSheet: View {
+    @ObservedObject private var workspace = Workspace.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SheetHeader(title: "Sua presença") { dismiss() }
+            HStack(spacing: 10) {
+                Circle().fill(workspace.mePresent ? Theme.ok : Theme.muted).frame(width: 10, height: 10)
+                Text(workspace.mePresent ? "Você está online" : "Você está offline").font(Theme.font(17, .semibold)).foregroundStyle(Theme.textPrimary)
+            }
+            if workspace.mePresent {
+                SecondaryButton(title: "Ficar offline", icon: "moon.fill", color: Theme.textSecondary, busy: workspace.presenceBusy) { set(false) }
+            } else {
+                PrimaryButton(title: "Ficar online", icon: "checkmark.circle.fill", busy: workspace.presenceBusy, color: Theme.ok) { set(true) }
+            }
+            Text(workspace.mePresent
+                 ? "Online: novos atendimentos e transferências podem ser encaminhados a você."
+                 : "Offline: novos atendimentos não são encaminhados a você.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
+            if let error { InlineError(text: error) }
+            HStack(spacing: 6) {
+                Image(systemName: "person.2.fill").font(.system(size: 12))
+                Text(teamSummary).font(Theme.font(13, .medium))
+            }
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(Theme.surface))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .background(Theme.background.ignoresSafeArea())
+        .appSheetDetents()
+    }
+
+    private var teamSummary: String {
+        let n = workspace.onlinePeople
+        return n == 1 ? "1 pessoa da equipe online" : "\(n) pessoas da equipe online"
+    }
+
+    private func set(_ value: Bool) {
+        error = nil
+        Task {
+            if let message = await workspace.setPresence(value) { error = message } else { Haptics.light(); dismiss() }
+        }
+    }
+}
+
+/// Carrega a conversa e entrega o view model para uma folha aberta a partir da lista (transferir, etiquetas).
+struct ConversationSheetHost<Content: View>: View {
+    @StateObject private var vm: ConversationViewModel
+    @Environment(\.dismiss) private var dismiss
+    let content: (ConversationViewModel) -> Content
+
+    init(conversationId: String, @ViewBuilder content: @escaping (ConversationViewModel) -> Content) {
+        _vm = StateObject(wrappedValue: ConversationViewModel(conversationId: conversationId))
+        self.content = content
+    }
+
+    var body: some View {
+        Group {
+            if vm.detail != nil {
+                content(vm)
+            } else if let error = vm.error {
+                VStack(spacing: 12) {
+                    SheetHeader(title: "Conversa") { dismiss() }
+                    InlineError(text: error) { Task { await vm.load() } }.padding(16)
+                    Spacer()
+                }
+            } else {
+                VStack { SheetHeader(title: "Carregando…") { dismiss() }; Spacer(); ProgressView(); Spacer() }
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .task { await vm.load(); await vm.loadPresence() }
     }
 }

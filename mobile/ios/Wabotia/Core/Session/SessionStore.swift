@@ -3,8 +3,28 @@ import Security
 
 /// Servidor, token (Keychain), usuário e preferências locais.
 final class SessionStore {
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let keychainService = "br.com.queven.wabotia.session"
+    /// Sessão isolada: nada vai para o Keychain nem para as preferências reais do aparelho.
+    private let isolated: Bool
+
+    /// `isolatedSuite` guarda tudo em um domínio à parte (demonstração aberta por variável de ambiente),
+    /// sem tocar na sessão real do aparelho. O domínio é zerado a cada abertura e o token (de mentira)
+    /// fica nele, fora do Keychain.
+    init(isolatedSuite: String? = nil) {
+        if let isolatedSuite, let suite = UserDefaults(suiteName: isolatedSuite) {
+            suite.removePersistentDomain(forName: isolatedSuite)
+            defaults = suite
+            isolated = true
+        } else {
+            defaults = .standard
+            isolated = false
+        }
+    }
+
+    /// Pequenos caches locais por perfil (prévias, não lidas, eventos do atendimento).
+    func cachedData(_ key: String) -> Data? { defaults.data(forKey: "cache.\(key)") }
+    func setCachedData(_ data: Data?, _ key: String) { defaults.set(data, forKey: "cache.\(key)") }
 
     /// Endereço normalizado sem barra final, ex.: https://wabotia.queven.com.br
     var serverURL: URL? {
@@ -13,8 +33,9 @@ final class SessionStore {
     }
 
     var token: String? {
-        get { Keychain.read(service: keychainService, account: "token") }
+        get { isolated ? defaults.string(forKey: "isolated_token") : Keychain.read(service: keychainService, account: "token") }
         set {
+            if isolated { defaults.set(newValue, forKey: "isolated_token"); return }
             if let newValue { Keychain.write(newValue, service: keychainService, account: "token") }
             else { Keychain.delete(service: keychainService, account: "token") }
         }

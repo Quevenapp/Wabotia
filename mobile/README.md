@@ -9,6 +9,10 @@ Clientes nativos do Wabotia para a equipe de atendimento. Funcionam com **qualqu
 
 Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `br.com.queven.wabotia`.
 
+**Interface 0.13.0.** A aparência e o comportamento das telas estão em [`DESIGN.md`](DESIGN.md): visual de mensageiro no estilo do WhatsApp, relógio da janela de 24 horas (lista, conversa e dados do contato), pílula de presença Online/Offline, rodapé "Assumir conversa" conforme o estado e a folha única **Encaminhar atendimento** (Pessoas, Bots, Setores, Menu, Protocolo). As abas passaram a ser **Conversas, Protocolos, Equipe, Ligações e Ajustes**; os bots ficam em Equipe → Bots e o que era "Mais" está em Ajustes. As seções abaixo continuam valendo para regras, dados e chamadas de cada recurso.
+
+**Modo de demonstração (só em builds de depuração).** Digitar `demo` como servidor entra em uma instalação fictícia em memória (`demo.wabotia.localhost`), respondida na camada de rede, sem servidor nem senha. Serve para conferir e demonstrar as telas. Atalhos para abrir direto em uma tela: Android `adb shell am start -n br.com.queven.wabotia.debug/br.com.queven.wabotia.MainActivity --es demo <tela>`; iOS variável de ambiente `WABOTIA_DEMO=<tela>` (`conversations`, `chat`, `chat-queue`, `transfer`, `info`, `tickets`, `ticket`, `team`, `calls`, `settings`). Builds de release não têm esse modo.
+
 No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegação, campos multilinha, seletor de fotos/vídeos e compartilhamento com os controles disponíveis no sistema. Os mesmos recursos de atendimento permanecem disponíveis; iOS 16 ou superior usa a navegação moderna.
 
 ## Arquitetura comum

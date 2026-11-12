@@ -103,6 +103,8 @@ struct Conversation: Codable, Identifiable, Equatable {
     var recipient_id: String?
     var contact_name: String?
     var contact_id: String?
+    var department_id: String?
+    var assigned_bot_id: String?
 
     var displayName: String {
         if let n = contact_name, !n.isEmpty { return n }
@@ -143,18 +145,28 @@ struct ConversationDetail: Codable {
     var contact: JSONValue?
     var messages: [Message] = []
     var deliveries: [Delivery] = []
+    /// Tipo da linha desta conversa (`meta`, `zernio`, …) e relógio do servidor, quando o servidor informa.
+    var connection_kind: String?
+    var server_now: Int64?
     func can(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? false }
+    /// Recurso de mídia básico: só some quando a linha diz explicitamente que não oferece.
+    func allows(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? true }
 }
 
 /// POST /conversations/{id}/actions
 struct ActionRequest: Codable, Equatable {
-    var action: String // claim | reply | note | transfer | resolve | resume | tags
+    var action: String // claim | reply | note | transfer | resolve | resume | tags | menu | protocols | survey
     var text: String?
+    /// `transfer`: id da pessoa ou `bot:<id>`.
     var target: String?
     var attachments: [String]?
     var content: JSONValue?
     var tags: [String]?
     var menu_id: String? = nil
+    /// `transfer` para um setor (sem `target`): a conversa volta para a fila do setor.
+    var department_id: String? = nil
+    /// `protocols`: número `WA-…` para consultar um protocolo específico (opcional).
+    var number: String? = nil
 }
 struct MessageActionRequest: Codable { var action: String; var message_id: String; var emoji: String?; var text: String? }
 struct UploadInit: Codable { var name: String; var type: String; var size: Int64 }
@@ -246,6 +258,39 @@ struct Device: Codable, Identifiable { var id: String; var user_id: String? = ""
 struct CountRow: Codable { var state: String?; var status: String?; var count: Int64 = 0 }
 struct ConnectionSummary: Codable, Identifiable { var id: String; var name: String = ""; var kind: String = ""; var status: String = ""; var last_seen: Int64? }
 struct ProfileStatus: Codable { var settings: JSONValue?; var enabled: Int?; var conversations: [CountRow] = []; var deliveries: [CountRow] = []; var connections: [ConnectionSummary] = [] }
+
+/// Setor de atendimento (`settings.departments` de GET /status).
+struct Department: Identifiable, Equatable {
+    var id: String
+    var name: String
+    var enabled: Bool
+    var members: [String]
+}
+
+extension ProfileStatus {
+    /// Setores configurados no painel (inclusive os desabilitados; filtre por `enabled`).
+    var departments: [Department] {
+        (settings?["departments"]?.arrayValue ?? []).compactMap { item in
+            guard let id = item["id"]?.stringValue, !id.isEmpty else { return nil }
+            return Department(
+                id: id,
+                name: item["name"]?.stringValue ?? "Setor",
+                enabled: item["enabled"]?.boolValue ?? true,
+                members: item["members"]?.arrayValue?.compactMap { $0.stringValue } ?? []
+            )
+        }
+    }
+
+    /// Quantidade de conversas em um estado (`ai`, `waiting`, `human`, `closed`).
+    func conversationCount(_ state: String) -> Int {
+        Int(conversations.first { $0.state == state }?.count ?? 0)
+    }
+
+    func connectionKind(_ id: String?) -> String? {
+        guard let id else { return nil }
+        return connections.first { $0.id == id }?.kind
+    }
+}
 
 /// Destino pedido por notificação/deep link (wabotia://open/{type}?profile=&conversation=&ticket=&call=).
 struct DeepLink: Equatable {

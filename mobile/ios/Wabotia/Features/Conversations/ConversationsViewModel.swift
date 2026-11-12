@@ -1,19 +1,19 @@
 import Foundation
 import Combine
 
-/// Lista de conversas: filtros, busca, paginação por cursor, ligações tocando e atualização por eventos.
+/// Lista de conversas: filtros, busca, paginação por cursor, ações rápidas e atualização por eventos.
 @MainActor
 final class ConversationsViewModel: ObservableObject {
     enum Filter: String, CaseIterable, Identifiable {
-        case queue, mine, ai, closed, all
+        case all, queue, mine, ai, closed
         var id: String { rawValue }
         var title: String {
             switch self {
+            case .all: return "Todas"
             case .queue: return "Fila"
             case .mine: return "Minhas"
-            case .ai: return "IA"
+            case .ai: return "Bots"
             case .closed: return "Concluídas"
-            case .all: return "Todas"
             }
         }
         var state: String? {
@@ -27,48 +27,55 @@ final class ConversationsViewModel: ObservableObject {
         }
     }
 
-    @Published var filter: Filter = .queue { didSet { if oldValue != filter { load(reset: true) } } }
+    @Published var filter: Filter = .all { didSet { if oldValue != filter { load(reset: true) } } }
     @Published var query = ""
     @Published private(set) var items: [Conversation] = []
     @Published private(set) var loading = false
     @Published private(set) var loadingMore = false
     @Published private(set) var hasMore = false
+    @Published private(set) var hasLoaded = false
+    @Published private(set) var mineCount = 0
     @Published var error: String?
-    @Published private(set) var ringing: [Call] = []
     @Published var callError: String?
+    /// Conversa com uma ação rápida em andamento (assumir/concluir).
+    @Published private(set) var busyId: String?
 
     private var container: AppContainer { AppContainer.shared }
+    private var workspace: Workspace { Workspace.shared }
     private var nextCursor: String?
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
-    private var poller: EventsPoller?
+    private var eventsSubscription: AnyCancellable?
     private var loadedOnce = false
+    private var visible = false
+    private var stale = false
     /// Chaves de idempotência (claim, reject) por ligação recusada, reutilizadas ao repetir após falha de rede.
     private var declineKeys: [String: (claim: String, reject: String)] = [:]
+    /// Chave por ação rápida pendente (conversa + ação), mantida até o servidor responder.
+    private var actionKeys: [String: String] = [:]
 
-    init() {}
+    init() {
+        eventsSubscription = Workspace.shared.events.sink { [weak self] events in self?.handle(events: events) }
+    }
 
     var profileId: String? { container.profileId }
     var meId: String? { container.user?.id }
 
     // MARK: Carga
 
-    func loadIfNeeded() {
-        guard !loadedOnce else { return }
-        loadedOnce = true
-        load(reset: true)
-        Task { await loadRinging() }
+    /// Chamado quando a aba aparece. Na primeira vez carrega com esqueleto; ao voltar (de uma conversa,
+    /// por exemplo) recarrega em silêncio.
+    func appear() {
+        visible = true
+        guard loadedOnce else {
+            loadedOnce = true
+            load(reset: true)
+            return
+        }
+        load(reset: true, silent: true)
     }
 
-    /// Chamado em cada .onAppear. Na primeira vez carrega com indicador; ao voltar (de uma conversa, por
-    /// exemplo) recarrega em silêncio, porque o poller da conversa aberta avançou o cursor de eventos
-    /// compartilhado do perfil enquanto esta lista estava parada, e os `conversation.updated` daquele
-    /// intervalo nunca chegariam aqui.
-    func appear() {
-        guard loadedOnce else { loadIfNeeded(); return }
-        load(reset: true, silent: true)
-        Task { await loadRinging() }
-    }
+    func disappear() { visible = false }
 
     /// Recarrega a primeira página. `silent` evita o indicador de carga (atualização por eventos).
     func load(reset: Bool, silent: Bool = false) {
@@ -81,7 +88,7 @@ final class ConversationsViewModel: ObservableObject {
         let task = Task { await fetch(reset: true, silent: true) }
         loadTask = task
         await task.value
-        await loadRinging()
+        await workspace.refreshNow()
     }
 
     func loadMoreIfNeeded(current item: Conversation) {
@@ -96,7 +103,7 @@ final class ConversationsViewModel: ObservableObject {
             nextCursor = nil
             if !silent { loading = true }
         }
-        error = nil
+        stale = false
         let state = filter.state
         let q = query.trimmingCharacters(in: .whitespaces)
         let cursor = reset ? nil : nextCursor
@@ -117,6 +124,18 @@ final class ConversationsViewModel: ObservableObject {
             items = collected
             nextCursor = cursorToUse
             hasMore = cursorToUse != nil
+            hasLoaded = true
+            error = nil
+            if q.isEmpty, filter == .all || filter == .mine {
+                // "Minhas" é contado nas conversas carregadas; a carga por pessoa alimenta a aba Equipe.
+                mineCount = collected.filter { $0.isOwned(by: meId) }.count
+                if filter == .all {
+                    var load: [String: Int] = [:]
+                    for c in collected where c.state == "human" { if let owner = c.owner { load[owner, default: 0] += 1 } }
+                    workspace.ownerLoad = load
+                }
+            }
+            workspace.backfill(collected)
         } catch {
             if Task.isCancelled { return }
             handle(error)
@@ -134,22 +153,63 @@ final class ConversationsViewModel: ObservableObject {
         }
     }
 
-    // MARK: Ligações tocando
+    // MARK: Ações rápidas (deslizar e toque longo)
 
-    func loadRinging() async {
-        guard let p = profileId else { return }
-        do {
-            let page = try await container.api.calls(p, limit: 30)
-            let me = meId
-            ringing = page.data.filter { $0.status == "ringing" && ($0.actor == nil || $0.actor?.isEmpty == true || $0.actor == me) }
-        } catch {
-            if let e = error as? APIError, e.isUnauthorized { container.handleUnauthorized() }
-            // Sem permissão de ligações ou canal sem chamadas: a faixa simplesmente não aparece.
+    func canClaim(_ c: Conversation) -> Bool {
+        if c.isOwned(by: meId) { return false }
+        if c.state == "human", let owner = c.owner, !owner.isEmpty { return false }
+        return true
+    }
+
+    func claim(_ c: Conversation) async {
+        if await act(c, "claim") {
+            Haptics.success()
+            workspace.addLocalEvent("claim", "Você assumiu a conversa", to: c.id)
+            workspace.show("Conversa assumida", style: .success)
         }
     }
 
-    /// Recusar = claim + reject com as MESMAS chaves ao repetir (como CallsViewModel.decline); as chaves só
-    /// são descartadas após sucesso ou resposta definitiva do servidor (não rede, não conflito de idempotência).
+    func resolve(_ c: Conversation) async {
+        if await act(c, "resolve") {
+            workspace.addLocalEvent("resolve", "Você concluiu a conversa", to: c.id)
+            workspace.show("Conversa concluída", style: .success)
+        }
+    }
+
+    private func act(_ c: Conversation, _ action: String) async -> Bool {
+        guard let p = profileId, busyId == nil else { return false }
+        busyId = c.id
+        defer { busyId = nil }
+        let slot = "\(c.id):\(action)"
+        let key = actionKeys[slot] ?? APIClient.newIdempotencyKey()
+        actionKeys[slot] = key
+        do {
+            _ = try await container.api.act(p, conversation: c.id, ActionRequest(action: action), key: key)
+            actionKeys[slot] = nil
+            await fetchQuietly()
+            workspace.refreshCounts()
+            return true
+        } catch {
+            if let e = error as? APIError {
+                if e.isUnauthorized { container.handleUnauthorized(); return false }
+                if e.isDefinitiveWriteRejection || e.isIdempotencyConflict { actionKeys[slot] = nil }
+            }
+            workspace.show(APIError.describe(error), style: .error)
+            return false
+        }
+    }
+
+    private func fetchQuietly() async {
+        loadTask?.cancel()
+        let task = Task { await fetch(reset: true, silent: true) }
+        loadTask = task
+        await task.value
+    }
+
+    // MARK: Ligações tocando
+
+    /// Recusar = claim + reject com as MESMAS chaves ao repetir; as chaves só são descartadas após sucesso
+    /// ou resposta definitiva do servidor (não rede, não conflito de idempotência).
     func reject(call: Call) async {
         guard let p = profileId else { return }
         callError = nil
@@ -159,35 +219,21 @@ final class ConversationsViewModel: ObservableObject {
             _ = try await container.api.claimCall(p, id: call.id, key: keys.claim)
             _ = try await container.api.rejectCall(p, id: call.id, key: keys.reject)
             declineKeys[call.id] = nil
-            ringing.removeAll { $0.id == call.id }
         } catch {
             if let apiError = error as? APIError, apiError.status != 0, !apiError.isIdempotencyConflict {
                 declineKeys[call.id] = nil // resposta definitiva do servidor: a próxima tentativa é outro pedido
             }
             handle(error, into: \.callError)
         }
-        await loadRinging()
+        await workspace.refreshRinging()
     }
 
     // MARK: Eventos
 
-    func startPolling() {
-        guard let p = profileId else { return }
-        if let poller, poller.isRunning { return }
-        poller = EventsPoller(container: container, profileId: p) { [weak self] events in
-            self?.handle(events: events)
-        }
-        poller?.start()
-    }
-
-    func stopPolling() {
-        poller?.stop()
-        poller = nil
-    }
-
     private func handle(events: [Event]) {
-        if events.contains(where: { $0.isConversationRelated }) { load(reset: true, silent: true) }
-        if events.contains(where: { $0.isCallRelated }) { Task { await loadRinging() } }
+        guard loadedOnce, events.contains(where: { $0.isConversationRelated }) else { return }
+        // Fora da tela, só marca; a lista recarrega ao voltar (appear).
+        if visible { load(reset: true, silent: true) } else { stale = true }
     }
 
     // MARK: Erros

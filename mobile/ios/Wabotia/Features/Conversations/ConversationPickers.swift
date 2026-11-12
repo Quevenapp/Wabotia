@@ -193,6 +193,35 @@ struct ContactPickerView: UIViewControllerRepresentable {
     }
 }
 
+/// Ficha de novo contato do sistema já preenchida (botão "Salvar" do cartão de contato recebido).
+struct NewContactSheet: UIViewControllerRepresentable {
+    let name: String
+    let phone: String
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let contact = CNMutableContact()
+        contact.givenName = name
+        if !phone.isEmpty {
+            contact.phoneNumbers = [CNLabeledValue(label: CNLabelPhoneNumberMobile, value: CNPhoneNumber(stringValue: phone))]
+        }
+        let controller = CNContactViewController(forNewContact: contact)
+        controller.contactStore = CNContactStore()
+        controller.delegate = context.coordinator
+        return UINavigationController(rootViewController: controller)
+    }
+
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator { dismiss() } }
+
+    final class Coordinator: NSObject, CNContactViewControllerDelegate {
+        let onDone: () -> Void
+        init(onDone: @escaping () -> Void) { self.onDone = onDone }
+        func contactViewController(_ viewController: CNContactViewController, didCompleteWith contact: CNContact?) { onDone() }
+    }
+}
+
 /// Nome e telefone digitados à mão.
 struct ManualContactSheet: View {
     var initial: ContactDraft? = nil

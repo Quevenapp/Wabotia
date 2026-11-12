@@ -68,8 +68,9 @@ extension APIClient {
     }
 
     // MARK: Protocolos
-    func tickets(_ p: String, status: String? = nil, overdue: Bool = false, cursor: String? = nil) async throws -> Page<Ticket> {
-        try await request(.get, "api/v1/profiles/\(p)/tickets", query: ["status": status, "overdue": overdue ? "1" : nil, "cursor": cursor, "limit": "100"])
+    /// `q`: número do protocolo (`WA-…`) ou dígitos do telefone do cliente.
+    func tickets(_ p: String, status: String? = nil, overdue: Bool = false, q: String? = nil, cursor: String? = nil) async throws -> Page<Ticket> {
+        try await request(.get, "api/v1/profiles/\(p)/tickets", query: ["status": status, "overdue": overdue ? "1" : nil, "q": q, "cursor": cursor, "limit": "100"])
     }
     func ticket(_ p: String, id: String) async throws -> TicketDetail { try await request(.get, "api/v1/profiles/\(p)/tickets/\(id)") }
     func createTicket(_ p: String, _ body: TicketCreate, key: String = APIClient.newIdempotencyKey()) async throws -> Ticket { try await request(.post, "api/v1/profiles/\(p)/tickets", body: body, key: key) }

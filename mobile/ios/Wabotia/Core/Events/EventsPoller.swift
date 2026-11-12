@@ -12,6 +12,8 @@ final class EventsPoller {
     private let interval: TimeInterval
     private let handler: ([Event]) -> Void
     private var task: Task<Void, Never>?
+    /// Avisa se a última consulta chegou ao servidor (`false` = falha de rede). Usado pela faixa "Sem conexão".
+    var onConnectivity: ((Bool) -> Void)?
 
     var isRunning: Bool { task != nil }
 
@@ -51,9 +53,11 @@ final class EventsPoller {
                 result = try await container.api.events(profileId, after: cursor)
             } catch {
                 if let e = error as? APIError, e.isUnauthorized { container.handleUnauthorized() }
+                if error is URLError, !Task.isCancelled { onConnectivity?(false) }
                 return
             }
             if Task.isCancelled { return }
+            onConnectivity?(true)
             if result.cursor > cursor { container.session.setEventCursor(result.cursor, profileId: profileId) }
             if cursor != 0, !result.data.isEmpty { handler(result.data) }
             if result.data.count < 100 || result.cursor <= cursor { return }

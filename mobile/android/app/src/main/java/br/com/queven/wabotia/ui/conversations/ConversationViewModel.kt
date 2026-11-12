@@ -14,6 +14,12 @@ import br.com.queven.wabotia.core.model.ActionRequest
 import br.com.queven.wabotia.core.model.Bot
 import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.model.ConversationDetail
+import br.com.queven.wabotia.core.model.Department
+import br.com.queven.wabotia.core.model.TeamContact
+import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketCreate
+import br.com.queven.wabotia.ui.components.digitsOf
+import br.com.queven.wabotia.ui.components.handleError
 import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.GroupPolicyRequest
 import br.com.queven.wabotia.core.model.Message
@@ -82,8 +88,28 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         private set
     /** Aviso transitório (snackbar). A tela zera após exibir. */
     var notice by mutableStateOf<String?>(null)
-    var team by mutableStateOf<List<br.com.queven.wabotia.core.model.TeamContact>>(emptyList())
+    var team by mutableStateOf<List<TeamContact>>(emptyList())
         private set
+    /** Ação de conversa em curso (claim, transfer, resolve…), para mostrar progresso no próprio botão. */
+    var busyAction by mutableStateOf<String?>(null)
+        private set
+    /** Erro do servidor para ações disparadas de uma folha (transferir, menu, protocolo): aparece na folha, sem fechá-la. */
+    var sheetError by mutableStateOf<String?>(null)
+    /** Setores habilitados (settings.departments de GET /status). null enquanto carrega. */
+    var departments by mutableStateOf<List<Department>?>(null)
+        private set
+    /** Menus da linha desta conversa (GET /menus?connection_id=). null enquanto carrega. */
+    var menus by mutableStateOf<List<JsonObject>?>(null)
+        private set
+    /** Protocolos desta conversa (GET /tickets?q=telefone filtrado por conversation_id). null enquanto carrega. */
+    var tickets by mutableStateOf<List<Ticket>?>(null)
+        private set
+    /** `connection_id` → `kind` das linhas do perfil (relógio da janela só em meta/zernio). */
+    var lineKinds by mutableStateOf<Map<String, String>?>(container.profileData.lineKinds(container.session.profileId))
+        private set
+    var creatingTicket by mutableStateOf(false)
+        private set
+    private var ticketKey: Pair<String, String>? = null
     var presence by mutableStateOf<List<PresenceEntry>>(emptyList())
         private set
     var ringing by mutableStateOf<List<Call>>(emptyList())
@@ -136,13 +162,22 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         load()
         loadPresence()
         refreshCalls()
+        loadLineKinds()
     }
+
+    /** Pessoas e bots por id ("bot:<id>" para bots), para nomes e presença. */
+    val teamById: Map<String, TeamContact> get() = team.associateBy { it.id }
 
     fun load(silent: Boolean = false): Job = viewModelScope.launch {
         if (!silent) loading = detail == null
         try {
-            detail = container.api.conversation(profileId, conversationId)
+            val loaded = container.api.conversation(profileId, conversationId)
+            detail = loaded
             loadError = null
+            // Prévia da lista e não lidas: o detalhe aberto é a fonte mais completa; abrir a conversa zera as não lidas.
+            container.conversationCache.use(profileId)
+            container.conversationCache.onDetail(loaded)
+            container.conversationCache.markRead(conversationId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -163,7 +198,75 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         }
     }
 
-    fun sendMenu(menuId: String?) { act(ActionRequest(action = "menu", menu_id = menuId), "Menu enviado") }
+    /** Dados das abas da folha "Encaminhar atendimento" e de Dados da conversa. */
+    fun loadTransferData() {
+        loadPresence()
+        viewModelScope.launch {
+            val status = container.profileData.load(profileId, maxAgeMs = 15_000)
+            departments = status?.departments()?.filter { it.enabled } ?: departments ?: emptyList()
+            status?.lineKinds()?.let { lineKinds = it }
+        }
+        viewModelScope.launch {
+            try {
+                menus = container.api.menus(profileId, detail?.conversation?.connection_id).data
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                container.handleError(e)
+                if (menus == null) menus = emptyList()
+            }
+        }
+        loadTickets()
+    }
+
+    fun loadLineKinds() {
+        viewModelScope.launch { container.profileData.load(profileId)?.lineKinds()?.let { lineKinds = it } }
+    }
+
+    fun loadTickets() {
+        viewModelScope.launch {
+            try {
+                val phone = digitsOf(detail?.conversation?.phone)
+                val page = container.api.tickets(profileId, q = phone.ifBlank { null })
+                tickets = page.data.filter { it.conversation_id == conversationId }.sortedByDescending { it.created }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                container.handleError(e)
+                if (tickets == null) tickets = emptyList()
+            }
+        }
+    }
+
+    /** Abrir protocolo a partir da folha (título obrigatório, até 300). Mesma chave ao repetir o mesmo título após falha de rede. */
+    fun createTicket(title: String, onCreated: (Ticket) -> Unit) {
+        val value = title.trim()
+        if (value.isEmpty()) { sheetError = "Informe o título do protocolo."; return }
+        if (value.length > 300) { sheetError = "O título deve ter no máximo 300 caracteres."; return }
+        if (creatingTicket) return
+        val key = ticketKey?.takeIf { it.first == value }?.second ?: ApiClient.newIdempotencyKey().also { ticketKey = value to it }
+        creatingTicket = true
+        sheetError = null
+        viewModelScope.launch {
+            try {
+                val ticket = container.api.createTicket(profileId, key, TicketCreate(conversation_id = conversationId, title = value))
+                ticketKey = null
+                loadTickets()
+                load(silent = true)
+                onCreated(ticket)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ApiException && (e.isIdempotencyConflict || e.isDefinitiveWriteRejection)) ticketKey = null
+                sheetError = container.handleError(e)
+            } finally {
+                creatingTicket = false
+            }
+        }
+    }
+
+    fun sendMenu(menuId: String?, onDone: (() -> Unit)? = null) =
+        act(ActionRequest(action = "menu", menu_id = menuId), "Menu enviado ao cliente", inSheet = onDone != null, onDone = onDone)
 
     fun loadBots() {
         viewModelScope.launch {
@@ -216,8 +319,10 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
 
     // --- ações da conversa (POST /actions) ---
 
-    private fun act(request: ActionRequest, successNotice: String? = null, onDone: (() -> Unit)? = null) {
+    private fun act(request: ActionRequest, successNotice: String? = null, inSheet: Boolean = false, onDone: (() -> Unit)? = null) {
         if (busy) return
+        if (inSheet) sheetError = null
+        busyAction = request.action
         // Mesmo pedido repetido após falha de rede → mesma chave; pedido diferente → chave nova.
         val key = pendingAct?.takeIf { it.first == request }?.second
             ?: ApiClient.newIdempotencyKey().also { pendingAct = request to it }
@@ -244,12 +349,13 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
                         message
                     }
                     else -> "$message Se repetir a mesma ação, o pedido sai com a mesma chave."
-                }
+                }.also { if (inSheet) sheetError = it }
             } catch (e: Exception) {
                 // Sem resposta (timeout, rede): a chave fica guardada para a repetição do mesmo pedido.
-                notice = container.handleError(e) + " Se repetir a mesma ação, o pedido sai com a mesma chave."
+                notice = (container.handleError(e) + " Se repetir a mesma ação, o pedido sai com a mesma chave.").also { if (inSheet) sheetError = it }
             } finally {
                 busy = false
+                busyAction = null
             }
         }
     }
@@ -257,18 +363,34 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     /** 4xx que não é timeout nem limite de taxa: o servidor decidiu e repetir com a mesma chave não ajuda. */
     private fun isDefinitive(e: ApiException): Boolean = e.status in 400..499 && e.status != 408 && e.status != 429
 
-    fun claim() = act(ActionRequest(action = "claim"), "Conversa assumida.")
-    fun transfer(target: String) = act(ActionRequest(action = "transfer", target = target), "Conversa transferida.")
-    fun resume() = act(ActionRequest(action = "resume"), "Conversa devolvida à IA.")
-    fun resolve() = act(ActionRequest(action = "resolve"), "Conversa concluída.")
-    fun saveTags(tags: List<String>) = act(ActionRequest(action = "tags", tags = tags.map { it.trim().take(40) }.filter { it.isNotEmpty() }.distinct().take(20)), "Etiquetas salvas.")
+    fun claim(onDone: (() -> Unit)? = null) = act(ActionRequest(action = "claim"), "Conversa assumida", onDone = onDone)
+    /** Transferir para pessoa (`target` = id) ou bot (`target` = "bot:<id>"). */
+    fun transfer(target: String, label: String, inSheet: Boolean = true, onDone: (() -> Unit)? = null) =
+        act(ActionRequest(action = "transfer", target = target), "Transferida para $label", inSheet = inSheet, onDone = onDone)
+    /** Transferir para um setor: `department_id` sem `target`. */
+    fun transferToDepartment(departmentId: String, label: String, onDone: (() -> Unit)? = null) =
+        act(ActionRequest(action = "transfer", department_id = departmentId), "Transferida para o setor $label", inSheet = true, onDone = onDone)
+    fun resume(inSheet: Boolean = false, onDone: (() -> Unit)? = null) =
+        act(ActionRequest(action = "resume"), "Conversa devolvida ao bot", inSheet = inSheet, onDone = onDone)
+    fun resolve() = act(ActionRequest(action = "resolve"), "Conversa concluída")
+    fun survey() = act(ActionRequest(action = "survey"), "Pesquisa de satisfação enviada")
+    /** Envia ao cliente a consulta de protocolos (opcionalmente de um número). */
+    fun sendProtocols(number: String? = null, onDone: (() -> Unit)? = null) =
+        act(ActionRequest(action = "protocols", number = number), "Consulta de protocolos enviada ao cliente", inSheet = onDone != null, onDone = onDone)
+    fun saveTags(tags: List<String>) = act(ActionRequest(action = "tags", tags = tags.map { it.trim().take(40) }.filter { it.isNotEmpty() }.distinct().take(20)), "Etiquetas salvas")
+
+    /** "Tentar de novo" de uma mensagem que falhou: novo pedido de resposta com o mesmo texto, anexos e conteúdo. */
+    fun resend(message: Message) {
+        val content = JsonObject(message.contentJson.filterKeys { it in setOf("type", "location", "contacts", "reply_to", "mentions") })
+        act(ActionRequest(action = "reply", text = message.text, attachments = message.attachmentIds, content = content), "Mensagem reenviada")
+    }
 
     /**
      * Nota interna com o texto do composer (permitida mesmo sem ter assumido a conversa). O texto permanece no composer
      * em falha de rede; tocar de novo com o mesmo texto repete o pedido com a mesma Idempotency-Key (ver [act]).
      */
-    fun sendNote() {
-        val value = text.trim()
+    fun sendNote(noteText: String = text, onDone: (() -> Unit)? = null) {
+        val value = noteText.trim()
         if (value.isEmpty()) {
             composerError = "Escreva o texto da nota interna."
             return
@@ -278,7 +400,9 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
             return
         }
         composerError = null
-        act(ActionRequest(action = "note", text = value), "Nota interna registrada.") { text = "" }
+        act(ActionRequest(action = "note", text = value), "Nota interna registrada", inSheet = onDone != null) {
+            if (onDone != null) onDone() else text = ""
+        }
     }
 
     fun setGroupPolicy(policy: String) {

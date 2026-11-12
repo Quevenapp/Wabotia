@@ -1,28 +1,42 @@
 package br.com.queven.wabotia.ui.auth
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.DebugHooks
 import br.com.queven.wabotia.core.SessionStore
 import br.com.queven.wabotia.core.net.ApiClient
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.theme.Wb
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia. */
 @Composable
 fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
+    val c = Wb.colors
     var input by rememberSaveable { mutableStateOf(container.session.serverUrl?.removePrefix("https://") ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -30,6 +44,12 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     fun connect() {
+        if (busy) return
+        // Build de depuração: "demo" entra direto na demonstração em memória (nenhuma chamada sai do aparelho).
+        if (DebugHooks.isDemoAlias(input)) {
+            DebugHooks.signInDemo(container)
+            return
+        }
         val url = SessionStore.normalizeServer(input)
         if (url == null) {
             error = "Digite um endereço válido, por exemplo wabotia.suaempresa.com.br"
@@ -47,6 +67,8 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
                 container.refreshAuthState()
                 info = "Servidor Wabotia ${health.version} encontrado."
                 onConfirmed()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = ApiClient.describe(e)
             } finally {
@@ -55,48 +77,49 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(48.dp))
-            Icon(Icons.Filled.Dns, contentDescription = null, Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(16.dp))
-            Text("Wabotia", style = MaterialTheme.typography.headlineMedium)
-            Text("Atendimento WhatsApp com IA e equipe humana", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(32.dp))
-            Text("Endereço do seu servidor", style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth())
-            Text(
-                "Cada empresa tem a própria instalação Wabotia. Informe o endereço que você usa para abrir o painel.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Servidor") },
-                placeholder = { Text("wabotia.suaempresa.com.br") },
-                prefix = { Text("https://") },
-                isError = error != null,
-                enabled = !busy,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
-                keyboardActions = KeyboardActions(onGo = { connect() }),
-            )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
-            info?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = { connect() }, enabled = !busy && input.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                else Text("Conectar")
+    AuthScaffold(title = "Wabotia", subtitle = "Atendimento WhatsApp com IA e equipe humana") {
+        WbCard {
+            Column(Modifier.padding(16.dp)) {
+                Text("Endereço do seu servidor", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "Cada empresa tem a própria instalação. Use o endereço em que você abre o painel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary,
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it; error = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Servidor") },
+                    placeholder = { Text("wabotia.suaempresa.com.br", maxLines = 1) },
+                    prefix = { Text("https://", color = c.textSecondary) },
+                    isError = error != null,
+                    enabled = !busy,
+                    shape = AuthFieldShape,
+                    colors = authFieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
+                    keyboardActions = KeyboardActions(onGo = { connect() }),
+                )
             }
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "Exemplos: wabotia.queven.com.br, wabotia.fagoo.com.br. Use sempre HTTPS em produção.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        }
+        error?.let {
+            Spacer(Modifier.height(12.dp))
+            InlineNotice(it)
+        }
+        info?.let {
+            Spacer(Modifier.height(12.dp))
+            InlineNotice(it, color = c.ok)
+        }
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Conectar", onClick = { connect() }, loading = busy, enabled = input.isNotBlank())
+        Spacer(Modifier.height(20.dp))
+        AuthHelp("Exemplos: wabotia.queven.com.br, wabotia.fagoo.com.br. Use sempre HTTPS em produção.")
+        if (BuildConfig.DEBUG) {
+            Spacer(Modifier.height(10.dp))
+            AuthHelp("Build de depuração: digite demo para ver uma demonstração.")
         }
     }
 }

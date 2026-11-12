@@ -1,6 +1,7 @@
 package br.com.queven.wabotia.core
 
 import android.content.Context
+import br.com.queven.wabotia.core.events.EventHub
 import br.com.queven.wabotia.core.model.User
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
@@ -26,6 +27,18 @@ class AppContainer(context: Context) {
     val auth: StateFlow<AuthState> = _auth.asStateFlow()
 
     private var client: ApiClient? = null
+
+    /** Dados do perfil usados por várias telas (contagens, tipos de linha, setores), com cache curto. */
+    val profileData = ProfileData(this)
+
+    /** Prévia da última mensagem e não lidas por conversa (cache local por perfil). */
+    val conversationCache = ConversationCache(this)
+
+    /** Conversas internas não lidas (comparação local de `updated`). */
+    val internalChats = InternalChatTracker(this)
+
+    /** Consulta única de eventos em primeiro plano, compartilhada por todas as telas. */
+    val events = EventHub(this)
 
     /** Cliente para o servidor configurado. Lança [IllegalStateException] se não houver servidor. */
     val api: WabotiaApi
@@ -61,6 +74,9 @@ class AppContainer(context: Context) {
         session.clearSession()
         if (keepServer) session.serverUrl = server
         client = null
+        profileData.clear()
+        conversationCache.clear()
+        internalChats.clear()
         _auth.value = AuthState.from(session)
     }
 

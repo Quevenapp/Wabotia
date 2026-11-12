@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="brand">#0B5C4D</color>
+    <color name="brand">#008069</color>
+    <color name="brand_strong">#075E54</color>
     <color name="brand_light">#25D366</color>
-    <color name="ic_launcher_background">#0B5C4D</color>
+    <color name="ic_launcher_background">#008069</color>
+    <color name="window_background">#FFFFFF</color>
 </resources>

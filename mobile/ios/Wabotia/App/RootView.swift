@@ -18,6 +18,16 @@ struct RootView: View {
         }
         .animation(.default, value: container.isLoggedIn)
         .animation(.default, value: container.session.profileId)
-        .tint(Color("AccentColor"))
+        .tint(Theme.brand)
+        .onAppear {
+            AppAppearance.apply()
+            #if DEBUG
+            // Ajuda a conferir por linha de comando em que tela o app abriu (sem dados da sessão).
+            print("[Wabotia] tela inicial: \(container.session.serverURL == nil ? "servidor" : (!container.isLoggedIn ? "login" : (container.session.profileId == nil ? "perfil" : "abas")))")
+            #endif
+        }
+        .onChange(of: container.isLoggedIn) { loggedIn in
+            if !loggedIn { Workspace.shared.reset() }
+        }
     }
 }

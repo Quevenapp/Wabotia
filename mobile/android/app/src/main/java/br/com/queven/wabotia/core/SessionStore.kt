@@ -68,6 +68,11 @@ class SessionStore(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATIONS, true)
         set(value) = prefs.edit().putBoolean(KEY_NOTIFICATIONS, value).apply()
 
+    /** Aparência escolhida em Ajustes: system | light | dark. */
+    var themeMode: String
+        get() = prefs.getString(KEY_THEME, "system") ?: "system"
+        set(value) = prefs.edit().putString(KEY_THEME, value).apply()
+
     /** Último cursor de eventos consultado por perfil. */
     fun eventCursor(profileId: String): Long = prefs.getLong("$KEY_EVENT_CURSOR.$profileId", 0L)
     fun setEventCursor(profileId: String, cursor: Long) = prefs.edit().putLong("$KEY_EVENT_CURSOR.$profileId", cursor).apply()
@@ -94,6 +99,7 @@ class SessionStore(context: Context) {
         private const val KEY_PUSH_REGISTERED = "push_registered"
         private const val KEY_NOTIFICATIONS = "notifications"
         private const val KEY_EVENT_CURSOR = "event_cursor"
+        private const val KEY_THEME = "theme_mode"
 
         /** Normaliza o que a pessoa digitou: aceita "wabotia.exemplo.com.br", "https://…/app", etc. */
         fun normalizeServer(input: String): String? {

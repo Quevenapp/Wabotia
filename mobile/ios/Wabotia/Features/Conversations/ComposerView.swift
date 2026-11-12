@@ -3,55 +3,90 @@ import PhotosUI
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// Composer da conversa: texto multilinha, anexos (galeria, câmera, arquivos), voz, localização, contato,
-/// nota interna, tipo automático/documento, progresso de upload e pedido pendente com a mesma Idempotency-Key.
+/// Composer da conversa: "+" (anexos), campo arredondado multilinha com câmera, e botão redondo que é
+/// microfone com o campo vazio e enviar com texto. Mantém voz com prévia, localização, contato, nota interna,
+/// tipo automático/documento, progresso de upload e pedido pendente com a mesma Idempotency-Key.
 struct ComposerView: View {
     @ObservedObject var vm: ConversationViewModel
+    var onMenu: () -> Void
+    var onTicket: () -> Void
+
+    @ObservedObject private var workspace = Workspace.shared
     @StateObject private var recorder = VoiceRecorder()
+    @State private var showAttach = false
+    @State private var pendingPick: AttachOption?
     @State private var showPhotos = false
     @State private var showCamera = false
     @State private var showFiles = false
+    @State private var fileTypes: [UTType] = [.item]
     @State private var showLocation = false
+    @State private var showContactChoice = false
     @State private var showContactPicker = false
     @State private var showManualContact = false
     @State private var importing = false
     @State private var localError: String?
+    @State private var noteMode = false
+    @State private var sendAfterRecording = false
+    @State private var levels: [CGFloat] = []
     @FocusState private var focused: Bool
 
     private var draftEmpty: Bool { vm.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var hasMedia: Bool { !vm.attachments.isEmpty || vm.voice != nil }
+    private var showsMic: Bool {
+        vm.can("voice") && draftEmpty && vm.attachments.isEmpty && vm.voice == nil && vm.location == nil && vm.contactDraft == nil && vm.editing == nil && vm.pending == nil && !noteMode
+    }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if let error = vm.actionError ?? localError {
-                banner(text: error, color: .red) { vm.actionError = nil; localError = nil }
+        VStack(spacing: 6) {
+            if let error = vm.actionError ?? localError ?? recorder.error {
+                banner(text: error, color: Theme.danger, icon: "exclamationmark.triangle.fill") { vm.actionError = nil; localError = nil; recorder.error = nil }
             }
             if let info = vm.info {
-                banner(text: info, color: .secondary) { vm.info = nil }
+                banner(text: info, color: Theme.textSecondary, icon: "info.circle.fill") { vm.info = nil }
             }
             if let pending = vm.pending { pendingBanner(pending) }
-            if let q = vm.quote { quoteStrip(q) }
-            if vm.editing != nil { editStrip }
+            if vm.window?.isClosed == true, !noteMode {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).padding(.top, 2)
+                    Text("Fora da janela de 24h. A mensagem fica na fila até o cliente escrever.").font(Theme.font(12, .medium)).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.muted.opacity(0.16)))
+            }
+            if noteMode {
+                strip(icon: "lock.fill", color: Theme.noteText, title: "Nota interna", text: "Só a equipe vê. O cliente não recebe.") { noteMode = false }
+            }
+            if let q = vm.quote {
+                strip(icon: "arrowshape.turn.up.left.fill", color: Theme.brand, title: "Respondendo a \(vm.authorLabel(q))", text: q.text.isEmpty ? "Anexo" : q.text) { vm.quote = nil }
+            }
+            if vm.editing != nil {
+                strip(icon: "pencil", color: Theme.warn, title: "Editando mensagem", text: "Até 15 min após o envio.") { vm.cancelEdit() }
+            }
             if !vm.attachments.isEmpty { attachmentsStrip }
             if let v = vm.voice { voiceStrip(v) }
             if let l = vm.location {
-                draftStrip(icon: "mappin.and.ellipse", text: "Localização: \(String(format: "%.5f, %.5f", l.latitude, l.longitude))\(l.name.isEmpty ? "" : " · \(l.name)")") { vm.location = nil }
+                strip(icon: "mappin.circle.fill", color: Theme.ok, title: l.name.isEmpty ? "Localização" : l.name, text: l.address.isEmpty ? String(format: "%.5f, %.5f", l.latitude, l.longitude) : l.address) { vm.location = nil }
             }
             if let c = vm.contactDraft {
-                draftStrip(icon: "person.crop.circle", text: "Contato: \(c.name) · \(c.phone)") { vm.contactDraft = nil }
+                strip(icon: "person.crop.circle.fill", color: Theme.tickRead, title: c.name, text: ConversationFormatting.phone(c.phone)) { vm.contactDraft = nil }
             }
-            if let e = recorder.error { Text(e).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }
             if recorder.isRecording || recorder.processing { recordingBar } else { inputRow }
-            if let p = vm.progress {
-                HStack(spacing: 6) { ProgressView(); Text(p).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if importing {
-                HStack(spacing: 6) { ProgressView(); Text("Preparando arquivos…").font(.caption).foregroundStyle(.secondary) }.frame(maxWidth: .infinity, alignment: .leading)
+            if let p = vm.progress { progressLine(p) }
+            if importing { progressLine("Preparando arquivos…") }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 6)
+        .background(Theme.bar.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { ThinDivider() }
+        .sheet(isPresented: $showAttach, onDismiss: runPendingPick) {
+            AttachSheet(options: attachOptions) { option in
+                pendingPick = option
+                showAttach = false
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.bar)
         .sheet(isPresented: $showPhotos) {
             PhotoLibraryPicker(limit: max(1, 10 - vm.attachments.count)) { items in
                 showPhotos = false
@@ -64,8 +99,9 @@ struct ComposerView: View {
                     importing = false
                 }
             }
+            .ignoresSafeArea()
         }
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: fileTypes, allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 for url in urls where vm.attachments.count < 10 {
                     if let a = AttachmentFactory.from(fileURL: url) { vm.addAttachment(a) }
@@ -84,87 +120,212 @@ struct ComposerView: View {
                 .ignoresSafeArea()
         }
         .sheet(isPresented: $showManualContact) { ManualContactSheet(initial: vm.contactDraft) { vm.setContactDraft($0) } }
+        .confirmationDialog("Compartilhar contato", isPresented: $showContactChoice, titleVisibility: .visible) {
+            Button("Dos meus contatos") { showContactPicker = true }
+            Button("Digitar nome e telefone") { showManualContact = true }
+            Button("Cancelar", role: .cancel) {}
+        } message: { if hasMedia { Text("Os anexos escolhidos serão removidos: contato é enviado sem arquivos.") } }
+        .onChange(of: recorder.duration) { _ in
+            guard recorder.isRecording else { return }
+            levels.append(CGFloat(recorder.level))
+            if levels.count > 60 { levels.removeFirst(levels.count - 60) }
+        }
+        .onChange(of: vm.editing) { editing in if editing != nil { noteMode = false; focused = true } }
+        .onChange(of: vm.quote) { quote in if quote != nil { focused = true } }
+        #if DEBUG
+        .onAppear {
+            switch DemoMode.takeSheet("attach", "note", "recording") {
+            case "attach": showAttach = true
+            case "note": noteMode = true; vm.draft = "Cliente prefere contato por telefone depois das 18h."
+            case "recording": levels = (0..<34).map { CGFloat(0.25 + 0.7 * abs(sin(Double($0) * 0.9))) }; demoRecording = true
+            default: break
+            }
+        }
+        #endif
     }
+
+    #if DEBUG
+    @State private var demoRecording = false
+    #else
+    private let demoRecording = false
+    #endif
 
     // MARK: Linha principal
 
     private var inputRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            attachMenu
-            AppMultilineField(vm.editing != nil ? "Novo texto da mensagem" : "Mensagem", text: $vm.draft, lines: 1...6)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .disabled(vm.composerLocked)
-            if vm.busy {
-                ProgressView().frame(width: 36, height: 36)
-            } else if vm.can("voice"), draftEmpty, vm.attachments.isEmpty, vm.voice == nil, vm.location == nil, vm.contactDraft == nil, vm.editing == nil, vm.pending == nil {
+        HStack(alignment: .bottom, spacing: 6) {
+            if demoRecording { recordingBar } else {
                 Button {
                     focused = false
-                    Task { await recorder.start { result in if let result { vm.setVoice(result) } } }
-                } label: { Image(systemName: "mic.circle.fill").font(.system(size: 34)) }
+                    showAttach = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 21, weight: .medium))
+                        .foregroundStyle(Theme.brand)
+                        .frame(width: 38, height: 40)
+                        .contentShape(Rectangle())
+                }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Gravar áudio")
-            } else {
-                Button {
-                    focused = false
-                    vm.send()
-                } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 34)) }
-                .buttonStyle(.plain)
-                .disabled(!vm.canSend)
-                .accessibilityLabel(vm.pending != nil ? "Tentar novamente" : "Enviar")
+                .disabled(vm.composerLocked || vm.editing != nil)
+                .opacity(vm.composerLocked || vm.editing != nil ? 0.4 : 1)
+                .accessibilityLabel("Anexar")
+
+                HStack(alignment: .bottom, spacing: 0) {
+                    field
+                    if draftEmpty, vm.editing == nil, !noteMode, vm.allows("image") {
+                        Button {
+                            focused = false
+                            if CameraPicker.isAvailable { showCamera = true } else { localError = "Este aparelho não tem câmera disponível." }
+                        } label: {
+                            Image(systemName: "camera")
+                                .font(.system(size: 18))
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(width: 40, height: 40)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.composerLocked)
+                        .accessibilityLabel("Câmera")
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(noteMode ? Theme.bubbleNote : Theme.field))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.divider, lineWidth: 1))
+
+                actionButton
             }
         }
     }
 
-    private var attachMenu: some View {
-        Menu {
-            Button { showPhotos = true } label: { Label("Fotos e vídeos", systemImage: "photo.on.rectangle") }
-            Button {
-                if CameraPicker.isAvailable { showCamera = true } else { localError = "Este aparelho não tem câmera disponível." }
-            } label: { Label("Câmera", systemImage: "camera") }
-            Button { showFiles = true } label: { Label("Arquivo", systemImage: "doc") }
-            if vm.can("location") {
-                Button { showLocation = true } label: { Label(hasMedia ? "Localização (remove os anexos)" : "Localização", systemImage: "mappin.and.ellipse") }
-            }
-            if vm.can("contacts") {
-                Menu {
-                    Button { showContactPicker = true } label: { Label("Dos meus contatos", systemImage: "person.crop.circle") }
-                    Button { showManualContact = true } label: { Label("Digitar nome e telefone", systemImage: "keyboard") }
-                } label: { Label(hasMedia ? "Contato (remove os anexos)" : "Contato", systemImage: "person.crop.rectangle") }
-            }
-            if !vm.attachments.isEmpty {
-                Picker("Tipo do conteúdo", selection: $vm.sendKind) {
-                    ForEach(SendKind.allCases) { Text($0.title).tag($0) }
+    @ViewBuilder private var field: some View {
+        let placeholder = vm.editing != nil ? "Novo texto da mensagem" : (noteMode ? "Escreva a nota interna" : "Mensagem")
+        if #available(iOS 16, *) {
+            AppMultilineField(placeholder, text: $vm.draft, lines: 1...5, font: Theme.font(16))
+                .focused($focused)
+                .disabled(vm.composerLocked)
+                .padding(.leading, 14)
+                .padding(.trailing, 6)
+                .padding(.vertical, 9)
+                .frame(minHeight: 40)
+        } else {
+            AppMultilineField(placeholder, text: $vm.draft, lines: 1...5, font: Theme.font(16))
+                .focused($focused)
+                .disabled(vm.composerLocked)
+                .padding(.leading, 9)
+                .padding(.trailing, 2)
+                .padding(.vertical, 1)
+                .frame(minHeight: 40)
+        }
+    }
+
+    @ViewBuilder private var actionButton: some View {
+        if vm.busy {
+            ProgressView().frame(width: 40, height: 40)
+        } else if showsMic {
+            roundButton("mic.fill", color: Theme.brand, label: "Gravar mensagem de voz") {
+                focused = false
+                levels = []
+                sendAfterRecording = false
+                Haptics.medium()
+                Task {
+                    await recorder.start { result in
+                        Haptics.light()
+                        guard let result else { return }
+                        vm.setVoice(result)
+                        if sendAfterRecording { vm.send() }
+                    }
                 }
             }
-            if !draftEmpty, vm.editing == nil {
-                Divider()
-                Button { Task { await vm.sendNote() } } label: { Label("Enviar como nota interna", systemImage: "note.text") }
+        } else if noteMode {
+            roundButton("lock.fill", color: Theme.noteText, label: "Salvar nota interna", disabled: draftEmpty) {
+                Task { if await vm.sendNote() { noteMode = false } }
             }
-        } label: {
-            Image(systemName: "plus.circle.fill").font(.system(size: 30))
+        } else {
+            roundButton(vm.editing != nil ? "checkmark" : "paperplane.fill", color: Theme.brand, label: vm.pending != nil ? "Tentar novamente" : (vm.editing != nil ? "Salvar edição" : "Enviar"), disabled: !vm.canSend) {
+                vm.send()
+            }
         }
-        .disabled(vm.composerLocked || vm.editing != nil)
-        .accessibilityLabel("Anexar")
+    }
+
+    private func roundButton(_ icon: String, color: Color, label: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Theme.onBrand)
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(color))
+                .opacity(disabled ? 0.4 : 1)
+        }
+        .buttonStyle(PressScaleStyle())
+        .disabled(disabled)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: Anexos
+
+    private var attachOptions: [AttachOption] {
+        var list: [AttachOption] = []
+        if vm.allows("image") || vm.allows("video") { list += [.gallery, .camera] }
+        if vm.allows("document") { list.append(.document) }
+        if vm.allows("audio") { list.append(.audio) }
+        if vm.can("location") { list.append(.location) }
+        if vm.can("contacts") { list.append(.contact) }
+        list += [.menu, .ticket, .note]
+        return list
+    }
+
+    private func runPendingPick() {
+        guard let pick = pendingPick else { return }
+        pendingPick = nil
+        switch pick {
+        case .gallery: showPhotos = true
+        case .camera:
+            if CameraPicker.isAvailable { showCamera = true } else { localError = "Este aparelho não tem câmera disponível." }
+        case .document: fileTypes = [.item]; showFiles = true
+        case .audio: fileTypes = [.audio]; showFiles = true
+        case .location: showLocation = true
+        case .contact: showContactChoice = true
+        case .menu: onMenu()
+        case .ticket: onTicket()
+        case .note: noteMode = true; focused = true
+        }
     }
 
     // MARK: Gravação
 
     private var recordingBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             if recorder.processing {
                 ProgressView()
-                Text("Preparando áudio…").font(.footnote)
+                Text("Preparando áudio…").font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
                 Spacer()
             } else {
-                Button { Task { await recorder.cancel() } } label: { Image(systemName: "trash").font(.title3) }
-                    .buttonStyle(.plain).foregroundStyle(.red).accessibilityLabel("Descartar gravação")
-                Circle().fill(Color.red).frame(width: 10, height: 10).opacity(0.5 + 0.5 * Double(recorder.level))
-                Text(VoiceRecorder.format(recorder.duration)).font(.footnote.monospacedDigit())
-                ProgressView(value: min(1, recorder.duration / VoiceRecorder.maxDuration)).progressViewStyle(.linear)
-                Text("máx. 2:00").font(.caption2).foregroundStyle(.secondary)
-                Button { Task { await recorder.stop() } } label: { Image(systemName: "stop.circle.fill").font(.system(size: 34)) }
-                    .buttonStyle(.plain).accessibilityLabel("Parar gravação")
+                Button { Task { await recorder.cancel() } } label: {
+                    Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(Theme.danger).frame(width: 40, height: 40).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityLabel("Descartar gravação")
+                HStack(spacing: 6) {
+                    Circle().fill(Theme.danger).frame(width: 9, height: 9).opacity(0.45 + 0.55 * Double(recorder.level))
+                    Text(VoiceRecorder.format(demoRecording ? 7 : recorder.duration)).font(Theme.font(15, .semibold)).monospacedDigit().foregroundStyle(Theme.danger)
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(Array(levels.suffix(34).enumerated()), id: \.offset) { _, level in
+                            Capsule().fill(Theme.textSecondary).frame(width: 2.5, height: 3 + 20 * level)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 26, alignment: .trailing)
+                    .clipped()
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(Capsule().fill(Theme.field))
+                Button { sendAfterRecording = false; Task { await recorder.stop() } } label: {
+                    Image(systemName: "stop.fill").font(.system(size: 14)).foregroundStyle(Theme.danger)
+                        .frame(width: 36, height: 36).background(Circle().fill(Theme.danger.opacity(0.14)))
+                }
+                .buttonStyle(.plain).accessibilityLabel("Parar e ouvir antes de enviar")
+                roundButton("paperplane.fill", color: Theme.brand, label: "Enviar mensagem de voz") {
+                    sendAfterRecording = true
+                    Task { await recorder.stop() }
+                }
             }
         }
         .frame(minHeight: 40)
@@ -173,17 +334,16 @@ struct ComposerView: View {
     private func voiceStrip(_ v: VoiceRecording) -> some View {
         HStack(spacing: 10) {
             LocalAudioPreview(url: v.url)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(v.isVoice ? "Mensagem de voz" : "Áudio (M4A)").font(.footnote.weight(.medium))
-                Text("\(VoiceRecorder.format(v.duration)) · \(ConversationFormatting.bytes(v.size))" + (v.isVoice ? "" : " · enviado como áudio comum")).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(v.isVoice ? "Mensagem de voz" : "Áudio (M4A)").font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                Text("\(VoiceRecorder.format(v.duration)) · \(ConversationFormatting.bytes(v.size))" + (v.isVoice ? "" : " · enviado como áudio comum"))
+                    .font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
             }
-            Spacer()
-            Button { vm.voice = nil; try? FileManager.default.removeItem(at: v.url) } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                .buttonStyle(.plain).disabled(vm.composerLocked)
+            Spacer(minLength: 0)
+            closeButton("Descartar áudio") { vm.discardVoice() }.disabled(vm.composerLocked)
         }
-        .padding(8)
-        .background(Color.secondary.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.leading, 8).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.field))
     }
 
     // MARK: Faixas auxiliares
@@ -196,94 +356,185 @@ struct ComposerView: View {
                         ZStack(alignment: .topTrailing) {
                             VStack(spacing: 2) {
                                 if let t = a.thumbnail {
-                                    Image(uiImage: t).resizable().scaledToFill().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 8))
+                                    Image(uiImage: t).resizable().scaledToFill().frame(width: 62, height: 62).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 } else {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.15)).frame(width: 64, height: 64)
-                                        Image(systemName: a.kind == "video" ? "video" : (a.kind == "audio" ? "waveform" : "doc")).font(.title2).foregroundStyle(.secondary)
-                                    }
+                                    Image(systemName: a.kind == "video" ? "video.fill" : (a.kind == "audio" ? "waveform" : "doc.fill"))
+                                        .font(.system(size: 22)).foregroundStyle(Theme.textSecondary)
+                                        .frame(width: 62, height: 62)
+                                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.field))
                                 }
-                                Text(a.name).font(.caption2).lineLimit(1).frame(width: 72)
-                                Text(a.sizeLabel).font(.caption2).foregroundStyle(.secondary)
+                                Text(a.name).font(Theme.font(10)).foregroundStyle(Theme.textPrimary).lineLimit(1).frame(width: 66)
+                                Text(a.sizeLabel).font(Theme.font(10)).foregroundStyle(Theme.textSecondary)
                             }
                             Button { vm.attachments.removeAll { $0.id == a.id } } label: {
-                                Image(systemName: "xmark.circle.fill").foregroundStyle(.white, .black.opacity(0.6))
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(Color.white, Color.black.opacity(0.6))
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 4, y: -4)
+                            .offset(x: 5, y: -5)
                             .disabled(vm.composerLocked)
+                            .accessibilityLabel("Remover \(a.name)")
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 2)
             }
-            Text(vm.sendKind == .document ? "Enviar como documento" : "Tipo automático pelo arquivo · Meta: foto até 5 MB, vídeo/áudio até 16 MB, documento até 100 MB")
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-    }
-
-    private func quoteStrip(_ q: Message) -> some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2).fill(Color.accentColor).frame(width: 3, height: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Respondendo a \(vm.authorLabel(q))").font(.caption.weight(.semibold))
-                Text(q.text.isEmpty ? "Anexo" : q.text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            HStack(spacing: 6) {
+                Button { vm.sendKind = vm.sendKind == .document ? .auto : .document } label: {
+                    Pill(text: vm.sendKind == .document ? "Enviar como documento" : "Tipo automático", color: Theme.brand, icon: vm.sendKind == .document ? "doc.fill" : "wand.and.stars")
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Alterna entre tipo automático e enviar como documento")
+                Text("Foto até 5 MB · vídeo e áudio até 16 MB").font(Theme.font(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
             }
-            Spacer()
-            Button { vm.quote = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
         }
-        .padding(8)
-        .background(Color.secondary.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private var editStrip: some View {
-        HStack {
-            Label("Editando mensagem (até 15 min após o envio)", systemImage: "pencil").font(.caption)
-            Spacer()
-            Button("Cancelar") { vm.cancelEdit() }.font(.caption)
-        }
-        .padding(8)
-        .background(Color.orange.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func draftStrip(icon: String, text: String, remove: @escaping () -> Void) -> some View {
+    private func strip(icon: String, color: Color, title: String, text: String, remove: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: icon).foregroundStyle(Color.accentColor)
-            Text(text).font(.caption).lineLimit(2)
-            Spacer()
-            Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain).disabled(vm.composerLocked)
+            color.frame(width: 3).clipShape(Capsule())
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(Theme.font(13, .semibold)).foregroundStyle(color).lineLimit(1)
+                Text(text).font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            closeButton("Remover", action: remove).disabled(vm.composerLocked)
         }
-        .padding(8)
-        .background(Color.secondary.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.leading, 8)
+        .frame(minHeight: 44)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.field))
+    }
+
+    private func closeButton(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textSecondary)
+                .frame(width: 24, height: 24).background(Circle().fill(Theme.muted.opacity(0.2)))
+                .frame(width: 40, height: 40).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func progressLine(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView().scaleEffect(0.8)
+            Text(text).font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
     }
 
     private func pendingBanner(_ p: PendingRequest) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Pedido guardado para repetição segura (\(p.summary)).", systemImage: "clock.arrow.circlepath").font(.caption)
-            Text("A mesma identificação será reutilizada: nenhum envio duplicado.").font(.caption2).foregroundStyle(.secondary)
-            HStack {
-                Button("Tentar novamente") { vm.send() }.buttonStyle(.borderedProminent).controlSize(.small).disabled(vm.busy)
-                Button("Abandonar pedido", role: .destructive) { vm.abandonPending() }.buttonStyle(.bordered).controlSize(.small).disabled(vm.busy)
+            Label("Envio sem confirmação (\(p.summary)).", systemImage: "clock.arrow.circlepath").font(Theme.font(13, .semibold)).foregroundStyle(Theme.textPrimary)
+            Text("Tentar de novo reutiliza o mesmo pedido: nada é enviado em dobro.").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 14) {
+                Button("Tentar de novo") { vm.send() }.font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand).disabled(vm.busy)
+                Button("Abandonar pedido") { vm.abandonPending() }.font(Theme.font(14, .semibold)).foregroundStyle(Theme.danger).disabled(vm.busy)
             }
         }
-        .padding(8)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.warn.opacity(0.14)))
     }
 
-    private func banner(text: String, color: Color, dismiss: @escaping () -> Void) -> some View {
+    private func banner(text: String, color: Color, icon: String, dismiss: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(text).font(.caption).foregroundStyle(color)
-            Spacer()
-            Button(action: dismiss) { Image(systemName: "xmark").font(.caption) }.buttonStyle(.plain).foregroundStyle(.secondary)
+            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(color).padding(.top, 2)
+            Text(text).font(Theme.font(13)).foregroundStyle(Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textSecondary).frame(width: 28, height: 28) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dispensar aviso")
         }
-        .padding(8)
-        .background(color.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.leading, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(color.opacity(0.12)))
+    }
+}
+
+// MARK: - Folha "+"
+
+enum AttachOption: String, Identifiable {
+    case gallery, camera, document, audio, location, contact, menu, ticket, note
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .gallery: return "Galeria"
+        case .camera: return "Câmera"
+        case .document: return "Documento"
+        case .audio: return "Áudio"
+        case .location: return "Localização"
+        case .contact: return "Contato"
+        case .menu: return "Menu"
+        case .ticket: return "Protocolo"
+        case .note: return "Nota interna"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .gallery: return "photo.fill.on.rectangle.fill"
+        case .camera: return "camera.fill"
+        case .document: return "doc.fill"
+        case .audio: return "headphones"
+        case .location: return "mappin.and.ellipse"
+        case .contact: return "person.fill"
+        case .menu: return "list.bullet"
+        case .ticket: return "doc.text.fill"
+        case .note: return "lock.fill"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .gallery: return Theme.bot
+        case .camera: return Theme.danger
+        case .document: return Theme.tickRead
+        case .audio: return Theme.warn
+        case .location: return Theme.ok
+        case .contact: return Theme.muted
+        case .menu: return Theme.brand
+        case .ticket: return Theme.ticket
+        case .note: return Theme.noteText
+        }
+    }
+}
+
+/// Grade de ícones redondos coloridos. Itens sem capacidade na linha não entram em `options`.
+struct AttachSheet: View {
+    let options: [AttachOption]
+    var onPick: (AttachOption) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 4) {
+            SheetHeader(title: "Enviar") { dismiss() }
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 14) {
+                    ForEach(options) { option in
+                        Button { onPick(option) } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: option.icon)
+                                    .font(.system(size: 21, weight: .medium))
+                                    .foregroundStyle(Theme.onBrand)
+                                    .frame(width: 54, height: 54)
+                                    .background(Circle().fill(option.color))
+                                Text(option.title).font(Theme.font(12, .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressScaleStyle())
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 16)
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .appSheetDetents()
     }
 }
 
@@ -296,9 +547,12 @@ struct LocalAudioPreview: View {
         Button {
             model.toggle(url: url)
         } label: {
-            Image(systemName: model.playing ? "pause.circle.fill" : "play.circle.fill").font(.system(size: 30))
+            Image(systemName: model.playing ? "pause.fill" : "play.fill")
+                .font(.system(size: 14)).foregroundStyle(Theme.onBrand)
+                .frame(width: 34, height: 34).background(Circle().fill(Theme.brand))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(model.playing ? "Pausar prévia" : "Ouvir prévia")
         .onDisappear { model.stop() }
     }
 }
