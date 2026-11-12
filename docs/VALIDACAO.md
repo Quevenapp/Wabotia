@@ -1,5 +1,17 @@
 # Validação e limites
 
+## Publicação 0.12.0 de 12/11/2026: área automática e nomes do painel
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `be31a5379260ed351a6d9f0f09303054bb2da14a`. O painel usa **Área de atendimento → Integração Zernio → Telefones**. Novas instalações recebem a área compartilhada pela equipe na mesma transação do primeiro administrador. Instalações existentes reutilizam seus dados; o primeiro acesso administrativo prepara a área somente se ainda não houver nenhuma. O fluxo normal não pede criação nem seleção de áreas.
+
+Backups D1/R2 foram concluídos antes da publicação. Não há migração de banco nesta versão. As dez tabelas comparadas e os bindings permaneceram inalterados nos dois ambientes; as 14 migrações anteriores continuam aplicadas e nenhuma ficou pendente. O catálogo oferece a versão 0.12.0, com SHA-256 conferido, e preserva as 13 anteriores. Evidências: [distribuição](reference/release-0.12.0-distribution.json) e [instalação operacional](reference/release-0.12.0-operational.json).
+
+Uma instalação remota descartável executou a atualização real 0.11.0 → 0.12.0 pelo catálogo oficial. Passaram **66 verificações HTTP**, incluindo hashes e contagens de oito tabelas, arquivo R2, bindings, acesso dos operadores e três repetições do bootstrap sem criar área, auditoria ou permissões adicionais. Áreas legadas não são unidas automaticamente. Worker, D1, R2 e namespace Durable Object temporários foram removidos e sua ausência foi confirmada. [Evidência da atualização](reference/release-0.12.0-upgrade.json).
+
+Validação local de **291 testes em 24 arquivos**, com reexecução aprovada dos arquivos afetados pelos novos textos; os sete testes novos cobrem setup, rollback, concorrência, autenticação e preservação das áreas anteriores. A reexecução de 15 testes dos contratos API também passou. TypeScript, build web e empacotamento do Worker passaram. O preview foi conferido no Chrome em desktop e 390 × 844: área fixa, assistente direto nas etapas, integração e telefones legíveis, sem sobreposição, rolagem horizontal ou erros de console observados. Nenhuma mensagem foi enviada a provedores reais.
+
+A sessão administrativa operacional foi recarregada na versão publicada: Área de atendimento fixa, menu Integração Zernio, aba Telefones e assistente direto nas seis etapas, sem criar ou selecionar áreas. As duas integrações legadas e seus telefones continuaram visíveis e pausados, com a exclusão disponível. Layout íntegro e console sem erros observados; a inspeção não alterou dados.
+
 ## Publicação 0.11.0 de 12/11/2026: Zernio e exclusão de telefones
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, com o commit `d9708df369bc481833a7997e9dafe2e6a47e74e6`. O catálogo oficial oferece o pacote 0.11.0 e preserva as 12 versões anteriores. A integridade SHA-256 do pacote baixado foi conferida, assim como versão/commit, painel, arquivos web, autenticação e contrato REST.
