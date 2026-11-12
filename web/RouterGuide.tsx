@@ -22,8 +22,7 @@ export function RouterGuide() {
             <strong>Buscar telefones na Zernio</strong>.
           </li>
           <li>
-            Selecione um telefone, informe seu consumo inicial e a cota local
-            que deseja configurar. Clique em{" "}
+            Selecione um telefone e informe um nome para reconhecê-lo. Clique em{" "}
             <strong>Adicionar telefone ao Wabotia</strong>.
           </li>
           <li>
@@ -91,9 +90,10 @@ export function RouterGuide() {
         </p>
       </details>
       <p>
-        Os contadores locais acompanham histórico inicial, entregas e reservas;
-        eles não substituem a fatura da Zernio ou da Meta. Cobrança não
-        informada não significa gratuidade. Consulte as{" "}
+        Os contadores mensais mostram mensagens com entrega ou leitura
+        confirmada desde o início do monitoramento, separadas por categoria.
+        Eles não estimam preços nem substituem a fatura da Zernio ou da Meta.
+        Consulte as{" "}
         <a
           href="https://docs.zernio.com/platforms/whatsapp/pricing"
           target="_blank"

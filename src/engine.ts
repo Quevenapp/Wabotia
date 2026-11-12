@@ -11,7 +11,6 @@ import { finishInternalRun } from "./team";
 import { decideInterpretation } from "./jev";
 import { sendProtocolLookup, protocolNumber } from "./protocol-lookup";
 import { assertNumberDelivery, getNumberPolicy } from "./number-permissions";
-import { assertNumberQuotaDelivery } from "./number-quota";
 import { all, one, exec, batch } from "./db";
 import {
   type Env,
@@ -1153,7 +1152,6 @@ export async function deliver(env: Env, row: any) {
         row.kind,
         payload,
       );
-      await assertNumberQuotaDelivery(env, row);
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
       await exec(
@@ -1227,7 +1225,6 @@ export async function deliver(env: Env, row: any) {
       row.kind,
       payload,
     );
-    await assertNumberQuotaDelivery(env, row);
     if (
       ["meta", "zernio"].includes(connection.kind) &&
       payload.router_source &&
@@ -1328,9 +1325,7 @@ export async function deliver(env: Env, row: any) {
   } catch (error) {
     const status =
       error instanceof ApiError &&
-      ["number_policy_denied", "quota_exhausted", "message_expired"].includes(
-        error.code,
-      )
+      ["number_policy_denied", "message_expired"].includes(error.code)
         ? "cancelled"
         : error instanceof ApiError && error.status === 409
           ? "pending"

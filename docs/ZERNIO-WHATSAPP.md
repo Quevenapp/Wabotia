@@ -10,7 +10,7 @@ O Wabotia importa telefones WhatsApp já cadastrados na Zernio, que intermedeia 
 4. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, fuso, API key e segredo do webhook. Pode deixar **ID da integração na Zernio** vazio. Salve e clique em **Encontrar ID na Zernio**. Escolha pelo nome, confira o ID encontrado e clique em **Usar esta integração**. Isso usa a chave já salva e não cria cadastros na Zernio. Se tiver informado um Account ID por engano, o Wabotia consegue reconhecer a integração à qual aquele telefone pertence. A correção só é permitida antes de vincular telefones ou grupos, preservando as credenciais e a URL do webhook.
 5. Confira se o telefone desejado já está disponível na Zernio. Se estiver ausente, gerencie o cadastro diretamente no painel Zernio antes de refazer a busca no Wabotia.
 6. Abra **Telefones → Buscar telefones na Zernio**. Cada telefone tem seu próprio **ID do telefone na Zernio**, identificado pelo campo **Account ID** no provedor.
-7. Selecione o telefone, confira o consumo inicial, defina o limite local de serviço e adicione. Esse limite não garante gratuidade na Zernio. A linha começa pausada.
+7. Selecione o telefone, dê um nome e adicione. Não é necessário informar consumo anterior ou limite local. A linha começa pausada.
 
 ## Receber mensagens e recibos
 
@@ -42,9 +42,10 @@ Se a Zernio recusar **Encontrar ID na Zernio** ou **Buscar telefones**, o painel
 
 ## Regras e limites
 
-- A janela de atendimento de 24 horas continua vinculada ao telefone que recebeu a última mensagem do cliente. Fora dela, use template aprovado e consentimento apropriado.
+- A janela de atendimento termina 24 horas após a última mensagem recebida do cliente, no mesmo telefone. Cada nova mensagem do cliente renova o prazo; respostas e templates enviados não renovam. O chat mostra a última mensagem e o vencimento. Fora da janela, use template aprovado e consentimento apropriado.
 - Templates que iniciam uma conversa aceitam variáveis de texto, cabeçalhos de mídia compatíveis, botões de URL e de copiar código (COPY_CODE). A API de abertura da Zernio não oferece payload personalizado para botões QUICK_REPLY: esse envio é recusado antes de abrir a conversa. Use um template sem esse payload; em conversas já existentes, os componentes do template seguem pelo endpoint de resposta.
-- Contadores e limites locais não substituem as faturas. A Zernio e a Meta podem cobrar serviços diferentes; confira as [tarifas atuais](https://docs.zernio.com/platforms/whatsapp/pricing).
+- Não há teto local de mensagens. Em **Telefones**, os totais mensais contam somente mensagens com entrega/leitura confirmada, separando atendimento na janela, template de atendimento (UTILITY) e marketing. Autenticação e categoria não identificada aparecem quando houver uso. O mês segue o fuso da integração, desde o início do acompanhamento. Confira as [tarifas atuais](https://docs.zernio.com/platforms/whatsapp/pricing) para cobrança; os totais não estimam preço.
+- Abra **Templates da Zernio** no telefone para buscar os modelos já cadastrados por nome, texto, idioma, categoria e status. Consultar não envia mensagens nem cria templates. A gestão e aprovação continuam no provedor.
 - Os tipos de mensagem e operações disponíveis são apresentados conforme as capacidades da conexão.
 - Grupos empresariais exigem telefone elegível sem coexistência com o aplicativo. Confira a Zernio antes de habilitar o recurso e sincronize os grupos em **Grupos WhatsApp** antes de receber mensagens deles, para que sejam identificados corretamente.
 - O áudio de chamadas pelo navegador do Wabotia não está disponível na integração Zernio. Históricos anteriores são mantidos; as [opções de chamada da Zernio](https://docs.zernio.com/platforms/whatsapp/calling) possuem configuração própria.

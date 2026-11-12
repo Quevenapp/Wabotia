@@ -140,6 +140,21 @@ it("recebe webhook assinado, preserva telefone/identidade remota e deduplica ree
     phone: "5511888881234",
     external_namespace: `channel:${f.id}`,
   });
+  const who = await user(f.profile),
+    beforeDetail = now();
+  const detail = await SELF.fetch(
+    `https://test/api/v1/profiles/${f.profile}/conversations/${conversation.id}`,
+    {
+      headers: { Authorization: `Bearer ${who.token}` },
+    },
+  );
+  expect(detail.status).toBe(200);
+  const view = await detail.json<any>();
+  expect(view.connection_kind).toBe("zernio");
+  expect(view.server_now).toBeGreaterThanOrEqual(beforeDetail);
+  expect(view.server_now).toBeLessThanOrEqual(now());
+  expect(view.conversation.last_customer).toBe(Date.parse(body.message.sentAt));
+  expect(view.config).toBeUndefined();
   expect(
     await one(
       env,

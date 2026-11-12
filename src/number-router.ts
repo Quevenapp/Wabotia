@@ -1,12 +1,7 @@
 import { all, one, exec, batch } from "./db";
 import { Env, Actor, ApiError, json, uid, now, requireValue } from "./types";
 import { access, admin, random } from "./security";
-import {
-  numberUsage,
-  assertNumberQuotaAvailable,
-  quotaExhausted,
-  vinkiFreeOnly,
-} from "./number-quota";
+import { numberUsage, vinkiFreeOnly } from "./number-quota";
 import { conversation, enqueue, perform } from "./service";
 import { outgoingContent } from "./whatsapp";
 import { paidTemplate } from "./router-templates";
@@ -83,7 +78,7 @@ export async function managedAppAllowed(
 async function numbers(env: Env, profile: string) {
   return all(
     env,
-    `SELECT c.*,n.account_id,n.phone_id,n.service_limit,n.baseline_period,n.baseline_used FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.profile_id=? ORDER BY c.created,c.id`,
+    `SELECT c.*,n.account_id,n.phone_id FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.profile_id=? ORDER BY c.created,c.id`,
     profile,
   );
 }
@@ -108,7 +103,7 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
     pool.members.forEach((id: string) => visibleNumbers.add(id));
     if (actor.kind === "app") delete pool.public_token;
     // Older installations may persist least_used/random. All new admissions
-    // now rotate fairly, prioritizing the available free service allowance.
+    // now rotate fairly without using monthly message volume as a limit.
     pool.strategy = "round_robin";
     pools.push(pool);
   }
@@ -161,7 +156,7 @@ export async function selectPoolNumbers(
   poolId: string,
   paid = false,
   actor?: Actor,
-  freeOnly = false,
+  _freeOnly = false,
 ) {
   const pool = await one(
     env,
@@ -182,7 +177,6 @@ export async function selectPoolNumbers(
       "Grupo de números não encontrado ou pausado.",
     );
   const candidates = [];
-  let exhausted = 0;
   for (const row of await all(
     env,
     "SELECT c.*,m.last_selected FROM connections c JOIN number_pool_members m ON m.connection_id=c.id JOIN meta_numbers n ON n.connection_id=c.id WHERE m.pool_id=? AND c.profile_id=? AND c.status='active' AND n.account_id=?",
@@ -194,32 +188,14 @@ export async function selectPoolNumbers(
     if (!policy.pool || !(paid ? policy.templates : policy.service)) continue;
     if (actor && !(actor.kind === "app" ? policy.api : policy.human)) continue;
     const usage = await numberUsage(env, row.id);
-    if (
-      !paid &&
-      (freeOnly || !policy.service_overage) &&
-      usage &&
-      usage.free_remaining <= 0
-    ) {
-      exhausted++;
-      continue;
-    }
     if (usage)
       candidates.push({
         ...row,
         usage,
       });
   }
-  if (!candidates.length && exhausted) throw quotaExhausted();
   candidates.sort(
-    (a, b) =>
-      // Templates have independent pricing; service first rotates among free
-      // numbers, then among paid numbers when every free allowance is used.
-      (paid
-        ? 0
-        : Number(b.usage.free_remaining > 0) -
-          Number(a.usage.free_remaining > 0)) ||
-      a.last_selected - b.last_selected ||
-      a.id.localeCompare(b.id),
+    (a, b) => a.last_selected - b.last_selected || a.id.localeCompare(b.id),
   );
   return candidates;
 }
@@ -297,13 +273,12 @@ export async function routerCommand(
     );
     requireValue(
       ["official", "service_only", "custom"].includes(policy.purpose) &&
-        numberPolicyFlags.every(
-          (flag) =>
-            (flag === "service_overage" && policy[flag] === undefined) ||
-            typeof policy[flag] === "boolean",
-        ) &&
+        numberPolicyFlags.every((flag) => typeof policy[flag] === "boolean") &&
         Object.keys(policy).every(
-          (key) => key === "purpose" || numberPolicyFlags.includes(key as any),
+          (key) =>
+            key === "purpose" ||
+            key === "service_overage" ||
+            numberPolicyFlags.includes(key as any),
         ),
       "Informe a função e todas as opções como verdadeiro ou falso.",
     );
@@ -314,8 +289,7 @@ export async function routerCommand(
       profile,
     );
     requireValue(row, "Número não encontrado nesta área de atendimento.");
-    // Older clients cannot silently switch off a cap enabled elsewhere.
-    // With no saved policy, the historical overage behavior still applies.
+    // Ignore the retired service_overage flag from older clients.
     const normalized = numberPolicy({
       number_policy: { ...numberPolicy(json(row.config)), ...policy },
     });
@@ -484,29 +458,25 @@ export async function routerCommand(
     return { saved: true };
   }
   if (op === "router.number.limit") {
-    const limit = Number(data.service_limit);
-    requireValue(
-      Number.isSafeInteger(limit) && limit >= 0 && limit <= 1000,
-      "Informe uma franquia gratuita entre 0 e 1.000. O excedente continua com cobrança.",
-    );
     const row = await one(
       env,
-      "SELECT n.connection_id FROM meta_numbers n JOIN connections c ON c.id=n.connection_id WHERE n.connection_id=? AND c.profile_id=?",
+      "SELECT c.id FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=?",
       data.id,
       profile,
     );
-    requireValue(row, "Número não encontrado.");
-    await exec(
-      env,
-      "UPDATE meta_numbers SET service_limit=? WHERE connection_id=?",
-      limit,
-      row.connection_id,
+    if (!row)
+      throw new ApiError(
+        404,
+        "not_found",
+        "Número não encontrado nesta área de atendimento.",
+      );
+    throw new ApiError(
+      410,
+      "number_limit_removed",
+      "Limites locais de mensagens foram removidos. Consulte os totais mensais de mensagens entregues.",
     );
-    return {
-      id: row.connection_id,
-      usage: await numberUsage(env, row.connection_id),
-    };
   }
+
   throw new ApiError(400, "unknown_action", "Operação do roteador inválida.");
 }
 export async function routedMessage(
@@ -577,7 +547,7 @@ async function routedSend(
   const paid = !!data.template;
   requireValue(
     !paid || !freeOnly,
-    "Somente franquia gratuita não permite modelos pagos.",
+    "Este pedido permite somente mensagens de atendimento dentro da janela de 24 horas, sem templates.",
   );
   if (paid) {
     access(actor, profile, "routing:paid");
@@ -639,8 +609,6 @@ async function routedSend(
       {},
     );
     if (denied) throw numberPolicyError(denied);
-    if (!paid)
-      await assertNumberQuotaAvailable(env, candidates[0].id, freeOnly);
   }
   const pinned = existing?.conversation_id || data.conversation_id;
   let c: any, chosen: any;
@@ -666,8 +634,6 @@ async function routedSend(
             c.connection_id,
           );
     requireValue(belongs, "A conversa não pertence à origem escolhida.");
-    if (!paid && c.connection_id)
-      await assertNumberQuotaAvailable(env, c.connection_id, freeOnly);
     chosen = candidates.find((n) => n.id === c.connection_id);
     if (!chosen)
       throw new ApiError(
@@ -757,7 +723,6 @@ async function routedSend(
       );
   }
   let payload: any;
-  const usageBefore = paid ? null : await numberUsage(env, chosen.id);
   if (paid) {
     if (c) {
       const consent = await one(
@@ -899,14 +864,8 @@ async function routedSend(
           category: payload.paid_authorization.category,
         }
       : {
-          mode:
-            usageBefore && usageBefore.free_remaining > 0
-              ? "service_allowance"
-              : "service_paid",
+          mode: "service",
           category: "service",
-          estimated: true,
-          service_overage_allowed:
-            !freeOnly && (usageBefore?.service_overage_allowed ?? true),
         },
     usage: await numberUsage(env, c.connection_id),
   };

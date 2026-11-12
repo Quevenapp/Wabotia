@@ -74,12 +74,6 @@ export const routerSchemas = {
         type: "boolean",
         description: "Respostas sem template dentro da janela de 24h.",
       },
-      service_overage: {
-        type: "boolean",
-        default: true,
-        description:
-          "False ativa Somente franquia gratuita: reservas de serviço são admitidas atomicamente até a franquia local. Saldo local não garante fatura sem cobrança. Omitir preserva a opção salva; linhas sem opção salva permitem excedente por compatibilidade.",
-      },
       templates: {
         type: "boolean",
         description:
@@ -115,26 +109,17 @@ export const routerSchemas = {
   RouterUsage: {
     type: "object",
     description:
-      "Estimativa local de uso; não é uma fatura da Zernio ou Meta. Uso inclui o histórico inicial, entregas e reservas. service_overage_allowed=false bloqueia excedentes de serviço pelo contador conservador. Reservas sem confirmação atravessam o mês. Templates não consomem a franquia de serviço. limit/remaining são aliases legados de free_allowance/free_remaining.",
+      "Mensagens com entrega confirmada (delivered/read) no mês e fuso da integração, desde monitored_at. Recibos duplicados contam uma vez. Fila, aceitação sent, envios sem confirmação e uso inicial manual não entram. Categorias descrevem o tipo da mensagem, não preço; UTILITY continua template mesmo sem cobrança. Não há saldo nem teto local. Envios externos só aparecem quando seus recibos chegam ao Wabotia.",
     properties: Object.fromEntries([
       ["period", { type: "string", example: "2026-11" }],
       ["timezone", { type: "string", example: "America/Sao_Paulo" }],
-      ["service_overage_allowed", { type: "boolean" }],
       ...[
-        "limit",
-        "baseline",
-        "used",
-        "remaining",
-        "free_allowance",
-        "free_remaining",
-        "paid_service_estimated",
-        "reserved",
         "delivered",
         "service_delivered",
-        "template_delivered",
-        "free_confirmed",
-        "billable_confirmed",
-        "pricing_unknown",
+        "utility_delivered",
+        "marketing_delivered",
+        "authentication_delivered",
+        "unclassified_delivered",
         "monitored_at",
       ].map((key) => [key, { type: "integer", minimum: 0 }]),
     ]),
@@ -170,7 +155,7 @@ export const routerSchemas = {
             strategy: {
               const: "round_robin",
               description:
-                "Rodízio com prioridade aos números com franquia gratuita. Linhas sem saldo que proíbem excedente saem da seleção; as demais podem continuar com serviço pago.",
+                "Rodízio entre telefones disponíveis e autorizados, sem cotas locais. A janela pertence ao mesmo telefone que recebeu a mensagem do cliente.",
             },
             enabled: { type: "integer" },
             allow_paid: { type: "integer" },
@@ -207,14 +192,14 @@ export const routerSchemas = {
     ...sources,
     not: { required: ["template"] },
     description:
-      "Janela real de 24 horas aberta neste mesmo número. Se free_only=true ou service_overage=false, saldo esgotado retorna quota_exhausted sem trocar remetente. Vinki pareado exige free_only automaticamente, mesmo quando omitido ou falso. Caso contrário o serviço pode continuar com cobrança após a franquia. routing:paid/allow_paid se aplicam somente a templates. A janela vencida continua bloqueando texto livre. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
+      "Exige janela real de 24 horas desde a última mensagem do cliente neste mesmo telefone. Sem limite local de mensagens. routing:paid/allow_paid se aplicam somente a templates. A janela vencida continua bloqueando texto livre. Um anexo por pedido. O envio assume a conversa em nome da aplicação; não pode tomar atendimento de outra pessoa.",
     properties: {
       ...sourceProperties,
       free_only: {
         type: "boolean",
         default: false,
         description:
-          "Exige saldo no contador conservador para este pedido, mesmo se a linha permite excedente. A reserva é atômica, permanece na fila e é revalidada antes da entrega. Não garante fatura sem cobrança. Obrigatório por regra do servidor para aplicações pareadas como Vinki.",
+          "Campo legado que restringe o pedido a mensagens sem template. Não impõe saldo ou teto de mensagens e não garante gratuidade. Aplicações pareadas como Vinki mantêm essa restrição a templates.",
       },
       text: { type: "string", maxLength: 4096 },
       attachments: { type: "array", maxItems: 1, items: id },
@@ -352,16 +337,15 @@ export const routerSchemas = {
         type: "object",
         properties: {
           mode: {
-            enum: ["service_allowance", "service_paid", "paid_template"],
+            enum: ["service", "paid_template"],
           },
           authorized: { type: "boolean" },
           category: { type: "string" },
           estimated: {
             type: "boolean",
             description:
-              "A classificação de serviço usa o contador local; a cobrança final é informada pela Meta.",
+              "O Wabotia não estima preços ou franquias. A cobrança é definida pelo provedor.",
           },
-          service_overage_allowed: { type: "boolean" },
         },
       },
     },
@@ -422,7 +406,7 @@ export const routerSchemas = {
   },
   RouterNumber: {
     type: "object",
-    required: ["account_id", "baseline_confirmed"],
+    required: ["account_id"],
     anyOf: [{ required: ["accountId"] }, { required: ["phone_id"] }],
     description:
       "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é o ID local da integração Zernio no Wabotia; accountId é o ID do telefone na Zernio. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
@@ -445,30 +429,6 @@ export const routerSchemas = {
           "Alias de accountId; não aceita mais Phone Number ID da Meta.",
       },
       name: { type: "string" },
-      baseline_used: {
-        type: "integer",
-        minimum: 0,
-        maximum: 100000000,
-        default: 0,
-      },
-      baseline_confirmed: { const: true },
-      service_limit: {
-        type: "integer",
-        minimum: 0,
-        maximum: 1000,
-        default: 1000,
-        description:
-          "Limite local mensal estimado para priorizar novas entradas e limitar o envio quando service_overage=false. Não representa uma gratuidade contratada da Zernio ou Meta.",
-      },
-    },
-  },
-  RouterLimit: {
-    type: "object",
-    description:
-      "Atualiza a franquia gratuita estimada. Se service_overage=false, reduz também o limite de admissão e mensagens pendentes excedentes são bloqueadas antes do envio.",
-    required: ["service_limit"],
-    properties: {
-      service_limit: { type: "integer", minimum: 0, maximum: 1000 },
     },
   },
   RouterPool: {
@@ -488,14 +448,14 @@ export const routerSchemas = {
         enum: ["least_used", "round_robin", "random"],
         default: "round_robin",
         description:
-          "Novos e antigos grupos usam rodízio com prioridade à franquia. Valores legados least_used/random são aceitos por compatibilidade e normalizados para round_robin.",
+          "Novos e antigos grupos usam rodízio sem cotas locais. Valores legados least_used/random são aceitos por compatibilidade e normalizados para round_robin.",
       },
       enabled: { type: "boolean", default: false },
       allow_paid: {
         type: "boolean",
         default: false,
         description:
-          "Habilita templates pagos. Excedente de serviço depende de service_overage na linha, não desta opção.",
+          "Habilita templates com autorização individual de possível cobrança. Não limita mensagens de atendimento na janela de 24 horas.",
       },
       public_enabled: {
         type: "boolean",
@@ -577,16 +537,15 @@ export const routerOperations: [string, string, string, string, string?][] = [
   [
     "post",
     "/profiles/{profile}/router/numbers",
-    "Adicionar número descoberto com uso inicial",
+    "Adicionar telefone já cadastrado na Zernio",
     "administrador humano",
     "RouterNumber",
   ],
   [
-    "put",
-    "/profiles/{profile}/router/numbers/{id}/limit",
-    "Alterar franquia gratuita estimada",
-    "administrador humano",
-    "RouterLimit",
+    "get",
+    "/profiles/{profile}/router/numbers/{id}/templates",
+    "Localizar templates cadastrados na Zernio para este telefone",
+    "equipe da área; aplicações com routing:read e origem autorizada",
   ],
   [
     "put",

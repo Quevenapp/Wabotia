@@ -269,20 +269,6 @@ export async function zernioAccountCommand(
       )),
       "Pause a conexão anterior deste telefone e reconcilie as entregas antes de cadastrar.",
     );
-    requireValue(
-      data.baseline_confirmed === true,
-      "Confira o contador inicial antes de cadastrar.",
-    );
-    const baseline = Number(data.baseline_used ?? 0),
-      limit = Number(data.service_limit ?? 1000);
-    requireValue(
-      Number.isSafeInteger(baseline) && baseline >= 0 && baseline <= 100000000,
-      "Uso inicial inválido.",
-    );
-    requireValue(
-      Number.isSafeInteger(limit) && limit >= 0 && limit <= 1000,
-      "O limite local deve estar entre 0 e 1.000 mensagens.",
-    );
     const id = uid(),
       created = now();
     const config = {
@@ -304,14 +290,12 @@ export async function zernioAccountCommand(
         ],
       ],
       [
-        "INSERT INTO meta_numbers(connection_id,account_id,phone_id,service_limit,baseline_period,baseline_used,monitored_at) VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO meta_numbers(connection_id,account_id,phone_id,baseline_period,monitored_at) VALUES(?,?,?,?,?)",
         [
           id,
           account.id,
           remote,
-          limit,
           billingPeriod(created, account.timezone),
-          baseline,
           created,
         ],
       ],

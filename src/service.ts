@@ -497,10 +497,15 @@ export async function inbound(
     });
   }
   const key = `${profile}:${namespace}:${data.external_id}:${data.message_id}`;
+  const receivedAt = now();
   const customerAt =
-    connectionId && Number.isFinite(data.customer_at) && data.customer_at > 0
-      ? Math.min(now(), data.customer_at)
-      : now();
+    connectionId && Object.prototype.hasOwnProperty.call(data, "customer_at")
+      ? Number.isFinite(data.customer_at) &&
+        data.customer_at > 0 &&
+        data.customer_at <= receivedAt + 300000
+        ? Math.min(receivedAt, data.customer_at)
+        : 0
+      : receivedAt;
   const old = await one(
     env,
     "SELECT conversation_id FROM inbox WHERE event_key=?",

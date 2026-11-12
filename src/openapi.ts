@@ -1363,7 +1363,51 @@ export function openapi(origin: string) {
     if (path.includes("/router")) {
       entry.tags = ["Roteador WhatsApp"];
       entry.description +=
-        " A Zernio intermedeia a conexão WhatsApp com a Meta. Os limites externos e a cobrança dependem da Zernio e Meta. Sem troca automática do remetente de uma conversa. O contador local não garante ausência de cobranças.";
+        " A Zernio intermedeia a conexão WhatsApp com a Meta. Os limites externos e a cobrança dependem da Zernio e Meta. Sem troca automática do remetente de uma conversa. Os totais mensais registram entregas confirmadas por categoria, sem teto local ou estimativa de preço.";
+      if (path.endsWith("/router/numbers/{id}/templates")) {
+        entry.description +=
+          " Consulta os templates já cadastrados para o telefone usando a chave salva. Não envia mensagens nem cria modelos. Retorna todas as variantes de idioma, inclusive não aprovadas; somente APPROVED pode ser enviado pelas rotas de mensagem autorizadas.";
+        entry.parameters.push(
+          ...["name", "category", "language", "status"].map((name) => ({
+            name,
+            in: "query",
+            required: false,
+            schema: { type: "string" },
+            description:
+              name === "name"
+                ? "Parte do nome, sem diferenciar maiúsculas."
+                : "Valor exato, sem diferenciar maiúsculas.",
+          })),
+        );
+        success.content["application/json"].schema = {
+          type: "object",
+          required: ["data"],
+          properties: {
+            data: {
+              type: "array",
+              items: {
+                type: "object",
+                required: [
+                  "id",
+                  "name",
+                  "language",
+                  "status",
+                  "category",
+                  "components",
+                ],
+                properties: {
+                  ...Object.fromEntries(
+                    ["id", "name", "language", "status", "category"].map(
+                      (key) => [key, { type: "string" }],
+                    ),
+                  ),
+                  components: { type: "array", items: { type: "object" } },
+                },
+              },
+            },
+          },
+        };
+      }
       const resultSchema = path.endsWith("/router")
         ? "RouterView"
         : path.endsWith("/router/messages")

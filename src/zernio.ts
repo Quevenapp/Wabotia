@@ -729,13 +729,22 @@ export async function zernioInbound(
   ) {
     if (!m?.platformMessageId)
       return Response.json({ received: true, ignored: true });
+    // Status time belongs to the delivery event, not the original send. Using
+    // sentAt here could charge a delivery to the wrong billing month.
+    const statusAt = date(body.statusAt),
+      eventAt = date(body.timestamp),
+      sentAt = body.event === "message.sent" ? date(m.sentAt) : NaN;
+    const timestamp =
+      [statusAt, eventAt, sentAt].find(
+        (value) => Number.isFinite(value) && value > 0,
+      ) || 0;
     return dispatch({
       event: "status",
       external_id: typeof destination === "string" ? destination : "",
       message_id: m.platformMessageId,
       status: body.event.slice(8),
       pricing: body.pricing,
-      timestamp: date(body.statusAt || m.sentAt || body.timestamp) || now(),
+      timestamp,
     });
   }
   if (body.event === "reaction.received") {
@@ -765,8 +774,7 @@ export async function zernioInbound(
     typeof destination === "string" &&
       destination &&
       typeof m.platformMessageId === "string" &&
-      m.platformMessageId &&
-      Number.isFinite(date(m.sentAt)),
+      m.platformMessageId,
     "Mensagem Zernio inválida.",
   );
   const known = await one(
@@ -865,11 +873,19 @@ export async function zernioInbound(
   const rawPhone =
     m.sender?.phoneNumber ||
     (/^\d{8,16}$/.test(m.sender?.id || "") ? m.sender.id : null);
+  const sentAt = date(m.sentAt),
+    receivedAt = now();
+  // Keep malformed/future-dated messages, but do not open a free-form window
+  // from an unknown customer time. Small platform clock skew is capped at now.
+  const customerAt =
+    Number.isFinite(sentAt) && sentAt > 0 && sentAt <= receivedAt + 300000
+      ? Math.min(receivedAt, sentAt)
+      : 0;
   return dispatch({
     external_id: destination,
     phone: !group && rawPhone ? rawPhone.replace(/^\+/, "") : null,
     message_id: m.platformMessageId,
-    customer_at: date(m.sentAt),
+    customer_at: customerAt,
     text,
     attachments,
     content,

@@ -14,6 +14,7 @@ import {
 import Recorder from "opus-recorder";
 import encoderPath from "opus-recorder/dist/encoderWorker.min.js?url";
 import { CallPanel } from "./WhatsAppCalls";
+import { WhatsAppServiceWindow } from "./WhatsAppServiceWindow";
 type Row = Record<string, any>;
 const parse = (v: any, f: any = {}) => {
   try {
@@ -294,6 +295,12 @@ export function WhatsAppConversation({
   const members = parse(selection.group?.participants, []);
   return (
     <>
+      {selection.connection_kind === "zernio" && c.chat_type !== "group" && (
+        <WhatsAppServiceWindow
+          lastCustomer={c.last_customer}
+          serverNow={selection.server_now}
+        />
+      )}
       <CallPanel
         api={api}
         root={root}

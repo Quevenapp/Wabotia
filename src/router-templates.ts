@@ -6,6 +6,116 @@ import { zernioPresignType } from "./zernio-media";
 import { authorizedMedia } from "./media";
 import { validateMedia } from "./whatsapp";
 
+/** Only template definition fields are exposed; never provider/account metadata. */
+function catalogComponent(input: any, depth = 0): any {
+  if (!input || typeof input !== "object" || Array.isArray(input) || depth > 5)
+    return null;
+  const result: Record<string, any> = {};
+  for (const key of ["type", "format", "text", "url", "phone_number"])
+    if (typeof input[key] === "string") result[key] = input[key];
+  for (const key of ["buttons", "cards", "components"])
+    if (Array.isArray(input[key]))
+      result[key] = input[key]
+        .map((item: any) => catalogComponent(item, depth + 1))
+        .filter(Boolean);
+  return result;
+}
+
+export async function templateCatalog(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  connection: string,
+  filters: Record<string, unknown> = {},
+) {
+  access(actor, profile, "routing:read");
+  const conn = await one(
+    env,
+    "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE c.id=? AND c.profile_id=? AND c.kind='zernio'",
+    connection,
+    profile,
+  );
+  if (!conn)
+    throw new ApiError(
+      404,
+      "not_found",
+      "Telefone Zernio não encontrado nesta área de atendimento.",
+    );
+  if (
+    actor.kind === "app" &&
+    !(await one(
+      env,
+      `SELECT g.source_id FROM number_router_grants g
+       WHERE g.app_id=? AND g.profile_id=? AND (
+         (g.source_type='number' AND g.source_id=?) OR
+         (g.source_type='pool' AND EXISTS(
+           SELECT 1 FROM number_pools p JOIN number_pool_members m ON m.pool_id=p.id
+           WHERE p.id=g.source_id AND p.profile_id=? AND m.connection_id=?
+         ))
+       ) LIMIT 1`,
+      actor.id.replace(/^app:/, ""),
+      profile,
+      connection,
+      profile,
+      connection,
+    ))
+  )
+    throw new ApiError(
+      404,
+      "not_found",
+      "Telefone Zernio não encontrado nesta área de atendimento.",
+    );
+  const query: Record<string, string> = {};
+  for (const [key, limit] of [
+    ["name", 512],
+    ["category", 40],
+    ["language", 20],
+    ["status", 40],
+  ] as const) {
+    const value = filters[key];
+    requireValue(
+      value === undefined ||
+        (typeof value === "string" && value.length <= limit),
+      "Filtro de templates inválido.",
+    );
+    query[key] = typeof value === "string" ? value.trim().toLowerCase() : "";
+  }
+  // Zernio's endpoint returns the complete template list, one name/language
+  // variant per entry. Filter locally so name can be a substring and category
+  // does not become an unsupported provider query parameter.
+  const result = await zernioTemplates(env, conn);
+  const data = result.data
+    .map((template: any) => {
+      requireValue(
+        template &&
+          ["id", "name", "language", "status", "category"].every(
+            (key) => typeof template[key] === "string",
+          ),
+        "A Zernio retornou um template inválido.",
+      );
+      return {
+        id: template.id,
+        name: template.name,
+        language: template.language,
+        status: template.status,
+        category: template.category,
+        components: Array.isArray(template.components)
+          ? template.components
+              .map((component: any) => catalogComponent(component))
+              .filter(Boolean)
+          : [],
+      };
+    })
+    .filter(
+      (template: any) =>
+        (!query.name || template.name.toLowerCase().includes(query.name)) &&
+        ["category", "language", "status"].every(
+          (key) => !query[key] || template[key].toLowerCase() === query[key],
+        ),
+    );
+  return { data };
+}
+
 function textParameters(definition: string, supplied: any, named: boolean) {
   const names = [
     ...new Set(

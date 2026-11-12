@@ -17,7 +17,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   [
     "templates",
     "Templates aprovados",
-    "Permite modelos pagos, sempre com autorização explícita em cada envio.",
+    "Permite templates aprovados, com consentimento e autorização para eventuais cobranças em cada envio.",
   ],
   [
     "human",
@@ -99,33 +99,10 @@ export function NumberPolicyEditor({
         </label>
         <p>
           Escolher uma função preenche as opções abaixo. Confira e salve para
-          aplicar. A opção Vinki bloqueia o excedente da cota local; linhas
-          existentes mudam apenas depois de salvar.
+          aplicar. A opção Vinki permite respostas de serviço dentro da janela
+          de 24 horas e bloqueia templates. Linhas existentes mudam apenas
+          depois de salvar.
         </p>
-        <label className="check-line">
-          <input
-            type="checkbox"
-            checked={!draft.service_overage}
-            disabled={busy}
-            onChange={(event) => {
-              setDraft({
-                ...draft,
-                purpose: "custom",
-                service_overage: !event.target.checked,
-              });
-              setDirty(true);
-            }}
-          />
-          <span>
-            <strong>Bloquear excedente da cota local</strong>
-            <small>
-              Bloqueia novas mensagens de serviço quando o contador conservador
-              atingir a cota configurada. O número da conversa permanece o
-              mesmo. O contador não garante gratuidade e não substitui a fatura
-              do provedor.
-            </small>
-          </span>
-        </label>
         <div className="number-policy-options">
           {options.map(([flag, title, description]) => (
             <label className="check-line" key={flag}>
@@ -152,11 +129,9 @@ export function NumberPolicyEditor({
         <p className="number-policy-note">
           Receber mensagens e guardar o histórico continuam disponíveis. A
           janela de 24 horas vale somente para o número que recebeu a mensagem
-          do cliente.{" "}
-          {draft.service_overage
-            ? "O excedente de serviço está permitido e pode ser cobrado."
-            : "O excedente de serviço está bloqueado pelo contador local. Templates seguem suas permissões próprias."}{" "}
-          Ativar esta permissão não ativa o canal ou a área de atendimento.
+          do cliente. Templates e outras mensagens enviadas não abrem nem
+          renovam essa janela. Templates seguem suas permissões próprias. Ativar
+          esta permissão não ativa o canal ou a área de atendimento.
         </p>
         <button className="primary" disabled={busy || !dirty}>
           Salvar função e permissões

@@ -6,8 +6,9 @@ import {
   zernioInbound,
   verifyZernioWebhook,
 } from "./zernio";
-import { routerView, routedMessage } from "./number-router";
+import { routerView, routedMessage, routerCommand } from "./number-router";
 import { zernioAccountCommand } from "./zernio-accounts";
+import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
 import { teamDirectory, listInternalChats, internalChatDetail } from "./team";
 import { MAX_DEVICES_PER_USER } from "./mobile-limits";
@@ -689,6 +690,18 @@ app.post("/api/v1/profiles/:profile/router/accounts/:id/connect", async (c) =>
     ),
   ),
 );
+app.put("/api/v1/profiles/:profile/router/numbers/:id/limit", async (c) =>
+  c.json(
+    await routerCommand(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      "router.number.limit",
+      { id: c.req.param("id") },
+      "",
+    ),
+  ),
+);
 const commands = [
   ["PUT", "lines/:id", "line.save"],
   ["POST", "internal-chats", "internal.create"],
@@ -698,7 +711,6 @@ const commands = [
   ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
   ["POST", "router/accounts/:id/resolve", "zernio-account.resolve"],
   ["POST", "router/numbers", "zernio-number.save"],
-  ["PUT", "router/numbers/:id/limit", "router.number.limit"],
   ["PUT", "router/numbers/:id/policy", "router.number.policy"],
   ["POST", "router/pools", "router.pool.save"],
   ["PUT", "router/grants", "router.grants.save"],
@@ -819,6 +831,17 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
 });
 app.get("/api/v1/profiles/:profile/router", async (c) =>
   c.json(await routerView(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/router/numbers/:id/templates", async (c) =>
+  c.json(
+    await templateCatalog(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+      c.req.query(),
+    ),
+  ),
 );
 app.get("/api/v1/profiles/:profile/lines", async (c) =>
   c.json(await listLines(c.env, c.get("actor"), c.req.param("profile"))),
@@ -1128,6 +1151,8 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   );
   return c.json({
     conversation: conv,
+    connection_kind: conn?.kind || null,
+    server_now: now(),
     media,
     capabilities: conn ? capabilities(conn, conv.chat_type) : {},
     group:

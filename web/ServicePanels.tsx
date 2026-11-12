@@ -305,7 +305,7 @@ export function LinesPanel(props: Props) {
         </p>
         <p>
           Cadastre novas linhas em Telefones. Os atendimentos mantêm o número de
-          origem, inclusive após atingir a cota local.
+          origem durante toda a conversa.
         </p>
         {error && (
           <div className="notice error" role="alert">

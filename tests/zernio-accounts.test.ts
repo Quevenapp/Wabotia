@@ -344,15 +344,12 @@ it("interrompe cursor repetido sem salvar uma descoberta parcial", async () => {
   ).toBe(0);
 });
 
-it("cadastra somente número descoberto, com contador confirmado, e impede duplicatas", async () => {
+it("cadastra somente número descoberto sem exigir contador ou limite e impede duplicatas", async () => {
   const f = await fixture(),
     number = connected(f.remote);
   const data = {
     account_id: f.account,
     accountId: number._id,
-    baseline_used: 10,
-    service_limit: 100,
-    baseline_confirmed: true,
   };
   await expect(
     zernioAccountCommand(env, admin, f.profile, "zernio-number.save", data),
@@ -364,12 +361,6 @@ it("cadastra somente número descoberto, com contador confirmado, e impede dupli
       accountId: remoteId(),
     }),
   ).rejects.toThrow(/não encontrado/);
-  await expect(
-    zernioAccountCommand(env, admin, f.profile, "zernio-number.save", {
-      ...data,
-      baseline_confirmed: false,
-    }),
-  ).rejects.toThrow(/contador/);
   const result = await zernioAccountCommand(
     env,
     admin,
@@ -379,7 +370,12 @@ it("cadastra somente número descoberto, com contador confirmado, e impede dupli
   );
   expect(result).toMatchObject({
     status: "paused",
-    usage: { baseline: 10, limit: 100, remaining: 90 },
+    usage: {
+      delivered: 0,
+      service_delivered: 0,
+      utility_delivered: 0,
+      marketing_delivered: 0,
+    },
   });
   const line = await one(
     env,

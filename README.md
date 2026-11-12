@@ -69,7 +69,7 @@ Em **Integração Zernio**, salve o **ID da integração na Zernio** (campo téc
 
 Em cada cartão, **Função e permissões** permite separar a linha oficial das linhas de integração com 24 horas, ou escolher cada capacidade individualmente. Restrições do número prevalecem sobre grupos/aplicações e são conferidas novamente antes do envio. Alterar a função preserva histórico e consumo.
 
-O limite mensal local configurável orienta o rodízio e a estimativa de consumo. Confirme a franquia aplicável ao seu plano na Zernio. O preset Vinki bloqueia excedentes; se o excedente estiver permitido, pode haver cobrança. Templates exigem autorização e consentimento. Os contadores não substituem as faturas da Zernio ou da Meta. [Configuração e exemplos](docs/ROTEADOR.md) · [Tarifas Zernio](https://docs.zernio.com/platforms/whatsapp/pricing).
+Não há limite local de mensagens. O painel mostra mensagens entregues no mês por categoria: atendimento na janela de 24 horas, atendimento por template e marketing por template. A última mensagem recebida do cliente renova a janela no mesmo telefone; o painel mostra seu vencimento. Os templates cadastrados na Zernio podem ser consultados dentro do Wabotia. Templates continuam exigindo autorização e consentimento. [Configuração e exemplos](docs/ROTEADOR.md) · [Tarifas Zernio](https://docs.zernio.com/platforms/whatsapp/pricing).
 
 **Excluir telefones:** em Telefones ou Conexões, use **Excluir telefone**. O histórico é preservado; mensagens ainda na fila serão canceladas. Envios em andamento ou sem confirmação e ligações abertas devem ser resolvidos antes. Isso não cancela a conta no provedor. Linhas da integração Meta anterior são pausadas na atualização e precisam ser conectadas novamente pela Zernio.
 

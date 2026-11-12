@@ -23,7 +23,7 @@ Cada opção aceita `line_ids` (lista vazia significa todas as linhas) e `trigge
 
 Uma pessoa responsável pelo atendimento pode apresentar o menu principal ou um submenu. Bots também podem responder com a ação estruturada `{"action":"menu","menu_id":null}` ou com o ID de um submenu autorizado. A apresentação cria um contexto de seleção: o usuário pode digitar a opção mesmo durante atendimento humano. Navegar em submenus e abrir um aplicativo mantém o responsável; escolher atendimento humano ou um bot encaminha o atendimento correspondente.
 
-Os menus respeitam as permissões da linha e a janela de atendimento. Na API oficial, um menu em texto exige mensagem do cliente naquele número nas últimas 24 horas, mesmo quando há cobrança por mensagem. O fim da franquia gratuita não encerra a janela nem troca o remetente.
+Os menus respeitam as permissões da linha e a janela de atendimento. Na API oficial, um menu em texto exige mensagem do cliente naquele número nas últimas 24 horas. Cada nova mensagem recebida do cliente renova a janela; respostas da equipe e templates enviados não a renovam. Não há teto local de mensagens.
 
 ## Pessoas e bots
 
@@ -33,7 +33,7 @@ A ação **Transferir** aceita outra pessoa ou um bot habilitado para a linha. A
 
 ## Conversas internas privadas
 
-O chat interno não envia mensagens ao WhatsApp e não consome a franquia das linhas. Entre pessoas, o histórico pertence exclusivamente aos dois participantes. Com bots, uma execução Hermes recebe apenas o histórico daquela conversa interna; o resultado volta ao chat interno.
+O chat interno não envia mensagens ao WhatsApp e não entra nos totais das linhas. Entre pessoas, o histórico pertence exclusivamente aos dois participantes. Com bots, uma execução Hermes recebe apenas o histórico daquela conversa interna; o resultado volta ao chat interno.
 
 Administradores que não participam da conversa não têm acesso pelo painel, API, eventos ou exportação de execuções. O acesso ao banco pela infraestrutura continua sendo responsabilidade do proprietário da instalação. Remover ou desabilitar um contato preserva o histórico para o outro participante e impede novos envios. A tela recebe as 500 mensagens mais recentes; os registros anteriores permanecem no banco.
 

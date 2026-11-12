@@ -1228,6 +1228,8 @@ function App() {
     if (demo) {
       setSelection({
         conversation: row,
+        connection_kind: "zernio",
+        server_now: Date.now(),
         contact: row.contact_id
           ? demoContacts.find((c) => c.id === row.contact_id)
           : null,

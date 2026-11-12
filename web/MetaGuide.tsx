@@ -73,9 +73,9 @@ export function MetaGuide() {
             de mensagens.
           </li>
           <li>
-            Selecione cada telefone encontrado, confira o consumo inicial e
-            clique em <strong>Adicionar telefone ao Wabotia</strong>. A linha
-            entra pausada, sem alterar seu cadastro na Zernio.
+            Selecione cada telefone encontrado e clique em{" "}
+            <strong>Adicionar telefone ao Wabotia</strong>. A linha entra
+            pausada, sem alterar seu cadastro na Zernio.
           </li>
           <li>
             Ative a linha, escolha quem atende e faça um teste de entrada,

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { NumberPolicyEditor } from "./NumberPolicyEditor";
+import { MonthlyDeliveredUsage } from "./MonthlyDeliveredUsage";
+import { ZernioTemplatesCatalog } from "./ZernioTemplatesCatalog";
 import { numberPolicyPresets } from "../src/number-policy";
 import "./router-workspace.css";
 
@@ -12,7 +14,7 @@ const routerSteps = [
   {
     id: "numbers",
     title: "Telefones",
-    description: "Importe as linhas e acompanhe o uso.",
+    description: "Importe as linhas e acompanhe as entregas.",
   },
   {
     id: "distribution",
@@ -67,17 +69,14 @@ const sample = {
       status: "active",
       usage: {
         period: "2026-11",
-        limit: 1000,
-        used: 842,
-        remaining: 158,
-        reserved: 2,
+        timezone: "America/Sao_Paulo",
         delivered: 852,
         service_delivered: 840,
-        template_delivered: 12,
-        free_confirmed: 840,
-        billable_confirmed: 12,
-        baseline: 0,
-        pricing_unknown: 0,
+        utility_delivered: 8,
+        marketing_delivered: 4,
+        authentication_delivered: 0,
+        unclassified_delivered: 0,
+        monitored_at: Date.now() - 86400000 * 20,
       },
     },
     {
@@ -89,17 +88,14 @@ const sample = {
       status: "active",
       usage: {
         period: "2026-11",
-        limit: 1000,
-        used: 635,
-        remaining: 365,
-        reserved: 3,
+        timezone: "America/Sao_Paulo",
         delivered: 632,
         service_delivered: 632,
-        template_delivered: 0,
-        free_confirmed: 632,
-        billable_confirmed: 0,
-        baseline: 0,
-        pricing_unknown: 0,
+        utility_delivered: 0,
+        marketing_delivered: 0,
+        authentication_delivered: 0,
+        unclassified_delivered: 0,
+        monitored_at: Date.now() - 86400000 * 20,
       },
     },
   ],
@@ -149,9 +145,6 @@ export function NumberRouter({
     }),
     [numberForm, setNumberForm] = useState<Row>({
       phone_id: "",
-      baseline_used: 0,
-      service_limit: 1000,
-      baseline_confirmed: false,
     }),
     [poolForm, setPoolForm] = useState<Row>({
       name: "",
@@ -166,8 +159,7 @@ export function NumberRouter({
       numbers: [],
       pools: [],
       allow_paid: false,
-    }),
-    [limits, setLimits] = useState<Row>({});
+    });
   const intents = useRef(new Map<string, string>());
   const resolutionVersion = useRef(0);
   async function load() {
@@ -279,9 +271,6 @@ export function NumberRouter({
     });
     setNumberForm({
       phone_id: "",
-      baseline_used: 0,
-      service_limit: 1000,
-      baseline_confirmed: false,
     });
   }
   function clearResolution() {
@@ -915,17 +904,12 @@ export function NumberRouter({
                     ...numberForm,
                     account_id: accountId,
                     accountId: numberForm.phone_id,
-                    baseline_used: Number(numberForm.baseline_used),
-                    service_limit: Number(numberForm.service_limit),
                   },
                   "Adicionar telefone",
                 );
                 if (r)
                   setNumberForm({
                     phone_id: "",
-                    baseline_used: 0,
-                    service_limit: 1000,
-                    baseline_confirmed: false,
                   });
               }}
             >
@@ -965,54 +949,7 @@ export function NumberRouter({
                     }
                   />
                 </label>
-                <label>
-                  Mensagens de atendimento já usadas neste mês
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    max="100000000"
-                    value={numberForm.baseline_used}
-                    onChange={(e) =>
-                      setNumberForm({
-                        ...numberForm,
-                        baseline_used: e.target.value,
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  Limite local mensal de serviço (0 a 1.000)
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    max="1000"
-                    value={numberForm.service_limit}
-                    onChange={(e) =>
-                      setNumberForm({
-                        ...numberForm,
-                        service_limit: e.target.value,
-                      })
-                    }
-                  />
-                </label>
               </div>
-              <label className="check-line">
-                <input
-                  type="checkbox"
-                  required
-                  checked={numberForm.baseline_confirmed}
-                  onChange={(e) =>
-                    setNumberForm({
-                      ...numberForm,
-                      baseline_confirmed: e.target.checked,
-                    })
-                  }
-                />
-                Conferi no provedor o uso deste mês e o fuso {account.timezone}.
-                O valor inicial não inclui mensagens futuras.
-              </label>
               <p>
                 O telefone será adicionado pausado. Se ele já está no Wabotia,
                 pause e reconcilie as entregas antes. Depois confira o webhook e
@@ -1026,7 +963,7 @@ export function NumberRouter({
         )}
         {step === "numbers" && account && (
           <section className="card">
-            <h3>Seus telefones e consumo</h3>
+            <h3>Seus telefones e mensagens entregues</h3>
             {legacyAccount && (
               <p className="notice">
                 Linhas da integração Meta anterior, pausadas na atualização.
@@ -1036,11 +973,10 @@ export function NumberRouter({
               </p>
             )}
             <p>
-              Uso protegido = histórico inicial + entregas de atendimento +
-              reservas. Reservas sem confirmação não são liberadas
-              automaticamente. A mudança de mês segue o fuso configurado. A cota
-              local não garante gratuidade; confira as cobranças da Zernio e da
-              Meta.
+              Acompanhe as mensagens entregues no mês, por categoria, desde o
+              início do monitoramento no Wabotia. A mudança de mês segue o fuso
+              da integração. Os números não estimam preços nem substituem a
+              fatura do provedor.
             </p>
             {!numbers.length && (
               <p>
@@ -1063,52 +999,7 @@ export function NumberRouter({
                     </span>
                   </div>
                   <p>+{n.number}</p>
-                  <strong className="router-count">
-                    {n.usage.used} / {n.usage.limit}
-                  </strong>
-                  <span> usados ou reservados · {n.usage.period}</span>
-                  <progress
-                    aria-label={"Uso de " + n.name}
-                    value={Math.min(n.usage.used, n.usage.limit)}
-                    max={n.usage.limit || 1}
-                  />
-                  <dl>
-                    <div>
-                      <dt>Saldo da cota local</dt>
-                      <dd>{n.usage.remaining}</dd>
-                    </div>
-                    <div>
-                      <dt>Reservadas</dt>
-                      <dd>{n.usage.reserved}</dd>
-                    </div>
-                    <div>
-                      <dt>Serviço gratuito confirmado pelo provedor</dt>
-                      <dd>{n.usage.free_confirmed}</dd>
-                    </div>
-                    <div>
-                      <dt>Templates entregues</dt>
-                      <dd>{n.usage.template_delivered ?? 0}</dd>
-                    </div>
-                    <div>
-                      <dt>Serviço além da cota local (estimado)</dt>
-                      <dd>
-                        {n.usage.paid_service_estimated ??
-                          Math.max(0, n.usage.used - n.usage.limit)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Pagas confirmadas (todas as categorias)</dt>
-                      <dd>{n.usage.billable_confirmed}</dd>
-                    </div>
-                    <div>
-                      <dt>Cobrança não informada</dt>
-                      <dd>{n.usage.pricing_unknown}</dd>
-                    </div>
-                    <div>
-                      <dt>Uso anterior informado</dt>
-                      <dd>{n.usage.baseline}</dd>
-                    </div>
-                  </dl>
+                  <MonthlyDeliveredUsage usage={n.usage} />
                   <div className="router-actions">
                     <button
                       disabled={!!busy || legacyAccount}
@@ -1150,42 +1041,15 @@ export function NumberRouter({
                     >
                       Excluir telefone
                     </button>
-                    <label>
-                      Limite local
-                      <input
-                        aria-label={"Limite local de " + n.name}
-                        type="number"
-                        min="0"
-                        max="1000"
-                        value={limits[n.id] ?? n.usage.limit}
-                        onChange={(e) =>
-                          setLimits({ ...limits, [n.id]: e.target.value })
-                        }
-                      />
-                    </label>
-                    <button
-                      disabled={!!busy}
-                      onClick={() =>
-                        write(
-                          `router/numbers/${n.id}/limit`,
-                          {
-                            service_limit: Number(
-                              limits[n.id] ?? n.usage.limit,
-                            ),
-                          },
-                          "Atualizar limite local",
-                          "PUT",
-                        )
-                      }
-                    >
-                      Salvar limite
-                    </button>
                   </div>
-                  <p className="number-policy-note">
-                    {n.policy?.service_overage === false
-                      ? "Bloquear excedente da cota local: ao atingir o contador, novas mensagens de serviço são bloqueadas. O remetente da conversa é mantido."
-                      : "Ao atingir a cota local, as conversas continuam neste telefone com possível cobrança de serviço."}
-                  </p>
+                  {!legacyAccount && (
+                    <ZernioTemplatesCatalog
+                      api={api}
+                      root={root}
+                      numberId={n.id}
+                      demo={demo}
+                    />
+                  )}
                   <details className="router-technical-details">
                     <summary>Identificador para integração</summary>
                     <CopyValue value={n.id} />
@@ -1213,21 +1077,18 @@ export function NumberRouter({
             <h3>Distribuir novos atendimentos</h3>
             <div className="notice">
               <strong>Vinki e janela de 24 horas:</strong> a janela é aberta
-              pelo cliente e pertence ao telefone que recebeu a mensagem. O
-              rodízio prioriza a cota local configurada; a conversa mantém o
-              mesmo telefone. Nas permissões da linha, selecione{" "}
-              <strong>Bloquear excedente da cota local</strong> para bloquear
-              excedente de serviço. Linhas sem saldo e com essa opção ligada
-              saem da seleção de novos atendimentos. O contador local não
-              garante uma fatura sem cobrança.
+              pela mensagem do cliente e pertence ao telefone que a recebeu.
+              Templates e outras mensagens de saída não abrem nem renovam a
+              janela. O rodízio escolhe o telefone para um novo atendimento; a
+              conversa mantém o mesmo remetente.
             </div>
             <p>
               Um grupo pertence a uma integração Zernio. A escolha ocorre no
               início do atendimento e fica vinculada a ele. Grupos podem
-              compartilhar telefones; o consumo do telefone continua único.
-              Apenas telefones que permitem participar do roteamento são
-              escolhidos. Permitir templates no grupo não libera templates em um
-              telefone que os bloqueia.
+              compartilhar telefones; as entregas de cada telefone são contadas
+              uma vez. Apenas telefones que permitem participar do roteamento
+              são escolhidos. Permitir templates no grupo não libera templates
+              em um telefone que os bloqueia.
             </p>
             {!numbers.length && (
               <p className="notice">
@@ -1332,7 +1193,7 @@ export function NumberRouter({
                     Distribuição dos novos atendimentos
                     <select value="round_robin" disabled>
                       <option value="round_robin">
-                        Rodízio com prioridade ao saldo local
+                        Rodízio entre telefones disponíveis
                       </option>
                     </select>
                   </label>
