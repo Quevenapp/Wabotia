@@ -1,0 +1,74 @@
+{
+  "date": "2026-11-12T19:19:52.146Z",
+  "environment": "https://wabotia.queven.com.br",
+  "version": "0.13.0",
+  "commit": "6a81db3791e8fdb4e3b09f9bb97344f79394e03c",
+  "backup_complete": true,
+  "credential_help_links_verified": true,
+  "integration_removal_available": true,
+  "zernio_profile_resolution_available": true,
+  "provider_onboarding_removed": true,
+  "migrations": [
+    "0015_delivered_usage.sql"
+  ],
+  "delivered_usage_categories": true,
+  "no_local_message_limits": true,
+  "zernio_template_catalog": true,
+  "customer_window_display": true,
+  "pending_migrations": 0,
+  "preserved_tables": [
+    "users",
+    "profiles",
+    "connections",
+    "bots",
+    "api_keys",
+    "conversations",
+    "messages",
+    "tickets",
+    "media",
+    "meta_accounts"
+  ],
+  "connections_preserved": 0,
+  "profile_state_preserved": true,
+  "bindings_preserved": true,
+  "external_messages_sent": false,
+  "zernio_live_credentials_tested": false,
+  "checks": [
+    {
+      "route": "/api/health",
+      "status": 200
+    },
+    {
+      "route": "/api/auth/status",
+      "status": 200
+    },
+    {
+      "route": "/api/openapi.json",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-CXEge__0.js",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-CdZhEl2c.css",
+      "status": 200
+    },
+    {
+      "route": "/api/v1/profiles",
+      "status": 401
+    },
+    {
+      "route": "/webhooks/meta/release-verification",
+      "status": 410
+    },
+    {
+      "route": "/webhooks/meta-accounts/release-verification",
+      "status": 410
+    }
+  ]
+}

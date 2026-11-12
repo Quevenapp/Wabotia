@@ -5,7 +5,12 @@
   "scope": "Monthly delivered messages, searchable Zernio template catalog and customer service window",
   "viewports": {
     "desktop": "Browser default viewport",
-    "mobile": { "width": 390, "height": 844, "content_client_width": 343, "content_scroll_width": 343 }
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "content_client_width": 343,
+      "content_scroll_width": 343
+    }
   },
   "fixtures": {
     "integration": "Integração fictícia",
@@ -21,26 +26,89 @@
       "unclassified_delivered": 1
     },
     "templates": [
-      { "name": "pedido_atualizado", "category": "UTILITY", "language": "pt_BR", "status": "APPROVED" },
-      { "name": "oferta_novembro", "category": "MARKETING", "language": "pt_BR", "status": "APPROVED" },
-      { "name": "confirmar_acesso", "category": "AUTHENTICATION", "language": "en_US", "status": "PENDING" }
+      {
+        "name": "pedido_atualizado",
+        "category": "UTILITY",
+        "language": "pt_BR",
+        "status": "APPROVED"
+      },
+      {
+        "name": "oferta_novembro",
+        "category": "MARKETING",
+        "language": "pt_BR",
+        "status": "APPROVED"
+      },
+      {
+        "name": "confirmar_acesso",
+        "category": "AUTHENTICATION",
+        "language": "en_US",
+        "status": "PENDING"
+      }
     ]
   },
   "checks": [
-    { "name": "Monthly total and five category values rendered", "passed": true },
-    { "name": "Atendimento window and UTILITY template labels rendered", "passed": true },
-    { "name": "Monthly period, timezone and monitoring start displayed", "passed": true },
-    { "name": "Quota, balance and baseline controls removed", "passed": true },
-    { "name": "Synthetic phone import payload excludes baseline and limit fields", "passed": true, "payload_fields": ["phone_id", "account_id", "accountId"] },
-    { "name": "Catalog queries GET router/numbers/:id/templates on demand", "passed": true },
-    { "name": "Catalog search matches body text and translated category", "passed": true, "result_count": "1 of 3" },
-    { "name": "Template preview displays body, placeholders and button text", "passed": true },
-    { "name": "Catalog failure, manual retry and empty result states handled", "passed": true },
-    { "name": "Window displays last customer receipt, expiry and live countdown", "passed": true },
-    { "name": "Window closes automatically at 24-hour boundary", "passed": true },
-    { "name": "No customer receipt remains closed; old receipt with recent outgoing activity remains closed", "passed": true },
-    { "name": "No OAuth control or authorization link introduced", "passed": true },
-    { "name": "Desktop and mobile layouts reviewed; mobile has no horizontal overflow", "passed": true }
+    {
+      "name": "Monthly total and five category values rendered",
+      "passed": true
+    },
+    {
+      "name": "Atendimento window and UTILITY template labels rendered",
+      "passed": true
+    },
+    {
+      "name": "Monthly period, timezone and monitoring start displayed",
+      "passed": true
+    },
+    {
+      "name": "Quota, balance and baseline controls removed",
+      "passed": true
+    },
+    {
+      "name": "Synthetic phone import payload excludes baseline and limit fields",
+      "passed": true,
+      "payload_fields": [
+        "phone_id",
+        "account_id",
+        "accountId"
+      ]
+    },
+    {
+      "name": "Catalog queries GET router/numbers/:id/templates on demand",
+      "passed": true
+    },
+    {
+      "name": "Catalog search matches body text and translated category",
+      "passed": true,
+      "result_count": "1 of 3"
+    },
+    {
+      "name": "Template preview displays body, placeholders and button text",
+      "passed": true
+    },
+    {
+      "name": "Catalog failure, manual retry and empty result states handled",
+      "passed": true
+    },
+    {
+      "name": "Window displays last customer receipt, expiry and live countdown",
+      "passed": true
+    },
+    {
+      "name": "Window closes automatically at 24-hour boundary",
+      "passed": true
+    },
+    {
+      "name": "No customer receipt remains closed; old receipt with recent outgoing activity remains closed",
+      "passed": true
+    },
+    {
+      "name": "No OAuth control or authorization link introduced",
+      "passed": true
+    },
+    {
+      "name": "Desktop and mobile layouts reviewed; mobile has no horizontal overflow",
+      "passed": true
+    }
   ],
   "automated_validation": {
     "typescript": "npx tsc --noEmit passed",
@@ -54,5 +122,33 @@
     "cua_completion_reported": true,
     "user_tabs_preserved": true
   },
-  "production": { "checked": false, "reason": "Awaiting deployment notification" }
+  "production": {
+    "checked": true,
+    "checked_at": "2026-11-12T19:19:59.3774264Z",
+    "url": "https://wabotia.queven.com.br/app",
+    "release": "0.13.0",
+    "deployment_commit": "6a81db3791e8fdb4e3b09f9bb97344f79394e03c",
+    "mode": "Read-only visual smoke in a new authenticated Chrome tab",
+    "checks": [
+      "Exactly one Zernio integration is visible; no legacy Meta entries",
+      "Encontrar ID na Zernio remains present",
+      "No WhatsApp connection/OAuth button or authorization link",
+      "No saved credential value displayed; credential editor not opened",
+      "Telefones shows Buscar telefones na Zernio and cached discovered line with GREEN quality",
+      "Phone import form has only discovered-phone choice and optional display name; no baseline, monthly limit or baseline confirmation",
+      "Adicionar telefone ao Wabotia remains present and was not clicked",
+      "Seus telefones e mensagens entregues heading and delivery-monitoring explanation are visible",
+      "No imported phone exists, matching baseline"
+    ],
+    "limitations": [
+      "Production counters and template catalog require an imported phone and were not exercised; local synthetic QA passed. No phone was imported solely for validation.",
+      "No production conversation window was changed or exercised in this smoke; window behavior passed local QA and unit tests."
+    ],
+    "actions": "Opened WhatsApp e canais and Telefones only; no search, lookup, save, import, activation, message or provider operation",
+    "cleanup": {
+      "cua_completion_reported": true,
+      "created_tab_closed": true,
+      "user_tabs_preserved": true
+    }
+  }
 }
