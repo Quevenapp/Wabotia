@@ -1,0 +1,499 @@
+{
+  "date": "2026-11-12T18:37:35.908Z",
+  "environment": "https://wabotia-staging-0123-20261112.brunovnq.workers.dev",
+  "resource_name": "wabotia-staging-0123-20261112",
+  "previous_version": "0.12.2",
+  "version": "0.12.3",
+  "commit": "8e232b09f316f6c6248b635b342f87ffe9e46bfa",
+  "upgrade_method": "published catalog via authenticated panel API",
+  "installer": "public/install-wabotia.mjs --release-dir public/releases/0.12.2",
+  "external_channels": false,
+  "provider_requests": 0,
+  "provider_messages_sent": 0,
+  "updater_configured_by_installer": true,
+  "bindings_preserved": true,
+  "package_sha256": "c30129f3e20eed6f341ee8ec155f74de45c66e3f065ab245e4600fe7e1f987bf",
+  "served_bundle_sha256": "745033a8e505eb658a1563d443cdc6d4c869249e3d02cb1c0b37f1a3fbccc90d",
+  "served_bundle_matches_package": true,
+  "tables_preserved": {
+    "users": {
+      "count": 3,
+      "sha256": "d3c09c780630e918e14f983fa6ed833d908f219eb2566370290ef1941ad49def"
+    },
+    "profiles": {
+      "count": 1,
+      "sha256": "28ca586aa48530cb9a006a508d41d1217f9c6d9f5cd8566a41c8722466f70c64"
+    },
+    "applications": {
+      "count": 1,
+      "sha256": "223ad82af4bb7a55ae024a4ad3dbf4e3e045603a345a4f4f8dafccd76b79cc17"
+    },
+    "api_keys": {
+      "count": 1,
+      "sha256": "8da6795451041666b739f7604d82a4cfaf76dd2960036b3b36c00893d91820cd"
+    },
+    "conversations": {
+      "count": 2,
+      "sha256": "507c87b56992e27d21c94cd6d74ebc1c5681e64d6185fc2db583a264f6f35d29"
+    },
+    "messages": {
+      "count": 2,
+      "sha256": "7096d676c321f3ead32b51a7830ec4258212260c910ec2d51794f17af1da5f40"
+    },
+    "tickets": {
+      "count": 2,
+      "sha256": "bf18bd80cb31bf3b3c555cc14975bc5ac08243e13d98d32c04449cb25921d753"
+    },
+    "media": {
+      "count": 1,
+      "sha256": "3284444c2678166af6e8395b5ac476cc8d880590a684e0060e87b2bebc4d0502"
+    }
+  },
+  "integration_tables_preserved": {
+    "meta_accounts": {
+      "count": 4,
+      "sha256": "edac2bdf998e8d1b8a6d200c1a4facbfa53870ee1f97dde970d1fba9cb59914c"
+    },
+    "connections": {
+      "count": 1,
+      "sha256": "e3647254e13566852b7de28c758ad20f58989ebcded5c02b07a8ae5f27703bbc"
+    },
+    "meta_numbers": {
+      "count": 1,
+      "sha256": "ff62a01f667a51727f7e0d95e0e0e0d4aa8b0e77190625cb15acaf540ab85a23"
+    },
+    "number_pools": {
+      "count": 2,
+      "sha256": "f63ee76af18e2200a8fb8e1646aeabdca3d4f2ee5f62ec645c362c8a57fc42fc"
+    },
+    "number_router_grants": {
+      "count": 1,
+      "sha256": "1253ade923e89b2438ded2f4ff6f92bd382fca2ee82397ce385dcbbf7cc86cb5"
+    },
+    "outbox": {
+      "count": 1,
+      "sha256": "269c61e4e403258ae23b38ebced4ef5633b3ce592923e54c7e5920bef8b40e23"
+    },
+    "meta_message_usage": {
+      "count": 1,
+      "sha256": "062d018c1f06949e30c3feb1b8292a711da19341de2572d9ba8b0e74e5eb9eab"
+    },
+    "zernio_conversations": {
+      "count": 1,
+      "sha256": "934a2c0b1271eebff0e2f6100d8ab609d6f81a174bd4073e94218ae46a0452dc"
+    }
+  },
+  "integration_credentials_preserved": {
+    "count": 3,
+    "sha256": "34b76da4a37cea246531ae7720ef90b5cb2a17c700efcae3b903e290e58a381a"
+  },
+  "media_sha256": "fdfa0e934950c2d514cf6d52f160ab7e01d8d496ca81d47f46a580ff1aff90fe",
+  "migrations": {
+    "count": 14,
+    "existing_migrations_preserved": true,
+    "new_migrations": 0
+  },
+  "profile_id_resolution": {
+    "auth": {
+      "unauthenticated": 401,
+      "operator": 403,
+      "application": 403,
+      "admin_missing": 404,
+      "admin_legacy": 404,
+      "admin_wrong_area": 404,
+      "no_area_operator": 404,
+      "credential_leak": false
+    },
+    "real_provider_called": false,
+    "successful_resolution": "covered by isolated backend mocks"
+  },
+  "installation_area": {
+    "automatic_area_reused": true,
+    "existing_area_preserved": true,
+    "manual_creation_not_required": true,
+    "bootstrap_repeated": 3,
+    "bootstrap_created": false,
+    "extra_areas": 0,
+    "existing_settings_preserved": true,
+    "team_grants_unchanged": true,
+    "application_grants_unchanged": true,
+    "operator_access": [
+      {
+        "authorized_areas": 1,
+        "bootstrap_status": 403,
+        "resolve_status": 403
+      },
+      {
+        "authorized_areas": 0,
+        "bootstrap_status": 403,
+        "resolve_status": 404
+      }
+    ]
+  },
+  "interface": {
+    "http_assets": true,
+    "credential_help_links": [
+      "https://zernio.com/dashboard/api-keys",
+      "https://zernio.com/dashboard/webhooks",
+      "https://docs.zernio.com/quickstart#create-an-api-key",
+      "https://docs.zernio.com/webhooks",
+      "https://zernio.com/blog/how-to-build-whatsapp-ai-agent"
+    ],
+    "profile_id_instructions": true,
+    "webhook_secret_instructions": true,
+    "profile_id_resolution": true,
+    "area_label": true,
+    "zernio_integration_label": true,
+    "phones_label": true,
+    "manual_area_creation_absent": true,
+    "visual_browser_check": false
+  },
+  "checks": [
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/setup",
+      "status": 201
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/users",
+      "status": 200
+    },
+    {
+      "route": "v1/users",
+      "status": 200
+    },
+    {
+      "route": "v1/applications",
+      "status": 200
+    },
+    {
+      "route": "v1/applications/352f5f54-cc16-451f-a4da-dcdef5aea700/keys",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/conversations/34513cf3-31d6-49ce-a9b7-709fb21897f0/actions",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/tickets",
+      "status": 200
+    },
+    {
+      "route": "media-upload",
+      "status": 200
+    },
+    {
+      "route": "media-download",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/automatic",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/check",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/start",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/37bc1e30-1bf6-4311-964e-77f2a93eb4f2/resolve",
+      "status": 401
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/conversations/34513cf3-31d6-49ce-a9b7-709fb21897f0",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/tickets/9a8c07b5-ac2c-4676-bb33-0a8746c80800",
+      "status": 200
+    },
+    {
+      "route": "media-download",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/installation/area/bootstrap",
+      "status": 200
+    },
+    {
+      "route": "v1/installation/area/bootstrap",
+      "status": 200
+    },
+    {
+      "route": "v1/installation/area/bootstrap",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/83929433-7e6c-41df-9e55-9c315dc4c5b4/resolve",
+      "status": 404
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/d9225684-23b9-4571-84d1-9c044fe0b6d0/resolve",
+      "status": 404
+    },
+    {
+      "route": "v1/profiles/298055b8-77f2-43c0-a536-95fec7047d14/router/accounts/37bc1e30-1bf6-4311-964e-77f2a93eb4f2/resolve",
+      "status": 404
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/installation/area/bootstrap",
+      "status": 403
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/37bc1e30-1bf6-4311-964e-77f2a93eb4f2/resolve",
+      "status": 403
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/installation/area/bootstrap",
+      "status": 403
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/37bc1e30-1bf6-4311-964e-77f2a93eb4f2/resolve",
+      "status": 404
+    },
+    {
+      "route": "v1/profiles/60ff4af9-e342-4b3f-95b8-604ddc5dd1fe/router/accounts/37bc1e30-1bf6-4311-964e-77f2a93eb4f2/resolve",
+      "status": 403
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-DquA6DAY.js",
+      "status": 200,
+      "area_label": true,
+      "zernio_integration_label": true,
+      "phones_label": true,
+      "manual_area_creation_absent": true,
+      "profile_id_resolution": true
+    },
+    {
+      "route": "/releases/0.12.3/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.3/package.json",
+      "status": 200,
+      "package_hash_verified": true,
+      "served_bundle_hash_verified": true
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    }
+  ],
+  "cleanup": {
+    "complete": true,
+    "date": "2026-11-12T18:37:55.781Z",
+    "resource_name": "wabotia-staging-0123-20261112",
+    "worker_deleted": true,
+    "bucket_deleted": true,
+    "database_deleted": true,
+    "worker_absent": true,
+    "database_absent": true,
+    "bucket_absent": true,
+    "durable_namespace_absent": true
+  },
+  "local_fixture_finalization": {
+    "source": "Coordinator.alarm -> finishDelivery for sent/completion_handled=0",
+    "origin": "synthetic sent fixture omitted completion_handled",
+    "baseline_unchanged": true,
+    "original_messages": {
+      "count": 2,
+      "sha256": "7096d676c321f3ead32b51a7830ec4258212260c910ec2d51794f17af1da5f40"
+    },
+    "additional_messages": 1,
+    "additional_message_source_key": "delivery:d700ec39-1af9-41e1-b8ca-61f59b54c4d7",
+    "outbox_original_sha256": "269c61e4e403258ae23b38ebced4ef5633b3ce592923e54c7e5920bef8b40e23",
+    "outbox_changed_fields": [
+      "external_id",
+      "updated",
+      "completion_handled"
+    ],
+    "external_requests": 0,
+    "evidence": "The sent-completion branch calls finishDelivery directly; no deliver/transport/provider request. Fixture connection remains paused and no pending/sending/unknown outbox exists."
+  }
+}

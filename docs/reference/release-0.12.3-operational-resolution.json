@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-12T18:39:50.835Z",
+  "version": "0.12.3",
+  "match": "account",
+  "identity_corrected": true,
+  "credentials_preserved": true,
+  "history_preserved": true,
+  "local_webhook_preserved": true,
+  "phones_found": 1,
+  "existing_phone_found": true,
+  "phone_imported": false,
+  "external_messages_sent": false,
+  "meta_authorization_performed": false,
+  "calls": [
+    {
+      "operation": "resolve",
+      "status": 200
+    },
+    {
+      "operation": "resolve",
+      "status": 200
+    },
+    {
+      "operation": "discover",
+      "status": 200
+    }
+  ],
+  "temporary_session_revoked": true
+}
