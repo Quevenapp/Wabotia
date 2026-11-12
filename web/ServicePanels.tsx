@@ -7,10 +7,13 @@ import {
   menuPath,
   menuTree,
   menuSnapshot,
+  menuListSnapshot,
+  moveMenu,
   type MenuItem,
   type MenuTreeNode,
 } from "./menu-tree";
 import "./menu-tree.css";
+import { useMenuDrag, type MenuMove } from "./useMenuDrag";
 
 type Row = Record<string, any>;
 type Props = { api: any; root: string; demo: boolean };
@@ -453,6 +456,65 @@ export function MenusPanel(props: Props) {
   const editorHeading = useRef<HTMLHeadingElement>(null);
   const original = useRef<string | null>(null);
   const busy = state.busy || pending;
+  const moving = useRef(false);
+  const currentScope = useRef(props.root);
+  currentScope.current = props.root;
+  const drag = useMenuDrag(
+    menus,
+    props.root,
+    busy || !!draft || !!removal,
+    move,
+  );
+  async function move(request: MenuMove) {
+    if (moving.current || busy || draft || removal) return;
+    const scope = props.root;
+    moving.current = true;
+    setPending(true);
+    state.setError("");
+    try {
+      const latest = props.demo
+        ? { data: menus, revision: undefined }
+        : await props.api(scope + "/menus");
+      if (scope !== currentScope.current) return;
+      if (menuListSnapshot(latest.data) !== request.snapshot) {
+        setMenus(latest.data);
+        throw Error(
+          "Os menus mudaram enquanto você movia o item. A árvore foi atualizada; confira a ordem antes de mover novamente.",
+        );
+      }
+      const next = moveMenu(
+        latest.data,
+        request.sourceId,
+        request.targetId,
+        request.placement,
+      );
+      if (menuListSnapshot(next) === request.snapshot) return;
+      await state.write("/settings", "PUT", {
+        menus: next,
+        menus_revision: latest.revision,
+      });
+      if (!props.demo && scope === currentScope.current) await load();
+    } catch (error: any) {
+      if (scope === currentScope.current) state.setError(error.message);
+    } finally {
+      moving.current = false;
+      setPending(false);
+    }
+  }
+  function moveSibling(item: MenuItem, direction: -1 | 1) {
+    const siblings = menus.filter(
+      (menu) => (menu.parent_id || null) === (item.parent_id || null),
+    );
+    const target =
+      siblings[siblings.findIndex((menu) => menu.id === item.id) + direction];
+    if (target)
+      void move({
+        sourceId: item.id,
+        targetId: target.id,
+        placement: direction < 0 ? "before" : "after",
+        snapshot: menuListSnapshot(menus),
+      });
+  }
   useEffect(() => {
     if (draft) editorHeading.current?.focus();
   }, [draft?.id]);
@@ -599,8 +661,18 @@ export function MenusPanel(props: Props) {
     return (
       <ul className="menu-tree">
         {nodes.map(({ item: m, children, detached }) => (
-          <li className="menu-tree-node" key={m.id}>
-            <div className="menu-tree-row">
+          <li
+            className={
+              "menu-tree-node" +
+              (drag.drag?.sourceId === m.id ? " dragging" : "")
+            }
+            key={m.id}
+          >
+            <div className="menu-tree-row" data-menu-drag-row={m.id}>
+              <button {...drag.handle(m)}>
+                <span aria-hidden="true">⠿</span>
+              </button>
+              {drag.marker(m)}
               <div className="menu-tree-content">
                 <strong>{m.label}</strong>
                 <small className="menu-breadcrumb">
@@ -653,32 +725,56 @@ export function MenusPanel(props: Props) {
                 )}
                 {m.type === "submenu" && !children.length && (
                   <p className="menu-tree-empty">
-                    Submenu vazio. Adicione a primeira opção dentro dele para o
-                    cliente poder usá-lo.
+                    Submenu vazio. Use Adicionar item para incluir uma ação ou
+                    outro submenu.
                   </p>
                 )}
               </div>
               <div className="menu-tree-actions">
                 {m.type === "submenu" && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={busy || !!draft || !!removal}
-                      onClick={() => edit(undefined, m.id)}
-                      aria-label={"Adicionar opção dentro de " + m.label}
-                    >
-                      Adicionar opção dentro
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy || !!draft || !!removal}
-                      onClick={() => edit(undefined, m.id, "submenu")}
-                      aria-label={"Criar submenu dentro de " + m.label}
-                    >
-                      Criar submenu dentro
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    disabled={busy || !!draft || !!removal}
+                    onClick={() => edit(undefined, m.id)}
+                    aria-label={"Adicionar item em " + m.label}
+                  >
+                    Adicionar item
+                  </button>
                 )}
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    !!draft ||
+                    !!removal ||
+                    menus.filter(
+                      (item) =>
+                        (item.parent_id || null) === (m.parent_id || null),
+                    )[0]?.id === m.id
+                  }
+                  onClick={() => moveSibling(m, -1)}
+                  aria-label={"Subir " + m.label}
+                >
+                  ↑ Subir
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    !!draft ||
+                    !!removal ||
+                    menus
+                      .filter(
+                        (item) =>
+                          (item.parent_id || null) === (m.parent_id || null),
+                      )
+                      .at(-1)?.id === m.id
+                  }
+                  onClick={() => moveSibling(m, 1)}
+                  aria-label={"Descer " + m.label}
+                >
+                  ↓ Descer
+                </button>
                 <button
                   type="button"
                   disabled={busy || !!draft || !!removal}
@@ -757,13 +853,7 @@ export function MenusPanel(props: Props) {
               disabled={busy || !!draft || !!removal}
               onClick={() => edit()}
             >
-              Adicionar opção principal
-            </button>
-            <button
-              disabled={busy || !!draft || !!removal}
-              onClick={() => edit(undefined, null, "submenu")}
-            >
-              Criar submenu
+              Adicionar item
             </button>
           </div>
         </div>
@@ -772,8 +862,8 @@ export function MenusPanel(props: Props) {
           avaliações. No WhatsApp pela Zernio, até três opções curtas viram
           botões e até dez viram uma lista. Nos demais casos, o cliente recebe
           opções numeradas. As permissões da linha e dos menus pais continuam
-          valendo. Um submenu organiza outras opções: crie-o e use Adicionar
-          opção dentro para montar os próximos níveis.
+          valendo. Adicione um item e escolha: uma ação atende o cliente; um
+          submenu agrupa outros itens.
         </p>
         <Feedback {...state} />
       </div>
@@ -793,14 +883,12 @@ export function MenusPanel(props: Props) {
                 tabIndex={-1}
               >
                 {menus.some((m) => m.id === draft.id)
-                  ? "Editar ou mover opção"
-                  : draft.type === "submenu"
-                    ? "Novo submenu"
-                    : "Nova opção"}
+                  ? "Editar ou mover item"
+                  : "Adicionar item"}
               </h3>
               <p className="menu-breadcrumb">
                 Caminho: {menuPath(menus, draft.parent_id)} ›{" "}
-                {draft.label || "Nova opção"}
+                {draft.label || "Novo item"}
               </p>
               {conflicted && (
                 <div className="notice error">
@@ -822,7 +910,7 @@ export function MenusPanel(props: Props) {
                 </div>
               )}
               <label>
-                Texto da opção
+                Nome do item
                 <input
                   required
                   maxLength={100}
@@ -832,9 +920,45 @@ export function MenusPanel(props: Props) {
                   }
                 />
               </label>
+              <fieldset className="menu-kind-choice">
+                <legend>O que este item faz?</legend>
+                <label>
+                  <input
+                    type="radio"
+                    name="menu-kind"
+                    checked={draft.type !== "submenu"}
+                    disabled={
+                      draft.type === "submenu" &&
+                      menuDescendants(menus, draft.id).size > 0
+                    }
+                    onChange={() => setDraft({ ...draft, type: "human" })}
+                  />
+                  <span>
+                    <strong>Ação</strong>
+                    <small>
+                      Envia uma mensagem ou encaminha para equipe, bot e outros
+                      destinos.
+                    </small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="menu-kind"
+                    checked={draft.type === "submenu"}
+                    onChange={() => setDraft({ ...draft, type: "submenu" })}
+                  />
+                  <span>
+                    <strong>Submenu</strong>
+                    <small>
+                      Agrupa itens e abre outras opções para o cliente escolher.
+                    </small>
+                  </span>
+                </label>
+              </fieldset>
               <div className="service-fields">
                 <label>
-                  Onde esta opção aparece
+                  Onde este item aparece
                   <select
                     value={draft.parent_id || ""}
                     onChange={(e) =>
@@ -849,34 +973,31 @@ export function MenusPanel(props: Props) {
                     ))}
                   </select>
                 </label>
-                <label>
-                  Destino
-                  <select
-                    value={draft.type}
-                    disabled={
-                      draft.type === "submenu" &&
-                      menuDescendants(menus, draft.id).size > 0
-                    }
-                    onChange={(e) =>
-                      setDraft({ ...draft, type: e.target.value })
-                    }
-                  >
-                    <option value="human">Equipe humana</option>
-                    <option value="bot">Bot</option>
-                    <option value="submenu">Submenu</option>
-                    <option value="app">Aplicativo</option>
-                    <option value="link">Conteúdo com link</option>
-                    <option value="content">Mensagem informativa</option>
-                    <option value="protocols">Consultar protocolos</option>
-                    <option value="survey">Avaliar atendimento</option>
-                  </select>
-                </label>
+                {draft.type !== "submenu" && (
+                  <label>
+                    Destino da ação
+                    <select
+                      value={draft.type}
+                      onChange={(e) =>
+                        setDraft({ ...draft, type: e.target.value })
+                      }
+                    >
+                      <option value="human">Equipe humana</option>
+                      <option value="bot">Bot</option>
+                      <option value="app">Aplicativo</option>
+                      <option value="link">Conteúdo com link</option>
+                      <option value="content">Mensagem informativa</option>
+                      <option value="protocols">Consultar protocolos</option>
+                      <option value="survey">Avaliar atendimento</option>
+                    </select>
+                  </label>
+                )}
               </div>
               {draft.type === "submenu" && (
                 <p>
-                  Salve o submenu e use Adicionar opção dentro na árvore abaixo.
-                  Para mudar o destino de um submenu que já tem filhos, mova ou
-                  remova os filhos primeiro.
+                  Salve e use Adicionar item neste submenu para incluir suas
+                  opções. Para transformá-lo em uma ação, mova ou remova os
+                  itens de dentro primeiro.
                 </p>
               )}
               {draft.type === "human" && (
@@ -1044,7 +1165,7 @@ export function MenusPanel(props: Props) {
               </label>
               <div className="card-actions">
                 <button className="primary" disabled={busy || conflicted}>
-                  {draft.type === "submenu" ? "Salvar submenu" : "Salvar opção"}
+                  Salvar item
                 </button>
                 <button
                   type="button"
@@ -1060,17 +1181,26 @@ export function MenusPanel(props: Props) {
       )}
       <section className="card">
         <h3>Menu principal</h3>
-        <p>
-          As opções aparecem abaixo do submenu a que pertencem. Use Editar /
-          mover para trocar o menu pai.
+        <p id="menu-move-help">
+          Arraste pela alça ⠿ e solte antes, depois ou dentro de um submenu. O
+          ramo inteiro se move e é salvo ao soltar. Você também pode usar Subir
+          / Descer para ordenar e Editar / mover para trocar o menu pai.
         </p>
-        {renderTree(menuTree(menus))}
-        {!menus.length && (
-          <p>
-            Nenhuma opção cadastrada. Use Adicionar opção principal ou Criar
-            submenu.
-          </p>
-        )}
+        <div ref={drag.container} className="menu-drag-tree">
+          <div
+            data-menu-root-drop
+            className={
+              "menu-root-drop" +
+              (drag.drag?.active ? " active" : "") +
+              (drag.drag?.destination?.targetId === null ? " chosen" : "")
+            }
+          >
+            Menu principal · solte aqui para mover para o final da raiz
+          </div>
+          {renderTree(menuTree(menus))}
+        </div>
+        {drag.status}
+        {!menus.length && <p>Nenhum item cadastrado. Use Adicionar item.</p>}
       </section>
       <DepartmentsEditor {...props} saved={load} />
     </div>

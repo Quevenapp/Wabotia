@@ -19,13 +19,15 @@ Um perfil pode ser ativado com atendimento configurado por linha, sem exigir um 
 
 ## Menus e submenus
 
-O painel mostra a hierarquia em árvore. Crie um submenu e use **Adicionar opção dentro** no próprio item para cadastrar seus filhos. Um submenu recém-criado fica vazio até receber opções; ele continua visível para edição, mas não aparece para o cliente enquanto não houver uma opção disponível. O seletor de menu pai mostra o caminho completo e permite mover uma opção para outro ramo. Não é possível colocar um item dentro dele mesmo ou de um descendente.
+O painel mostra a hierarquia em árvore. Use **Adicionar item** no menu principal ou dentro de um submenu e escolha o tipo: **Ação** executa uma resposta ou encaminhamento; **Submenu** agrupa outros itens. Um submenu recém-criado fica vazio até receber opções; ele continua visível para edição, mas não aparece para o cliente enquanto não houver uma opção disponível.
+
+Arraste pela alça do item e solte no destino destacado: **antes**, **depois** ou **dentro** de um submenu. Mover um submenu leva todos os filhos com ele. O destino **Menu principal** permite retirar um ramo do submenu. A ordem e o novo pai são salvos ao soltar. **Subir** e **Descer** ordenam sem arraste; **Editar / mover** permite escolher o pai pelo caminho completo. Não é possível colocar um item dentro dele mesmo, de um descendente ou de uma ação.
 
 Cada opção aceita `line_ids` (lista vazia significa todas as linhas) e `trigger`, com `automatic` ou `manual`. Os filhos herdam as restrições dos ancestrais: um submenu não reaparece em outra linha por omitir a própria lista.
 
 Na conversa, **VOLTAR** sobe um nível e **MENU** abre o menu principal, mantendo o responsável pelo atendimento. A lista considera as permissões de cada linha: um ramo sem nenhuma opção utilizável é omitido.
 
-Ao salvar ou excluir, o painel confere se outra aba ou pessoa alterou o menu. Em conflito, mantém a edição para revisão e não substitui silenciosamente os dados novos. Alterar o Bot Atendente ou outras configurações não reenvia uma cópia antiga da árvore.
+Ao salvar, mover ou excluir, o painel confere se outra aba ou pessoa alterou o menu. Em conflito, recarrega a árvore e pede revisão, sem substituir silenciosamente os dados novos. Um formulário aberto mantém o rascunho; um movimento precisa ser feito novamente na árvore atualizada. Cancelar o arraste ou soltar fora de um destino válido não salva. Alterar o Bot Atendente ou outras configurações não reenvia uma cópia antiga da árvore.
 
 Uma pessoa responsável pelo atendimento pode apresentar o menu principal ou um submenu. Bots também podem responder com a ação estruturada `{"action":"menu","menu_id":null}` ou com o ID de um submenu autorizado. A apresentação cria um contexto de seleção: o usuário pode digitar a opção mesmo durante atendimento humano. Navegar em submenus e abrir um aplicativo mantém o responsável; escolher atendimento humano ou um bot encaminha o atendimento correspondente.
 

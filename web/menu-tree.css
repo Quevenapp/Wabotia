@@ -17,12 +17,120 @@
   min-width: 0;
 }
 .menu-tree-row {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   justify-content: space-between;
   padding: 16px 0;
   border-bottom: 1px solid var(--line, #dce4df);
+}
+.menu-drag-handle {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 44px;
+  padding: 0;
+  font-size: 26px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  align-self: flex-start;
+}
+.menu-drag-handle:active {
+  cursor: grabbing;
+}
+.menu-tree-node.dragging > .menu-tree-row {
+  background: #eef5f1;
+}
+.menu-drop-zones {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  pointer-events: none;
+}
+.menu-drop-zones.has-inside {
+  grid-template-rows: 1fr 2fr 1fr;
+}
+.menu-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 10px;
+  border: 1px dashed #698478;
+  background: #f4faf6d9;
+  color: #234e3c;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.menu-drop-zone.chosen,
+.menu-root-drop.chosen {
+  background: #d0efdd;
+  outline: 2px solid #28744e;
+  outline-offset: -2px;
+}
+.menu-drop-zone.invalid {
+  background: #ffdfdb;
+  outline: 2px solid #b54236;
+  outline-offset: -2px;
+  color: #8c2920;
+}
+.menu-root-drop {
+  padding: 14px;
+  border: 1px dashed var(--line, #dce4df);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.menu-root-drop.active {
+  border-color: #698478;
+  color: #234e3c;
+}
+.menu-drag-status {
+  position: fixed;
+  z-index: 100;
+  right: 16px;
+  bottom: 16px;
+  width: min(400px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  background: #153f2f;
+  color: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 18px #0003;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.menu-drag-status small {
+  color: #d5e8dc;
+}
+.menu-drag-status.invalid {
+  background: #802e26;
+}
+.service-panel fieldset.menu-kind-choice {
+  padding: 12px;
+  border: 1px solid var(--line, #dce4df);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+}
+.service-panel .menu-kind-choice label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.service-panel .menu-kind-choice input {
+  flex: 0 0 auto;
+  width: 18px;
+  margin-top: 3px;
+}
+.menu-kind-choice strong,
+.menu-kind-choice small {
+  display: block;
 }
 .menu-tree-content {
   flex: 1 1 220px;

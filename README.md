@@ -10,7 +10,7 @@ Cada nova instalação cria automaticamente uma **Área de atendimento**, compar
 
 ## Estado da versão
 
-Versão 0.13.1, com menus e submenus organizados em árvore, criação de opções dentro de cada submenu e proteção contra alterações concorrentes. A Área de atendimento é automática e a configuração se organiza em Integração Zernio e Telefones. O Wabotia importa telefones já cadastrados na Zernio, consulta seus templates e contabiliza mensagens entregues por categoria, sem limites locais. O roteador alterna novos atendimentos e mantém o telefone de cada conversa, respeitando a janela de 24 horas desde a última mensagem do cliente. Inclui atendimento por linha, bots, equipe humana, conversas internas, protocolos, mídia e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. Consulte [validação e limitações](docs/VALIDACAO.md).
+Versão 0.13.2, com arraste para ordenar menus e mudar sua hierarquia, preservando os filhos ao mover um submenu. **Adicionar item** reúne o cadastro de ações e submenus, com explicação de cada tipo. O salvamento detecta alterações concorrentes. A Área de atendimento é automática e a configuração se organiza em Integração Zernio e Telefones. O Wabotia importa telefones já cadastrados na Zernio, consulta seus templates e contabiliza mensagens entregues por categoria, sem limites locais. O roteador alterna novos atendimentos e mantém o telefone de cada conversa, respeitando a janela de 24 horas desde a última mensagem do cliente. Inclui atendimento por linha, bots, equipe humana, conversas internas, protocolos, mídia e integrações Hermes. O núcleo é testado em `workerd`, com D1, R2 e Durable Objects. Consulte [validação e limitações](docs/VALIDACAO.md).
 
 ## Navegação e configuração guiada
 
@@ -76,7 +76,7 @@ Não há limite local de mensagens. O painel mostra mensagens entregues no mês 
 ## Linhas, menus e equipe interna
 
 - **Linhas de atendimento:** escolha equipe humana, bot específico ou bot padrão por número. Linhas de atendimento direto podem ficar fora dos grupos de roteamento.
-- **Menus e submenus:** organize opções em árvore e adicione filhos diretamente ao submenu. Selecione as linhas autorizadas e a apresentação automática ou manual; os filhos respeitam as restrições dos pais. Ramos vazios não aparecem no atendimento. **VOLTAR** sobe um nível e **MENU** abre o principal. Na conversa, use **Enviar menu ao cliente**.
+- **Menus e submenus:** use **Adicionar item**, escolhendo ação ou submenu. Arraste pela alça para ordenar ou mudar de nível; os filhos acompanham o submenu movido. Selecione as linhas autorizadas e a apresentação automática ou manual; os filhos respeitam as restrições dos pais. Ramos vazios não aparecem no atendimento. **VOLTAR** sobe um nível e **MENU** abre o principal. Na conversa, use **Enviar menu ao cliente**.
 - **Equipe Bot:** autorize todas as linhas, algumas linhas ou apenas conversas internas para cada bot.
 - **Conversas internas:** pessoas e bots aparecem com disponibilidade online/offline. Mensagens internas têm histórico privado entre participantes e não são enviadas pelo WhatsApp. Conversas de clientes podem ser transferidas para pessoas ou bots, preservando seu número.
 

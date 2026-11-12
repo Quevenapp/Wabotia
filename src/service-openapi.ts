@@ -90,6 +90,8 @@ export const serviceSchemas = {
         type: "array",
         maxItems: 200,
         items: { $ref: "#/components/schemas/MenuItem" },
+        description:
+          "Lista completa de itens. A posição na lista define a ordem entre irmãos; parent_id define a hierarquia. Preserve os IDs ao reordenar ou mover um ramo e envie menus_revision para detectar conflitos.",
       },
       menus_revision: {
         type: "string",

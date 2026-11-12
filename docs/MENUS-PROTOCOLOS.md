@@ -8,10 +8,12 @@ As respostas dos botões identificam uma opção da apresentação enviada, da c
 
 ## Cadastrar a hierarquia
 
-1. Crie um submenu, por exemplo **Suporte Técnico**. Ele organiza as opções e pode ser salvo antes dos filhos.
-2. No submenu, clique **Adicionar opção dentro**. Dê um nome à opção e escolha o destino: equipe, bot, mensagem, link ou outro submenu.
-3. Para criar mais níveis, adicione outro submenu dentro do primeiro e cadastre suas opções da mesma forma. A árvore mostra o caminho completo; salvar e reabrir mantém os vínculos.
-4. Para mover um item, edite o menu pai. O seletor exclui o próprio item e seus descendentes. Um submenu com filhos precisa continuar sendo submenu até que os filhos sejam movidos ou removidos.
+1. Clique **Adicionar item** e escolha **Submenu** para organizar opções, por exemplo **Suporte Técnico**. Ele pode ser salvo antes dos filhos.
+2. Use **Adicionar item** no submenu. Escolha **Ação** para enviar uma mensagem, abrir um link, consultar protocolos ou encaminhar para equipe/bot; escolha **Submenu** para abrir mais um nível de opções.
+3. A árvore mostra o caminho completo. Arraste pela alça para soltar **antes**, **depois** ou **dentro** de um submenu. O destaque mostra onde o item ficará, e a mudança é salva ao soltar. Um submenu leva seus filhos junto, mantendo os IDs, conteúdo e ordem interna.
+4. Para retirar um ramo de um submenu, arraste para o destino **Menu principal** ou para antes/depois de um item da raiz. Também é possível usar **Subir**/**Descer** para ordenar e **Editar / mover** para escolher o pai, sem arrastar.
+
+Não é possível soltar dentro de uma ação, do próprio item ou de seus descendentes. Um submenu com filhos precisa continuar sendo submenu até que os filhos sejam movidos ou removidos. Pressionar Escape, cancelar o gesto ou soltar fora de um destino válido não salva. Se a árvore mudar em outra aba durante o arraste, o painel recarrega os dados e pede que o movimento seja revisto.
 
 Um submenu vazio permanece no editor com indicação de que falta cadastrar opções. Ele não aparece para o cliente enquanto não tiver um destino utilizável. A mesma regra vale quando todos os filhos estão desabilitados ou indisponíveis para aquela linha. **VOLTAR** sobe para o menu pai; **MENU** abre o principal. Navegar entre níveis mantém o responsável pela conversa.
 
@@ -76,3 +78,5 @@ Os destinos existentes `human`, `bot`, `app` e `submenu` permanecem compatíveis
 Para editar menus pela API, consulte `GET /api/v1/profiles/{profile}/menus` sem filtro. A resposta contém a lista completa em `data` e sua `revision`. Envie `{"menus":[...],"menus_revision":"REVISAO_RECEBIDA"}` para substituir a lista. Se outra alteração tiver sido salva, a API retorna `409 menus_changed` e mantém a configuração atual. Recarregue, revise a árvore e envie uma nova intenção. A revisão é opcional para compatibilidade com clientes antigos; sem ela, a substituição da lista não detecta alterações concorrentes. Não use uma lista filtrada por telefone para substituir a configuração inteira.
 
 `parent_id` guarda o ID de outro item do tipo `submenu`, ou `null` para o menu principal. Todos os itens continuam na mesma lista; ciclos, pais ausentes e pais de outro tipo são recusados. Não é necessário informar IDs manualmente no painel.
+
+A posição na lista `menus` define a ordem entre itens do mesmo pai. Para reordenar pela API, envie a lista completa na nova ordem e a revisão atual, preservando IDs e `parent_id`; para mudar de nível, altere também o pai. A alteração vale para novas apresentações do menu. Números e botões de uma apresentação ainda válida mantêm os IDs originalmente apresentados; uma opção movida para outro pai deixa de ser selecionável no menu antigo.
