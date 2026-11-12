@@ -1,5 +1,19 @@
 # Validação e limites
 
+## Publicação 0.13.1 de 12/11/2026: hierarquia de menus e submenus
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `ce42d39379e2feaa3b6c8b97b738f88dc191e1e6`. A tela anterior salvava o submenu como um contêiner vazio, mostrava os itens em lista plana e não oferecia uma ação direta para cadastrar filhos. Agora a árvore mostra cada nível, caminhos completos, **Adicionar opção dentro**, **Criar submenu dentro**, edição/movimentação e remoção com conferência do ramo. O formulário não exige copiar IDs de menu pai. O editor legado sem chamadores foi retirado.
+
+No atendimento, ramos sem destino utilizável na linha e no modo atuais ficam ocultos; permanecem disponíveis no editor para receber filhos. **VOLTAR** sobe um nível e **MENU** abre o principal, mantendo estado, responsável e modo manual. A seleção textual respeita a validade da apresentação. Restrições de linha, serviço, equipe, bots e ancestrais continuam aplicadas; remover um ramo aberto não provoca encaminhamento humano indevido.
+
+O painel compara a versão do item ou ramo editado e envia a revisão da lista ao salvar. `GET /menus` retorna `revision`; `PUT /settings` aceita `menus_revision` e recusa conflitos com `409 menus_changed`, sem sobrescrever a configuração. A revisão não é persistida nos ajustes. Clientes antigos podem omitir o campo, mantendo compatibilidade sem essa proteção. Ações de configuração do Bot Atendente e capacidades passaram a enviar apenas os campos alterados, evitando repor uma cópia antiga dos menus.
+
+**417 testes em 34 arquivos**, TypeScript, build e empacotamento passaram. Incluem 17 regressões de hierarquia/navegação, 16 de concorrência e quatro de organização da árvore. A revisão visual desktop e 390 × 844 confirmou criar três níveis, salvar/reabrir, mover, excluir folha/ramo, cancelar remoção, preservar rascunho em conflito e manter alterações de outra aba. Não houve overflow horizontal nem envio a canais reais nesses testes.
+
+Backups D1/R2 completos precederam a publicação. Não há migrações novas; as 15 existentes, dez tabelas verificadas e os bindings foram preservados nos dois ambientes. O catálogo oferece 0.13.1 com SHA-256 conferido e mantém as 19 versões anteriores. Uma instalação temporária atualizou de 0.13.0 para 0.13.1 e passou **86 verificações**: 17 tabelas, três credenciais cifradas, mídia, configuração e árvore de três níveis preservadas; edição com revisão aceita, conflito e repetição do conflito recusados, primeira edição mantida e restauração exata da configuração de teste. Worker, D1, R2 e Durable Object temporários foram removidos e a ausência foi conferida.
+
+Evidências: [distribuição](reference/release-0.13.1-distribution.json), [operacional](reference/release-0.13.1-operational.json), [atualizador](reference/release-0.13.1-upgrade.json) e [interface](reference/release-0.13.1-ui.json).
+
 ## Publicação 0.13.0 de 12/11/2026: entregas mensais, templates e janela de 24 horas
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `6a81db3791e8fdb4e3b09f9bb97344f79394e03c`. Limites locais, consumo inicial e bloqueio de excedente foram retirados do painel, da seleção de remetente, da fila e da entrega. Os valores históricos permanecem no banco, sem efeito nos envios. `free_only` legado e Vinki continuam impedindo templates, sem impor saldo ou prometer gratuidade. A rota antiga de limite responde `410 number_limit_removed` antes de reproduzir recibos, mantendo autenticação e acesso à área.

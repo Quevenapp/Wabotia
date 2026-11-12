@@ -23,7 +23,35 @@
     "unit_tests": "4 menu-tree tests passed",
     "diff_check": "passed"
   },
-  "cleanup": { "created_tab_closed": true, "viewport_reset": true, "qa_server_stopped": true, "cua_completion_reported": true, "user_tabs_preserved": true },
+  "cleanup": {
+    "created_tab_closed": true,
+    "viewport_reset": true,
+    "qa_server_stopped": true,
+    "cua_completion_reported": true,
+    "user_tabs_preserved": true
+  },
   "production_modified": false,
-  "mobile_source_modified": false
+  "mobile_source_modified": false,
+  "production": {
+    "checked": true,
+    "checked_at": "2026-11-12T20:12:35.1303814Z",
+    "url": "https://wabotia.queven.com.br/app",
+    "deployment_commit": "ce42d39379e2feaa3b6c8b97b738f88dc191e1e6",
+    "mode": "Read-only visual smoke in a new authenticated Chrome tab",
+    "checks": [
+      "Automação > Menus e ações opens the new hierarchy editor",
+      "Existing Suporte Técnico submenu remains at the main menu, automatic and enabled",
+      "Empty-submenu guidance clearly asks the administrator to add its first option",
+      "Adicionar opção dentro and Criar submenu dentro controls are present",
+      "Opening Add option inside Suporte Técnico preselects Menu principal > Suporte Técnico and shows the full path",
+      "New-child form is empty and inherits allowed lines; no value was typed or changed",
+      "Cancel closes the child form and preserves the existing submenu"
+    ],
+    "actions": "Navigation, opening the empty child form and Cancel only. No save, remove, move, provider call or real message.",
+    "cleanup": {
+      "user_tabs_preserved": true,
+      "cua_completion_reported": true,
+      "created_tab_closed": true
+    }
+  }
 }
