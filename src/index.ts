@@ -680,6 +680,7 @@ const commands = [
   ["POST", "internal-chats", "internal.create"],
   ["POST", "internal-chats/:id/messages", "internal.send"],
   ["POST", "router/accounts", "zernio-account.save"],
+  ["DELETE", "router/accounts/:id", "integration.delete"],
   ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
   ["POST", "router/accounts/:id/connect", "zernio-account.connect"],
   ["POST", "router/numbers", "zernio-number.save"],

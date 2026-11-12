@@ -543,6 +543,12 @@ export const routerOperations: [string, string, string, string, string?][] = [
     "administrador humano",
   ],
   [
+    "delete",
+    "/profiles/{profile}/router/accounts/{id}",
+    "Excluir cadastro local de integração sem telefones ou distribuição em uso",
+    "administrador humano",
+  ],
+  [
     "post",
     "/profiles/{profile}/router/accounts/{id}/connect",
     "Abrir cadastro do WhatsApp intermediado pela Zernio",

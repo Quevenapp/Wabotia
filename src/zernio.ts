@@ -5,6 +5,7 @@ import { approvedTemplate, storeRemoteMedia } from "./integrations";
 import { mediaKind, multipartStream } from "./media";
 import { validateMedia } from "./whatsapp";
 import { zernioPresignType } from "./zernio-media";
+import { normalizeZernioError } from "./zernio-errors";
 export { zernioPresignType } from "./zernio-media";
 
 const API = "https://zernio.com/api/v1/";
@@ -105,17 +106,11 @@ async function zernioRawRequest(
   }
   const result = await response.json<any>().catch(() => null);
   if (!response.ok || result?.success === false) {
-    const uncertain = response.status >= 500;
-    const code =
-      typeof result?.code === "string" &&
-      /^[a-zA-Z0-9_]{1,80}$/.test(result.code)
-        ? `, código ${result.code}`
-        : "";
-    throw new ApiError(
-      uncertain ? 502 : 400,
-      uncertain ? "zernio_unknown" : "zernio_rejected",
-      `Zernio recusou a operação (HTTP ${response.status}${code}). Confira a conexão e as permissões da integração.`,
-    );
+    const failure = normalizeZernioError(response.status, result, [
+      keys.api_key,
+      keys.webhook_secret,
+    ]);
+    throw new ApiError(failure.status, failure.code, failure.message);
   }
   if (!result || typeof result !== "object")
     throw new ApiError(

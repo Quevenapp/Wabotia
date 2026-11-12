@@ -34,6 +34,12 @@ Use **Excluir telefone** em **Telefones** ou **Conexões** e confira a confirma�
 
 Excluir no Wabotia não cancela o telefone, a conta nem serviços e cobranças da Zernio. Para desconectar ou cancelar remotamente, use o provedor.
 
+## Excluir uma integração
+
+Depois de remover seus telefones, selecione o cadastro em **Integração Zernio** e use **Excluir integração**. Isso também permite retirar cadastros antigos da Meta. A exclusão remove o cadastro e suas credenciais locais, preservando conversas, mensagens e protocolos. Grupos desativados sem vínculos são removidos junto; telefones ou grupos com histórico, permissões ou outros vínculos impedem a exclusão. A ação não desconecta o WhatsApp na Zernio ou na Meta.
+
+Se a Zernio recusar **Conectar WhatsApp** ou **Buscar telefones**, o painel apresenta o motivo informado pelo provedor, incluindo código e campo quando disponíveis, sem exibir suas credenciais. Confira esse motivo antes de alterar a integração; um HTTP 400 sozinho não identifica qual configuração precisa ser corrigida.
+
 ## Regras e limites
 
 - A janela de atendimento de 24 horas continua vinculada ao telefone que recebeu a última mensagem do cliente. Fora dela, use template aprovado e consentimento apropriado.

@@ -114,6 +114,39 @@ it("rejects a credential redirect and never repeats an ambiguous write", async (
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
+it("exposes provider validation without echoing credentials or retrying", async () => {
+  const conn = await seed();
+  const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json(
+      {
+        error: "Invalid profileId for zernio-test-key",
+        code: "invalid_field_value",
+        param: "profileId",
+      },
+      { status: 400 },
+    ),
+  );
+  await expect(
+    zernioRequest(env, conn, "connect/whatsapp"),
+  ).rejects.toMatchObject({
+    code: "zernio_rejected",
+    message:
+      "Zernio recusou a operação (HTTP 400, código invalid_field_value, campo profileId). Invalid profileId for [credencial omitida]",
+  });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  fetch.mockResolvedValue(
+    Response.json({ error: "Retry the send now" }, { status: 503 }),
+  );
+  await expect(
+    zernioRequest(env, conn, "inbox/conversations", "POST", {}),
+  ).rejects.toMatchObject({
+    code: "zernio_unknown",
+    message:
+      "A Zernio não confirmou a operação (HTTP 503). Consulte a entrega antes de repetir.",
+  });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
 it("checks workspace ownership before reading shared provider credentials", async () => {
   const conn = await seed();
   await expect(

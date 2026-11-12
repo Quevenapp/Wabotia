@@ -1396,6 +1396,18 @@ export function openapi(origin: string) {
           properties: { authUrl: { type: "string", format: "uri" } },
         };
       }
+      if (path.endsWith("/router/accounts/{id}") && method === "delete") {
+        entry.description +=
+          " Exclui o cadastro local Zernio ou legado Meta e suas credenciais. Não desconecta a conta no provedor. Preserva conversas, mensagens e protocolos. Remove apenas grupos desativados sem vínculos; retorna 409 integration_in_use enquanto houver telefones ou grupos em uso, inclusive vínculos históricos.";
+        success.content["application/json"].schema = {
+          type: "object",
+          required: ["id", "deleted"],
+          properties: {
+            id: { type: "string" },
+            deleted: { type: "boolean", enum: [true] },
+          },
+        };
+      }
       if (path.endsWith("/router/accounts/{id}/discover"))
         success.content["application/json"].schema = {
           type: "object",

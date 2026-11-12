@@ -166,7 +166,9 @@ export function NumberRouter({
     if (demo) return;
     const r = await api(root + "/router");
     setData(r);
-    setAccountId((v) => v || r.accounts?.[0]?.id || "");
+    setAccountId((v) =>
+      r.accounts?.some((a: Row) => a.id === v) ? v : r.accounts?.[0]?.id || "",
+    );
   }
   useEffect(() => {
     if (!busy) load().catch((e) => setError(e.message));
@@ -175,6 +177,9 @@ export function NumberRouter({
     }, 15000);
     return () => clearInterval(timer);
   }, [root, demo, busy]);
+  useEffect(() => {
+    resetAccountForms();
+  }, [accountId, root]);
   const account = data.accounts.find((a: Row) => a.id === accountId),
     legacyAccount = !!account && account.provider === "meta",
     available = parse(account?.discovered),
@@ -210,6 +215,16 @@ export function NumberRouter({
       setNotice(label + " concluído.");
       return result;
     } catch (e: any) {
+      if (
+        e.status >= 400 &&
+        e.status < 500 &&
+        ![
+          "operation_unknown",
+          "idempotency_conflict",
+          "zernio_unknown",
+        ].includes(e.code)
+      )
+        intents.current.delete(intent);
       setError(e.message);
     } finally {
       setBusy("");
@@ -230,8 +245,15 @@ export function NumberRouter({
   }
   function chooseAccount(id: string) {
     setAccountId(id);
-    editAccount(data.accounts.find((a: Row) => a.id === id));
+    resetAccountForms();
+  }
+  function resetAccountForms() {
     setAccountEditing(false);
+    setAccountForm({
+      name: "",
+      zernio_profile_id: "",
+      timezone: "America/Sao_Paulo",
+    });
     setPoolForm({
       name: "",
       strategy: "round_robin",
@@ -409,7 +431,45 @@ export function NumberRouter({
                   Editar {account.name}
                 </button>
               )}
+              {account && !accountEditing && (
+                <button
+                  type="button"
+                  disabled={!!busy || numbers.length > 0}
+                  onClick={async () => {
+                    if (
+                      !demo &&
+                      !window.confirm(
+                        "Excluir a integração " +
+                          account.name +
+                          " do Wabotia? O histórico será preservado. Isso remove somente o cadastro local e suas credenciais; não desconecta nem exclui a conta na Zernio ou na Meta.",
+                      )
+                    )
+                      return;
+                    const result = await write(
+                      "router/accounts/" + account.id,
+                      {},
+                      "Excluir integração",
+                      "DELETE",
+                    );
+                    if (result) {
+                      resetAccountForms();
+                      setNotice(
+                        "Integração removida do Wabotia. Histórico preservado; a conta no provedor não foi alterada.",
+                      );
+                    }
+                  }}
+                >
+                  Excluir integração
+                </button>
+              )}
             </div>
+            {account && !accountEditing && (
+              <p className="router-field-help">
+                {numbers.length > 0
+                  ? "Para excluir esta integração, primeiro exclua os telefones vinculados na etapa Telefones."
+                  : "Sem telefones vinculados. Você pode excluir o cadastro local da integração e suas credenciais, preservando o histórico e a conexão no provedor."}
+              </p>
+            )}
             {(accountEditing || !data.accounts.length) && (
               <form
                 onSubmit={async (e) => {

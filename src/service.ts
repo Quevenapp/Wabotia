@@ -37,6 +37,7 @@ import { callCommand } from "./calls";
 import { groupCommand } from "./groups";
 import { zernioAccountCommand } from "./zernio-accounts";
 import { removeConnection } from "./connection-removal";
+import { removeIntegration } from "./integration-removal";
 import { routerCommand, managedAppAllowed } from "./number-router";
 import { queueWithNumberQuota } from "./number-quota";
 import {
@@ -733,6 +734,8 @@ export async function perform(
     );
   if (op === "connection.delete")
     return removeConnection(env, actor, profile, data.id);
+  if (op === "integration.delete")
+    return removeIntegration(env, actor, profile, data.id);
   if (op.startsWith("router."))
     return routerCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("upload."))
