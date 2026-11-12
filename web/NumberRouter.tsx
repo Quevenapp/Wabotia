@@ -27,6 +27,11 @@ const routerSteps = [
 ] as const;
 type RouterStep = (typeof routerSteps)[number]["id"];
 type Row = Record<string, any>;
+type ZernioResolution = {
+  options: { id: string; name: string }[];
+  current_id: string | null;
+  suggested_id?: string | null;
+};
 const parse = (v: any) => {
   try {
     return typeof v === "string" ? JSON.parse(v) : v || [];
@@ -135,6 +140,8 @@ export function NumberRouter({
     [busy, setBusy] = useState(""),
     [accountEditing, setAccountEditing] = useState(false),
     [accountId, setAccountId] = useState(demo ? "conta-exemplo" : ""),
+    [resolution, setResolution] = useState<ZernioResolution | null>(null),
+    [resolvedId, setResolvedId] = useState(""),
     [accountForm, setAccountForm] = useState<Row>({
       name: "",
       zernio_profile_id: "",
@@ -162,6 +169,7 @@ export function NumberRouter({
     }),
     [limits, setLimits] = useState<Row>({});
   const intents = useRef(new Map<string, string>());
+  const resolutionVersion = useRef(0);
   async function load() {
     if (demo) return;
     const r = await api(root + "/router");
@@ -183,7 +191,10 @@ export function NumberRouter({
   const account = data.accounts.find((a: Row) => a.id === accountId),
     legacyAccount = !!account && account.provider === "meta",
     available = parse(account?.discovered),
-    numbers = data.numbers.filter((n: Row) => n.account_id === accountId);
+    numbers = data.numbers.filter((n: Row) => n.account_id === accountId),
+    resolvedOption = resolution?.options.find(
+      (option) => option.id === resolvedId,
+    );
   async function write(
     path: string,
     body: Row,
@@ -231,13 +242,14 @@ export function NumberRouter({
     }
   }
   function editAccount(a?: Row) {
+    clearResolution();
     setAccountEditing(true);
     setAccountForm(
       a
         ? {
             id: a.id,
             name: a.name,
-            zernio_profile_id: a.zernio_profile_id,
+            zernio_profile_id: a.zernio_profile_id || "",
             timezone: a.timezone,
           }
         : { name: "", zernio_profile_id: "", timezone: "America/Sao_Paulo" },
@@ -248,6 +260,9 @@ export function NumberRouter({
     resetAccountForms();
   }
   function resetAccountForms() {
+    clearResolution();
+    setError("");
+    setNotice("");
     setAccountEditing(false);
     setAccountForm({
       name: "",
@@ -268,6 +283,52 @@ export function NumberRouter({
       service_limit: 1000,
       baseline_confirmed: false,
     });
+  }
+  function clearResolution() {
+    resolutionVersion.current++;
+    setResolution(null);
+    setResolvedId("");
+  }
+  async function findZernioId() {
+    if (!account || legacyAccount) return;
+    clearResolution();
+    const version = resolutionVersion.current;
+    const path = "router/accounts/" + account.id + "/resolve";
+    // A new manual lookup only reads Zernio; don't replay a prior lookup failure.
+    intents.current.delete(path + JSON.stringify({}));
+    const result: ZernioResolution | undefined = await write(
+      path,
+      {},
+      "Buscar integrações na Zernio",
+    );
+    if (!result || resolutionVersion.current !== version) return;
+    setResolution(result);
+    const preferred = [result.suggested_id, result.current_id].find((id) =>
+      result.options.some((option) => option.id === id),
+    );
+    setResolvedId(preferred || "");
+    setNotice(
+      result.options.length
+        ? "Integrações encontradas. Confira o nome e escolha qual usar; nenhum ID foi alterado."
+        : "Nenhuma integração encontrada com a API key salva. Confira o acesso dessa chave na Zernio.",
+    );
+  }
+  async function useZernioId() {
+    if (!account || !resolvedOption || numbers.length > 0) return;
+    const version = resolutionVersion.current;
+    const result = await write(
+      "router/accounts/" + account.id + "/resolve",
+      { zernio_profile_id: resolvedOption.id },
+      "Atualizar ID da integração",
+    );
+    if (!result || resolutionVersion.current !== version) return;
+    resetAccountForms();
+    setNotice(
+      (result.changed
+        ? "ID da integração atualizado. "
+        : "Este ID já estava cadastrado. ") +
+        "A API key e o segredo do webhook foram preservados. Abra Telefones para buscar as linhas na Zernio.",
+    );
   }
   function selectApp(id: string) {
     setAppId(id);
@@ -410,7 +471,7 @@ export function NumberRouter({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Connections no painel Zernio (Profile ID) ↗
+                  Abrir painel Zernio ↗
                 </a>
                 {" · "}
                 <a
@@ -429,6 +490,11 @@ export function NumberRouter({
               {account && !legacyAccount && (
                 <button disabled={!!busy} onClick={() => editAccount(account)}>
                   Editar {account.name}
+                </button>
+              )}
+              {account && !legacyAccount && !accountEditing && (
+                <button type="button" disabled={!!busy} onClick={findZernioId}>
+                  Encontrar ID na Zernio
                 </button>
               )}
               {account && !accountEditing && (
@@ -469,6 +535,92 @@ export function NumberRouter({
                   ? "Para excluir esta integração, primeiro exclua os telefones vinculados na etapa Telefones."
                   : "Sem telefones vinculados. Você pode excluir o cadastro local da integração e suas credenciais, preservando o histórico e a conexão no provedor."}
               </p>
+            )}
+            {account && !legacyAccount && !accountEditing && (
+              <div>
+                {!account.zernio_profile_id && (
+                  <p className="notice">
+                    O ID da integração ainda não foi definido. Use{" "}
+                    <strong>Encontrar ID na Zernio</strong> e escolha pelo nome
+                    antes de conectar o WhatsApp ou buscar telefones.
+                  </p>
+                )}
+                <p className="router-field-help">
+                  Encontrar ID na Zernio usa a API key já salva para listar as
+                  integrações pelo nome. Você escolhe antes de alterar o ID;
+                  suas credenciais são preservadas. Account ID identifica o
+                  telefone; WABA ID pertence à Meta.
+                </p>
+                {resolution && resolution.options.length > 0 && (
+                  <div className="notice">
+                    <h4>Escolha a integração encontrada na Zernio</h4>
+                    <label>
+                      Nome na Zernio
+                      <select
+                        value={resolvedId}
+                        disabled={!!busy}
+                        onChange={(e) => setResolvedId(e.target.value)}
+                      >
+                        <option value="">Escolha pelo nome</option>
+                        {resolution.options.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                            {option.id === resolution.suggested_id
+                              ? " (sugerida)"
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="router-field-help">
+                      ID cadastrado:{" "}
+                      <code>
+                        {resolution.current_id || "Ainda não definido"}
+                      </code>
+                      .
+                      {resolvedOption && (
+                        <>
+                          {" "}
+                          Profile ID escolhido: <code>{resolvedOption.id}</code>
+                          .
+                        </>
+                      )}
+                    </p>
+                    {resolvedOption && (
+                      <p>
+                        Usar <strong>{resolvedOption.name}</strong> em{" "}
+                        <strong>{account.name}</strong> mantém a API key e o
+                        segredo do webhook já salvos. Essa escolha não conecta
+                        nem desconecta o WhatsApp no provedor.
+                      </p>
+                    )}
+                    {numbers.length > 0 && (
+                      <p>
+                        Esta integração tem telefones vinculados. Exclua-os na
+                        etapa Telefones antes de alterar o ID.
+                      </p>
+                    )}
+                    <div className="router-actions">
+                      <button
+                        type="button"
+                        disabled={
+                          !!busy || !resolvedOption || numbers.length > 0
+                        }
+                        onClick={useZernioId}
+                      >
+                        Usar esta integração
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={clearResolution}
+                      >
+                        Cancelar escolha
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
             {(accountEditing || !data.accounts.length) && (
               <form
@@ -516,11 +668,10 @@ export function NumberRouter({
                   <label>
                     ID da integração na Zernio
                     <input
-                      required
                       readOnly={!!accountForm.id}
                       aria-label="ID da integração na Zernio"
                       aria-describedby="zernio-integration-id-help"
-                      value={accountForm.zernio_profile_id}
+                      value={accountForm.zernio_profile_id || ""}
                       onChange={(e) =>
                         setAccountForm({
                           ...accountForm,
@@ -532,18 +683,27 @@ export function NumberRouter({
                       id="zernio-integration-id-help"
                       className="router-field-help"
                     >
-                      Abra a{" "}
+                      {accountForm.id ? (
+                        <>
+                          Para conferir ou corrigir o ID, salve ou cancele esta
+                          edição e use <strong>Encontrar ID na Zernio</strong>.
+                        </>
+                      ) : (
+                        <>
+                          Opcional: após salvar, use{" "}
+                          <strong>Encontrar ID na Zernio</strong> para escolher
+                          pelo nome com a API key salva.
+                        </>
+                      )}{" "}
+                      Este campo é o <strong>Profile ID</strong> da Zernio.
+                      Account ID identifica o telefone; WABA ID pertence à Meta.{" "}
                       <a
                         href="https://zernio.com"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Zernio ↗
+                        Abrir Zernio ↗
                       </a>{" "}
-                      e entre em <strong>Connections</strong>. Copie o{" "}
-                      <strong>Profile ID</strong> da conexão WhatsApp; o Account
-                      ID identifica o telefone. Se ainda não conectou o
-                      WhatsApp, conecte-o lá primeiro.{" "}
                       <a
                         href="https://zernio.com/blog/how-to-build-whatsapp-ai-agent"
                         target="_blank"
@@ -674,7 +834,7 @@ export function NumberRouter({
               <>
                 <button
                   type="button"
-                  disabled={!!busy}
+                  disabled={!!busy || !account.zernio_profile_id}
                   onClick={async () => {
                     const result = await write(
                       "router/accounts/" + accountId + "/connect",
@@ -739,8 +899,14 @@ export function NumberRouter({
               os telefones da integração informada. O ID do telefone na Zernio
               corresponde ao campo técnico Account ID.
             </p>
+            {!account.zernio_profile_id && (
+              <p className="notice">
+                Primeiro use <strong>Encontrar ID na Zernio</strong> na etapa
+                Integração Zernio e confirme qual integração deseja usar.
+              </p>
+            )}
             <button
-              disabled={!!busy}
+              disabled={!!busy || !account.zernio_profile_id}
               onClick={() =>
                 write(
                   `router/accounts/${accountId}/discover`,

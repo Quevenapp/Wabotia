@@ -96,13 +96,13 @@ export async function zernioAccountCommand(
       "Integração de outra área de atendimento ou da conexão antiga.",
     );
     const name = String(data.name || "").trim(),
-      remote = String(data.zernio_profile_id || old?.zernio_profile_id || "");
+      remote = data.zernio_profile_id || old?.zernio_profile_id || null;
     requireValue(
       name.length > 0 && name.length <= 100,
       "Informe o nome da integração.",
     );
     requireValue(
-      objectId(remote),
+      remote === null || objectId(remote),
       "Informe o ID da integração na Zernio (24 caracteres).",
     );
     requireValue(
@@ -184,7 +184,7 @@ export async function zernioAccountCommand(
       id,
       profile,
       name,
-      `zernio:${remote}`,
+      remote ? `zernio:${remote}` : `zernio-pending:${id}`,
       timezone,
       now(),
       remote,
@@ -213,6 +213,11 @@ export async function zernioAccountCommand(
     profile_id: profile,
     config: JSON.stringify({ zernio_workspace_id: account.id }),
   };
+  if (op === "zernio-account.connect" || op === "zernio-account.discover")
+    requireValue(
+      objectId(account.zernio_profile_id),
+      "Use Encontrar ID na Zernio primeiro para identificar esta integração.",
+    );
   if (op === "zernio-account.connect") {
     requireValue(typeof data.origin === "string", "Origem do painel ausente.");
     const query = new URLSearchParams({

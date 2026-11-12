@@ -39,6 +39,20 @@ const sourceProperties = {
   },
 };
 export const routerSchemas = {
+  RouterResolveIntegration: {
+    type: "object",
+    additionalProperties: false,
+    description:
+      "Sem zernio_profile_id, consulta as integrações acessíveis pela API key salva e sugere o ID correto. Com zernio_profile_id, valida e aplica a escolha apenas a um cadastro sem telefones ou grupos. Não cria perfis nem altera a Zernio.",
+    properties: {
+      zernio_profile_id: {
+        type: "string",
+        pattern: "^[a-fA-F0-9]{24}$",
+        description:
+          "ID retornado na consulta anterior, selecionado pelo administrador.",
+      },
+    },
+  },
   NumberPolicy: {
     type: "object",
     additionalProperties: false,
@@ -382,11 +396,16 @@ export const routerSchemas = {
     type: "object",
     required: ["name"],
     description:
-      "Integração Zernio compartilhada por vários telefones. Ao criar, informe zernio_profile_id e os dois segredos. Ao editar, omita segredos para preservá-los. O ID da integração na Zernio não pode mudar; credenciais alteradas exigem revalidar as linhas. Integrações antigas da Meta devem ser substituídas por uma nova integração Zernio.",
+      "Integração Zernio compartilhada por vários telefones. Ao criar, informe os dois segredos; zernio_profile_id pode ficar vazio e ser encontrado depois em /resolve usando a chave salva. Ao editar, omita segredos para preservá-los. A correção do ID usa /resolve e exige um cadastro sem telefones ou grupos. Credenciais alteradas exigem revalidar as linhas. Integrações antigas da Meta devem ser substituídas por uma nova integração Zernio.",
     properties: {
       id,
       name: { type: "string", maxLength: 100 },
-      zernio_profile_id: { type: "string", pattern: "^[a-fA-F0-9]{24}$" },
+      zernio_profile_id: {
+        type: "string",
+        pattern: "^(?:[a-fA-F0-9]{24})?$",
+        description:
+          "Opcional ao criar. Vazio mantém o cadastro pendente de identificação; use /resolve antes de conectar ou buscar telefones.",
+      },
       timezone: { type: "string", default: "America/Sao_Paulo" },
       secrets: {
         type: "object",
@@ -553,6 +572,13 @@ export const routerOperations: [string, string, string, string, string?][] = [
     "/profiles/{profile}/router/accounts/{id}/connect",
     "Abrir cadastro do WhatsApp intermediado pela Zernio",
     "administrador humano",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/router/accounts/{id}/resolve",
+    "Encontrar e corrigir o ID da integração usando a chave Zernio salva",
+    "administrador humano",
+    "RouterResolveIntegration",
   ],
   [
     "post",

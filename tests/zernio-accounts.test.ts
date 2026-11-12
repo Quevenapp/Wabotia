@@ -151,6 +151,75 @@ it("exige administrador e mantém a identidade da conta dentro do perfil", async
   ).rejects.toThrow(/já está cadastrada/);
 });
 
+it("salva integração pendente sem ID remoto e permite editar nome e segredos antes da identificação", async () => {
+  const f = await fixture();
+  const fetch = vi.spyOn(globalThis, "fetch");
+  const create = () =>
+    zernioAccountCommand(env, admin, f.profile, "zernio-account.save", {
+      name: "Pendente",
+      secrets: { api_key: "pending-key", webhook_secret: "pending-webhook" },
+    });
+  const saved = await create(),
+    other = await create();
+  expect(saved.id).not.toBe(other.id);
+  const before = await one(
+    env,
+    "SELECT * FROM meta_accounts WHERE id=?",
+    saved.id,
+  );
+  expect(before.zernio_profile_id).toBeNull();
+  expect(before.waba_id).toBe(`zernio-pending:${saved.id}`);
+  expect(saved.webhook_path).toBe(`/webhooks/zernio-accounts/${saved.id}`);
+  await zernioAccountCommand(env, admin, f.profile, "zernio-account.save", {
+    id: saved.id,
+    name: "Nome editado",
+    secrets: { api_key: "replacement-key" },
+  });
+  expect(
+    await one(env, "SELECT * FROM meta_accounts WHERE id=?", saved.id),
+  ).toMatchObject({
+    id: saved.id,
+    name: "Nome editado",
+    zernio_profile_id: null,
+    waba_id: before.waba_id,
+  });
+  expect(await secret(env, `zernio-account:${saved.id}`)).toEqual({
+    api_key: "replacement-key",
+    webhook_secret: "pending-webhook",
+  });
+  await expect(
+    zernioAccountCommand(env, admin, f.profile, "zernio-account.save", {
+      id: saved.id,
+      name: "Não aplicar pelo save",
+      zernio_profile_id: remoteId(),
+    }),
+  ).rejects.toThrow(/não pode ser alterado/);
+  for (const op of ["zernio-account.connect", "zernio-account.discover"]) {
+    await expect(
+      zernioAccountCommand(env, admin, f.profile, op, {
+        id: saved.id,
+        origin: "https://example.com",
+      }),
+    ).rejects.toThrow(/Use Encontrar ID na Zernio primeiro/);
+  }
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("continua exigindo os dois segredos para cadastrar integração sem ID", async () => {
+  const f = await fixture(),
+    id = uid();
+  await expect(
+    zernioAccountCommand(env, admin, f.profile, "zernio-account.save", {
+      id,
+      name: "Pendente inválida",
+      secrets: { api_key: "key" },
+    }),
+  ).rejects.toThrow(/chave API e o segredo/);
+  expect(
+    await one(env, "SELECT id FROM meta_accounts WHERE id=?", id),
+  ).toBeNull();
+});
+
 it.each([
   {
     zernio_profile_id: "123",

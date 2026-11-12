@@ -397,6 +397,15 @@ it("publica contrato Zernio e exclusão sem parâmetros de autenticação Meta",
   expect(
     spec.paths["/profiles/{profile}/router/accounts/{id}/connect"].post,
   ).toBeDefined();
+  const resolution =
+    spec.paths["/profiles/{profile}/router/accounts/{id}/resolve"].post;
+  expect(resolution).toBeDefined();
+  expect(resolution.parameters).toContainEqual(
+    expect.objectContaining({ name: "Idempotency-Key", required: true }),
+  );
+  expect(
+    spec.components.schemas.RouterResolveIntegration.properties.secrets,
+  ).toBeUndefined();
   expect(
     spec.paths["/profiles/{profile}/connections/{id}"].delete.parameters,
   ).toContainEqual(

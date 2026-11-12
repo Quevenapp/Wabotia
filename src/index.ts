@@ -683,6 +683,7 @@ const commands = [
   ["DELETE", "router/accounts/:id", "integration.delete"],
   ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
   ["POST", "router/accounts/:id/connect", "zernio-account.connect"],
+  ["POST", "router/accounts/:id/resolve", "zernio-account.resolve"],
   ["POST", "router/numbers", "zernio-number.save"],
   ["PUT", "router/numbers/:id/limit", "router.number.limit"],
   ["PUT", "router/numbers/:id/policy", "router.number.policy"],

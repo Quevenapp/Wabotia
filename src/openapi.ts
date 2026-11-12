@@ -1408,6 +1408,43 @@ export function openapi(origin: string) {
           },
         };
       }
+      if (path.endsWith("/router/accounts/{id}/resolve")) {
+        entry.description +=
+          " Usa somente a API key já salva no servidor. A consulta retorna nomes e IDs, nunca credenciais. Reconhece um Account ID informado no campo de integração por consulta à Zernio. A aplicação exige um ID acessível à chave e recusa vínculos com telefones, conexões ou grupos; preserva o ID local, webhook, credenciais e histórico. Não cria nem desconecta contas no provedor.";
+        success.content["application/json"].schema = {
+          oneOf: [
+            {
+              type: "object",
+              required: ["options", "suggested_id", "current_id", "matched_by"],
+              properties: {
+                options: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    required: ["id", "name"],
+                    properties: {
+                      id: { type: "string" },
+                      name: { type: "string" },
+                    },
+                  },
+                },
+                suggested_id: { type: ["string", "null"] },
+                current_id: { type: "string" },
+                matched_by: { enum: ["current", "account", "single", null] },
+              },
+            },
+            {
+              type: "object",
+              required: ["id", "zernio_profile_id", "changed"],
+              properties: {
+                id: { type: "string" },
+                zernio_profile_id: { type: "string" },
+                changed: { type: "boolean" },
+              },
+            },
+          ],
+        };
+      }
       if (path.endsWith("/router/accounts/{id}/discover"))
         success.content["application/json"].schema = {
           type: "object",

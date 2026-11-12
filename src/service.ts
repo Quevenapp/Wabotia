@@ -36,6 +36,7 @@ import {
 import { callCommand } from "./calls";
 import { groupCommand } from "./groups";
 import { zernioAccountCommand } from "./zernio-accounts";
+import { resolveZernioProfile } from "./zernio-profile-resolution";
 import { removeConnection } from "./connection-removal";
 import { removeIntegration } from "./integration-removal";
 import { routerCommand, managedAppAllowed } from "./number-router";
@@ -724,6 +725,8 @@ export async function perform(
   if (op === "line.save") return saveLine(env, actor, profile, data);
   if (op.startsWith("internal."))
     return internalCommand(env, actor, profile, op, data, requestId);
+  if (op === "zernio-account.resolve")
+    return resolveZernioProfile(env, actor, profile, data);
   if (op.startsWith("zernio-account.") || op.startsWith("zernio-number."))
     return zernioAccountCommand(env, actor, profile, op, data);
   if (op.startsWith("meta-account.") || op.startsWith("meta-number."))
