@@ -1,0 +1,163 @@
+{
+  "release": "0.13.2",
+  "date": "2026-11-12",
+  "deployment_commit": "cc13711e2e4159c9eaccfcc463348ea6913aa6c0",
+  "local_check_count": 17,
+  "local_check_breakdown": {
+    "ui_and_behavior": 15,
+    "typescript": 1,
+    "source_review": 1
+  },
+  "local": {
+    "release": "0.13.2",
+    "tested_at": "2026-11-12",
+    "environment": "Local Vite with synthetic in-memory API and local persistence; no production writes or provider requests",
+    "viewports": [
+      {
+        "width": 1280,
+        "height": 1000
+      },
+      {
+        "width": 390,
+        "height": 844
+      }
+    ],
+    "fixtures": [
+      "Suporte fictício",
+      "Ajuda fictícia",
+      "Comercial fictício",
+      "Orçamento fictício",
+      "Contato fictício",
+      "Informações fictícias",
+      "Atendimento fictício"
+    ],
+    "checks": [
+      {
+        "check": "Desktop pointer before/after",
+        "result": "passed; one PUT per valid drop, branch child preserved"
+      },
+      {
+        "check": "Pointer reparent inside submenu and return to root",
+        "result": "passed; branch descendants and IDs preserved"
+      },
+      {
+        "check": "Cycle into own descendant",
+        "result": "passed; no PUT and tree unchanged"
+      },
+      {
+        "check": "Mobile viewport pointer move child to root",
+        "result": "passed; one PUT and parent changed to null"
+      },
+      {
+        "check": "Drop outside tree",
+        "result": "passed; no PUT and active drag cleared"
+      },
+      {
+        "check": "Edge auto-scroll during mobile pointer drag",
+        "result": "passed; document scroll advanced 12px near lower edge, outside drop did not save"
+      },
+      {
+        "check": "Subir keyboard Enter fallback",
+        "result": "passed; sibling order saved, child preserved"
+      },
+      {
+        "check": "Reload persistence",
+        "result": "passed for hierarchy and final order"
+      },
+      {
+        "check": "Full-list snapshot stale before latest GET",
+        "result": "passed; refreshed tree, no PUT, explicit review message"
+      },
+      {
+        "check": "CAS conflict after latest GET",
+        "result": "passed; one rejected PUT, concurrent item preserved, tree reloaded"
+      },
+      {
+        "check": "500 operation_unknown",
+        "result": "passed; one PUT, error shown, no automatic retry or optimistic reorder"
+      },
+      {
+        "check": "Unified Add item workflow",
+        "result": "passed; created submenu, then child action with parent selected"
+      },
+      {
+        "check": "Conversion guard",
+        "result": "passed; action radio disabled for submenu with children"
+      },
+      {
+        "check": "Responsive layout",
+        "result": "passed after radio-specific CSS correction; 18px radios and document width375 <= viewport390"
+      },
+      {
+        "check": "Touch-action scope",
+        "result": "handle none, ordinary row auto"
+      },
+      {
+        "check": "TypeScript",
+        "result": "passed"
+      },
+      {
+        "check": "Escape/pointercancel/lost capture",
+        "result": "reviewed in source; cancel state without invoking onMove"
+      }
+    ],
+    "limitations": [
+      "Desktop Chrome pointer input used at mobile viewport; physical touch device was not available.",
+      "Escape while holding a pointer and native pointercancel were source-reviewed; the CUA drag operation is atomic.",
+      "Screenshots of corrected mobile form and tree were captured in CUA tool output; no screenshot files saved."
+    ],
+    "cleanup": {
+      "own_tab_closed": true,
+      "viewport_reset": true,
+      "original_tabs_untouched": true,
+      "qa_server_stopped": true
+    }
+  },
+  "production": {
+    "checked": true,
+    "checked_at": "2026-11-12T20:37:08.416344Z",
+    "url": "https://wabotia.queven.com.br/app",
+    "mode": "Read-only menu smoke and explicitly authorized update-catalogue refresh, each in a new authenticated Chrome tab",
+    "check_count": 10,
+    "checks": [
+      "System screen visibly shows v0.13.2 and installed commit cc13711e2e41",
+      "Automation > Menus e ações loads the new editor",
+      "Suporte Técnico remains enabled and automatic at the main menu, with existing Wabotia submenu beneath it",
+      "Drag handles, Adicionar item and Subir/Descer are visible; sibling order buttons are disabled where there is only one sibling",
+      "Opening Adicionar item em Suporte Técnico displays the Ação/Submenu choices and their explanations",
+      "New-item parent is preselected to Menu principal > Suporte Técnico and the breadcrumb matches",
+      "The new-item name is empty; no field or type was changed",
+      "Cancel closes the form and leaves the same saved tree visible",
+      "Clicked Verificar atualização once; the cache refresh completed and Última consulta changed to 12/11/2026, 17:38:15",
+      "Updater now says Você está na versão consultada: v0.13.2 · cc13711e2e41, matching the installed version; the install button is absent"
+    ],
+    "actions": "Navigation, opening the empty child form, Cancel, reading installed version, one authorized Verificar atualização click, and closing both created tabs. No drag, save, deletion, update installation, credential edit, provider request or message.",
+    "observations": [
+      "The stale catalogue was replaced by a real successful refresh. Both installed and latest consulted versions are 0.13.2 with commit cc13711e2e41."
+    ],
+    "limitations": [
+      "Production hierarchy mutation was intentionally not exercised; pointer moves and writes were validated only against the local synthetic API."
+    ],
+    "cleanup": {
+      "own_tab_closed": true,
+      "original_tabs_preserved": true,
+      "cua_completion_reported": true
+    },
+    "updater_refresh": {
+      "checked_at": "2026-11-12T20:38:43.9270026Z",
+      "visible_last_check": "12/11/2026,17:38:15",
+      "timezone": "America/Sao_Paulo",
+      "installed_version": "0.13.2",
+      "latest_consulted_version": "0.13.2",
+      "commit": "cc13711e2e4159c9eaccfcc463348ea6913aa6c0",
+      "verify_clicks": 1,
+      "installation_started": false,
+      "cache_refreshed": true,
+      "own_tab_closed": true,
+      "cua_completion_reported": true
+    }
+  },
+  "mobile_source_modified": false,
+  "production_menus_modified": false,
+  "production_update_cache_refreshed": true
+}

@@ -1,5 +1,21 @@
 # Validação e limites
 
+## Publicação 0.13.2 de 12/11/2026: arraste e cadastro unificado de menus
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `cc13711e2e4159c9eaccfcc463348ea6913aa6c0`. A alça de cada item permite ordenar antes/depois de outro item, colocar dentro de um submenu ou mover para o menu principal. O ramo inteiro acompanha a mudança, preservando IDs, conteúdo, restrições e ordem dos descendentes. O destino fica destacado durante o gesto, e uma soltura válida salva uma vez. **Subir**, **Descer** e **Editar / mover** oferecem alternativas sem arraste.
+
+Os dois botões de criação foram reunidos em **Adicionar item**. O formulário explica **Ação** (mensagem ou encaminhamento) e **Submenu** (agrupamento de opções); ao adicionar dentro de um submenu, o pai já vem selecionado. Um submenu com filhos não pode ser convertido em ação até que seus filhos sejam movidos ou removidos.
+
+Antes de mover, o painel compara a árvore completa capturada no início do gesto com a lista atual e envia `menus_revision`. Alterações concorrentes exigem revisão, sem sobrescrita ou repetição automática da operação. Movimentos sem efeito e destinos inválidos não gravam. A ordem nova vale para novas apresentações; números e botões ainda válidos mantêm a identidade da opção apresentada anteriormente. Uma opção movida para outro pai deixa de ser selecionável no contexto antigo.
+
+**448 testes em 35 arquivos**, TypeScript, build e empacotamento passaram. Incluem 27 casos do helper de árvore e oito de persistência, apresentação e seleção após reordenação/movimentação. A revisão visual em 1280 × 1000 e 390 × 844 confirmou arraste, destino na raiz, bloqueio de ciclos, persistência, teclado, conflitos, falha sem repetição e descarte fora da árvore. O CSS dos radios foi corrigido após detectar overflow no formulário mobile. Os testes usaram pointer do Chrome em viewport mobile; toque físico não foi testado. Escape, `pointercancel` e perda de captura foram revisados no código, pois o gesto da ferramenta de navegador é atômico.
+
+Backups D1/R2 completos precederam a publicação. Não há migrações novas; as 15 existentes, dez tabelas verificadas e os bindings foram preservados nos dois ambientes. O catálogo oferece 0.13.2 com SHA-256 conferido e mantém as 20 versões anteriores. Uma instalação temporária atualizou de 0.13.1 para 0.13.2 e passou **91 verificações**, preservando 17 tabelas, três credenciais cifradas, mídia e configuração. A API salvou reordenação e mudança de pai, recusou revisões antigas e restaurou exatamente a configuração de teste. Worker, D1, R2 e Durable Object temporários foram removidos, com ausência conferida. Não houve mensagens para provedores reais nesses testes.
+
+A conferência da interface em produção confirmou os controles, a árvore preservada e o pai correto ao abrir o formulário; a edição foi cancelada sem salvar. **Verificar atualização** renovou o resultado antigo às 17:38:15 (America/Sao_Paulo), e o painel passou a mostrar 0.13.2 tanto instalada quanto no catálogo consultado. As abas originais foram preservadas e as abas de teste foram fechadas.
+
+Evidências: [distribuição](reference/release-0.13.2-distribution.json), [operacional](reference/release-0.13.2-operational.json), [atualizador](reference/release-0.13.2-upgrade.json) e [interface](reference/release-0.13.2-ui.json).
+
 ## Publicação 0.13.1 de 12/11/2026: hierarquia de menus e submenus
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `ce42d39379e2feaa3b6c8b97b738f88dc191e1e6`. A tela anterior salvava o submenu como um contêiner vazio, mostrava os itens em lista plana e não oferecia uma ação direta para cadastrar filhos. Agora a árvore mostra cada nível, caminhos completos, **Adicionar opção dentro**, **Criar submenu dentro**, edição/movimentação e remoção com conferência do ramo. O formulário não exige copiar IDs de menu pai. O editor legado sem chamadores foi retirado.

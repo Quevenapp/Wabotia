@@ -1,0 +1,532 @@
+{
+  "date": "2026-11-12T20:34:45.300Z",
+  "environment": "https://wabotia-staging-0132-20261112.brunovnq.workers.dev",
+  "resource_name": "wabotia-staging-0132-20261112",
+  "previous_version": "0.13.1",
+  "version": "0.13.2",
+  "commit": "cc13711e2e4159c9eaccfcc463348ea6913aa6c0",
+  "upgrade_method": "published catalog via authenticated panel API",
+  "installer": "public/install-wabotia.mjs --release-dir public/releases/0.13.1",
+  "external_channels": false,
+  "provider_requests": 0,
+  "provider_messages_sent": 0,
+  "updater_configured_by_installer": true,
+  "bindings_preserved": true,
+  "package_sha256": "f6d10e0cf637fe6983d2f0e74be93a2102021dd50e78e14011849e239d89f9a6",
+  "served_bundle_sha256": "3ee2df69abe3bc856b0742015a200f2193790110ab45e4724cadf9eccc77ea9b",
+  "served_bundle_matches_package": true,
+  "tables_preserved": {
+    "users": {
+      "count": 3,
+      "sha256": "219bcccd22510252676a76486790c8e1d649e49e16db78ddee4c6a2cf7ab16cc"
+    },
+    "profiles": {
+      "count": 1,
+      "sha256": "0c44b9ef9e3b8fd6eb201dc4d37c9ef723f7ca1429d2a3aab4acf6e333dfc0c0"
+    },
+    "applications": {
+      "count": 1,
+      "sha256": "4086f3715c98f2f4f076c5fdcffcddd2c9ac30d83b21333b29e7264d4d8f3030"
+    },
+    "api_keys": {
+      "count": 1,
+      "sha256": "653b41b0cb5915b41b0bb1e7b5a8eda4e4144ce840a7666bde88383408489583"
+    },
+    "conversations": {
+      "count": 2,
+      "sha256": "1294fe8718fc2a7676492f99561f9ec118bed9b224d27ce7cd8f70a38708bc93"
+    },
+    "messages": {
+      "count": 2,
+      "sha256": "ea6b29c52490ea73919c41bef32768083eb613e59b90a2ae908f6dbbf12f178e"
+    },
+    "tickets": {
+      "count": 2,
+      "sha256": "bb1f759d739d8eaf0e9df5566ec55889ced6c073559086b5fc86ec4cc0e3664a"
+    },
+    "media": {
+      "count": 1,
+      "sha256": "1d4717409e5cb7ce6fe43bb6070af17f17ffc2278344670f1dcaa814efe78a86"
+    }
+  },
+  "integration_tables_preserved": {
+    "meta_accounts": {
+      "count": 4,
+      "sha256": "b92a39056e087ca9cf54fe4b392f6167140899a27353ce0adf1209c88309264c"
+    },
+    "connections": {
+      "count": 1,
+      "sha256": "f2b758dfa7636169195d5e9d13069e1d805b0f6e68ce096155cf595adc686e67"
+    },
+    "meta_numbers": {
+      "count": 1,
+      "sha256": "7199d6495c3e4bcb0d14a7a0121aa593e0e70b7434cf59f6e5f7c3535d8a59d3"
+    },
+    "number_pools": {
+      "count": 2,
+      "sha256": "56052433b1e7d36002ac80f1c2443d5c1000dd1e99307435bb980d119e8e39e4"
+    },
+    "number_pool_members": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "number_router_grants": {
+      "count": 1,
+      "sha256": "cd0dfe9c8b99f8060c5a8f55b346ca94f0c5e852622748c18edd34b8cec81dc5"
+    },
+    "outbox": {
+      "count": 1,
+      "sha256": "161b614e2253b03a552a4a7abb59f3dce1786d125d9c71b7daffb7afd8dbd8a6"
+    },
+    "meta_message_usage": {
+      "count": 1,
+      "sha256": "5db802ed0ea0e44098a95b46224d8ac69c0979deb9fff433c83a8807c1243c85"
+    },
+    "zernio_conversations": {
+      "count": 1,
+      "sha256": "b619a00351fa2f47cf441587ea7d53c3c7eb375da6e535fd0d0d970c9d6d8199"
+    }
+  },
+  "integration_credentials_preserved": {
+    "count": 3,
+    "sha256": "7114a7c604310aacddba8a8e58e101f1f1093cecc6a7ee008486833b0f5420a6"
+  },
+  "media_sha256": "6c00efcb64a5d9591ebb41b930521b63a0533842e0dd15c1589234a84c1f479a",
+  "migrations": {
+    "count": 15,
+    "existing_migrations_preserved": true,
+    "new_migrations": 0
+  },
+  "menus": {
+    "tree_depth": 3,
+    "explicit_root_parent_null": true,
+    "tree_preserved": true,
+    "revision_sha256": "94c120140636a0bdf0f3a8063e37ee2f453a90d8d293dad6559af73f4ff670a4",
+    "filtered_revision_matches_full": true,
+    "concurrency": {
+      "first_save": 200,
+      "stale_save": 409,
+      "stale_replay": 409,
+      "first_save_preserved": true,
+      "reorder_preserved": true,
+      "move_save": 200,
+      "move_stale_save": 409,
+      "move_preserved": true,
+      "partial_settings_preserved_tree": true,
+      "exact_settings_restored": true
+    },
+    "access": {
+      "unauthenticated": 401,
+      "wrong_area": 404,
+      "unknown_connection": 400,
+      "operator": [
+        {
+          "authorized_areas": 1,
+          "read_status": 200,
+          "write_status": 403
+        },
+        {
+          "authorized_areas": 0,
+          "read_status": 404,
+          "write_status": 404
+        }
+      ],
+      "application_read": 200,
+      "application_write": 403
+    },
+    "revision_metadata_not_persisted": true,
+    "tree_restored_after_test": true
+  },
+  "interface": {
+    "http_assets": true,
+    "menus_tree_actions": true,
+    "visual_browser_check": false
+  },
+  "synthetic_fixture": {
+    "sent_completion_handled": 1,
+    "baseline_unchanged": true,
+    "no_active_channels": true,
+    "no_pending_outbox": true
+  },
+  "checks": [
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/setup",
+      "status": 201
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/users",
+      "status": 200
+    },
+    {
+      "route": "v1/users",
+      "status": 200
+    },
+    {
+      "route": "v1/applications",
+      "status": 200
+    },
+    {
+      "route": "v1/applications/52026c73-ff92-4999-aabb-0d396d79fe7a/keys",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/conversations",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/conversations/d7fd746b-11d5-4c8e-89e4-483a1448df2b/actions",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/tickets",
+      "status": 200
+    },
+    {
+      "route": "media-upload",
+      "status": 200
+    },
+    {
+      "route": "media-download",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/automatic",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/router/accounts",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/check",
+      "status": 200
+    },
+    {
+      "route": "v1/system/updates/start",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    },
+    {
+      "route": "health",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 401
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/conversations/d7fd746b-11d5-4c8e-89e4-483a1448df2b",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/tickets/1fc80d4f-21bc-41b2-a052-5948328adb9e",
+      "status": 200
+    },
+    {
+      "route": "media-download",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus?connection_id=11038352-b7a1-4b7c-907c-fa5d6c191e53",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus?connection_id=40e87d8d-77c6-4755-b886-87830104a7bd",
+      "status": 400
+    },
+    {
+      "route": "v1/profiles/65694fce-e766-4b3e-9e39-ebad6e95dd91/menus",
+      "status": 404
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 403
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 404
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 404
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 403
+    },
+    {
+      "route": "auth/status",
+      "status": 200
+    },
+    {
+      "route": "auth/login",
+      "status": 200
+    },
+    {
+      "route": "v1/me",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 409
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 409
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus?connection_id=11038352-b7a1-4b7c-907c-fa5d6c191e53",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 409
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/settings",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "v1/profiles/2c8d8f28-ece6-4885-a757-124c6caf8b3d/menus",
+      "status": 200
+    },
+    {
+      "route": "openapi.json",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-DAtI0cjc.js",
+      "status": 200,
+      "menus_tree_actions": true
+    },
+    {
+      "route": "/releases/0.13.2/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.13.2/package.json",
+      "status": 200,
+      "package_hash_verified": true,
+      "served_bundle_hash_verified": true
+    },
+    {
+      "route": "v1/system",
+      "status": 200
+    }
+  ],
+  "cleanup": {
+    "complete": true,
+    "date": "2026-11-12T20:35:05.841Z",
+    "resource_name": "wabotia-staging-0132-20261112",
+    "worker_deleted": true,
+    "bucket_deleted": true,
+    "database_deleted": true,
+    "worker_absent": true,
+    "database_absent": true,
+    "bucket_absent": true,
+    "durable_namespace_absent": true
+  }
+}

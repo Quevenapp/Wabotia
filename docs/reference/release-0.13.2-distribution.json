@@ -1,0 +1,169 @@
+{
+  "date": "2026-11-12T20:33:12.859Z",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.13.2",
+  "commit": "cc13711e2e4159c9eaccfcc463348ea6913aa6c0",
+  "backup_complete": true,
+  "credential_help_links_verified": true,
+  "integration_removal_available": true,
+  "zernio_profile_resolution_available": true,
+  "provider_onboarding_removed": true,
+  "migrations": [],
+  "menu_hierarchy": true,
+  "menu_drag_and_drop": true,
+  "unified_menu_creation": true,
+  "menu_revision_conflicts": true,
+  "delivered_usage_categories": true,
+  "no_local_message_limits": true,
+  "zernio_template_catalog": true,
+  "customer_window_display": true,
+  "pending_migrations": 0,
+  "preserved_tables": [
+    "users",
+    "profiles",
+    "connections",
+    "bots",
+    "api_keys",
+    "conversations",
+    "messages",
+    "tickets",
+    "media",
+    "meta_accounts"
+  ],
+  "connections_preserved": 0,
+  "profile_state_preserved": true,
+  "bindings_preserved": true,
+  "package_verified": true,
+  "external_messages_sent": false,
+  "zernio_live_credentials_tested": false,
+  "checks": [
+    {
+      "route": "/api/health",
+      "status": 200
+    },
+    {
+      "route": "/api/auth/status",
+      "status": 200
+    },
+    {
+      "route": "/api/openapi.json",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-DAtI0cjc.js",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-B6HqNXG_.css",
+      "status": 200
+    },
+    {
+      "route": "/api/v1/profiles",
+      "status": 401
+    },
+    {
+      "route": "/webhooks/meta/release-verification",
+      "status": 410
+    },
+    {
+      "route": "/webhooks/meta-accounts/release-verification",
+      "status": 410
+    },
+    {
+      "route": "/releases/latest.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.13.2/package.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.10.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.11.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.2/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.3/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.4/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.13.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.13.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.13.2/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.3.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.3.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.4.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.5.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.2/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.3/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.7.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.8.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.9.0/release.json",
+      "status": 200
+    }
+  ]
+}
