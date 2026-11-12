@@ -1,0 +1,135 @@
+{
+  "date": "2026-11-12T15:42:05.602Z",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.12.1",
+  "commit": "59bd2add2a8ea72ffc516958eac61bbd2e56f007",
+  "backup_complete": true,
+  "credential_help_links_verified": true,
+  "migrations": [],
+  "pending_migrations": 0,
+  "preserved_tables": [
+    "users",
+    "profiles",
+    "connections",
+    "bots",
+    "api_keys",
+    "conversations",
+    "messages",
+    "tickets",
+    "media",
+    "meta_accounts"
+  ],
+  "connections_preserved": 0,
+  "profile_state_preserved": true,
+  "bindings_preserved": true,
+  "package_verified": true,
+  "external_messages_sent": false,
+  "zernio_live_credentials_tested": false,
+  "checks": [
+    {
+      "route": "/api/health",
+      "status": 200
+    },
+    {
+      "route": "/api/auth/status",
+      "status": 200
+    },
+    {
+      "route": "/api/openapi.json",
+      "status": 200
+    },
+    {
+      "route": "/app",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-9uojOJ64.js",
+      "status": 200
+    },
+    {
+      "route": "/assets/index-CBiJYe-d.css",
+      "status": 200
+    },
+    {
+      "route": "/api/v1/profiles",
+      "status": 401
+    },
+    {
+      "route": "/webhooks/meta/release-verification",
+      "status": 410
+    },
+    {
+      "route": "/webhooks/meta-accounts/release-verification",
+      "status": 410
+    },
+    {
+      "route": "/releases/latest.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.1/package.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.10.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.11.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.12.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.3.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.3.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.4.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.5.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.1/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.2/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.6.3/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.7.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.8.0/release.json",
+      "status": 200
+    },
+    {
+      "route": "/releases/0.9.0/release.json",
+      "status": 200
+    }
+  ],
+  "worker_version_id": "3fba0937-e53f-44e8-bf47-648d6cdcfdad"
+}

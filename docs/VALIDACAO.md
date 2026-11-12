@@ -1,5 +1,17 @@
 # Validação e limites
 
+## Publicação 0.12.1 de 12/11/2026: ajuda das credenciais Zernio
+
+Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `59bd2add2a8ea72ffc516958eac61bbd2e56f007`. A tela **Integração Zernio** mostra links e instruções junto de API key, ID da integração e segredo de assinatura. O painel explica os campos técnicos **Profile ID** e **Account ID**, a exibição única da API key e o uso do mesmo segredo nos dois sistemas. Após salvar, há um link direto para cadastrar a URL em Webhooks da Zernio.
+
+Backups D1/R2 foram concluídos antes de publicar. Não houve migração de banco nem mudança nos handlers ou payloads do formulário. Dez tabelas e os bindings foram comparados e preservados em cada ambiente. O catálogo oferece 0.12.1 com integridade SHA-256 verificada e mantém as 14 versões anteriores. Os arquivos JavaScript servidos nos dois domínios contêm os links e as instruções esperados. Evidências: [distribuição](reference/release-0.12.1-distribution.json) e [instalação operacional](reference/release-0.12.1-operational.json).
+
+A atualização real 0.12.0 → 0.12.1 passou em **68 verificações HTTP** na instalação temporária: pacote e bundle idênticos, links de credenciais, dados de oito tabelas, arquivo R2, área compartilhada, permissões e bindings preservados. As 14 migrações existentes continuam aplicadas. Os recursos temporários foram removidos, com ausência confirmada do Worker, D1, R2 e Durable Object. [Evidência da atualização](reference/release-0.12.1-upgrade.json).
+
+TypeScript, os cinco testes do atualizador e do pacote, build web e empacotamento do Worker passaram. O preview foi conferido no Chrome em desktop e 390 × 844, sem sobreposição, rolagem horizontal ou erros de console observados. Links externos usam `target="_blank"` e `rel="noopener noreferrer"`, com URLs estáticas sem dados do formulário. Nenhuma credencial foi preenchida ou enviada durante a inspeção, e não houve mensagem para provedores reais.
+
+O formulário **Nova integração** também foi conferido numa nova aba autenticada da produção, preservando a aba anterior do usuário: instruções de cada credencial e links corretos, sem sobreposição. Nenhum campo foi preenchido ou salvo. A URL de webhook de uma integração Zernio salva foi conferida no demo; a integração legada selecionada em produção não permite essa etapa antes de um novo cadastro.
+
 ## Publicação 0.12.0 de 12/11/2026: área automática e nomes do painel
 
 Publicada na distribuição oficial `https://wabotia.queven.app` e na instalação operacional `https://wabotia.queven.com.br`, no commit `be31a5379260ed351a6d9f0f09303054bb2da14a`. O painel usa **Área de atendimento → Integração Zernio → Telefones**. Novas instalações recebem a área compartilhada pela equipe na mesma transação do primeiro administrador. Instalações existentes reutilizam seus dados; o primeiro acesso administrativo prepara a área somente se ainda não houver nenhuma. O fluxo normal não pede criação nem seleção de áreas.
