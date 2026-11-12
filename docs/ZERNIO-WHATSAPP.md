@@ -4,18 +4,19 @@ O Wabotia usa a Zernio como intermediária da API oficial do WhatsApp. A conexã
 
 ## Conectar a integração
 
-1. Prepare a integração na Zernio e copie o valor do campo **Profile ID**. No Wabotia, esse valor é o **ID da integração na Zernio**. Crie uma **API key** com acesso a essa integração.
-2. Prepare um segredo para assinatura dos webhooks; use o mesmo valor na Zernio e no Wabotia.
-3. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, ID da integração na Zernio, fuso, API key e segredo do webhook. Salve.
-4. Clique em **Conectar WhatsApp pela Zernio**. Conclua o fluxo de autorização da empresa e do telefone. A Zernio conduz a conexão com a Meta.
-5. Ao retornar, abra a mesma integração, vá a **Telefones** e clique em **Buscar telefones na Zernio**. Cada telefone tem seu próprio **ID do telefone na Zernio**, identificado pelo campo **Account ID** no provedor.
-6. Selecione o telefone, confira o consumo inicial, defina o limite local de serviço e adicione. Esse limite não garante gratuidade na Zernio. A linha começa pausada.
+1. Abra [API Keys da Zernio](https://zernio.com/dashboard/api-keys), clique em **Create API key** e copie a chave imediatamente: ela é exibida uma vez. Consulte as [instruções oficiais](https://docs.zernio.com/quickstart#create-an-api-key).
+2. No [painel Zernio](https://zernio.com), abra **Connections** e copie o **Profile ID** da conexão WhatsApp. No Wabotia, ele é o **ID da integração na Zernio**; o **Account ID** identifica o telefone. Se ainda não conectou o WhatsApp, pode fazê-lo primeiro nessa tela. [Guia oficial](https://zernio.com/blog/how-to-build-whatsapp-ai-agent).
+3. Crie uma senha aleatória longa para o **Segredo de assinatura do webhook Zernio** e guarde-a. A Zernio não gera esse segredo: use o mesmo valor nos dois sistemas. [Documentação de webhooks](https://docs.zernio.com/webhooks).
+4. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, ID da integração na Zernio, fuso, API key e segredo do webhook. Salve. A tela também mostra as instruções e os links junto de cada campo.
+5. Se o WhatsApp ainda não estiver conectado, clique em **Conectar WhatsApp pela Zernio** e conclua a autorização da empresa e do telefone. A Zernio conduz a conexão com a Meta.
+6. Abra **Telefones → Buscar telefones na Zernio**. Cada telefone tem seu próprio **ID do telefone na Zernio**, identificado pelo campo **Account ID** no provedor.
+7. Selecione o telefone, confira o consumo inicial, defina o limite local de serviço e adicione. Esse limite não garante gratuidade na Zernio. A linha começa pausada.
 
 ## Receber mensagens e recibos
 
 Copie a URL **Webhook único desta integração**, no domínio HTTPS da sua instalação, terminada em /webhooks/zernio-accounts/ID_DA_CONTA.
 
-Cadastre essa URL na Zernio, com o mesmo segredo de assinatura salvo no Wabotia. Selecione eventos de mensagem recebida, enviada, entregue, lida e falha. A assinatura é validada antes de aceitar o evento. Os eventos precisam pertencer a um telefone cadastrado nessa integração.
+Cadastre essa URL em [Webhooks da Zernio](https://zernio.com/dashboard/webhooks), com o mesmo segredo de assinatura salvo no Wabotia. Selecione eventos de mensagem recebida, enviada, entregue, lida e falha. A assinatura é validada antes de aceitar o evento. Os eventos precisam pertencer a um telefone cadastrado nessa integração.
 
 Ative a linha, selecione o bot ou a equipe responsável e faça um teste de recebimento, resposta e confirmação de entrega. Uma mensagem na fila ou aceita pelo provedor ainda não comprova a entrega ao cliente.
 

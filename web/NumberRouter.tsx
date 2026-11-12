@@ -290,7 +290,11 @@ export function NumberRouter({
         </p>
         {step === "account" && (
           <p>
-            <a href="/install#zernio-whatsapp" target="_blank" rel="noreferrer">
+            <a
+              href="/install#zernio-whatsapp"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Conecte seu WhatsApp pela Zernio: passo a passo ↗
             </a>
           </p>
@@ -364,11 +368,38 @@ export function NumberRouter({
                   : "Conectar integração Zernio"}
             </h3>
             <p>
-              A Zernio faz a conexão com a Meta. Informe o ID da integração na
-              Zernio, sua API key e o segredo de assinatura do webhook. Depois
-              conecte seu WhatsApp e importe os telefones. As credenciais ficam
-              protegidas no servidor.
+              A Zernio faz a conexão com a Meta. Cadastre as credenciais abaixo
+              para importar seus telefones e receber mensagens no Wabotia. As
+              credenciais ficam protegidas no servidor.
             </p>
+            {!accountEditing && data.accounts.length > 0 && (
+              <p className="router-credential-links">
+                <strong>Onde obter as credenciais:</strong>{" "}
+                <a
+                  href="https://zernio.com/dashboard/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  API keys ↗
+                </a>
+                {" · "}
+                <a
+                  href="https://zernio.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Connections no painel Zernio (Profile ID) ↗
+                </a>
+                {" · "}
+                <a
+                  href="https://docs.zernio.com/webhooks"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Como configurar o segredo do webhook ↗
+                </a>
+              </p>
+            )}
             <div className="router-actions">
               <button disabled={!!busy} onClick={() => editAccount()}>
                 Nova integração
@@ -415,6 +446,7 @@ export function NumberRouter({
                     <input
                       required
                       maxLength={100}
+                      placeholder="Ex.: Atendimento da empresa"
                       value={accountForm.name}
                       onChange={(e) =>
                         setAccountForm({ ...accountForm, name: e.target.value })
@@ -426,6 +458,8 @@ export function NumberRouter({
                     <input
                       required
                       readOnly={!!accountForm.id}
+                      aria-label="ID da integração na Zernio"
+                      aria-describedby="zernio-integration-id-help"
                       value={accountForm.zernio_profile_id}
                       onChange={(e) =>
                         setAccountForm({
@@ -434,12 +468,37 @@ export function NumberRouter({
                         })
                       }
                     />
-                    <small>Na Zernio, copie o valor do campo Profile ID.</small>
+                    <small
+                      id="zernio-integration-id-help"
+                      className="router-field-help"
+                    >
+                      Abra a{" "}
+                      <a
+                        href="https://zernio.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Zernio ↗
+                      </a>{" "}
+                      e entre em <strong>Connections</strong>. Copie o{" "}
+                      <strong>Profile ID</strong> da conexão WhatsApp; o Account
+                      ID identifica o telefone. Se ainda não conectou o
+                      WhatsApp, conecte-o lá primeiro.{" "}
+                      <a
+                        href="https://zernio.com/blog/how-to-build-whatsapp-ai-agent"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Ver passo a passo ↗
+                      </a>
+                    </small>
                   </label>
                   <label>
                     Fuso da integração Zernio
                     <input
                       required
+                      aria-label="Fuso da integração Zernio"
+                      aria-describedby="zernio-timezone-help"
                       value={accountForm.timezone}
                       onChange={(e) =>
                         setAccountForm({
@@ -448,6 +507,12 @@ export function NumberRouter({
                         })
                       }
                     />
+                    <small
+                      id="zernio-timezone-help"
+                      className="router-field-help"
+                    >
+                      Ex.: America/Sao_Paulo para o horário de Brasília.
+                    </small>
                   </label>
                   {[
                     ["api_key", "API key da Zernio"],
@@ -461,6 +526,8 @@ export function NumberRouter({
                       <input
                         type="password"
                         autoComplete="new-password"
+                        aria-label={label}
+                        aria-describedby={`zernio-${field}-help`}
                         required={!accountForm.id}
                         value={accountForm[field] || ""}
                         placeholder={
@@ -473,6 +540,44 @@ export function NumberRouter({
                           })
                         }
                       />
+                      <small
+                        id={`zernio-${field}-help`}
+                        className="router-field-help"
+                      >
+                        {field === "api_key" ? (
+                          <>
+                            Abra{" "}
+                            <a
+                              href="https://zernio.com/dashboard/api-keys"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              API keys ↗
+                            </a>{" "}
+                            e clique em <strong>Create API key</strong>. Copie a
+                            chave imediatamente: ela é exibida uma única vez.{" "}
+                            <a
+                              href="https://docs.zernio.com/quickstart#create-an-api-key"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Guia da API key ↗
+                            </a>
+                          </>
+                        ) : (
+                          <>
+                            Crie uma senha aleatória longa e use o mesmo valor
+                            aqui e na Zernio. A Zernio não gera este segredo.{" "}
+                            <a
+                              href="https://docs.zernio.com/webhooks"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Guia de webhooks ↗
+                            </a>
+                          </>
+                        )}
+                      </small>
                     </label>
                   ))}
                 </div>
@@ -523,10 +628,18 @@ export function NumberRouter({
                 </button>
                 <h3>Webhook único desta integração</h3>
                 <p>
-                  Cadastre esta URL nos webhooks da Zernio, com o mesmo segredo
-                  de assinatura salvo acima. Selecione os eventos de
-                  recebimento, envio, entrega, leitura e falha de mensagens.
-                  Depois de concluir a conexão, use Buscar telefones na Zernio.
+                  Copie a URL abaixo e cadastre-a em{" "}
+                  <a
+                    href="https://zernio.com/dashboard/webhooks"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Webhooks da Zernio ↗
+                  </a>
+                  , com o mesmo segredo de assinatura salvo no Wabotia.
+                  Selecione os eventos de recebimento, envio, entrega, leitura e
+                  falha de mensagens. Depois de concluir a conexão, use Buscar
+                  telefones na Zernio.
                 </p>
                 <CopyValue
                   value={
