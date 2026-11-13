@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.16.2 de 13/11/2026: guia do site pelo instalador do navegador
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `0a4a52277dc21066103aa9fe28643472a249ad3b`, a partir da `main` (0.16.1) com os PRs 8 e 9. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.2-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.2 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `b9cb4499a26796c31f2098eea0dd437f927bb772c5b83fbd677e8c726d12eb23` (13.596.269 bytes), e as 26 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.
+
+A página `/install` começa pelo instalador pelo navegador, com o terminal como caminho alternativo, ganha a seção de Regras de atendimento e atalhos para o guia em PDF, também na página inicial. O guia em PDF foi refeito (65 páginas, 13 telas novas). No painel, o aviso depois de Descobrir bots cita Atendente e especialistas e os botões do plugin ganham espaço. Só telas e documentação mudam; o servidor é o da 0.16.0.
+
+**584 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. O bundle publicado contém a seção nova e o atalho do PDF. [Evidência](reference/release-0.16.2-distribution.json).
+
+Não verificado: o visual renderizado da página `/install` nova (a prévia local só permitiu conferir índice, âncoras e links pelo DOM); no guia em PDF, o reinício pelo Gerenciador Docker da Hostinger, as telas do instalador depois de Conferir a conta (descritas pelo código) e os capítulos de contatos, grupos, mídias e roteador, em que só os nomes de menus foram atualizados. A capa do PDF ainda indica a edição 0.16.1.
+
 ## Publicação 0.16.1 de 13/11/2026: painel com um único modo
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `0dc6f908e86a83f7b5782f3c5be2f3f5768ee0f7`, a partir da `main` (0.16.0) com o PR 7. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.1-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `314575e92a934add99686af70d2e8d5f2b26ecacaa3fbeccd41f262ee321d851` (12.472.337 bytes), e as 25 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.
