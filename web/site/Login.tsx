@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { api, type Row } from "../lib/api";
+import { setupTokenFromHash } from "../../src/install-links";
 import { Button, Field, Logo, Notice } from "../ui";
 
 function PasswordField({
@@ -54,6 +55,16 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
     [busy, setBusy] = useState(false);
   const change = (key: string) => (value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
+  // Link de primeiro acesso do instalador: o código vem no fragmento da URL,
+  // é guardado no formulário e sai da barra de endereço em seguida.
+  const [linked, setLinked] = useState(false);
+  useEffect(() => {
+    const token = setupTokenFromHash(location.hash);
+    if (!token) return;
+    setForm((current) => ({ ...current, token }));
+    setLinked(true);
+    history.replaceState(null, "", location.pathname + location.search);
+  }, []);
   useEffect(() => {
     api("auth/status")
       .then((status) => {
@@ -66,7 +77,9 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
     <div className="auth-page">
       <Logo light size={40} />
       <main className="auth-card">
-        <h1>{setup ? "Crie sua conta de administrador" : "Entrar no Wabotia"}</h1>
+        <h1>
+          {setup ? "Crie sua conta de administrador" : "Entrar no Wabotia"}
+        </h1>
         <p>
           {setup
             ? "Esta etapa é feita somente uma vez, na sua instalação."
@@ -108,6 +121,11 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
                 value={form.token}
                 onChange={change("token")}
                 autoComplete="off"
+                help={
+                  linked
+                    ? "Preenchido pelo link do instalador."
+                    : "O instalador mostra um link que preenche este campo. O código também está em chaves.local.json."
+                }
               />
             </>
           )}

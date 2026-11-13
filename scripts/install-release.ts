@@ -17,6 +17,7 @@ import {
   scriptPath,
   type ReleasePackage,
 } from "../src/release";
+import { installTokenUrl, setupLink } from "../src/install-links";
 
 export async function materializeRelease(folder: string, pkg: ReleasePackage) {
   for (const [group, files] of [
@@ -187,6 +188,10 @@ export async function install() {
   const account =
     process.env.CLOUDFLARE_ACCOUNT_ID ||
     (await question("Account ID da Cloudflare"));
+  if (!process.env.CLOUDFLARE_API_TOKEN)
+    console.log(
+      `\nAinda não tem o token? Abra este link no navegador: a Cloudflare mostra o formulário já com o nome e as três permissões. Em Account Resources, escolha somente a conta da instalação, confira e crie:\n${installTokenUrl}`,
+    );
   const token =
     process.env.CLOUDFLARE_API_TOKEN ||
     (await question("Token de API da Cloudflare (não será exibido)", true));
@@ -452,8 +457,11 @@ export async function install() {
   state.step = "done";
   await save();
   await chmod(secretsFile, 0o600);
+  const setupToken = JSON.parse(
+    await readFile(secretsFile, "utf8"),
+  ).SETUP_TOKEN;
   console.log(
-    `5/5 · Pronto: ${state.url}/app\nAbra ${secretsFile} e copie SETUP_TOKEN para criar o primeiro administrador.\nGuarde a pasta ${folder} em local privado. MASTER_KEY recupera suas credenciais; não gere outra para a mesma instalação.\nAs próximas versões são instaladas em Sistema e atualizações. O computador usado na instalação pode ser desligado.`,
+    `5/5 · Pronto: ${state.url}/app\nPara criar o primeiro administrador, abra este link no navegador; ele já leva o código de instalação e só serve até essa conta existir:\n${setupLink(state.url, setupToken)}\nO mesmo código está em ${secretsFile}, campo SETUP_TOKEN.\nGuarde a pasta ${folder} em local privado. MASTER_KEY recupera suas credenciais; não gere outra para a mesma instalação.\nAs próximas versões são instaladas em Sistema e atualizações. O computador usado na instalação pode ser desligado.`,
   );
 }
 if (

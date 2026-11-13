@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Copy, Download } from "lucide-react";
 import { NodeInstall, type InstallSystem } from "./NodeInstall";
+import { installTokenUrl } from "../src/install-links";
 export function DirectInstall() {
   const [os, setOs] = useState<InstallSystem>("vps"),
     [copied, setCopied] = useState(false);
@@ -38,9 +39,13 @@ export function DirectInstall() {
             instalar.
           </li>
           <li>
-            Crie o token descrito a seguir. Ele será digitado no terminal e
-            guardado como secret no seu Worker. O site Wabotia não recebe seu
-            token.
+            Crie o token:{" "}
+            <a href={installTokenUrl} target="_blank" rel="noopener noreferrer">
+              abrir a Cloudflare com o token já preenchido ↗
+            </a>
+            . Em <strong>Account Resources</strong>, escolha somente a conta da
+            instalação, confira e crie. Ele será digitado no terminal e guardado
+            como secret no seu Worker. O site Wabotia não recebe seu token.
           </li>
           <li>
             Use o mesmo terminal e usuário em que node e npm funcionaram.
@@ -49,14 +54,15 @@ export function DirectInstall() {
             <code> wabotia-atendimento</code>.
           </li>
           <li>
-            Ao terminar, abra a URL exibida. O instalador cria uma pasta com o
-            nome escolhido. Abra <code>chaves.local.json</code> e copie{" "}
-            <code>SETUP_TOKEN</code> para criar seu administrador. Guarde a
-            pasta em local privado.
+            Ao terminar, abra o <strong>link de primeiro acesso</strong> que o
+            instalador mostra: ele já leva o código de instalação para a tela de
+            criar seu administrador. O instalador cria uma pasta com o nome
+            escolhido; o mesmo código fica em <code>chaves.local.json</code>,
+            campo <code>SETUP_TOKEN</code>. Guarde a pasta em local privado.
           </li>
         </ol>
         <details>
-          <summary>Como criar o token da instalação</summary>
+          <summary>O link não abriu o formulário? Crie o token à mão</summary>
           <div className="guide-detail">
             <ol>
               <li>

@@ -148,7 +148,9 @@ R2 tem uma franquia mensal gratuita e cobrança conforme o uso excedente. Confir
 
 O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 e R2. Você não precisa gerar chaves D1 nem credenciais S3/R2 para colocar no painel Wabotia.
 
-### Requisito 3 - Ative Zero Trust antes do Hermes privado
+### Requisito 3 (opcional) - Zero Trust, só para ligar o Hermes por túnel
+
+O caminho recomendado para o Hermes é o **plugin** (seção 4): ele não usa Zero Trust, Access, túnel nem domínio. Pule este requisito, a menos que você prefira o túnel.
 
 1. Para seguir o caminho **Tunnel + Access**, abra **Zero Trust > Controles de acesso > Aplicativos**. Se aparecer a apresentação, clique **Começar** e conclua a ativação do plano escolhido. O **Zero Trust Free** atende esta configuração inicial.
 2. Confira os termos e eventuais informações de cobrança mesmo selecionando o plano gratuito. Se pedir nome de equipe, escolha um disponível.
@@ -164,10 +166,9 @@ O plano Zero Trust é separado de Workers e R2. Um Hermes com HTTPS autenticado 
 - [ ] R2 ativado: lista de buckets ou **Criar bucket** disponível.
 - [ ] D1 disponível: lista de bancos e **Criar banco de dados** acessíveis.
 - [ ] Plano Workers conferido para o uso pretendido.
-- [ ] Zero Trust ativado para o caminho privado: **Aplicativos** e **Credenciais de serviço** acessíveis.
-- [ ] Domínio ativo na Cloudflare para os hostnames do túnel.
 - [ ] Hermes funcionando, com modelo e provedor configurados; não apagar os bots existentes.
 - [ ] Número de teste.
+- [ ] Somente para o Hermes por túnel: Zero Trust ativado e domínio ativo na Cloudflare.
 
 Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, não consumo ilimitado nem dispensa de adesão. Se já ativou ou instalou algum item, confira o existente em vez de contratar novamente.
 
@@ -176,8 +177,8 @@ Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, 
 ### Crie o token e copie Account ID
 
 1. Na conta Cloudflare escolhida, copie **Account ID** na visão geral da conta/domínio.
-2. Abra **My Profile → API Tokens → Create Token → Custom Token**.
-3. Dê um nome, como “Wabotia instalação”. Adicione permissões de conta **Workers Scripts: Edit**, **D1: Edit** e **Workers R2 Storage: Edit**.
+2. Abra o [formulário de token já preenchido](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=Wabotia%20instala%C3%A7%C3%A3o): a Cloudflare abre a criação do token com o nome e as três permissões. O instalador mostra o mesmo link antes de pedir o token.
+3. Se o link não abrir o formulário, crie à mão: **My Profile → API Tokens → Create Token → Custom Token**, nome “Wabotia instalação” e permissões de conta **Workers Scripts: Edit**, **D1: Edit** e **Workers R2 Storage: Edit**.
 4. Em **Account Resources**, selecione **Include → Specific account**, somente a conta da instalação. Defina a validade, confira e crie.
 5. Copie o valor exibido uma vez e guarde em local privado. Esse token autoriza publicar Workers e administrar D1/R2 nessa conta. Ele será enviado diretamente à Cloudflare; o site Wabotia não o recebe.
 
@@ -219,7 +220,7 @@ Será criada uma pasta com o nome escolhido. Nela:
 | `wrangler.jsonc` | Configuração dos recursos para recuperação manual. |
 | `worker/`, `web/`, `migrations/` | Arquivos da versão instalada, sem repositório Git. |
 
-Abra `chaves.local.json` em um editor e copie **somente o valor de SETUP_TOKEN** para criar o primeiro administrador. **MASTER_KEY** protege as credenciais criptografadas. A senha de login é escolhida por você. Não gere novas chaves para uma instalação existente. O gerador do site continua disponível para configuração manual, mas não é necessário neste fluxo.
+Ao terminar, o instalador mostra o **link de primeiro acesso** (`…/app#setup=…`). Abra-o no navegador: ele já leva o código de instalação para a tela de criar o primeiro administrador, sem abrir arquivo nenhum. O código vai no fragmento da URL, que o navegador não envia ao servidor, e só serve até essa conta existir. Se preferir, abra `chaves.local.json` em um editor e copie **somente o valor de SETUP_TOKEN**. **MASTER_KEY** protege as credenciais criptografadas. A senha de login é escolhida por você. Não gere novas chaves para uma instalação existente. O gerador do site continua disponível para configuração manual, mas não é necessário neste fluxo.
 
 Abra a URL exibida pelo instalador seguida de `/app`. Para domínio próprio, use **Cloudflare → seu Worker → Settings → Domains & Routes → Add → Custom domain**, em um domínio da mesma conta.
 
@@ -241,13 +242,26 @@ Pause os canais antigos antes de ativar os mesmos números/bots na nova instala�
 
 ## 3. Crie sua conta e acesse a área de atendimento
 
-1. Na sua URL `/app`, preencha nome, e-mail, senha de pelo menos 12 caracteres e código `SETUP_TOKEN`.
+1. Abra o link de primeiro acesso do instalador e preencha nome, e-mail e senha de pelo menos 12 caracteres; o código de instalação já vem preenchido. Sem o link, abra sua URL `/app` e cole o `SETUP_TOKEN`.
 2. Clique **Criar conta e entrar**. O código inicial não cria outras contas depois que o administrador existe.
 3. A **Área de atendimento** é criada automaticamente para a empresa nesta instalação e compartilhada pela equipe. Não é necessário criar uma área para cada pessoa.
 4. Mantenha o atendimento pausado enquanto prepara os serviços.
 5. Em **Pessoas**, adicione uma conta para cada atendente da mesma área de atendimento. Evite compartilhar uma única conta. A edição permite alterar nome, acesso e senha; a desativação encerra o acesso.
 
-## 4. Ligue a API do Hermes, mesmo se estiver desligada
+## 4. Conecte o Hermes pelo plugin (recomendado)
+
+Um comando na máquina do Hermes, sem túnel, sem domínio e sem chaves do Hermes guardadas no Wabotia. Detalhes e limites em [Plugin Wabotia para o Hermes Agent](HERMES-PLUGIN.md).
+
+1. Tenha o Hermes funcionando, com modelo e provedor configurados. Quem ainda não tem pode usar uma VPS com a imagem pronta do Hermes Agent, como a da Hostinger.
+2. No painel: **Hermes e canais → Conectar Hermes**, mantenha **Plugin no Hermes** e salve.
+3. No cartão da conexão, **Gerar comando de instalação**. O código vale 15 minutos e uma única vez.
+4. Cole o comando no terminal da máquina do Hermes, com o usuário do Hermes. Para Hermes em Docker, a mesma janela mostra as duas formas do comando (do servidor e de dentro do contêiner).
+5. Reinicie o gateway do Hermes (em Docker, `docker restart CONTEINER`).
+6. No cartão: **Testar conexão → Descobrir bots → Ativar**. Depois siga os itens 5 a 7 da seção 6 para escolher o Atendente e cadastrar conhecimento e menus.
+
+O comando instala o plugin, habilita a API local do Hermes somente em `127.0.0.1` e cria a `API_SERVER_KEY` do perfil se ainda não existir. Ele não abre portas e não reinicia nada sozinho. As seções 4-A, 5 e os itens 1 a 4 da seção 6 abaixo são o **caminho alternativo por túnel**; quem usa o plugin não precisa deles.
+
+## 4-A. Caminho alternativo por túnel: ligue a API do Hermes
 
 Siga o [roteiro completo Hermes + Cloudflare](HERMES-CLOUDFLARE.md). Ele mostra onde abrir o terminal, como criar o atendimento Hermes `wabotia`, gerar e guardar as chaves, habilitar a API, iniciar os serviços e testar. Há caminhos separados para **Ubuntu/Linux/WSL2/macOS nativo** e **VPS Ubuntu com Docker**, preservando o Hermes existente.
 
@@ -255,7 +269,7 @@ O assistente `python3 scripts/prepare-hermes.py --profile wabotia --create-profi
 
 As chaves Hermes geradas ficam em `~/.config/wabotia/hermes/chaves.local.txt`. Elas são adicionais às chaves de instalação do Wabotia. Não substitua MASTER_KEY/SETUP_TOKEN. Não copie credenciais dos canais de outro bot.
 
-## 5. Configure a Cloudflare para alcançar o Hermes
+## 5. Caminho alternativo por túnel: configure a Cloudflare para alcançar o Hermes
 
 O [roteiro ilustrado, etapas C a E](HERMES-CLOUDFLARE.md#c-cloudflare-domínio-e-zero-trust), detalha a sequência:
 
@@ -274,7 +288,9 @@ O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele
 
 ## 6. Conecte e escolha a Equipe Bot
 
-1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, dê um nome e preencha as URLs HTTPS administrativa e da API.
+Com o plugin, a conexão já está feita: comece no item 5. Os itens 1 a 4 valem para o caminho por túnel.
+
+1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, escolha **URLs públicas com túnel Cloudflare**, dê um nome e preencha as URLs HTTPS administrativa e da API.
 2. Cole o token administrativo e a `API_SERVER_KEY` de cada atendimento Hermes. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários atendimentos Hermes, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 atendimentos Hermes por conexão.
 3. Salve, clique **Testar conexão** e **Descobrir bots**. A verificação exige idempotência durável anunciada pelo Hermes.
 4. Ative a conexão. Em **Equipe Bot**, habilite os bots autorizados e selecione o **Atendente**.
