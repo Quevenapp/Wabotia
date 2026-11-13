@@ -73,6 +73,10 @@ const mime = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".wasm": "application/wasm",
+  // Plugin do Hermes servido em /hermes-plugin/ (docs/HERMES-PLUGIN.md).
+  ".sh": "text/plain; charset=utf-8",
+  ".py": "text/plain; charset=utf-8",
+  ".yaml": "text/plain; charset=utf-8",
 };
 function files(root, relative = "", modules = false) {
   return readdirSync(join(root, relative), { withFileTypes: true }).flatMap(

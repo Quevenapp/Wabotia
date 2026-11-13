@@ -15,6 +15,7 @@ const configKeys = [
   "group",
   "number",
   "platform",
+  "transport",
 ];
 const secretKeys = [
   "token",
@@ -36,7 +37,11 @@ export function ConnectionDialog({
   onSaved: () => void | Promise<void>;
 }) {
   const app = useApp();
-  const [form, setForm] = useState<Row>(initial);
+  // Hermes novo começa pelo plugin, que dispensa túnel e chaves no Wabotia.
+  const [form, setForm] = useState<Row>(
+    initial.id ? initial : { transport: "link", ...initial },
+  );
+  const byPlugin = form.kind === "hermes" && form.transport === "link";
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
 
@@ -45,12 +50,18 @@ export function ConnectionDialog({
       secrets: Row = {};
     config.groups_enabled = !!form.groups_enabled;
     for (const key of configKeys) if (form[key]) config[key] = form[key];
-    for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
-    if (form.profile_key)
+    if (form.kind !== "hermes" || form.transport !== "link")
+      delete config.transport;
+    if (!byPlugin)
+      for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
+    if (byPlugin) {
+      delete config.url;
+      delete config.api_url;
+    } else if (form.profile_key)
       secrets.profile_keys = {
         [form.remote_profile || "default"]: form.profile_key,
       };
-    if (form.profile_keys_json) {
+    if (!byPlugin && form.profile_keys_json) {
       try {
         secrets.profile_keys = JSON.parse(form.profile_keys_json);
       } catch {
@@ -74,7 +85,12 @@ export function ConnectionDialog({
 
   return (
     <FormDialog title="Conectar serviço" onClose={onClose} onSubmit={save}>
-      <Field label="Nome" value={form.name} onChange={change("name")} required />
+      <Field
+        label="Nome"
+        value={form.name}
+        onChange={change("name")}
+        required
+      />
       <Field
         label="Serviço"
         value={form.kind}
@@ -108,7 +124,28 @@ export function ConnectionDialog({
           required
         />
       )}
-      {form.kind === "hermes" && (
+      {form.kind === "hermes" && !form.id && (
+        <Field
+          label="Como ligar ao Hermes"
+          value={form.transport || "url"}
+          onChange={(value: string) =>
+            change("transport")(value === "link" ? "link" : "")
+          }
+          options={[
+            ["link", "Plugin no Hermes (recomendado, sem túnel)"],
+            ["url", "URLs públicas com túnel Cloudflare"],
+          ]}
+        />
+      )}
+      {byPlugin && (
+        <p>
+          Nada mais a preencher. Depois de salvar, use{" "}
+          <strong>Gerar comando de instalação</strong> no cartão da conexão e
+          execute o comando na máquina onde o Hermes está. As chaves do Hermes
+          ficam nessa máquina.
+        </p>
+      )}
+      {form.kind === "hermes" && !byPlugin && (
         <>
           <Field
             label="URL do backend administrativo Hermes"
@@ -184,9 +221,9 @@ export function ConnectionDialog({
       {form.kind === "zernio" && (
         <>
           <p>
-            Este cadastro usa um telefone já conectado na Zernio. Para
-            encontrar e importar seus telefones, use Integração Zernio no menu
-            WhatsApp e canais.
+            Este cadastro usa um telefone já conectado na Zernio. Para encontrar
+            e importar seus telefones, use Integração Zernio no menu WhatsApp e
+            canais.
           </p>
           {[
             ["account_id", "ID do telefone na Zernio"],
@@ -212,7 +249,9 @@ export function ConnectionDialog({
                 onChange={change(key)}
                 autoComplete="off"
                 required={
-                  !form.id || key === "account_id" || key === "zernio_profile_id"
+                  !form.id ||
+                  key === "account_id" ||
+                  key === "zernio_profile_id"
                 }
               />
             ))}
@@ -234,8 +273,8 @@ export function ConnectionDialog({
             coexistência com o aplicativo
           </label>
           <p>
-            Após salvar, cadastre a URL exibida nos webhooks da Zernio e teste
-            a conexão.
+            Após salvar, cadastre a URL exibida nos webhooks da Zernio e teste a
+            conexão.
           </p>
         </>
       )}

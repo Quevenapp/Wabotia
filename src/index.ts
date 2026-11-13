@@ -85,6 +85,12 @@ import {
   prunePairings,
 } from "./pairing";
 import {
+  linkAuth,
+  linkCodeConnection,
+  linkForward,
+  linkJobId,
+} from "./hermes-link";
+import {
   cloudflareJobs,
   cloudflareSettings,
   connectorDownload,
@@ -172,6 +178,61 @@ app.post("/api/pairing/token", async (c) =>
     ),
   ),
 );
+// Vínculo do plugin Wabotia no Hermes Agent (docs/HERMES-PLUGIN.md). O token
+// wabl_ só vale nestas rotas; o estado do poll vive na instância do vínculo.
+app.post("/api/hermes-link/pair", bodyLimit({ maxSize: 4096 }), async (c) => {
+  await rate(
+    c.env,
+    "link-pair:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
+    20,
+    600_000,
+  );
+  const body = await c.req.json().catch(() => ({}));
+  return linkForward(c.env, linkCodeConnection(body?.code), "/link-pair", body);
+});
+app.get("/api/hermes-link/poll", async (c) => {
+  const conn = await linkAuth(c.env, c.req.raw);
+  return linkForward(c.env, conn.id, "/link-poll", {
+    wait_seconds: c.req.query("wait"),
+  });
+});
+app.post("/api/hermes-link/results", async (c) => {
+  const conn = await linkAuth(c.env, c.req.raw),
+    body = await c.req.json();
+  requireValue(
+    typeof body?.id === "string" && linkJobId.test(body.id),
+    "Resultado inválido.",
+  );
+  return linkForward(c.env, conn.id, "/link-result", body);
+});
+app.put("/api/hermes-link/artifacts/:job", async (c) => {
+  const conn = await linkAuth(c.env, c.req.raw),
+    job = c.req.param("job");
+  requireValue(linkJobId.test(job), "Resultado inválido.");
+  const pending = await (
+    await linkForward(c.env, conn.id, "/link-job", { id: job })
+  ).json<any>();
+  if (pending.op !== "artifacts.download")
+    throw new ApiError(
+      409,
+      "job_not_waiting",
+      "Esta operação não aguarda arquivo.",
+    );
+  requireValue(
+    Number(c.req.header("Content-Length")) > 0 && c.req.raw.body,
+    "Envie o arquivo com Content-Length.",
+  );
+  await c.env.MEDIA.put(`hermes-link/${conn.id}/${job}`, c.req.raw.body, {
+    httpMetadata: {
+      contentType: c.req.header("Content-Type") || "application/octet-stream",
+    },
+  });
+  return linkForward(c.env, conn.id, "/link-result", {
+    id: job,
+    ok: true,
+    http_status: 200,
+  });
+});
 app.get("/api/auth/status", async (c) => {
   const count = await one(c.env, "SELECT count(*) n FROM users");
   return c.json({
@@ -939,7 +1000,14 @@ app.get("/api/v1/profiles/:profile/connections", async (c) => {
     ),
   );
 });
-for (const op of ["test", "discover", "telegram-webhook", "connector-token"])
+for (const op of [
+  "test",
+  "discover",
+  "telegram-webhook",
+  "connector-token",
+  "link-code",
+  "link-revoke",
+])
   app.post("/api/v1/profiles/:profile/connections/:id/" + op, async (c) => {
     admin(c.get("actor"));
     return mutate(c, "connection." + op, c.req.param("profile")!, {

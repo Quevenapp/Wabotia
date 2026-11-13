@@ -1,1 +1,2 @@
 *.pdf binary
+public/hermes-plugin/* text eol=lf

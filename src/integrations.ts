@@ -11,6 +11,34 @@ import {
 import { mediaKind, putStream, multipartStream } from "./media";
 import { zernioAccountList } from "./zernio-accounts";
 import { secret, setSecret, safeFetch, random, sha } from "./security";
+import { isLink, linkCall, type LinkOp } from "./hermes-link";
+// No modo plugin o motor continua pedindo os mesmos caminhos; aqui eles viram
+// as operações fechadas do vínculo (docs/HERMES-PLUGIN.md).
+function linkJob(path: string, body?: any, profile?: string, idem?: string) {
+  if (path === "/api/profiles") return { op: "profiles.list" as LinkOp };
+  const target = profile || "default";
+  if (path === "/v1/capabilities")
+    return { op: "capabilities.get" as LinkOp, profile: target };
+  if (path === "/v1/runs" && body)
+    return {
+      op: "runs.create" as LinkOp,
+      profile: target,
+      body,
+      idempotency_key: idem,
+    };
+  const run = /^\/v1\/runs\/([^/]+)(\/stop)?$/.exec(path);
+  if (run)
+    return {
+      op: (run[2] ? "runs.stop" : "runs.get") as LinkOp,
+      profile: target,
+      run_id: decodeURIComponent(run[1]),
+    };
+  throw new ApiError(
+    502,
+    "hermes_error",
+    "Operação Hermes indisponível pelo plugin.",
+  );
+}
 export async function hermesRequest(
   env: Env,
   connection: any,
@@ -19,6 +47,8 @@ export async function hermesRequest(
   profile?: string,
   idem?: string,
 ) {
+  if (isLink(connection))
+    return linkCall(env, connection, linkJob(path, body, profile, idem));
   const cfg = json(connection.config),
     keys = await secret(env, `connection:${connection.id}`);
   const api = path.startsWith("/v1/");
@@ -77,9 +107,10 @@ export async function hermesArtifact(
     "Referência de arquivo inválida.",
   );
   const cfg = json(connection.config),
-    keys = await secret(env, `connection:${connection.id}`);
+    keys = await secret(env, `connection:${connection.id}`),
+    link = isLink(connection);
   requireValue(
-    keys.profile_keys?.[profile],
+    link || keys.profile_keys?.[profile],
     "Configure a API_SERVER_KEY do bot no Hermes.",
   );
   const prior = await one(
@@ -142,6 +173,41 @@ export async function hermesArtifact(
     name.slice(0, 200),
     now(),
   );
+  if (link) {
+    // O plugin envia o arquivo para uma chave temporária; daqui ele segue o
+    // mesmo caminho de gravação do download direto.
+    const job = uid(),
+      temporary = `hermes-link/${connection.id}/${job}`;
+    try {
+      await linkCall(env, connection, {
+        id: job,
+        op: "artifacts.download",
+        profile,
+        artifact_id: artifactId,
+        deadline_ms: 25_000,
+      });
+      const object = await env.MEDIA.get(temporary);
+      requireValue(object, "O Hermes não enviou o arquivo.");
+      await storeRemoteMedia(
+        env,
+        connection.profile_id,
+        name.slice(0, 200),
+        object.httpMetadata?.contentType || "application/octet-stream",
+        new Response(object.body, {
+          headers: { "Content-Length": String(object.size) },
+        }),
+        { id, actor },
+      );
+    } finally {
+      await env.MEDIA.delete(temporary);
+    }
+    await exec(
+      env,
+      "UPDATE artifact_imports SET state='complete' WHERE media_id=?",
+      id,
+    );
+    return id;
+  }
   const headers: Record<string, string> = {
     Authorization: "Bearer " + keys.profile_keys[profile],
   };
@@ -193,7 +259,13 @@ export async function discover(env: Env, id: string, profile: string) {
   }
   const keys = await secret(env, `connection:${id}`);
   const checks: Record<string, any> = {};
-  const remoteProfiles = Object.keys(keys.profile_keys || {});
+  // No modo plugin as chaves ficam no Hermes: valem os perfis que ele informa
+  // com a API local habilitada.
+  const remoteProfiles: string[] = isLink(c)
+    ? (data.profiles || [])
+        .filter((p: any) => typeof p.name === "string" && p.api_enabled)
+        .map((p: any) => p.name as string)
+    : Object.keys(keys.profile_keys || {});
   requireValue(
     remoteProfiles.length <= 20,
     "Use no máximo 20 bots por conexão Hermes.",

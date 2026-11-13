@@ -11,6 +11,7 @@ import {
   Button,
   Confirm,
   CopyButton,
+  Dialog,
   Empty,
   Notice,
   SkeletonBlock,
@@ -39,6 +40,16 @@ const zernioWebhook = (row: Row) =>
     ? "/webhooks/zernio-accounts/" + parse(row.config).zernio_workspace_id
     : "/webhooks/zernio/" + row.id);
 
+// Variantes do comando de instalação do plugin para Hermes em Docker (imagem
+// oficial: dados em /opt/data, do usuário hermes).
+function dockerCommand(pairing: Row, where: "host" | "inside") {
+  const script = `curl -fsSL ${location.origin}/hermes-plugin/install.sh`,
+    args = `${location.origin} ${pairing.code}`;
+  return where === "host"
+    ? `${script} | docker exec -i -u hermes CONTEINER bash -s -- ${args}`
+    : `${script} | su -s /bin/bash hermes -c 'HERMES_BIN=/opt/hermes/bin/hermes HERMES_HOME=/opt/data bash -s -- ${args}'`;
+}
+
 export function ConnectionsPage() {
   const app = useApp();
   const { api, root, demo } = app;
@@ -46,7 +57,9 @@ export function ConnectionsPage() {
   const { busy, run } = useAction();
   const [editing, setEditing] = useState<Row | null>(null),
     [secret, setSecret] = useState(""),
-    [removing, setRemoving] = useState<Row | null>(null);
+    [removing, setRemoving] = useState<Row | null>(null),
+    [pairing, setPairing] = useState<Row | null>(null),
+    [revoking, setRevoking] = useState<Row | null>(null);
   const reload = async () => {
     await Promise.all([list.reload(), app.refresh().catch(() => {})]);
   };
@@ -144,7 +157,12 @@ export function ConnectionsPage() {
                 demo={demo}
                 disabled={busy}
                 request={(action, signal) =>
-                  api(root + `/connections/${row.id}/${action}`, "POST", {}, signal)
+                  api(
+                    root + `/connections/${row.id}/${action}`,
+                    "POST",
+                    {},
+                    signal,
+                  )
                 }
                 refresh={reload}
                 showBots={() => navigate({ area: "admin", page: "bots" })}
@@ -187,10 +205,9 @@ export function ConnectionsPage() {
             )}
             {row.kind === "meta" && (
               <p className="notice">
-                A integração direta com a Meta foi desativada. Resolva
-                operações em andamento ou sem confirmação, exclua esta linha e
-                importe o telefone já conectado na Zernio. O histórico é
-                preservado.
+                A integração direta com a Meta foi desativada. Resolva operações
+                em andamento ou sem confirmação, exclua esta linha e importe o
+                telefone já conectado na Zernio. O histórico é preservado.
               </p>
             )}
             {["meta", "zernio", "qr", "hermes-whatsapp"].includes(row.kind) && (
@@ -225,6 +242,48 @@ export function ConnectionsPage() {
                 Gerar chave do conector
               </button>
             )}
+            {row.kind === "hermes" &&
+              parse(row.config).transport === "link" && (
+                <>
+                  <p>
+                    {parse(row.config).link
+                      ? `Plugin pareado em ${parse(row.config).link.host || "máquina sem nome"}, em ${date(parse(row.config).link.paired_at)}.`
+                      : "Plugin ainda não pareado. Gere o comando e execute na máquina do Hermes."}
+                  </p>
+                  <button
+                    type="button"
+                    className="text-link"
+                    onClick={() =>
+                      run(
+                        () =>
+                          api(
+                            root + `/connections/${row.id}/link-code`,
+                            "POST",
+                            {},
+                          ),
+                        { success: "Comando gerado.", retry: false },
+                      ).then((result) => {
+                        if (result?.command) setPairing(result);
+                      })
+                    }
+                  >
+                    {parse(row.config).link
+                      ? "Parear novamente"
+                      : "Gerar comando de instalação"}
+                  </button>
+                  {parse(row.config).link && (
+                    <button
+                      type="button"
+                      className="text-link"
+                      onClick={() => {
+                        if (!app.demoBlocked()) setRevoking(row);
+                      }}
+                    >
+                      Revogar plugin
+                    </button>
+                  )}
+                </>
+              )}
             {row.kind === "zernio" && (
               <div className="resource-id">
                 <span>Webhook Zernio</span>
@@ -257,6 +316,92 @@ export function ConnectionsPage() {
         />
       )}
       {secret && <SecretDialog token={secret} onClose={() => setSecret("")} />}
+      {pairing && (
+        <Dialog
+          title="Instale o plugin no Hermes"
+          onClose={() => {
+            setPairing(null);
+            void reload();
+          }}
+          footer={
+            <Button
+              onClick={() => {
+                setPairing(null);
+                void reload();
+              }}
+            >
+              Concluir
+            </Button>
+          }
+        >
+          <p>
+            Execute na máquina onde o Hermes está instalado (Linux, macOS ou
+            WSL2), com o mesmo usuário do Hermes. O código vale até{" "}
+            {date(pairing.expires)} e só pode ser usado uma vez.
+          </p>
+          <div className="secret-box">
+            <code>{pairing.command}</code>
+            <CopyButton value={pairing.command} />
+          </div>
+          <details>
+            <summary>Meu Hermes roda em Docker</summary>
+            <p>
+              Nesse caso o comando acima não encontra o Hermes. No terminal do
+              servidor, troque <code>CONTEINER</code> pelo nome mostrado em{" "}
+              <code>docker ps</code>:
+            </p>
+            <div className="secret-box">
+              <code>{dockerCommand(pairing, "host")}</code>
+              <CopyButton value={dockerCommand(pairing, "host")} />
+            </div>
+            <p>
+              Se o terminal já abre dentro do contêiner (como no painel da
+              Hostinger), use:
+            </p>
+            <div className="secret-box">
+              <code>{dockerCommand(pairing, "inside")}</code>
+              <CopyButton value={dockerCommand(pairing, "inside")} />
+            </div>
+            <p>
+              Depois reinicie o contêiner pelo servidor:{" "}
+              <code>docker restart CONTEINER</code>.
+            </p>
+          </details>
+          <p>
+            Depois de reiniciar o gateway do Hermes, volte a este cartão e use{" "}
+            <strong>Testar conexão</strong>, <strong>Descobrir bots</strong> e{" "}
+            <strong>Ativar</strong>.
+          </p>
+        </Dialog>
+      )}
+      {revoking && (
+        <Confirm
+          title={"Revogar o plugin de " + revoking.name + "?"}
+          confirmLabel="Revogar plugin"
+          danger
+          busy={busy}
+          onClose={() => setRevoking(null)}
+          onConfirm={() =>
+            run(
+              () =>
+                api(
+                  root + `/connections/${revoking.id}/link-revoke`,
+                  "POST",
+                  {},
+                ),
+              { success: "Plugin revogado." },
+            ).then(async () => {
+              setRevoking(null);
+              await reload();
+            })
+          }
+        >
+          <p>
+            O Hermes dessa máquina deixa de receber execuções desta conexão. Os
+            bots continuam cadastrados; para voltar a usar, pareie novamente.
+          </p>
+        </Confirm>
+      )}
       {removing && (
         <Confirm
           title={"Excluir o telefone " + removing.name + " do Wabotia?"}
@@ -265,10 +410,9 @@ export function ConnectionsPage() {
           busy={busy}
           onClose={() => setRemoving(null)}
           onConfirm={() =>
-            run(
-              () => api(root + "/connections/" + removing.id, "DELETE", {}),
-              { success: "Telefone excluído. Histórico preservado." },
-            ).then(async () => {
+            run(() => api(root + "/connections/" + removing.id, "DELETE", {}), {
+              success: "Telefone excluído. Histórico preservado.",
+            }).then(async () => {
               setRemoving(null);
               await reload();
             })

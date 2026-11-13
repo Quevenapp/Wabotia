@@ -22,6 +22,7 @@ import {
 import { event, audit } from "./events";
 import { visibleConversation } from "./visibility";
 import { probe, discover, configureTelegram } from "./integrations";
+import { isLink, linkCode, linkRevoke } from "./hermes-link";
 import { secret } from "./security";
 import { contactCommand } from "./contacts";
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
@@ -910,9 +911,15 @@ export async function perform(
       "connection.discover",
       "connection.telegram-webhook",
       "connection.connector-token",
+      "connection.link-code",
+      "connection.link-revoke",
     ].includes(op)
   ) {
     admin(actor);
+    if (op === "connection.link-code")
+      return linkCode(env, profile, data.id, data.origin);
+    if (op === "connection.link-revoke")
+      return linkRevoke(env, profile, data.id);
     if (op === "connection.test")
       return probe(env, data.id, profile, data.origin);
     if (op === "connection.discover") return discover(env, data.id, profile);
@@ -1342,7 +1349,9 @@ export async function perform(
       // first message (see the front door in the engine).
       const automaticMenu = (cfg.menus || []).some(
         (item: any) =>
-          !item.parent_id && item.enabled !== false && item.trigger !== "manual",
+          !item.parent_id &&
+          item.enabled !== false &&
+          item.trigger !== "manual",
       );
       requireValue(
         cfg.attendant_bot || configuredLine || automaticMenu,
@@ -1398,6 +1407,21 @@ export async function perform(
       // Credential editors omit line assignments. Those are edited through line.save.
       cfg.service = previous.service;
       cfg.number_policy = previous.number_policy;
+      // O modo de ligação com o Hermes não muda depois de criado; o vínculo
+      // do plugin sobrevive à edição do nome.
+      cfg.transport = previous.transport;
+      cfg.link = previous.link;
+    }
+    if (data.kind === "hermes" && cfg.transport === "link") {
+      delete cfg.url;
+      delete cfg.api_url;
+      requireValue(
+        !data.secrets || !Object.keys(data.secrets).length,
+        "A conexão por plugin não guarda chaves do Hermes.",
+      );
+    } else {
+      delete cfg.transport;
+      delete cfg.link;
     }
     const managed =
       old &&
@@ -1557,11 +1581,24 @@ export async function perform(
       await validateLineIds(env, profile, data.line_ids, true);
     const enabled = data.enabled === undefined ? !!bot.enabled : !!data.enabled;
     if (enabled && !bot.enabled) {
-      const keys = await secret(env, `connection:${bot.connection_id}`);
-      requireValue(
-        keys.profile_keys?.[bot.remote_profile],
-        "Cadastre a API_SERVER_KEY desse bot no Hermes antes de habilitar.",
-      );
+      const keys = await secret(env, `connection:${bot.connection_id}`),
+        conn = await one(
+          env,
+          "SELECT config FROM connections WHERE id=?",
+          bot.connection_id,
+        );
+      // No modo plugin a chave fica no Hermes: vale o que "Descobrir bots"
+      // verificou na API local desse atendimento.
+      if (isLink(conn))
+        requireValue(
+          json(conn.config).capabilities?.[bot.remote_profile],
+          "Crie a API_SERVER_KEY desse atendimento no Hermes e use Descobrir bots antes de habilitar.",
+        );
+      else
+        requireValue(
+          keys.profile_keys?.[bot.remote_profile],
+          "Cadastre a API_SERVER_KEY desse bot no Hermes antes de habilitar.",
+        );
     }
     await exec(
       env,
