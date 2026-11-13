@@ -1012,7 +1012,7 @@ function PushSection({ api, demo }: { api: Api; demo: boolean }) {
               disabled={!!action.busy || !config || config.mode === "off"}
               onClick={() =>
                 action.run("Enviando notificação de teste…", async () => {
-                  const result: { sent: number; devices: number } = await api(
+                  const result: { results?: { status?: string }[] } = await api(
                     "v1/system/push/test",
                     "POST",
                     {},
