@@ -40,6 +40,16 @@ const zernioWebhook = (row: Row) =>
     ? "/webhooks/zernio-accounts/" + parse(row.config).zernio_workspace_id
     : "/webhooks/zernio/" + row.id);
 
+// Variantes do comando de instalação do plugin para Hermes em Docker (imagem
+// oficial: dados em /opt/data, do usuário hermes).
+function dockerCommand(pairing: Row, where: "host" | "inside") {
+  const script = `curl -fsSL ${location.origin}/hermes-plugin/install.sh`,
+    args = `${location.origin} ${pairing.code}`;
+  return where === "host"
+    ? `${script} | docker exec -i -u hermes CONTEINER bash -s -- ${args}`
+    : `${script} | su -s /bin/bash hermes -c 'HERMES_BIN=/opt/hermes/bin/hermes HERMES_HOME=/opt/data bash -s -- ${args}'`;
+}
+
 export function ConnectionsPage() {
   const app = useApp();
   const { api, root, demo } = app;
@@ -333,6 +343,30 @@ export function ConnectionsPage() {
             <code>{pairing.command}</code>
             <CopyButton value={pairing.command} />
           </div>
+          <details>
+            <summary>Meu Hermes roda em Docker</summary>
+            <p>
+              Nesse caso o comando acima não encontra o Hermes. No terminal do
+              servidor, troque <code>CONTEINER</code> pelo nome mostrado em{" "}
+              <code>docker ps</code>:
+            </p>
+            <div className="secret-box">
+              <code>{dockerCommand(pairing, "host")}</code>
+              <CopyButton value={dockerCommand(pairing, "host")} />
+            </div>
+            <p>
+              Se o terminal já abre dentro do contêiner (como no painel da
+              Hostinger), use:
+            </p>
+            <div className="secret-box">
+              <code>{dockerCommand(pairing, "inside")}</code>
+              <CopyButton value={dockerCommand(pairing, "inside")} />
+            </div>
+            <p>
+              Depois reinicie o contêiner pelo servidor:{" "}
+              <code>docker restart CONTEINER</code>.
+            </p>
+          </details>
           <p>
             Depois de reiniciar o gateway do Hermes, volte a este cartão e use{" "}
             <strong>Testar conexão</strong>, <strong>Descobrir bots</strong> e{" "}

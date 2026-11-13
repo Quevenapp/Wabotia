@@ -155,15 +155,19 @@ Servido em `/hermes-plugin/` a partir de `public/hermes-plugin/`:
 
 Distribuição: chega como uma versão nova do Wabotia, instalada por **Sistema e atualizações → Atualizar Wabotia**. Não há migração de banco, mudança de Durable Object, bindings ou secrets novos. O plugin é instalado só na máquina do Hermes.
 
-## 8. A validar antes de publicar
+## 8. Validação
 
-Nada disto foi executado contra um Hermes real:
+Validado em 13/11/2026 contra um Hermes Agent v0.22.6 em Docker (imagem `ghcr.io/hostinger/hvps-hermes-agent`, dados em `/opt/data`, somente o perfil `default`) e uma instalação de teste do Wabotia:
 
-- Carregamento do plugin: diretório de plugin de usuário para `kind: platform`, importação do pacote (`__init__.py` + `adapter.py`) e os argumentos aceitos por `ctx.register_platform` na versão instalada.
-- Ativação da plataforma por `gateway.platforms.wabotia.enabled` sem `env_enablement_fn`.
-- Comandos do instalador: `hermes plugins enable`, `hermes config set` para chaves com ponto e `hermes -p PERFIL config set API_SERVER_KEY`.
-- Se um único gateway atende todos os perfis em `:8642` com `/p/<perfil>` (o instalador não verifica `gateway.multiplex_profiles`, como faz `scripts/prepare-hermes.py`).
-- Os testes Python de `link.py`, que não rodaram na máquina de desenvolvimento (sem Python).
+- Testes Python de `link.py`: 10 passando (Python 3 no host da VPS).
+- Instalador executado de dentro do contêiner com `su … hermes`, pareamento, carregamento do plugin após reiniciar o contêiner, **Testar conexão**, **Descobrir bots** (perfil `default`, com idempotência durável anunciada) e **Ativar**.
+
+Ainda não validado:
+
+- Uma execução completa de bot pelo vínculo (`runs.create` → `runs.get` até `completed`), parada, aprovação e download de artefato.
+- Revogação observada no log do gateway.
+- Vários perfis: se um único gateway atende todos em `:8642` com `/p/<perfil>` (o instalador não verifica `gateway.multiplex_profiles`, como faz `scripts/prepare-hermes.py`) e `hermes -p PERFIL config set API_SERVER_KEY`.
+- Hermes instalado direto no host (sem Docker), macOS e a forma `docker exec -u hermes` a partir do host.
 - Agentes hospedados na nuvem da Nous: não se sabe se aceitam plugins de usuário.
 
 ## 9. Fora desta versão
