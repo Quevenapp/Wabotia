@@ -8,7 +8,7 @@ object Routes {
     const val SERVER = "server"
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
-    const val HOME = "home" // abas: conversas, protocolos, equipe, ligações, ajustes
+    const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), ajustes
     const val LINES = "lines"
     const val MENUS = "menus"
     const val BOT_LINES = "bot-lines"
@@ -18,7 +18,6 @@ object Routes {
     const val TICKET = "ticket/{id}"
     const val TICKET_NEW = "ticket-new/{conversationId}"
     const val BOT_CHAT = "bot/{botId}?conversationId={conversationId}"
-    const val CALL = "call/{conversationId}?callId={callId}"
     const val INTERNAL_CHAT = "internal-chat/{peerId}"
 
     /** [sheet] abre uma folha ao entrar (transfer, attach, menu, note, tags, window) e [arg] escolhe a aba da folha. */
@@ -30,7 +29,6 @@ object Routes {
     fun ticket(id: String) = "ticket/$id"
     fun ticketNew(conversationId: String) = "ticket-new/$conversationId"
     fun botChat(botId: String, conversationId: String? = null) = "bot/$botId" + (conversationId?.let { "?conversationId=$it" } ?: "")
-    fun call(conversationId: String, callId: String? = null) = "call/$conversationId" + (callId?.let { "?callId=$it" } ?: "")
     /** O id de um bot na equipe é "bot:<id>": precisa ser codificado para caber no caminho. */
     fun internalChat(peerId: String) = "internal-chat/${Uri.encode(peerId)}"
 }
@@ -38,10 +36,10 @@ object Routes {
 /**
  * Destino pedido por notificação/deep link.
  *
- * Duas origens: a URI wabotia://open/{type}?profile=&conversation=&ticket=&call= (notificações montadas pelo próprio app
+ * Duas origens: a URI wabotia://open/{type}?profile=&conversation=&ticket= (notificações montadas pelo próprio app
  * em [br.com.queven.wabotia.core.push.Notifications.openIntent]) e os extras do Intent quando o Firebase exibe a notificação
  * por conta própria (mensagem FCM com bloco `notification` chegando com o app em segundo plano/fechado): nesse caso o toque
- * inicia a Activity LAUNCHER com os pares de `data` (type, profile_id, conversation_id, ticket_id, call_id — docs/MOBILE.md)
+ * inicia a Activity LAUNCHER com os pares de `data` (type, profile_id, conversation_id, ticket_id — docs/MOBILE.md)
  * como extras e sem URI.
  *
  * No build de depuração há uma terceira origem: o extra `demo` (e `arg`), que entra na demonstração em memória e abre uma
@@ -52,7 +50,6 @@ data class DeepLink(
     val profileId: String?,
     val conversationId: String?,
     val ticketId: String?,
-    val callId: String?,
     val demoScreen: String? = null,
     val demoArg: String? = null,
 ) {
@@ -66,7 +63,6 @@ data class DeepLink(
                 profileId = uri.getQueryParameter("profile"),
                 conversationId = uri.getQueryParameter("conversation"),
                 ticketId = uri.getQueryParameter("ticket"),
-                callId = uri.getQueryParameter("call"),
             )
         }
 
@@ -80,7 +76,6 @@ data class DeepLink(
                 profileId = field("profile_id"),
                 conversationId = field("conversation_id"),
                 ticketId = field("ticket_id"),
-                callId = field("call_id"),
             )
         }
 
@@ -88,7 +83,7 @@ data class DeepLink(
         fun fromDemo(intent: android.content.Intent?): DeepLink? {
             if (!BuildConfig.DEBUG || intent == null) return null
             val screen = intent.getStringExtra("demo")?.takeIf { it.isNotBlank() } ?: return null
-            return DeepLink(type = DEMO, profileId = null, conversationId = null, ticketId = null, callId = null, demoScreen = screen, demoArg = intent.getStringExtra("arg"))
+            return DeepLink(type = DEMO, profileId = null, conversationId = null, ticketId = null, demoScreen = screen, demoArg = intent.getStringExtra("arg"))
         }
 
         /** URI primeiro (notificação do app), depois extras (notificação exibida pelo Firebase). */

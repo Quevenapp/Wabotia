@@ -1,25 +1,17 @@
 import SwiftUI
 
-/// Aba Ligações (mobile/DESIGN.md, seção 10): ligações tocando no topo (Atender/Recusar) e histórico no
-/// estilo do WhatsApp, com seta de entrada/saída colorida (vermelha para perdida), data, duração e botão de
-/// ligar de volta quando permitido. Atualiza a cada 5 s em primeiro plano.
+/// Aba Ligações (mobile/DESIGN.md, seção 10): histórico somente para consulta, com seta de entrada/saída
+/// colorida (vermelha para perdida), data e duração. O app não inicia nem atende ligações.
+/// Atualiza a cada 5 s em primeiro plano.
 struct CallsView: View {
     let active: Bool
     @EnvironmentObject private var container: AppContainer
     @Environment(\.pushRoute) private var push
     @StateObject private var vm = CallsViewModel()
-    @ObservedObject private var workspace = Workspace.shared
 
     var body: some View {
         VStack(spacing: 0) {
-            ScreenHeader(title: "Ligações", subtitle: "Chamadas de voz pelo WhatsApp") { EmptyView() }
-            if !vm.ringing.isEmpty {
-                VStack(spacing: 8) {
-                    ForEach(vm.ringing) { call in RingingCallCard(call: call) { await vm.decline(call) } }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
+            ScreenHeader(title: "Ligações", subtitle: "Histórico de chamadas de voz") { EmptyView() }
             ThinDivider()
             if !vm.loaded && vm.calls.isEmpty {
                 SkeletonList(rows: 5)
@@ -49,25 +41,14 @@ struct CallsView: View {
                     .listRowBackground(Theme.background)
             }
             ForEach(vm.history) { call in
-                HStack(spacing: 0) {
-                    Button { push(.conversation(id: call.conversation_id)) } label: { historyRow(call) }
-                        .buttonStyle(.plain)
-                    if vm.canCallBack(call.conversation_id) {
-                        Button { push(.call(conversationId: call.conversation_id, callId: nil)) } label: {
-                            Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(Theme.brand)
-                                .frame(width: 52, height: 60).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Ligar de volta para \(vm.name(for: call.conversation_id))")
-                    }
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, vm.canCallBack(call.conversation_id) ? 4 : 16)
-                .overlay(alignment: .bottom) { ThinDivider(leading: 76) }
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Theme.background)
-                .task(id: call.conversation_id) { await vm.loadName(for: call.conversation_id) }
+                Button { push(.conversation(id: call.conversation_id)) } label: { historyRow(call) }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .overlay(alignment: .bottom) { ThinDivider(leading: 76) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Theme.background)
+                    .task(id: call.conversation_id) { await vm.loadName(for: call.conversation_id) }
             }
             if vm.nextCursor != nil {
                 HStack { Spacer(); if vm.loadingMore { ProgressView() } else { Button("Carregar mais") { Task { await vm.loadMore() } }.font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand) }; Spacer() }
@@ -124,31 +105,18 @@ final class CallsViewModel: ObservableObject {
     @Published private(set) var loaded = false
     @Published private(set) var loadingMore = false
     @Published private(set) var nextCursor: String?
-    @Published private(set) var busyCallId: String?
     @Published var error: String?
     @Published private(set) var names: [String: String] = [:]
-    /// Conversas em que dá para ligar de volta (assumidas por mim, em linha com ligações).
-    @Published private(set) var callable: Set<String> = []
 
     private var loadingNames: Set<String> = []
-    /// Chaves de idempotência por ligação recusada, mantidas enquanto o pedido não for confirmado.
-    private var declineKeys: [String: (claim: String, reject: String)] = [:]
     private let pageSize = 30
 
     private var container: AppContainer { AppContainer.shared }
-    private var meId: String? { container.user?.id }
 
-    var ringing: [Call] {
-        calls.filter { $0.status == "ringing" && $0.direction == "inbound" && ($0.actor == nil || $0.actor == meId) }
-    }
-
-    var history: [Call] {
-        let ringingIds = Set(ringing.map(\.id))
-        return calls.filter { !ringingIds.contains($0.id) }
-    }
+    /// Histórico exibido (todas as ligações registradas, mais recentes primeiro).
+    var history: [Call] { calls }
 
     func name(for conversationId: String) -> String { names[conversationId] ?? "Cliente" }
-    func canCallBack(_ conversationId: String) -> Bool { callable.contains(conversationId) }
 
     /// Laço de atualização em primeiro plano (cancelado pelo .task ao sair da tela).
     func poll() async {
@@ -193,35 +161,12 @@ final class CallsViewModel: ObservableObject {
         loadingMore = false
     }
 
-    /// Recusar = claim + reject, com as mesmas chaves ao repetir após falha.
-    func decline(_ call: Call) async {
-        guard let p = container.profileId, busyCallId == nil else { return }
-        busyCallId = call.id
-        let keys = declineKeys[call.id] ?? (claim: APIClient.newIdempotencyKey(), reject: APIClient.newIdempotencyKey())
-        declineKeys[call.id] = keys
-        do {
-            _ = try await container.api.claimCall(p, id: call.id, key: keys.claim)
-            _ = try await container.api.rejectCall(p, id: call.id, key: keys.reject)
-            declineKeys[call.id] = nil
-            error = nil
-            await refresh(silent: true)
-            await Workspace.shared.refreshRinging()
-        } catch {
-            if let apiError = error as? APIError, apiError.status != 0, !apiError.isIdempotencyConflict {
-                declineKeys[call.id] = nil // resposta definitiva do servidor: a próxima tentativa é outro pedido
-            }
-            handle(error, silent: false)
-        }
-        busyCallId = nil
-    }
-
     func loadName(for conversationId: String) async {
         guard names[conversationId] == nil, !loadingNames.contains(conversationId), let p = container.profileId else { return }
         loadingNames.insert(conversationId)
         defer { loadingNames.remove(conversationId) }
         if let detail = try? await container.api.conversation(p, id: conversationId) {
             names[conversationId] = detail.displayName
-            if detail.can("calls"), detail.conversation.isOwned(by: meId), !detail.conversation.isGroup { callable.insert(conversationId) }
         }
     }
 

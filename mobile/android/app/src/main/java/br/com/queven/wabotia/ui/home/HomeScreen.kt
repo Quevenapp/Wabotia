@@ -47,12 +47,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import br.com.queven.wabotia.calls.CallText
 import br.com.queven.wabotia.calls.CallsScreen
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.TicketStatus
-import br.com.queven.wabotia.core.push.IncomingCallBus
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.conversations.ConversationsScreen
 import br.com.queven.wabotia.ui.settings.SettingsScreen
@@ -73,15 +71,13 @@ enum class HomeTab(val key: String, val label: String, val icon: ImageVector, va
     Settings("settings", "Ajustes", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
-/** Contadores das abas: protocolos atrasados/recebidos (só ativos), conversas internas não lidas e ligações tocando. */
+/** Contadores das abas: protocolos atrasados/recebidos (só ativos) e conversas internas não lidas. */
 class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
     var overdueTickets by mutableStateOf(0)
         private set
     var openTickets by mutableStateOf(0)
         private set
     var internalUnread by mutableStateOf(0)
-        private set
-    var ringingCalls by mutableStateOf(0)
         private set
 
     fun refreshTickets() {
@@ -117,22 +113,8 @@ class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun refreshCalls() {
-        val profile = container.session.profileId ?: return
-        val me = container.session.user?.id
-        viewModelScope.launch {
-            try {
-                ringingCalls = container.api.calls(profile, limit = 30).data.count { CallText.isRingingFor(it, me) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-            }
-        }
-    }
-
     fun onEvents(events: List<Event>) {
         if (events.any { it.kind.startsWith("ticket.") }) refreshTickets()
-        if (events.any { it.kind.startsWith("call.") }) refreshCalls()
     }
 }
 
@@ -149,7 +131,6 @@ fun HomeScreen(
     openBot: (String) -> Unit,
     openBotRuns: () -> Unit,
     openInternalChat: (peerId: String) -> Unit,
-    openCall: (conversationId: String, callId: String?) -> Unit,
     openLines: () -> Unit,
     openMenus: () -> Unit,
     openBotLines: () -> Unit,
@@ -163,14 +144,12 @@ fun HomeScreen(
     // Lê o mapa de vistos para recompor o contador quando uma conversa interna é aberta.
     val seenVersion = container.internalChats.seen.values.sum()
 
-    EventPolling(container, profileId, onStart = { badges.refreshTickets(); badges.refreshCalls(); badges.refreshTeam() }, onEvents = { badges.onEvents(it) })
-    LaunchedEffect(Unit) { IncomingCallBus.calls.collect { badges.refreshCalls() } }
+    EventPolling(container, profileId, onStart = { badges.refreshTickets(); badges.refreshTeam() }, onEvents = { badges.onEvents(it) })
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle, profileId, seenVersion) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
                 badges.refreshTeam()
-                badges.refreshCalls()
                 delay(20_000)
             }
         }
@@ -200,7 +179,7 @@ fun HomeScreen(
                             HomeTab.Conversations -> unread to c.accent
                             HomeTab.Tickets -> if (badges.overdueTickets > 0) badges.overdueTickets to c.danger else badges.openTickets to c.accent
                             HomeTab.Team -> badges.internalUnread to c.accent
-                            HomeTab.Calls -> badges.ringingCalls to c.accent
+                            HomeTab.Calls -> 0 to c.accent
                             HomeTab.Settings -> 0 to c.accent
                         }
                         NavigationBarItem(
@@ -240,13 +219,12 @@ fun HomeScreen(
                     modifier = modifier,
                     initialSheet = initialArg,
                     openConversation = openConversation,
-                    openCall = openCall,
                     newTicket = newTicket,
                     showMessage = { text -> scope.launch { snackbar.showSnackbar(text) } },
                 )
                 HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) }, initialFilter = initialArg)
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
-                HomeTab.Calls -> CallsScreen(container, modifier, openCall, openConversation = { openConversation(it, null) })
+                HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
                 HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines)
             }
             }

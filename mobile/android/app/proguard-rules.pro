@@ -13,5 +13,3 @@
 -keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
 -dontwarn okhttp3.**
 -dontwarn org.conscrypt.**
-# WebRTC
--keep class org.webrtc.** { *; }

@@ -13,6 +13,7 @@ import { Landing } from "./site/Landing";
 import { Install } from "./site/Install";
 import { ApiDocs } from "./site/ApiDocs";
 import { WebInstall } from "./site/WebInstall";
+import { Privacy } from "./site/Privacy";
 
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
@@ -21,6 +22,8 @@ createRoot(document.getElementById("root")!).render(
     <Install />
   ) : location.pathname === "/instalar" ? (
     <WebInstall />
+  ) : location.pathname === "/privacidade" ? (
+    <Privacy />
   ) : location.pathname === "/api-docs" ? (
     <ApiDocs />
   ) : (

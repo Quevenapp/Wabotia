@@ -127,7 +127,6 @@ class EventsPoller(
             "conversation.created", "conversation.updated",
         )
         val TICKET_KINDS = setOf("ticket.created", "ticket.updated", "ticket.closed")
-        val CALL_KINDS = setOf("call.updated")
 
         /** True para eventos de protocolo (`ticket.*`). */
         fun isTicketEvent(e: Event) = e.kind.startsWith("ticket.")

@@ -3,6 +3,7 @@
 package br.com.queven.wabotia.ui.conversations
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -99,6 +100,7 @@ import androidx.core.content.FileProvider
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.media.DeviceInputs
 import br.com.queven.wabotia.core.media.MediaKinds
+import br.com.queven.wabotia.core.media.PickContactPhone
 import br.com.queven.wabotia.core.media.MediaUploader
 import br.com.queven.wabotia.core.media.VoiceRecorder
 import br.com.queven.wabotia.core.model.ConversationDetail
@@ -279,7 +281,8 @@ internal fun Composer(
     }
 
     // --- contato ---
-    val pickContact = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
+    // Seletor do sistema: devolve só o número escolhido, sem permissão de leitura da agenda.
+    val pickContact = rememberLauncherForActivityResult(PickContactPhone()) { uri ->
         if (uri != null) {
             scope.launch {
                 val picked = DeviceInputs.readContact(context, uri)
@@ -288,13 +291,14 @@ internal fun Composer(
             }
         }
     }
-    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) pickContact.launch(null) else vm.composerError = "Sem acesso à agenda. Informe nome e telefone manualmente."
-    }
 
     fun requestContact() {
         vm.kind = ComposeKind.Contacts
-        if (DeviceInputs.hasPermission(context, Manifest.permission.READ_CONTACTS)) pickContact.launch(null) else contactsPermission.launch(Manifest.permission.READ_CONTACTS)
+        try {
+            pickContact.launch(Unit)
+        } catch (e: ActivityNotFoundException) {
+            vm.composerError = "Nenhum aplicativo de contatos disponível. Informe nome e telefone manualmente."
+        }
     }
 
     var attachSheet by rememberSaveable { mutableStateOf(openAttachInitially) }

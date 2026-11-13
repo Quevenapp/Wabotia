@@ -71,7 +71,7 @@ Barra inferior com cinco abas, ícone + rótulo, contador em bolinha `accent`:
 | **Conversas** | balão | não lidas (soma local) |
 | **Protocolos** | etiqueta/recibo | atrasados (em `danger`) ou abertos |
 | **Equipe** | pessoas | conversas internas não lidas |
-| **Ligações** | telefone | ligações tocando |
+| **Ligações** | telefone | sem contador |
 | **Ajustes** | engrenagem | — |
 
 Android: `NavigationBar` Material 3 com indicador em pílula. iOS: `TabView`. No iPad/tablet a lista e o detalhe ficam lado a lado quando houver largura (≥ 840dp / regular), sem obrigação nesta versão.
@@ -106,7 +106,6 @@ Prévia e não lidas não vêm da lista do servidor. O app mantém um cache loca
 - Toque abre a conversa. Toque longo abre a folha de ações rápidas (Assumir, Transferir, Etiquetas, Concluir, Abrir protocolo), só com o que o estado permite.
 - Deslizar para a direita: **Assumir** (fundo `brand`). Deslizar para a esquerda: **Concluir** (fundo `muted`), só nas minhas. Concluir pede confirmação em diálogo.
 - Puxar atualiza. Rolagem infinita por `next_cursor`.
-- Ligação tocando: cartão fixo no topo com avatar pulsando, "Ligação de {nome}", botões redondos Recusar (vermelho) e Atender (verde).
 
 **Vazio.** Ilustração simples (ícone grande em círculo `surface`), título e uma linha: "Nenhuma conversa na fila. Bom trabalho!".
 
@@ -205,7 +204,7 @@ Atualiza a cada 20 s enquanto visível e ao puxar.
 
 ## 10. Ligações (aba 4) e Ajustes (aba 5)
 
-Ligações: histórico no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida — vermelha para perdida —, data, duração, botão de ligar de volta quando permitido). Tela da ligação em tela cheia: fundo `brandStrong` em degradê, avatar grande, estado, cronômetro, botões redondos (mudo, viva-voz, encerrar vermelho). Nenhuma regra de sinalização muda.
+Ligações: histórico no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida — vermelha para perdida —, data, duração). Tocar em um item abre a conversa. Desde a 0.17.0 não há tela de ligação nem botão de ligar: os aplicativos mostram só o histórico.
 
 Ajustes: cartão do usuário (avatar, nome, papel, perfil atual, presença); grupos em cartões: **Atendimento** (Linhas de atendimento, Menus e submenus, Linhas dos bots), **Notificações** (ligar/desligar, enviar teste, estado do registro), **Aparência** (Sistema / Claro / Escuro), **Servidor** (endereço, versão, abrir painel, trocar perfil), **Sair**. Tudo que existe hoje em "Mais" continua aqui.
 

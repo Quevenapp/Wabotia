@@ -19,13 +19,6 @@ struct ConversationsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if !workspace.ringing.isEmpty {
-                VStack(spacing: 8) {
-                    ForEach(workspace.ringing) { call in RingingCallCard(call: call) { await vm.reject(call: call) } }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-            }
             filters
             ThinDivider()
             content
@@ -46,9 +39,6 @@ struct ConversationsView: View {
             }
             Button("Cancelar", role: .cancel) { confirmResolve = nil }
         } message: { Text("A conversa é marcada como concluída e sai da sua lista.") }
-        .alert("Ligação", isPresented: Binding(get: { vm.callError != nil }, set: { if !$0 { vm.callError = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(vm.callError ?? "") }
         #if DEBUG
         .onAppear {
             switch DemoMode.takeSheet("presence", "search", "filter-queue", "filter-empty") {
@@ -286,58 +276,6 @@ struct ConversationRow: View {
             }
         } else {
             Text(workspace.statusSentence(conversation)).font(Theme.font(14)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-        }
-    }
-}
-
-/// Ligação tocando: cartão fixo no topo com avatar pulsando e botões redondos Recusar/Atender.
-struct RingingCallCard: View {
-    let call: Call
-    var onReject: () async -> Void
-    @Environment(\.pushRoute) private var push
-    @EnvironmentObject private var container: AppContainer
-    @State private var name = "Cliente"
-    @State private var busy = false
-    @State private var pulse = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Theme.accent.opacity(0.35)).frame(width: 46, height: 46).scaleEffect(pulse ? 1.25 : 0.95).opacity(pulse ? 0 : 1)
-                AvatarView(name: name, seed: call.conversation_id, size: 42, ring: Theme.brandStrong)
-            }
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Ligação de \(name)").font(Theme.font(15, .semibold)).foregroundStyle(Color.white).lineLimit(2).minimumScaleFactor(0.85).fixedSize(horizontal: false, vertical: true)
-                Text("Chamada de voz").font(Theme.font(12)).foregroundStyle(Color.white.opacity(0.8)).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Button {
-                busy = true
-                Task { await onReject(); busy = false }
-            } label: {
-                Group { if busy { ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)) } else { Image(systemName: "phone.down.fill") } }
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.white)
-                    .frame(width: 44, height: 44).background(Circle().fill(Theme.danger))
-            }
-            .buttonStyle(.plain).disabled(busy).accessibilityLabel("Recusar ligação")
-            Button {
-                CallIntents.answerCallId = call.id
-                push(.call(conversationId: call.conversation_id, callId: call.id))
-            } label: {
-                Image(systemName: "phone.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.white)
-                    .frame(width: 44, height: 44).background(Circle().fill(Theme.accent))
-            }
-            .buttonStyle(.plain).disabled(busy).accessibilityLabel("Atender ligação")
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.brandStrong))
-        .onAppear {
-            guard !UIAccessibility.isReduceMotionEnabled else { return }
-            withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) { pulse = true }
-        }
-        .task(id: call.conversation_id) {
-            guard let p = container.profileId, let detail = try? await container.api.conversation(p, id: call.conversation_id) else { return }
-            name = detail.displayName
         }
     }
 }

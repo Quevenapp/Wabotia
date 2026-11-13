@@ -3,10 +3,12 @@ package br.com.queven.wabotia.core.media
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.net.Uri
 import android.provider.ContactsContract
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -39,31 +41,22 @@ object DeviceInputs {
         }
     }
 
-    /** Nome e telefone (somente dígitos, com "+" opcional) do contato escolhido em ActivityResultContracts.PickContact. */
+    /**
+     * Nome e telefone (somente dígitos, com "+" opcional) do número escolhido em [PickContactPhone]. O seletor do sistema
+     * concede leitura temporária só daquela linha, por isso o app não pede READ_CONTACTS.
+     */
     suspend fun readContact(context: Context, uri: Uri): Pair<String, String>? = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        var id: String? = null
-        var name: String? = null
         runCatching {
-            resolver.query(uri, arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    id = cursor.getString(0)
-                    name = cursor.getString(1)
-                }
-            }
-        }
-        val contactId: String = id ?: return@withContext null
-        var phone: String? = null
-        runCatching {
-            resolver.query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID}=?",
-                arrayOf(contactId),
+            context.contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
                 null,
-            )?.use { cursor -> if (cursor.moveToFirst()) phone = cursor.getString(0) }
-        }
-        Pair(name.orEmpty().trim(), normalizePhone(phone.orEmpty()))
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) Pair(cursor.getString(0).orEmpty().trim(), normalizePhone(cursor.getString(1).orEmpty())) else null
+            }
+        }.getOrNull()
     }
 
     /** Mantém "+" inicial e dígitos, no formato aceito pelo servidor (^\+?\d{8,16}$). */
@@ -71,4 +64,16 @@ object DeviceInputs {
         val digits = raw.filter { it.isDigit() }
         return if (raw.trim().startsWith("+")) "+$digits" else digits
     }
+}
+
+/**
+ * Abre o seletor de contatos do sistema na lista de telefones (ACTION_PICK em Phone.CONTENT_URI) e devolve a URI do
+ * número escolhido, com permissão de leitura temporária para aquela linha; dispensa READ_CONTACTS.
+ */
+class PickContactPhone : ActivityResultContract<Unit, Uri?>() {
+    override fun createIntent(context: Context, input: Unit): Intent =
+        Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? =
+        intent?.takeIf { resultCode == android.app.Activity.RESULT_OK }?.data
 }

@@ -177,7 +177,7 @@ internal object DemoMedia {
             "Plano Empresarial para 20 atendentes",
             "  • WhatsApp oficial (API) com dois números",
             "  • Bots de vendas e de suporte incluídos",
-            "  • Protocolos, setores, menus e ligações de voz",
+            "  • Protocolos, setores, menus e histórico de ligações",
             "  • Migração do histórico e treinamento da equipe",
             "",
             "Investimento mensal: R$ 1.490,00",

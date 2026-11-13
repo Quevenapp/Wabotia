@@ -39,8 +39,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
@@ -508,7 +506,7 @@ fun SecondaryButton(
     }
 }
 
-/** Botão redondo com ícone (Atender/Recusar, controles da ligação, enviar). */
+/** Botão redondo com ícone (enviar, gravar áudio). */
 @Composable
 fun RoundIconButton(
     icon: ImageVector,
@@ -692,40 +690,6 @@ fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit, modifier:
             Text(label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = if (tint == Wb.colors.danger) tint else Wb.colors.textPrimary)
             if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Wb.colors.textSecondary)
         }
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Ligação tocando
-// ---------------------------------------------------------------------------------------------------------------
-
-/** Cartão fixo de ligação tocando: avatar pulsando, "Ligação de {nome}", Recusar (vermelho) e Atender (verde). */
-@Composable
-fun IncomingCallCard(name: String, seed: String, busy: Boolean, onAnswer: () -> Unit, onReject: () -> Unit, modifier: Modifier = Modifier, onOpen: (() -> Unit)? = null) {
-    val c = Wb.colors
-    val transition = rememberInfiniteTransition(label = "ringing")
-    val pulse by transition.animateFloat(1f, 1.12f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "pulse")
-    Row(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(c.soft(c.ok, 0.14f))
-            .border(1.dp, c.ok.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
-            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Avatar(name, seed = seed, size = 44.dp, modifier = Modifier.scale(pulse))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("Ligação de $name", style = MaterialTheme.typography.titleSmall, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("WhatsApp · tocando agora", style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 1)
-        }
-        Spacer(Modifier.width(8.dp))
-        RoundIconButton(Icons.Filled.CallEnd, "Recusar ligação", onReject, size = 44.dp, color = c.danger, enabled = !busy)
-        Spacer(Modifier.width(10.dp))
-        RoundIconButton(Icons.Filled.Call, "Atender ligação", onAnswer, size = 44.dp, color = c.ok, enabled = !busy)
     }
 }
 

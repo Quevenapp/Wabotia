@@ -80,7 +80,6 @@ import br.com.queven.wabotia.core.listPreview
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.Department
 import br.com.queven.wabotia.core.model.TeamContact
-import br.com.queven.wabotia.core.push.IncomingCallBus
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.AvatarKind
 import br.com.queven.wabotia.ui.components.ConnectionStrip
@@ -88,7 +87,6 @@ import br.com.queven.wabotia.ui.components.CountBadge
 import br.com.queven.wabotia.ui.components.EmptyState
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.components.FilterRow
-import br.com.queven.wabotia.ui.components.IncomingCallCard
 import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.Pill
 import br.com.queven.wabotia.ui.components.PresencePill
@@ -117,7 +115,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 /**
  * Aba Conversas (DESIGN.md §4): barra com presença e busca, chips com contador, linha no estilo do WhatsApp com selo de
  * estado, prévia, etiquetas, responsável, relógio da janela de 24 h e não lidas; deslizar para assumir/concluir, toque
- * longo para ações rápidas, puxar para atualizar, rolagem infinita e cartão de ligação tocando.
+ * longo para ações rápidas, puxar para atualizar e rolagem infinita.
  */
 @Composable
 fun ConversationsScreen(
@@ -125,7 +123,6 @@ fun ConversationsScreen(
     modifier: Modifier = Modifier,
     initialSheet: String? = null,
     openConversation: (id: String, sheet: String?) -> Unit,
-    openCall: (conversationId: String, callId: String?) -> Unit,
     newTicket: (conversationId: String) -> Unit,
     showMessage: (String) -> Unit,
 ) {
@@ -145,12 +142,10 @@ fun ConversationsScreen(
         profileId = profileId,
         onStart = {
             vm.reloadSilently()
-            vm.refreshCalls()
             vm.loadSideData()
         },
         onEvents = { vm.onEvents(it) },
     )
-    LaunchedEffect(Unit) { IncomingCallBus.calls.collect { vm.refreshCalls() } }
     LaunchedEffect(vm.query) {
         if (vm.query != vm.appliedQuery) {
             delay(400)
@@ -230,16 +225,6 @@ fun ConversationsScreen(
                     tone = if (f == ConversationFilter.Queue && queue > 0) Wb.colors.warn else null,
                 )
             }
-        }
-        vm.ringing.forEach { call ->
-            IncomingCallCard(
-                name = vm.callNames[call.conversation_id] ?: "Cliente",
-                seed = call.conversation_id,
-                busy = vm.callBusy,
-                onAnswer = { openCall(call.conversation_id, call.id) },
-                onReject = { vm.rejectCall(call) },
-                onOpen = { openConversation(call.conversation_id, null) },
-            )
         }
         vm.error?.let { message ->
             InlineNotice(

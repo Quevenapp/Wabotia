@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,12 +19,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.DebugHooks
+import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.SessionStore
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.ui.components.InlineNotice
@@ -37,6 +41,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
     val c = Wb.colors
+    val context = LocalContext.current
     var input by rememberSaveable { mutableStateOf(container.session.serverUrl?.removePrefix("https://") ?: "") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -120,6 +125,10 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
         if (BuildConfig.DEBUG) {
             Spacer(Modifier.height(10.dp))
             AuthHelp("Build de depuração: digite demo para ver uma demonstração.")
+        }
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = { Links.open(context, Links.PRIVACY_POLICY) }) {
+            Text("Política de privacidade", style = MaterialTheme.typography.bodySmall, color = c.brand, fontWeight = FontWeight.SemiBold)
         }
     }
 }

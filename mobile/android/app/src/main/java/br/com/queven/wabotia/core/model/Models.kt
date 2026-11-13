@@ -261,7 +261,7 @@ fun List<TicketCategory>.nameOf(categoryId: String?): String? {
 @Serializable data class Event(val id: Long, val profile_id: String = "", val kind: String = "", val resource_id: String? = null, val payload: JsonElement? = null, val created: Long = 0)
 @Serializable data class Events(val data: List<Event> = emptyList(), val cursor: Long = 0)
 
-@Serializable data class CallSession(val sdp_type: String, val sdp: String)
+/** Registro do histórico de ligações (GET /calls). O app não faz nem atende ligações. */
 @Serializable data class Call(
     val id: String,
     val conversation_id: String = "",
@@ -274,15 +274,7 @@ fun List<TicketCategory>.nameOf(categoryId: String?): String? {
     val duration: Long? = null,
     val created: Long = 0,
     val updated: Long = 0,
-    val session: CallSession? = null,
-) {
-    val isLive get() = status !in setOf("completed", "missed", "rejected", "failed")
-}
-@Serializable data class CallStart(val conversation_id: String, val session: CallSession)
-@Serializable data class CallAccept(val session: CallSession)
-@Serializable data class CallPermissionRequest(val conversation_id: String)
-@Serializable data class CallReconcile(@EncodeDefault val confirmed_ended: Boolean = true)
-@Serializable data class CallActionResult(val id: String = "", val status: String = "", val delivery_id: String? = null)
+)
 
 @Serializable data class DeviceRegistration(
     @EncodeDefault val platform: String = "android",

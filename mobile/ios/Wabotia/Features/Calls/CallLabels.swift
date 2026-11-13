@@ -1,6 +1,6 @@
 import Foundation
 
-/// Textos e formatos da aba Ligações (pt-BR), alinhados ao painel web (WhatsAppCalls.tsx).
+/// Textos e formatos do histórico da aba Ligações (pt-BR), alinhados ao painel web.
 enum CallLabels {
     static func status(_ status: String?) -> String {
         switch status ?? "" {

@@ -7,7 +7,6 @@ enum Route: Hashable {
     case ticket(id: String)
     case newTicket(conversationId: String)
     case bot(id: String, conversationId: String?)
-    case call(conversationId: String, callId: String?)
     case internalChat(peer: TeamContact, chatId: String?)
     case lines
     case menus
@@ -131,7 +130,6 @@ struct RouteDestination: View {
             case .ticket(let id): TicketView(ticketId: id)
             case .newTicket(let id): NewTicketView(conversationId: id)
             case .bot(let id, let conversation): BotChatView(botId: id, conversationId: conversation)
-            case .call(let conversation, let call): CallView(conversationId: conversation, callId: call)
             case .internalChat(let peer, let chatId): InternalChatView(peer: peer, existingId: chatId)
             case .lines: LinesView()
             case .menus: MenusView()

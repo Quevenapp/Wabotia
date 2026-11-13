@@ -36,7 +36,6 @@ final class ConversationsViewModel: ObservableObject {
     @Published private(set) var hasLoaded = false
     @Published private(set) var mineCount = 0
     @Published var error: String?
-    @Published var callError: String?
     /// Conversa com uma ação rápida em andamento (assumir/concluir).
     @Published private(set) var busyId: String?
 
@@ -49,8 +48,6 @@ final class ConversationsViewModel: ObservableObject {
     private var loadedOnce = false
     private var visible = false
     private var stale = false
-    /// Chaves de idempotência (claim, reject) por ligação recusada, reutilizadas ao repetir após falha de rede.
-    private var declineKeys: [String: (claim: String, reject: String)] = [:]
     /// Chave por ação rápida pendente (conversa + ação), mantida até o servidor responder.
     private var actionKeys: [String: String] = [:]
 
@@ -204,28 +201,6 @@ final class ConversationsViewModel: ObservableObject {
         let task = Task { await fetch(reset: true, silent: true) }
         loadTask = task
         await task.value
-    }
-
-    // MARK: Ligações tocando
-
-    /// Recusar = claim + reject com as MESMAS chaves ao repetir; as chaves só são descartadas após sucesso
-    /// ou resposta definitiva do servidor (não rede, não conflito de idempotência).
-    func reject(call: Call) async {
-        guard let p = profileId else { return }
-        callError = nil
-        let keys = declineKeys[call.id] ?? (claim: APIClient.newIdempotencyKey(), reject: APIClient.newIdempotencyKey())
-        declineKeys[call.id] = keys
-        do {
-            _ = try await container.api.claimCall(p, id: call.id, key: keys.claim)
-            _ = try await container.api.rejectCall(p, id: call.id, key: keys.reject)
-            declineKeys[call.id] = nil
-        } catch {
-            if let apiError = error as? APIError, apiError.status != 0, !apiError.isIdempotencyConflict {
-                declineKeys[call.id] = nil // resposta definitiva do servidor: a próxima tentativa é outro pedido
-            }
-            handle(error, into: \.callError)
-        }
-        await workspace.refreshRinging()
     }
 
     // MARK: Eventos

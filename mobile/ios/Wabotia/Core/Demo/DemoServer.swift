@@ -323,18 +323,6 @@ final class DemoServer {
         ]
     }
 
-    /// Inclui uma ligação tocando (para as telas `ringing` e `call-incoming`). Devolve o id.
-    @discardableResult
-    func addRingingCall() -> String {
-        DemoServer.queue.sync { () -> String in
-            if let existing = calls.first(where: { $0["status"] as? String == "ringing" }) { return existing["id"] as? String ?? "" }
-            let id = "k_ring"
-            calls.insert(["id": id, "conversation_id": "c_queue", "direction": "inbound", "actor": NSNull(), "status": "ringing", "error": NSNull(),
-                          "started": NSNull(), "ended": NSNull(), "duration": NSNull(), "created": now, "updated": now], at: 0)
-            return id
-        }
-    }
-
     // MARK: - Utilidades
 
     private func json(_ value: Any) -> String {
@@ -435,10 +423,9 @@ final class DemoServer {
 
     private func capabilities(_ conversation: Row) -> Row {
         let group = conversation["chat_type"] as? String == "group"
-        let meta = conversation["connection_id"] as? String == "line_meta"
         return ["text": true, "document": true, "image": true, "video": true, "audio": true, "voice": true, "sticker": true, "reply": true,
                 "reaction": true, "location": !group, "contacts": !group, "edit": true, "delete": true, "read": true, "mentions": group,
-                "groups": true, "group_manage": false, "calls": meta && !group, "video_calls": false, "upgrade_required": false]
+                "groups": true, "group_manage": false, "calls": false,"video_calls": false, "upgrade_required": false]
     }
 
     // MARK: - Rotas
@@ -570,9 +557,6 @@ final class DemoServer {
         if get, let c = m(base + "conversations/*") { return detail(c[1]) }
         if post, let c = m(base + "conversations/*/actions") { return action(c[1], body) }
         if post, let c = m(base + "conversations/*/message-actions") { return messageAction(c[1], body) }
-        if get, m(base + "conversations/*/call-permission") != nil {
-            return ok(["permission": ["status": "temporary"], "actions": [["action_name": "start_call", "can_perform_action": true] as Row, ["action_name": "send_call_permission_request", "can_perform_action": true] as Row]])
-        }
         if put, let c = m(base + "conversations/*/contact") {
             guard let i = index(ofConversation: c[1]) else { return fail(404, "not_found", "Conversa não encontrada.") }
             let name = body["name"] as? String ?? ""
@@ -692,30 +676,11 @@ final class DemoServer {
             return ok(tickets[i])
         }
 
-        // Ligações
+        // Ligações (somente histórico)
         if get, m(base + "calls") != nil {
             var list = calls
             if let conversation = query["conversation_id"], !conversation.isEmpty { list = list.filter { $0["conversation_id"] as? String == conversation } }
             return ok(["data": list, "next_cursor": NSNull()])
-        }
-        if get, let c = m(base + "calls/*") {
-            guard let call = calls.first(where: { $0["id"] as? String == c[1] }) else { return fail(404, "not_found", "Ligação não encontrada.") }
-            return ok(call)
-        }
-        if post, let c = m(base + "calls/*/claim") {
-            guard let i = calls.firstIndex(where: { $0["id"] as? String == c[1] }) else { return fail(404, "not_found", "Ligação não encontrada.") }
-            calls[i]["actor"] = me
-            return ok(calls[i])
-        }
-        if post, let c = m(base + "calls/*/reject") {
-            if let i = calls.firstIndex(where: { $0["id"] as? String == c[1] }) {
-                calls[i]["status"] = "rejected"
-                emit("call.updated", resource: c[1], ["conversation_id": calls[i]["conversation_id"] ?? "", "call_id": c[1], "status": "rejected", "direction": "inbound"])
-            }
-            return ok(["id": c[1], "status": "rejected"])
-        }
-        if post, parts.count >= 5, parts[4] == "calls" {
-            return fail(422, "unsupported_capability", "A demonstração não faz ligações de verdade.")
         }
 
         // Conversas internas

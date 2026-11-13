@@ -2,15 +2,18 @@ package br.com.queven.wabotia.core
 
 import android.content.Context
 import br.com.queven.wabotia.core.events.EventHub
+import br.com.queven.wabotia.core.media.AuthenticatedMedia
 import br.com.queven.wabotia.core.model.User
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
+import br.com.queven.wabotia.core.push.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
@@ -77,7 +80,24 @@ class AppContainer(context: Context) {
         profileData.clear()
         conversationCache.clear()
         internalChats.clear()
+        wipeLocalData()
         _auth.value = AuthState.from(session)
+    }
+
+    /**
+     * Ao sair da conta nada de cliente fica no aparelho: cache de conversas (prévias, não lidas, conversas internas
+     * vistas), avisos com trechos de mensagens e todos os arquivos em cache (anexos baixados, miniaturas, fotos e
+     * áudios gravados). Ficam só o endereço do servidor (quando pedido) e as preferências do aparelho.
+     */
+    private fun wipeLocalData() {
+        conversationCache.wipe()
+        Notifications.cancelAll(appContext)
+        scope.launch(Dispatchers.IO) {
+            runCatching { AuthenticatedMedia.clear() }
+            listOfNotNull(appContext.cacheDir, appContext.externalCacheDir).forEach { dir ->
+                dir.listFiles()?.forEach { runCatching { it.deleteRecursively() } }
+            }
+        }
     }
 
     fun refreshAuthState() {

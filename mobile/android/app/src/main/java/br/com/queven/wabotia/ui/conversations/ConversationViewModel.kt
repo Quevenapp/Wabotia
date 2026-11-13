@@ -12,7 +12,6 @@ import br.com.queven.wabotia.core.media.UploadItem
 import br.com.queven.wabotia.core.media.UploadSource
 import br.com.queven.wabotia.core.model.ActionRequest
 import br.com.queven.wabotia.core.model.Bot
-import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.Department
 import br.com.queven.wabotia.core.model.TeamContact
@@ -116,8 +115,6 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     private var ticketKey: Pair<String, String>? = null
     var presence by mutableStateOf<List<PresenceEntry>>(emptyList())
         private set
-    var ringing by mutableStateOf<List<Call>>(emptyList())
-        private set
     var bots by mutableStateOf<List<Bot>?>(null)
         private set
 
@@ -165,7 +162,6 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     init {
         load()
         loadPresence()
-        refreshCalls()
         loadLineKinds()
     }
 
@@ -296,40 +292,12 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         }
     }
 
-    fun refreshCalls() {
-        viewModelScope.launch {
-            try {
-                ringing = container.api.calls(profileId, conversationId = conversationId, limit = 10).data
-                    .filter { it.status == "ringing" && (it.actor.isNullOrBlank() || it.actor == meId) }
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    fun rejectCall(call: Call) {
-        viewModelScope.launch {
-            busy = true
-            try {
-                container.api.claimCall(profileId, call.id, ApiClient.newIdempotencyKey())
-                container.api.rejectCall(profileId, call.id, ApiClient.newIdempotencyKey())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                notice = container.handleError(e)
-            } finally {
-                busy = false
-            }
-            refreshCalls()
-        }
-    }
-
     fun onEvents(events: List<Event>) {
         val relevant = events.any { e ->
             (e.kind.startsWith("message.") || e.kind.startsWith("conversation.")) &&
                 (e.resource_id == conversationId || (e.payload as? JsonObject)?.string("conversation_id") == conversationId)
         }
         if (relevant) load(silent = true)
-        if (events.any { it.kind.startsWith("call.") }) refreshCalls()
     }
 
     // --- ações da conversa (POST /actions) ---

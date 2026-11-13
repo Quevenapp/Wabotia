@@ -6,10 +6,10 @@ O que os aplicativos oferecem:
 
 - **Conversas:** fila, atendimentos próprios, conversas com a IA e concluídas; assumir, transferir para outro atendente, devolver à IA, concluir, notas internas e etiquetas.
 - **Mensagens WhatsApp:** texto, fotos e vídeos da galeria ou câmera, documentos, áudio gravado (OGG/Opus), localização atual do aparelho, cartão de contato, citação, reação, editar/apagar/marcar como lida conforme o canal, recibos de entrega e leitura.
-- **Ligações de voz:** iniciar, atender e recusar ligações da Meta Calling API com WebRTC nativo, silenciar, viva-voz e encerrar.
+- **Ligações:** histórico das ligações registradas. Os aplicativos não iniciam nem atendem ligações desde a 0.17.0.
 - **Protocolos:** abertos, em andamento, atrasados e concluídos; andamento público, prazo da primeira resposta, responsável e conclusão.
 - **Bots:** conversar com os bots habilitados no perfil (execuções da Equipe Bot) e acompanhar resultados e anexos.
-- **Notificações push:** novas mensagens, atendimentos na fila, transferências, protocolos abertos, protocolos vencendo ou atrasados e ligações recebidas.
+- **Notificações push:** novas mensagens, atendimentos na fila, transferências, protocolos abertos, protocolos vencendo ou atrasados.
 - **Disponibilidade:** marcar presença e ausência.
 
 Este guia descreve a parte do servidor (autenticação móvel, dispositivos e push), o gateway de notificações e como compilar os aplicativos. A homologação em aparelhos reais com número WhatsApp real continua sendo a etapa final com o proprietário.
@@ -137,12 +137,12 @@ xcodegen generate
 xcodebuild -scheme Wabotia -destination "generic/platform=iOS" -derivedDataPath build build
 ```
 
-Coloque o `GoogleService-Info.plist` em `mobile/ios/Wabotia/Resources/`. O `project.yml` usa assinatura automática com a equipe configurada em `DEVELOPMENT_TEAM`. Ative no App ID as capacidades **Push Notifications** e **Background Modes → Remote notifications**. Ligações recebidas chegam como notificação sensível ao tempo com as ações Atender e Recusar; a conexão de áudio começa ao abrir o aplicativo.
+Coloque o `GoogleService-Info.plist` em `mobile/ios/Wabotia/Resources/`. O `project.yml` usa assinatura automática com a equipe configurada em `DEVELOPMENT_TEAM`. Ative no App ID as capacidades **Push Notifications** e **Background Modes → Remote notifications**.
 
 ## 5. Limites conhecidos
 
-- Ligações de voz exigem WhatsApp direto pela Meta com Calling API habilitada, como no painel. QR e Hermes não fazem chamadas. Não há videochamada.
-- O push do iOS usa Firebase Cloud Messaging por meio do APNs. Sem PushKit, a ligação recebida não toca como chamada nativa na tela bloqueada; ela aparece como notificação de alta prioridade.
+- Não há ligações ao vivo: o servidor não as oferece pela Zernio e os aplicativos mostram só o histórico. Para receber ligações do WhatsApp, use o encaminhamento da própria Zernio.
+- O push do iOS usa Firebase Cloud Messaging por meio do APNs.
 - Mensagens em conversas sob controle da IA não geram notificação.
 - O áudio gravado no iOS é convertido para OGG/Opus no aparelho; se a conversão falhar, o aplicativo envia M4A/AAC como áudio comum.
 - O aplicativo guarda um único servidor por vez. Para usar outro servidor, saia da conta e informe o novo endereço.

@@ -8,8 +8,6 @@ import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.SerializationException
@@ -84,11 +82,4 @@ object PushRegistrar {
     }
 
     fun newKey() = ApiClient.newIdempotencyKey()
-}
-
-/** Avisa a interface (em primeiro plano) que chegou uma ligação por push. */
-object IncomingCallBus {
-    private val _calls = MutableSharedFlow<Map<String, String>>(extraBufferCapacity = 4)
-    val calls = _calls.asSharedFlow()
-    fun announce(data: Map<String, String>) { _calls.tryEmit(data) }
 }

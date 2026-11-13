@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -73,6 +74,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -97,7 +99,7 @@ import java.util.Date
 
 /**
  * Aba Ajustes (DESIGN.md, seção 10): cartão do usuário com presença e grupos em cartões — Atendimento, Notificações,
- * Aparência, Servidor, Dispositivo e Sair. Tudo o que existia na antiga aba "Mais" continua aqui; a lista da equipe
+ * Aparência, Servidor, Dispositivo, Sobre e Sair. Tudo o que existia na antiga aba "Mais" continua aqui; a lista da equipe
  * passou para a aba Equipe.
  */
 @Composable
@@ -166,7 +168,7 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                     SettingsRow(
                         if (state.notificationsEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
                         "Receber notificações",
-                        subtitle = if (state.notificationsEnabled) "Mensagens, fila, transferências, protocolos e ligações." else "Este aparelho não recebe avisos (ligações continuam tocando).",
+                        subtitle = if (state.notificationsEnabled) "Mensagens, fila, transferências e protocolos." else "Este aparelho não recebe avisos.",
                         tint = if (state.notificationsEnabled) c.brand else c.muted,
                         trailing = {
                             BusySwitch(
@@ -306,6 +308,20 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                 }
             }
 
+            // --- Sobre ---
+            item("about-label") { SectionLabel("Sobre") }
+            item("about") {
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.PrivacyTip,
+                        "Política de privacidade",
+                        subtitle = "Como o aplicativo trata os dados",
+                        tint = c.textSecondary,
+                        onClick = { Links.open(context, Links.PRIVACY_POLICY) },
+                    )
+                }
+            }
+
             // --- Sair ---
             item("logout") {
                 WbCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
@@ -337,7 +353,7 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
             onDismissRequest = { showLogout = false },
             title = { Text("Sair da conta?") },
             text = {
-                Text("Este aparelho deixa de receber notificações e você volta para a tela de login. O servidor ${state.serverUrl.removePrefix("https://")} continua salvo.")
+                Text("Este aparelho deixa de receber notificações e você volta para a tela de login. As conversas e os arquivos guardados neste aparelho são apagados; o endereço ${state.serverUrl.removePrefix("https://")} continua salvo.")
             },
             confirmButton = { TextButton(onClick = { showLogout = false; vm.logout() }) { Text("Sair", color = c.danger, fontWeight = FontWeight.SemiBold) } },
             dismissButton = { TextButton(onClick = { showLogout = false }) { Text("Cancelar") } },

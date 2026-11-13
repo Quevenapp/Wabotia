@@ -4,8 +4,8 @@ Clientes nativos do Wabotia para a equipe de atendimento. Funcionam com **qualqu
 
 | Plataforma | Pasta | Stack | Mínimo |
 |---|---|---|---|
-| Android | [`android/`](android) | Kotlin 2.0, Jetpack Compose (Material 3), Retrofit/OkHttp, kotlinx.serialization, Coil, Media3, Firebase Messaging, stream-webrtc-android | Android 8.0 (API 26) |
-| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, WebRTC (stasel), CallKit, AVFoundation | iOS 15 |
+| Android | [`android/`](android) | Kotlin 2.0, Jetpack Compose (Material 3), Retrofit/OkHttp, kotlinx.serialization, Coil, Media3, Firebase Messaging | Android 8.0 (API 26) |
+| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, AVFoundation | iOS 15 |
 
 Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `br.com.queven.wabotia`.
 
@@ -23,7 +23,7 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 - **Autenticação.** `POST /api/auth/mobile/login` → `Authorization: Bearer wabu_…` em todas as chamadas. `401` em qualquer chamada → voltar ao login mantendo o servidor. Renovar com `POST /api/v1/auth/mobile/refresh` quando faltarem menos de 7 dias (iOS: `AppContainer.refreshTokenIfNeeded`; Android: `SessionStore.tokenExpires`).
 - **Idempotência.** Toda escrita envia `Idempotency-Key`. Para "enviar mensagem", a chave é gerada quando a pessoa toca em Enviar e **mantida** enquanto o pedido não for confirmado (repetição após falha de rede reutiliza a mesma chave e o mesmo corpo). `409 idempotency_conflict` significa corpo diferente para a mesma chave: gere outra chave e avise.
 - **Atualização em primeiro plano.** `GET /profiles/{p}/events?after=cursor` a cada 4 s enquanto a tela está visível (lista e conversa aberta); `cursor` persistido por perfil. Eventos relevantes: `message.received`, `message.sent`, `message.updated`, `conversation.created`, `conversation.updated`, `ticket.*`, `call.updated`. Em segundo plano, o push faz o trabalho.
-- **Push.** Registro em `PUT /api/v1/devices/{deviceId}` após o login e quando o token FCM muda; `DELETE` antes de sair. `data.type` decide a tela: `message`/`queue`/`transfer` → conversa; `ticket`/`ticket_due` → protocolo; `call` → tela da ligação. Deep link `wabotia://open/{type}?profile=&conversation=&ticket=&call=`.
+- **Push.** Registro em `PUT /api/v1/devices/{deviceId}` após o login e quando o token FCM muda; `DELETE` antes de sair. `data.type` decide a tela: `message`/`queue`/`transfer` → conversa; `ticket`/`ticket_due` → protocolo; `call` → conversa (não há tela de ligação desde a 0.17.0). Deep link `wabotia://open/{type}?profile=&conversation=&ticket=&call=`.
 - **Mídia privada.** Anexos exigem `Authorization`; nunca use a URL sem o cabeçalho (Coil/ExoPlayer com OkHttp autenticado; iOS `URLRequest`/`AVURLAsset` com `AVURLAssetHTTPHeaderFieldsKey`). Upload em partes de 5 MiB (`/media/uploads` → `PUT parts/{n}` com `Idempotency-Key = "{uploadId}:{n}"` → `complete`), até 100 MiB; o canal pode impor limites menores (Meta: imagem 5 MiB, vídeo/áudio 16 MiB).
 - **Permissões por conversa.** `GET /conversations/{id}` traz `capabilities` (`voice`, `sticker`, `location`, `contacts`, `reply`, `reaction`, `edit`, `delete`, `read`, `mentions`, `calls`, `groups`). Botões só aparecem quando a capacidade existe. Responder exige a conversa assumida (`owner == eu` e `state == human`).
 
@@ -38,7 +38,6 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 - Filtros em chips: **Fila** (`state=waiting`), **Minhas** (`state=human` filtrado por `owner == eu`), **IA** (`state=ai`), **Concluídas** (`state=closed`), **Todas**. Busca (`q`) por telefone/nome. Paginação por `next_cursor` (base64 opaco). Pull-to-refresh.
 - Linha: avatar com inicial, nome (`contact_name` → `title` → `phone` → `external_id`), último horário (`updated`), chip de estado (Com a IA / Na fila / Com atendente / Concluído), ícone de grupo quando `chat_type == group`, etiquetas.
 - Prévia da última mensagem: servidores 0.14+ mandam `last_message` em cada linha (`text`, `direction`, `created`, `delivery_status`, `attachments` como quantidade, `kind`) e o app usa esse campo: texto, tick de entrega quando a mensagem saiu de nós, rótulo do anexo pelo `kind` (Foto, Vídeo, Áudio, Documento, Localização, Contato, Figurinha, Mensagem interativa) e cadeado para nota interna. O cache local continua como reserva para servidores antigos (campo ausente) e só passa na frente quando é mais novo que `last_message.created` (evento recebido antes da recarga da lista). As não lidas continuam locais. Com `last_message` presente, o preenchimento em segundo plano por detalhe não é feito para aquela conversa.
-- Ligações tocando (`GET /calls?limit=30` com `status == ringing` e `actor` vazio ou igual a mim) aparecem como faixa no topo com Atender/Recusar.
 
 ### Conversa
 - Cabeçalho: nome, telefone, estado e responsável (`GET /presence` para nomes). Menu: **Assumir** (`claim`), **Transferir** (`transfer` com `target` escolhido em `GET /team`, mostrando pessoas e bots com presença), **Devolver à IA** (`resume`), **Concluir** (`resolve`), **Etiquetas** (`tags`), **Abrir protocolo**, **Consultar bot** (abre Bot com o contexto da conversa), **Ligar** (se `capabilities.calls`), **Salvar contato**. Grupo: seletor de `bot_policy` (`PUT /groups/{id}/policy`).
@@ -61,12 +60,8 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 - Devolver a conversa ao bot do perfil é a ação **Devolver à IA** da conversa (`resume`).
 
 ### Ligações (aba 4)
-- Histórico (`GET /calls`): data, Recebida/Realizada, estado em português (Recebendo ligação, Chamando, Conectando áudio, Preparando áudio, Em ligação, Encerrada, Não atendida, Recusada, Falhou, Sem confirmação), duração. Ligações tocando no topo.
-- Tela da ligação (`CallScreen`/`CallView`): 
-  - **Receber:** `POST /calls/{id}/claim` (devolve `session` com a oferta SDP) → criar `RTCPeerConnection` só áudio → `setRemoteDescription(offer)` → `createAnswer` → aguardar ICE completo (até 12 s) → `pre_accept` e `accept` com a **mesma** `session`. Recusar = `claim` + `reject`.
-  - **Ligar:** só com conversa assumida e `capabilities.calls`; **Verificar permissão** (`GET /conversations/{id}/call-permission`), **Pedir permissão** (`POST /calls/permission`), **Ligar** = criar oferta → ICE completo → `POST /calls {conversation_id, session}` → consultar `GET /calls/{id}?session=1` a cada 2,5 s e aplicar a `answer` quando chegar.
-  - Durante a chamada: `POST /calls/{id}/keepalive` a cada 20 s; silenciar; viva-voz; cronômetro; **Encerrar** (`terminate`). Estado `unknown` → botão "Confirmar encerramento" (`reconcile` após confirmar no WhatsApp). Sair da tela encerra a chamada.
-  - Android: `CallService` em primeiro plano (phoneCall|microphone) e `AudioManager` em modo comunicação; iOS: `CXProvider`/`CXCallController` para a chamada do sistema e `AVAudioSession` `.playAndRecord` `.voiceChat`. Vídeo nunca é oferecido.
+- Somente histórico (`GET /calls`): data, Recebida/Realizada, estado em português (Encerrada, Não atendida, Recusada, Falhou, Sem confirmação) e duração.
+- Desde a 0.17.0 os aplicativos não iniciam nem atendem ligações. O servidor não oferece ligações ao vivo pela Zernio (`capabilities.calls` é sempre falso), então a tela de ligação, o WebRTC, o CallKit e o serviço em primeiro plano foram retirados, junto com as permissões que só eles usavam.
 
 ### Mais (aba 5) — atendimento e equipe na versão 0.9.0
 

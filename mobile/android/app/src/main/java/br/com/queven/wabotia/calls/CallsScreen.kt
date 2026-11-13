@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,29 +47,25 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
-import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.ConnectionStrip
 import br.com.queven.wabotia.ui.components.EmptyState
-import br.com.queven.wabotia.ui.components.IncomingCallCard
 import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.RowDivider
-import br.com.queven.wabotia.ui.components.SectionLabel
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.TabTopBar
 import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonObject
 
 /**
- * Aba Ligações (DESIGN.md, seção 10): histórico no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida,
- * data, duração e ligar de volta); ligações tocando no topo com Atender (abre a tela da ligação) e Recusar
- * (claim + reject). Atualiza a cada 5 s em primeiro plano.
+ * Aba Ligações: somente o histórico (GET /calls), no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida,
+ * data e duração). O app não faz nem atende ligações; tocar em uma linha abre a conversa. Atualiza a cada 30 s em
+ * primeiro plano.
  */
 @Composable
-fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall: (conversationId: String, callId: String?) -> Unit, openConversation: (String) -> Unit) {
+fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openConversation: (String) -> Unit) {
     val vm: CallsViewModel = viewModel { CallsViewModel(container) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -78,15 +73,13 @@ fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (isActive) {
                 vm.refresh()
-                delay(5_000)
+                delay(30_000)
             }
         }
     }
 
     val c = Wb.colors
     val meId = container.session.user?.id
-    val ringing = vm.calls.filter { CallText.isRingingFor(it, meId) }
-    val history = vm.calls.filter { !CallText.isRingingFor(it, meId) }
 
     Column(modifier.fillMaxSize().background(c.background)) {
         TabTopBar("Ligações") {
@@ -108,32 +101,12 @@ fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall
             vm.loading && vm.calls.isEmpty() -> SkeletonList(Modifier.fillMaxSize())
             vm.calls.isEmpty() && vm.error == null -> EmptyState(Icons.Filled.Call, "Nenhuma ligação ainda", subtitle = "Ligações recebidas pelo WhatsApp aparecem aqui.")
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(ringing, key = { "ringing-${it.id}" }) { call ->
-                    IncomingCallCard(
-                        name = vm.conversationNames[call.conversation_id] ?: "WhatsApp",
-                        seed = call.conversation_id,
-                        busy = vm.busyCallId == call.id,
-                        onAnswer = { openCall(call.conversation_id, call.id) },
-                        onReject = { vm.reject(call) },
-                        onOpen = { openConversation(call.conversation_id) },
-                    )
-                }
-                if (ringing.isNotEmpty() && history.isNotEmpty()) {
-                    item("history-header") { SectionLabel("Recentes") }
-                }
-                items(history, key = { it.id }) { call ->
-                    val live = !CallText.isFinal(call.status)
-                    val mine = call.actor == meId
+                items(vm.calls, key = { it.id }) { call ->
                     CallHistoryRow(
                         call = call,
                         meId = meId,
                         name = vm.conversationNames[call.conversation_id],
-                        onClick = {
-                            if (live && mine) openCall(call.conversation_id, call.id)
-                            else openConversation(call.conversation_id)
-                        },
-                        onCallBack = { openCall(call.conversation_id, null) },
-                        onFollow = { openCall(call.conversation_id, call.id) },
+                        onClick = call.conversation_id.takeIf { it.isNotBlank() }?.let { id -> { openConversation(id) } },
                     )
                     RowDivider(startIndent = 78.dp)
                 }
@@ -143,7 +116,7 @@ fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall
 }
 
 @Composable
-private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: () -> Unit, onCallBack: () -> Unit, onFollow: () -> Unit) {
+private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: (() -> Unit)?) {
     val c = Wb.colors
     val final = CallText.isFinal(call.status)
     val missed = call.status == "missed" || call.status == "rejected" || call.status == "failed"
@@ -168,7 +141,7 @@ private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: ()
     }.joinToString(" · ")
 
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 72.dp).padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().clickable(enabled = onClick != null, onClick = { onClick?.invoke() }).heightIn(min = 72.dp).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Avatar(displayName, seed = call.conversation_id.ifBlank { call.id }, size = 48.dp)
@@ -192,14 +165,6 @@ private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: ()
                 Text(it, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.width(4.dp))
-        when {
-            final && call.conversation_id.isNotBlank() -> IconButton(onClick = onCallBack) {
-                Icon(Icons.Filled.Call, contentDescription = "Ligar de volta para $displayName", tint = c.brand)
-            }
-            !final && call.actor == meId -> TextButton(onClick = onFollow) { Text("Acompanhar", fontWeight = FontWeight.SemiBold) }
-            else -> Spacer(Modifier.width(10.dp))
-        }
     }
 }
 
@@ -209,8 +174,6 @@ class CallsViewModel(private val container: AppContainer) : ViewModel() {
     var loading by mutableStateOf(true)
         private set
     var error by mutableStateOf<String?>(null)
-        private set
-    var busyCallId by mutableStateOf<String?>(null)
         private set
     /** Nomes das conversas das ligações (carregados sob demanda para a lista). */
     var conversationNames by mutableStateOf<Map<String, String>>(emptyMap())
@@ -235,28 +198,6 @@ class CallsViewModel(private val container: AppContainer) : ViewModel() {
             } finally {
                 loading = false
                 refreshing = false
-            }
-        }
-    }
-
-    /** Recusar = assumir (claim) e recusar (reject), cada um com a própria chave de idempotência. */
-    fun reject(call: Call) {
-        val profile = container.session.profileId ?: return
-        if (busyCallId != null) return
-        busyCallId = call.id
-        viewModelScope.launch {
-            try {
-                runCatching { container.api.claimCall(profile, call.id, ApiClient.newIdempotencyKey(), JsonObject(emptyMap())) }
-                    .onFailure { if (it is ApiException && it.isUnauthorized) throw it }
-                container.api.rejectCall(profile, call.id, ApiClient.newIdempotencyKey(), JsonObject(emptyMap()))
-                Notifications.cancelIncomingCall(container.appContext, call.id)
-                error = null
-            } catch (e: Exception) {
-                error = describe(e)
-            } finally {
-                busyCallId = null
-                refreshing = false
-                refresh()
             }
         }
     }

@@ -29,13 +29,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let info = notification.request.content.userInfo
         PushManager.shared.didReceive(userInfo: info, foreground: true)
-        let type = info["type"] as? String ?? "message"
-        // Ligações sempre alertam; demais avisos aparecem como banner discreto se a tela atual não for a conversa.
-        if type == "call" { return [.banner, .sound, .list] }
+        // Os avisos aparecem como banner discreto se a tela atual não for a conversa.
         return PushManager.shared.shouldPresentForeground(info) ? [.banner, .sound, .list] : []
     }
 
-    // Toque ou ação (Atender/Recusar) na notificação.
+    // Toque na notificação.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         PushManager.shared.didRespond(action: response.actionIdentifier, userInfo: response.notification.request.content.userInfo)
     }
