@@ -97,7 +97,8 @@ async function cloudflare(
         ? " " + data.errors[0].message.slice(0, 200)
         : "";
     const hint =
-      response.status === 401 || response.status === 403
+      [400, 401, 403].includes(response.status) &&
+      (response.status !== 400 || /authenticat/i.test(detail))
         ? " Confira o Account ID, a validade e as permissões do token."
         : "";
     throw new ApiError(
