@@ -67,7 +67,12 @@ function ApplicationDialog({
         onClose();
       }}
     >
-      <Field label="Nome" value={form.name} onChange={change("name")} required />
+      <Field
+        label="Nome"
+        value={form.name}
+        onChange={change("name")}
+        required
+      />
       {app.profiles.length === 1 ? (
         <p>Acesso à Área de atendimento compartilhada pela equipe.</p>
       ) : (
@@ -138,8 +143,8 @@ export function ApplicationsPage() {
         <p>
           Para o Vinki, autorize as linhas e os grupos em{" "}
           <strong>Integração Zernio → Acesso dos sistemas</strong>. Para
-          consultas internas do Fagoo, configure um especialista no Hermes e
-          uma ação permitida para o Atendente.
+          consultas internas do Fagoo, configure um especialista no Hermes e uma
+          ação permitida para o Atendente.
         </p>
         <div className="card-actions">
           <Button
@@ -182,7 +187,9 @@ export function ApplicationsPage() {
               [
                 "disabled",
                 "Estado",
-                (row) => <Badge value={row.disabled ? "disabled" : "enabled"} />,
+                (row) => (
+                  <Badge value={row.disabled ? "disabled" : "enabled"} />
+                ),
               ],
             ]}
             action={(row) => (
@@ -310,7 +317,11 @@ export function ApplicationsPage() {
             const result = await api(root + "/webhook-subscriptions", "POST", {
               app_id: open.app_id,
               url,
-              events: ["message.received", "ticket.updated", "bot.run.completed"],
+              events: [
+                "message.received",
+                "ticket.updated",
+                "bot.run.completed",
+              ],
             });
             const token = result.token || result.signing_secret;
             setOpen(token ? { kind: "secret", token } : null);

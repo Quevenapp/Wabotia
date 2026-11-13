@@ -371,8 +371,7 @@ export const tools: Tool[] = [
   },
   {
     name: "list_tickets",
-    description:
-      `Lista protocolos. status: um dos estados (${ticketStatuses.join(", ")}) ou vários separados por vírgula; active=true filtra os não resolvidos/encerrados; category filtra pela categoria; overdue=true filtra prazos de primeira resposta vencidos; q busca por número ou telefone. Requer tickets:read.`,
+    description: `Lista protocolos. status: um dos estados (${ticketStatuses.join(", ")}) ou vários separados por vírgula; active=true filtra os não resolvidos/encerrados; category filtra pela categoria; overdue=true filtra prazos de primeira resposta vencidos; q busca por número ou telefone. Requer tickets:read.`,
     input: {
       profile,
       status: {
