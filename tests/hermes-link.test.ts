@@ -356,6 +356,31 @@ describe("operações pelo vínculo", () => {
       "rascunho",
       "wabotia",
     ]);
+    // Só o atendimento verificado pode ser habilitado como bot.
+    const byName = (name: string) =>
+      bots.find((b) => b.remote_profile === name).id;
+    await perform(
+      env,
+      admin,
+      f.profile,
+      "bot.update",
+      { id: byName("wabotia"), enabled: true },
+      uid(),
+    );
+    expect(
+      (await one(env, "SELECT enabled FROM bots WHERE id=?", byName("wabotia")))
+        .enabled,
+    ).toBe(1);
+    await expect(
+      perform(
+        env,
+        admin,
+        f.profile,
+        "bot.update",
+        { id: byName("rascunho"), enabled: true },
+        uid(),
+      ),
+    ).rejects.toThrow("Descobrir bots antes de habilitar");
     const cfg = json((await connection(f.id)).config);
     expect(cfg.verified_at).toBeGreaterThan(0);
     expect(Object.keys(cfg.capabilities)).toEqual(["wabotia"]);
