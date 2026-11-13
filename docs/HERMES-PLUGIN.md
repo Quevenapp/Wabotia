@@ -2,7 +2,7 @@
 
 Liga os bots de um Hermes Agent ao Wabotia sem túnel Cloudflare, Access, DNS ou porta aberta. O modo por URL ([HERMES-CLOUDFLARE.md](HERMES-CLOUDFLARE.md)) continua existindo e as conexões já criadas não mudam.
 
-Estado: o lado do servidor e o painel estão implementados e cobertos por `tests/hermes-link.test.ts`. O plugin (`public/hermes-plugin/`) e o instalador **ainda não foram executados contra um Hermes real**; veja a seção 8.
+Estado: o lado do servidor e o painel estão implementados e cobertos por `tests/hermes-link.test.ts`. O plugin (`public/hermes-plugin/`) e o instalador foram validados em um Hermes em Docker até a descoberta de bots; **uma execução completa de bot pelo vínculo ainda não foi validada**. Veja a seção 8.
 
 ## 1. Decisão
 
