@@ -13,6 +13,7 @@ import { audit } from "./events";
 import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
+import { HermesLinkHub } from "./hermes-link";
 import {
   processInbox,
   processRun,
@@ -23,7 +24,13 @@ import {
 export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
+  private link = new HermesLinkHub(this.env, this.ctx);
   async fetch(request: Request) {
+    // Instâncias "hermes-link:<conexão>" só atendem o vínculo do plugin: não
+    // gravam perfil nem agendam alarme.
+    const linkPath = new URL(request.url).pathname;
+    if (linkPath.startsWith("/link-"))
+      return this.link.handle(linkPath, request);
     const body = await request.json<any>();
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);

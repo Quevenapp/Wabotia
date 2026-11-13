@@ -1,0 +1,22 @@
+name: wabotia
+label: Wabotia
+kind: platform
+version: 1.0.0
+description: >
+  Liga os bots deste Hermes a uma instalação Wabotia por conexão de saída,
+  sem túnel nem porta aberta. Não é um canal de chat.
+author: Queven
+requires_env:
+  - name: WABOTIA_URL
+    description: "Endereço da instalação Wabotia (https://...)"
+    prompt: "Endereço do Wabotia"
+    password: false
+  - name: WABOTIA_LINK_TOKEN
+    description: "Token do vínculo emitido no pareamento (wabl_...)"
+    prompt: "Token do vínculo Wabotia"
+    password: true
+optional_env:
+  - name: WABOTIA_HERMES_API
+    description: "API local do Hermes (padrão http://127.0.0.1:8642)"
+    prompt: "API local do Hermes (ou vazio)"
+    password: false

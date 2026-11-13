@@ -22,6 +22,7 @@ import {
 import { event, audit } from "./events";
 import { visibleConversation } from "./visibility";
 import { probe, discover, configureTelegram } from "./integrations";
+import { linkCode, linkRevoke } from "./hermes-link";
 import { secret } from "./security";
 import { contactCommand } from "./contacts";
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
@@ -910,9 +911,15 @@ export async function perform(
       "connection.discover",
       "connection.telegram-webhook",
       "connection.connector-token",
+      "connection.link-code",
+      "connection.link-revoke",
     ].includes(op)
   ) {
     admin(actor);
+    if (op === "connection.link-code")
+      return linkCode(env, profile, data.id, data.origin);
+    if (op === "connection.link-revoke")
+      return linkRevoke(env, profile, data.id);
     if (op === "connection.test")
       return probe(env, data.id, profile, data.origin);
     if (op === "connection.discover") return discover(env, data.id, profile);
@@ -1398,6 +1405,21 @@ export async function perform(
       // Credential editors omit line assignments. Those are edited through line.save.
       cfg.service = previous.service;
       cfg.number_policy = previous.number_policy;
+      // O modo de ligação com o Hermes não muda depois de criado; o vínculo
+      // do plugin sobrevive à edição do nome.
+      cfg.transport = previous.transport;
+      cfg.link = previous.link;
+    }
+    if (data.kind === "hermes" && cfg.transport === "link") {
+      delete cfg.url;
+      delete cfg.api_url;
+      requireValue(
+        !data.secrets || !Object.keys(data.secrets).length,
+        "A conexão por plugin não guarda chaves do Hermes.",
+      );
+    } else {
+      delete cfg.transport;
+      delete cfg.link;
     }
     const managed =
       old &&
