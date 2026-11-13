@@ -20,12 +20,12 @@ enum BotsSupport {
 
     static func statusColor(_ status: String) -> Color {
         switch status {
-        case "completed": return .green
-        case "failed": return .red
-        case "cancelled": return .gray
-        case "cancelling", "unknown": return .orange
-        case "queued", "starting", "running": return .blue
-        default: return .secondary
+        case "completed": return Theme.ok
+        case "failed": return Theme.danger
+        case "cancelled": return Theme.muted
+        case "cancelling", "unknown": return Theme.warn
+        case "queued", "starting", "running": return Theme.bot
+        default: return Theme.textSecondary
         }
     }
 
@@ -97,13 +97,7 @@ struct BotRunStatusBadge: View {
     let status: String
 
     var body: some View {
-        Text(BotsSupport.statusTitle(status))
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(BotsSupport.statusColor(status).opacity(0.15))
-            .foregroundStyle(BotsSupport.statusColor(status))
-            .clipShape(Capsule())
+        Pill(text: BotsSupport.statusTitle(status), color: BotsSupport.statusColor(status))
     }
 }
 
@@ -120,19 +114,19 @@ struct BotRunResultView: View {
             HStack {
                 BotRunStatusBadge(status: run.status)
                 Spacer()
-                Text(TicketsSupport.shortDate(run.updated ?? run.created)).font(.caption).foregroundStyle(.secondary)
+                Text(TicketsSupport.shortDate(run.updated ?? run.created)).font(.caption).foregroundStyle(Theme.textSecondary)
             }
             if run.isFinal {
                 if !parsed.text.isEmpty {
                     Text(parsed.text).font(.body).textSelection(.enabled)
                 } else if run.status == "completed" {
-                    Text("O bot concluiu sem texto de resposta.").font(.footnote).foregroundStyle(.secondary)
+                    Text("O bot concluiu sem texto de resposta.").font(.footnote).foregroundStyle(Theme.textSecondary)
                 }
                 if let error = run.error, !error.isEmpty {
-                    Label(error, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.red)
+                    Label(error, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Theme.danger)
                 }
                 if run.status == "unknown" {
-                    Text("Não foi possível confirmar o resultado. Confira em Execuções no painel.").font(.footnote).foregroundStyle(.orange)
+                    Text("Não foi possível confirmar o resultado. Confira em Execuções no painel.").font(.footnote).foregroundStyle(Theme.warn)
                 }
                 ForEach(parsed.links, id: \.self) { link in
                     if let url = URL(string: link) {
@@ -154,7 +148,7 @@ struct BotRunResultView: View {
             } else {
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text(BotsSupport.progressHint(run.status)).font(.footnote).foregroundStyle(.secondary)
+                    Text(BotsSupport.progressHint(run.status)).font(.footnote).foregroundStyle(Theme.textSecondary)
                 }
             }
         }
@@ -194,11 +188,11 @@ struct BotAttachmentView: View {
                 }
             }
             if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Text(error).font(.caption).foregroundStyle(Theme.danger)
             }
         }
         .padding(10)
-        .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func download() {

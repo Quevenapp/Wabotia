@@ -429,9 +429,9 @@ extension UNAuthorizationStatus {
     var wabotiaDescription: String {
         switch self {
         case .authorized: return "Permitidas"
-        case .denied: return "Bloqueadas nos Ajustes"
-        case .notDetermined: return "Ainda não solicitada"
-        case .provisional: return "Silenciosas (provisórias)"
+        case .denied: return "Bloqueadas"
+        case .notDetermined: return "Não solicitada"
+        case .provisional: return "Silenciosas"
         case .ephemeral: return "Temporárias"
         @unknown default: return "Desconhecido"
         }

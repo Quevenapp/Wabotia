@@ -1,8 +1,9 @@
 import SwiftUI
 import CallKit
 
-/// Tela da ligação (mobile/README.md, seção Ligações). Usada empilhada (`Route.call`) e em
-/// fullScreenCover (ligação anunciada por push), por isso tem o próprio botão Fechar.
+/// Tela da ligação em tela cheia (mobile/DESIGN.md, seção 10): fundo `brandStrong` em degradê, avatar grande,
+/// estado, cronômetro e botões redondos. Usada empilhada (`Route.call`) e em fullScreenCover (ligação
+/// anunciada por push), por isso tem o próprio botão de fechar.
 ///
 /// Receber: claim → oferta SDP → answer (ICE completo) → pre_accept e accept com a mesma sessão.
 /// Ligar: exige conversa assumida e `capabilities.calls`; oferta → POST /calls → GET /calls/{id}?session=1
@@ -11,6 +12,7 @@ struct CallView: View {
     @EnvironmentObject private var container: AppContainer
     @Environment(\.dismiss) private var dismiss
     @StateObject private var vm: CallViewModel
+    @State private var pulse = false
     let conversationId: String
     let callId: String?
 
@@ -20,35 +22,68 @@ struct CallView: View {
         _vm = StateObject(wrappedValue: CallViewModel(conversationId: conversationId, callId: callId))
     }
 
+    private var ringingLike: Bool { [CallViewModel.Phase.incoming, .waitingAnswer, .preparing].contains(vm.phase) }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Button("Fechar") { dismiss() }
-                Spacer()
-            }
-            .padding(.horizontal)
-            .padding(.top, 8)
-
-            ScrollView {
-                VStack(spacing: 20) {
-                    header
-                    messages
-                    if vm.phase == .outgoingIdle { outgoingSection }
+        ZStack {
+            LinearGradient(colors: [Theme.brand, Theme.brandStrong, Color(light: 0x04352F, dark: 0x02211D)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                            .frame(width: Theme.touch, height: Theme.touch)
+                            .background(Circle().fill(Color.white.opacity(0.16)))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(vm.isLive ? 0 : 1)
+                    .disabled(vm.isLive)
+                    .accessibilityLabel("Fechar")
+                    Spacer()
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.fill").font(.system(size: 10))
+                        Text("Ligação de voz do WhatsApp").font(Theme.font(12, .medium))
+                    }
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    Spacer()
+                    Color.clear.frame(width: Theme.touch, height: Theme.touch)
                 }
-                .padding()
-            }
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
 
-            controls
-                .padding()
-                .padding(.bottom, 8)
+                ScrollView {
+                    VStack(spacing: 14) {
+                        header
+                        messages
+                        if vm.phase == .outgoingIdle { outgoingSection }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 12)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity)
+                }
+
+                controls
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+                    .padding(.bottom, 20)
+            }
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .navigationTitle("Ligação")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(vm.isLive)
+        .appNavigationBarHidden(true)
+        .navigationBarBackButtonHidden(true)
         .interactiveDismissDisabled(vm.isLive)
         .task { await vm.load() }
-        .onDisappear { vm.leave() }
+        .onAppear {
+            guard !UIAccessibility.isReduceMotionEnabled else { return }
+            withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { pulse = true }
+        }
+        .onChange(of: vm.isLive) { live in SwipeBack.disabled = live }
+        .onDisappear {
+            SwipeBack.disabled = false
+            vm.leave()
+        }
         .alert("Confirmar encerramento", isPresented: $vm.showReconcileConfirm) {
             Button("Confirmar", role: .destructive) { Task { await vm.reconcile() } }
             Button("Cancelar", role: .cancel) {}
@@ -60,66 +95,91 @@ struct CallView: View {
     // MARK: Cabeçalho
 
     private var header: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             ZStack {
-                Circle().fill(Color.accentColor.opacity(0.15)).frame(width: 96, height: 96)
-                Text(vm.initial).font(.system(size: 40, weight: .semibold)).foregroundStyle(Color.accentColor)
+                if ringingLike {
+                    Circle().stroke(Color.white.opacity(0.35), lineWidth: 2).frame(width: 112, height: 112)
+                        .scaleEffect(pulse ? 1.45 : 1).opacity(pulse ? 0 : 1)
+                }
+                AvatarView(name: vm.title, seed: conversationId, size: 108, ring: Theme.brandStrong)
+                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 3))
             }
-            .padding(.top, 12)
-            Text(vm.title).font(.title2.bold()).multilineTextAlignment(.center)
-            if let subtitle = vm.subtitle { Text(subtitle).font(.subheadline).foregroundStyle(.secondary) }
+            .frame(height: 150)
+            Text(vm.title).font(Theme.font(26, .bold)).foregroundStyle(Color.white).multilineTextAlignment(.center)
+            if let subtitle = vm.subtitle {
+                Text(ConversationFormatting.phone(subtitle)).font(Theme.font(15)).foregroundStyle(Color.white.opacity(0.75))
+            }
             HStack(spacing: 8) {
-                if vm.phase == .preparing || vm.phase == .loading { ProgressView().controlSize(.small) }
-                Text(vm.statusText).font(.headline).foregroundStyle(vm.statusColor)
+                if vm.phase == .preparing || vm.phase == .loading { ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)) }
+                Text(vm.statusText).font(Theme.font(17, .semibold)).foregroundStyle(statusColor)
             }
             .padding(.top, 4)
             if vm.phase == .inCall, vm.call?.status == "active" {
-                Text(CallLabels.elapsed(vm.elapsed)).font(.system(.title3, design: .monospaced)).foregroundStyle(.secondary)
+                Text(CallLabels.elapsed(vm.elapsed)).font(Theme.font(30, .light, design: .monospaced)).foregroundStyle(Color.white)
             }
             if let direction = vm.call?.direction, !direction.isEmpty {
-                Text(CallLabels.direction(direction)).font(.caption).foregroundStyle(.secondary)
+                Text(CallLabels.direction(direction)).font(Theme.font(12)).foregroundStyle(Color.white.opacity(0.65))
             }
+        }
+    }
+
+    private var statusColor: Color {
+        switch vm.call?.status ?? "" {
+        case "active": return Theme.accent
+        case "unknown", "missed", "failed", "rejected": return Color(light: 0xFFD27A, dark: 0xFFD27A)
+        default: return Color.white.opacity(0.9)
         }
     }
 
     private var messages: some View {
         VStack(spacing: 8) {
-            if let note = vm.note {
-                Text(note).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-            if let error = vm.error {
-                Text(error).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
-            }
-            if let permission = vm.permissionText {
-                Text(permission).font(.footnote).multilineTextAlignment(.center)
-            }
+            if let note = vm.note { bannerText(note, icon: "info.circle.fill", strong: false) }
+            if let error = vm.error { bannerText(error, icon: "exclamationmark.triangle.fill", strong: true) }
+            if let permission = vm.permissionText { bannerText(permission, icon: "checkmark.shield.fill", strong: false) }
         }
+    }
+
+    private func bannerText(_ text: String, icon: String, strong: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon).font(.system(size: 13)).padding(.top, 2)
+            Text(text).font(Theme.font(14)).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(Color.white)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(strong ? Theme.danger.opacity(0.55) : Color.white.opacity(0.14)))
     }
 
     // MARK: Ligar (saída)
 
     private var outgoingSection: some View {
-        VStack(spacing: 12) {
-            if let reason = vm.cannotCallReason {
-                Text(reason).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
+        VStack(spacing: 10) {
+            if let reason = vm.cannotCallReason { bannerText(reason, icon: "lock.fill", strong: false) }
             if vm.retryStartAvailable {
-                Text("O pedido de ligação não foi confirmado pela rede. Repetir reutiliza o mesmo pedido.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                HStack {
-                    Button("Tentar novamente") { Task { await vm.retryStart() } }.buttonStyle(.borderedProminent).disabled(vm.busy)
-                    Button("Abandonar pedido", role: .destructive) { vm.abandonStart() }.buttonStyle(.bordered).disabled(vm.busy)
+                bannerText("O pedido de ligação não foi confirmado pela rede. Repetir reutiliza o mesmo pedido.", icon: "clock.arrow.circlepath", strong: false)
+                HStack(spacing: 10) {
+                    lightButton("Tentar novamente") { Task { await vm.retryStart() } }
+                    lightButton("Abandonar pedido") { vm.abandonStart() }
                 }
+                .disabled(vm.busy)
             } else {
-                HStack {
-                    Button("Verificar permissão") { Task { await vm.checkPermission() } }
-                        .buttonStyle(.bordered)
-                        .disabled(vm.busy || !vm.isOwned)
-                    Button("Pedir permissão") { Task { await vm.requestPermission() } }
-                        .buttonStyle(.bordered)
-                        .disabled(vm.busy || !vm.isOwned)
+                HStack(spacing: 10) {
+                    lightButton("Verificar permissão") { Task { await vm.checkPermission() } }
+                    lightButton("Pedir permissão") { Task { await vm.requestPermission() } }
                 }
+                .disabled(vm.busy || !vm.isOwned)
+                .opacity(vm.isOwned ? 1 : 0.5)
             }
         }
+    }
+
+    private func lightButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(Theme.font(14, .semibold)).foregroundStyle(Color.white).lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(Capsule().fill(Color.white.opacity(0.18)))
+        }
+        .buttonStyle(PressScaleStyle())
     }
 
     // MARK: Controles
@@ -128,43 +188,44 @@ struct CallView: View {
     private var controls: some View {
         switch vm.phase {
         case .loading, .preparing:
-            ProgressView().frame(maxWidth: .infinity)
+            ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white)).frame(maxWidth: .infinity, minHeight: 96)
         case .incoming:
-            HStack(spacing: 40) {
-                CallControlButton(title: "Recusar", systemImage: "phone.down.fill", tint: .red, disabled: vm.busy) { Task { await vm.reject() } }
-                CallControlButton(title: "Atender", systemImage: "phone.fill", tint: .green, disabled: vm.busy) { Task { await vm.answer() } }
+            HStack {
+                Spacer()
+                CallControlButton(title: "Recusar", systemImage: "phone.down.fill", fill: Theme.danger, disabled: vm.busy) { Task { await vm.reject() } }
+                Spacer()
+                Spacer()
+                CallControlButton(title: "Atender", systemImage: "phone.fill", fill: Theme.accent, disabled: vm.busy) { Task { await vm.answer() } }
+                Spacer()
             }
         case .outgoingIdle:
             if !vm.retryStartAvailable {
-                CallControlButton(title: "Ligar", systemImage: "phone.fill", tint: .green, disabled: vm.busy || !vm.canCall) { Task { await vm.start() } }
+                CallControlButton(title: "Ligar", systemImage: "phone.fill", fill: Theme.accent, disabled: vm.busy || !vm.canCall) { Task { await vm.start() } }
             }
         case .waitingAnswer, .inCall:
-            VStack(spacing: 24) {
-                HStack(spacing: 40) {
-                    CallControlButton(title: vm.isMuted ? "Ativar microfone" : "Silenciar", systemImage: vm.isMuted ? "mic.slash.fill" : "mic.fill", tint: vm.isMuted ? .orange : .gray, disabled: !vm.hasLocalAudio) { vm.toggleMute() }
-                    CallControlButton(title: "Viva-voz", systemImage: vm.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.wave.1", tint: vm.isSpeakerOn ? .blue : .gray, disabled: !vm.hasLocalAudio) { vm.toggleSpeaker() }
+            if vm.call?.status == "unknown" {
+                VStack(spacing: 14) {
+                    HStack(spacing: 36) { muteButton; speakerButton }
+                    lightButton("Confirmar encerramento") { vm.showReconcileConfirm = true }.disabled(vm.busy)
                 }
-                if vm.call?.status == "unknown" {
-                    Button {
-                        vm.showReconcileConfirm = true
-                    } label: {
-                        Label("Confirmar encerramento", systemImage: "checkmark.circle").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .disabled(vm.busy)
-                } else {
-                    CallControlButton(title: "Encerrar", systemImage: "phone.down.fill", tint: .red, disabled: vm.busy) { Task { await vm.terminate() } }
+            } else {
+                HStack(alignment: .top, spacing: 28) {
+                    muteButton
+                    CallControlButton(title: "Encerrar", systemImage: "phone.down.fill", fill: Theme.danger, disabled: vm.busy) { Task { await vm.terminate() } }
+                    speakerButton
                 }
             }
         case .ended, .unavailable:
-            Button {
-                dismiss()
-            } label: {
-                Text("Fechar").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
+            lightButton("Fechar") { dismiss() }
         }
+    }
+
+    private var muteButton: some View {
+        CallControlButton(title: vm.isMuted ? "Ativar microfone" : "Mudo", systemImage: vm.isMuted ? "mic.slash.fill" : "mic.fill", active: vm.isMuted, disabled: !vm.hasLocalAudio) { vm.toggleMute() }
+    }
+
+    private var speakerButton: some View {
+        CallControlButton(title: "Viva-voz", systemImage: vm.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.wave.2.fill", active: vm.isSpeakerOn, disabled: !vm.hasLocalAudio) { vm.toggleSpeaker() }
     }
 }
 
@@ -172,24 +233,28 @@ struct CallView: View {
 private struct CallControlButton: View {
     let title: String
     let systemImage: String
-    let tint: Color
+    /// Cor cheia (atender, encerrar). Sem ela o botão é translúcido e fica branco quando `active`.
+    var fill: Color? = nil
+    var active = false
     var disabled = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
+            VStack(spacing: 7) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(fill == nil && active ? Theme.brandStrong : Color.white)
                     .frame(width: 68, height: 68)
-                    .background(Circle().fill(tint))
-                Text(title).font(.caption).foregroundStyle(.primary)
+                    .background(Circle().fill(fill ?? (active ? Color.white : Color.white.opacity(0.18))))
+                Text(title).font(Theme.font(12, .medium)).foregroundStyle(Color.white.opacity(0.9)).lineLimit(1).minimumScaleFactor(0.8)
             }
+            .frame(minWidth: 84)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleStyle())
         .disabled(disabled)
-        .opacity(disabled ? 0.5 : 1)
+        .opacity(disabled ? 0.45 : 1)
+        .accessibilityLabel(title)
     }
 }
 

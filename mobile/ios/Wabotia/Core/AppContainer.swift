@@ -7,7 +7,7 @@ import Combine
 final class AppContainer: ObservableObject {
     static let shared = AppContainer()
 
-    let session = SessionStore()
+    let session: SessionStore
     @Published private(set) var isLoggedIn: Bool
     @Published private(set) var user: User?
     @Published var profileId: String? {
@@ -21,6 +21,19 @@ final class AppContainer: ObservableObject {
     private var client: APIClient?
 
     private init() {
+        #if DEBUG
+        // Demonstração aberta por WABOTIA_DEMO=<tela>: sessão isolada, em nada parecida com a real.
+        if DemoMode.launchScreen != nil {
+            session = SessionStore(isolatedSuite: DemoMode.suiteName)
+            DemoMode.seed(session)
+        } else {
+            // Abertura normal: não sobra nada da última demonstração aberta por variável de ambiente.
+            UserDefaults.standard.removePersistentDomain(forName: DemoMode.suiteName)
+            session = SessionStore()
+        }
+        #else
+        session = SessionStore()
+        #endif
         isLoggedIn = session.token != nil && session.user != nil && session.serverURL != nil
         user = session.user
         profileId = session.profileId

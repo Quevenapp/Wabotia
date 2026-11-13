@@ -67,6 +67,8 @@ interface WabotiaApi {
         @Query("overdue") overdue: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = 100,
+        /** Número do protocolo ou dígitos do telefone. */
+        @Query("q") q: String? = null,
     ): Page<Ticket>
     @GET("api/v1/profiles/{p}/tickets/{id}") suspend fun ticket(@Path("p") p: String, @Path("id") id: String): TicketDetail
     @POST("api/v1/profiles/{p}/tickets") suspend fun createTicket(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: TicketCreate): Ticket

@@ -1,8 +1,7 @@
 package br.com.queven.wabotia.calls
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,19 +20,10 @@ import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,29 +33,41 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
 import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.ui.components.Avatar
+import br.com.queven.wabotia.ui.components.ConnectionStrip
+import br.com.queven.wabotia.ui.components.EmptyState
+import br.com.queven.wabotia.ui.components.IncomingCallCard
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.RowDivider
+import br.com.queven.wabotia.ui.components.SectionLabel
+import br.com.queven.wabotia.ui.components.SkeletonList
+import br.com.queven.wabotia.ui.components.TabTopBar
+import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Aba Ligações: histórico (GET /calls) com estado em português e duração; ligações tocando no topo
- * com Atender (abre a tela da ligação) e Recusar (claim + reject). Atualiza a cada 5 s em primeiro plano.
+ * Aba Ligações (DESIGN.md, seção 10): histórico no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida,
+ * data, duração e ligar de volta); ligações tocando no topo com Atender (abre a tela da ligação) e Recusar
+ * (claim + reject). Atualiza a cada 5 s em primeiro plano.
  */
 @Composable
 fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall: (conversationId: String, callId: String?) -> Unit, openConversation: (String) -> Unit) {
@@ -80,168 +83,123 @@ fun CallsScreen(container: AppContainer, modifier: Modifier = Modifier, openCall
         }
     }
 
+    val c = Wb.colors
     val meId = container.session.user?.id
     val ringing = vm.calls.filter { CallText.isRingingFor(it, meId) }
     val history = vm.calls.filter { !CallText.isRingingFor(it, meId) }
 
-    Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Ligações", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+    Column(modifier.fillMaxSize().background(c.background)) {
+        TabTopBar("Ligações") {
             IconButton(onClick = { vm.refresh(manual = true) }, enabled = !vm.loading) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Atualizar")
+                Icon(Icons.Filled.Refresh, contentDescription = "Atualizar ligações", tint = c.textPrimary)
             }
         }
-        if (vm.loading && vm.calls.isEmpty()) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
+        ConnectionStrip(container)
         vm.error?.let { message ->
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.refresh(manual = true) }) { Text("Tentar novamente") }
-            }
+            InlineNotice(
+                message,
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                actionLabel = "Tentar de novo",
+                onAction = { vm.refresh(manual = true) },
+            )
         }
 
-        if (!vm.loading && vm.calls.isEmpty() && vm.error == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Call, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(40.dp))
-                    Spacer(Modifier.height(8.dp))
-                    Text("Nenhuma ligação ainda.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        "Ligações recebidas pelo WhatsApp aparecem aqui.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        when {
+            vm.loading && vm.calls.isEmpty() -> SkeletonList(Modifier.fillMaxSize())
+            vm.calls.isEmpty() && vm.error == null -> EmptyState(Icons.Filled.Call, "Nenhuma ligação ainda", subtitle = "Ligações recebidas pelo WhatsApp aparecem aqui.")
+            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                items(ringing, key = { "ringing-${it.id}" }) { call ->
+                    IncomingCallCard(
+                        name = vm.conversationNames[call.conversation_id] ?: "WhatsApp",
+                        seed = call.conversation_id,
+                        busy = vm.busyCallId == call.id,
+                        onAnswer = { openCall(call.conversation_id, call.id) },
+                        onReject = { vm.reject(call) },
+                        onOpen = { openConversation(call.conversation_id) },
                     )
                 }
-            }
-            return@Column
-        }
-
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
-            items(ringing, key = { "ringing-${it.id}" }) { call ->
-                RingingCallCard(
-                    call = call,
-                    name = vm.conversationNames[call.conversation_id],
-                    busy = vm.busyCallId == call.id,
-                    onAnswer = { openCall(call.conversation_id, call.id) },
-                    onReject = { vm.reject(call) },
-                    onOpenConversation = { openConversation(call.conversation_id) },
-                )
-            }
-            if (ringing.isNotEmpty() && history.isNotEmpty()) {
-                item("history-header") {
-                    Text(
-                        "Histórico",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                if (ringing.isNotEmpty() && history.isNotEmpty()) {
+                    item("history-header") { SectionLabel("Recentes") }
                 }
-            }
-            items(history, key = { it.id }) { call ->
-                CallHistoryRow(
-                    call = call,
-                    meId = meId,
-                    name = vm.conversationNames[call.conversation_id],
-                    onClick = {
-                        if (!CallText.isFinal(call.status) && call.actor == meId) openCall(call.conversation_id, call.id)
-                        else openConversation(call.conversation_id)
-                    },
-                )
-                HorizontalDivider(Modifier.padding(start = 72.dp))
+                items(history, key = { it.id }) { call ->
+                    val live = !CallText.isFinal(call.status)
+                    val mine = call.actor == meId
+                    CallHistoryRow(
+                        call = call,
+                        meId = meId,
+                        name = vm.conversationNames[call.conversation_id],
+                        onClick = {
+                            if (live && mine) openCall(call.conversation_id, call.id)
+                            else openConversation(call.conversation_id)
+                        },
+                        onCallBack = { openCall(call.conversation_id, null) },
+                        onFollow = { openCall(call.conversation_id, call.id) },
+                    )
+                    RowDivider(startIndent = 78.dp)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RingingCallCard(call: Call, name: String?, busy: Boolean, onAnswer: () -> Unit, onReject: () -> Unit, onOpenConversation: () -> Unit) {
-    Card(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.AutoMirrored.Filled.CallReceived, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Recebendo ligação", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(
-                        name ?: "WhatsApp · ${CallText.date(call.created)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onAnswer, enabled = !busy, modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E9E5A), contentColor = Color.White),
-                ) {
-                    Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Atender")
-                }
-                OutlinedButton(
-                    onClick = onReject, enabled = !busy, modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) {
-                    Icon(Icons.Filled.CallEnd, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Recusar")
-                }
-            }
-            TextButton(onClick = onOpenConversation, enabled = !busy) { Text("Abrir conversa") }
-        }
-    }
-}
-
-@Composable
-private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: () -> Unit) {
+private fun CallHistoryRow(call: Call, meId: String?, name: String?, onClick: () -> Unit, onCallBack: () -> Unit, onFollow: () -> Unit) {
+    val c = Wb.colors
     val final = CallText.isFinal(call.status)
     val missed = call.status == "missed" || call.status == "rejected" || call.status == "failed"
+    val inbound = call.direction == "inbound"
     val icon: ImageVector = when {
-        missed && call.direction == "inbound" -> Icons.AutoMirrored.Filled.CallMissed
-        call.direction == "inbound" -> Icons.AutoMirrored.Filled.CallReceived
+        missed && inbound -> Icons.AutoMirrored.Filled.CallMissed
+        inbound -> Icons.AutoMirrored.Filled.CallReceived
         else -> Icons.AutoMirrored.Filled.CallMade
     }
     val tint = when {
-        missed -> MaterialTheme.colorScheme.error
-        !final -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        missed -> c.danger
+        !final -> c.brand
+        else -> c.ok
     }
+    val displayName = name ?: "WhatsApp"
+    val details = buildList {
+        // Encerrada normalmente: basta a direção; nos demais casos o estado diz mais ("Não atendida", "Em ligação").
+        add(if (call.status == "completed") CallText.direction(call) else CallText.status(call.status))
+        CallText.date(call.created).takeIf { it.isNotBlank() }?.let { add(it) }
+        call.duration?.takeIf { it > 0 }?.let { add(CallText.duration(it)) }
+        if (!final && call.actor != null && call.actor != meId) add("com outro atendente")
+    }.joinToString(" · ")
+
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 72.dp).padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = CallText.direction(call), tint = tint)
-        }
-        Spacer(Modifier.width(16.dp))
+        Avatar(displayName, seed = call.conversation_id.ifBlank { call.id }, size = 48.dp)
+        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                name ?: CallText.direction(call),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (!final) FontWeight.SemiBold else FontWeight.Normal,
+                displayName,
+                fontSize = 16.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (missed) c.danger else c.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            val details = buildList {
-                if (name != null) add(CallText.direction(call))
-                add(CallText.status(call.status))
-                call.duration?.takeIf { it > 0 }?.let { add(CallText.duration(it)) }
-                if (!final && call.actor != null && call.actor != meId) add("com outro atendente")
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = if (missed && inbound) "Perdida" else CallText.direction(call), tint = tint, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(details, style = MaterialTheme.typography.bodyMedium, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(details.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = if (missed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             call.error?.takeIf { it.isNotBlank() && call.status == "unknown" }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(it, style = MaterialTheme.typography.bodySmall, color = c.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        Spacer(Modifier.width(8.dp))
-        Text(CallText.date(call.created), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(4.dp))
+        when {
+            final && call.conversation_id.isNotBlank() -> IconButton(onClick = onCallBack) {
+                Icon(Icons.Filled.Call, contentDescription = "Ligar de volta para $displayName", tint = c.brand)
+            }
+            !final && call.actor == meId -> TextButton(onClick = onFollow) { Text("Acompanhar", fontWeight = FontWeight.SemiBold) }
+            else -> Spacer(Modifier.width(10.dp))
+        }
     }
 }
 

@@ -32,8 +32,9 @@ actor MediaLoader {
         }
         if let running = inflight[mediaId] { return try await running.value }
         let request = api.authorizedRequest(api.mediaURL(profileId: profileId, mediaId: mediaId, inline: false))
+        let session = api.session
         let task = Task<Data, Error> {
-            let (d, response) = try await URLSession.shared.data(for: request)
+            let (d, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw APIError(status: 0, code: "no_response", message: "Sem resposta do servidor.") }
             if http.statusCode == 401 {
                 await MainActor.run { AppContainer.shared.handleUnauthorized() }

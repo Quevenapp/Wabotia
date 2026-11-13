@@ -1,5 +1,52 @@
 import SwiftUI
 
+/// Moldura das telas de entrada (servidor, login, perfil): marca no topo, um cartão com os campos,
+/// botão principal em largura total e textos de ajuda curtos.
+struct AuthScaffold<Content: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                BrandTile(size: 76).padding(.top, 28)
+                Text(title).font(Theme.font(26, .bold)).foregroundStyle(Theme.brand).padding(.top, 14)
+                Text(subtitle)
+                    .font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4).padding(.horizontal, 12)
+                VStack(alignment: .leading, spacing: 14) { content() }
+                    .padding(.top, 22)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 480)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Theme.background.ignoresSafeArea())
+    }
+}
+
+/// Campo dentro de um cartão `surface`, com rótulo pequeno em cima.
+struct AuthField<Field: View>: View {
+    let label: String
+    var error = false
+    @ViewBuilder var field: () -> Field
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(Theme.font(13, .semibold)).foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 4) { field() }
+                .font(Theme.font(16))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(error ? Theme.danger : Theme.divider, lineWidth: 1))
+        }
+    }
+}
+
 /// Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia.
 struct ServerView: View {
     @EnvironmentObject private var container: AppContainer
@@ -9,51 +56,42 @@ struct ServerView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        AppNavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "server.rack").font(.system(size: 56)).foregroundStyle(.tint)
-                        Text("Wabotia").font(.largeTitle.bold())
-                        Text("Atendimento WhatsApp com IA e equipe humana").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 40)
-
-                    Text("Endereço do seu servidor").font(.headline).padding(.top, 16)
-                    Text("Cada empresa tem a própria instalação Wabotia. Informe o endereço que você usa para abrir o painel.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    HStack(spacing: 0) {
-                        Text("https://").foregroundStyle(.secondary)
-                        TextField("wabotia.suaempresa.com.br", text: $input)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.go)
-                            .focused($focused)
-                            .onSubmit(connect)
-                    }
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 10).stroke(error == nil ? Color.secondary.opacity(0.4) : Color.red))
-
-                    if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-
-                    Button(action: connect) {
-                        if busy { ProgressView().frame(maxWidth: .infinity) } else { Text("Conectar").frame(maxWidth: .infinity) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(busy || input.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                    Text("Exemplos: wabotia.queven.com.br, wabotia.fagoo.com.br. Use sempre HTTPS em produção.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                .padding(24)
+        AuthScaffold(title: "Wabotia", subtitle: "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
+            AuthField(label: "Endereço do seu servidor", error: error != nil) {
+                Text("https://").foregroundStyle(Theme.textSecondary)
+                TextField("wabotia.suaempresa.com.br", text: $input)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .focused($focused)
+                    .onSubmit(connect)
             }
-            .onAppear { input = container.session.serverURL?.host ?? ""; focused = true }
+            if let error { InlineError(text: error) }
+            PrimaryButton(title: "Conectar", busy: busy, disabled: input.trimmingCharacters(in: .whitespaces).isEmpty, action: connect)
+            Text("Cada empresa tem a própria instalação. Use o mesmo endereço do painel, por exemplo wabotia.suaempresa.com.br.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear {
+            input = container.session.serverURL?.host ?? ""
+            #if DEBUG
+            // WABOTIA_DEMO=typed: percorre o mesmo caminho de quem digita "demo" e toca em Conectar.
+            if DemoMode.launchScreen == "typed", DemoMode.pendingScreen == "typed" {
+                DemoMode.pendingScreen = "conversations"
+                input = "demo"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { connect() }
+            }
+            #endif
         }
     }
 
     private func connect() {
+        #if DEBUG
+        if DemoMode.wantsDemo(input) {
+            DemoMode.signIn(container)
+            return
+        }
+        #endif
         guard let url = SessionStore.normalizeServer(input) else {
             error = "Digite um endereço válido, por exemplo wabotia.suaempresa.com.br"
             return

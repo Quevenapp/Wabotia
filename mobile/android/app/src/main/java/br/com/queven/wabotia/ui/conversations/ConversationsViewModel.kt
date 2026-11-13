@@ -6,28 +6,36 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.model.ActionRequest
 import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.Event
+import br.com.queven.wabotia.core.model.Profile
+import br.com.queven.wabotia.core.model.ProfileStatus
+import br.com.queven.wabotia.core.model.TeamContact
 import br.com.queven.wabotia.core.net.ApiClient
+import br.com.queven.wabotia.core.net.ApiException
+import br.com.queven.wabotia.ui.components.handleError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
-/** Filtros em chips da aba Conversas (mobile/README.md). "Minhas" = state=human filtrado por owner == eu. */
+/** Chips da aba Conversas (DESIGN.md §4). "Minhas" = state=human filtrado por owner == eu. */
 enum class ConversationFilter(val label: String, val state: String?) {
+    All("Todas", null),
     Queue("Fila", "waiting"),
     Mine("Minhas", "human"),
-    Ai("IA", "ai"),
+    Bots("Bots", "ai"),
     Closed("Concluídas", "closed"),
-    All("Todas", null),
 }
 
 class ConversationsViewModel(private val container: AppContainer) : ViewModel() {
     val profileId: String get() = container.session.profileId ?: ""
     val meId: String? get() = container.session.user?.id
 
-    var filter by mutableStateOf(ConversationFilter.Queue)
+    var filter by mutableStateOf(ConversationFilter.All)
         private set
     var query by mutableStateOf("")
     var appliedQuery by mutableStateOf("")
@@ -50,17 +58,36 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         private set
     var callNames by mutableStateOf<Map<String, String>>(emptyMap())
         private set
-    var names by mutableStateOf<Map<String, String>>(emptyMap())
+    /** Pessoas e bots do perfil (`id` → contato), para "Com Ana" e "Bot Vendas". */
+    var team by mutableStateOf<Map<String, TeamContact>>(emptyMap())
+        private set
+    var status by mutableStateOf<ProfileStatus?>(container.profileData.cached(container.session.profileId))
+        private set
+    var profiles by mutableStateOf<List<Profile>>(emptyList())
         private set
     var callBusy by mutableStateOf(false)
         private set
+    /** Conversa com ação rápida em curso (assumir/concluir pela lista). */
+    var actingOn by mutableStateOf<String?>(null)
+        private set
+    /** Retorno curto para snackbar. */
+    var notice by mutableStateOf<String?>(null)
+
+    /** "Minhas" contado nas conversas em atendimento carregadas (o servidor não conta por dono). */
+    var mineCount by mutableStateOf(0)
+        private set
 
     private var loadJob: Job? = null
+    private var fillJob: Job? = null
     private var generation = 0
+    private val fillAttempted = HashSet<String>()
+    private var pendingAct: Triple<String, ActionRequest, String>? = null
 
     fun selectFilter(value: ConversationFilter) {
         if (filter == value) return
         filter = value
+        items = emptyList()
+        loaded = false
         load(reset = true, keepCount = false)
     }
 
@@ -74,6 +101,7 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     fun refresh() {
         refreshing = true
         load(reset = true, keepCount = false)
+        loadSideData(force = true)
     }
 
     /** Recarga sem indicador (eventos, volta ao primeiro plano), preservando a quantidade já carregada. */
@@ -94,6 +122,7 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         val mine = filter == ConversationFilter.Mine
         val q = appliedQuery.trim().ifBlank { null }
         val me = meId
+        container.conversationCache.use(profileId)
         loadJob = viewModelScope.launch {
             if (reset) loading = items.isEmpty() else loadingMore = true
             try {
@@ -112,6 +141,10 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
                 nextCursor = cursor
                 error = null
                 loaded = true
+                if (q == null && (filter == ConversationFilter.All || mine)) {
+                    mineCount = items.count { it.isOwnedBy(me) }
+                }
+                fillPreviews()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -126,17 +159,71 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         }
     }
 
-    fun loadPresence() {
-        viewModelScope.launch {
-            try {
-                names = container.api.presence(profileId).associate { it.actor to it.name }
-            } catch (_: Exception) {
-                // nomes são apenas decorativos na lista
+    /**
+     * Preenchimento em segundo plano: as 15 primeiras conversas sem prévia conhecida recebem uma chamada de detalhe
+     * (duas por vez). O detalhe alimenta o cache local; a lista recompõe sozinha.
+     */
+    private fun fillPreviews() {
+        val cache = container.conversationCache
+        val pending = items.take(30).filter { c ->
+            val known = cache.previews[c.id]
+            (known == null || known.kind == "attachment" || known.at < c.last_customer) && fillAttempted.add(c.id + ":" + c.updated)
+        }.take(15)
+        if (pending.isEmpty()) return
+        val profile = profileId
+        fillJob?.cancel()
+        fillJob = viewModelScope.launch {
+            val gate = Semaphore(2)
+            pending.forEach { c ->
+                launch {
+                    gate.withPermit {
+                        try {
+                            cache.onDetail(container.api.conversation(profile, c.id))
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // prévia é complementar: a linha mostra o texto do estado enquanto não houver
+                        }
+                    }
+                }
             }
         }
     }
 
-    /** Ligações tocando (`ringing`) sem responsável ou já minhas, para a faixa no topo. */
+    /** Nomes da equipe, contagens por estado e tipo das linhas. */
+    fun loadSideData(force: Boolean = false) {
+        val profile = profileId
+        if (profile.isBlank()) return
+        viewModelScope.launch {
+            container.profileData.load(profile, maxAgeMs = if (force) 0 else 20_000)?.let { status = it }
+        }
+        viewModelScope.launch {
+            try {
+                team = container.api.team(profile).data.associateBy { it.id }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // nomes são complementares na lista
+            }
+        }
+        if (profiles.isEmpty()) {
+            viewModelScope.launch {
+                try {
+                    profiles = container.api.profiles()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    fun selectProfile(id: String) {
+        if (id == profileId) return
+        container.onProfileSelected(id)
+    }
+
+    /** Ligações tocando (`ringing`) sem responsável ou já minhas, para o cartão no topo. */
     fun refreshCalls() {
         viewModelScope.launch {
             try {
@@ -149,8 +236,10 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
                         ?: runCatching { container.api.conversation(profileId, call.conversation_id).conversation.displayName }.getOrNull()
                     if (name != null) callNames = callNames + (call.conversation_id to name)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
-                // sem permissão de ligações ou sem rede: a faixa simplesmente não aparece
+                // sem permissão de ligações ou sem rede: o cartão simplesmente não aparece
             }
         }
     }
@@ -174,8 +263,43 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         }
     }
 
+    // --- ações rápidas pela lista (deslizar e toque longo) ---
+
+    fun claim(c: Conversation, onDone: () -> Unit = {}) = act(c, ActionRequest(action = "claim"), "Conversa assumida", onDone)
+    fun resolve(c: Conversation) = act(c, ActionRequest(action = "resolve"), "Conversa concluída")
+    fun saveTags(c: Conversation, tags: List<String>) =
+        act(c, ActionRequest(action = "tags", tags = tags.map { it.trim().take(40) }.filter { it.isNotEmpty() }.distinct().take(20)), "Etiquetas salvas")
+
+    private fun act(c: Conversation, request: ActionRequest, done: String, onDone: () -> Unit = {}) {
+        if (actingOn != null) return
+        // Mesmo pedido repetido após falha de rede → mesma chave; pedido diferente → chave nova.
+        val key = pendingAct?.takeIf { it.first == c.id && it.second == request }?.third
+            ?: ApiClient.newIdempotencyKey().also { pendingAct = Triple(c.id, request, it) }
+        actingOn = c.id
+        viewModelScope.launch {
+            try {
+                container.api.act(profileId, c.id, key, request)
+                pendingAct = null
+                notice = done
+                onDone()
+                reloadSilently()
+                loadSideData(force = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ApiException && (e.isIdempotencyConflict || e.isDefinitiveWriteRejection)) pendingAct = null
+                notice = container.handleError(e)
+            } finally {
+                actingOn = null
+            }
+        }
+    }
+
     fun onEvents(events: List<Event>) {
-        if (events.any { it.kind.startsWith("conversation.") || it.kind.startsWith("message.") }) reloadSilently()
+        if (events.any { it.kind.startsWith("conversation.") || it.kind.startsWith("message.") }) {
+            reloadSilently()
+            loadSideData(force = true)
+        }
         if (events.any { it.kind.startsWith("call.") }) refreshCalls()
     }
 }

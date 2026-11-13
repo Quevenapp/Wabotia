@@ -1,84 +1,86 @@
 import SwiftUI
 
-/// Transferir para uma pessoa ou bot autorizado a atender esta linha.
-struct TransferSheet: View {
-    @ObservedObject var vm: ConversationViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var target: TeamContact?
-    @State private var busy = false
-    private var candidates: [TeamContact] {
-        vm.team.filter { p in
-            p.id != vm.meId && (p.kind != "bot" || p.line_ids == nil || p.line_ids!.contains(vm.conversation?.connection_id ?? ""))
-        }.sorted { $0.online != $1.online ? $0.online : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-    var body: some View {
-        AppNavigationStack {
-            List {
-                ForEach(candidates) { p in
-                    Button { target = p } label: {
-                        HStack { TeamContactRow(contact: p); if target?.id == p.id { Image(systemName: "checkmark") } }
-                    }.foregroundStyle(.primary)
-                }
-                if candidates.isEmpty { Text("Nenhuma pessoa ou bot autorizado para esta linha.") }
-                if let error = vm.actionError { Text(error).foregroundStyle(.red) }
-            }
-            .navigationTitle("Transferir para")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Transferir") { guard let target else { return }; busy = true; Task { if await vm.act("transfer", target: target.id) { dismiss() }; busy = false } }.disabled(target == nil || busy)
-                }
-            }
-            .task { await vm.loadPresence() }
-        }
-    }
-}
-
-/// Etiquetas da conversa (até 20, 40 caracteres cada).
+/// Etiquetas da conversa em pílulas (até 20, 40 caracteres cada).
 struct TagsSheet: View {
     @ObservedObject var vm: ConversationViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var tags: [String] = []
     @State private var newTag = ""
     @State private var busy = false
+    @FocusState private var focused: Bool
+
+    private var trimmed: String { newTag.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
-        AppNavigationStack {
-            List {
-                Section {
-                    HStack {
-                        TextField("Nova etiqueta", text: $newTag).onSubmit(add)
-                        Button("Adicionar", action: add).disabled(newTag.trimmingCharacters(in: .whitespaces).isEmpty || tags.count >= 20)
-                    }
-                } footer: { Text("Até 20 etiquetas com 40 caracteres cada.") }
-                Section {
-                    if tags.isEmpty { Text("Nenhuma etiqueta").foregroundStyle(.secondary) }
-                    ForEach(tags, id: \.self) { Text($0) }
-                        .onDelete { tags.remove(atOffsets: $0) }
-                }
-                if let e = vm.actionError { Section { Text(e).font(.footnote).foregroundStyle(.red) } }
-            }
-            .navigationTitle("Etiquetas")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        busy = true
-                        Task {
-                            if await vm.act("tags", tags: tags) { dismiss() }
-                            busy = false
+        VStack(spacing: 0) {
+            SheetHeader(title: "Etiquetas", subtitle: vm.displayName) { dismiss() }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        TextField("Nova etiqueta", text: $newTag)
+                            .font(Theme.font(16))
+                            .focused($focused)
+                            .submitLabel(.done)
+                            .onSubmit(add)
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface))
+                        Button(action: add) {
+                            Image(systemName: "plus").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onBrand)
+                                .frame(width: 44, height: 44).background(Circle().fill(Theme.brand))
                         }
-                    } label: { if busy { ProgressView() } else { Text("Salvar") } }
-                    .disabled(busy)
+                        .buttonStyle(.plain)
+                        .disabled(trimmed.isEmpty || tags.count >= 20)
+                        .opacity(trimmed.isEmpty || tags.count >= 20 ? 0.4 : 1)
+                        .accessibilityLabel("Adicionar etiqueta")
+                    }
+                    if tags.isEmpty {
+                        Text("Nenhuma etiqueta. Use etiquetas para agrupar conversas por assunto.").font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(tags, id: \.self) { tag in
+                                HStack {
+                                    Pill(text: tag, color: Theme.brand, icon: "tag.fill")
+                                    Spacer()
+                                    Button { tags.removeAll { $0 == tag } } label: {
+                                        Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textSecondary)
+                                            .frame(width: 26, height: 26).background(Circle().fill(Theme.muted.opacity(0.18)))
+                                            .frame(width: Theme.touch, height: Theme.touch)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Remover etiqueta \(tag)")
+                                }
+                                .padding(.leading, 12)
+                                .overlay(alignment: .bottom) { if tag != tags.last { ThinDivider(leading: 12, onCard: true) } }
+                            }
+                        }
+                        .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface))
+                    }
+                    Text("Até 20 etiquetas com 40 caracteres cada.").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+                    if let e = vm.actionError { InlineError(text: e) }
+                }
+                .padding(16)
+            }
+            PrimaryButton(title: "Salvar etiquetas", busy: busy) {
+                busy = true
+                Task {
+                    if await vm.act("tags", tags: tags) {
+                        Workspace.shared.show("Etiquetas salvas", style: .success)
+                        dismiss()
+                    }
+                    busy = false
                 }
             }
-            .onAppear { tags = vm.tags }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
+        .background(Theme.background.ignoresSafeArea())
+        .appSheetDetents()
+        .onAppear { tags = vm.tags; vm.actionError = nil }
     }
 
     private func add() {
-        let t = String(newTag.trimmingCharacters(in: .whitespaces).prefix(40))
+        let t = String(trimmed.prefix(40))
         guard !t.isEmpty, !tags.contains(t), tags.count < 20 else { return }
         tags.append(t)
         newTag = ""
@@ -94,37 +96,55 @@ struct BotPickerSheet: View {
     @State private var error: String?
 
     var body: some View {
-        AppNavigationStack {
-            Group {
-                if let error {
-                    EmptyStateView(title: "Não foi possível carregar", systemImage: "exclamationmark.triangle", message: error)
-                } else if let bots {
-                    if bots.isEmpty {
-                        EmptyStateView(title: "Nenhum bot habilitado", systemImage: "cpu", message: "Habilite bots da Equipe Bot neste perfil pelo painel.")
-                    } else {
-                        List(bots) { bot in
-                            Button {
-                                onPick(bot)
-                                dismiss()
-                            } label: {
-                                Label(bot.name.isEmpty ? bot.id : bot.name, systemImage: "cpu").foregroundStyle(.primary)
+        VStack(spacing: 0) {
+            SheetHeader(title: "Consultar bot") { dismiss() }
+            if let error {
+                InlineError(text: error).padding(16)
+                Spacer()
+            } else if let bots {
+                if bots.isEmpty {
+                    EmptyStateView(title: "Nenhum bot habilitado", systemImage: "cpu", message: "Habilite bots neste perfil pelo painel.")
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(bots) { bot in
+                                Button {
+                                    onPick(bot)
+                                    dismiss()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        AvatarView(name: bot.name, kind: .bot, size: 44)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(bot.name.isEmpty ? "Bot" : bot.name).font(Theme.font(16, .medium)).foregroundStyle(Theme.textPrimary)
+                                            Text("Pergunte com o contexto desta conversa").font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .frame(minHeight: 64)
+                                    .contentShape(Rectangle())
+                                    .overlay(alignment: .bottom) { ThinDivider(leading: 72) }
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
-                } else {
-                    ProgressView()
                 }
+            } else {
+                Spacer()
+                ProgressView()
+                Spacer()
             }
-            .navigationTitle("Consultar bot")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } } }
-            .task {
-                guard let p = container.profileId else { return }
-                do { bots = try await container.api.bots(p).data.filter { ($0.enabled ?? 0) == 1 } }
-                catch {
-                    if let e = error as? APIError, e.isUnauthorized { container.handleUnauthorized() }
-                    self.error = APIError.describe(error)
-                }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .appSheetDetents()
+        .task {
+            guard let p = container.profileId else { return }
+            do { bots = try await container.api.bots(p).data.filter { ($0.enabled ?? 0) == 1 } }
+            catch {
+                if let e = error as? APIError, e.isUnauthorized { container.handleUnauthorized() }
+                self.error = APIError.describe(error)
             }
         }
     }
@@ -139,35 +159,34 @@ struct SaveContactSheet: View {
     @State private var busy = false
 
     var body: some View {
-        AppNavigationStack {
-            Form {
-                Section {
-                    TextField("Nome", text: $name)
-                    TextField("Telefone", text: $phone).keyboardType(.phonePad)
-                } footer: {
-                    Text("Cria o contato na agenda do perfil e vincula a esta conversa.")
+        VStack(spacing: 0) {
+            SheetHeader(title: "Salvar contato") { dismiss() }
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(spacing: 0) {
+                    TextField("Nome", text: $name).textContentType(.name).font(Theme.font(16)).padding(.horizontal, 14).frame(height: 48)
+                    ThinDivider(leading: 14, onCard: true)
+                    TextField("Telefone", text: $phone).keyboardType(.phonePad).font(Theme.font(16)).padding(.horizontal, 14).frame(height: 48)
                 }
-                if let e = vm.actionError { Section { Text(e).font(.footnote).foregroundStyle(.red) } }
-            }
-            .navigationTitle("Salvar contato")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        busy = true
-                        Task {
-                            if await vm.saveContact(name: name.trimmingCharacters(in: .whitespaces), phone: AttachmentFactory.normalizePhone(phone)) { dismiss() }
-                            busy = false
-                        }
-                    } label: { if busy { ProgressView() } else { Text("Salvar") } }
-                    .disabled(busy || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .background(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).fill(Theme.surface))
+                Text("Cria o contato na agenda do perfil e vincula a esta conversa.").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+                if let e = vm.actionError { InlineError(text: e) }
+                PrimaryButton(title: "Salvar", busy: busy, disabled: name.trimmingCharacters(in: .whitespaces).isEmpty) {
+                    busy = true
+                    Task {
+                        if await vm.saveContact(name: name.trimmingCharacters(in: .whitespaces), phone: AttachmentFactory.normalizePhone(phone)) { dismiss() }
+                        busy = false
+                    }
                 }
             }
-            .onAppear {
-                name = vm.linkedContactName ?? vm.conversation?.contact_name ?? ""
-                phone = vm.linkedContactPhone ?? vm.conversation?.phone ?? ""
-            }
+            .padding(16)
+            Spacer(minLength: 0)
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .appSheetDetents()
+        .onAppear {
+            name = vm.linkedContactName ?? vm.conversation?.contact_name ?? ""
+            phone = vm.linkedContactPhone ?? vm.conversation?.phone ?? ""
+            vm.actionError = nil
         }
     }
 }

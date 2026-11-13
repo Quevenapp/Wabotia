@@ -57,6 +57,8 @@ import kotlinx.serialization.json.JsonObject
     val recipient_id: String? = null,
     val contact_name: String? = null,
     val contact_id: String? = null,
+    val department_id: String? = null,
+    val assigned_bot_id: String? = null,
 ) {
     val displayName: String get() = contact_name?.takeIf { it.isNotBlank() } ?: title.takeIf { it.isNotBlank() } ?: phone ?: external_id
     val isGroup get() = chat_type == "group"
@@ -99,13 +101,17 @@ import kotlinx.serialization.json.JsonObject
 
 /** POST /conversations/{id}/actions. `content` segue o esquema MessageContent da API. */
 @Serializable data class ActionRequest(
-    val action: String, // claim | reply | note | transfer | resolve | resume | tags
+    val action: String, // claim | reply | note | transfer | resolve | resume | tags | menu | protocols | survey
     val text: String? = null,
     val target: String? = null,
     val attachments: List<String>? = null,
     val content: JsonObject? = null,
     val tags: List<String>? = null,
     val menu_id: String? = null,
+    /** `transfer` para um setor: envie `department_id` sem `target`. */
+    val department_id: String? = null,
+    /** `protocols`: número do protocolo a consultar (opcional). */
+    val number: String? = null,
 )
 @Serializable data class ActionResult(val delivery_id: String? = null, val status: String? = null, val id: String? = null)
 @Serializable data class MessageActionRequest(val action: String, val message_id: String, val emoji: String? = null, val text: String? = null)
@@ -214,7 +220,24 @@ import kotlinx.serialization.json.JsonObject
     val conversations: List<CountRow> = emptyList(),
     val deliveries: List<CountRow> = emptyList(),
     val connections: List<ConnectionSummary> = emptyList(),
-)
+) {
+    /** `connection_id` → `kind` (meta, zernio, qr, hermes…). */
+    fun lineKinds(): Map<String, String> = connections.associate { it.id to it.kind }
+    fun conversationCount(state: String): Int = conversations.firstOrNull { it.state == state }?.count?.toInt() ?: 0
+    /** Setores habilitados configurados no painel (`settings.departments`). */
+    fun departments(): List<Department> = settings?.array("departments")?.mapNotNull { el ->
+        val o = el as? JsonObject ?: return@mapNotNull null
+        val id = o.string("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        Department(
+            id = id,
+            name = o.string("name").orEmpty().ifBlank { "Setor" },
+            enabled = o.bool("enabled") ?: true,
+            members = o.array("members")?.mapNotNull { it.asStringOrNull() }.orEmpty(),
+        )
+    }.orEmpty()
+}
+/** Setor de atendimento (`settings.departments` de GET /status). */
+data class Department(val id: String, val name: String, val enabled: Boolean, val members: List<String>)
 @Serializable data class Contact(
     val id: String,
     val name: String = "",

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Bots habilitados do perfil (GET /bots, enabled == 1) e histórico de execuções (GET /bot-runs).
+/// Usado pela aba Equipe (lista Bots → Execuções recentes).
 @MainActor
 final class BotsViewModel: ObservableObject {
     @Published private(set) var bots: [Bot] = []
@@ -68,122 +69,37 @@ final class BotsViewModel: ObservableObject {
     }
 }
 
-struct BotsView: View {
-    @EnvironmentObject private var container: AppContainer
-    @StateObject private var model = BotsViewModel()
-    @State private var selectedRun: BotRun?
-
-    var body: some View {
-        List {
-            if let error = model.errorMessage, model.hasLoaded {
-                Section { Text(error).font(.footnote).foregroundStyle(.red) }
-            }
-            Section {
-                if model.bots.isEmpty && model.hasLoaded {
-                    Text("Nenhum bot habilitado neste perfil. Habilite bots em Equipe Bot, no painel.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.bots) { bot in
-                    RouteLink(route: Route.bot(id: bot.id, conversationId: nil)) {
-                        BotRowView(bot: bot)
-                    }
-                }
-            } header: {
-                Text("Bots habilitados")
-            } footer: {
-                if !model.bots.isEmpty {
-                    Text("Toque em um bot para conversar. Para devolver uma conversa ao bot do perfil, use Devolver à IA na própria conversa.")
-                }
-            }
-            Section("Execuções recentes") {
-                if model.runs.isEmpty && model.hasLoaded {
-                    Text("Nenhuma execução ainda.").font(.footnote).foregroundStyle(.secondary)
-                }
-                ForEach(model.runs) { run in
-                    Button { selectedRun = run } label: {
-                        BotRunRowView(run: run, botName: model.botName(run.bot_id))
-                    }
-                    .buttonStyle(.plain)
-                }
-                if model.nextCursor != nil {
-                    HStack {
-                        Spacer()
-                        if model.loadingMore { ProgressView() } else { Button("Carregar mais") { model.loadMore() } }
-                        Spacer()
-                    }
-                    .onAppear { model.loadMore() }
-                }
-            }
-        }
-        .overlay {
-            if !model.hasLoaded {
-                if model.loading {
-                    ProgressView()
-                } else if let error = model.errorMessage {
-                    EmptyStateView(title: "Não foi possível carregar", systemImage: "exclamationmark.triangle", message: error)
-                }
-            }
-        }
-        .refreshable { await model.load(quiet: true) }
-        .navigationTitle("Bots")
-        // Roda ao aparecer (inclusive ao voltar de um bot) e quando o perfil muda.
-        .task(id: container.profileId ?? "") { await model.load(quiet: model.hasLoaded) }
-        .sheet(item: $selectedRun) { run in
-            BotRunDetailView(run: run, botName: model.botName(run.bot_id))
-        }
-    }
-}
-
-struct BotRowView: View {
-    let bot: Bot
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "cpu")
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 32, height: 32)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(bot.name.isEmpty ? "Bot" : bot.name)
-                if !bot.remote_profile.isEmpty {
-                    Text(bot.remote_profile).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
 /// Linha do histórico: bot, trecho do pedido, estado colorido e data.
 struct BotRunRowView: View {
     let run: BotRun
     let botName: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(botName).font(.subheadline.weight(.semibold))
-                Spacer()
-                BotRunStatusBadge(status: run.status)
-            }
-            if let input = run.input, !input.isEmpty {
-                Text(input).font(.footnote).foregroundStyle(.primary).lineLimit(2)
-            }
-            HStack {
-                if let error = run.error, !error.isEmpty {
-                    Text(error).font(.caption).foregroundStyle(.red).lineLimit(1)
+        HStack(alignment: .top, spacing: 10) {
+            AvatarView(name: botName, kind: .bot, size: 34)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(botName).font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    BotRunStatusBadge(status: run.status)
                 }
-                Spacer()
-                Text(TicketsSupport.shortDate(run.created)).font(.caption).foregroundStyle(.secondary)
+                if let input = run.input, !input.isEmpty {
+                    Text(input).font(Theme.font(14)).foregroundStyle(Theme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                }
+                HStack {
+                    if let error = run.error, !error.isEmpty {
+                        Text(error).font(Theme.font(12)).foregroundStyle(Theme.danger).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Text(TicketsSupport.shortDate(run.created)).font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface))
         .contentShape(Rectangle())
     }
 }
-
 /// Detalhe de uma execução do histórico: pedido, resultado, anexos; consulta a cada 2 s enquanto roda; cancelar.
 struct BotRunDetailView: View {
     @EnvironmentObject private var container: AppContainer

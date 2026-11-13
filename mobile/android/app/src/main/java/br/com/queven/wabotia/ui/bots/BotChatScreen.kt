@@ -1,53 +1,44 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package br.com.queven.wabotia.ui.bots
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -67,12 +59,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.media.MediaKinds
 import br.com.queven.wabotia.core.model.Bot
 import br.com.queven.wabotia.core.model.BotRun
 import br.com.queven.wabotia.core.model.BotRunRequest
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
+import br.com.queven.wabotia.ui.components.Avatar
+import br.com.queven.wabotia.ui.components.BubbleText
+import br.com.queven.wabotia.ui.components.AvatarKind
+import br.com.queven.wabotia.ui.components.ConnectionStrip
+import br.com.queven.wabotia.ui.components.EmptyState
+import br.com.queven.wabotia.ui.components.ErrorState
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.Pill
+import br.com.queven.wabotia.ui.components.formatTime
+import br.com.queven.wabotia.ui.components.formatWhen
+import br.com.queven.wabotia.ui.components.handleError
+import br.com.queven.wabotia.ui.components.rememberHaptics
+import br.com.queven.wabotia.ui.team.BubbleTime
+import br.com.queven.wabotia.ui.team.ChatBubble
+import br.com.queven.wabotia.ui.team.ChatChip
+import br.com.queven.wabotia.ui.team.ChatComposer
+import br.com.queven.wabotia.ui.team.ChatTopBar
+import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -81,7 +92,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
-import java.util.Locale
 
 private const val INPUT_MAX = 60_000
 private const val POLL_INTERVAL_MS = 2_000L
@@ -149,7 +159,7 @@ class BotChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                error = container.describeError(e)
+                error = container.handleError(e)
             } finally {
                 loading = false
             }
@@ -207,7 +217,7 @@ class BotChatViewModel(
                 throw e
             } catch (e: ApiException) {
                 pending = null
-                sendError = if (e.isIdempotencyConflict) "O servidor já recebeu um pedido diferente com a mesma chave. Toque em Enviar novamente." else container.describeError(e)
+                sendError = if (e.isIdempotencyConflict) "O servidor já recebeu um pedido diferente com a mesma chave. Toque em Enviar novamente." else container.handleError(e)
             } catch (e: IOException) {
                 sendError = ApiClient.describe(e) + " Toque em Enviar para repetir o mesmo pedido."
             } catch (e: Exception) {
@@ -267,7 +277,7 @@ class BotChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                sendError = container.describeError(e)
+                sendError = container.handleError(e)
             }
         }
     }
@@ -282,10 +292,12 @@ fun BotChatScreen(container: AppContainer, botId: String, conversationId: String
     }
     LaunchedEffect(vm) { vm.start() }
 
+    val c = Wb.colors
     val clipboard = LocalClipboardManager.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val haptics = rememberHaptics()
 
     // Rola até o fim quando chega uma execução nova ou a última muda de estado.
     val lastRun = vm.runs.lastOrNull()
@@ -298,113 +310,80 @@ fun BotChatScreen(container: AppContainer, botId: String, conversationId: String
         scope.launch { snackbar.showSnackbar(text) }
     }
 
+    val botName = vm.bot?.name?.ifBlank { null } ?: "Bot"
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(vm.bot?.name?.ifBlank { null } ?: "Bot", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            vm.contextTitle ?: "Equipe Bot · Hermes",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") } },
-            )
-        },
+        containerColor = c.chatWallpaper,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            Column {
+                ChatTopBar(
+                    name = botName,
+                    subtitle = vm.contextTitle ?: "Bot da equipe",
+                    onBack = onBack,
+                    avatar = { Avatar(botName, seed = botId, size = 40.dp, kind = AvatarKind.Bot) },
+                )
+                ConnectionStrip(container)
+            }
+        },
         bottomBar = {
-            Composer(
+            ChatComposer(
                 value = vm.input,
                 onValueChange = { vm.input = it; if (vm.sendError != null) vm.clearSendError() },
+                placeholder = "Pergunte ao bot",
+                onSend = { haptics.tick(); vm.send() },
+                canSend = !vm.sending && vm.input.isNotBlank() && vm.input.length <= INPUT_MAX,
+                enabled = !vm.sending,
                 sending = vm.sending,
-                error = vm.sendError,
-                retry = vm.pending != null,
-                onSend = { vm.send() },
+                sendDescription = if (vm.pending != null) "Repetir envio" else "Enviar ao bot",
+                counter = if (vm.input.length > INPUT_MAX - 5_000) "${vm.input.length}/$INPUT_MAX" else null,
+                counterError = vm.input.length > INPUT_MAX,
+                above = {
+                    vm.sendError?.let { InlineNotice(it, Modifier.padding(bottom = 6.dp), onDismiss = { vm.clearSendError() }) }
+                },
             )
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
-                vm.loading && vm.runs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                vm.error != null && vm.runs.isEmpty() -> Column(
-                    Modifier.fillMaxSize().padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(vm.error ?: "", color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { vm.load() }) { Text("Tentar novamente") }
+                vm.loading && vm.runs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp, color = c.bot)
                 }
+                vm.error != null && vm.runs.isEmpty() -> ErrorState(vm.error ?: "", onRetry = { vm.load() })
+                vm.runs.isEmpty() -> EmptyState(
+                    Icons.Filled.SmartToy,
+                    "Pergunte algo ao bot",
+                    subtitle = "A resposta aparece aqui. Anexos podem ser abertos, baixados ou compartilhados.",
+                )
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (vm.runs.isEmpty()) {
-                        item {
-                            Text(
-                                "Pergunte algo ao bot. A execução roda no Hermes e a resposta aparece aqui; anexos podem ser abertos ou baixados.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
                     items(vm.runs, key = { it.id }) { run ->
                         RunTurn(
                             run = run,
+                            botName = botName,
                             container = container,
                             profileId = profileId,
                             onCancel = { vm.cancel(run.id) },
                             onCopy = { text ->
                                 clipboard.setText(AnnotatedString(text))
-                                showMessage(if (conversationId != null) "Resposta copiada. Cole no composer da conversa." else "Resposta copiada.")
+                                showMessage(if (conversationId != null) "Resposta copiada. Cole no campo de mensagem da conversa." else "Resposta copiada.")
                             },
                             onMessage = { showMessage(it) },
                         )
                     }
                     if (vm.pollError != null) {
                         item {
-                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Não foi possível acompanhar a execução: ${vm.pollError}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = { vm.resumePolling() }) { Text("Continuar acompanhando") }
-                            }
+                            InlineNotice(
+                                "Não foi possível acompanhar a execução: ${vm.pollError}",
+                                actionLabel = "Continuar",
+                                onAction = { vm.resumePolling() },
+                            )
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Composer(value: String, onValueChange: (String) -> Unit, sending: Boolean, error: String?, retry: Boolean, onSend: () -> Unit) {
-    Surface(tonalElevation = 3.dp) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 8.dp, vertical = 8.dp)) {
-            if (error != null) {
-                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-            }
-            Row(verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    modifier = Modifier.weight(1f),
-                    enabled = !sending,
-                    placeholder = { Text("Pergunte ao bot…") },
-                    maxLines = 6,
-                    isError = value.length > INPUT_MAX,
-                    supportingText = if (value.length > INPUT_MAX - 5_000) {
-                        { Text("${value.length}/$INPUT_MAX", color = if (value.length > INPUT_MAX) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
-                    } else null,
-                )
-                Spacer(Modifier.width(4.dp))
-                IconButton(onClick = onSend, enabled = !sending && value.isNotBlank() && value.length <= INPUT_MAX) {
-                    if (sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (retry) "Repetir envio" else "Enviar ao bot", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -414,106 +393,89 @@ private fun Composer(value: String, onValueChange: (String) -> Unit, sending: Bo
 @Composable
 private fun RunTurn(
     run: BotRun,
+    botName: String,
     container: AppContainer,
     profileId: String,
     onCancel: () -> Unit,
     onCopy: (String) -> Unit,
     onMessage: (String) -> Unit,
 ) {
+    val c = Wb.colors
     val active = isRunActive(run.status)
     val output = run.output()
     Column(Modifier.fillMaxWidth()) {
         // Pergunta (direita)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomEnd = 16.dp, bottomStart = 16.dp),
-                modifier = Modifier.widthIn(max = 320.dp),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    SelectionContainer { Text(run.input.ifBlank { "(sem texto)" }, style = MaterialTheme.typography.bodyMedium) }
-                    Text(formatWhen(run.created), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
+        ChatBubble(outgoing = true) {
+            SelectionContainer { BubbleText(run.input.ifBlank { "(sem texto)" }, formatWhen(run.created), timeColor = c.bubbleOutMeta) }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         // Resposta (esquerda)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                shape = RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp),
-                modifier = Modifier.widthIn(max = 340.dp),
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (active) {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(
-                            botRunStatusLabel(run.status),
-                            color = botRunStatusColor(run.status),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(formatWhen(if (run.updated > 0) run.updated else run.created), style = MaterialTheme.typography.labelSmall)
-                    }
-                    if (output.text.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        SelectionContainer {
-                            Text(output.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-                    run.error?.takeIf { it.isNotBlank() }?.let { err ->
-                        Spacer(Modifier.height(6.dp))
-                        // Enquanto roda, `error` traz avisos ("Aguardando aprovação no Hermes"); ao falhar, o motivo.
-                        Text(err, color = if (active) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (!active && output.text.isBlank() && run.error.isNullOrBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            when (run.status) {
-                                "cancelled" -> "Execução cancelada."
-                                "unknown" -> "O Wabotia não conseguiu confirmar o resultado no Hermes."
-                                else -> "Sem resposta em texto."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    if (output.attachments.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Anexos", style = MaterialTheme.typography.labelMedium)
-                        output.attachments.forEach { mediaId ->
-                            AttachmentChip(container, profileId, mediaId, onMessage)
+        ChatBubble(outgoing = false) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🤖 $botName", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = c.bot, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(8.dp))
+                if (active) {
+                    CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = c.bot)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Pill(botRunStatusLabel(run.status), botRunStatusColor(run.status))
+            }
+            if (output.text.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                SelectionContainer { Text(output.text, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary) }
+            }
+            run.error?.takeIf { it.isNotBlank() }?.let { err ->
+                Spacer(Modifier.height(6.dp))
+                // Enquanto roda, `error` traz avisos ("Aguardando aprovação no Hermes"); ao falhar, o motivo.
+                Text(err, color = if (active) c.textSecondary else c.danger, style = MaterialTheme.typography.bodySmall)
+            }
+            if (!active && output.text.isBlank() && run.error.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    when (run.status) {
+                        "cancelled" -> "Execução cancelada."
+                        "unknown" -> "O Wabotia não conseguiu confirmar o resultado no Hermes."
+                        else -> "Sem resposta em texto."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.textSecondary,
+                )
+            }
+            if (output.attachments.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    output.attachments.forEach { mediaId -> AttachmentChip(container, profileId, mediaId, onMessage) }
+                }
+            }
+            val canCancel = active && run.status != "cancelling"
+            val canCopy = output.text.isNotBlank()
+            if (canCancel || canCopy) {
+                Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (canCancel) {
+                        TextButton(onClick = onCancel, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.danger)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancelar", color = c.danger)
                         }
                     }
-                    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (active && run.status != "cancelling") {
-                            TextButton(onClick = onCancel) {
-                                Icon(Icons.Filled.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Cancelar")
-                            }
-                        }
-                        if (output.text.isNotBlank()) {
-                            TextButton(onClick = { onCopy(output.text) }) {
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Copiar resposta")
-                            }
+                    if (canCopy) {
+                        TextButton(onClick = { onCopy(output.text) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Copiar resposta")
                         }
                     }
                 }
             }
+            BubbleTime(formatTime(if (run.updated > 0) run.updated else run.created))
         }
     }
 }
 
+/** Anexo de uma execução: nome e tamanho; toque abre o menu Abrir / Baixar / Compartilhar. */
 @Composable
 private fun AttachmentChip(container: AppContainer, profileId: String, mediaId: String, onMessage: (String) -> Unit) {
+    val c = Wb.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var info by remember(mediaId) { mutableStateOf<BotAttachments.Info?>(null) }
@@ -540,31 +502,37 @@ private fun AttachmentChip(container: AppContainer, profileId: String, mediaId: 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                onMessage(container.describeError(e))
+                onMessage(container.handleError(e))
             } finally {
                 busy = false
             }
         }
     }
 
-    val label = buildString {
-        append(info?.name ?: "Anexo ${mediaId.take(8)}")
-        info?.size?.let { append(" · ").append(formatSize(it)) }
-    }
     Box {
-        AssistChip(
-            onClick = { menu = true },
-            enabled = !busy,
-            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            leadingIcon = {
-                if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
-            },
-        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(c.soft(c.textSecondary, 0.1f))
+                .clickable(enabled = !busy) { menu = true }
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = c.brand)
+            else Icon(Icons.Filled.AttachFile, contentDescription = null, tint = c.brand, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(info?.name ?: "Anexo ${mediaId.take(8)}", style = MaterialTheme.typography.bodyMedium, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                info?.size?.let { Text(MediaKinds.formatSize(it), style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+            }
+            Icon(Icons.Filled.Download, contentDescription = "Opções do anexo", tint = c.textSecondary, modifier = Modifier.size(18.dp))
+        }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
                 text = { Text("Abrir") },
-                leadingIcon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
                 onClick = { menu = false; withFile { file, type -> BotAttachments.open(context, file, type) } },
             )
             DropdownMenuItem(
@@ -585,10 +553,4 @@ private fun AttachmentChip(container: AppContainer, profileId: String, mediaId: 
             )
         }
     }
-}
-
-private fun formatSize(bytes: Long): String = when {
-    bytes < 1024L -> "$bytes B"
-    bytes < 1024L * 1024L -> String.format(Locale.getDefault(), "%.0f KB", bytes / 1024.0)
-    else -> String.format(Locale.getDefault(), "%.1f MB", bytes / (1024.0 * 1024.0))
 }

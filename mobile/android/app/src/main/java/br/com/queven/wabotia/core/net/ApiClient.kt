@@ -33,6 +33,8 @@ class ApiClient(val baseUrl: String, private val tokenProvider: () -> String?) {
         .addInterceptor(ErrorInterceptor())
         .apply {
             if (BuildConfig.DEBUG) addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+            // Modo de demonstração (somente depuração): responde em memória pelas chamadas ao servidor fictício.
+            if (BuildConfig.DEBUG) br.com.queven.wabotia.core.DebugHooks.interceptor?.let { addInterceptor(it) }
         }
         .build()
 

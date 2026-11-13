@@ -17,7 +17,11 @@ struct AppLabeledContent: View {
     let value: String
     init(_ title: String, value: String) { self.title = title; self.value = value }
     var body: some View {
-        HStack { Text(title); Spacer(); Text(value).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).foregroundStyle(Theme.textPrimary)
+            Spacer(minLength: 12)
+            Text(value).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.trailing)
+        }
     }
 }
 
@@ -39,22 +43,59 @@ private struct ActivitySheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
+/// Campo de texto que cresce com o conteúdo, de `lines.lowerBound` a `lines.upperBound` linhas.
+/// iOS 16+: `TextField(axis: .vertical)`. iOS 15: `TextEditor` dimensionado por um texto invisível,
+/// para não ocupar a altura máxima quando está vazio (importante no iPhone 7 com o teclado aberto).
 struct AppMultilineField: View {
     let placeholder: String
     @Binding var text: String
     let lines: ClosedRange<Int>
-    init(_ placeholder: String, text: Binding<String>, lines: ClosedRange<Int>) {
-        self.placeholder = placeholder; self._text = text; self.lines = lines
+    var font: Font = .body
+    init(_ placeholder: String, text: Binding<String>, lines: ClosedRange<Int>, font: Font = .body) {
+        self.placeholder = placeholder; self._text = text; self.lines = lines; self.font = font
     }
     var body: some View {
         if #available(iOS 16, *) {
-            TextField(placeholder, text: $text, axis: .vertical).lineLimit(lines)
+            TextField(placeholder, text: $text, axis: .vertical).lineLimit(lines).font(font)
         } else {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $text).frame(minHeight: CGFloat(lines.lowerBound) * 22 + 12, maxHeight: CGFloat(lines.upperBound) * 22 + 12)
-                if text.isEmpty { Text(placeholder).foregroundStyle(.secondary).padding(.top, 8).padding(.leading, 5).allowsHitTesting(false) }
-            }.accessibilityLabel(placeholder)
+            LegacyGrowingEditor(placeholder: placeholder, text: $text, lines: lines, font: font)
         }
+    }
+}
+
+private struct LegacyGrowingEditor: View {
+    let placeholder: String
+    @Binding var text: String
+    let lines: ClosedRange<Int>
+    let font: Font
+
+    /// O que define a altura: o próprio texto (com uma linha a mais quando termina em quebra de linha).
+    private var sizer: String {
+        let minimum = String(repeating: "\n", count: max(0, lines.lowerBound - 1))
+        if text.isEmpty { return " " + minimum }
+        let body = text.hasSuffix("\n") ? text + " " : text
+        let missing = max(0, lines.lowerBound - 1 - body.filter { $0 == "\n" }.count)
+        return body + String(repeating: "\n", count: missing)
+    }
+
+    var body: some View {
+        Text(sizer)
+            .font(font)
+            .lineLimit(lines.upperBound)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 8)
+            .opacity(0)
+            .overlay(TextEditor(text: $text).font(font))
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder).font(font).foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, 5).padding(.vertical, 8)
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityLabel(placeholder)
     }
 }
 
@@ -67,9 +108,10 @@ extension View {
         if #available(iOS 16, *) { navigationDestination(isPresented: isPresented, destination: destination) }
         else { background(NavigationLink(destination: destination(), isActive: isPresented) { EmptyView() }.hidden()) }
     }
-    @ViewBuilder func appSheetDetents() -> some View {
-        if #available(iOS 16, *) { presentationDetents([.medium, .large]) }
-        else { self }
+    /// Folha em meia altura (e alta ao arrastar), com cantos de 24 e puxador. Usa
+    /// `UISheetPresentationController`, que existe desde o iOS 15; no iPad vira o cartão padrão do sistema.
+    func appSheetDetents(medium: Bool = true) -> some View {
+        background(SheetConfigurator(medium: medium))
     }
     @ViewBuilder func appScrollDismissesKeyboard() -> some View {
         if #available(iOS 16, *) { scrollDismissesKeyboard(.interactively) }
@@ -78,6 +120,80 @@ extension View {
     @ViewBuilder func appDarkNavigationBar() -> some View {
         if #available(iOS 16, *) { toolbarBackground(.visible, for: .navigationBar).toolbarColorScheme(.dark, for: .navigationBar) }
         else { self }
+    }
+    /// Esconde ou mostra a barra de navegação do sistema (telas com barra própria).
+    @ViewBuilder func appNavigationBarHidden(_ hidden: Bool) -> some View {
+        if #available(iOS 16, *) { toolbar(hidden ? .hidden : .visible, for: .navigationBar) }
+        else { navigationBarHidden(hidden) }
+    }
+    /// Fundo próprio em `List`/`Form` (o fundo padrão do sistema sai de cena).
+    @ViewBuilder func appListBackground(_ color: Color) -> some View {
+        if #available(iOS 16, *) { scrollContentBackground(.hidden).background(color.ignoresSafeArea()) }
+        else { background(color.ignoresSafeArea()) }
+    }
+    /// Fundo transparente no `TextEditor` (no iOS 15 isso vem de `UITextView.appearance`, em Theme).
+    @ViewBuilder func appClearEditorBackground() -> some View {
+        if #available(iOS 16, *) { scrollContentBackground(.hidden) }
+        else { self }
+    }
+}
+
+/// Ajusta a folha que contém esta vista: detentes, cantos e puxador.
+private struct SheetConfigurator: UIViewControllerRepresentable {
+    let medium: Bool
+
+    func makeUIViewController(context: Context) -> Controller { Controller(medium: medium) }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.apply() }
+
+    final class Controller: UIViewController {
+        let medium: Bool
+        init(medium: Bool) {
+            self.medium = medium
+            super.init(nibName: nil, bundle: nil)
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) não é usado") }
+
+        override func willMove(toParent parent: UIViewController?) {
+            super.willMove(toParent: parent)
+            apply(parent)
+        }
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        func apply(_ start: UIViewController? = nil) {
+            var controller = start ?? parent
+            while let current = controller {
+                if let sheet = current.sheetPresentationController {
+                    sheet.detents = medium ? [.medium(), .large()] : [.large()]
+                    sheet.prefersGrabberVisible = true
+                    sheet.preferredCornerRadius = Theme.sheetRadius
+                    sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+                    return
+                }
+                controller = current.parent
+            }
+        }
+    }
+}
+
+/// Com a barra do sistema escondida, o gesto de voltar pela borda continua valendo.
+/// `SwipeBack.disabled` bloqueia o gesto (tela de ligação em andamento).
+enum SwipeBack {
+    static var disabled = false
+}
+
+extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1 && !SwipeBack.disabled
     }
 }
 

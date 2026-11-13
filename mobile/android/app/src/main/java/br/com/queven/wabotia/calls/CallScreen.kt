@@ -1,62 +1,90 @@
 package br.com.queven.wabotia.calls
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,6 +102,11 @@ import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
 import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.ui.components.Avatar
+import br.com.queven.wabotia.ui.components.AvatarKind
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.formatPhone
+import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -82,8 +115,12 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import org.webrtc.PeerConnection
 
+/** Fim do degradê da tela da ligação (um tom mais escuro que `brandStrong`); única cor literal desta tela. */
+private val CallGradientEnd = Color(0xFF04332D)
+
 /**
- * Tela da ligação de voz (WebRTC áudio, sinalização pela API Wabotia / Meta Calling API).
+ * Tela da ligação de voz (WebRTC áudio, sinalização pela API Wabotia / Meta Calling API), em tela cheia sobre o
+ * degradê de `brandStrong` (DESIGN.md, seção 10): avatar grande, estado, cronômetro e botões redondos.
  *
  * Receber: claim → oferta → answer → pre_accept e accept com a mesma sessão. Ligar: exige conversa assumida e
  * `capabilities.calls`; Verificar/Pedir permissão; oferta → POST /calls → consulta a cada 2,5 s até a answer.
@@ -92,11 +129,11 @@ import org.webrtc.PeerConnection
  * apenas acompanha uma ligação cujo áudio está no painel ou em outro aparelho, sair não encerra nada (como o painel web,
  * que só termina a chamada que ele mesmo conduz): encerrar é a ação explícita do botão.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallScreen(container: AppContainer, conversationId: String, callId: String?, onClose: () -> Unit) {
     val vm: CallViewModel = viewModel(key = "call-$conversationId-${callId ?: "new"}") { CallViewModel(container, conversationId, callId) }
     val context = LocalContext.current
+    val c = Wb.colors
 
     // Permissão de microfone em tempo de execução: a ação pendente roda quando a pessoa concede.
     var pendingMicAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -115,6 +152,26 @@ fun CallScreen(container: AppContainer, conversationId: String, callId: String?,
 
     BackHandler { onClose() }
 
+    // Fundo escuro nos dois temas: ícones claros nas barras do sistema enquanto a tela está visível.
+    val view = LocalView.current
+    val dark = c.isDark
+    SideEffect {
+        (view.context as? Activity)?.window?.let { window ->
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = false
+            controller.isAppearanceLightNavigationBars = false
+        }
+    }
+    DisposableEffect(view, dark) {
+        onDispose {
+            (view.context as? Activity)?.window?.let { window ->
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
     var confirmReconcile by remember { mutableStateOf(false) }
     if (confirmReconcile) {
         AlertDialog(
@@ -126,168 +183,273 @@ fun CallScreen(container: AppContainer, conversationId: String, callId: String?,
         )
     }
 
-    val name = vm.detail?.conversation?.displayName ?: "Ligação"
-    val phone = vm.detail?.conversation?.phone
+    val conversation = vm.detail?.conversation
+    val name = conversation?.displayName ?: "Ligação"
+    val phone = conversation?.phone
+    val status = vm.call?.status ?: ""
+    val ringing = vm.phase == CallPhase.INCOMING || (vm.phase == CallPhase.IN_CALL && status in setOf("ringing", "dialing", "connecting", "preaccepted"))
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (vm.detail == null) "Ligação" else "Ligação de voz") },
-                navigationIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") }
-                },
-            )
-        },
-    ) { padding ->
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(c.brandStrong, CallGradientEnd))),
+    ) {
+        val bars = WindowInsets.systemBars.asPaddingValues()
+        // Altura útil entre as barras do sistema: o conteúdo ocupa pelo menos isso, com os controles na base.
+        val viewport = (maxHeight - bars.calculateTopPadding() - bars.calculateBottomPadding()).coerceAtLeast(320.dp)
         Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                // Em telas pequenas ou com fonte grande o conteúdo rola; nas demais os controles ficam na base.
+                .heightIn(min = viewport),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Spacer(Modifier.height(24.dp))
-            Box(
-                Modifier.size(96.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    name.trim().take(1).uppercase().ifBlank { "?" },
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = Color.White)
+                    }
+                    Text(
+                        "Ligação de voz",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 4.dp).semantics { heading() },
+                    )
+                }
+                Spacer(Modifier.height(20.dp))
+                PulsingAvatar(
+                    name = name,
+                    seed = conversationId,
+                    group = conversation?.isGroup == true,
+                    pulsing = ringing,
                 )
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(name, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-            if (!phone.isNullOrBlank() && phone != name) {
-                Text(phone, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(12.dp))
-
-            Text(vm.statusLabel(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-            if (vm.call?.status == "active") {
-                Text(CallText.duration(vm.elapsedSeconds), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Medium)
-            }
-            if (vm.busy || vm.phase == CallPhase.LOADING) {
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    name,
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    lineHeight = 32.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+                if (!phone.isNullOrBlank() && phone != name) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(formatPhone(phone), color = Color.White.copy(alpha = 0.72f), style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                }
                 Spacer(Modifier.height(12.dp))
-                CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
-            }
-            vm.note?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-            }
-            vm.error?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-            }
-            vm.permissionSummary?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-            }
-
-            Spacer(Modifier.height(32.dp))
-
-            when (vm.phase) {
-                CallPhase.LOADING -> Unit
-
-                CallPhase.INCOMING -> Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { vm.rejectIncoming() }, enabled = !vm.busy, modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) {
-                        Icon(Icons.Filled.CallEnd, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Recusar")
+                Text(
+                    vm.statusLabel(),
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+                if (status == "active") {
+                    Spacer(Modifier.height(2.dp))
+                    Text(CallText.duration(vm.elapsedSeconds), color = Color.White, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                }
+                if (vm.busy || vm.phase == CallPhase.LOADING || vm.phase == CallPhase.NEGOTIATING) {
+                    Spacer(Modifier.height(14.dp))
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp, color = Color.White, trackColor = Color.White.copy(alpha = 0.2f))
+                }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                    vm.note?.let {
+                        Spacer(Modifier.height(14.dp))
+                        CallNotice(Icons.Filled.Info, it)
                     }
-                    Button(
-                        onClick = { withMicrophone { vm.accept() } }, enabled = !vm.busy, modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E9E5A), contentColor = Color.White),
-                    ) {
-                        Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Atender")
+                    vm.error?.let {
+                        Spacer(Modifier.height(10.dp))
+                        CallNotice(Icons.Filled.ErrorOutline, it, emphasis = true)
+                    }
+                    vm.permissionSummary?.let {
+                        Spacer(Modifier.height(10.dp))
+                        CallNotice(Icons.Filled.VerifiedUser, it)
                     }
                 }
+            }
 
-                CallPhase.READY -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    val canCall = vm.canStartCall()
-                    if (!canCall) {
-                        Text(vm.cannotCallReason(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(12.dp))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { vm.checkPermission() }, enabled = !vm.busy && canCall, modifier = Modifier.weight(1f)) { Text("Verificar permissão") }
-                        OutlinedButton(onClick = { vm.requestPermission() }, enabled = !vm.busy && canCall, modifier = Modifier.weight(1f)) { Text("Pedir permissão") }
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = { withMicrophone { vm.startCall() } }, enabled = !vm.busy && canCall, modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E9E5A), contentColor = Color.White),
-                    ) {
-                        Icon(Icons.Filled.Call, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Ligar")
-                    }
-                }
+            Column(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                when (vm.phase) {
+                    CallPhase.LOADING -> Unit
 
-                CallPhase.NEGOTIATING -> Text("Preparando o áudio…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    CallPhase.INCOMING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
+                        CallControl(Icons.Filled.CallEnd, "Recusar", onClick = { vm.rejectIncoming() }, color = c.danger, size = 72.dp, enabled = !vm.busy)
+                        CallControl(Icons.Filled.Call, "Atender", onClick = { withMicrophone { vm.accept() } }, color = c.ok, size = 72.dp, enabled = !vm.busy)
+                    }
 
-                CallPhase.IN_CALL -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    val status = vm.call?.status ?: ""
-                    if (vm.hasAudio) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ToggleControl(
-                                active = vm.muted,
-                                icon = if (vm.muted) Icons.Filled.MicOff else Icons.Filled.Mic,
-                                label = if (vm.muted) "Ativar microfone" else "Silenciar",
-                                onClick = { vm.toggleMute() },
-                            )
-                            ToggleControl(
-                                active = vm.speaker,
-                                icon = if (vm.speaker) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
-                                label = "Viva-voz",
-                                onClick = { vm.toggleSpeaker() },
-                            )
+                    CallPhase.READY -> {
+                        val canCall = vm.canStartCall()
+                        if (!canCall) {
+                            CallNotice(Icons.Filled.Info, vm.cannotCallReason())
+                            Spacer(Modifier.height(16.dp))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TranslucentButton("Verificar permissão", onClick = { vm.checkPermission() }, enabled = !vm.busy && canCall, modifier = Modifier.weight(1f))
+                            TranslucentButton("Pedir permissão", onClick = { vm.requestPermission() }, enabled = !vm.busy && canCall, modifier = Modifier.weight(1f))
                         }
                         Spacer(Modifier.height(24.dp))
+                        CallControl(Icons.Filled.Call, "Ligar", onClick = { withMicrophone { vm.startCall() } }, color = c.ok, size = 76.dp, enabled = !vm.busy && canCall)
                     }
-                    if (status == "unknown") {
-                        Button(onClick = { confirmReconcile = true }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirmar encerramento") }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "A Meta não confirmou esta ligação. Confira no WhatsApp se ela terminou antes de confirmar; não inicie outra ligação enquanto isso.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        Button(
-                            onClick = { vm.hangUp() }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
-                        ) {
-                            Icon(Icons.Filled.CallEnd, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (vm.terminatePending) "Tentar encerrar novamente" else "Encerrar")
+
+                    CallPhase.NEGOTIATING -> Text(
+                        "Preparando o áudio…",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                    )
+
+                    CallPhase.IN_CALL -> {
+                        if (status == "unknown") {
+                            if (vm.hasAudio) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
+                                    MuteToggle(vm)
+                                    SpeakerToggle(vm)
+                                }
+                                Spacer(Modifier.height(20.dp))
+                            }
+                            PrimaryButton("Confirmar encerramento", onClick = { confirmReconcile = true }, enabled = !vm.busy, color = Color.White, contentColor = c.brandStrong)
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "A Meta não confirmou esta ligação. Confira no WhatsApp se ela terminou antes de confirmar; não inicie outra ligação enquanto isso.",
+                                color = Color.White.copy(alpha = 0.75f),
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Top) {
+                                if (vm.hasAudio) MuteToggle(vm)
+                                CallControl(
+                                    Icons.Filled.CallEnd,
+                                    if (vm.terminatePending) "Tentar encerrar novamente" else "Encerrar",
+                                    onClick = { vm.hangUp() },
+                                    color = c.danger,
+                                    size = 72.dp,
+                                    enabled = !vm.busy,
+                                )
+                                if (vm.hasAudio) SpeakerToggle(vm)
+                            }
                         }
                     }
-                }
 
-                CallPhase.ENDED -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) { Text("Fechar") }
+                    CallPhase.ENDED -> PrimaryButton("Fechar", onClick = onClose, color = Color.White, contentColor = c.brandStrong)
                 }
             }
         }
     }
 }
 
+/** Avatar grande com halo suave que pulsa enquanto a ligação toca ou está chamando. */
 @Composable
-private fun ToggleControl(active: Boolean, icon: ImageVector, label: String, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(
-            onClick = onClick,
-            modifier = Modifier.size(56.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
-        ) { Icon(icon, contentDescription = label) }
-        Spacer(Modifier.height(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall)
+private fun PulsingAvatar(name: String, seed: String, group: Boolean, pulsing: Boolean) {
+    Box(Modifier.size(176.dp), contentAlignment = Alignment.Center) {
+        if (pulsing) {
+            val transition = rememberInfiniteTransition(label = "call-halo")
+            val scale by transition.animateFloat(1f, 1.38f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "halo-scale")
+            val alpha by transition.animateFloat(0.3f, 0f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "halo-alpha")
+            Box(Modifier.size(124.dp).scale(scale).alpha(alpha).background(Color.White, CircleShape))
+        }
+        Box(Modifier.size(136.dp).background(Color.White.copy(alpha = 0.1f), CircleShape))
+        Avatar(name, seed = seed, size = 120.dp, kind = if (group) AvatarKind.Group else AvatarKind.Person)
+    }
+}
+
+/** Aviso sobre o degradê: cartão branco translúcido (ou mais escuro, para erros) com ícone e texto branco. */
+@Composable
+private fun CallNotice(icon: ImageVector, text: String, emphasis: Boolean = false) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (emphasis) Color.Black.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(text, color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+    }
+}
+
+/** Botão redondo da ligação com rótulo embaixo (Atender, Recusar, Ligar, Encerrar). */
+@Composable
+private fun CallControl(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    color: Color,
+    size: Dp,
+    contentColor: Color = Color.White,
+    enabled: Boolean = true,
+) {
+    Column(Modifier.widthIn(min = 88.dp, max = 112.dp).alpha(if (enabled) 1f else 0.45f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(color)
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = label, tint = contentColor, modifier = Modifier.size(size * 0.44f))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(label, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun MuteToggle(vm: CallViewModel) {
+    CallControl(
+        icon = if (vm.muted) Icons.Filled.MicOff else Icons.Filled.Mic,
+        label = if (vm.muted) "Ativar microfone" else "Mudo",
+        onClick = { vm.toggleMute() },
+        color = if (vm.muted) Color.White else Color.White.copy(alpha = 0.18f),
+        size = 60.dp,
+        contentColor = if (vm.muted) Wb.colors.brandStrong else Color.White,
+    )
+}
+
+@Composable
+private fun SpeakerToggle(vm: CallViewModel) {
+    CallControl(
+        icon = if (vm.speaker) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+        label = "Viva-voz",
+        onClick = { vm.toggleSpeaker() },
+        color = if (vm.speaker) Color.White else Color.White.copy(alpha = 0.18f),
+        size = 60.dp,
+        contentColor = if (vm.speaker) Wb.colors.brandStrong else Color.White,
+    )
+}
+
+/** Botão de contorno branco translúcido (Verificar/Pedir permissão). */
+@Composable
+private fun TranslucentButton(text: String, onClick: () -> Unit, enabled: Boolean, modifier: Modifier = Modifier) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = if (enabled) 0.55f else 0.2f)),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.White.copy(alpha = 0.1f),
+            contentColor = Color.White,
+            disabledContainerColor = Color.White.copy(alpha = 0.05f),
+            disabledContentColor = Color.White.copy(alpha = 0.4f),
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+    ) {
+        Text(text, fontSize = 13.5.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

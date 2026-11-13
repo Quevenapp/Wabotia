@@ -40,6 +40,10 @@ final class APIClient {
         config.timeoutIntervalForResource = 300
         config.waitsForConnectivity = false
         config.httpAdditionalHeaders = ["Accept": "application/json", "User-Agent": "Wabotia-iOS/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")"]
+        #if DEBUG
+        // Servidor de demonstração em memória (só responde ao host demo.wabotia.localhost).
+        config.protocolClasses = [DemoURLProtocol.self] + (config.protocolClasses ?? [])
+        #endif
         self.session = URLSession(configuration: config)
     }
 

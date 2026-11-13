@@ -254,12 +254,12 @@ struct BotChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if let error = model.loadError {
-                            Text(error).font(.footnote).foregroundStyle(.red)
+                            Text(error).font(.footnote).foregroundStyle(Theme.danger)
                         }
                         if let context = model.contextLabel {
                             Label("Contexto da conversa com \(context). Use Copiar resposta para colar no composer.", systemImage: "bubble.left.and.text.bubble.right")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Theme.textSecondary)
                         }
                         if !model.history.isEmpty {
                             DisclosureGroup(isExpanded: $model.showHistory) {
@@ -270,17 +270,23 @@ struct BotChatView: View {
                                 }
                                 .padding(.top, 8)
                             } label: {
-                                Text("Execuções anteriores (\(model.history.count))").font(.footnote.weight(.semibold))
+                                Text("Execuções anteriores (\(model.history.count))").font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
                             }
+                            .accentColor(Theme.brand)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.bubbleSystem))
                         }
-                        if model.turns.isEmpty && model.history.isEmpty && !model.loading {
+                        if model.turns.isEmpty && !model.loading && !model.showHistory {
                             VStack(spacing: 8) {
-                                Image(systemName: "cpu").font(.system(size: 40)).foregroundStyle(.secondary)
-                                Text(model.bot?.name ?? "Bot").font(.headline)
-                                Text("Escreva o pedido abaixo. O resultado fica registrado em Execuções.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                                AvatarView(name: model.bot?.name ?? "Bot", kind: .bot, size: 72)
+                                Text(model.bot?.name ?? "Bot").font(Theme.font(18, .semibold)).foregroundStyle(Theme.textPrimary)
+                                Text("Escreva o pedido abaixo. O resultado fica registrado nas execuções do bot.")
+                                    .font(Theme.font(14)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 40)
+                            .padding(.top, 48)
+                            .padding(.horizontal, 24)
                         }
                         ForEach(model.turns) { turn in
                             BotTurnView(
@@ -310,38 +316,53 @@ struct BotChatView: View {
         }
         .navigationTitle(model.bot?.name ?? "Bot")
         .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBarHidden(false)
+        .background(Theme.chatWallpaper.ignoresSafeArea())
         .task { await model.load() }
         .onAppear { model.resume() }
         .onDisappear { model.stop() }
     }
 
+    @ViewBuilder private var composerField: some View {
+        if #available(iOS 16, *) {
+            AppMultilineField("Pergunte ao bot", text: $model.input, lines: 1...6, font: Theme.font(16))
+                .focused($focused).padding(.horizontal, 14).padding(.vertical, 9).frame(minHeight: 40)
+        } else {
+            AppMultilineField("Pergunte ao bot", text: $model.input, lines: 1...6, font: Theme.font(16))
+                .focused($focused).padding(.horizontal, 9).padding(.vertical, 1).frame(minHeight: 40)
+        }
+    }
+
     private var composer: some View {
         VStack(spacing: 4) {
             HStack(alignment: .bottom, spacing: 8) {
-                AppMultilineField("Pergunte ao bot", text: $model.input, lines: 1...6)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focused)
+                composerField
+                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.field))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.divider, lineWidth: 1))
                     .onChange(of: model.input) { value in
                         if value.count > BotChatViewModel.inputLimit { model.input = String(value.prefix(BotChatViewModel.inputLimit)) }
                     }
                 Button {
                     model.send()
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+                    Image(systemName: "paperplane.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.onBrand)
+                        .frame(width: 40, height: 40).background(Circle().fill(Theme.bot))
+                        .opacity(trimmedInput.isEmpty ? 0.4 : 1)
                 }
+                .buttonStyle(.plain)
                 .disabled(trimmedInput.isEmpty || container.profileId == nil)
                 .accessibilityLabel("Enviar")
             }
             if model.input.count > 50_000 {
                 HStack {
                     Spacer()
-                    Text("\(model.input.count) / \(BotChatViewModel.inputLimit)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(model.input.count) / \(BotChatViewModel.inputLimit)").font(.caption).foregroundStyle(Theme.textSecondary)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Theme.bar.ignoresSafeArea(edges: .bottom))
     }
 }
 
@@ -364,14 +385,14 @@ struct BotTurnView: View {
                 Text(input)
                     .textSelection(.enabled)
                     .padding(10)
-                    .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 14))
+                    .background(Theme.bubbleOut, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
                     if sending {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("Enviando…").font(.footnote).foregroundStyle(.secondary)
+                            Text("Enviando…").font(.footnote).foregroundStyle(Theme.textSecondary)
                         }
                     } else if let run {
                         BotRunResultView(run: run, profileId: profileId)
@@ -382,7 +403,7 @@ struct BotTurnView: View {
                         }
                     }
                     if let error, !error.isEmpty {
-                        Label(error, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.red)
+                        Label(error, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Theme.danger)
                         if run == nil, onRetry != nil || onDiscard != nil {
                             HStack {
                                 if retryable, let onRetry {
@@ -399,7 +420,7 @@ struct BotTurnView: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                .background(Theme.bubbleIn, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 Spacer(minLength: 40)
             }
         }

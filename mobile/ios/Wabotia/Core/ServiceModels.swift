@@ -1,13 +1,35 @@
 import Foundation
 
-struct TeamContact: Codable, Identifiable, Equatable {
+struct TeamContact: Codable, Identifiable, Hashable {
     var id: String
     var kind: String
     var name: String
     var online: Bool
     var bot_id: String?
+    /// Só nos bots: `false` quando o bot está desabilitado no perfil.
+    var enabled: Bool?
+    /// Só nos bots: `nil` = todas as linhas; lista vazia = só conversa interna.
     var line_ids: [String]?
     var kindLabel: String { kind == "bot" ? "Bot" : "Pessoa" }
+    var isBot: Bool { kind == "bot" }
+    /// Id do bot sem o prefixo `bot:` (para comparar com `assigned_bot_id` e autores `bot:<id>`).
+    var botKey: String? {
+        guard isBot else { return nil }
+        if let bot_id, !bot_id.isEmpty { return bot_id }
+        return id.hasPrefix("bot:") ? String(id.dropFirst(4)) : id
+    }
+    /// Destino de `transfer`: id da pessoa ou `bot:<id>`.
+    var transferTarget: String {
+        guard isBot else { return id }
+        return id.hasPrefix("bot:") ? id : "bot:\(botKey ?? id)"
+    }
+    /// O bot pode atender a linha: habilitado e autorizado (`line_ids == nil` ou contém a linha).
+    func serves(line connectionId: String?) -> Bool {
+        guard isBot, enabled ?? true else { return false }
+        guard let line_ids else { return true }
+        guard let connectionId else { return false }
+        return line_ids.contains(connectionId)
+    }
 }
 
 struct ServiceLine: Codable, Identifiable {
@@ -29,8 +51,9 @@ struct InternalChat: Codable, Identifiable {
     var id: String
     var peer: TeamContact?
     var messages: [InternalMessage]?
+    var updated: Int64?
 }
-struct InternalMessage: Codable, Identifiable {
+struct InternalMessage: Codable, Identifiable, Equatable {
     var id: String
     var author: String
     var text: String

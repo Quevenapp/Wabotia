@@ -8,20 +8,20 @@ struct LinesView: View {
     @State private var loading = true
     var body: some View {
         List {
-            Section { Text("Escolha quem atende cada linha e quando os menus podem aparecer. A participação no roteador é independente.").font(.footnote).foregroundStyle(.secondary) }
+            Section { Text("Escolha quem atende cada linha e quando os menus podem aparecer. A participação no roteador é independente.").font(.footnote).foregroundStyle(Theme.textSecondary) }
             if loading { ProgressView() }
-            if let error { Text(error).foregroundStyle(.red); Button("Tentar novamente") { Task { await load() } } }
+            if let error { Text(error).foregroundStyle(Theme.danger); Button("Tentar novamente") { Task { await load() } } }
             ForEach(lines) { line in
                 NavigationLink { LineEditor(line: line, bots: bots) { Task { await load() } } } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(line.name).font(.headline)
-                        Text([line.number, line.status == "active" ? "Ativa" : "Pausada", line.number_policy["pool"]?.boolValue == true ? "No roteador" : "Fora do roteador"].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                        Text([line.number, line.status == "active" ? "Ativa" : "Pausada", line.number_policy["pool"]?.boolValue == true ? "No roteador" : "Fora do roteador"].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(Theme.textSecondary)
                     }
                 }
             }
             if !loading && lines.isEmpty && error == nil { Text("Nenhuma linha cadastrada.") }
         }
-        .navigationTitle("Linhas de atendimento")
+        .navigationTitle("Linhas de atendimento").navigationBarTitleDisplayMode(.inline).appNavigationBarHidden(false)
         .task { await load() }.refreshable { await load() }
     }
     private func load() async {
@@ -73,11 +73,12 @@ private struct LineEditor: View {
                 policyToggle("Templates", "templates")
             }
             Section { Text("Conversas iniciadas continuam no mesmo número. O fim da franquia permite serviço pago; a janela de 24 horas continua obrigatória.").font(.footnote) }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(Theme.danger) }
         }
         .disabled(busy || container.user?.isAdmin != true)
         .navigationTitle(line.name)
-        .toolbar { if container.user?.isAdmin == true { ToolbarItem(placement: .confirmationAction) { Button(busy ? "Salvando…" : "Salvar") { Task { await save() } }.disabled(busy || (mode == "bot" && botId.isEmpty)) } } }
+        // O `if` fica dentro do item: `Optional: ToolbarContent` só existe a partir do iOS 16.
+        .toolbar { ToolbarItem(placement: .confirmationAction) { if container.user?.isAdmin == true { Button(busy ? "Salvando…" : "Salvar") { Task { await save() } }.disabled(busy || (mode == "bot" && botId.isEmpty)) } } }
     }
     private func policyToggle(_ label: String, _ key: String) -> some View {
         Toggle(label, isOn: Binding(get: { policy[key]?.boolValue ?? true }, set: { policy[key] = .bool($0) }))
@@ -101,11 +102,11 @@ struct BotLinesView: View {
     @State private var error: String?
     var body: some View {
         List {
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(Theme.danger) }
             ForEach(bots) { bot in
-                NavigationLink { BotLineEditor(bot: bot, lines: lines) { Task { await load() } } } label: { Label(bot.name, systemImage: "cpu") }
+                NavigationLink { BotLineEditor(bot: bot, lines: lines) { Task { await load() } } } label: { HStack(spacing: 12) { AvatarView(name: bot.name, kind: .bot, size: 34); Text(bot.name).foregroundStyle(Theme.textPrimary) } }
             }
-        }.navigationTitle("Linhas dos bots").task { await load() }.refreshable { await load() }
+        }.navigationTitle("Linhas dos bots").navigationBarTitleDisplayMode(.inline).appNavigationBarHidden(false).task { await load() }.refreshable { await load() }
     }
     private func load() async {
         guard let p = container.profileId else { return }
@@ -136,7 +137,7 @@ private struct BotLineEditor: View {
                 Section("Linhas autorizadas") { ForEach(lines) { line in Toggle(line.name, isOn: Binding(get: { selected.contains(line.id) }, set: { if $0 { selected.insert(line.id) } else { selected.remove(line.id) } })) } }
                 Text("Sem linhas selecionadas, o bot fica disponível apenas para conversas internas.").font(.footnote)
             }
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(Theme.danger) }
         }.disabled(busy)
         .navigationTitle(bot.name)
         .onChange(of: allLines) { _ in key = APIClient.newIdempotencyKey() }

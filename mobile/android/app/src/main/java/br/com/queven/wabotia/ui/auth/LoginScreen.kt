@@ -1,19 +1,31 @@
 package br.com.queven.wabotia.ui.auth
 
 import android.os.Build
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -25,10 +37,18 @@ import br.com.queven.wabotia.core.model.DeviceInfo
 import br.com.queven.wabotia.core.model.MobileLoginRequest
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.push.PushRegistrar
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.Pill
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.theme.Wb
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+/** Login com e-mail e senha de atendente no servidor escolhido. */
 @Composable
 fun LoginScreen(container: AppContainer, onChangeServer: () -> Unit) {
+    val c = Wb.colors
     val server = container.session.serverUrl ?: ""
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -38,6 +58,7 @@ fun LoginScreen(container: AppContainer, onChangeServer: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     fun login() {
+        if (busy) return
         if (email.isBlank() || password.isBlank()) { error = "Informe e-mail e senha."; return }
         busy = true; error = null
         scope.launch {
@@ -52,6 +73,8 @@ fun LoginScreen(container: AppContainer, onChangeServer: () -> Unit) {
                 )
                 container.onLoggedIn(server, result.token, result.expires, result.user)
                 PushRegistrar.registerIfNeeded(container, force = true)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = ApiClient.describe(e)
             } finally {
@@ -60,45 +83,56 @@ fun LoginScreen(container: AppContainer, onChangeServer: () -> Unit) {
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.height(40.dp))
-            Text("Entrar", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(server.removePrefix("https://"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = onChangeServer, enabled = !busy) { Text("Trocar servidor") }
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = email, onValueChange = { email = it }, label = { Text("E-mail") }, singleLine = true, enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-            )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
-                value = password, onValueChange = { password = it }, label = { Text("Senha") }, singleLine = true, enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showPassword = !showPassword }) {
-                        Icon(if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = if (showPassword) "Ocultar senha" else "Mostrar senha")
-                    }
-                },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { login() }),
-            )
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = { login() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Entrar")
+    AuthScaffold(title = "Entrar", subtitle = "Use a sua conta de atendente", topSpace = 36.dp) {
+        Pill(server.removePrefix("https://").ifBlank { "Servidor não configurado" }, c.brand, icon = Icons.Filled.Dns)
+        Spacer(Modifier.height(16.dp))
+        WbCard {
+            Column(Modifier.padding(16.dp)) {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it; error = null },
+                    label = { Text("E-mail") },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = AuthFieldShape,
+                    colors = authFieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next, autoCorrectEnabled = false),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; error = null },
+                    label = { Text("Senha") },
+                    singleLine = true,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = AuthFieldShape,
+                    colors = authFieldColors(),
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (showPassword) "Ocultar senha" else "Mostrar senha",
+                                tint = c.textSecondary,
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { login() }),
+                )
             }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Use a conta de atendente cadastrada em Pessoas no painel. A senha nunca é guardada no aparelho; apenas um token de sessão de 30 dias.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
+        error?.let {
+            Spacer(Modifier.height(12.dp))
+            InlineNotice(it)
+        }
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Entrar", onClick = { login() }, loading = busy)
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onChangeServer, enabled = !busy) { Text("Trocar servidor", fontWeight = FontWeight.SemiBold) }
+        Spacer(Modifier.height(8.dp))
+        AuthHelp("Conta cadastrada em Pessoas no painel. A senha nunca fica no aparelho; só um token de sessão de 30 dias.")
     }
 }

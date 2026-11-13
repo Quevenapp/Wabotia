@@ -4,15 +4,15 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Balão de conversa com um "W" estilizado -->
+    <!-- Balão de conversa com o "W" da marca, dentro da zona segura do ícone adaptativo (círculo de 66dp). -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,22C36.3,22 22,34.5 22,50c0,7.4 3.3,14.1 8.7,19.1L27,86l17.6,-8.4C47.5,78.5 50.7,79 54,79c17.7,0 32,-12.5 32,-28S71.7,22 54,22z" />
+        android:pathData="M54,28C40.7,28 30,38.3 30,51c0,4.7 1.5,9.1 4,12.8L31,76l12.7,-3.2C46.8,74.2 50.3,75 54,75c13.3,0 24,-10.7 24,-24S67.3,28 54,28z" />
     <path
-        android:fillColor="#0B5C4D"
-        android:strokeColor="#0B5C4D"
-        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:strokeColor="#008069"
+        android:strokeWidth="4.6"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M36,40l6,22l8,-16l8,16l6,-22" />
+        android:pathData="M43,43l5,17.5l6,-12.5l6,12.5l5,-17.5" />
 </vector>

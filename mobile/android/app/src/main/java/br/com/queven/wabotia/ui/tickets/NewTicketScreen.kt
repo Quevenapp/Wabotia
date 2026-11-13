@@ -1,31 +1,29 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package br.com.queven.wabotia.ui.tickets
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,13 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.TicketCreate
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
+import br.com.queven.wabotia.ui.components.DetailTopBar
+import br.com.queven.wabotia.ui.components.IconBubble
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.components.handleError
+import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -57,6 +66,7 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
     // Chave de idempotência por intenção: renovada quando o texto muda, mantida ao repetir após falha de rede.
     var key by rememberSaveable { mutableStateOf(ApiClient.newIdempotencyKey()) }
     val scope = rememberCoroutineScope()
+    val c = Wb.colors
 
     fun submit() {
         val t = title.trim()
@@ -73,7 +83,7 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
                     key = ApiClient.newIdempotencyKey()
                     error = "O servidor já recebeu um pedido diferente com a mesma chave. Toque em Abrir protocolo novamente."
                 } else {
-                    error = container.describeError(e)
+                    error = container.handleError(e)
                 }
             } catch (e: IOException) {
                 error = ApiClient.describe(e)
@@ -86,55 +96,76 @@ fun NewTicketScreen(container: AppContainer, conversationId: String, onBack: () 
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Abrir protocolo") },
-                navigationIcon = { IconButton(onClick = onBack, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar") } },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text(
-                "O protocolo recebe um número WA-… e acompanha a solicitação do cliente até a conclusão. Você precisa ter assumido a conversa.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    Column(Modifier.fillMaxSize().background(c.background).imePadding()) {
+        DetailTopBar("Abrir protocolo", onBack = onBack, backEnabled = !busy)
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBubble(Icons.Filled.ConfirmationNumber, c.ticket, size = 44.dp)
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    "O protocolo recebe um número WA-… e acompanha a solicitação do cliente até a conclusão. Você precisa ter assumido a conversa.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = title,
-                onValueChange = { v ->
-                    if (v != title) {
-                        title = v
-                        key = ApiClient.newIdempotencyKey()
-                        retryable = false
+            WbCard {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Título da solicitação", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+                    Spacer(Modifier.height(10.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 96.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(c.field)
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        if (title.isEmpty()) {
+                            Text("Ex.: Segunda via da fatura de outubro", style = MaterialTheme.typography.bodyLarge, color = c.textSecondary)
+                        }
+                        BasicTextField(
+                            value = title,
+                            onValueChange = { v ->
+                                if (v != title) {
+                                    title = v
+                                    key = ApiClient.newIdempotencyKey()
+                                    retryable = false
+                                }
+                            },
+                            enabled = !busy,
+                            maxLines = 6,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = c.textPrimary),
+                            cursorBrush = SolidColor(c.brand),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { submit() }),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
-                },
-                label = { Text("Título da solicitação") },
-                placeholder = { Text("Ex.: Segunda via da fatura de outubro") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-                minLines = 2,
-                maxLines = 5,
-                isError = title.length > TITLE_MAX,
-                supportingText = {
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         "${title.length}/$TITLE_MAX",
-                        color = if (title.length > TITLE_MAX) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (title.length > TITLE_MAX) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (title.length > TITLE_MAX) c.danger else c.textSecondary,
+                        modifier = Modifier.align(Alignment.End),
                     )
-                },
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submit() }),
-            )
+                }
+            }
             error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                Spacer(Modifier.height(12.dp))
+                InlineNotice(it, onDismiss = { error = null })
             }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = { submit() }, enabled = !busy && title.isNotBlank() && title.length <= TITLE_MAX, modifier = Modifier.fillMaxWidth()) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                else Text(if (retryable) "Tentar novamente" else "Abrir protocolo")
-            }
-            TextButton(onClick = onBack, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Cancelar") }
+        }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            PrimaryButton(
+                if (retryable) "Tentar de novo" else "Abrir protocolo",
+                onClick = { submit() },
+                loading = busy,
+                enabled = busy || (title.isNotBlank() && title.length <= TITLE_MAX),
+            )
+            TextButton(onClick = onBack, enabled = !busy) { Text("Cancelar", color = c.textSecondary) }
         }
     }
 }
