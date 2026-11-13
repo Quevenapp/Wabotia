@@ -1,8 +1,20 @@
 # Validação e limites
 
+## Publicação 0.14.0 de 13/11/2026: painel no estilo dos aplicativos e central por modelo
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `5f97119e0b08c321813d2620c40625939fe8d6bb`, a partir da `main`. A instalação operacional `https://wabotia.queven.com.br` foi atualizada de 0.13.2 para 0.14.0 pelo próprio painel, pelo mantenedor, que relatou a atualização concluída. `/api/health` dos dois endereços responde 0.14.0 nesse commit. O conteúdo da versão está descrito na revisão local abaixo.
+
+TypeScript e **533 testes em 42 arquivos** passaram de novo no commit publicado, antes do empacotamento. Um backup D1/R2 completo da distribuição precedeu a publicação, e a migração `0016_service_center.sql` foi aplicada nela antes do código novo. O pacote baixado do catálogo confere com o SHA-256 `7a0fc51240c8fd31a51b44fe321ab32e2582436849798525a5118ca8231fcf3e`, e as 21 versões anteriores continuam disponíveis com os mesmos resumos.
+
+Esta publicação fez menos do que as anteriores: não houve instalação temporária para ensaiar a atualização. A primeira atualização real foi a da instalação operacional, sem backup novo dela. Não há arquivos de evidência em `docs/reference` para esta versão.
+
+O primeiro login do aplicativo Android em servidor real falhou com "Informe device.platform como android ou ios.". O aplicativo não enviava campos iguais ao valor padrão, entre eles `platform` no login e no registro do aparelho e `confirmed_ended` na reconciliação de ligações. O defeito existia desde a 0.8.0 e não tinha aparecido porque os aplicativos eram conferidos só no modo de demonstração. Corrigido no aplicativo Android 0.14.1, com `RequestEncodingTest` fixando o corpo dessas requisições; o servidor não mudou. O mantenedor confirmou o login na instalação operacional com a 0.14.1.
+
+Continuam sem verificação: envio real pelo WhatsApp na 0.14.0; aplicação do modelo **Central de aplicativos** na instalação operacional; a ação `ticket` do bot em um Hermes real; registro para notificações e reconciliação de ligação no Android depois da correção; o aplicativo iOS em servidor real; e os itens da web listados nos limites da revisão local.
+
 ## Revisão local 0.14.0 de 12/11/2026: painel no estilo dos aplicativos e central por modelo
 
-**Não publicada.** Validada apenas em ambiente local (`wrangler dev` com D1 local e dados de teste de `scripts/seed-local.mjs`); nenhuma instalação real, provedor ou bot Hermes participou.
+Revisão feita antes da publicação descrita acima. Validada apenas em ambiente local (`wrangler dev` com D1 local e dados de teste de `scripts/seed-local.mjs`); nenhuma instalação real, provedor ou bot Hermes participou.
 
 O painel web foi refeito conforme [`web/DESIGN.md`](../web/DESIGN.md): trilho com Conversas, Protocolos, Equipe, Ligações, Contatos e Gestão; lista de conversas com prévia, não lidas e relógio da janela de 24 horas; rodapé Assumir conforme o estado; diálogo Encaminhar atendimento com cinco abas; protocolos em duas colunas; temas claro e escuro. As páginas de gestão mantêm a lógica anterior. O servidor ganhou o contrato de [`docs/CENTRAL-ATENDIMENTO.md`](CENTRAL-ATENDIMENTO.md): prazo em dias úteis, seis estados de protocolo, categorias, abertura de protocolo pelo cliente (destino de menu e palavra PROTOCOLO), mensagem de confirmação, saudação do menu principal, prévia da última mensagem e o modelo **Central de aplicativos**. A migração `0016_service_center.sql` é aditiva. Os aplicativos Android e iOS 0.14.0 mostram os seis estados e a categoria.
 
