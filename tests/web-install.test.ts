@@ -12,7 +12,12 @@ const account = "a".repeat(32),
   commit = "c".repeat(40),
   database = "11111111-2222-4333-8444-555555555555",
   keys = { MASTER_KEY: "1".repeat(64), SETUP_TOKEN: "2".repeat(64) };
-const e: Env = { ...env, WABOTIA_WEB_INSTALLER: "1" };
+// Sem catálogo local: a versão vem da origem oficial, simulada abaixo. A pasta
+// dist da máquina pode conter o catálogo real depois de uma publicação.
+const noCatalogue = {
+  fetch: async () => new Response("", { status: 404 }),
+} as unknown as Fetcher;
+const e: Env = { ...env, WABOTIA_WEB_INSTALLER: "1", ASSETS: noCatalogue };
 const api = `https://api.cloudflare.com/client/v4/accounts/${account}`;
 
 let index: any, bytes: Buffer, calls: any[], cloud: any;
@@ -292,6 +297,48 @@ describe("instalador pelo navegador", () => {
       cursor,
     });
     expect(again.next).toBe("migrate");
+  });
+  it("no site oficial lê o catálogo dos próprios arquivos, sem buscar na rede", async () => {
+    const served: string[] = [];
+    const official: Env = {
+      ...e,
+      ASSETS: {
+        fetch: async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          served.push(path);
+          if (path === "/releases/latest.json") return Response.json(index);
+          if (path === "/releases/0.15.0/package.json")
+            return new Response(bytes, {
+              headers: { "Content-Type": "application/json" },
+            });
+          // Caminho desconhecido: a página do painel, como no site real.
+          return new Response("<html></html>", {
+            headers: { "Content-Type": "text/html" },
+          });
+        },
+      } as unknown as Fetcher,
+    };
+    const checked = await installStep(official, {
+      account,
+      name,
+      token,
+      step: "check",
+      cursor: {},
+    });
+    expect(checked.cursor.index.version).toBe("0.15.0");
+    const migrated = await installStep(official, {
+      account,
+      name,
+      token,
+      step: "migrate",
+      cursor: { ...checked.cursor, database_id: database, migration: 0 },
+    });
+    expect(migrated.cursor.migration).toBe(1);
+    expect(served).toEqual([
+      "/releases/latest.json",
+      "/releases/0.15.0/package.json",
+    ]);
+    expect(calls.filter((c) => c.url.startsWith(RELEASE_ORIGIN))).toEqual([]);
   });
   it("espera o endereço novo responder antes de concluir", async () => {
     cloud.live = false;
