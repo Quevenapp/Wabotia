@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.15.0 de 13/11/2026: servidor MCP para o Hermes Agent
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `dacb7cfa90d362c7a281a5751d51cece22a8b585`, a partir da `main` (0.14.1). Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.15.0-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.15.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `ea9db23aaaa220f6d564ed4aea873470554fe320009fb4020778f59829746b49` (13.124.426 bytes), e as 24 versões anteriores continuam disponíveis com os mesmos commits e resumos. A instalação operacional não foi atualizada neste registro.
+
+O Worker passa a servir `POST /api/mcp`: um servidor MCP Streamable HTTP sem sessão, só para chaves de aplicação, com 44 ferramentas que chamam internamente as rotas da API v1 com a mesma chave. A autenticação feita em `/api/mcp` é repassada à rota interna por um nonce descartável, de modo que uma chamada de ferramenta conta uma única requisição no limite da aplicação; o cabeçalho interno vindo de fora é ignorado. O painel ganhou, em Integrações, o cartão que cria a aplicação com as permissões recomendadas, emite a chave e mostra o bloco `mcp_servers`. Regras em [`API.md`](API.md#mcp-para-o-hermes-agent).
+
+**553 testes em 44 arquivos**, TypeScript e build passaram no commit publicado; 12 testes novos em `tests/mcp.test.ts` cobrem a negociação de versão, notificações, lotes, erros JSON-RPC, o fluxo conversa → assumir → responder → protocolo com os seis estados, replay idempotente, falta de permissão, área ambígua, a contagem única no limite por minuto e a recusa de sessões de usuário. Na distribuição publicada, `GET`, `HEAD` e `DELETE /api/mcp` responderam 405 com `Allow: POST`, e `POST` sem chave ou com chave inválida respondeu 401. [Evidência](reference/release-0.15.0-distribution.json).
+
+Não verificado: o cartão de Integrações no navegador; uma conexão real do Hermes Agent ao endpoint publicado; ferramentas de escrita contra canais reais; e a atualização da instalação operacional.
+
 ## Publicação 0.14.1 de 13/11/2026: menu como porta de entrada sem bot
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `6a7c781978e337166f5b1afd6ba34a30ccdac166`. Um backup D1/R2 completo da distribuição precedeu a publicação; não havia migração pendente. O pacote baixado do catálogo confere com o SHA-256 `3c4b858b733fa9f6f8debdb0edcd088ce980859769028d38933de621996eb2c2`, e as 22 versões anteriores continuam disponíveis com os mesmos resumos. Como na 0.14.0, não houve ensaio em instalação temporária. No momento deste registro a instalação operacional ainda estava na 0.14.0.
