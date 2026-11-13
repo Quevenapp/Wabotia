@@ -81,7 +81,7 @@ export const routerSchemas = {
       },
       human: {
         type: "boolean",
-        description: "Atendimento manual pelo painel/Telegram.",
+        description: "Atendimento manual pelo painel ou pelos aplicativos.",
       },
       api: {
         type: "boolean",

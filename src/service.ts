@@ -21,7 +21,7 @@ import {
 } from "./security";
 import { event, audit } from "./events";
 import { visibleConversation } from "./visibility";
-import { probe, discover, configureTelegram } from "./integrations";
+import { probe, discover, telegramRemoved } from "./integrations";
 import { isLink, linkCode, linkRevoke } from "./hermes-link";
 import { secret } from "./security";
 import { contactCommand } from "./contacts";
@@ -640,18 +640,6 @@ export async function handoff(
     );
     if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
   }
-  if (cfg.telegram_connection && cfg.telegram_group)
-    await enqueue(
-      env,
-      c,
-      "system",
-      "team",
-      {
-        text: `Novo atendimento${department ? ` · Setor ${department.name}` : ""}\n${c.phone || c.external_id}\n${reason}`,
-        group: cfg.telegram_group,
-      },
-      `topic:${c.id}:${c.session}:${departmentId || "general"}`,
-    );
   await event(env, c.profile_id, "conversation.updated", c.id, {
     state: "waiting",
     department_id: departmentId,
@@ -1001,7 +989,6 @@ export async function perform(
     [
       "connection.test",
       "connection.discover",
-      "connection.telegram-webhook",
       "connection.connector-token",
       "connection.link-code",
       "connection.link-revoke",
@@ -1015,8 +1002,6 @@ export async function perform(
     if (op === "connection.test")
       return probe(env, data.id, profile, data.origin);
     if (op === "connection.discover") return discover(env, data.id, profile);
-    if (op === "connection.telegram-webhook")
-      return configureTelegram(env, data.id, profile, data.origin);
     const conn = await one(
       env,
       "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('qr','hermes-whatsapp')",
@@ -1084,14 +1069,13 @@ export async function perform(
     const id = uid();
     await exec(
       env,
-      "INSERT INTO users(id,email,name,password,role,profiles,telegram_id,created) VALUES(?,?,?,?,?,?,?,?)",
+      "INSERT INTO users(id,email,name,password,role,profiles,created) VALUES(?,?,?,?,?,?,?)",
       id,
       text(data.email, 200).toLowerCase(),
       text(data.name, 100),
       passwordHash(data.password),
       data.role,
       JSON.stringify(data.profiles || []),
-      data.telegram_id || null,
       now(),
     );
     return { id };
@@ -1106,10 +1090,9 @@ export async function perform(
     );
     await exec(
       env,
-      "UPDATE users SET name=?,profiles=?,telegram_id=?,disabled=? WHERE id=?",
+      "UPDATE users SET name=?,profiles=?,disabled=? WHERE id=?",
       data.name ? text(data.name, 100) : u.name,
       JSON.stringify(data.profiles ?? json(u.profiles, [])),
-      data.telegram_id ?? u.telegram_id,
       data.disabled === undefined ? u.disabled : Number(!!data.disabled),
       data.id,
     );
@@ -1389,10 +1372,10 @@ export async function perform(
         parent = ancestor.parent_id;
       }
     }
-    requireValue(
-      ["command", "direct"].includes(next.reply_mode),
-      "Modo de resposta inválido.",
-    );
+    // Telegram was removed: its settings are dropped whenever settings are saved.
+    delete next.reply_mode;
+    delete next.telegram_connection;
+    delete next.telegram_group;
     requireValue(
       next.protocol_response_hours === null ||
         (Number.isFinite(Number(next.protocol_response_hours)) &&
@@ -1466,10 +1449,9 @@ export async function perform(
   }
   if (op === "connection.save") {
     admin(actor);
+    if (data.kind === "telegram") throw telegramRemoved();
     requireValue(
-      ["hermes", "zernio", "qr", "telegram", "hermes-whatsapp"].includes(
-        data.kind,
-      ),
+      ["hermes", "zernio", "qr", "hermes-whatsapp"].includes(data.kind),
       "Conector inválido.",
     );
     const id = data.id || uid();
@@ -1788,20 +1770,6 @@ export async function perform(
         data.menu_id || null,
         `manual-menu:${actor.id}:${requestId}`,
       );
-    }
-    if (action === "bind_topic") {
-      admin(actor);
-      requireValue(
-        /^\d+$/.test(data.topic || ""),
-        "Informe o ID numérico do tópico.",
-      );
-      await exec(
-        env,
-        "UPDATE conversations SET topic=? WHERE id=?",
-        data.topic,
-        c.id,
-      );
-      return { id: c.id, topic: data.topic };
     }
     if (action === "claim") {
       if (c.owner === actor.id && c.state === "human") return c;

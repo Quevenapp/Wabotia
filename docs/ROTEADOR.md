@@ -54,7 +54,7 @@ Na etapa **Telefones**, cada cartão em **Seus telefones e consumo** tem **Funç
 |---|---|---|
 | Respostas sem template dentro de 24 horas | Sim | Sim |
 | Templates aprovados, autorizados por envio | Sim | Bloqueados |
-| Atendimento manual no painel/Telegram | Sim | Bloqueado por padrão |
+| Atendimento manual no painel ou nos aplicativos | Sim | Bloqueado por padrão |
 | Envios de aplicações já autorizadas | Sim | Sim |
 | Menu e saudação automática | Sim | Desligados |
 | Bots Hermes autorizados na área de atendimento | Sim | Desligados |

@@ -270,7 +270,7 @@ export function Landing() {
             </div>
             <p className="hero-caption">
               <strong>Um atendimento, conectado.</strong> Uma visão de como seu
-              atendimento se conecta: WhatsApp · Telegram · Web + API.
+              atendimento se conecta: WhatsApp · Web + API.
             </p>
           </div>
         </section>

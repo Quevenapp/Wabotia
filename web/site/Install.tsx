@@ -32,7 +32,7 @@ const installSteps = [
   ],
   [
     "Escolha seus canais",
-    "Importe os telefones já conectados na Zernio ou use QR. Configure o bot Telegram dedicado. Use apenas um modo por número.",
+    "Importe os telefones já conectados na Zernio ou use QR. Use apenas um modo por número.",
   ],
   [
     "Teste e atualize pelo painel",

@@ -177,7 +177,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Configure a Integração Zernio, encontre seus telefones e configure a distribuição de mensagens.",
   lines: "Escolha o bot ou a equipe responsável por cada telefone conectado.",
   connections:
-    "Conecte o Hermes e o Telegram e confira o funcionamento dos canais.",
+    "Conecte o Hermes e confira o funcionamento dos canais.",
   applications: "Gerencie o acesso de sistemas como Vinki e Fagoo ao Wabotia.",
   presence: "Informe quando você está disponível para assumir atendimentos.",
   team: "Converse com pessoas e bots da equipe sem enviar mensagens ao cliente.",

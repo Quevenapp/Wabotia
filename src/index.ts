@@ -55,10 +55,8 @@ import { settings, scopes, eventTypes, conversation, perform } from "./service";
 import {
   discover,
   probe,
-  configureTelegram,
-  telegramFile,
   storeRemoteMedia,
-  telegram,
+  telegramRemoved,
 } from "./integrations";
 import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
@@ -638,7 +636,7 @@ app.get("/api/v1/users", async (c) => {
   return c.json(
     await all(
       c.env,
-      "SELECT id,email,name,role,profiles,telegram_id,disabled FROM users ORDER BY created",
+      "SELECT id,email,name,role,profiles,disabled FROM users ORDER BY created",
     ),
   );
 });
@@ -1003,7 +1001,6 @@ app.get("/api/v1/profiles/:profile/connections", async (c) => {
 for (const op of [
   "test",
   "discover",
-  "telegram-webhook",
   "connector-token",
   "link-code",
   "link-revoke",
@@ -1329,7 +1326,7 @@ app.get("/api/v1/profiles/:profile/presence", async (c) => {
   return c.json(
     await all(
       c.env,
-      "SELECT u.id actor,u.name,coalesce(p.present,0) present,u.telegram_id FROM users u LEFT JOIN presence p ON p.actor=u.id AND p.profile_id=? WHERE u.disabled=0 AND (u.role='admin' OR EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?))",
+      "SELECT u.id actor,u.name,coalesce(p.present,0) present FROM users u LEFT JOIN presence p ON p.actor=u.id AND p.profile_id=? WHERE u.disabled=0 AND (u.role='admin' OR EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?))",
       c.req.param("profile"),
       c.req.param("profile"),
     ),
@@ -1641,184 +1638,9 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
   }
   return c.json({ received: true });
 });
-app.post("/webhooks/telegram/:id", async (c) => {
-  const conn = await one(
-    c.env,
-    "SELECT * FROM connections WHERE id=? AND kind='telegram'",
-    c.req.param("id"),
-  );
-  requireValue(conn, "Canal não encontrado.");
-  const keys = await secret(c.env, `connection:${conn.id}`);
-  if (
-    !keys.webhook_secret ||
-    !equal(
-      keys.webhook_secret,
-      c.req.header("X-Telegram-Bot-Api-Secret-Token") || "",
-    )
-  )
-    throw new ApiError(403, "invalid_signature", "Segredo inválido.");
-  const update = await c.req.json(),
-    m = update.message;
-  if (
-    !m ||
-    String(m.chat.id) !== String(json(conn.config).group) ||
-    m.from?.is_bot ||
-    m.sender_chat
-  )
-    return c.json({ ignored: true });
-  if (conn.status !== "active") return c.json({ paused: true });
-  if (/^\/identificar(?:@\S+)?\s*$/.test(m.text || "")) {
-    await telegram(c.env, conn.id, "sendMessage", {
-      chat_id: m.chat.id,
-      message_thread_id: m.message_thread_id,
-      text: `Seu ID Telegram: ${m.from.id}. Solicite ao administrador o vínculo em Pessoas.`,
-    });
-    return c.json({ received: true });
-  }
-  const user = await one(
-    c.env,
-    "SELECT * FROM users WHERE telegram_id=? AND disabled=0",
-    String(m.from.id),
-  );
-  if (
-    !user ||
-    !(
-      user.role === "admin" || json(user.profiles, []).includes(conn.profile_id)
-    )
-  )
-    return c.json({ ignored: true });
-  const actor: Actor = {
-    id: user.id,
-    kind: "user",
-    name: user.name,
-    role: user.role,
-    profiles: json(user.profiles, []),
-    scopes: [],
-    bots: [],
-    rate: 60,
-    runLimit: 3,
-  };
-  const match = (m.text || m.caption || "").match(
-      /^\/(\w+)(?:@\S+)?\s*([\s\S]*)$/,
-    ),
-    cmd = match?.[1],
-    value = match?.[2] || m.text || m.caption || "";
-  const conv = await one(
-    c.env,
-    "SELECT id,owner FROM conversations WHERE profile_id=? AND topic=?",
-    conn.profile_id,
-    String(m.message_thread_id),
-  );
-  let operation = "",
-    data: any = {};
-  if (cmd === "ajuda") {
-    await telegram(c.env, conn.id, "sendMessage", {
-      chat_id: m.chat.id,
-      message_thread_id: m.message_thread_id,
-      text: "/presente /ausente · No tópico: /assumir /responder texto /nota texto /transferir ID /encerrar /retomar. /identificar mostra seu ID.",
-    });
-    return c.json({ received: true });
-  }
-  if (cmd === "presente" || cmd === "ausente") {
-    operation = "presence";
-    data = { present: cmd === "presente" };
-  } else if (conv) {
-    const actions: Record<string, string> = {
-      assumir: "claim",
-      responder: "reply",
-      nota: "note",
-      encerrar: "resolve",
-      retomar: "resume",
-      transferir: "transfer",
-    };
-    const cfg = await settings(c.env, conn.profile_id);
-    operation = "conversation.action";
-    data = {
-      id: conv.id,
-      action:
-        actions[cmd || ""] ||
-        (cfg.reply_mode === "direct" &&
-        conv.owner === actor.id &&
-        !cmd &&
-        (!m.reply_to_message ||
-          (m.reply_to_message.from?.is_bot &&
-            !m.reply_to_message.forum_topic_created))
-          ? "reply"
-          : "note"),
-      text: value,
-      target: value,
-    };
-    if (cmd === "transferir") {
-      const target = await one(
-        c.env,
-        "SELECT id FROM users WHERE id=? OR telegram_id=?",
-        value,
-        value,
-      );
-      data.target = target?.id || value;
-    }
-    const file =
-      m.document ||
-      m.audio ||
-      m.voice ||
-      m.video ||
-      m.sticker ||
-      m.photo?.at(-1);
-    if (file) {
-      data.attachments = [
-        await telegramFile(
-          c.env,
-          conn,
-          file.file_id,
-          file.file_name || "telegram-file",
-          file.mime_type || "image/jpeg",
-        ),
-      ];
-      data.content = {
-        type: m.voice
-          ? "voice"
-          : m.video
-            ? "video"
-            : m.sticker
-              ? "sticker"
-              : m.audio
-                ? "audio"
-                : m.photo
-                  ? "image"
-                  : "document",
-      };
-      if (!data.text) data.text = "";
-    }
-  } else return c.json({ ignored: true });
-  const result = await c.env.COORDINATOR.get(
-    c.env.COORDINATOR.idFromName(conn.profile_id),
-  ).fetch("https://coordinator/command", {
-    method: "POST",
-    body: JSON.stringify({
-      profile: conn.profile_id,
-      operation,
-      data,
-      actor,
-      key: `telegram:${conn.id}:${update.update_id}`,
-      requestId: c.get("requestId"),
-    }),
-  });
-  if (result.status >= 500) return result;
-  if (!result.headers.has("Idempotency-Replayed")) {
-    const response = await result.clone().json<any>();
-    await telegram(c.env, conn.id, "sendMessage", {
-      chat_id: m.chat.id,
-      message_thread_id: m.message_thread_id,
-      text: result.ok
-        ? operation === "presence"
-          ? data.present
-            ? "Presença registrada."
-            : "Ausência registrada."
-          : "Comando registrado."
-        : response.error?.message || "Comando recusado.",
-    }).catch(() => {});
-  }
-  return c.json({ received: true });
+// Telegram was removed. A bot still pointing here gets a final answer.
+app.post("/webhooks/telegram/:id", () => {
+  throw telegramRemoved();
 });
 app.use("/internal/v1/connectors/:id/*", async (c, next) => {
   const conn = await one(

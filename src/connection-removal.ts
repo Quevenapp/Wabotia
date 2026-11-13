@@ -32,6 +32,14 @@ export async function removeConnection(
       "not_found",
       "Telefone não encontrado nesta área de atendimento.",
     );
+  if (connection.kind === "telegram") {
+    // Leftover of the removed Telegram channel: nothing depends on it anymore.
+    await batch(env, [
+      ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
+      ["DELETE FROM connections WHERE id=? AND profile_id=?", [id, profile]],
+    ]);
+    return { id, deleted: true, conversations_preserved: 0 };
+  }
   requireValue(
     ["meta", "zernio", "qr", "hermes-whatsapp"].includes(connection.kind),
     "A exclusão está disponível somente para conexões de telefone WhatsApp.",

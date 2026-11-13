@@ -1,4 +1,4 @@
-// Regras de atendimento: orientações, Telegram da equipe, avaliações, JEV,
+// Regras de atendimento: orientações, ausência da equipe, avaliações, JEV,
 // o bloco Protocolos e o estado (ativo/pausado) do atendimento.
 import React, { useMemo, useState } from "react";
 import { useApp } from "../app/AppContext";
@@ -142,28 +142,23 @@ export function SettingsPage() {
             Enviado uma vez por conversa, com os botões Autorizo e Não autorizo,
             somente quando as notificações de protocolo estão ligadas.
           </p>
-          <Field
-            label="Respostas no Telegram"
-            options={[
-              ["command", "Comando /responder"],
-              ["direct", "Texto direto após assumir"],
-            ]}
-            value={settings.reply_mode}
-            onChange={(value) => edit({ reply_mode: value })}
-          />
-          <Field
-            label="Conexão para a equipe no Telegram"
-            options={(status.connections || []).filter(
-              (connection: Row) => connection.kind === "telegram",
-            )}
-            value={settings.telegram_connection}
-            onChange={(value) => edit({ telegram_connection: value })}
-          />
-          <Field
-            label="ID do grupo Telegram"
-            value={settings.telegram_group}
-            onChange={(value) => edit({ telegram_group: value })}
-          />
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={settings.sender_signature !== false}
+              onChange={(event) =>
+                edit({ sender_signature: event.target.checked })
+              }
+            />
+            Identificar quem escreve nas mensagens ao cliente
+          </label>
+          <p className="workspace-help">
+            Cada mensagem de uma pessoa ou de um bot começa com o nome e o tipo,
+            por exemplo <strong>Bruno - Humano</strong> ou{" "}
+            <strong>Bia - IA</strong>. O nome da pessoa vem de Pessoas e
+            acessos; o do bot, da Equipe Bot. Menus, botões e avisos
+            automáticos não levam assinatura.
+          </p>
           <label className="check-field">
             <input
               type="checkbox"

@@ -110,11 +110,6 @@ function UserDialog({
           ]}
         />
       )}
-      <Field
-        label="ID pessoal no Telegram (opcional)"
-        value={form.telegram_id}
-        onChange={change("telegram_id")}
-      />
       {!user && app.profiles.length === 1 && (
         <p>Acesso à Área de atendimento compartilhada pela equipe.</p>
       )}
@@ -160,7 +155,6 @@ export function UsersPage() {
                 "Papel",
                 (row) => (row.role === "admin" ? "Administrador" : "Atendente"),
               ],
-              ["telegram_id", "Telegram"],
               [
                 "disabled",
                 "Acesso",

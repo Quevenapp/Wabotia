@@ -48,12 +48,8 @@ import {
   CONSENT_GRANT_REPLY,
   CONSENT_DENY_REPLY,
 } from "./service";
-import {
-  hermesRequest,
-  hermesArtifact,
-  telegram,
-  telegramMedia,
-} from "./integrations";
+import { hermesRequest, hermesArtifact } from "./integrations";
+import { signedPayload } from "./signature";
 import { secret, hmac, safeFetch } from "./security";
 import { event } from "./events";
 import { finishDelivery } from "./delivery";
@@ -120,22 +116,8 @@ export async function processInbox(env: Env, profile: string) {
         (c.bot_policy === "mentions" &&
           !data.content?.mentioned &&
           !/^\/bot(?:\s|$)/i.test(data.text)))
-    ) {
-      if (cfg.telegram_connection && cfg.telegram_group)
-        await enqueue(
-          env,
-          c,
-          "system",
-          "team",
-          {
-            text: `Grupo ${c.title} · ${data.content?.participant_name || data.content?.participant || "Participante"}: ${data.text}`,
-            attachments: data.attachments || [],
-            group: cfg.telegram_group,
-          },
-          `mirror:${row.id}`,
-        );
+    )
       return;
-    }
     const value = data.text.trim(),
       normalized = value
         .toLowerCase()
@@ -237,22 +219,8 @@ export async function processInbox(env: Env, profile: string) {
       (!p?.enabled && !c.menu_active && !awaitingTicket) ||
       !policy.service ||
       (!policy.menu && !policy.bots)
-    ) {
-      if (cfg.telegram_connection && cfg.telegram_group)
-        await enqueue(
-          env,
-          c,
-          "system",
-          "team",
-          {
-            text: `Cliente: ${data.text}`,
-            attachments: data.attachments || [],
-            group: cfg.telegram_group,
-          },
-          `mirror:${row.id}`,
-        );
+    )
       return;
-    }
     if (
       data.session !== c.session ||
       (c.state === "ai" && data.epoch !== c.epoch)
@@ -288,7 +256,7 @@ export async function processInbox(env: Env, profile: string) {
                   ? "open"
                   : "remind";
       if (step === "open") {
-        const { ticket } = await openCustomerTicket(
+        await openCustomerTicket(
           env,
           c,
           value,
@@ -296,19 +264,6 @@ export async function processInbox(env: Env, profile: string) {
           ticketKey,
           `ticket-confirm:${row.id}`,
         );
-        if (c.state !== "ai" && cfg.telegram_connection && cfg.telegram_group)
-          await enqueue(
-            env,
-            c,
-            "system",
-            "team",
-            {
-              text: `Cliente: ${value}\nProtocolo ${ticket.number} aberto pelo cliente.`,
-              attachments: data.attachments || [],
-              group: cfg.telegram_group,
-            },
-            `mirror:${row.id}`,
-          );
         return;
       }
       if (step === "again") {
@@ -727,39 +682,12 @@ export async function processInbox(env: Env, profile: string) {
       ).length
     ) {
       await sendMenu(env, system, c, null, `front:${row.id}`, false);
-      // A queued conversation still reaches the team's Telegram topic.
-      if (c.state !== "ai" && cfg.telegram_connection && cfg.telegram_group)
-        await enqueue(
-          env,
-          c,
-          "system",
-          "team",
-          {
-            text: `Cliente: ${value}`,
-            attachments: data.attachments,
-            group: cfg.telegram_group,
-          },
-          `mirror:${row.id}`,
-        );
       return;
     }
     // Waiting for a person while nobody is present: the Bot Atendente keeps
     // answering follow-ups, without leaving the queue or the protocol.
     let followup: { ticket: any } | null = null;
     if (c.state !== "ai") {
-      if (cfg.telegram_connection && cfg.telegram_group)
-        await enqueue(
-          env,
-          c,
-          "system",
-          "team",
-          {
-            text: `Cliente: ${value}`,
-            attachments: data.attachments,
-            group: cfg.telegram_group,
-          },
-          `mirror:${row.id}`,
-        );
       if (
         c.state !== "waiting" ||
         c.chat_type === "group" ||
@@ -1564,10 +1492,12 @@ export async function deliver(env: Env, row: any) {
     );
     return;
   }
-  if (row.kind !== "team" && row.epoch !== c.epoch) {
+  // "team" rows were the Telegram mirror, removed: leftovers are cancelled.
+  if (row.kind === "team" || row.epoch !== c.epoch) {
     await exec(
       env,
-      "UPDATE outbox SET status='cancelled',updated=? WHERE id=?",
+      "UPDATE outbox SET status='cancelled',error=?,updated=? WHERE id=?",
+      row.kind === "team" ? "O espelho para o Telegram foi removido." : null,
       now(),
       row.id,
     );
@@ -1576,7 +1506,7 @@ export async function deliver(env: Env, row: any) {
   let connection = await one(
     env,
     "SELECT * FROM connections WHERE id=?",
-    row.kind === "team" ? cfg.telegram_connection : c.connection_id,
+    c.connection_id,
   );
   if (
     !connection &&
@@ -1702,7 +1632,7 @@ export async function deliver(env: Env, row: any) {
       return;
     }
     if (payload.template_message) await assertPaidConsent(env, c, payload);
-    if (row.kind !== "team" && fresh.epoch !== row.epoch) {
+    if (fresh.epoch !== row.epoch) {
       await exec(
         env,
         "UPDATE outbox SET status='cancelled',updated=? WHERE id=?",
@@ -1717,67 +1647,18 @@ export async function deliver(env: Env, row: any) {
         "message_expired",
         "Validade da mensagem encerrada antes do envio.",
       );
-    if (row.kind === "team") {
-      let topic = c.topic;
-      if (topic && !/^\d+$/.test(topic))
-        throw new ApiError(
-          409,
-          "topic_unknown",
-          "Criação do tópico sem confirmação; vincule o tópico existente antes de reenviar.",
-        );
-      if (!topic) {
-        await exec(
-          env,
-          "UPDATE conversations SET topic=? WHERE id=?",
-          "creating:" + row.id,
-          c.id,
-        );
-        const r = await telegram(env, connection.id, "createForumTopic", {
-          chat_id: payload.group,
-          name: `Atendimento ${c.phone || c.external_id}`.slice(0, 128),
-        });
-        topic = String(r.result.message_thread_id);
-        await exec(
-          env,
-          "UPDATE conversations SET topic=? WHERE id=?",
-          topic,
-          c.id,
-        );
-      }
-      if (payload.media_id)
-        external = await telegramMedia(
-          env,
-          connection.id,
-          payload.group,
-          topic,
-          payload.media_id,
-          payload,
-        );
-      else {
-        const r = await telegram(env, connection.id, "sendMessage", {
-          chat_id: payload.group,
-          message_thread_id: Number(topic),
-          text: payload.text,
-        });
-        external = String(r.result.message_id);
-      }
-    } else {
-      requireValue(
-        connection.kind === "zernio",
-        "Canal de envio não suportado.",
-      );
-      external = await zernioSend(
-        env,
-        connection,
-        c.recipient_id || c.external_id,
-        {
-          ...payload,
-          chat_type: c.chat_type,
-          ...(body.type === "template" ? { template_message: body } : {}),
-        },
-        row.id,
-      );
-    }
+    requireValue(connection.kind === "zernio", "Canal de envio não suportado.");
+    external = await zernioSend(
+      env,
+      connection,
+      c.recipient_id || c.external_id,
+      {
+        ...(await signedPayload(env, cfg, row, payload)),
+        chat_type: c.chat_type,
+        ...(body.type === "template" ? { template_message: body } : {}),
+      },
+      row.id,
+    );
     await finishDelivery(env, row, external);
   } catch (error) {
     const status =

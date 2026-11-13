@@ -54,7 +54,7 @@ Isso não inclui Status, Comunidades, transmissões, enquetes, pagamentos nem to
 | Documento | PDF até 100 MiB; TXT e formatos Office aceitos pelo WhatsApp até 25 MiB | Até 100 MiB |
 | Figurinha | Não nesta integração | WebP 512 × 512, até 1 MiB |
 
-O upload Wabotia aceita até 100 MiB; o canal pode impor um limite menor. O Wabotia não converte automaticamente vídeos nem documentos. O provedor ainda valida os codecs reais. Uploads incompletos expiram após 24 horas. Telegram tem limite de download de 20 MiB pela Bot API e envio de até 50 MiB neste conector. Importação de conhecimento continua com seus próprios limites.
+O upload Wabotia aceita até 100 MiB; o canal pode impor um limite menor. O Wabotia não converte automaticamente vídeos nem documentos. O provedor ainda valida os codecs reais. Uploads incompletos expiram após 24 horas. Importação de conhecimento continua com seus próprios limites.
 
 **Se ocorrer uma falha:** o rascunho permanece. Um pedido já formado guarda a mesma identificação para repetição segura. Se aparecer **Sem confirmação**, confira **Entregas** e o WhatsApp antes de reconciliar; não crie outra mensagem para contornar o aviso. Falha de download de mídia recebida aparece na conversa e pode exigir reenvio do cliente.
 

@@ -146,9 +146,8 @@ export const defaults = {
   protocol_confirmation: defaultProtocolConfirmation,
   // Opening text of the main menu. Empty keeps "Como podemos ajudar?".
   menu_greeting: "",
-  telegram_group: "",
-  telegram_connection: "",
-  reply_mode: "command",
+  // Messages to the customer start with who writes: "Bruno - Humano", "Bia - IA".
+  sender_signature: true,
   names: {},
   team: [],
   capabilities: [],

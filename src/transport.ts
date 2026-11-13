@@ -6,6 +6,7 @@ import { event } from "./events";
 import { approvedTemplate } from "./integrations";
 import { syncGroup } from "./whatsapp";
 import { assertNumberDelivery } from "./number-permissions";
+import { signedPayload } from "./signature";
 
 export async function transport(
   env: Env,
@@ -153,7 +154,17 @@ export async function transport(
     );
     return {
       commands: [
-        { id: row.id, destination: row.destination, epoch: row.epoch, payload },
+        {
+          id: row.id,
+          destination: row.destination,
+          epoch: row.epoch,
+          payload: await signedPayload(
+            env,
+            await settings(env, conn.profile_id),
+            row,
+            payload,
+          ),
+        },
       ],
     };
   }

@@ -1,6 +1,6 @@
 # Escopo e organização do painel
 
-O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas e que a equipe atenda pelo Telegram. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e acesso aos detalhes pelo modo avançado.
+O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e acesso aos detalhes pelo modo avançado.
 
 Este documento descreve as capacidades verificadas no código e as dependências de configuração e homologação dos serviços externos.
 
@@ -20,7 +20,7 @@ A partir da 0.14.0 o painel tem a mesma organização dos aplicativos (desenho e
 | Gestão → Início | Situação do atendimento e próximos passos de configuração. |
 | Gestão → Pessoas e acessos | Contas e permissões da equipe. |
 | Gestão → Automação | Bot Atendente, especialistas, menus, modelos de atendimento, conhecimento e regras de atendimento. |
-| Canais | Integração Zernio, Telefones, destino de atendimento por linha, Hermes e Telegram. |
+| Canais | Integração Zernio, Telefones, destino de atendimento por linha e Hermes. |
 | Avaliações e relatórios | Notas, comentários e acompanhamento da operação. |
 | Integrações | Aplicações externas, chaves e permissões de acesso. |
 | Sistema | Instalação, atualizações e configuração da infraestrutura. |
@@ -66,7 +66,7 @@ O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A ch
 | Parear Vinki e Fagoo sem digitar credenciais ou tokens | Implementado | Código temporário com aprovação administrativa da área de atendimento, permissões, telefones, grupos e bots. Troca automática entre servidores, armazenamento protegido e revogação. Exige instalar também as alterações dos clientes Vinki/Fagoo. [Guia](PAREAMENTO.md). |
 | Contatos | Implementado | Cadastro, busca, edição, importação CSV e vínculo com conversas. Telefones não unem clientes automaticamente. [Contatos](../src/contacts.ts), [guia](CONTATOS.md). |
 | Atualizações automáticas | Implementado | Ativação opcional, janela diária, publicação oficial verificada, bloqueio de concorrência e recuperação conservadora. Exige instalador direto e autorização Cloudflare configurada. QR e Hermes permanecem processos separados. [Guia](ATUALIZACOES.md). |
-| Ponte WhatsApp–Telegram | Implementado | Encaminhamento para tópicos, mensagens e anexos, presença, assumir conversa e transferir atendimento. Exige bot dedicado, grupo privado com tópicos e usuários autorizados. [Webhook Telegram](../src/index.ts), [validação da conexão](../src/integrations.ts), [entrega à equipe](../src/engine.ts). |
+| Ponte WhatsApp–Telegram | Removido | A equipe atende pelo painel e pelos aplicativos. Conexões Telegram antigas só podem ser excluídas; o webhook responde `410 telegram_removed`. |
 | JEV opcional e especialistas internos Hermes | Implementado | Atendente interpreta e propõe; JEV decide antes da ação. Respostas incertas ou indisponibilidade encaminham à equipe humana. As APIs e credenciais de sistemas precisam estar configuradas nos especialistas Hermes. [Guia](JEV.md). |
 
 ## Limites da configuração guiada

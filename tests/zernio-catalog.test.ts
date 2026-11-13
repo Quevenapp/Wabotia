@@ -178,7 +178,7 @@ it("permite atendente da área e recusa outra área, outro tipo de canal e filtr
   await expect(
     templateCatalog(env, admin, f.profile, f.id, { name: "x".repeat(513) }),
   ).rejects.toMatchObject({ status: 400 });
-  await exec(env, "UPDATE connections SET kind='telegram' WHERE id=?", f.id);
+  await exec(env, "UPDATE connections SET kind='qr' WHERE id=?", f.id);
   await expect(
     templateCatalog(env, admin, f.profile, f.id),
   ).rejects.toMatchObject({ status: 404 });

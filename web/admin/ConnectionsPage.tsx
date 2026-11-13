@@ -1,6 +1,6 @@
 // Hermes e canais: cadastro, diagnóstico e estado de cada conexão.
 import React, { useState } from "react";
-import { Bot, Plug, Plus, Send } from "lucide-react";
+import { Bot, Plug, Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
@@ -25,7 +25,7 @@ const kindText = (kind: string) =>
   kind === "hermes"
     ? "Bots e ferramentas"
     : kind === "telegram"
-      ? "Equipe humana via Telegram"
+      ? "Telegram · canal removido"
       : kind === "meta"
         ? "WhatsApp Meta · integração anterior"
         : kind === "zernio"
@@ -33,6 +33,9 @@ const kindText = (kind: string) =>
           : kind === "qr"
             ? "WhatsApp por QR"
             : "WhatsApp pelo Hermes";
+
+// Tipos de conexão que deixaram de existir: só podem ser excluídos.
+const removedKinds = ["meta", "telegram"];
 
 const zernioWebhook = (row: Row) =>
   location.origin +
@@ -70,8 +73,8 @@ export function ConnectionsPage() {
         <div>
           <strong>Um lugar para cada conexão</strong>
           <p>
-            Cadastre o Hermes para usar seus bots e o Telegram para a equipe
-            humana. A Integração Zernio e seus telefones ficam em{" "}
+            Cadastre o Hermes para usar seus bots. A equipe atende pelo painel
+            e pelos aplicativos. A Integração Zernio e seus telefones ficam em{" "}
             <a {...linkProps({ area: "admin", page: "router" })}>
               Integração Zernio
             </a>
@@ -92,30 +95,14 @@ export function ConnectionsPage() {
       </details>
       <div className="toolbar">
         <p>Hermes fornece a inteligência. Os canais trazem as conversas.</p>
-        {app.panelMode === "guided" ? (
-          <div className="card-actions">
-            <Button
-              onClick={() => setEditing({ kind: "hermes" })}
-              icon={<Bot size={17} />}
-            >
-              Conectar Hermes
-            </Button>
-            <Button
-              secondary
-              onClick={() => setEditing({ kind: "telegram" })}
-              icon={<Send size={17} />}
-            >
-              Conectar Telegram
-            </Button>
-          </div>
-        ) : (
-          <Button
-            onClick={() => setEditing({ kind: "hermes" })}
-            icon={<Plus size={17} />}
-          >
-            Nova conexão
-          </Button>
-        )}
+        <Button
+          onClick={() => setEditing({ kind: "hermes" })}
+          icon={
+            app.panelMode === "guided" ? <Bot size={17} /> : <Plus size={17} />
+          }
+        >
+          {app.panelMode === "guided" ? "Conectar Hermes" : "Nova conexão"}
+        </Button>
       </div>
       {list.error && (
         <Notice tone="error" onRetry={() => void list.reload()}>
@@ -140,7 +127,7 @@ export function ConnectionsPage() {
                 alt="Leia o código com o WhatsApp para conectar"
               />
             )}
-            {row.kind !== "meta" && (
+            {!removedKinds.includes(row.kind) && (
               <button
                 type="button"
                 className="text-link"
@@ -151,7 +138,7 @@ export function ConnectionsPage() {
             )}
             <p>{kindText(row.kind)}</p>
             <small>Último contato: {date(row.last_seen)}</small>
-            {row.kind !== "meta" && (
+            {!removedKinds.includes(row.kind) && (
               <ConnectionDiagnostics
                 hermes={row.kind === "hermes"}
                 demo={demo}
@@ -185,23 +172,11 @@ export function ConnectionsPage() {
               </ConnectionDiagnostics>
             )}
             {row.kind === "telegram" && (
-              <button
-                type="button"
-                className="text-link"
-                onClick={() =>
-                  run(
-                    () =>
-                      api(
-                        root + `/connections/${row.id}/telegram-webhook`,
-                        "POST",
-                        {},
-                      ),
-                    { success: "Webhook configurado." },
-                  )
-                }
-              >
-                Ligar recebimento Telegram
-              </button>
+              <p className="notice">
+                O atendimento pelo Telegram foi removido. Esta conexão não é
+                mais usada: exclua-a. A equipe atende pelo painel e pelos
+                aplicativos.
+              </p>
             )}
             {row.kind === "meta" && (
               <p className="notice">
@@ -210,7 +185,9 @@ export function ConnectionsPage() {
                 telefone já conectado na Zernio. O histórico é preservado.
               </p>
             )}
-            {["meta", "zernio", "qr", "hermes-whatsapp"].includes(row.kind) && (
+            {["meta", "zernio", "qr", "hermes-whatsapp", "telegram"].includes(
+              row.kind,
+            ) && (
               <Button
                 secondary
                 disabled={busy}
@@ -218,7 +195,9 @@ export function ConnectionsPage() {
                   if (!app.demoBlocked()) setRemoving(row);
                 }}
               >
-                Excluir telefone
+                {row.kind === "telegram"
+                  ? "Excluir conexão"
+                  : "Excluir telefone"}
               </Button>
             )}
             {["qr", "hermes-whatsapp"].includes(row.kind) && (
@@ -304,7 +283,7 @@ export function ConnectionsPage() {
           <Empty
             icon={<Plug size={28} />}
             title="Conecte seu primeiro serviço"
-            description="Comece pelo Hermes. Depois configure WhatsApp e Telegram."
+            description="Comece pelo Hermes. Depois configure o WhatsApp."
           />
         </section>
       )}
