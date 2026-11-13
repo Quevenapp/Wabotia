@@ -241,6 +241,26 @@ curl "$WABOTIA_URL/api/v1/bot-runs" \
 
 Retorna `202 {id,status:"queued"}`. Consulte `GET /api/v1/bot-runs/{id}` até `completed`, `failed`, `cancelled` ou `unknown`. Resultado é persistido no Wabotia. Cancele em `POST /profiles/{perfil}/bot-runs/{id}/cancel`. Cancelamento é uma solicitação e não desfaz efeitos já executados pelo Hermes. Aprovações de ferramentas continuam sob as políticas do Hermes.
 
+## MCP para o Hermes Agent
+
+Cada instalação publica um servidor [MCP](https://modelcontextprotocol.io) em `POST /api/mcp`, junto com o painel, a cada deploy na Cloudflare. Ele usa Streamable HTTP sem sessão (JSON-RPC por POST; `HEAD`, `GET` e `DELETE` retornam `405`) e aceita somente chaves de aplicação em `Authorization: Bearer`. Cada ferramenta é traduzida para a rota correspondente da API v1 com a mesma chave: permissões, namespaces, idempotência, limites por minuto e respostas são os desta documentação. Uma chamada de ferramenta conta como uma requisição no limite da aplicação.
+
+No painel, **Integrações → Ferramentas do Wabotia no Hermes Agent (MCP)** cria a aplicação com as permissões recomendadas, emite a chave e mostra o trecho de configuração. No perfil Hermes, guarde `WABOTIA_MCP_KEY=…` no `.env` e acrescente ao `config.yaml`:
+
+```yaml
+mcp_servers:
+  wabotia:
+    url: "https://SUA_INSTALACAO.workers.dev/api/mcp"
+    headers:
+      Authorization: "Bearer ${WABOTIA_MCP_KEY}"
+    timeout: 90
+    keepalive_interval: 120
+```
+
+Confira com `hermes mcp test wabotia` ou `/reload-mcp`. O Hermes registra as ferramentas como `mcp__wabotia__<nome>` e permite `tools: include`/`exclude` no mesmo bloco. Ferramentas disponíveis: `list_profiles`, `list_conversations`, `get_conversation` (com `last_messages`), `start_conversation`, `receive_inbound_message`, `claim_conversation`, `reply_conversation`, `add_internal_note`, `transfer_conversation`, `resolve_conversation`, `resume_conversation`, `tag_conversation`, `send_menu`, `lookup_conversation_protocols`, `message_action`, `list_tickets`, `get_ticket`, `create_ticket`, `update_ticket`, `list_contacts`, `get_contact`, `create_contact`, `update_contact`, `link_conversation_contact`, `list_knowledge`, `add_knowledge`, `list_bots`, `run_bot`, `get_bot_run`, `list_bot_runs`, `cancel_bot_run`, `list_presence`, `list_events`, `get_report`, `list_consents`, `list_deliveries`, `list_groups`, `get_connection_capabilities`, `router_overview`, `send_router_message` (somente mensagens de atendimento, sem templates pagos), `get_router_message`, `cancel_router_message` e `list_router_templates`. A lista completa, com esquema de entrada, vem de `tools/list`.
+
+Quando a chave acessa uma única área de atendimento, `profile` é opcional. Ferramentas de escrita aceitam `idempotency_key`; reutilize a mesma chave para repetir uma intenção após falha de rede. Erros da API voltam como resultado com `isError:true` e o texto `Erro HTTP <status> <code>: <mensagem> (request_id …)`; parâmetros inválidos ou ferramenta desconhecida retornam erro JSON-RPC `-32602`. Upload de arquivos, exclusões, administração de grupos, ligações e webhooks continuam exclusivos da API HTTP. Outros clientes MCP com Streamable HTTP e cabeçalho Bearer também funcionam.
+
 ## Webhooks
 
 Cadastre `POST /profiles/{perfil}/webhook-subscriptions`, corpo `{"url":"https://seusistema.com/wabotia","events":["message.received","ticket.updated","bot.run.completed"]}`. Guarde `signing_secret` retornado. O corpo contém `id`, `type`, `created_at`, `profile_id` e `data`. Desde a 0.8.0, `conversation.updated` com `action: "transfer"` inclui `owner` (novo responsável) e `actor`; `ticket.updated` inclui `actor`, `number`, `previous_status`, `owner`, `previous_owner` e `text_added`. Desde a 0.14.0, `ticket.created` inclui `category` quando o protocolo tem categoria, e `ticket.updated` pode trazer `category`, `previous_category` e, no retorno automático de `waiting_customer`, `reason: "customer_message"` com `actor: "system"`. Campos novos são aditivos; trate campos desconhecidos com tolerância.

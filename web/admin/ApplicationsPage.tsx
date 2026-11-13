@@ -7,6 +7,7 @@ import type { Row } from "../lib/api";
 import { navigate } from "../lib/routes";
 import { Badge, Button, Empty, Field, Notice, Table, toast } from "../ui";
 import { PairingPanel } from "../PairingPanel";
+import { HermesMcpPanel } from "./HermesMcpPanel";
 import { AreaAccess } from "./UsersPage";
 import { FormDialog, SecretDialog, toggled, useResource } from "./shared";
 
@@ -126,6 +127,12 @@ export function ApplicationsPage() {
   return (
     <>
       <PairingPanel api={api} demo={demo} profiles={app.profiles} />
+      <HermesMcpPanel
+        api={api}
+        demo={demo}
+        profiles={app.profiles}
+        onChange={() => void resource.reload()}
+      />
       <section className="card integration-explainer">
         <h2>Depois de conectar</h2>
         <p>

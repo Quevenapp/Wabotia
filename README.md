@@ -43,6 +43,8 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 4. Use um bot Telegram dedicado em grupo privado com tópicos. Cadastre cada atendente e seu ID Telegram. O Telegram não requer plugin no Hermes.
 5. Cadastre conhecimento, menus, ações de especialistas e presença. Teste antes de ativar.
 
+**Ferramentas do Wabotia dentro do Hermes:** a instalação publica um servidor MCP em `/api/mcp`, incluído em cada deploy na Cloudflare. Em **Integrações → Ferramentas do Wabotia no Hermes Agent (MCP)**, crie a aplicação e a chave e cole o bloco `mcp_servers` no `config.yaml` do perfil Hermes. O agente passa a consultar e responder conversas, abrir protocolos, usar a agenda e executar bots com as permissões da chave. [Detalhes e lista de ferramentas](docs/API.md#mcp-para-o-hermes-agent).
+
 Para Hermes privado: `node scripts/connect-hermes.mjs` gera as instruções e configuração de Cloudflare Tunnel protegido por Access, para Linux, WSL2 e macOS. HTTPS público autenticado também é aceito.
 
 Também é possível usar **Conexões → Preparar Hermes na Cloudflare**. Após ligar as APIs locais e autorizar um token Cloudflare em **Sistema e atualizações**, o painel cria Access, túnel e DNS e entrega um instalador privado para o conector. Veja [pré-requisitos, etapas e recuperação](docs/HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel).

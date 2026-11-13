@@ -63,6 +63,7 @@ import {
 import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
+import { mountMcp, takeInternalActor } from "./mcp";
 import { buildInfo } from "./build-info.generated";
 import {
   listContacts,
@@ -339,9 +340,14 @@ app.post("/api/auth/mobile/login", async (c) => {
   return c.json({ ...session, user: mobileUser(user) });
 });
 app.use("/api/v1/*", async (c, next) => {
-  c.set("actor", await authenticate(c.env, c.req.raw));
+  // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
+  c.set(
+    "actor",
+    takeInternalActor(c.req.raw) || (await authenticate(c.env, c.req.raw)),
+  );
   await next();
 });
+mountMcp(app);
 const mobileToken = (c: any) => {
   const bearer = c.req.header("Authorization")?.match(/^Bearer (.+)$/)?.[1];
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;

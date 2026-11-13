@@ -392,8 +392,52 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           </p>
         </div>
       </details>
+      <details id="hermes-mcp">
+        <summary>
+          6. Dar ao Hermes as ferramentas do Wabotia (servidor MCP)
+        </summary>
+        <div className="guide-detail">
+          <p>
+            Cada instalação publica um servidor MCP em{" "}
+            <code>https://SUA_INSTALACAO/api/mcp</code>, junto com o painel, a
+            cada deploy na Cloudflare. Com ele, o Hermes Agent consulta e
+            responde conversas, abre protocolos, usa a agenda e executa bots
+            como ferramentas nativas, sem plugin ou instalação extra.
+          </p>
+          <ol>
+            <li>
+              No painel, abra <strong>Integrações</strong> e, no cartão{" "}
+              <strong>Ferramentas do Wabotia no Hermes Agent (MCP)</strong>,
+              clique em <strong>Criar aplicação e chave para o Hermes</strong>.
+              A chave aparece uma única vez.
+            </li>
+            <li>
+              Na máquina do Hermes, guarde a linha{" "}
+              <code>WABOTIA_MCP_KEY=…</code> em <code>~/.hermes/.env</code> (ou
+              no <code>.env</code> do perfil usado) e cole o bloco{" "}
+              <code>mcp_servers</code> exibido no <code>config.yaml</code>.
+            </li>
+            <li>
+              Confira com <code>hermes mcp test wabotia</code> ou{" "}
+              <code>/reload-mcp</code> em uma sessão aberta.
+            </li>
+          </ol>
+          <p>
+            As ferramentas respeitam as permissões da chave; revogue-a em{" "}
+            <strong>Integrações</strong> para cortar o acesso. Detalhes em{" "}
+            <a
+              href="https://github.com/Quevenapp/Wabotia/blob/main/docs/API.md#mcp-para-o-hermes-agent"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              MCP para o Hermes Agent ↗
+            </a>
+            .
+          </p>
+        </div>
+      </details>
       <details>
-        <summary>6. Parou de funcionar? Como religar a API e o túnel</summary>
+        <summary>7. Parou de funcionar? Como religar a API e o túnel</summary>
         <div className="guide-detail">
           <p>No Ubuntu nativo com os serviços deste guia:</p>
           <pre>
