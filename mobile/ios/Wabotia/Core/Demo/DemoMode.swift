@@ -69,7 +69,6 @@ enum DemoMode {
         } else {
             store.profileId = profileId
         }
-        if launchScreen == "ringing" { DemoServer.shared.addRingingCall() }
         if launchScreen == "offline" { DemoServer.shared.simulateOffline = true }
     }
 
@@ -112,7 +111,7 @@ enum DemoMode {
         pendingScreen = nil
         var launch = Launch()
         switch screen {
-        case "conversations", "ringing", "offline": break
+        case "conversations", "offline": break
         case "presence": launch.sheet = "presence"
         case "search": launch.sheet = "search"
         case "queue": launch.sheet = "filter-queue"
@@ -154,8 +153,6 @@ enum DemoMode {
         case "internal": launch.tab = "team"; launch.route = .internalChat(peer: TeamContact(id: "u_ana", kind: "user", name: "Ana Souza", online: true), chatId: "ic_ana")
         case "bot": launch.tab = "team"; launch.route = .bot(id: "b_vendas", conversationId: nil)
         case "calls": launch.tab = "calls"
-        case "call": launch.tab = "calls"; launch.route = .call(conversationId: "c_rich", callId: nil)
-        case "call-incoming": launch.tab = "calls"; launch.route = .call(conversationId: "c_queue", callId: DemoServer.shared.addRingingCall())
         case "settings": launch.tab = "settings"
         case "lines": launch.tab = "settings"; launch.route = .lines
         case "menus": launch.tab = "settings"; launch.route = .menus

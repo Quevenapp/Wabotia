@@ -19,7 +19,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import br.com.queven.wabotia.BuildConfig
-import br.com.queven.wabotia.calls.CallScreen
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.DebugHooks
 import br.com.queven.wabotia.ui.auth.LoginScreen
@@ -93,8 +92,8 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             container.onProfileSelected(link.profileId)
         }
         when (link.type) {
-            "call" -> link.conversationId?.let { nav.navigate(Routes.call(it, link.callId)) }
             "ticket", "ticket_due" -> link.ticketId?.let { nav.navigate(Routes.ticket(it)) }
+            // Demais tipos (inclusive "call": o app só mostra o histórico de ligações) abrem a conversa.
             else -> link.conversationId?.let { nav.navigate(Routes.conversation(it)) }
         }
         onDeepLinkConsumed()
@@ -135,7 +134,6 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openBot = { nav.navigate(Routes.botChat(it)) },
                 openBotRuns = { nav.navigate(Routes.BOT_RUNS) },
                 openInternalChat = { nav.navigate(Routes.internalChat(it)) },
-                openCall = { conversationId, callId -> nav.navigate(Routes.call(conversationId, callId)) },
                 openLines = { nav.navigate(Routes.LINES) },
                 openMenus = { nav.navigate(Routes.MENUS) },
                 openBotLines = { nav.navigate(Routes.BOT_LINES) },
@@ -170,7 +168,6 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openInfo = { nav.navigate(Routes.conversationInfo(id)) },
                 openTicket = { nav.navigate(Routes.ticket(it)) },
                 openBot = { botId -> nav.navigate(Routes.botChat(botId, id)) },
-                openCall = { callId -> nav.navigate(Routes.call(id, callId)) },
             )
         }
         composable(Routes.CONVERSATION_INFO, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
@@ -182,7 +179,6 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openTicket = { nav.navigate(Routes.ticket(it)) },
                 newTicket = { nav.navigate(Routes.ticketNew(id)) },
                 openBot = { botId -> nav.navigate(Routes.botChat(botId, id)) },
-                openCall = { nav.navigate(Routes.call(id)) },
                 openTransfer = {
                     // Volta para a conversa (ou abre uma) com a folha "Encaminhar atendimento".
                     nav.navigate(Routes.conversation(id, "transfer")) { popUpTo(Routes.HOME) }
@@ -200,12 +196,6 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             arguments = listOf(navArgument("botId") { type = NavType.StringType }, navArgument("conversationId") { type = NavType.StringType; nullable = true; defaultValue = null }),
         ) { entry ->
             BotChatScreen(container, entry.arguments?.getString("botId") ?: return@composable, entry.arguments?.getString("conversationId"), onBack = { nav.popBackStack() })
-        }
-        composable(
-            Routes.CALL,
-            arguments = listOf(navArgument("conversationId") { type = NavType.StringType }, navArgument("callId") { type = NavType.StringType; nullable = true; defaultValue = null }),
-        ) { entry ->
-            CallScreen(container, entry.arguments?.getString("conversationId") ?: return@composable, entry.arguments?.getString("callId"), onClose = { nav.popBackStack() })
         }
     }
 }

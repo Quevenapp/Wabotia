@@ -139,12 +139,6 @@ struct ConversationView: View {
             .accessibilityLabel("\(vm.displayName). Abrir dados da conversa")
 
             if let c = vm.conversation {
-                if vm.can("calls"), !c.isGroup {
-                    headerIcon("phone", "Ligar") {
-                        if vm.isOwned { push(.call(conversationId: conversationId, callId: nil)) }
-                        else { workspace.show("Assuma a conversa para ligar") }
-                    }
-                }
                 headerIcon("arrowshape.turn.up.right", "Transferir") {
                     if vm.canTransfer { transferTab = .people }
                     else { workspace.show(c.state == "closed" ? "Reabra a conversa para transferir" : "Assuma a conversa para transferir") }

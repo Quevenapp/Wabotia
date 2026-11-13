@@ -63,6 +63,7 @@ export function SitePage({
           <div className="site-footer-inner">
             <Logo size={26} />
             <span>MIT · Quevenapp</span>
+            <a href="/privacidade">Privacidade</a>
             <a href="https://github.com/Quevenapp/Wabotia">
               Código no GitHub <ArrowUpRight size={14} />
             </a>

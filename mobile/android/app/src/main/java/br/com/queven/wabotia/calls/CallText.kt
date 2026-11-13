@@ -6,7 +6,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-/** Textos e formatações compartilhados pelas telas de ligação (mesmos rótulos do painel web). */
+/** Textos e formatações do histórico de ligações (mesmos rótulos do painel web). */
 object CallText {
     fun status(status: String): String = when (status) {
         "ringing" -> "Recebendo ligação"
@@ -26,10 +26,6 @@ object CallText {
 
     /** Estado final (encerrada, não atendida, recusada ou falhou). */
     fun isFinal(status: String): Boolean = status in setOf("completed", "missed", "rejected", "failed")
-
-    /** Ligação recebida tocando que esta pessoa pode atender (ninguém assumiu, ou fui eu). */
-    fun isRingingFor(call: Call, meId: String?): Boolean =
-        call.direction == "inbound" && call.status == "ringing" && (call.actor.isNullOrBlank() || call.actor == meId)
 
     /** Duração em segundos → "0:42", "12:05", "1:03:20". */
     fun duration(seconds: Long): String {

@@ -2,6 +2,7 @@ package br.com.queven.wabotia.core.media
 
 import br.com.queven.wabotia.core.AppContainer
 import coil.ImageLoader
+import coil.annotation.ExperimentalCoilApi
 import coil.decode.VideoFrameDecoder
 
 /**
@@ -31,6 +32,20 @@ object AuthenticatedMedia {
             loaderServer = server
             return built
         }
+    }
+
+    /** Saída da conta: descarta o carregador e apaga as miniaturas guardadas em memória e em disco. */
+    @OptIn(ExperimentalCoilApi::class)
+    fun clear() {
+        val current = synchronized(this) {
+            loader.also {
+                loader = null
+                loaderServer = null
+            }
+        } ?: return
+        current.memoryCache?.clear()
+        runCatching { current.diskCache?.clear() }
+        current.shutdown()
     }
 
     /** URL absoluta do conteúdo de um anexo (use sempre com o cliente autenticado). */

@@ -271,9 +271,6 @@ struct ConversationInfoView: View {
 
     private func actionsCard(_ c: Conversation) -> some View {
         SectionCard(title: "Ações") {
-            if vm.can("calls"), !c.isGroup {
-                actionRow("Ligar", "phone.fill", Theme.ok, disabled: !vm.isOwned) { push(.call(conversationId: conversationId, callId: nil)) }
-            }
             if !c.isGroup {
                 if vm.hasLinkedContact {
                     CardRow(icon: "person.crop.circle.badge.checkmark", iconColor: Theme.muted, title: "Contato salvo", subtitle: "Edição e desvínculo ficam no painel")

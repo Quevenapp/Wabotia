@@ -26,7 +26,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.Shortcut
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -93,7 +92,7 @@ import coil.compose.AsyncImage
 
 /**
  * Dados da conversa (DESIGN.md §7): contato, linha, anel grande da janela, estado e responsável, etiquetas, protocolos
- * desta conversa, mídia compartilhada e ações (ligar, salvar contato, consultar bot, pesquisa, devolver ao bot, concluir).
+ * desta conversa, mídia compartilhada e ações (salvar contato, consultar bot, pesquisa, devolver ao bot, concluir).
  */
 @Composable
 fun ConversationInfoScreen(
@@ -103,7 +102,6 @@ fun ConversationInfoScreen(
     openTicket: (String) -> Unit,
     newTicket: () -> Unit,
     openBot: (botId: String) -> Unit,
-    openCall: () -> Unit,
     openTransfer: () -> Unit,
 ) {
     val vm: ConversationViewModel = viewModel(key = "conversation-info:$conversationId") { ConversationViewModel(container, conversationId) }
@@ -335,10 +333,6 @@ fun ConversationInfoScreen(
                             fun divider() {
                                 if (!first) RowDivider()
                                 first = false
-                            }
-                            if (detail.can("calls") && !conversation.isGroup) {
-                                divider()
-                                SettingsRow(Icons.Filled.Call, "Ligar", subtitle = "Ligação de voz pelo WhatsApp", tint = c.ok, onClick = openCall)
                             }
                             if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) {
                                 divider()

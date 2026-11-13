@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -43,13 +44,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             WabotiaTheme {
                 val nav = rememberNavController()
+                val auth by container.auth.collectAsState()
                 LaunchedEffect(Unit) {
                     val demo = container.session.serverUrl == DebugHooks.DEMO_SERVER
-                    // Na demonstração não há servidor real: nada de pedir permissão nem registrar o aparelho.
+                    // Na demonstração não há servidor real: nada de registrar o aparelho.
                     if (!demo) {
-                        requestNotificationPermission()
                         PushRegistrar.registerIfNeeded(container)
                         SessionRefresher.refreshInBackground(container)
+                    }
+                }
+                // A permissão de notificações só é pedida depois do login, na primeira vez em que a tela inicial
+                // aparece (nunca na demonstração). Depois disso a pessoa ajusta em Ajustes > Notificações.
+                val home = auth.isLoggedIn && auth.profileId != null && auth.serverUrl != DebugHooks.DEMO_SERVER
+                LaunchedEffect(home) {
+                    if (home && !container.session.notificationPermissionAsked) {
+                        container.session.notificationPermissionAsked = true
+                        requestNotificationPermission()
                     }
                 }
                 AppNavHost(container, nav, pendingLink) { pendingLink = null }
@@ -69,10 +79,7 @@ class MainActivity : ComponentActivity() {
             val container = (application as WabotiaApp).container
             if (link.demoScreen == "signout") {
                 // `--es demo signout`: sai da demonstração e volta à tela inicial normal (Servidor), sem tocar em sessão real.
-                if (container.session.serverUrl == DebugHooks.DEMO_SERVER) {
-                    getSharedPreferences("wabotia.cache", MODE_PRIVATE).edit().clear().apply()
-                    container.onLoggedOut(keepServer = false)
-                }
+                if (container.session.serverUrl == DebugHooks.DEMO_SERVER) container.onLoggedOut(keepServer = false)
                 return null
             }
             if (!DebugHooks.signInDemo(container)) return null

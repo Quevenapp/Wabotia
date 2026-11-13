@@ -14,24 +14,26 @@ settings:
     SWIFT_STRICT_CONCURRENCY: minimal
     DEVELOPMENT_TEAM: A6AXA7CBU3
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "0.14.0"
-    CURRENT_PROJECT_VERSION: "4"
+    MARKETING_VERSION: "0.17.0"
+    CURRENT_PROJECT_VERSION: "5"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: "11.6.0"
-  WebRTC:
-    url: https://github.com/stasel/WebRTC
-    from: "125.0.0"
 targets:
   Wabotia:
     type: application
     platform: iOS
+    # A pasta inteira entra como fonte; o XcodeGen separa código e recursos (Assets.xcassets e, quando
+    # existir, Resources/GoogleService-Info.plist). O manifesto de privacidade é declarado à parte para
+    # ir sempre para "Copy Bundle Resources", qualquer que seja a versão do XcodeGen.
     sources:
       - path: Wabotia
-    resources:
-      - path: Wabotia/Resources
+        excludes:
+          - "Resources/PrivacyInfo.xcprivacy"
+      - path: Wabotia/Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     info:
       path: Wabotia/Info.plist
       properties:
@@ -43,16 +45,15 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        UIBackgroundModes: [remote-notification, audio]
-        NSMicrophoneUsageDescription: "O microfone é usado para gravar mensagens de voz e para ligações de voz pelo WhatsApp."
+        UIBackgroundModes: [remote-notification]
+        NSMicrophoneUsageDescription: "O microfone é usado para gravar mensagens de voz."
         NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente."
         NSPhotoLibraryUsageDescription: "A galeria é usada para escolher fotos e vídeos para enviar ao cliente."
+        NSPhotoLibraryAddUsageDescription: "A galeria é usada para salvar fotos e vídeos recebidos quando você escolhe salvar."
         NSLocationWhenInUseUsageDescription: "A localização é usada apenas quando você escolhe compartilhá-la com o cliente."
-        NSContactsUsageDescription: "Os contatos são usados apenas quando você escolhe compartilhar um cartão de contato."
+        NSContactsUsageDescription: "Os contatos são usados apenas quando você escolhe compartilhar um cartão de contato ou salvar um contato recebido."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-        LSApplicationQueriesSchemes: [https]
         CFBundleURLTypes:
           - CFBundleURLName: br.com.queven.wabotia
             CFBundleURLSchemes: [wabotia]
@@ -61,20 +62,23 @@ targets:
     entitlements:
       path: Wabotia/Wabotia.entitlements
       properties:
-        aps-environment: development
+        # Um só arquivo de entitlements; o Xcode troca $(APS_ENVIRONMENT) ao assinar (ver settings.configs).
+        aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: br.com.queven.wabotia
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         OTHER_LDFLAGS: ["-ObjC"]
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
     dependencies:
       - package: Firebase
         product: FirebaseMessaging
-      - package: WebRTC
-        product: WebRTC
-      - sdk: CallKit.framework
       - sdk: AVFoundation.framework
   WabotiaTests:
     type: bundle.unit-test

@@ -1012,14 +1012,20 @@ function PushSection({ api, demo }: { api: Api; demo: boolean }) {
               disabled={!!action.busy || !config || config.mode === "off"}
               onClick={() =>
                 action.run("Enviando notificação de teste…", async () => {
-                  const result: { sent: number; devices: number } = await api(
+                  const result: { results?: { status?: string }[] } = await api(
                     "v1/system/push/test",
                     "POST",
                     {},
                     AbortSignal.timeout(45000),
                   );
-                  const devices = Number(result?.devices ?? 0),
-                    sent = Number(result?.sent ?? 0);
+                  // O servidor responde {results:[{status}]}, um por dispositivo.
+                  const results: { status?: string }[] = Array.isArray(
+                      result?.results,
+                    )
+                      ? result.results
+                      : [],
+                    devices = results.length,
+                    sent = results.filter((r) => r.status === "ok").length;
                   action.setMessage(
                     devices === 0
                       ? "Nenhum dispositivo registrado para a sua conta. Entre no aplicativo neste servidor e repita o teste."

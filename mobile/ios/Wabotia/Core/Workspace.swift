@@ -102,7 +102,6 @@ final class Workspace: ObservableObject {
     @Published private(set) var team: [TeamContact] = []
     @Published private(set) var presence: [PresenceEntry] = []
     @Published private(set) var profiles: [Profile] = []
-    @Published private(set) var ringing: [Call] = []
     @Published private(set) var ticketCounts = TicketCounts()
     @Published private(set) var loadedOnce = false
 
@@ -271,7 +270,6 @@ final class Workspace: ObservableObject {
         status = nil
         team = []
         presence = []
-        ringing = []
         ticketCounts = TicketCounts()
         previews = [:]
         unread = [:]
@@ -292,7 +290,7 @@ final class Workspace: ObservableObject {
         #endif
     }
 
-    /// Recarrega linhas, setores, equipe, presença, ligações tocando e contadores de protocolo.
+    /// Recarrega linhas, setores, equipe, presença e contadores de protocolo.
     func refresh() {
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in await self?.refreshNow() }
@@ -312,7 +310,6 @@ final class Workspace: ObservableObject {
         if let pr, pendingPresence == nil { presence = pr }
         if let profs { profiles = profs }
         loadedOnce = true
-        await refreshRinging()
         await refreshTicketCounts()
     }
 
@@ -335,17 +332,6 @@ final class Workspace: ObservableObject {
         if p != container.profileId { return }
         if let t { team = t }
         if let pr, pendingPresence == nil { presence = pr }
-    }
-
-    func refreshRinging() async {
-        guard let p = container.profileId else { return }
-        do {
-            let page = try await container.api.calls(p, limit: 30)
-            let me = meId
-            ringing = page.data.filter { $0.status == "ringing" && $0.direction != "outbound" && ($0.actor == nil || $0.actor?.isEmpty == true || $0.actor == me) }
-        } catch {
-            // Sem permissão de ligações ou canal sem chamadas: o cartão simplesmente não aparece.
-        }
     }
 
     func refreshTicketCounts() async {
@@ -417,7 +403,6 @@ final class Workspace: ObservableObject {
     private func handle(_ list: [Event]) {
         var needsCounts = false
         var needsTickets = false
-        var needsCalls = false
         for event in list {
             switch event.kind {
             case "message.received":
@@ -450,13 +435,11 @@ final class Workspace: ObservableObject {
                 }
             default:
                 if event.kind.hasPrefix("ticket.") { needsTickets = true }
-                if event.isCallRelated { needsCalls = true }
             }
         }
         saveCache()
         if needsCounts { refreshCounts() }
         if needsTickets { Task { await refreshTicketCounts() } }
-        if needsCalls { Task { await refreshRinging() } }
         events.send(list)
     }
 

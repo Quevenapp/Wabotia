@@ -1,6 +1,12 @@
 import Foundation
 import Combine
 
+/// Endereços públicos fixos do app.
+enum AppLinks {
+    /// Política de privacidade (Ajustes e primeira tela).
+    static let privacyPolicy = URL(string: "https://wabotia.queven.app/privacidade")!
+}
+
 /// Dependências compartilhadas e estado de autenticação observável.
 /// O servidor é escolhido pela pessoa na primeira tela; o cliente é recriado quando o endereço muda.
 @MainActor
@@ -15,8 +21,6 @@ final class AppContainer: ObservableObject {
     }
     /// Destino pendente vindo de notificação/deep link; consumido pela HomeView.
     @Published var pendingLink: DeepLink?
-    /// Ligação recebida anunciada por push enquanto o app está aberto.
-    @Published var incomingCall: DeepLink?
 
     private var client: APIClient?
 
@@ -65,7 +69,11 @@ final class AppContainer: ObservableObject {
     }
 
     func onLoggedOut(keepServer: Bool) {
+        // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
+        Workspace.shared.reset()
         session.clearSession(keepServer: keepServer)
+        // Anexos em memória (os arquivos em disco já foram removidos por `clearSession`).
+        Task { await MediaLoader.shared.clear() }
         client = nil
         user = nil
         profileId = nil

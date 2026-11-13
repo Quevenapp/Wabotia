@@ -13,11 +13,8 @@ import FirebaseMessaging
 /// de push e, portanto, nenhum registro no servidor (`registeredPushToken` fica nulo e a tela Mais explica o motivo).
 final class PushManager: NSObject {
     static let shared = PushManager()
-    static let callCategory = "CALL"
     static let messageCategory = "MESSAGE"
     static let ticketCategory = "TICKET"
-    static let answerAction = "ANSWER"
-    static let declineAction = "DECLINE"
 
     /// Tempo máximo esperando o token FCM antes de seguir sem push (evita travar o registro).
     private static let tokenTimeout: Double = 10
@@ -46,12 +43,9 @@ final class PushManager: NSObject {
     }
 
     func registerCategories() {
-        let answer = UNNotificationAction(identifier: Self.answerAction, title: "Atender", options: [.foreground])
-        let decline = UNNotificationAction(identifier: Self.declineAction, title: "Recusar", options: [.destructive])
-        let call = UNNotificationCategory(identifier: Self.callCategory, actions: [answer, decline], intentIdentifiers: [], options: [])
         let message = UNNotificationCategory(identifier: Self.messageCategory, actions: [], intentIdentifiers: [], options: [])
         let ticket = UNNotificationCategory(identifier: Self.ticketCategory, actions: [], intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([call, message, ticket])
+        UNUserNotificationCenter.current().setNotificationCategories([message, ticket])
     }
 
     /// Pede permissão de notificações ao sistema e registra no APNs. Devolve se foi concedida.
@@ -155,32 +149,13 @@ final class PushManager: NSObject {
         if foreground, let conversation = link.conversationId, conversation == visibleConversationId {
             clearNotifications(conversationId: conversation)
         }
-        guard link.type == "call", link.callId != nil else { return }
-        let server = userInfo["server"] as? String
-        Task { @MainActor in
-            // Ignora pushes de outro servidor (o app guarda um servidor por vez).
-            if let server, !server.isEmpty,
-               let current = AppContainer.shared.session.serverURL?.absoluteString,
-               server.lowercased() != current.lowercased() { return }
-            AppContainer.shared.incomingCall = link
-        }
     }
 
+    /// Toque na notificação: abre o destino. Avisos de ligação abrem a conversa, como qualquer outro.
     func didRespond(action: String, userInfo: [AnyHashable: Any]) {
         guard let link = DeepLink(userInfo: userInfo) else { return }
         if link.type == "test" { return }
-        if action == Self.declineAction, let profile = link.profileId, let callId = link.callId {
-            Task {
-                let api = await AppContainer.shared.api
-                _ = try? await api.claimCall(profile, id: callId)
-                _ = try? await api.rejectCall(profile, id: callId)
-            }
-            return
-        }
-        let answering = action == Self.answerAction && link.type == "call" && link.callId != nil
         Task { @MainActor in
-            // Ação "Atender" da notificação: a CallView consome a marca e inicia o atendimento sozinha.
-            if answering { CallIntents.answerCallId = link.callId }
             AppContainer.shared.handle(deepLink: link)
         }
     }

@@ -5,8 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -18,7 +16,8 @@ import kotlinx.serialization.builtins.serializer
 
 /**
  * Canais e montagem das notificações. O payload `data` do push segue docs/MOBILE.md:
- * type (message|queue|transfer|ticket|ticket_due|call|test), profile_id, conversation_id, ticket_id, call_id, server.
+ * type (message|queue|transfer|ticket|ticket_due|call|test), profile_id, conversation_id, ticket_id, server.
+ * O app não atende ligações: um push `call` vira um aviso comum que abre a conversa.
  *
  * Agrupamento: uma notificação por conversa (tag `conversation:{id}`) que acumula as últimas mensagens em
  * estilo caixa de entrada; uma por protocolo (`ticket:{id}`); um resumo por grupo (conversas / protocolos)
@@ -29,9 +28,9 @@ object Notifications {
     const val CHANNEL_MESSAGES = "messages"
     const val CHANNEL_QUEUE = "queue"
     const val CHANNEL_TICKETS = "tickets"
-    const val CHANNEL_CALLS = "calls"
-    const val CHANNEL_CALL_SERVICE = "call_service"
-    const val INCOMING_CALL_ID = 9001
+
+    /** Canais de versões antigas (ligações ao vivo), removidos ao abrir o app. */
+    private val LEGACY_CHANNELS = listOf("calls", "call_service")
 
     /** Id usado por todas as notificações individuais (a distinção é feita pela tag). */
     const val ITEM_ID = 1
@@ -55,26 +54,18 @@ object Notifications {
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        fun channel(id: String, name: Int, desc: Int, importance: Int, sound: Uri? = null, vibrate: Boolean = true, badge: Boolean = true) =
+        fun channel(id: String, name: Int, desc: Int, importance: Int) =
             NotificationChannel(id, context.getString(name), importance).apply {
                 description = context.getString(desc)
-                enableVibration(vibrate)
-                setShowBadge(badge)
-                if (sound != null) setSound(
-                    sound,
-                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build(),
-                )
+                enableVibration(true)
+                setShowBadge(true)
             }
+        LEGACY_CHANNELS.forEach { runCatching { manager.deleteNotificationChannel(it) } }
         manager.createNotificationChannels(
             listOf(
                 channel(CHANNEL_MESSAGES, R.string.channel_messages, R.string.channel_messages_desc, NotificationManager.IMPORTANCE_HIGH),
                 channel(CHANNEL_QUEUE, R.string.channel_queue, R.string.channel_queue_desc, NotificationManager.IMPORTANCE_HIGH),
                 channel(CHANNEL_TICKETS, R.string.channel_tickets, R.string.channel_tickets_desc, NotificationManager.IMPORTANCE_DEFAULT),
-                channel(
-                    CHANNEL_CALLS, R.string.channel_calls, R.string.channel_calls_desc, NotificationManager.IMPORTANCE_HIGH,
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
-                ),
-                channel(CHANNEL_CALL_SERVICE, R.string.channel_call_service, R.string.channel_call_service, NotificationManager.IMPORTANCE_LOW, vibrate = false, badge = false),
             ),
         )
     }
@@ -85,7 +76,6 @@ object Notifications {
             data["profile_id"]?.let { appendQueryParameter("profile", it) }
             data["conversation_id"]?.let { appendQueryParameter("conversation", it) }
             data["ticket_id"]?.let { appendQueryParameter("ticket", it) }
-            data["call_id"]?.let { appendQueryParameter("call", it) }
         }.build()
         return Intent(Intent.ACTION_VIEW, uri, context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
@@ -96,25 +86,24 @@ object Notifications {
     fun channelFor(type: String): String = when (type) {
         "queue", "transfer" -> CHANNEL_QUEUE
         "ticket", "ticket_due" -> CHANNEL_TICKETS
-        "call" -> CHANNEL_CALLS
         else -> CHANNEL_MESSAGES
     }
 
     fun groupFor(type: String): String = when (type) {
-        "message", "queue", "transfer" -> GROUP_CONVERSATIONS
+        "message", "queue", "transfer", "call" -> GROUP_CONVERSATIONS
         "ticket", "ticket_due" -> GROUP_TICKETS
         else -> GROUP_OTHER
     }
 
-    /** Monta e exibe a notificação de um push. Ligações têm tratamento próprio (tela cheia, Atender/Recusar). */
+    /**
+     * Monta e exibe a notificação de um push. Ligação (`call`) é um aviso comum da conversa, sem toque de chamada nem
+     * tela cheia; sem `conversation_id` não há o que abrir e o aviso é descartado.
+     */
     fun show(context: Context, title: String, body: String, data: Map<String, String>) {
         val type = data["type"] ?: "message"
-        if (type == "call") {
-            showIncomingCall(context, title, body, data)
-            return
-        }
         val conversationId = data["conversation_id"]?.takeIf { it.isNotBlank() }
         val ticketId = data["ticket_id"]?.takeIf { it.isNotBlank() }
+        if (type == "call" && conversationId == null) return
         if (conversationId != null && conversationId == visibleConversationId) return
 
         val channel = channelFor(type)
@@ -152,33 +141,6 @@ object Notifications {
         }
         notifySafely(context, tag, ITEM_ID, builder.build())
         updateSummary(context, group)
-    }
-
-    private fun showIncomingCall(context: Context, title: String, body: String, data: Map<String, String>) {
-        val tag = data["call_id"] ?: "call"
-        val pending = PendingIntent.getActivity(
-            context, tag.hashCode(), openIntent(context, data),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val builder = NotificationCompat.Builder(context, CHANNEL_CALLS)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title.ifBlank { context.getString(R.string.notification_call_incoming) })
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(pending)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setFullScreenIntent(pending, true)
-            .setOngoing(true)
-            .setTimeoutAfter(90_000)
-            .addAction(0, context.getString(R.string.action_answer), pending)
-            .addAction(0, context.getString(R.string.action_decline), NotificationActionReceiver.declineIntent(context, data))
-        notifySafely(context, tag, INCOMING_CALL_ID, builder.build())
-    }
-
-    fun cancelIncomingCall(context: Context, callId: String?) {
-        NotificationManagerCompat.from(context).cancel(callId ?: "call", INCOMING_CALL_ID)
     }
 
     /** Chamado pela tela de conversa ao abrir: remove a notificação daquela conversa e atualiza o resumo/badge. */

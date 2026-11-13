@@ -4,18 +4,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Camada monocromática (ícones temáticos): contorno do balão com o "W". -->
+    <!-- Camada monocromática (ícones temáticos): o mesmo "W" da marca. -->
     <path
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.2"
-        android:strokeLineJoin="round"
-        android:pathData="M54,28C40.7,28 30,38.3 30,51c0,4.7 1.5,9.1 4,12.8L31,76l12.7,-3.2C46.8,74.2 50.3,75 54,75c13.3,0 24,-10.7 24,-24S67.3,28 54,28z" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="4.2"
+        android:strokeWidth="7"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M43,43l5,17.5l6,-12.5l6,12.5l5,-17.5" />
+        android:pathData="M35,40l9,28l10,-22l10,22l9,-28" />
 </vector>

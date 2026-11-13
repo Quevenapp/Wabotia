@@ -43,7 +43,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.Shortcut
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
@@ -99,7 +98,6 @@ import br.com.queven.wabotia.core.model.Message
 import br.com.queven.wabotia.core.model.TeamContact
 import br.com.queven.wabotia.core.model.bool
 import br.com.queven.wabotia.core.model.string
-import br.com.queven.wabotia.core.push.IncomingCallBus
 import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.AvatarKind
@@ -107,7 +105,6 @@ import br.com.queven.wabotia.ui.components.ConnectionStrip
 import br.com.queven.wabotia.ui.components.CountBadge
 import br.com.queven.wabotia.ui.components.ErrorState
 import br.com.queven.wabotia.ui.components.EventPolling
-import br.com.queven.wabotia.ui.components.IncomingCallCard
 import br.com.queven.wabotia.ui.components.PrimaryButton
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WindowInfo
@@ -174,7 +171,6 @@ fun ConversationScreen(
     openInfo: () -> Unit,
     openTicket: (String) -> Unit,
     openBot: (botId: String) -> Unit,
-    openCall: (callId: String?) -> Unit,
 ) {
     val vm: ConversationViewModel = viewModel(key = "conversation:$conversationId") { ConversationViewModel(container, conversationId) }
     val profileId = container.session.profileId ?: ""
@@ -189,12 +185,10 @@ fun ConversationScreen(
         profileId = profileId,
         onStart = {
             vm.load(silent = true)
-            vm.refreshCalls()
             vm.loadPresence()
         },
         onEvents = { vm.onEvents(it) },
     )
-    LaunchedEffect(Unit) { IncomingCallBus.calls.collect { vm.refreshCalls() } }
 
     // Avisos desta conversa: limpa os existentes ao abrir e suprime novos enquanto ela estiver visível.
     LaunchedEffect(conversationId) { Notifications.cancelConversation(context, conversationId) }
@@ -250,11 +244,9 @@ fun ConversationScreen(
             conversation = conversation,
             subtitle = conversation?.stateSubtitle(vm.meId, team, now),
             meId = vm.meId,
-            canCall = detail?.can("calls") == true,
             canHandOff = canHandOff,
             onBack = onBack,
             onInfo = { if (detail != null) openInfo() },
-            onCall = { openCall(null) },
             onTransfer = { openTransfer(null) },
             menu = {
                 Box {
@@ -294,15 +286,6 @@ fun ConversationScreen(
             else -> {
                 if (window != null) WindowBanner(window, onClick = { sheet = ConversationSheet.Window })
                 if (conversation.isGroup) GroupStrip(detail, onChangePolicy = { sheet = ConversationSheet.Policy })
-                vm.ringing.forEach { call ->
-                    IncomingCallCard(
-                        name = conversation.displayName,
-                        seed = conversation.id,
-                        busy = vm.busy,
-                        onAnswer = { openCall(call.id) },
-                        onReject = { vm.rejectCall(call) },
-                    )
-                }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     MessagesList(
                         detail = detail,
@@ -449,11 +432,9 @@ private fun ChatTopBar(
     conversation: Conversation?,
     subtitle: String?,
     meId: String?,
-    canCall: Boolean,
     canHandOff: Boolean,
     onBack: () -> Unit,
     onInfo: () -> Unit,
-    onCall: () -> Unit,
     onTransfer: () -> Unit,
     menu: @Composable () -> Unit,
 ) {
@@ -494,9 +475,6 @@ private fun ChatTopBar(
                         Text(subtitle, color = c.textSecondary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-            }
-            if (canCall) {
-                IconButton(onClick = onCall, modifier = Modifier.size(44.dp)) { Icon(Icons.Filled.Call, contentDescription = "Ligar", tint = c.textPrimary) }
             }
             IconButton(onClick = onTransfer, modifier = Modifier.size(44.dp)) {
                 Icon(Icons.AutoMirrored.Filled.Shortcut, contentDescription = "Encaminhar atendimento", tint = if (canHandOff) c.brand else c.muted)

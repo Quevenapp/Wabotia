@@ -10,7 +10,7 @@ import org.junit.Test
 
 /**
  * WabotiaJson não envia campos iguais ao valor padrão. Estes testes fixam o corpo real das requisições em que
- * o servidor exige um campo que o app preenche por padrão (src/index.ts e src/calls.ts no servidor).
+ * o servidor exige um campo que o app preenche por padrão (src/index.ts no servidor).
  */
 class RequestEncodingTest {
     @Test fun loginSendsDevicePlatform() {
@@ -40,12 +40,6 @@ class RequestEncodingTest {
         ).parseJsonObject()
         assertEquals(JsonPrimitive(false), body["enabled"])
         assertEquals(JsonArray(listOf(JsonPrimitive("p1"))), body["profiles"])
-    }
-
-    @Test fun callReconcileSendsConfirmation() {
-        // src/calls.ts exige confirmed_ended === true.
-        val body = WabotiaJson.encodeToString(CallReconcile()).parseJsonObject()
-        assertEquals(JsonPrimitive(true), body["confirmed_ended"])
     }
 
     @Test fun optionalFieldsStayOutOfTheBody() {

@@ -50,6 +50,7 @@ struct AuthField<Field: View>: View {
 /// Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia.
 struct ServerView: View {
     @EnvironmentObject private var container: AppContainer
+    @Environment(\.openURL) private var openURL
     @State private var input = ""
     @State private var busy = false
     @State private var error: String?
@@ -71,6 +72,9 @@ struct ServerView: View {
             PrimaryButton(title: "Conectar", busy: busy, disabled: input.trimmingCharacters(in: .whitespaces).isEmpty, action: connect)
             Text("Cada empresa tem a própria instalação. Use o mesmo endereço do painel, por exemplo wabotia.suaempresa.com.br.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Button("Política de privacidade") { openURL(AppLinks.privacyPolicy) }
+                .font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
+                .frame(maxWidth: .infinity, minHeight: Theme.touch)
         }
         .onAppear {
             input = container.session.serverURL?.host ?? ""

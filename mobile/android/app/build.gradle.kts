@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,17 +13,36 @@ if (file("google-services.json").exists()) {
     apply(plugin = libs.plugins.google.services.get().pluginId)
 }
 
+// A assinatura de produção só é configurada quando existe mobile/android/keystore.properties
+// (storeFile, storePassword, keyAlias, keyPassword). Sem ele o release é montado sem assinatura.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) keystorePropertiesFile.inputStream().use { load(it) }
+}
+
 android {
     namespace = "br.com.queven.wabotia"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.queven.wabotia"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 5
-        versionName = "0.14.1"
+        targetSdk = 36
+        versionCode = 6
+        versionName = "0.17.0"
         vectorDrawables { useSupportLibrary = true }
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                // storeFile é relativo a mobile/android (ou um caminho absoluto).
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -29,6 +50,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
@@ -88,7 +110,6 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
-    implementation(libs.stream.webrtc)
     implementation(libs.play.services.location)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)

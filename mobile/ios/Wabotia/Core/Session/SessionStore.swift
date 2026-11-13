@@ -82,14 +82,39 @@ final class SessionStore {
     func eventCursor(profileId: String) -> Int64 { Int64(defaults.integer(forKey: "\(Keys.eventCursor).\(profileId)")) }
     func setEventCursor(_ cursor: Int64, profileId: String) { defaults.set(Int(cursor), forKey: "\(Keys.eventCursor).\(profileId)") }
 
+    /// Encerra a sessão sem deixar dados de clientes no aparelho: token, usuário, perfil, token de push,
+    /// caches `cache.*` (prévias de mensagens), cursores de eventos, anexos baixados e arquivos temporários.
+    /// Ficam só o endereço do servidor (se `keepServer`), o identificador da instalação (`device_id`, que
+    /// não é dado de cliente e faz o próximo login reaproveitar o mesmo registro em /devices/{id}) e as
+    /// preferências do aparelho (notificações, aparência).
     func clearSession(keepServer: Bool) {
         let server = serverURL
         token = nil
         tokenExpires = nil
         user = nil
         profileId = nil
+        pushToken = nil
         registeredPushToken = nil
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache.") || key.hasPrefix("\(Keys.eventCursor).") {
+            defaults.removeObject(forKey: key)
+        }
         serverURL = keepServer ? server : nil
+        Self.removeLocalFiles()
+    }
+
+    /// Apaga do disco o que o app baixou ou gerou: anexos em Caches/media, respostas HTTP em cache e tudo
+    /// o que estiver na pasta temporária (documentos abertos, anexos de bots, gravações de voz, vídeos convertidos).
+    static func removeLocalFiles() {
+        URLCache.shared.removeAllCachedResponses()
+        let files = FileManager.default
+        var folders = [files.temporaryDirectory]
+        if let caches = files.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            folders.append(caches.appendingPathComponent("media", isDirectory: true))
+        }
+        for folder in folders {
+            let items = (try? files.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            for item in items { try? files.removeItem(at: item) }
+        }
     }
 
     /// Normaliza o que a pessoa digitou: aceita "wabotia.exemplo.com.br", "https://…/app" etc.

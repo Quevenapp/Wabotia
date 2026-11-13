@@ -90,12 +90,6 @@ struct HomeView: View {
             #endif
         }
         .task { await container.refreshTokenIfNeeded() }
-        .fullScreenCover(item: $container.incomingCall) { link in
-            // Ligação recebida por push com o app aberto.
-            if let conversation = link.conversationId {
-                CallView(conversationId: conversation, callId: link.callId)
-            }
-        }
     }
 
     @ViewBuilder
@@ -109,7 +103,7 @@ struct HomeView: View {
         }
     }
 
-    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou recebidos (só os ativos contam), internas não lidas, ligações tocando.
+    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou recebidos (só os ativos contam), internas não lidas.
     private func badge(_ t: HomeTab) -> (count: Int, color: Color)? {
         switch t {
         case .conversations:
@@ -122,10 +116,7 @@ struct HomeView: View {
         case .team:
             let n = workspace.totalInternalUnread
             return n > 0 ? (n, Theme.accent) : nil
-        case .calls:
-            let n = workspace.ringing.count
-            return n > 0 ? (n, Theme.accent) : nil
-        case .settings:
+        case .calls, .settings:
             return nil
         }
     }
@@ -133,8 +124,10 @@ struct HomeView: View {
     private func open(_ link: DeepLink) {
         switch link.type {
         case "call":
-            tab = .calls
-            if let c = link.conversationId { router.open(.call(conversationId: c, callId: link.callId)) }
+            // O app não atende ligações: o aviso abre a conversa; sem conversa, é ignorado.
+            guard let c = link.conversationId else { return }
+            tab = .conversations
+            router.open(.conversation(id: c))
         case "ticket", "ticket_due":
             tab = .tickets
             if let t = link.ticketId { router.open(.ticket(id: t)) }

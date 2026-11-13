@@ -86,19 +86,8 @@ interface WabotiaApi {
     @GET("api/v1/bot-runs/{id}") suspend fun botRun(@Path("id") id: String): BotRun
     @POST("api/v1/profiles/{p}/bot-runs/{id}/cancel") suspend fun cancelBotRun(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): JsonObject
 
-    // --- ligações (Meta Calling API, sinalização WebRTC) ---
+    // --- ligações: somente o histórico (o servidor não aceita mais iniciar/atender) ---
     @GET("api/v1/profiles/{p}/calls") suspend fun calls(@Path("p") p: String, @Query("conversation_id") conversationId: String? = null, @Query("limit") limit: Int = 30, @Query("cursor") cursor: String? = null): Page<Call>
-    @GET("api/v1/profiles/{p}/calls/{id}") suspend fun call(@Path("p") p: String, @Path("id") id: String, @Query("session") session: String? = null): Call
-    @GET("api/v1/profiles/{p}/conversations/{id}/call-permission") suspend fun callPermission(@Path("p") p: String, @Path("id") id: String): JsonObject
-    @POST("api/v1/profiles/{p}/calls/permission") suspend fun requestCallPermission(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: CallPermissionRequest): CallActionResult
-    @POST("api/v1/profiles/{p}/calls") suspend fun startCall(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: CallStart): Call
-    @POST("api/v1/profiles/{p}/calls/{id}/claim") suspend fun claimCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): Call
-    @POST("api/v1/profiles/{p}/calls/{id}/pre_accept") suspend fun preAcceptCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: CallAccept): CallActionResult
-    @POST("api/v1/profiles/{p}/calls/{id}/accept") suspend fun acceptCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: CallAccept): CallActionResult
-    @POST("api/v1/profiles/{p}/calls/{id}/reject") suspend fun rejectCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): CallActionResult
-    @POST("api/v1/profiles/{p}/calls/{id}/terminate") suspend fun terminateCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): CallActionResult
-    @POST("api/v1/profiles/{p}/calls/{id}/keepalive") suspend fun keepaliveCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject = JsonObject(emptyMap())): JsonObject
-    @POST("api/v1/profiles/{p}/calls/{id}/reconcile") suspend fun reconcileCall(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: CallReconcile): CallActionResult
 
     // --- equipe, linhas e menus ---
     @GET("api/v1/profiles/{p}/team") suspend fun team(@Path("p") p: String): Page<TeamContact>

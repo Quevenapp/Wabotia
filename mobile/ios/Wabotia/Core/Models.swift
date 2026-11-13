@@ -308,7 +308,7 @@ struct PresenceResult: Codable { var actor: String? ; var present: Bool? }
 struct Event: Codable, Identifiable, Equatable { var id: Int64; var profile_id: String? = ""; var kind: String = ""; var resource_id: String?; var payload: JSONValue?; var created: Int64? = 0 }
 struct Events: Codable { var data: [Event] = []; var cursor: Int64 = 0 }
 
-struct CallSession: Codable, Equatable { var sdp_type: String; var sdp: String }
+/// Registro do histórico de ligações (GET /calls). O app só lista; não inicia nem atende ligações.
 struct Call: Codable, Identifiable, Equatable {
     var id: String
     var conversation_id: String = ""
@@ -321,14 +321,7 @@ struct Call: Codable, Identifiable, Equatable {
     var duration: Int64?
     var created: Int64 = 0
     var updated: Int64? = 0
-    var session: CallSession?
-    var isLive: Bool { !["completed", "missed", "rejected", "failed"].contains(status) }
 }
-struct CallStart: Codable { var conversation_id: String; var session: CallSession }
-struct CallAccept: Codable { var session: CallSession }
-struct CallPermissionRequest: Codable { var conversation_id: String }
-struct CallReconcile: Codable { var confirmed_ended = true }
-struct CallActionResult: Codable { var id: String?; var status: String?; var delivery_id: String? }
 
 struct DeviceRegistration: Codable {
     var platform = "ios"

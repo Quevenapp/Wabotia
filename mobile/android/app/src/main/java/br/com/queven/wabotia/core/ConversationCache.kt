@@ -145,10 +145,22 @@ class ConversationCache(private val container: AppContainer) {
         if (changed) persist()
     }
 
+    /** Esvazia só a memória (troca de perfil, demonstração); o arquivo em disco continua. */
+    @Synchronized
     fun clear() {
         previews.clear()
         unread.clear()
         loadedProfile = null
+    }
+
+    /**
+     * Saída da conta: esvazia a memória e apaga o arquivo `wabotia.cache` inteiro (prévias e não lidas de todos os
+     * perfis e também o `internal_seen.*` do [InternalChatTracker], que usa o mesmo arquivo).
+     */
+    @Synchronized
+    fun wipe() {
+        clear()
+        runCatching { prefs.edit().clear().commit() }
     }
 
     companion object {

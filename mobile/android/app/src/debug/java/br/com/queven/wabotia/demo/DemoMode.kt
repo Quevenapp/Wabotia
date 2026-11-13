@@ -92,11 +92,6 @@ object DemoMode {
             "calls" -> DemoDestination(tab = "calls")
             "settings" -> DemoDestination(tab = "settings")
             "presence" -> DemoDestination(tab = "conversations", sheet = "presence")
-            "ringing" -> {
-                DemoServer.ring()
-                DemoDestination(tab = "conversations")
-            }
-            "call" -> DemoDestination(route = "call/${Ids.C_RICH}")
             "lines" -> DemoDestination(route = "lines")
             "menus" -> DemoDestination(route = "menus")
             "bot-lines" -> DemoDestination(route = "bot-lines")

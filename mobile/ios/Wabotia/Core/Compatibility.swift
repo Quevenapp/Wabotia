@@ -181,7 +181,7 @@ private struct SheetConfigurator: UIViewControllerRepresentable {
 }
 
 /// Com a barra do sistema escondida, o gesto de voltar pela borda continua valendo.
-/// `SwipeBack.disabled` bloqueia o gesto (tela de ligação em andamento).
+/// `SwipeBack.disabled` bloqueia o gesto enquanto uma tela não puder ser abandonada.
 enum SwipeBack {
     static var disabled = false
 }

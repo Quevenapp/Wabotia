@@ -7,7 +7,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.ActionRequest
-import br.com.queven.wabotia.core.model.Call
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.Profile
@@ -54,18 +53,12 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         private set
     var error by mutableStateOf<String?>(null)
         private set
-    var ringing by mutableStateOf<List<Call>>(emptyList())
-        private set
-    var callNames by mutableStateOf<Map<String, String>>(emptyMap())
-        private set
     /** Pessoas e bots do perfil (`id` → contato), para "Com Ana" e "Bot Vendas". */
     var team by mutableStateOf<Map<String, TeamContact>>(emptyMap())
         private set
     var status by mutableStateOf<ProfileStatus?>(container.profileData.cached(container.session.profileId))
         private set
     var profiles by mutableStateOf<List<Profile>>(emptyList())
-        private set
-    var callBusy by mutableStateOf(false)
         private set
     /** Conversa com ação rápida em curso (assumir/concluir pela lista). */
     var actingOn by mutableStateOf<String?>(null)
@@ -225,46 +218,6 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
         container.onProfileSelected(id)
     }
 
-    /** Ligações tocando (`ringing`) sem responsável ou já minhas, para o cartão no topo. */
-    fun refreshCalls() {
-        viewModelScope.launch {
-            try {
-                val page = container.api.calls(profileId, limit = 30)
-                val live = page.data.filter { it.status == "ringing" && (it.actor.isNullOrBlank() || it.actor == meId) }
-                ringing = live
-                for (call in live) {
-                    if (callNames.containsKey(call.conversation_id)) continue
-                    val name = items.firstOrNull { it.id == call.conversation_id }?.displayName
-                        ?: runCatching { container.api.conversation(profileId, call.conversation_id).conversation.displayName }.getOrNull()
-                    if (name != null) callNames = callNames + (call.conversation_id to name)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // sem permissão de ligações ou sem rede: o cartão simplesmente não aparece
-            }
-        }
-    }
-
-    /** Recusar = claim + reject (mobile/README.md, Ligações). */
-    fun rejectCall(call: Call) {
-        if (callBusy) return
-        viewModelScope.launch {
-            callBusy = true
-            try {
-                container.api.claimCall(profileId, call.id, ApiClient.newIdempotencyKey())
-                container.api.rejectCall(profileId, call.id, ApiClient.newIdempotencyKey())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                error = container.handleError(e)
-            } finally {
-                callBusy = false
-            }
-            refreshCalls()
-        }
-    }
-
     // --- ações rápidas pela lista (deslizar e toque longo) ---
 
     fun claim(c: Conversation, onDone: () -> Unit = {}) = act(c, ActionRequest(action = "claim"), "Conversa assumida", onDone)
@@ -302,6 +255,5 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
             reloadSilently()
             loadSideData(force = true)
         }
-        if (events.any { it.kind.startsWith("call.") }) refreshCalls()
     }
 }

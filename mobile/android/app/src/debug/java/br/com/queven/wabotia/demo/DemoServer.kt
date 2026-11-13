@@ -107,24 +107,6 @@ internal object DemoServer {
 
     fun <T> withState(block: (DemoState) -> T): T = synchronized(lock) { block(state ?: reset()) }
 
-    /** Atalho `ringing`: coloca uma ligação recebida tocando (vira "não atendida" depois de 90 s). */
-    fun ring() = synchronized(lock) {
-        val s = state ?: reset()
-        val now = System.currentTimeMillis()
-        if (s.calls.any { it.str("id") == Ids.CALL_RINGING }) return@synchronized
-        s.addRingingCall(now)
-        s.emit("call.updated", Ids.CALL_RINGING, j("call_id" to Ids.CALL_RINGING, "conversation_id" to Ids.C_5H, "status" to "ringing"), now)
-        s.later(now + 90_000) { at ->
-            val call = s.calls.firstOrNull { it.str("id") == Ids.CALL_RINGING }
-            if (call != null && call.str("status") == "ringing") {
-                call.assign("status", "missed")
-                call.assign("ended", at)
-                call.assign("updated", at)
-                s.emit("call.updated", Ids.CALL_RINGING, j("call_id" to Ids.CALL_RINGING, "conversation_id" to Ids.C_5H, "status" to "missed"), at)
-            }
-        }
-    }
-
     fun handle(request: Request): Reply = synchronized(lock) {
         val s = state ?: reset()
         val now = System.currentTimeMillis()
@@ -259,7 +241,7 @@ internal object DemoServer {
                 }
                 ok(j("id" to r[1], "status" to run.str("status")))
             } else notFound()
-            "calls" -> calls(s, method, r.drop(1), request, now)
+            "calls" -> calls(s, method, r.drop(1), request)
             "team" -> ok(j("data" to team(s)))
             "lines" -> if (r.size == 1) {
                 ok(j("data" to s.lines.map { it.json() }, "next_cursor" to null))
@@ -409,15 +391,6 @@ internal object DemoServer {
             null -> ok(detail(s, c))
             "actions" -> action(s, c, bodyJson(request), now)
             "message-actions" -> messageAction(s, c, bodyJson(request), now)
-            "call-permission" -> ok(
-                j(
-                    "permission" to j("status" to "temporary", "expiration_time" to (now + 7 * DAY_MS) / 1000),
-                    "actions" to listOf(
-                        j("action_name" to "start_call", "can_perform_action" to true),
-                        j("action_name" to "send_call_permission_request", "can_perform_action" to false),
-                    ),
-                ),
-            )
             else -> notFound()
         }
     }
@@ -428,7 +401,7 @@ internal object DemoServer {
         return j(
             "image" to true, "video" to true, "audio" to true, "voice" to true, "document" to true, "sticker" to true,
             "location" to true, "contacts" to true, "reply" to true, "reaction" to true, "read" to true,
-            "calls" to !group, "edit" to zernio, "delete" to zernio, "mentions" to group, "groups" to group,
+            "calls" to false, "edit" to zernio, "delete" to zernio, "mentions" to group, "groups" to group,
         )
     }
 
@@ -915,101 +888,13 @@ internal object DemoServer {
     // Ligações
     // -----------------------------------------------------------------------------------------------------------
 
-    /** Oferta SDP só de áudio, sintaticamente válida, para a tela de ligação conseguir montar a resposta. */
-    private val demoOffer: String = listOf(
-        "v=0",
-        "o=- 4611731400430051336 2 IN IP4 127.0.0.1",
-        "s=-",
-        "t=0 0",
-        "a=group:BUNDLE 0",
-        "a=msid-semantic: WMS",
-        "m=audio 9 UDP/TLS/RTP/SAVPF 111",
-        "c=IN IP4 0.0.0.0",
-        "a=rtcp:9 IN IP4 0.0.0.0",
-        "a=ice-ufrag:dEmO",
-        "a=ice-pwd:demoWabotiaDemoWabotiaDemo00",
-        "a=ice-options:trickle",
-        "a=fingerprint:sha-256 4A:AD:B9:B1:3F:82:18:3B:54:02:12:DF:3E:5D:49:6B:19:E5:7C:AB:3A:4F:1D:9E:21:5C:77:0B:6A:9D:3C:11",
-        "a=setup:actpass",
-        "a=mid:0",
-        "a=sendrecv",
-        "a=rtcp-mux",
-        "a=rtpmap:111 opus/48000/2",
-        "a=fmtp:111 minptime=10;useinbandfec=1",
-        "",
-    ).joinToString("\r\n")
-
-    private fun calls(s: DemoState, method: String, r: List<String>, request: Request, now: Long): Reply = with(s) {
-        if (r.isEmpty()) {
-            if (method == "POST") {
-                val body = bodyJson(request)
-                val conversationId = body.str("conversation_id").orEmpty()
-                if (conversationId !in conversations) return invalid("Conversa não encontrada.")
-                val call = row(
-                    "id" to nextId("call-novo"), "conversation_id" to conversationId, "direction" to "outbound", "actor" to Ids.ME, "status" to "dialing",
-                    "error" to null, "started" to null, "ended" to null, "duration" to null, "created" to now, "updated" to now,
-                )
-                calls += call
-                emit("call.updated", call.str("id"), j("call_id" to call.str("id"), "conversation_id" to conversationId, "status" to "dialing"), now)
-                later(now + 12_000) { at ->
-                    if (call.str("status") == "dialing") {
-                        call.assign("status", "missed")
-                        call.assign("ended", at)
-                        call.assign("updated", at)
-                        emit("call.updated", call.str("id"), j("call_id" to call.str("id"), "conversation_id" to conversationId, "status" to "missed"), at)
-                    }
-                }
-                return ok(call.json(), 201)
-            }
-            val conversationId = request.url.queryParameter("conversation_id")?.takeIf { it.isNotBlank() }
-            val limit = request.url.queryParameter("limit")?.toIntOrNull()?.coerceIn(1, 100) ?: 30
-            val list = calls.filter { conversationId == null || it.str("conversation_id") == conversationId }.sortedByDescending { it.long("created") }.take(limit)
-            return ok(j("data" to list.map { it.json() }, "next_cursor" to null))
-        }
-        if (r[0] == "permission" && method == "POST") return ok(j("id" to nextId("perm"), "status" to "queued", "delivery_id" to nextId("d-perm")))
-        val call = calls.firstOrNull { it.str("id") == r[0] } ?: return notFound("Ligação não encontrada.")
-        val id = call.str("id").orEmpty()
-        fun changed(status: String) {
-            call.assign("status", status)
-            call.assign("updated", now)
-            emit("call.updated", id, j("call_id" to id, "conversation_id" to call.str("conversation_id"), "status" to status), now)
-        }
-        fun finish(status: String) {
-            val started = call.longOrNull("started")
-            call.assign("ended", now)
-            if (started != null) call.assign("duration", ((now - started) / 1000).coerceAtLeast(1))
-            changed(status)
-        }
-        val result = { j("id" to id, "status" to call.str("status"), "delivery_id" to null) }
-        when (r.getOrNull(1)) {
-            null -> ok(call.json())
-            "claim" -> {
-                val actor = call.str("actor")
-                if (actor != null && actor != Ids.ME) return Reply.error(409, "already_claimed", "Outro atendente já assumiu esta ligação.")
-                call.assign("actor", Ids.ME)
-                call.assign("updated", now)
-                ok(JsonObject(call + ("session" to j("sdp_type" to "offer", "sdp" to demoOffer))))
-            }
-            "pre_accept" -> {
-                changed("preaccepted")
-                ok(result())
-            }
-            "accept" -> {
-                call.assign("started", now)
-                changed("active")
-                ok(result())
-            }
-            "reject" -> {
-                finish("rejected")
-                ok(result())
-            }
-            "terminate", "reconcile" -> {
-                finish("completed")
-                ok(result())
-            }
-            "keepalive" -> okEmpty()
-            else -> notFound()
-        }
+    /** Só o histórico (GET /calls), como no servidor real: iniciar, atender e encerrar não existem mais. */
+    private fun calls(s: DemoState, method: String, r: List<String>, request: Request): Reply = with(s) {
+        if (method != "GET" || r.isNotEmpty()) return notFound()
+        val conversationId = request.url.queryParameter("conversation_id")?.takeIf { it.isNotBlank() }
+        val limit = request.url.queryParameter("limit")?.toIntOrNull()?.coerceIn(1, 100) ?: 30
+        val list = calls.filter { conversationId == null || it.str("conversation_id") == conversationId }.sortedByDescending { it.long("created") }.take(limit)
+        ok(j("data" to list.map { it.json() }, "next_cursor" to null))
     }
 
     // -----------------------------------------------------------------------------------------------------------

@@ -61,7 +61,6 @@ internal object Ids {
     const val CHAT_ANA = "ic-ana"
     const val CHAT_VENDAS = "ic-vendas"
 
-    const val CALL_RINGING = "call-ringing"
 }
 
 // --- pequenos auxiliares de JSON ---
@@ -567,15 +566,6 @@ internal class DemoState(val t0: Long) {
         call("call-2", Ids.C_5H, "inbound", null, "missed", hoursAgo(20.0), null)
         call("call-3", Ids.C_40MIN, "outbound", Ids.ME, "completed", hoursAgo(26.0), 62)
         call("call-4", Ids.C_ANA, "inbound", Ids.ANA, "rejected", hoursAgo(49.0), null)
-    }
-
-    /** Acrescenta uma ligação tocando (atalho `ringing`). */
-    fun addRingingCall(now: Long) {
-        if (calls.any { it.str("id") == Ids.CALL_RINGING }) return
-        calls += row(
-            "id" to Ids.CALL_RINGING, "conversation_id" to Ids.C_5H, "direction" to "inbound", "actor" to null, "status" to "ringing", "error" to null,
-            "started" to null, "ended" to null, "duration" to null, "created" to now, "updated" to now,
-        )
     }
 
     private fun seedInternalChats() {

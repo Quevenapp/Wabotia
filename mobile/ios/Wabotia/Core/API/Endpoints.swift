@@ -86,19 +86,8 @@ extension APIClient {
     func botRun(id: String) async throws -> BotRun { try await request(.get, "api/v1/bot-runs/\(id)") }
     func cancelBotRun(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/bot-runs/\(id)/cancel", body: [String: String](), key: key) }
 
-    // MARK: Ligações (Meta Calling API, sinalização WebRTC)
+    // MARK: Ligações (somente histórico)
     func calls(_ p: String, conversationId: String? = nil, limit: Int = 30, cursor: String? = nil) async throws -> Page<Call> {
         try await request(.get, "api/v1/profiles/\(p)/calls", query: ["conversation_id": conversationId, "limit": String(limit), "cursor": cursor])
     }
-    func call(_ p: String, id: String, session: Bool = false) async throws -> Call { try await request(.get, "api/v1/profiles/\(p)/calls/\(id)", query: ["session": session ? "1" : nil]) }
-    func callPermission(_ p: String, conversation id: String) async throws -> JSONValue { try await request(.get, "api/v1/profiles/\(p)/conversations/\(id)/call-permission") }
-    func requestCallPermission(_ p: String, conversation id: String, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/permission", body: CallPermissionRequest(conversation_id: id), key: key) }
-    func startCall(_ p: String, _ body: CallStart, key: String = APIClient.newIdempotencyKey()) async throws -> Call { try await request(.post, "api/v1/profiles/\(p)/calls", body: body, key: key) }
-    func claimCall(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> Call { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/claim", body: [String: String](), key: key) }
-    func preAcceptCall(_ p: String, id: String, session: CallSession, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/pre_accept", body: CallAccept(session: session), key: key) }
-    func acceptCall(_ p: String, id: String, session: CallSession, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/accept", body: CallAccept(session: session), key: key) }
-    func rejectCall(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/reject", body: [String: String](), key: key) }
-    func terminateCall(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/terminate", body: [String: String](), key: key) }
-    func keepaliveCall(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/keepalive", body: [String: String](), key: key) }
-    func reconcileCall(_ p: String, id: String, key: String = APIClient.newIdempotencyKey()) async throws -> CallActionResult { try await request(.post, "api/v1/profiles/\(p)/calls/\(id)/reconcile", body: CallReconcile(), key: key) }
 }

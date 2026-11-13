@@ -3,7 +3,7 @@ import UIKit
 import UserNotifications
 
 /// Aba Ajustes (mobile/DESIGN.md, seção 10): cartão do usuário e grupos em cartões: Atendimento,
-/// Notificações, Aparência, Servidor, Este aparelho e Sair. Tudo que existia em "Mais" continua aqui.
+/// Notificações, Aparência, Servidor, Este aparelho, Sobre e Sair. Tudo que existia em "Mais" continua aqui.
 struct SettingsView: View {
     let active: Bool
     @EnvironmentObject private var container: AppContainer
@@ -29,6 +29,7 @@ struct SettingsView: View {
                         appearanceSection.padding(.horizontal, 16).id("appearance")
                         serverSection.padding(.horizontal, 16).id("server")
                         deviceSection.padding(.horizontal, 16).id("device")
+                        aboutSection.padding(.horizontal, 16).id("about")
                         logoutSection.padding(.horizontal, 16).id("logout")
                     }
                     .padding(.top, 4)
@@ -174,7 +175,7 @@ struct SettingsView: View {
         if !vm.pushRegistered { return "O aparelho ainda não foi registrado no servidor. Toque em Registrar novamente." }
         if !vm.notificationsEnabled { return "Com as notificações desligadas, o servidor não envia avisos para este aparelho." }
         if vm.authorizationStatus == .denied { return "O servidor envia os avisos, mas o iPhone está bloqueando as notificações do Wabotia. Libere nos Ajustes." }
-        return "Você recebe novas mensagens, fila, transferências, protocolos e ligações. Mensagens atendidas pelo bot não geram aviso."
+        return "Você recebe novas mensagens, fila, transferências e protocolos. Mensagens atendidas pelo bot não geram aviso."
     }
 
     private var registrationText: String {
@@ -281,6 +282,17 @@ struct SettingsView: View {
             CardRow(title: "Sistema", value: vm.systemVersion)
             CardRow(title: "Versão do app", value: vm.appVersion)
             CardRow(title: "Identificador", value: String(vm.deviceId.prefix(8)), divider: false)
+        }
+    }
+
+    // MARK: - Sobre
+
+    private var aboutSection: some View {
+        SectionCard(title: "Sobre") {
+            Button { openURL(AppLinks.privacyPolicy) } label: {
+                CardRow(icon: "hand.raised.fill", iconColor: Theme.brand, title: "Política de privacidade", chevron: true, divider: false)
+            }
+            .buttonStyle(.plain)
         }
     }
 
