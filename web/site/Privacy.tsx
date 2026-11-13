@@ -3,8 +3,8 @@
 import React from "react";
 import { SitePage } from "./SiteChrome";
 
-// Canal público de contato sobre privacidade.
-const contact = "https://github.com/Quevenapp/Wabotia/issues";
+// Contato sobre privacidade.
+const contact = "suporte@queven.com.br";
 
 export function Privacy() {
   return (
@@ -39,7 +39,8 @@ export function Privacy() {
             desses dados.
           </p>
           <p>
-            A Quéven publica os aplicativos e mantém dois serviços: o site
+            Os aplicativos são publicados pela Quéven (Veneri &amp; Quellis
+            Ltda, CNPJ 21.484.166/0001-09), que mantém dois serviços: o site
             oficial e o serviço de notificações descrito abaixo. A Quéven não
             tem acesso ao servidor da sua empresa.
           </p>
@@ -131,10 +132,7 @@ export function Privacy() {
           </p>
           <p>
             Dúvidas sobre os aplicativos ou sobre o serviço de notificações:{" "}
-            <a href={contact} target="_blank" rel="noopener noreferrer">
-              canal público do projeto ↗
-            </a>
-            .
+            <a href={"mailto:" + contact}>{contact}</a>.
           </p>
         </section>
       </main>
