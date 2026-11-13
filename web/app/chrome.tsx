@@ -236,23 +236,6 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           />
         </div>
       </section>
-      <section className="prefs-section">
-        <h3>Modo do painel</h3>
-        <Segmented
-          label="Modo do painel"
-          value={app.panelMode}
-          onChange={app.setPanelMode}
-          full
-          options={[
-            { value: "guided", label: "Simplificado" },
-            { value: "advanced", label: "Avançado" },
-          ]}
-        />
-        <p className="muted prefs-help">
-          O modo avançado mostra consentimentos, execuções, entregas, eventos e
-          identificadores técnicos em Gestão.
-        </p>
-      </section>
     </Dialog>
   );
 }

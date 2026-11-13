@@ -97,11 +97,9 @@ export function ConnectionsPage() {
         <p>Hermes fornece a inteligência. Os canais trazem as conversas.</p>
         <Button
           onClick={() => setEditing({ kind: "hermes" })}
-          icon={
-            app.panelMode === "guided" ? <Bot size={17} /> : <Plus size={17} />
-          }
+          icon={<Plus size={17} />}
         >
-          {app.panelMode === "guided" ? "Conectar Hermes" : "Nova conexão"}
+          Nova conexão
         </Button>
       </div>
       {list.error && (
@@ -270,11 +268,9 @@ export function ConnectionsPage() {
                 <CopyButton value={zernioWebhook(row)} />
               </div>
             )}
-            {app.panelMode === "advanced" && (
-              <small className="resource-id">
-                ID: {row.id} <CopyButton value={row.id} />
-              </small>
-            )}
+            <small className="resource-id">
+              ID: {row.id} <CopyButton value={row.id} />
+            </small>
           </section>
         ))}
       </div>

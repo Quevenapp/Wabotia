@@ -21,8 +21,6 @@ import {
   Zap,
 } from "lucide-react";
 
-export type PanelMode = "guided" | "advanced";
-
 // Each screen has one home. The assistant opens these same screens rather than
 // maintaining a second set of connection or service configuration forms.
 export const sections = [
@@ -127,12 +125,6 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
 ]);
-const technicalPages: ReadonlySet<string> = new Set([
-  "consents",
-  "bot-runs",
-  "deliveries",
-  "webhook-deliveries",
-]);
 
 export function canOpenPage(page: string, role: string) {
   return (
@@ -141,14 +133,12 @@ export function canOpenPage(page: string, role: string) {
   );
 }
 
-export function visibleGroups(role: string, mode: PanelMode) {
+export function visibleGroups(role: string) {
   return workspaceGroups
     .map((group) => ({
       ...group,
-      pages: group.pages.filter(
-        (page) =>
-          canOpenPage(page, role) &&
-          (mode === "advanced" || !technicalPages.has(page)),
+      pages: group.pages.filter((page) =>
+        canOpenPage(page, role),
       ) as PageId[],
     }))
     .filter((group) => group.pages.length);

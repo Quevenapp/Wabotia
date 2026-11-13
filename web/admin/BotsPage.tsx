@@ -129,12 +129,10 @@ export function BotsPage() {
                 "Usar como Bot Atendente"
               )}
             </button>
-            {app.panelMode === "advanced" && (
-              <small className="resource-id">
-                {bot.id}
-                <CopyButton value={bot.id} />
-              </small>
-            )}
+            <small className="resource-id">
+              {bot.id}
+              <CopyButton value={bot.id} />
+            </small>
             {app.isAdmin && (
               <BotLinesEditor
                 key={bot.id}
