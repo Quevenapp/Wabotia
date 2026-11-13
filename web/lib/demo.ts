@@ -30,7 +30,6 @@ const settings: Row = {
     { id: "fagoo-erp", name: "Fagoo ERP", enabled: true },
     { id: "outro", name: "Outro ou não sei", enabled: true },
   ],
-  reply_mode: "command",
   capabilities: [],
   menus: [],
   apps: [],
@@ -333,7 +332,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "presence")
     return team
       .filter((item) => item.kind === "user")
-      .map((item) => ({ actor: item.id, name: item.name, present: item.online ? 1 : 0, telegram_id: null }));
+      .map((item) => ({ actor: item.id, name: item.name, present: item.online ? 1 : 0 }));
   if (rest === "conversations") {
     const q = (query.get("q") || "").toLowerCase(),
       state = query.get("state") || "";

@@ -1,6 +1,6 @@
 # Wabotia
 
-Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pelo Telegram e API para integrações. O painel e seus dados operacionais são hospedados na sua conta Cloudflare. O Hermes continua no computador, Docker ou servidor de sua escolha.
+Painel de atendimento em português, com bots Hermes, WhatsApp, equipe humana pelo painel e pelos aplicativos e API para integrações. O painel e seus dados operacionais são hospedados na sua conta Cloudflare. O Hermes continua no computador, Docker ou servidor de sua escolha.
 
 Cada nova instalação cria automaticamente uma **Área de atendimento**, compartilhada pela equipe da empresa. Nela ficam telefones, conversas, bots e configurações de automação. A automação começa desativada. Instalações existentes mantêm suas áreas e permissões, sem unir dados.
 
@@ -40,7 +40,7 @@ O repositório oficial continua público/MIT, com Actions desativado. Sua instal
 1. Na área de atendimento criada automaticamente, cadastre a conexão Hermes com as URLs administrativas/API, o token administrativo e as chaves dos bots autorizados no Hermes.
 2. Teste a conexão, descubra os bots, habilite os selecionados e escolha o Atendente. A API Hermes deve anunciar `features.runs_idempotency.durable`.
 3. Adicione um canal WhatsApp: importe um telefone já cadastrado na Zernio; use QR pelo [conector Baileys](connectors/qr); ou WhatsApp pelo Hermes com o [transporte exclusivo](connectors/hermes).
-4. Use um bot Telegram dedicado em grupo privado com tópicos. Cadastre cada atendente e seu ID Telegram. O Telegram não requer plugin no Hermes.
+4. Cadastre cada atendente em Pessoas. A equipe atende pelo painel e pelos aplicativos Android e iOS.
 5. Cadastre conhecimento, menus, ações de especialistas e presença. Teste antes de ativar.
 
 **Ferramentas do Wabotia dentro do Hermes:** a instalação publica um servidor MCP em `/api/mcp`, incluído em cada deploy na Cloudflare. Em **Integrações → Ferramentas do Wabotia no Hermes Agent (MCP)**, crie a aplicação e a chave e cole o bloco `mcp_servers` no `config.yaml` do perfil Hermes. O agente passa a consultar e responder conversas, abrir protocolos, usar a agenda e executar bots com as permissões da chave. [Detalhes e lista de ferramentas](docs/API.md#mcp-para-o-hermes-agent).

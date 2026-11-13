@@ -1,4 +1,4 @@
-// "Conectar serviço": Hermes, Telegram e os tipos de linha WhatsApp. Usado em
+// "Conectar serviço": Hermes e os tipos de linha WhatsApp. Usado em
 // Hermes e canais e pelo assistente de configuração.
 import React, { useState } from "react";
 import { useApp } from "../app/AppContext";
@@ -100,7 +100,6 @@ export function ConnectionDialog({
           ["zernio", "WhatsApp · Zernio"],
           ["qr", "WhatsApp · QR direto"],
           ["hermes-whatsapp", "WhatsApp · pelo Hermes"],
-          ["telegram", "Telegram"],
         ]}
       />
       {["qr", "zernio", "hermes-whatsapp"].includes(form.kind) && (
@@ -209,15 +208,6 @@ export function ConnectionDialog({
           </details>
         </>
       )}
-      {form.kind === "telegram" && (
-        <Field
-          label="Token do serviço"
-          type="password"
-          value={form.token}
-          onChange={change("token")}
-          autoComplete="off"
-        />
-      )}
       {form.kind === "zernio" && (
         <>
           <p>
@@ -277,14 +267,6 @@ export function ConnectionDialog({
             conexão.
           </p>
         </>
-      )}
-      {form.kind === "telegram" && (
-        <Field
-          label="ID do grupo privado com tópicos"
-          value={form.group}
-          onChange={change("group")}
-          placeholder="-100…"
-        />
       )}
       {["qr", "hermes-whatsapp"].includes(form.kind) && (
         <p>

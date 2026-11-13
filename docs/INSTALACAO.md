@@ -167,7 +167,7 @@ O plano Zero Trust é separado de Workers e R2. Um Hermes com HTTPS autenticado 
 - [ ] Zero Trust ativado para o caminho privado: **Aplicativos** e **Credenciais de serviço** acessíveis.
 - [ ] Domínio ativo na Cloudflare para os hostnames do túnel.
 - [ ] Hermes funcionando, com modelo e provedor configurados; não apagar os bots existentes.
-- [ ] Número de teste e, se usar Telegram, bot dedicado e grupo privado com tópicos.
+- [ ] Número de teste.
 
 Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, não consumo ilimitado nem dispensa de adesão. Se já ativou ou instalou algum item, confira o existente em vez de contratar novamente.
 
@@ -245,7 +245,7 @@ Pause os canais antigos antes de ativar os mesmos números/bots na nova instala�
 2. Clique **Criar conta e entrar**. O código inicial não cria outras contas depois que o administrador existe.
 3. A **Área de atendimento** é criada automaticamente para a empresa nesta instalação e compartilhada pela equipe. Não é necessário criar uma área para cada pessoa.
 4. Mantenha o atendimento pausado enquanto prepara os serviços.
-5. Em **Pessoas**, adicione uma conta para cada atendente da mesma área de atendimento. Evite compartilhar uma única conta. A edição permite alterar nome, acesso, identidade Telegram e senha; a desativação encerra o acesso.
+5. Em **Pessoas**, adicione uma conta para cada atendente da mesma área de atendimento. Evite compartilhar uma única conta. A edição permite alterar nome, acesso e senha; a desativação encerra o acesso.
 
 ## 4. Ligue a API do Hermes, mesmo se estiver desligada
 
@@ -312,20 +312,7 @@ Meta/QR continuam configurados no Hermes. Instale somente o transporte mínimo d
 
 Antes de trocar de modo: pause o canal antigo, pare seu consumidor, confira entregas em **Entregas**, resolva estados `unknown` e só então ative o novo. O Wabotia recusa dois modos ativos para o mesmo número. Também confira que não existe consumidor antigo fora do Wabotia.
 
-## 8. Telegram para a equipe, sem plugin Hermes
-
-1. No Telegram, abra **@BotFather**, use `/newbot` e crie um bot exclusivo para o Wabotia. Guarde o token. Não reutilize um bot que esteja ligado ao gateway Hermes.
-2. Crie um **grupo privado**, ative **Tópicos** e adicione o bot como administrador, com permissão de gerenciar tópicos e enviar mensagens/anexos.
-3. Obtenha o ID numérico do grupo (normalmente começa com `-100`). Você pode conferir pelo Bot API `getUpdates` antes de configurar o webhook; evite bots terceiros para ler dados do seu grupo.
-4. Wabotia > Conexões > **Telegram**: informe token e ID do grupo. Salve, **Teste a conexão**, clique **Ligar recebimento Telegram** e ative.
-5. Em Menus e preferências, cole o ID da conexão Telegram e informe o mesmo grupo da equipe.
-6. No grupo, cada pessoa envia `/identificar`. Cadastre o ID retornado na conta correspondente em **Pessoas**. Vincule somente o ID verificado daquela pessoa.
-7. Envie `/presente`. No tópico de uma conversa, use `/assumir` antes de responder. Comandos: `/responder texto`, `/nota texto`, `/transferir ID`, `/encerrar`, `/retomar`, `/ausente` e `/ajuda`.
-8. No modo **por comando**, texto comum vira nota interna. No modo **direto**, o responsável pode responder sem `/responder`, conforme as regras de resposta do tópico. Teste anexos com legenda e a transferência antes de usar com clientes.
-
-O Worker recebe o webhook Telegram e executa as regras. Nenhum plugin Telegram é instalado no Hermes.
-
-## 9. Conecte seus outros sistemas
+## 8. Conecte seus outros sistemas
 
 1. Abra **API e integrações > Nova aplicação**.
 2. Dê um nome e autorize as operações e os bots necessários na área de atendimento. Selecione só o que o sistema precisa.
@@ -334,7 +321,7 @@ O Worker recebe o webhook Telegram e executa as regras. Nenhum plugin Telegram �
 5. Para eventos, cadastre uma URL HTTPS de webhook e guarde o segredo de assinatura. **Webhooks** mostra as entregas e oferece reenvio. O destinatário precisa verificar HMAC e deduplicar IDs.
 6. Para rotação, crie outra chave, atualize o sistema integrador e revogue a anterior. Desativar a aplicação interrompe suas chaves.
 
-## 10. Teste antes de abrir o atendimento
+## 9. Teste antes de abrir o atendimento
 
 Use pessoas e números de teste autorizados. Confira: pergunta com fonte, ausência da equipe, protocolo/prazo, presença, tomada humana durante uma resposta lenta, nota interna, transferência, anexo, consentimento, avaliação, webhook repetido, recuperação depois de desligar o Hermes/QR e troca pausada de modo.
 
@@ -350,4 +337,3 @@ Após validar, ative **Atendimento** em Menus e preferências. Guarde os arquivo
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)
 - [Service tokens do Access](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
 - [Hermes API Server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)
-- [Telegram Bot API](https://core.telegram.org/bots/api)

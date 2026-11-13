@@ -46,7 +46,6 @@ function Stat({
 
 const connectionKinds: Row = {
   hermes: "Hermes",
-  telegram: "Telegram",
   zernio: "WhatsApp · Zernio",
   qr: "WhatsApp · QR",
   "hermes-whatsapp": "WhatsApp · Hermes",

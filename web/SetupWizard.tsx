@@ -48,14 +48,11 @@ type Rules = {
   protocol_response_hours: string;
   surveys_enabled: boolean;
   jev_enabled: boolean;
-  telegram_connection: string;
-  telegram_group: string;
-  reply_mode: string;
 };
 const steps = [
   { title: "WhatsApp", caption: "Integração e telefones", icon: MessageCircle },
   { title: "Atendimento", caption: "Bots e especialistas", icon: Bot },
-  { title: "Equipe humana", caption: "Pessoas e Telegram", icon: Headphones },
+  { title: "Equipe humana", caption: "Pessoas e presença", icon: Headphones },
   { title: "Regras", caption: "Prazos e decisões", icon: Settings },
   {
     title: "Menus e sistemas",
@@ -76,9 +73,6 @@ const rulesFrom = (settings: Row): Rules => ({
       : String(settings.protocol_response_hours),
   surveys_enabled: !!settings.surveys_enabled,
   jev_enabled: !!settings.jev_enabled,
-  telegram_connection: settings.telegram_connection || "",
-  telegram_group: settings.telegram_group || "",
-  reply_mode: settings.reply_mode || "command",
 });
 const demoSnapshot: Snapshot = {
   status: {
@@ -325,8 +319,6 @@ export function SetupWizard({
 
   const cfg = snapshot?.status.settings || {};
   const hermes = snapshot?.connections.filter((c) => c.kind === "hermes") || [];
-  const telegram =
-    snapshot?.connections.filter((c) => c.kind === "telegram") || [];
   const attendant = snapshot?.bots.find((b) => b.id === cfg.attendant_bot);
   const chosenBot = snapshot?.bots.find((b) => b.id === draft.attendant_bot);
   const current = steps[step];
@@ -344,13 +336,6 @@ export function SetupWizard({
             ? `${attendant.name}${attendant.enabled ? "" : " · desabilitado"}`
             : "Não selecionado; confira o atendimento por linha",
           "bots",
-        ],
-        [
-          "Ponte Telegram",
-          cfg.telegram_connection && cfg.telegram_group
-            ? "Conexão e grupo selecionados"
-            : "Não configurada nas regras",
-          "connections",
         ],
         [
           "Menus",
@@ -605,48 +590,19 @@ export function SetupWizard({
               <>
                 <h3>Escolha como a equipe recebe as conversas</h3>
                 <p>
-                  As pessoas podem atender pelo painel. Para trabalhar pelo
-                  Telegram, conecte um bot dedicado e um grupo privado com
-                  tópicos.
+                  As pessoas atendem pelo painel e pelos aplicativos Android e
+                  iOS.
                 </p>
                 <ol className="setup-instructions">
-                  <li>
-                    Cadastre as pessoas que podem atender. Para o Telegram,
-                    vincule o ID de cada atendente.
-                  </li>
-                  <li>
-                    Crie um bot no BotFather, adicione-o como administrador do
-                    grupo e cadastre a conexão Telegram.
-                  </li>
-                  <li>
-                    Na conexão, use <strong>Ligar recebimento Telegram</strong>.
-                    Na próxima etapa, selecione a conexão e informe o grupo.
-                  </li>
+                  <li>Cadastre as pessoas que podem atender.</li>
                   <li>
                     Cada pessoa marca presença em Disponibilidade antes de
-                    atender. No Telegram, use <code>/presente</code>.
+                    atender.
                   </li>
                 </ol>
-                <div className="setup-status">
-                  {snapshot
-                    ? `${telegram.length} conexão(ões) Telegram cadastrada(s). O atendimento pelo painel pode ser usado sem Telegram.`
-                    : "As conexões Telegram ainda não foram consultadas."}
-                </div>
                 <div className="setup-actions">
                   <Action onClick={() => onNavigate("users")}>
                     Cadastrar pessoas <ArrowRight size={16} />
-                  </Action>
-                  <Action
-                    secondary
-                    onClick={() =>
-                      telegram.length
-                        ? onNavigate("connections")
-                        : onConnect("telegram")
-                    }
-                  >
-                    {telegram.length
-                      ? "Configurar recebimento Telegram"
-                      : "Conectar Telegram"}
                   </Action>
                   <Action secondary onClick={() => onNavigate("presence")}>
                     Disponibilidade
@@ -783,64 +739,6 @@ export function SetupWizard({
                         pessoa.
                       </p>
                     )}
-                    <details className="setup-detail">
-                      <summary>Atendimento pelo Telegram (opcional)</summary>
-                      <p>
-                        Selecione a conexão já cadastrada. O ID do grupo é
-                        informado pelo Telegram e costuma começar com{" "}
-                        <code>-100</code>.
-                      </p>
-                      <div className="setup-fields">
-                        <label>
-                          Conexão Telegram
-                          <select
-                            value={draft.telegram_connection}
-                            onChange={(e) =>
-                              change("telegram_connection", e.target.value)
-                            }
-                          >
-                            <option value="">Não usar Telegram</option>
-                            {telegram.map((connection) => (
-                              <option key={connection.id} value={connection.id}>
-                                {connection.name}
-                              </option>
-                            ))}
-                            {draft.telegram_connection &&
-                              !telegram.some(
-                                (c) => c.id === draft.telegram_connection,
-                              ) && (
-                                <option value={draft.telegram_connection}>
-                                  Conexão salva não encontrada
-                                </option>
-                              )}
-                          </select>
-                        </label>
-                        <label>
-                          ID do grupo Telegram
-                          <input
-                            value={draft.telegram_group}
-                            placeholder="-100…"
-                            onChange={(e) =>
-                              change("telegram_group", e.target.value)
-                            }
-                          />
-                        </label>
-                      </div>
-                      <label>
-                        Como a pessoa responde ao cliente
-                        <select
-                          value={draft.reply_mode}
-                          onChange={(e) => change("reply_mode", e.target.value)}
-                        >
-                          <option value="command">
-                            Usando /responder (texto solto vira nota interna)
-                          </option>
-                          <option value="direct">
-                            Texto direto depois de assumir a conversa
-                          </option>
-                        </select>
-                      </label>
-                    </details>
                     <button className="button" type="submit">
                       {saving ? (
                         <Loader2 size={16} className="spin" />
@@ -954,7 +852,7 @@ export function SetupWizard({
                   </li>
                   <li>
                     Peça uma pessoa e teste o recebimento pelo painel ou
-                    Telegram.
+                    pelos aplicativos.
                   </li>
                   <li>
                     Teste ausência da equipe, protocolo com prazo e avaliação de

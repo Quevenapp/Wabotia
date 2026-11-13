@@ -19,7 +19,7 @@ export function numberPolicyError(flag: NumberPolicyFlag) {
   const labels: Record<NumberPolicyFlag, string> = {
     service: "mensagens de atendimento dentro da janela de 24 horas",
     templates: "envio de templates",
-    human: "envio por atendentes no painel ou Telegram",
+    human: "envio por atendentes no painel ou nos aplicativos",
     api: "envio por programas externos",
     menu: "menus e respostas automáticas",
     bots: "atendimento por bots",

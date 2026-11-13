@@ -74,7 +74,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
     }
   }, [app.api, app.root]);
   // O diretório (app.team) é relido pela casca a cada 20 s; aqui ficam as
-  // conversas internas e o vínculo com o Telegram de cada pessoa.
+  // conversas internas e a presença de cada pessoa.
   usePolling(
     () => {
       void loadChats();
@@ -106,9 +106,6 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
   const people = app.team.filter((item) => item.kind === "user"),
     bots = app.team.filter((item) => item.kind === "bot"),
     departments: Row[] = app.settings.departments || [];
-  const telegram = new Set(
-    presence.filter((row) => row.telegram_id).map((row) => row.actor),
-  );
 
   async function openPeer(peer: Row) {
     if (opening) return;
@@ -293,10 +290,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
                           {me ? " (você)" : ""}
                         </strong>
                         <small className="truncate">
-                          {person.online ? "Online" : "Offline"} ·{" "}
-                          {telegram.has(person.id)
-                            ? "Telegram vinculado"
-                            : "Atendimento pelo painel"}
+                          {person.online ? "Online" : "Offline"}
                         </small>
                       </span>
                     </>

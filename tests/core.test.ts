@@ -164,8 +164,9 @@ describe("núcleo no runtime Workers", () => {
       (await all(env, "SELECT * FROM tickets WHERE profile_id=?", p)).length,
     ).toBe(1);
   });
-  it("recupera eventos de entrada e espelha para a equipe mesmo com automação pausada", async () => {
+  it("recupera eventos de entrada com automação pausada, sem espelho para o Telegram removido", async () => {
     const p = await fixture();
+    // Configuração antiga do Telegram ainda gravada: não produz mais nada.
     await exec(
       env,
       "UPDATE profiles SET enabled=0,settings=? WHERE id=?",
@@ -192,22 +193,22 @@ describe("núcleo no runtime Workers", () => {
         p,
       ),
     ).toHaveLength(1);
-    expect(
-      await all(
-        env,
-        "SELECT * FROM outbox WHERE conversation_id=? AND kind='team'",
-        received.conversation_id,
-      ),
-    ).toHaveLength(1);
     await exec(env, "UPDATE inbox SET status='pending' WHERE profile_id=?", p);
     await processInbox(env, p);
     expect(
       await all(
         env,
-        "SELECT * FROM outbox WHERE conversation_id=? AND kind='team'",
-        received.conversation_id,
+        "SELECT * FROM events WHERE profile_id=? AND kind='message.received'",
+        p,
       ),
     ).toHaveLength(1);
+    expect(
+      await all(
+        env,
+        "SELECT * FROM outbox WHERE conversation_id=?",
+        received.conversation_id,
+      ),
+    ).toHaveLength(0);
   });
   it("recusa menus cíclicos antes de persistir", async () => {
     const p = await fixture();

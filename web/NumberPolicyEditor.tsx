@@ -22,7 +22,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   [
     "human",
     "Atendimento manual",
-    "Atendentes podem assumir e responder pelo painel ou Telegram.",
+    "Atendentes podem assumir e responder pelo painel ou pelos aplicativos.",
   ],
   [
     "api",

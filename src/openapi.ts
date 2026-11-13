@@ -38,7 +38,7 @@ const schemas = {
     properties: {
       id: { type: "string" },
       name: { type: "string", minLength: 1, maxLength: 100 },
-      kind: { enum: ["zernio", "qr", "hermes-whatsapp", "hermes", "telegram"] },
+      kind: { enum: ["zernio", "qr", "hermes-whatsapp", "hermes"] },
       mode: { type: "string", default: "direct" },
       config: {
         type: "object",

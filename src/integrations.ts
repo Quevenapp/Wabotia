@@ -304,6 +304,13 @@ export async function discover(env: Env, id: string, profile: string) {
   );
   return all(env, "SELECT * FROM bots WHERE connection_id=?", id);
 }
+/** The Telegram team channel no longer exists; old connections can only be deleted. */
+export const telegramRemoved = () =>
+  new ApiError(
+    410,
+    "telegram_removed",
+    "O atendimento pelo Telegram foi removido. Use o painel ou os aplicativos e exclua esta conexão.",
+  );
 export async function probe(
   env: Env,
   id: string,
@@ -322,25 +329,7 @@ export async function probe(
   let details: any = {};
   if (c.kind === "hermes")
     return { ok: true, bots: await discover(env, id, profile) };
-  if (c.kind === "telegram") {
-    const me = await telegram(env, id, "getMe", {});
-    requireValue(me.result?.id, "Token Telegram inválido.");
-    const chat = await telegram(env, id, "getChat", { chat_id: cfg.group });
-    requireValue(
-      chat.result?.is_forum && !chat.result?.username,
-      "Use um grupo privado com tópicos.",
-    );
-    const member = await telegram(env, id, "getChatMember", {
-      chat_id: cfg.group,
-      user_id: me.result.id,
-    });
-    requireValue(
-      member.result?.status === "administrator" &&
-        member.result?.can_manage_topics,
-      "O bot deve administrar o grupo e gerenciar tópicos.",
-    );
-    details = { username: me.result.username, group: cfg.group };
-  }
+  if (c.kind === "telegram") throw telegramRemoved();
   if (c.kind === "meta") {
     throw new ApiError(
       410,
@@ -376,53 +365,6 @@ export async function probe(
   );
   return { ok: true, ...details };
 }
-export async function configureTelegram(
-  env: Env,
-  id: string,
-  profile: string,
-  origin: string,
-) {
-  const c = await one(
-    env,
-    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='telegram'",
-    id,
-    profile,
-  );
-  requireValue(c, "Conexão não encontrada.");
-  const keys = await secret(env, `connection:${id}`);
-  keys.webhook_secret ||= random();
-  await setSecret(env, `connection:${id}`, keys);
-  await telegram(env, id, "setWebhook", {
-    url: `${origin}/webhooks/telegram/${id}`,
-    secret_token: keys.webhook_secret,
-    allowed_updates: ["message", "callback_query"],
-    drop_pending_updates: false,
-  });
-  return { configured: true };
-}
-export async function telegram(
-  env: Env,
-  id: string,
-  method: string,
-  body: any,
-) {
-  const keys = await secret(env, `connection:${id}`);
-  requireValue(keys.token, "Token Telegram não configurado.");
-  const r = await fetch(`https://api.telegram.org/bot${keys.token}/${method}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
-  });
-  const result = await r.json<any>();
-  if (!result.ok)
-    throw new ApiError(
-      r.status >= 400 ? r.status : 502,
-      "telegram_error",
-      `Telegram: ${result.description || "requisição recusada"}`,
-    );
-  return result;
-}
 export async function storeRemoteMedia(
   env: Env,
   profile: string,
@@ -451,83 +393,6 @@ export async function storeRemoteMedia(
     now(),
   );
   return id;
-}
-export async function telegramFile(
-  env: Env,
-  connection: any,
-  fileId: string,
-  name: string,
-  type: string,
-) {
-  const info = await telegram(env, connection.id, "getFile", {
-    file_id: fileId,
-  });
-  requireValue(
-    (info.result.file_size || 0) <= 20 * 1024 * 1024,
-    "Arquivo Telegram excede 20 MB.",
-  );
-  const keys = await secret(env, `connection:${connection.id}`);
-  return storeRemoteMedia(
-    env,
-    connection.profile_id,
-    name,
-    type,
-    await fetch(
-      `https://api.telegram.org/file/bot${keys.token}/${info.result.file_path}`,
-    ),
-  );
-}
-export async function telegramMedia(
-  env: Env,
-  connection: string,
-  chat: string,
-  thread: string | null,
-  mediaId: string,
-  payload: any = {},
-) {
-  const m = await one(env, "SELECT * FROM media WHERE id=?", mediaId);
-  requireValue(m, "Anexo não encontrado.");
-  requireValue(
-    m.size <= 50 * 1024 * 1024,
-    "O espelhamento Telegram aceita arquivos de até 50 MB.",
-  );
-  const obj = await env.MEDIA.get(m.object_key);
-  requireValue(obj, "Arquivo ausente.");
-  const type = payload.content?.type || mediaKind(m.type);
-  const native: any = {
-    image: ["photo", "sendPhoto"],
-    video: ["video", "sendVideo"],
-    audio: ["audio", "sendAudio"],
-    voice: ["voice", "sendVoice"],
-    sticker: ["sticker", "sendSticker"],
-  };
-  const [field, method] = native[type] || ["document", "sendDocument"];
-  const fields: any = {
-    chat_id: chat,
-    ...(thread ? { message_thread_id: thread } : {}),
-    ...(payload.text && type !== "sticker"
-      ? { caption: payload.text.slice(0, 1024) }
-      : {}),
-  };
-  const body = multipartStream(fields, field, m.name, m.type, obj.body, m.size),
-    keys = await secret(env, `connection:${connection}`);
-  const r = await fetch(`https://api.telegram.org/bot${keys.token}/${method}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": body.type,
-      "Content-Length": String(body.length),
-    },
-    body: body.stream,
-    signal: AbortSignal.timeout(60000),
-  });
-  const data = await r.json<any>();
-  if (!data.ok)
-    throw new ApiError(
-      r.status >= 500 ? 502 : 400,
-      "telegram_error",
-      "Telegram recusou o anexo.",
-    );
-  return String(data.result.message_id);
 }
 export function approvedTemplate(t: any) {
   if (t?.status !== "APPROVED" || t?.category !== "UTILITY") return false;

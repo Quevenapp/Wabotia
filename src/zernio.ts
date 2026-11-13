@@ -214,6 +214,29 @@ export async function zernioConversation(
   );
 }
 
+/**
+ * Shows "digitando…" in a conversation already known to this line. On WhatsApp
+ * it lasts up to 25 seconds and marks the last inbound message as read.
+ * Best-effort: resolves false when the channel did not show it.
+ */
+export async function zernioTyping(env: Env, conn: any, externalId: string) {
+  const saved = await one(
+    env,
+    "SELECT conversation_id FROM zernio_conversations WHERE connection_id=? AND external_id=?",
+    conn.id,
+    externalId,
+  );
+  if (!saved) return false;
+  const result = await zernioRequest(
+    env,
+    conn,
+    `inbox/conversations/${segment(saved.conversation_id)}/typing`,
+    "POST",
+    { accountId: accountId(conn) },
+  );
+  return result?.success === true;
+}
+
 export async function zernioTemplates(env: Env, conn: any, name?: string) {
   const query = new URLSearchParams({
     accountId: accountId(conn),

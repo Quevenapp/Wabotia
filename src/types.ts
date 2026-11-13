@@ -130,6 +130,14 @@ export const defaults = {
   instructions: "",
   absence_instructions:
     "Nossa equipe está ausente. Abrimos um protocolo para acompanhar sua solicitação.",
+  // Team absent on a handoff: open a protocol (true) or only tell the customer.
+  absence_ticket: true,
+  // While a conversation waits with nobody present, the Bot Atendente keeps
+  // answering follow-up messages instead of leaving the customer in silence.
+  absence_followup: true,
+  // After a protocol is opened, ask once for consent to protocol notifications
+  // (only when notifications are enabled).
+  protocol_consent_prompt: true,
   protocol_response_hours: 24,
   protocol_response_unit: "hours",
   protocol_response_days: 3,
@@ -138,9 +146,8 @@ export const defaults = {
   protocol_confirmation: defaultProtocolConfirmation,
   // Opening text of the main menu. Empty keeps "Como podemos ajudar?".
   menu_greeting: "",
-  telegram_group: "",
-  telegram_connection: "",
-  reply_mode: "command",
+  // Messages to the customer start with who writes: "Bruno - Humano", "Bia - IA".
+  sender_signature: true,
   names: {},
   team: [],
   capabilities: [],
