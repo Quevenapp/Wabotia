@@ -10,7 +10,12 @@ import {
 import { finishInternalRun } from "./team";
 import { decideInterpretation } from "./jev";
 import { sendProtocolLookup, protocolNumber } from "./protocol-lookup";
-import { opensTicket, lookupCommand } from "./protocols";
+import {
+  opensTicket,
+  lookupCommand,
+  activeTicketSql,
+  ticketCustomerLabels,
+} from "./protocols";
 import {
   awaitingTicketDescription,
   startTicketPrompt,
@@ -40,6 +45,8 @@ import {
   requestSurvey,
   clearTicketPrompt,
   ticketResumedEvent,
+  CONSENT_GRANT_REPLY,
+  CONSENT_DENY_REPLY,
 } from "./service";
 import {
   hermesRequest,
@@ -50,7 +57,9 @@ import {
 import { secret, hmac, safeFetch } from "./security";
 import { event } from "./events";
 import { finishDelivery } from "./delivery";
-import { zernioSend, zernioTemplatePayload } from "./zernio";
+import { zernioSend, zernioTemplatePayload, zernioTyping } from "./zernio";
+import { presentInDepartment } from "./departments";
+import { formatBrasilia } from "./business-time";
 import { visibleEvent } from "./visibility";
 const system: Actor = {
   id: "bot:attendant",
@@ -137,22 +146,31 @@ export async function processInbox(env: Env, profile: string) {
       "SELECT * FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
       c.id,
     );
+    // The consent question may be answered by its buttons or by the words.
+    const consentButton = data.content?.interactive_reply_id;
+    const consentAnswer =
+      consentButton === CONSENT_GRANT_REPLY
+        ? "autorizo"
+        : consentButton === CONSENT_DENY_REPLY
+          ? "nao autorizo"
+          : normalized;
     if (
       c.chat_type !== "group" &&
-      /^(autorizo|nao autorizo|revogar)$/.test(normalized)
+      /^(autorizo|nao autorizo|revogar)$/.test(consentAnswer)
     ) {
-      if (consent?.status === "pending" || normalized === "revogar") {
+      if (consent?.status === "pending" || consentAnswer === "revogar") {
         await exec(
           env,
           "INSERT OR IGNORE INTO consents(id,profile_id,conversation_id,status,evidence,created) VALUES(?,?,?,?,?,?)",
           "response:" + row.id,
           profile,
           c.id,
-          normalized === "autorizo" ? "granted" : "revoked",
+          consentAnswer === "autorizo" ? "granted" : "revoked",
           JSON.stringify({
             message_id: data.message_id,
             namespace: c.external_namespace,
             text: value,
+            ...(consentButton ? { button: consentButton } : {}),
           }),
           now(),
         );
@@ -164,7 +182,7 @@ export async function processInbox(env: Env, profile: string) {
             "text",
             {
               text:
-                normalized === "autorizo"
+                consentAnswer === "autorizo"
                   ? "Autorização registrada."
                   : "Notificações desautorizadas.",
             },
@@ -725,6 +743,9 @@ export async function processInbox(env: Env, profile: string) {
         );
       return;
     }
+    // Waiting for a person while nobody is present: the Bot Atendente keeps
+    // answering follow-ups, without leaving the queue or the protocol.
+    let followup: { ticket: any } | null = null;
     if (c.state !== "ai") {
       if (cfg.telegram_connection && cfg.telegram_group)
         await enqueue(
@@ -739,7 +760,29 @@ export async function processInbox(env: Env, profile: string) {
           },
           `mirror:${row.id}`,
         );
-      return;
+      if (
+        c.state !== "waiting" ||
+        c.chat_type === "group" ||
+        cfg.absence_followup === false ||
+        !policy.bots ||
+        line.mode === "human" ||
+        !cfg.attendant_bot ||
+        !(await botAllowsLine(
+          env,
+          cfg.attendant_bot,
+          profile,
+          c.connection_id,
+        )) ||
+        (await presentInDepartment(env, profile, c.department_id))
+      )
+        return;
+      followup = {
+        ticket: await one(
+          env,
+          `SELECT * FROM tickets WHERE conversation_id=? AND ${activeTicketSql()} ORDER BY created DESC LIMIT 1`,
+          c.id,
+        ),
+      };
     }
     if (line.mode === "human" && !c.assigned_bot_id) return;
     if (!policy.bots) return;
@@ -766,6 +809,15 @@ export async function processInbox(env: Env, profile: string) {
           words.map((w: any) => '"' + w.replaceAll('"', "") + '"').join(" OR "),
         )
       : [];
+    if (followup)
+      // The only fact the bot may state about the wait: what the customer was
+      // already told. It is a source like any other, so the answer cites it.
+      sources.unshift({
+        id: "atendimento",
+        document_id: followup.ticket?.id || c.id,
+        text: followupSituation(followup.ticket),
+        url: "",
+      });
     const history = await all(
       env,
       "SELECT direction,text FROM messages WHERE conversation_id=? AND direction!='note' ORDER BY created DESC LIMIT 12",
@@ -815,6 +867,10 @@ export async function processInbox(env: Env, profile: string) {
             text: "Imagem fornecida pelo cliente nesta conversa.",
             url: "",
           });
+        } else if (followup) {
+          // Already with the team: acknowledge instead of handing off again.
+          await followupAck(env, c, followup.ticket, `followup:${row.id}`);
+          return;
         } else {
           await handoff(env, c, "Anexo necessita análise humana.");
           return;
@@ -853,10 +909,17 @@ export async function processInbox(env: Env, profile: string) {
         conversation_id: c.id,
         epoch: c.epoch,
         phase: "attendant",
-        context: { request: input, sources, session: c.session, images },
+        context: {
+          request: input,
+          sources,
+          session: c.session,
+          images,
+          ...(followup ? { followup: true } : {}),
+        },
         source_key: "inbox:" + row.id,
       },
     );
+    await showTyping(env, c);
   } catch (error) {
     await handoff(
       env,
@@ -934,7 +997,10 @@ export async function processRun(env: Env, run: Run) {
           run.conversation_id,
           run.profile_id,
         );
-        if (current.epoch !== run.epoch || current.state !== "ai") {
+        if (
+          current.epoch !== run.epoch ||
+          !runStillWanted(current, json(run.context))
+        ) {
           await exec(
             env,
             "UPDATE bot_runs SET status='cancelled',updated=? WHERE id=?",
@@ -959,6 +1025,9 @@ export async function processRun(env: Env, run: Run) {
       if (cfg.jev_enabled && ["attendant", "answer"].includes(run.phase))
         instructions +=
           ' O JEV toma a decisão final. Primeiro interprete a necessidade e proponha uma ação. Acrescente ao JSON "interpretation":{"intent":"intenção do cliente","summary":"resumo factual curto da solicitação e do contexto relevante","missing_information":[]} e "clarification":"pergunta curta caso falte informação". Forneça somente esse resumo operacional, sem raciocínio privado. Não execute a ação proposta nem consulte especialistas por conta própria; o Wabotia chama o JEV depois de receber sua interpretação.';
+      if (json(run.context).followup)
+        instructions +=
+          " Situação desta mensagem: a conversa já foi encaminhada à equipe humana, que está ausente, e o cliente continua escrevendo. A fonte atendimento descreve o que já foi informado a ele. Responda de forma breve e acolhedora com action answer citando essa fonte, ou clarify se precisar de um detalhe. Não transfira, não abra outro protocolo, não mostre menu e não prometa prazo ou solução além do que está nas fontes.";
       if (json(run.context).internal_chat_id)
         instructions +=
           " Esta é uma conversa interna privada com uma pessoa da equipe, fora do WhatsApp. Responda apenas em texto e não crie arquivos nem envie mensagens a terceiros.";
@@ -1055,6 +1124,18 @@ export async function processRun(env: Env, run: Run) {
           "UPDATE bot_runs SET error='Aguardando aprovação no Hermes' WHERE id=?",
           run.id,
         );
+      else if (run.conversation_id) {
+        const waiting = await conversation(
+          env,
+          run.conversation_id,
+          run.profile_id,
+        );
+        if (
+          waiting.epoch === run.epoch &&
+          runStillWanted(waiting, json(run.context))
+        )
+          await showTyping(env, waiting);
+      }
       return;
     }
     if (result.status !== "completed") {
@@ -1115,7 +1196,7 @@ export async function processRun(env: Env, run: Run) {
         (line.mode === "bot" ? line.bot_id : cfg.attendant_bot);
       if (
         c.epoch === run.epoch &&
-        c.state === "ai" &&
+        runStillWanted(c, json(run.context)) &&
         (
           await one(
             env,
@@ -1145,7 +1226,7 @@ export async function processRun(env: Env, run: Run) {
         const latest = await conversation(env, c.id, c.profile_id);
         if (
           latest.epoch !== c.epoch ||
-          latest.state !== "ai" ||
+          !runStillWanted(latest, context) ||
           !(
             await one(
               env,
@@ -1161,6 +1242,13 @@ export async function processRun(env: Env, run: Run) {
           );
           return;
         }
+        // A follow-up while the team is absent only talks: lookup, question or
+        // grounded answer. Any other decision becomes the fixed acknowledgement.
+        if (
+          context.followup &&
+          !["protocols", "clarify", "answer"].includes(parsed.action)
+        )
+          parsed.action = "followup";
         if (parsed.action === "protocols" && run.phase !== "specialist") {
           await sendProtocolLookup(
             env,
@@ -1303,7 +1391,18 @@ export async function processRun(env: Env, run: Run) {
             },
             `run:${run.id}`,
           );
-        } else
+        } else if (context.followup)
+          await followupAck(
+            env,
+            c,
+            await one(
+              env,
+              `SELECT * FROM tickets WHERE conversation_id=? AND ${activeTicketSql()} ORDER BY created DESC LIMIT 1`,
+              c.id,
+            ),
+            `followup:${run.id}`,
+          );
+        else
           await handoff(
             env,
             c,
@@ -1344,6 +1443,75 @@ export async function processRun(env: Env, run: Run) {
       );
   }
 }
+/**
+ * A conversation run still matters while the conversation is with the bot or,
+ * for a follow-up, while it keeps waiting for the absent team.
+ */
+function runStillWanted(c: { state: string }, context: any) {
+  return c.state === "ai" || (!!context?.followup && c.state === "waiting");
+}
+/** What the customer was already told; the only ground for a follow-up answer. */
+function followupSituation(ticket: any) {
+  if (!ticket)
+    return "A conversa foi encaminhada à equipe humana, que está ausente no momento. As mensagens do cliente ficam registradas neste atendimento e a equipe responde por aqui quando voltar. Não há prazo definido.";
+  return `A conversa foi encaminhada à equipe humana, que está ausente no momento. Foi aberto o protocolo ${ticket.number} em ${formatBrasilia(ticket.created)}; situação: ${ticketCustomerLabels[ticket.status] || ticket.status}. ${
+    ticket.response_due_at
+      ? `A primeira resposta da equipe está prevista até ${formatBrasilia(ticket.response_due_at)}, no horário de Brasília; a previsão de solução é informada após a análise.`
+      : "Não há prazo definido para a primeira resposta."
+  } As mensagens do cliente ficam registradas neste atendimento. Para acompanhar, o cliente pode enviar MEUS PROTOCOLOS.`;
+}
+/**
+ * Fixed reply for a follow-up the bot could not answer on its own. At most one
+ * every ten minutes per conversation, so a burst of messages gets one reply.
+ */
+async function followupAck(env: Env, c: any, ticket: any, key: string) {
+  if (
+    await one(
+      env,
+      "SELECT id FROM outbox WHERE conversation_id=? AND dedupe LIKE 'followup:%' AND dedupe!=? AND created>? LIMIT 1",
+      c.id,
+      key,
+      now() - 600000,
+    )
+  )
+    return;
+  await enqueue(
+    env,
+    c,
+    "system",
+    "text",
+    {
+      text: ticket
+        ? `Recebemos sua mensagem. Ela está registrada neste atendimento, junto ao protocolo ${ticket.number}.${
+            ticket.response_due_at
+              ? ` A primeira resposta da equipe está prevista até ${formatBrasilia(ticket.response_due_at)}, no horário de Brasília.`
+              : ""
+          } Para acompanhar, envie MEUS PROTOCOLOS.`
+        : "Recebemos sua mensagem. Nossa equipe está ausente no momento e responderá por aqui assim que possível.",
+    },
+    key,
+  );
+}
+// Best-effort "digitando…" while a bot works on the reply. Kept in memory: the
+// indicator lasts about 25 seconds on WhatsApp, so it is renewed sparingly.
+const typingShown = new Map<string, number>();
+async function showTyping(env: Env, c: any) {
+  try {
+    if (!c.connection_id || c.chat_type === "group") return;
+    if (now() - (typingShown.get(c.id) || 0) < 20000) return;
+    const conn = await one(
+      env,
+      "SELECT * FROM connections WHERE id=? AND kind='zernio' AND status='active'",
+      c.connection_id,
+    );
+    if (!conn) return;
+    if (typingShown.size > 500) typingShown.clear();
+    typingShown.set(c.id, now());
+    await zernioTyping(env, conn, c.external_id);
+  } catch {
+    // Never let the indicator interfere with the answer.
+  }
+}
 async function failRun(env: Env, run: Run, error: string, status = "failed") {
   await exec(
     env,
@@ -1356,6 +1524,22 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
   if (run.conversation_id) {
     const c = await conversation(env, run.conversation_id, run.profile_id);
     if (c.epoch === run.epoch && c.state === "ai") await handoff(env, c, error);
+    else if (
+      c.epoch === run.epoch &&
+      c.state === "waiting" &&
+      json(run.context).followup
+    )
+      // The bot could not answer the follow-up: the customer still hears back.
+      await followupAck(
+        env,
+        c,
+        await one(
+          env,
+          `SELECT * FROM tickets WHERE conversation_id=? AND ${activeTicketSql()} ORDER BY created DESC LIMIT 1`,
+          c.id,
+        ),
+        `followup:${run.id}`,
+      ).catch(() => {});
   }
   await event(env, run.profile_id, "bot.run.failed", run.id, {
     id: run.id,

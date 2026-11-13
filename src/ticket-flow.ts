@@ -1,6 +1,12 @@
 import { batch } from "./db";
 import { type Env, type Conversation, now } from "./types";
-import { enqueue, settings, createTicket, clearTicketPrompt } from "./service";
+import {
+  enqueue,
+  settings,
+  createTicket,
+  clearTicketPrompt,
+  offerProtocolConsent,
+} from "./service";
 import {
   defaultTicketQuestion,
   enabledCategory,
@@ -105,5 +111,6 @@ export async function openCustomerTicket(
     key,
   );
   await clearTicketPrompt(env, c.id);
+  await offerProtocolConsent(env, c, cfg, ticket.id);
   return { ticket, delivery_id: delivery };
 }

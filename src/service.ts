@@ -499,6 +499,86 @@ export async function clearTicketPrompt(env: Env, conversationId: string) {
     conversationId,
   );
 }
+export const CONSENT_GRANT_REPLY = "wconsent:granted";
+export const CONSENT_DENY_REPLY = "wconsent:revoked";
+/**
+ * After a protocol is opened, asks once per conversation whether the customer
+ * accepts protocol notifications. Only where notifications are enabled, since
+ * the answer has no other use. Idempotent for the same protocol.
+ */
+export async function offerProtocolConsent(
+  env: Env,
+  c: Conversation,
+  cfg: any,
+  ticketId: string,
+) {
+  if (
+    cfg.protocol_consent_prompt === false ||
+    !cfg.notifications?.enabled ||
+    c.chat_type === "group" ||
+    !c.connection_id ||
+    (await one(
+      env,
+      "SELECT id FROM consents WHERE conversation_id=? LIMIT 1",
+      c.id,
+    ))
+  )
+    return;
+  const line = await one(
+    env,
+    "SELECT kind FROM connections WHERE id=?",
+    c.connection_id,
+  );
+  const question =
+    "Você autoriza receber notificações sobre seu protocolo pelo WhatsApp?";
+  const revoke = "Para revogar depois, envie REVOGAR.";
+  const id = "offer:" + ticketId;
+  await exec(
+    env,
+    "INSERT OR IGNORE INTO consents(id,profile_id,conversation_id,status,evidence,created) VALUES(?,?,?,?,?,?)",
+    id,
+    c.profile_id,
+    c.id,
+    "pending",
+    JSON.stringify({ actor: "system", ticket_id: ticketId }),
+    now(),
+  );
+  await enqueue(
+    env,
+    c,
+    "system",
+    "text",
+    {
+      text: `${question} Responda AUTORIZO ou NÃO AUTORIZO. ${revoke}`,
+      automation: "protocols",
+      // Reply buttons where the channel has them; the words keep working.
+      ...(["meta", "zernio"].includes(line?.kind)
+        ? {
+            content: {
+              type: "interactive",
+              interactive: {
+                type: "button",
+                body: { text: `${question} ${revoke}` },
+                action: {
+                  buttons: [
+                    {
+                      type: "reply",
+                      reply: { id: CONSENT_GRANT_REPLY, title: "Autorizo" },
+                    },
+                    {
+                      type: "reply",
+                      reply: { id: CONSENT_DENY_REPLY, title: "Não autorizo" },
+                    },
+                  ],
+                },
+              },
+            },
+          }
+        : {}),
+    },
+    `consent:${id}`,
+  );
+}
 export async function handoff(
   env: Env,
   c: Conversation,
@@ -527,19 +607,29 @@ export async function handoff(
   let reply = department
     ? `Vou encaminhar sua solicitação para o setor ${department.name}.`
     : "Vou encaminhar sua solicitação para nossa equipe.";
+  let opened: any = null;
   if (!present) {
-    // One active protocol per conversation in this automatic opening. A new
-    // protocol gets the configured confirmation; a reused one is only cited.
-    const { ticket, created } = await createTicket(env, c, reason, {
-      dedupe: true,
-    });
-    reply = `${department ? `O setor ${department.name} está sem atendentes disponíveis.\n` : ""}${cfg.absence_instructions}\n${
-      created
-        ? "\n" + protocolConfirmation(cfg, ticket)
-        : `Protocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`
-    }`;
+    const absent = department
+      ? `O setor ${department.name} está sem atendentes disponíveis.\n`
+      : "";
+    if (cfg.absence_ticket === false) {
+      // Protocol with the team absent is switched off: never claim one exists.
+      reply = `${absent}Nossa equipe está ausente no momento. Sua mensagem ficou registrada e responderemos assim que possível.`;
+    } else {
+      // One active protocol per conversation in this automatic opening. A new
+      // protocol gets the configured confirmation; a reused one is only cited.
+      const { ticket, created } = await createTicket(env, c, reason, {
+        dedupe: true,
+      });
+      if (created) opened = ticket;
+      reply = `${absent}${cfg.absence_instructions}\n${
+        created
+          ? "\n" + protocolConfirmation(cfg, ticket)
+          : `Protocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`
+      }`;
+    }
   }
-  if (policy.human && policy.service && (policy.menu || policy.bots))
+  if (policy.human && policy.service && (policy.menu || policy.bots)) {
     await enqueue(
       env,
       c,
@@ -548,6 +638,8 @@ export async function handoff(
       { text: reply },
       `handoff:${c.id}:${c.session}:${departmentId || "general"}`,
     );
+    if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
+  }
   if (cfg.telegram_connection && cfg.telegram_group)
     await enqueue(
       env,
