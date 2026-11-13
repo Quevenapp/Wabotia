@@ -1,5 +1,9 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package br.com.queven.wabotia.core.model
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,7 +15,9 @@ import kotlinx.serialization.json.JsonObject
 
 @Serializable data class HealthInfo(val service: String = "", val version: String = "", val commit: String = "", val runtime: String = "")
 @Serializable data class AuthStatus(val initialized: Boolean = false, val configured: Boolean = false)
-@Serializable data class DeviceInfo(val platform: String = "android", val name: String, val app_version: String)
+// WabotiaJson usa encodeDefaults = false: um campo igual ao seu valor padrão não é enviado. Todo campo de
+// requisição que o servidor exige e que aqui tem padrão precisa de @EncodeDefault (ver RequestEncodingTest).
+@Serializable data class DeviceInfo(@EncodeDefault val platform: String = "android", val name: String, val app_version: String)
 @Serializable data class MobileLoginRequest(val email: String, val password: String, val device: DeviceInfo)
 @Serializable data class MobileSession(val token: String, val expires: Long, val user: User)
 @Serializable data class User(
@@ -275,17 +281,17 @@ fun List<TicketCategory>.nameOf(categoryId: String?): String? {
 @Serializable data class CallStart(val conversation_id: String, val session: CallSession)
 @Serializable data class CallAccept(val session: CallSession)
 @Serializable data class CallPermissionRequest(val conversation_id: String)
-@Serializable data class CallReconcile(val confirmed_ended: Boolean = true)
+@Serializable data class CallReconcile(@EncodeDefault val confirmed_ended: Boolean = true)
 @Serializable data class CallActionResult(val id: String = "", val status: String = "", val delivery_id: String? = null)
 
 @Serializable data class DeviceRegistration(
-    val platform: String = "android",
-    val provider: String = "fcm",
+    @EncodeDefault val platform: String = "android",
+    @EncodeDefault val provider: String = "fcm",
     val token: String,
     val name: String,
     val app_version: String,
-    val profiles: List<String> = emptyList(),
-    val enabled: Boolean = true,
+    @EncodeDefault val profiles: List<String> = emptyList(),
+    @EncodeDefault val enabled: Boolean = true,
 )
 @Serializable data class Device(
     val id: String,
