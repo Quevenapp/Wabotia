@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-13",
+  "environment": "https://wabotia.queven.com.br",
+  "worker": "wabotia-queven-com-br",
+  "previous_version": "0.14.1",
+  "version": "0.15.0",
+  "commit": "dacb7cfa90d362c7a281a5751d51cece22a8b585",
+  "upgrade_method": "wrangler deploy with the operational config, same source commit as the catalog package",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.15.0-operational-20261113 (fora do Git)",
+  "migrations": [],
+  "pending_migrations": 0,
+  "catalog_assets_excluded": true,
+  "bindings_preserved": true,
+  "served_bundle": "/assets/index-DdgXl-nQ.js",
+  "served_bundle_same_as_distribution": true,
+  "mcp_card_in_bundle": true,
+  "external_messages_sent": false,
+  "panel_login_verified": false,
+  "hermes_live_connection_tested": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.15.0" },
+    { "route": "/api/auth/status", "status": 200 },
+    { "route": "/api/openapi.json", "status": 200 },
+    { "route": "/app", "status": 200 },
+    { "route": "/install", "status": 200 },
+    { "route": "/assets/index-DdgXl-nQ.js", "status": 200 },
+    { "route": "/api/mcp", "method": "GET", "status": 405, "allow": "POST" },
+    { "route": "/api/mcp", "method": "HEAD", "status": 405, "allow": "POST" },
+    { "route": "/api/mcp", "method": "DELETE", "status": 405, "allow": "POST" },
+    { "route": "/api/mcp", "method": "POST", "auth": "none", "status": 401 }
+  ]
+}
