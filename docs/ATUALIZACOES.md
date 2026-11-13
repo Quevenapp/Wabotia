@@ -137,3 +137,7 @@ As regras de atendimento novas estão em [Central de atendimento](CENTRAL-ATENDI
 ## Atualização 0.16.1: painel com um único modo
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O seletor **Simplificado / Avançado** deixa de existir no menu de Gestão e nas preferências: Consentimentos, Execuções de bots, Entregas de mensagens e Eventos para sistemas aparecem sempre, assim como o ID de conexões e bots. Quem usava o modo simplificado passa a ver essas páginas; nenhuma configuração é alterada. A Configuração guiada continua disponível.
+
+## Atualização 0.16.2: guia do site e textos do painel
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. A página `/install` passa a começar pelo instalador pelo navegador, com o terminal como caminho alternativo, ganha a seção de Regras de atendimento e atalhos para o guia em PDF, que foi refeito (65 páginas). No painel, o aviso depois de **Descobrir bots** cita **Atendente e especialistas** e os botões **Parear novamente** e **Revogar plugin** deixam de aparecer colados. Depois de atualizar, clique em **Reabrir painel atualizado** para carregar as telas novas.
