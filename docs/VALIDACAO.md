@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.16.3 de 13/11/2026: política de privacidade e teste de notificações
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `91fafb597d5bafee6cbfedac38d1369bc2295618`, a partir da `main` (0.16.2) com os PRs 10 e 11. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.3-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.3 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `5178dfd7bc4651c3890c31f438c05f4dc9101afb50130f8245b1496dbda39a51` (13.603.181 bytes), e as 27 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.
+
+O site ganha a página `/privacidade`, com a política de privacidade dos aplicativos (empresa responsável e contato), e o painel passa a mostrar o resultado real do botão **Enviar teste** das notificações. Só telas e documentação mudam; o servidor é o da 0.16.0. **584 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.16.3-distribution.json).
+
+No mesmo dia o gateway de notificações foi publicado em `https://push.wabotia.queven.app`, ligado ao projeto Firebase `wabotia`. Com os aplicativos 0.17.0 de debug instalados em um Samsung A07 e em um iPhone 7, o teste do painel da instalação operacional chegou aos dois aparelhos, e o proprietário confirmou que uma mensagem real de cliente gerou notificação nos dois e que tocar nela abre a conversa certa.
+
+Não verificado: o envio pelo ambiente de produção da Apple (o iPhone recebeu pelo de desenvolvimento), os fluxos novos dos aplicativos 0.17.0 além de login, lista, conversa e notificação (sair da conta com limpeza dos dados, seletor de contato sem permissão), e os aplicativos assinados para as lojas, que ainda não existem.
+
 ## Publicação 0.16.2 de 13/11/2026: guia do site pelo instalador do navegador
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `0a4a52277dc21066103aa9fe28643472a249ad3b`, a partir da `main` (0.16.1) com os PRs 8 e 9. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.2-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.2 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `b9cb4499a26796c31f2098eea0dd437f927bb772c5b83fbd677e8c726d12eb23` (13.596.269 bytes), e as 26 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.

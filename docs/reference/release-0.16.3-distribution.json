@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-13",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.16.3",
+  "commit": "91fafb597d5bafee6cbfedac38d1369bc2295618",
+  "previous_version": "0.16.2",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.16.3-distribution-20261113 (fora do Git)",
+  "migrations": [],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": false,
+  "package_verified": true,
+  "package_sha256_matches_catalog": true,
+  "package_size": 13603181,
+  "previous_versions_intact": 27,
+  "tests": { "files": 49, "passed": 584 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "operational_installation_updated": false,
+  "push_gateway": {
+    "url": "https://push.wabotia.queven.app",
+    "firebase_project": "wabotia",
+    "test_push_android": true,
+    "test_push_ios_development": true,
+    "real_message_push_confirmed_by_owner": true,
+    "ios_production_apns_tested": false
+  },
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.16.3" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.16.3" },
+    { "route": "/releases/0.16.3/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/*/release.json", "versions": 28, "mismatches": 0 },
+    { "route": "/api/install/status", "status": 200, "enabled": true },
+    { "route": "/privacidade", "status": 200, "bundle_has_company_and_contact": true },
+    { "route": "/install", "status": 200 },
+    { "route": "/instalar", "status": 200 },
+    { "route": "/app", "status": 200 },
+    { "route": "/guide/wabotia-instalacao.pdf", "status": 200 },
+    { "route": "/hermes-plugin/install.sh", "status": 200 }
+  ]
+}
