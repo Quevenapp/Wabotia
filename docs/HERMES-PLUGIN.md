@@ -31,7 +31,14 @@ Motivo: o motor do Wabotia não troca mensagens soltas com o bot. Cada execuçã
    ```
 
    O script baixa o plugin para `~/.hermes/plugins/wabotia/`, troca o código pelo token, grava `WABOTIA_URL` e `WABOTIA_LINK_TOKEN` em `~/.hermes/.env`, habilita a API local em `127.0.0.1`, cria a `API_SERVER_KEY` do perfil `default` e dos perfis informados quando ainda não existe (chaves existentes são preservadas), executa `hermes plugins enable wabotia` e ativa `gateway.platforms.wabotia.enabled`. Ele não reinicia serviços nem abre portas.
-4. Reinicie o gateway do Hermes pelo método já usado.
+   **Hermes em Docker** (por exemplo a imagem da Hostinger, com os dados em `/opt/data`): o `hermes` não existe no host. Baixe o script no host e execute dentro do contêiner, com o usuário dono da pasta de dados; o instalador recusa rodar com outro usuário, porque o gateway não leria os arquivos:
+
+   ```sh
+   curl -fsSL https://SUA_INSTALACAO/hermes-plugin/install.sh | docker exec -i -u hermes CONTEINER bash -s -- https://SUA_INSTALACAO wabp_CODIGO
+   ```
+
+   O plugin fica em `$HERMES_HOME/plugins/wabotia`, dentro do volume, e sobrevive à recriação do contêiner. Não é preciso rede `host`: a conexão é de saída e a API local é alcançada dentro do próprio contêiner.
+4. Reinicie o gateway do Hermes pelo método já usado (em Docker, `docker restart CONTEINER`).
 5. No cartão: **Testar conexão → Descobrir bots → Ativar**.
 
 Só perfis com `API_SERVER_KEY` viram bots executáveis. Para incluir outros perfis, repita o comando com um código novo e os nomes ao final. Ainda não há instalador para Hermes nativo no Windows.

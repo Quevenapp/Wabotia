@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Instala o plugin Wabotia no Hermes Agent e pareia com uma instalação Wabotia.
 # Uso: install.sh https://SUA_INSTALACAO wabp_CODIGO [perfil ...]
+# Hermes em Docker: execute dentro do contêiner, com o usuário dono dos dados:
+#   curl -fsSL URL/hermes-plugin/install.sh | docker exec -i -u hermes CONTEINER bash -s -- URL CODIGO
 # Não reinicia serviços, não abre portas e não envia chaves do Hermes.
 set -euo pipefail
 umask 077
@@ -23,6 +25,8 @@ printf '%s' "$CODE" | grep -Eq '^wabp_[0-9a-f-]{36}_[0-9a-f]{32}$' \
 command -v curl >/dev/null || fail "instale o curl."
 command -v "$HERMES_BIN" >/dev/null || fail "Hermes não encontrado. Use HERMES_BIN=/caminho/do/hermes."
 [ -d "$ROOT" ] || fail "pasta do Hermes não encontrada em $ROOT. Use HERMES_HOME."
+# Arquivos criados por outro usuário ficariam ilegíveis para o gateway.
+[ -O "$ROOT" ] || fail "execute com o usuário dono de $ROOT (em Docker: docker exec -u USUARIO ...)."
 for profile in "$@"; do
   printf '%s' "$profile" | grep -Eq '^[a-z0-9][a-z0-9_-]{0,63}$' || fail "nome de perfil inválido: $profile"
 done
