@@ -2,7 +2,7 @@
 
 Liga os bots de um Hermes Agent ao Wabotia sem túnel Cloudflare, Access, DNS ou porta aberta. O modo por URL ([HERMES-CLOUDFLARE.md](HERMES-CLOUDFLARE.md)) continua existindo e as conexões já criadas não mudam.
 
-Estado: o lado do servidor e o painel estão implementados e cobertos por `tests/hermes-link.test.ts`. O plugin (`public/hermes-plugin/`) e o instalador foram validados em um Hermes em Docker até a descoberta de bots; **uma execução completa de bot pelo vínculo ainda não foi validada**. Veja a seção 8.
+Estado: o lado do servidor e o painel estão implementados e cobertos por `tests/hermes-link.test.ts`. O plugin (`public/hermes-plugin/`) e o instalador foram validados em um Hermes em Docker, até o bot responder mensagens reais de WhatsApp; parada, aprovação e artefatos ainda não. Veja a seção 8.
 
 ## 1. Decisão
 
@@ -162,9 +162,11 @@ Validado em 13/11/2026 contra um Hermes Agent v0.22.6 em Docker (imagem `ghcr.io
 - Testes Python de `link.py`: 10 passando (Python 3 no host da VPS).
 - Instalador executado de dentro do contêiner com `su … hermes`, pareamento, carregamento do plugin após reiniciar o contêiner, **Testar conexão**, **Descobrir bots** (perfil `default`, com idempotência durável anunciada) e **Ativar**.
 
+- Atendimento real: o bot `default` como Atendente respondeu mensagens recebidas por WhatsApp (execução completa pelo vínculo, `runs.create` → `runs.get` até `completed`).
+
 Ainda não validado:
 
-- Uma execução completa de bot pelo vínculo (`runs.create` → `runs.get` até `completed`), parada, aprovação e download de artefato.
+- Parada de execução, aprovação de ferramenta e download de artefato.
 - Revogação observada no log do gateway.
 - Vários perfis: se um único gateway atende todos em `:8642` com `/p/<perfil>` (o instalador não verifica `gateway.multiplex_profiles`, como faz `scripts/prepare-hermes.py`) e `hermes -p PERFIL config set API_SERVER_KEY`.
 - Hermes instalado direto no host (sem Docker), macOS e a forma `docker exec -u hermes` a partir do host.
