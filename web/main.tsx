@@ -12,12 +12,15 @@ import { App } from "./app/App";
 import { Landing } from "./site/Landing";
 import { Install } from "./site/Install";
 import { ApiDocs } from "./site/ApiDocs";
+import { WebInstall } from "./site/WebInstall";
 
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
     <App />
   ) : location.pathname === "/install" ? (
     <Install />
+  ) : location.pathname === "/instalar" ? (
+    <WebInstall />
   ) : location.pathname === "/api-docs" ? (
     <ApiDocs />
   ) : (

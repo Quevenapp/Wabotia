@@ -24,22 +24,22 @@ const services = [
   [
     "Zero Trust",
     "É a área da Cloudflare onde você administra a proteção do acesso ao Hermes.",
-    "Ative um plano, como Zero Trust Free, antes de configurar o Access.",
+    "Só no caminho por túnel. Com o plugin no Hermes, não é usado.",
   ],
   [
     "Access",
     "Confere se quem está chamando o Hermes é o seu Wabotia autorizado.",
-    "Crie aplicações e políticas Service Auth; use Client ID e Client Secret na conexão.",
+    "Só no caminho por túnel: aplicações e políticas Service Auth, Client ID e Client Secret.",
   ],
   [
     "Tunnel e cloudflared",
     "Criam a ligação entre a Cloudflare e a máquina do Hermes sem abrir portas no roteador.",
-    "Instale cloudflared junto do Hermes e mantenha a máquina ligada.",
+    "Só no caminho por túnel: instale cloudflared junto do Hermes.",
   ],
   [
     "DNS",
     "Associa nomes como api-hermes.seudominio.com ao túnel correto.",
-    "Para os hostnames do túnel, use um domínio ativo na Cloudflare.",
+    "Só no caminho por túnel: use um domínio ativo na Cloudflare.",
   ],
   [
     "API da Cloudflare",
@@ -63,9 +63,11 @@ export function CloudflarePrerequisites() {
       <div className="eyebrow">ANTES DE EXECUTAR O INSTALADOR</div>
       <h2 id="prerequisites-title">Prepare os serviços da Cloudflare</h2>
       <p>
-        Ter a conta criada não ativa todos os serviços. Confira R2, D1 e Zero
-        Trust na conta que vai receber o Wabotia. Se já estão disponíveis,
-        continue sem repetir contratações ou criar recursos duplicados.
+        Ter a conta criada não ativa todos os serviços. Confira R2 e D1 na conta
+        que vai receber o Wabotia. Se já estão disponíveis, continue sem repetir
+        contratações ou criar recursos duplicados. Zero Trust e domínio só
+        entram se você ligar o Hermes por túnel; com o plugin no Hermes, que é o
+        caminho recomendado, não são necessários.
       </p>
       <details id="servicos-cloudflare" open>
         <summary>Para que serve cada serviço?</summary>
@@ -74,9 +76,10 @@ export function CloudflarePrerequisites() {
             Uma conversa chega ao <strong>Worker</strong>, seus registros ficam
             no <strong>D1</strong> e os anexos no <strong>R2</strong>. Os{" "}
             <strong>Durable Objects</strong> organizam o trabalho. Quando
-            precisa de um bot, o Worker passa pelo <strong>Access</strong> e
-            pelo <strong>Tunnel</strong> até o <strong>Hermes</strong>, que
-            executa o modelo na sua máquina ou VPS.
+            precisa de um bot, o pedido chega ao <strong>Hermes</strong>, que
+            executa o modelo na sua máquina ou VPS: pelo plugin, que busca o
+            trabalho no Wabotia, ou pelo <strong>Access</strong> e pelo{" "}
+            <strong>Tunnel</strong> no caminho por túnel.
           </p>
           <div className="guide-table-scroll">
             <table>
@@ -188,9 +191,9 @@ export function CloudflarePrerequisites() {
           </p>
         </div>
       </details>
-      <details open>
+      <details>
         <summary>
-          3. Zero Trust: ativar o plano antes de conectar o Hermes
+          3. Zero Trust: só se for ligar o Hermes por túnel (opcional)
         </summary>
         <div className="guide-detail">
           <ol>
@@ -226,9 +229,9 @@ export function CloudflarePrerequisites() {
       <aside className="account-return">
         <strong>Pronto para continuar?</strong>
         <p>
-          Confira: R2 permite criar buckets; D1 permite criar bancos; Zero Trust
-          permite gerenciar aplicações; e o domínio do túnel está ativo. Depois
-          execute o instalador e guarde a pasta privada que ele criar.
+          Confira: R2 permite criar buckets e D1 permite criar bancos. Depois
+          execute o instalador e guarde a pasta privada que ele criar. Se for
+          usar o túnel, confira também o Zero Trust e o domínio.
         </p>
       </aside>
     </section>

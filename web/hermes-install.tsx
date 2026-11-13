@@ -13,12 +13,64 @@ export function HermesInstall() {
       id="hermes"
       aria-labelledby="hermes-guide-title"
     >
-      <div className="eyebrow">DEPOIS DO DEPLOY · HERMES E CLOUDFLARE</div>
-      <h2 id="hermes-guide-title">Ligue a API e conecte o seu Hermes</h2>
+      <div className="eyebrow">DEPOIS DO DEPLOY · HERMES</div>
+      <h2 id="hermes-guide-title">Conecte o seu Hermes</h2>
       <p>
-        O Hermes pode estar no seu computador ou em uma VPS. Siga a ordem
-        abaixo. Se o Wabotia já está instalado, mantenha sua MASTER_KEY e seu
+        O Hermes pode estar no seu computador ou em uma VPS. O caminho
+        recomendado é o <strong>plugin</strong>: um comando na máquina do
+        Hermes, sem túnel, sem domínio e sem chaves do Hermes guardadas no
+        Wabotia. Se o Wabotia já está instalado, mantenha sua MASTER_KEY e seu
         SETUP_TOKEN originais.
+      </p>
+      <details open id="hermes-plugin">
+        <summary>Caminho recomendado: plugin no Hermes</summary>
+        <div className="guide-detail">
+          <ol>
+            <li>
+              Tenha o Hermes funcionando, com modelo e provedor configurados.
+              Quem ainda não tem pode usar uma VPS com a imagem pronta do Hermes
+              Agent, como a da Hostinger.
+            </li>
+            <li>
+              No painel do Wabotia, abra{" "}
+              <strong>Hermes e canais → Conectar Hermes</strong>, mantenha{" "}
+              <strong>Plugin no Hermes</strong> e salve.
+            </li>
+            <li>
+              No cartão da conexão, clique em{" "}
+              <strong>Gerar comando de instalação</strong>. O código vale 15
+              minutos e uma única vez.
+            </li>
+            <li>
+              Cole o comando no terminal da máquina do Hermes, com o usuário do
+              Hermes. Se o Hermes roda em Docker, abra{" "}
+              <strong>Meu Hermes roda em Docker</strong> na mesma janela e use o
+              comando indicado ali.
+            </li>
+            <li>
+              Reinicie o gateway do Hermes (em Docker,{" "}
+              <code>docker restart CONTEINER</code>).
+            </li>
+            <li>
+              De volta ao cartão:{" "}
+              <strong>Testar conexão → Descobrir bots → Ativar</strong>. Em
+              Equipe Bot, habilite o bot e escolha o Atendente.
+            </li>
+          </ol>
+          <p>
+            O comando instala o plugin, habilita a API local do Hermes somente
+            em <code>127.0.0.1</code> e cria a <code>API_SERVER_KEY</code> do
+            perfil se ainda não existir. Ele não abre portas e não reinicia nada
+            sozinho. Para cortar o acesso, use <strong>Revogar plugin</strong>{" "}
+            no cartão.
+          </p>
+        </div>
+      </details>
+      <h3>Caminho alternativo: túnel Cloudflare e Access</h3>
+      <p>
+        Use os passos abaixo somente se preferir que o Wabotia chame o Hermes
+        por URLs públicas protegidas. Exige Zero Trust, um domínio ativo na
+        Cloudflare e as chaves do Hermes cadastradas no Wabotia.
       </p>
       <p>
         <a href={manual} target="_blank" rel="noopener noreferrer">
@@ -26,7 +78,7 @@ export function HermesInstall() {
         </a>{" "}
         · <a href="/install#zernio-whatsapp">Importar telefones da Zernio</a>
       </p>
-      <details open>
+      <details>
         <summary>1. API desligada? Prepare o Hermes primeiro</summary>
         <div className="guide-detail">
           <p>

@@ -1037,3 +1037,39 @@
     width: 100%;
   }
 }
+
+/* Instalador pelo navegador (/instalar). */
+.web-install {
+  margin: 0 auto;
+}
+.install-progress {
+  list-style: none;
+  margin: 24px 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.install-progress li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-2);
+}
+.install-progress li.active {
+  color: var(--text);
+  font-weight: 600;
+}
+.install-progress li.done {
+  color: var(--ok-ink);
+}
+.install-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  box-sizing: border-box;
+}
+.install-message {
+  color: var(--text-2);
+  margin: 0 0 16px;
+}

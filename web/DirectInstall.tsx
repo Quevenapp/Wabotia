@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Copy, Download } from "lucide-react";
 import { NodeInstall, type InstallSystem } from "./NodeInstall";
+import { installTokenUrl } from "../src/install-links";
 export function DirectInstall() {
   const [os, setOs] = useState<InstallSystem>("vps"),
     [copied, setCopied] = useState(false);
@@ -22,6 +23,16 @@ export function DirectInstall() {
           INSTALAÇÃO DIRETA · SEM REPOSITÓRIO PRÓPRIO
         </div>
         <h2>Instale na sua Cloudflare</h2>
+        <aside className="account-return">
+          <strong>Prefere não usar terminal?</strong>
+          <p>
+            O <a href="/instalar">instalador pelo navegador</a> faz a mesma
+            instalação sem Node.js: você informa a conta e o token em uma página
+            do site oficial. Nesse caminho o token passa pelo servidor do
+            Wabotia, sem ser guardado. No caminho abaixo, pelo terminal, ele vai
+            direto do seu computador para a Cloudflare.
+          </p>
+        </aside>
         <p>
           Você executa o instalador uma vez no computador ou na VPS. O painel, o
           banco e os arquivos ficam na sua conta Cloudflare. As próximas
@@ -38,9 +49,13 @@ export function DirectInstall() {
             instalar.
           </li>
           <li>
-            Crie o token descrito a seguir. Ele será digitado no terminal e
-            guardado como secret no seu Worker. O site Wabotia não recebe seu
-            token.
+            Crie o token:{" "}
+            <a href={installTokenUrl} target="_blank" rel="noopener noreferrer">
+              abrir a Cloudflare com o token já preenchido ↗
+            </a>
+            . Em <strong>Account Resources</strong>, escolha somente a conta da
+            instalação, confira e crie. Ele será digitado no terminal e guardado
+            como secret no seu Worker. O site Wabotia não recebe seu token.
           </li>
           <li>
             Use o mesmo terminal e usuário em que node e npm funcionaram.
@@ -49,14 +64,15 @@ export function DirectInstall() {
             <code> wabotia-atendimento</code>.
           </li>
           <li>
-            Ao terminar, abra a URL exibida. O instalador cria uma pasta com o
-            nome escolhido. Abra <code>chaves.local.json</code> e copie{" "}
-            <code>SETUP_TOKEN</code> para criar seu administrador. Guarde a
-            pasta em local privado.
+            Ao terminar, abra o <strong>link de primeiro acesso</strong> que o
+            instalador mostra: ele já leva o código de instalação para a tela de
+            criar seu administrador. O instalador cria uma pasta com o nome
+            escolhido; o mesmo código fica em <code>chaves.local.json</code>,
+            campo <code>SETUP_TOKEN</code>. Guarde a pasta em local privado.
           </li>
         </ol>
         <details>
-          <summary>Como criar o token da instalação</summary>
+          <summary>O link não abriu o formulário? Crie o token à mão</summary>
           <div className="guide-detail">
             <ol>
               <li>

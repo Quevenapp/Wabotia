@@ -16,19 +16,19 @@ import { SitePage } from "./SiteChrome";
 const installSteps = [
   [
     "Prepare a Cloudflare",
-    "Ative R2, confira D1 e Workers e prepare Zero Trust para o túnel do Hermes.",
+    "Ative R2 e confira D1 e Workers. Zero Trust e domínio só são necessários se você escolher ligar o Hermes por túnel.",
   ],
   [
     "Execute o instalador",
-    "Baixe o instalador oficial. Informe Account ID, token Cloudflare e um nome novo. Ele publica os recursos e gera as chaves.",
+    "Baixe o instalador oficial. Informe Account ID, o token Cloudflare (há um link que abre o formulário preenchido) e um nome novo. Ele publica os recursos e gera as chaves.",
   ],
   [
     "Crie seu administrador",
-    "Abra a URL exibida e use SETUP_TOKEN do arquivo chaves.local.json para criar sua conta individual.",
+    "Abra o link de primeiro acesso mostrado pelo instalador. Ele já leva o código de instalação; você só escolhe nome, e-mail e senha.",
   ],
   [
     "Conecte o Hermes",
-    "Cadastre as APIs e as chaves do Hermes. Teste a conexão, descubra os bots e selecione o Atendente.",
+    "Crie a conexão por plugin no painel e execute um comando na máquina do Hermes. Teste a conexão, descubra os bots e selecione o Atendente. Não precisa de túnel nem de domínio.",
   ],
   [
     "Escolha seus canais",
