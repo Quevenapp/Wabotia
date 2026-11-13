@@ -70,7 +70,7 @@ export function RouterGuide() {
       <details>
         <summary>4. Autorize seus sistemas</summary>
         <p>
-          Crie a aplicação em <strong>API e integrações</strong>. Em
+          Crie a aplicação em <strong>Sistemas conectados</strong>. Em
           <strong> Acesso dos sistemas</strong>, escolha os telefones ou grupos
           permitidos. A API aceita <code>number_id</code> ou{" "}
           <code>pool_id</code>. Templates exigem aprovação, consentimento e
@@ -81,7 +81,8 @@ export function RouterGuide() {
       <details>
         <summary>5. Exclua um telefone</summary>
         <p>
-          Em <strong>Telefones</strong> ou <strong>Conexões</strong>, clique em
+          Em <strong>Integração Zernio</strong> ou{" "}
+          <strong>Hermes e canais</strong>, clique em
           <strong> Excluir telefone</strong> e confira a confirmação. Resolva
           envios em andamento ou sem confirmação e ligações abertas antes.
           Mensagens e operações de grupo ainda na fila serão canceladas. O

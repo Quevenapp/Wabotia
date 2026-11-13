@@ -3,14 +3,13 @@ import agendaImage from "../docs/screenshots/23-agenda.jpg";
 export function ContactGuide() {
   return (
     <section id="agenda" className="system-card card">
-      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.4.0</div>
+      <div className="eyebrow">DEPOIS DE INSTALAR · CONTATOS</div>
       <h2>Organize sua agenda de contatos</h2>
       <p>
-        No painel da sua área de atendimento, abra{" "}
-        <strong>Agenda de contatos</strong>. Use <strong>Novo contato</strong>{" "}
-        para cadastrar nome, telefone, e-mail, empresa e observações. Só o nome
-        é obrigatório. Clique no nome de uma pessoa para editar ou abrir suas
-        conversas vinculadas.
+        No painel da sua área de atendimento, abra <strong>Contatos</strong>.
+        Use <strong>Novo contato</strong> para cadastrar nome, telefone, e-mail,
+        empresa e observações. Só o nome é obrigatório. Clique no nome de uma
+        pessoa para editar ou abrir suas conversas vinculadas.
       </p>
       <h3>Salvar o cliente de uma conversa</h3>
       <ol>

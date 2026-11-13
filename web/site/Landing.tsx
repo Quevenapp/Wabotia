@@ -115,7 +115,12 @@ function ProductPreview() {
             className={"mock-row" + (row.selected ? " selected" : "")}
             key={row.seed}
           >
-            <Avatar name={row.name} seed={row.seed} size={44} badge={row.badge} />
+            <Avatar
+              name={row.name}
+              seed={row.seed}
+              size={44}
+              badge={row.badge}
+            />
             <div className="mock-row-main">
               <strong className="truncate">{row.name}</strong>
               <span className="mock-preview">
@@ -147,7 +152,12 @@ function ProductPreview() {
       </div>
       <div className="mock-chat">
         <div className="mock-chat-head">
-          <Avatar name="Mariana Albuquerque" seed="mariana" size={38} badge="mine" />
+          <Avatar
+            name="Mariana Albuquerque"
+            seed="mariana"
+            size={38}
+            badge="mine"
+          />
           <div>
             <strong>Mariana Albuquerque</strong>
             <small>Com você</small>
@@ -231,11 +241,19 @@ export function Landing() {
               WhatsApp, com a inteligência do Hermes e o controle nas suas mãos.
             </p>
             <div className="hero-actions">
-              <a className="button lg" href="/install#nodejs">
+              <a className="button lg" href="/install#navegador">
                 Publicar na Cloudflare <Cloud size={19} />
               </a>
               <a className="text-link" href="/install">
                 Ver passo a passo <ArrowRight size={17} />
+              </a>
+              <a
+                className="text-link"
+                href="/guide/wabotia-instalacao.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Guia em PDF <ArrowUpRight size={17} />
               </a>
             </div>
             <div className="hero-proof">

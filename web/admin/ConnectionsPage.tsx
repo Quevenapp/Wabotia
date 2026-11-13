@@ -73,8 +73,8 @@ export function ConnectionsPage() {
         <div>
           <strong>Um lugar para cada conexão</strong>
           <p>
-            Cadastre o Hermes para usar seus bots. A equipe atende pelo painel
-            e pelos aplicativos. A Integração Zernio e seus telefones ficam em{" "}
+            Cadastre o Hermes para usar seus bots. A equipe atende pelo painel e
+            pelos aplicativos. A Integração Zernio e seus telefones ficam em{" "}
             <a {...linkProps({ area: "admin", page: "router" })}>
               Integração Zernio
             </a>
@@ -247,7 +247,7 @@ export function ConnectionsPage() {
                     {parse(row.config).link
                       ? "Parear novamente"
                       : "Gerar comando de instalação"}
-                  </button>
+                  </button>{" "}
                   {parse(row.config).link && (
                     <button
                       type="button"

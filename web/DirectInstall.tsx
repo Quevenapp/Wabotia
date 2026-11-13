@@ -19,14 +19,12 @@ export function DirectInstall() {
         }}
       />
       <section className="account-setup hermes-guide" id="instalar">
-        <div className="eyebrow">
-          INSTALAÇÃO DIRETA · SEM REPOSITÓRIO PRÓPRIO
-        </div>
-        <h2>Instale na sua Cloudflare</h2>
+        <div className="eyebrow">CAMINHO ALTERNATIVO · PELO TERMINAL</div>
+        <h2>Instale pelo terminal</h2>
         <aside className="account-return">
           <strong>Prefere não usar terminal?</strong>
           <p>
-            O <a href="/instalar">instalador pelo navegador</a> faz a mesma
+            O <a href="#navegador">instalador pelo navegador</a> faz a mesma
             instalação sem Node.js: você informa a conta e o token em uma página
             do site oficial. Nesse caminho o token passa pelo servidor do
             Wabotia, sem ser guardado. No caminho abaixo, pelo terminal, ele vai

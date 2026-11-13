@@ -647,7 +647,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
         <p>
           Autorize esta instalação a criar um túnel, os endereços DNS e a
           proteção Access para seu Hermes. Depois, use{" "}
-          <strong>Conexões → Preparar Hermes na Cloudflare</strong>.
+          <strong>Hermes e canais → Preparar Hermes na Cloudflare</strong>.
         </p>
         {data.cloudflare.configured && (
           <>
