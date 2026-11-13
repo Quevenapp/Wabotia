@@ -93,6 +93,8 @@ Protocolo **ativo** é o que não está resolvido nem encerrado. Só os ativos c
 
 **Saudação do menu principal** (`menu_greeting`, até 900 caracteres): quando preenchida, abre o menu principal no lugar de "Como podemos ajudar?", na lista interativa e no menu numerado. Submenus continuam usando o próprio título. Vazio volta ao texto padrão.
 
+**Menu como porta de entrada sem bot** (0.14.1): quando nenhum bot vai responder (linha em atendimento humano, sem Bot Atendente ou bot não habilitado para a linha), a mensagem que abre o atendimento mostra o menu principal, seja qual for o texto. O menu aparece uma vez; o texto livre seguinte vai para a equipe. Com um bot respondendo, o menu continua abrindo só com uma saudação sozinha ou `MENU`. Detalhes em [CENTRAL-ATENDIMENTO.md](CENTRAL-ATENDIMENTO.md#menu-como-porta-de-entrada-sem-bot-0141).
+
 ## Modelos de atendimento
 
 **Automação → Modelos de atendimento** aplica um modelo pronto. O modelo **Central de aplicativos** cria quatro setores (sem pessoas), nove categorias, o prazo de 3 dias úteis e um menu com Ajuda gratuita, Meus protocolos, Já tenho contrato, Contratar serviços, Compras e licenças e Conhecer aplicativos. **Acrescentar** cria só o que ainda não existe e não altera o que você já configurou; **Substituir** troca menus, setores, categorias, prazo, horário e textos pelos do modelo, mantendo as pessoas já colocadas nos setores do modelo e os feriados. Conversas e protocolos nunca são tocados. O resumo da aplicação lista o que ainda depende de você: colocar pessoas nos setores, revisar os textos, cadastrar conhecimento e configurar o modelo de notificação. Detalhes em [Central de atendimento por modelo](CENTRAL-ATENDIMENTO.md).

@@ -478,7 +478,7 @@ export async function applyServiceTemplate(
     pending.push({
       code: "attendant_bot",
       message:
-        "Escolha o Bot Atendente em Automação → Atendente e especialistas para responder às mensagens enviadas fora do menu.",
+        "Sem Bot Atendente, a primeira mensagem do cliente abre o menu principal e o texto seguinte fora do menu vai para a equipe. Para um bot responder a essas mensagens, escolha o Bot Atendente em Automação → Atendente e especialistas.",
     });
   if (
     !(await one(

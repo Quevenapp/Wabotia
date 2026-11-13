@@ -695,7 +695,11 @@ export async function inbound(
     c = await conversation(env, c.id, profile);
   }
   const line = await serviceForLine(env, connectionId);
-  if (line.mode === "human" && c.state === "ai" && !c.assigned_bot_id) {
+  // Only the message that opens a session on a human line queues it; the
+  // engine uses this to offer the main menu once (front door without a bot).
+  const queuedByLine =
+    line.mode === "human" && c.state === "ai" && !c.assigned_bot_id;
+  if (queuedByLine) {
     await exec(
       env,
       "UPDATE conversations SET state='waiting',owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
@@ -741,6 +745,7 @@ export async function inbound(
           attachments,
           epoch: c.epoch,
           session: c.session,
+          ...(queuedByLine ? { queued_by_line: true } : {}),
           ...(resumed.length ? { resumed_tickets: resumed } : {}),
         }),
         now(),
@@ -1333,9 +1338,15 @@ export async function perform(
         "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
         profile,
       );
+      // A menu-only area is valid: without a bot the main menu answers the
+      // first message (see the front door in the engine).
+      const automaticMenu = (cfg.menus || []).some(
+        (item: any) =>
+          !item.parent_id && item.enabled !== false && item.trigger !== "manual",
+      );
       requireValue(
-        cfg.attendant_bot || configuredLine,
-        "Selecione o Bot Atendente da área de atendimento ou configure o atendimento por linha.",
+        cfg.attendant_bot || configuredLine || automaticMenu,
+        "Selecione o Bot Atendente da área de atendimento, configure o atendimento por linha ou cadastre um menu automático.",
       );
     }
     await exec(

@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Revisão local 0.14.1 de 13/11/2026: menu como porta de entrada sem bot
+
+**Ainda não publicada.** Na instalação operacional 0.14.0, sem bot, uma mensagem de cliente chegou e o menu não apareceu. O menu automático só abria com uma saudação sozinha ou `MENU`; qualquer outro texto ia direto para a fila. Além disso, a área só podia ser ativada com Bot Atendente ou com uma linha em atendimento humano ou por bot. A configuração da instalação operacional não foi lida, então qual das duas causas valeu naquele caso não está confirmado.
+
+Mudança no servidor: quando nenhum bot vai responder, a mensagem que abre o atendimento mostra o menu principal, seja qual for o texto, uma vez por sessão a cada 24 horas; o texto livre seguinte segue para a equipe. A área pode ser ativada só com menu automático. Regras em [`CENTRAL-ATENDIMENTO.md`](CENTRAL-ATENDIMENTO.md#menu-como-porta-de-entrada-sem-bot-0141). Sem migração. Web e aplicativos não mudam.
+
+**541 testes em 43 arquivos**, TypeScript e build passaram; oito testes novos em `tests/front-door-menu.test.ts` cobrem a primeira mensagem, o texto seguinte indo para a fila, a reapresentação após 24 horas, o pedido explícito de atendente, a linha em atendimento humano, menu manual, desligado, ausente e em grupo, a ativação só com menu e o caso com bot. No servidor local, com a área sem bot: a ativação foi aceita, "Preciso de ajuda com o Printher" recebeu o menu principal e o texto seguinte foi para a fila com a mensagem de encaminhamento.
+
+Não verificado: instalação real, entrega da lista interativa pelo WhatsApp e o comportamento com o Telegram da equipe conectado.
+
 ## Publicação 0.14.0 de 13/11/2026: painel no estilo dos aplicativos e central por modelo
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `5f97119e0b08c321813d2620c40625939fe8d6bb`, a partir da `main`. A instalação operacional `https://wabotia.queven.com.br` foi atualizada de 0.13.2 para 0.14.0 pelo próprio painel, pelo mantenedor, que relatou a atualização concluída. `/api/health` dos dois endereços responde 0.14.0 nesse commit. O conteúdo da versão está descrito na revisão local abaixo.

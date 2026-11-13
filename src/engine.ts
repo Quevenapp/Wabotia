@@ -672,6 +672,59 @@ export async function processInbox(env: Env, profile: string) {
       await handoff(env, c, "Cliente solicitou atendimento humano.");
       return;
     }
+    // Front door without a bot: when no bot will answer, the message that
+    // opens a session shows the main menu whatever its text, instead of going
+    // straight to the queue. Not repeated while a menu shown in this session
+    // is still within its 24 hours: the next free text follows the usual path
+    // below, so the customer is never held in the menu.
+    const humanLine = line.mode === "human" && !c.assigned_bot_id;
+    const menuShownRecently =
+      !!c.menu_token?.startsWith(c.session + ".") &&
+      (c.menu_expires_at || 0) > now();
+    if (
+      c.chat_type !== "group" &&
+      policy.menu &&
+      automaticMenus &&
+      !replyId &&
+      (c.state === "ai" || (c.state === "waiting" && data.queued_by_line)) &&
+      !menuShownRecently &&
+      (humanLine ||
+        !policy.bots ||
+        !cfg.attendant_bot ||
+        !(await botAllowsLine(
+          env,
+          cfg.attendant_bot,
+          profile,
+          c.connection_id,
+        ))) &&
+      (
+        await availableMenus(
+          env,
+          profile,
+          c.connection_id,
+          null,
+          false,
+          c.chat_type,
+        )
+      ).length
+    ) {
+      await sendMenu(env, system, c, null, `front:${row.id}`, false);
+      // A queued conversation still reaches the team's Telegram topic.
+      if (c.state !== "ai" && cfg.telegram_connection && cfg.telegram_group)
+        await enqueue(
+          env,
+          c,
+          "system",
+          "team",
+          {
+            text: `Cliente: ${value}`,
+            attachments: data.attachments,
+            group: cfg.telegram_group,
+          },
+          `mirror:${row.id}`,
+        );
+      return;
+    }
     if (c.state !== "ai") {
       if (cfg.telegram_connection && cfg.telegram_group)
         await enqueue(

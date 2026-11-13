@@ -84,6 +84,17 @@ Para acompanhar, envie MEUS PROTOCOLOS.
 
 Configuração `menu_greeting` (texto, até 900 caracteres; vazio por padrão). Quando preenchida, substitui "Como podemos ajudar?" na abertura do **menu principal**, tanto na lista interativa quanto no menu numerado em texto. Submenus continuam usando o próprio título. O limite deixa espaço para a linha "Escolha uma opção abaixo." dentro dos 1024 caracteres do corpo de uma mensagem interativa do WhatsApp.
 
+### Menu como porta de entrada sem bot (0.14.1)
+
+Com um bot respondendo, o menu automático abre só quando o cliente envia uma saudação sozinha (`oi`, `olá`, `bom dia`, `boa tarde`, `boa noite`, `tudo bem`) ou `MENU`; o resto vai para o bot. Quando **nenhum bot vai responder**, a mensagem que abre o atendimento mostra o menu principal, seja qual for o texto, em vez de ir direto para a fila.
+
+"Nenhum bot vai responder" significa: a linha está em atendimento humano, o número não permite bots, não há Bot Atendente, ou ele não está habilitado para a linha. Valem as demais condições do menu automático: atendimento ativo, conversa individual, menu da linha em `automatic` e pelo menos uma opção disponível.
+
+- O menu não se repete enquanto um menu mostrado na mesma sessão estiver dentro de 24 horas. O texto livre seguinte segue o caminho normal: fila de atendimento (com a mensagem de encaminhamento ou de ausência e protocolo) ou, na linha em atendimento humano, a conversa que já está na fila.
+- Na linha em atendimento humano, só a mensagem que coloca a conversa na fila mostra o menu. A conversa continua na fila enquanto o cliente escolhe.
+- Pedido explícito de atendente (`atendente`, `humano`) continua indo direto para a fila, sem menu.
+- A área pode ser ativada sem Bot Atendente e sem linha configurada quando existe ao menos uma opção habilitada e automática no menu principal.
+
 ## 5. Abrir protocolo pelo cliente
 
 - Novo destino de menu `type: "ticket"` ("Abrir protocolo"), com `category_id` opcional e `content` opcional (pergunta de até 3500 caracteres; padrão "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu."). O sistema acrescenta "Para cancelar, envie MENU." Uma categoria desabilitada depois de salvar o destino é ignorada na abertura.
