@@ -174,6 +174,25 @@ Só depois continue. **Gratuito significa uso dentro dos limites do serviço**, 
 
 ## 2. Instale sem GitHub
 
+Há dois caminhos para a mesma instalação. Os dois criam o banco, o armazenamento e o Worker na sua conta e geram as chaves.
+
+### Caminho A: pelo navegador, sem Node.js nem terminal
+
+Abra [wabotia.queven.app/instalar](https://wabotia.queven.app/instalar). Com o R2 ativado (requisito 1), você informa Account ID, o token (o link da página abre o formulário preenchido na Cloudflare) e um nome novo.
+
+1. **Conferir a conta.** A página confere o token e os nomes. Nada é criado nesta etapa.
+2. **Baixar as chaves.** As chaves são geradas no seu navegador. Baixe o arquivo `NOME-chaves.local.json` e guarde em local privado antes de continuar: a `MASTER_KEY` não pode ser recuperada depois.
+3. **Instalar.** A página executa os passos e mostra o andamento. Não feche a aba; se um passo falhar, **Tentar este passo de novo** continua de onde parou.
+4. **Criar o administrador.** O botão final abre sua instalação com o código de instalação preenchido.
+
+O que muda em relação ao terminal: **o token passa pelo servidor do site oficial a cada passo**, só para ser repassado à Cloudflare. Ele não é gravado em banco, arquivo ou registro, e o andamento fica no seu navegador. Como no terminal, o token fica salvo no seu próprio Worker (`WABOTIA_UPDATE_TOKEN`) para as atualizações pelo painel. Se preferir que o token nunca passe pelo site, use o caminho B. Este instalador não tem pasta local nem `--resume`: se a aba for fechada no meio, apague na Cloudflare o Worker, o banco D1 e o bucket R2 com o nome escolhido e recomece, ou use outro nome.
+
+O instalador pelo navegador só existe no site oficial. Em qualquer outra instalação, `/instalar` avisa que está desligado (a variável `WABOTIA_WEB_INSTALLER=1` do Worker é o que o liga).
+
+### Caminho B: pelo terminal
+
+Requer o Node.js da seção inicial. Neste caminho o token vai direto do seu computador para a Cloudflare.
+
 ### Crie o token e copie Account ID
 
 1. Na conta Cloudflare escolhida, copie **Account ID** na visão geral da conta/domínio.

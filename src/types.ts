@@ -10,6 +10,8 @@ export interface Env {
   WABOTIA_WORKER_NAME?: string;
   WABOTIA_INSTALLATION_ID?: string;
   WABOTIA_UPDATE_TOKEN?: string;
+  /** "1" only on the official site: turns on the browser installer. */
+  WABOTIA_WEB_INSTALLER?: string;
 }
 export interface Actor {
   id: string;

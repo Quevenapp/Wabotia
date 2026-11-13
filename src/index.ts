@@ -82,6 +82,7 @@ import {
   pairingDisconnect,
   prunePairings,
 } from "./pairing";
+import { installStep, webInstallerEnabled } from "./web-install";
 import {
   linkAuth,
   linkCodeConnection,
@@ -175,6 +176,36 @@ app.post("/api/pairing/token", async (c) =>
       c.req.header("CF-Connecting-IP") || "local",
     ),
   ),
+);
+// Instalador pelo navegador (docs/INSTALACAO.md). Só existe no site oficial.
+// O corpo traz o token da pessoa: nunca é registrado nem guardado.
+app.get("/api/install/status", (c) =>
+  c.json({ enabled: webInstallerEnabled(c.env) }),
+);
+app.post(
+  "/api/install/step",
+  bodyLimit({ maxSize: 256 * 1024 }),
+  async (c) => {
+    if (!webInstallerEnabled(c.env))
+      throw new ApiError(
+        404,
+        "not_found",
+        "O instalador pelo navegador só existe no site oficial do Wabotia.",
+      );
+    if (c.req.header("Origin") !== new URL(c.req.url).origin)
+      throw new ApiError(
+        403,
+        "invalid_origin",
+        "Origem da requisição inválida.",
+      );
+    await rate(
+      c.env,
+      "web-install:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
+      400,
+      600_000,
+    );
+    return c.json(await installStep(c.env, await c.req.json()));
+  },
 );
 // Vínculo do plugin Wabotia no Hermes Agent (docs/HERMES-PLUGIN.md). O token
 // wabl_ só vale nestas rotas; o estado do poll vive na instância do vínculo.

@@ -23,6 +23,16 @@ export function DirectInstall() {
           INSTALAÇÃO DIRETA · SEM REPOSITÓRIO PRÓPRIO
         </div>
         <h2>Instale na sua Cloudflare</h2>
+        <aside className="account-return">
+          <strong>Prefere não usar terminal?</strong>
+          <p>
+            O <a href="/instalar">instalador pelo navegador</a> faz a mesma
+            instalação sem Node.js: você informa a conta e o token em uma página
+            do site oficial. Nesse caminho o token passa pelo servidor do
+            Wabotia, sem ser guardado. No caminho abaixo, pelo terminal, ele vai
+            direto do seu computador para a Cloudflare.
+          </p>
+        </aside>
         <p>
           Você executa o instalador uma vez no computador ou na VPS. O painel, o
           banco e os arquivos ficam na sua conta Cloudflare. As próximas
