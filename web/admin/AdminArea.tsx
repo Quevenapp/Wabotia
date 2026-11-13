@@ -5,14 +5,13 @@ import { ArrowLeft, ArrowRight, Menu as MenuIcon, X } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useCompact, useUnsavedGuard } from "../app/hooks";
 import { linkProps, navigate, pageRoute } from "../lib/routes";
-import { Button, Empty, PageHeader, Segmented } from "../ui";
+import { Button, Empty, PageHeader } from "../ui";
 import {
   canOpenPage,
   pageDescriptions,
   sections,
   visibleGroups,
   type PageId,
-  type PanelMode,
 } from "../workspace-navigation";
 import { SetupWizard } from "../SetupWizard";
 import { SystemPanel } from "../SystemPanel";
@@ -150,18 +149,7 @@ function Navigation({
   onNavigate: () => void;
 }) {
   const app = useApp();
-  const groups = visibleGroups(app.me.role, app.panelMode);
-  function changeMode(mode: PanelMode) {
-    app.setPanelMode(mode);
-    // A página atual pode não existir no modo simplificado.
-    if (
-      page !== "setup" &&
-      !visibleGroups(app.me.role, mode).some((group) =>
-        group.pages.includes(page),
-      )
-    )
-      navigate({ area: "admin", page: "overview" });
-  }
+  const groups = visibleGroups(app.me.role);
   const link = (id: PageId, label: string, Icon: any, child = false) => (
     <a
       key={id}
@@ -232,19 +220,6 @@ function Navigation({
           ),
         )}
       </nav>
-      <div className="admin-mode">
-        <span>Modo do painel</span>
-        <Segmented
-          label="Modo do painel"
-          value={app.panelMode}
-          onChange={changeMode}
-          full
-          options={[
-            { value: "guided", label: "Simplificado" },
-            { value: "advanced", label: "Avançado" },
-          ]}
-        />
-      </div>
     </>
   );
 }

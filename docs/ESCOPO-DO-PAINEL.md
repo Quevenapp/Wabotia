@@ -1,6 +1,6 @@
 # Escopo e organização do painel
 
-O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e acesso aos detalhes pelo modo avançado.
+O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e os detalhes técnicos sempre à mão em Gestão.
 
 Este documento descreve as capacidades verificadas no código e as dependências de configuração e homologação dos serviços externos.
 
@@ -25,7 +25,7 @@ A partir da 0.14.0 o painel tem a mesma organização dos aplicativos (desenho e
 | Integrações | Aplicações externas, chaves e permissões de acesso. |
 | Sistema | Instalação, atualizações e configuração da infraestrutura. |
 
-O assistente de configuração tem um atalho próprio e conduz às mesmas configurações usadas pelo restante do painel. O modo avançado revela consentimentos, execuções, entregas, webhooks e detalhes técnicos. Ambos os modos devem compartilhar os mesmos dados; não são instalações nem configurações independentes.
+O assistente de configuração tem um atalho próprio e conduz às mesmas configurações usadas pelo restante do painel. O painel tem um único modo: consentimentos, execuções, entregas, webhooks e identificadores técnicos aparecem sempre em Gestão. O antigo modo simplificado, que os escondia, foi removido.
 
 Uma conexão identifica o serviço e guarda sua autorização. **Integração Zernio** reúne a autorização do provedor; **Telefones** reúne os números de WhatsApp disponíveis. O destino de cada linha define quem atende; o roteamento define quais números uma integração pode usar. Esses conceitos devem aparecer juntos em **Canais**, sem exigir que a pessoa recadastre credenciais em telas diferentes.
 
@@ -73,4 +73,4 @@ O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A ch
 
 O assistente pode orientar o cadastro, testar conexões, descobrir números e bots, escolher destinos e salvar opções existentes. Ele deve distinguir “configurado” de “testado” e indicar quais passos dependem do serviço externo. Ter um formulário preenchido não comprova que um webhook recebe mensagens, que o especialista pode emitir um boleto ou que a Meta habilitou ligações para a conta.
 
-O modo avançado mantém acesso aos contratos e registros necessários para diagnóstico. Ele não deve ser requisito para configurar tarefas comuns, nem dar a entender que funções pendentes já existem. Veja também [linhas, menus e equipe](ATENDIMENTO-EQUIPE.md), [API](API.md) e [validação](VALIDACAO.md).
+O painel mantém acesso aos contratos e registros necessários para diagnóstico. Eles não devem ser requisito para configurar tarefas comuns, nem dar a entender que funções pendentes já existem. Veja também [linhas, menus e equipe](ATENDIMENTO-EQUIPE.md), [API](API.md) e [validação](VALIDACAO.md).

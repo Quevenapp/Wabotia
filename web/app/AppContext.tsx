@@ -15,7 +15,6 @@ import { notify, setTitleCount } from "../lib/notifications";
 import { conversationName } from "../lib/format";
 import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
 import { toast, toastError } from "../ui";
-import type { PanelMode } from "../workspace-navigation";
 
 export type AppEvent = {
   id: number;
@@ -77,8 +76,6 @@ export type AppState = {
   /** Guarda nome e responsável das conversas vistas, para os avisos. */
   rememberConversations: (rows: Row[]) => void;
   onEvents: (listener: EventListener) => () => void;
-  panelMode: PanelMode;
-  setPanelMode: (mode: PanelMode) => void;
   /** Sem rede ou servidor fora do ar. */
   offline: boolean;
   reloadSession: () => Promise<void>;
@@ -133,9 +130,6 @@ export function AppProvider({
   const [presenceBusy, setPresenceBusy] = useState(false);
   const [ringingCalls, setRingingCalls] = useState<Row[]>([]);
   const [ticketCounts, setTicketCounts] = useState({ overdue: 0, active: 0 });
-  const [panelMode, setMode] = useState<PanelMode>(() =>
-    readText("wabotia:panel-mode") === "advanced" ? "advanced" : "guided",
-  );
 
   // Relógio único: "agora" do servidor, de 30 em 30 s.
   const clockOffset = useRef(0);
@@ -631,11 +625,6 @@ export function AppProvider({
       window.location.assign("/app");
     }
   }, [api, demo]);
-  const setPanelMode = useCallback((mode: PanelMode) => {
-    setMode(mode);
-    writeText("wabotia:panel-mode", mode);
-  }, []);
-
   const value: AppState = {
     demo,
     api,
@@ -677,8 +666,6 @@ export function AppProvider({
     refreshTickets,
     rememberConversations,
     onEvents,
-    panelMode,
-    setPanelMode,
     offline,
     reloadSession,
     logout,

@@ -14,7 +14,7 @@ Versão 0.16.0, que liga o Hermes Agent por um [plugin de saída](docs/HERMES-PL
 
 ## Navegação e configuração guiada
 
-O painel reúne as tarefas em **Início**, **Atendimento**, **Contatos**, **Equipe**, **Automação**, **Canais**, **Avaliações e relatórios**, **Integrações** e **Sistema**. O assistente de configuração tem um atalho próprio para orientar os primeiros passos. O **modo avançado** revela consentimentos, execuções, entregas, webhooks e detalhes técnicos, usando as mesmas configurações do modo guiado.
+O painel reúne as tarefas em **Início**, **Atendimento**, **Contatos**, **Equipe**, **Automação**, **Canais**, **Avaliações e relatórios**, **Integrações** e **Sistema**. O assistente de configuração tem um atalho próprio para orientar os primeiros passos. Consentimentos, execuções, entregas, webhooks e identificadores técnicos ficam sempre visíveis em Gestão; não há mais modo simplificado.
 
 Em **Automação**, o Bot Atendente conversa com o cliente e consulta especialistas internos do Hermes para operações nos sistemas; as credenciais desses sistemas ficam nos especialistas. O [pareamento Vinki/Fagoo](docs/PAREAMENTO.md) usa código temporário, sem copiar tokens. As [atualizações automáticas](docs/ATUALIZACOES.md) são opcionais, com janela diária. O [JEV](docs/JEV.md) pode decidir após a interpretação do Atendente. Consulte a [matriz de capacidades e dependências externas](docs/ESCOPO-DO-PAINEL.md).
 

@@ -161,7 +161,7 @@ export function ApplicationsPage() {
           </Button>
         </div>
       </section>
-      <details className="card" open={app.panelMode === "advanced"}>
+      <details className="card" open>
         <summary>Integração manual pela API · avançado</summary>
         <div className="toolbar">
           <p>Crie chaves com as permissões necessárias para cada sistema.</p>
