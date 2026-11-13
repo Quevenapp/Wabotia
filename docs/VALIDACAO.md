@@ -1,5 +1,17 @@
 # Validação e limites
 
+## Publicação 0.16.1 de 13/11/2026: painel com um único modo
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `0dc6f908e86a83f7b5782f3c5be2f3f5768ee0f7`, a partir da `main` (0.16.0) com o PR 7. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.1-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `314575e92a934add99686af70d2e8d5f2b26ecacaa3fbeccd41f262ee321d851` (12.472.337 bytes), e as 25 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.
+
+O seletor **Simplificado / Avançado** deixa de existir no menu de Gestão e nas preferências; o painel mostra sempre as páginas técnicas e os identificadores. Só telas e documentação mudam; o servidor é o da 0.16.0.
+
+**584 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. Na primeira execução, quatro testes do instalador pelo navegador falharam por ler o catálogo real deixado na pasta `dist` pela publicação anterior, em vez do pacote simulado; os testes foram isolados disso e ganharam um caso para a leitura do catálogo pelos arquivos do próprio site, que é o caminho usado na distribuição. No modo de demonstração, o seletor não aparece, as quatro páginas técnicas estão no menu e o ID do bot fica visível; o bundle publicado não contém mais o texto do seletor. [Evidência](reference/release-0.16.1-distribution.json).
+
+Desde a 0.16.0, o proprietário atualizou pelo painel, de 0.15.0 para 0.16.0, a instalação criada pelo instalador pelo navegador, sem erro: isso confirma o registro de migrações feito por aquele instalador, que estava pendente.
+
+Não verificado: a janela de preferências e as telas com login real nesta versão, e os itens ainda abertos da 0.16.0 (botões de autorização, liga/desliga do protocolo na ausência, parada, aprovação e artefatos pelo plugin, Hermes fora de Docker).
+
 ## Publicação 0.16.0 de 13/11/2026: plugin do Hermes, instalador pelo navegador e atendimento após o protocolo
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `629e4cb6018e290ea414aa8f247f71fe3aa56d71`, a partir da `main` (0.15.0) com os PRs 4, 5 e 6. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.0-distribution-20261113`, fora do Git); não havia migração de banco pendente nem mudança de Durable Object. `/api/health` responde 0.16.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `8d6f8a18e3c8b90e2c5b01fc35c3effca163424d3a06ebd12e2cca0861803498` (12.474.301 bytes), e as 24 versões anteriores continuam disponíveis com os mesmos resumos. A distribuição passou a ter a variável `WABOTIA_WEB_INSTALLER=1`, que liga o instalador pelo navegador somente nela. A instalação operacional não foi atualizada nesta publicação.
