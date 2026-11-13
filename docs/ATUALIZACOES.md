@@ -113,3 +113,23 @@ Dois textos mudam para todos: a consulta do cliente e as notificações dos apli
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. A instalação passa a publicar um servidor MCP em `POST /api/mcp`, no mesmo Worker do painel, para o Hermes Agent e outros clientes MCP usarem conversas, protocolos, agenda, conhecimento, bots, presença, eventos, relatórios e o roteador como ferramentas nativas. Cada ferramenta chama a rota equivalente da API v1 com a chave de aplicação do cliente, com as mesmas permissões, namespaces, idempotência e limites por minuto.
 
 Depois de atualizar, abra **Integrações → Ferramentas do Wabotia no Hermes Agent (MCP)**, crie a aplicação e a chave e cole o bloco `mcp_servers` no `config.yaml` do perfil Hermes, com a chave no `.env`. Chaves já emitidas também funcionam, com as permissões que tiverem. Nada muda para quem não configurar o Hermes; o endpoint recusa sessões de usuário e tokens dos aplicativos. [Ferramentas e detalhes do protocolo](API.md#mcp-para-o-hermes-agent).
+
+## Atualização 0.16.0: plugin do Hermes, instalação mais simples e atendimento após o protocolo
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco nem mudança de Durable Object.
+
+**Muda para todas as instalações ao atualizar:**
+
+- **Telegram removido.** A equipe atende pelo painel e pelos aplicativos. A conexão Telegram, o espelho das conversas no grupo, os comandos e o vínculo de ID em Pessoas deixam de existir. Uma conexão Telegram antiga aparece em **Hermes e canais** apenas para ser excluída. Quem usava o Telegram com a equipe deve migrar para o painel ou os aplicativos antes de atualizar.
+- **Assinatura de quem escreve.** Mensagens de texto de pessoas e bots chegam ao cliente com a primeira linha **Nome - Humano** ou **Nome - IA**. Confira os nomes em Pessoas e acessos e na Equipe Bot; para desligar, use **Regras de atendimento → Identificar quem escreve**.
+- **Bot continua respondendo com a equipe ausente.** Com a conversa na fila e ninguém presente, o Bot Atendente responde às novas mensagens com o que já foi informado (protocolo e prazo), sem tirar a conversa da fila. Desligue em Regras de atendimento se preferir o silêncio de antes.
+- **Digitando.** Linhas Zernio mostram "digitando…" enquanto o bot prepara a resposta; no WhatsApp isso marca a mensagem do cliente como lida.
+
+**Passa a existir, sem efeito para quem não usar:**
+
+- **Hermes por plugin.** Em **Hermes e canais → Conectar Hermes**, a opção **Plugin no Hermes** gera um comando para a máquina do Hermes e dispensa túnel, Access, domínio e chaves do Hermes no Wabotia. Conexões por URL continuam como estão. [Contrato e limites](HERMES-PLUGIN.md).
+- **Autorização de notificações** com os botões Autorizo / Não autorizo depois que um protocolo é aberto, somente com as notificações de protocolo ligadas.
+- **Liga/desliga do protocolo aberto na ausência da equipe.**
+- **Instalação:** link que abre o token da Cloudflare preenchido, link de primeiro acesso e o [instalador pelo navegador](INSTALACAO.md#caminho-a-pelo-navegador-sem-nodejs-nem-terminal), disponível só no site oficial.
+
+As regras de atendimento novas estão em [Central de atendimento](CENTRAL-ATENDIMENTO.md).
