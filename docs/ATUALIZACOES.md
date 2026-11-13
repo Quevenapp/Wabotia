@@ -141,3 +141,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 ## Atualização 0.16.2: guia do site e textos do painel
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. A página `/install` passa a começar pelo instalador pelo navegador, com o terminal como caminho alternativo, ganha a seção de Regras de atendimento e atalhos para o guia em PDF, que foi refeito (65 páginas). No painel, o aviso depois de **Descobrir bots** cita **Atendente e especialistas** e os botões **Parear novamente** e **Revogar plugin** deixam de aparecer colados. Depois de atualizar, clique em **Reabrir painel atualizado** para carregar as telas novas.
+
+## Atualização 0.16.3: política de privacidade e teste de notificações
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O site ganha a página `/privacidade`, com a política de privacidade dos aplicativos Android e iOS, e um link para ela no rodapé. Em **Notificações dos aplicativos**, o botão **Enviar teste** passa a mostrar quantos aparelhos aceitaram o teste; antes dizia sempre que não havia dispositivo registrado, mesmo com a notificação entregue. Os aplicativos 0.17.0 (sem ligações ao vivo) estão no repositório, mas não fazem parte desta atualização.
