@@ -198,7 +198,7 @@ struct ConversationInfoView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).card()
             } else {
                 ForEach(vm.tickets) { ticket in
-                    Button { push(.ticket(id: ticket.id)) } label: { TicketMiniRow(ticket: ticket) }.buttonStyle(.plain)
+                    Button { push(.ticket(id: ticket.id)) } label: { TicketMiniRow(ticket: ticket, categoryName: Workspace.shared.categoryName(ticket.category)) }.buttonStyle(.plain)
                 }
             }
         }

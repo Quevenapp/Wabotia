@@ -36,6 +36,10 @@ export interface Profile {
 }
 export interface Conversation {
   department_id?: string | null;
+  ticket_prompt_expires_at?: number | null;
+  ticket_prompt_category?: string | null;
+  ticket_prompt_session?: string | null;
+  ticket_prompt_source?: string | null;
   menu_expires_at?: number | null;
   menu_token?: string | null;
   menu_items?: string;
@@ -103,12 +107,37 @@ export const json = (value: any, fallback: any = {}) => {
 export function requireValue(value: any, message: string): asserts value {
   if (!value) throw new ApiError(400, "invalid_request", message);
 }
+// Kept here, without imports, because `defaults` is read while modules load.
+export const defaultProtocolConfirmation = `Sua solicitação foi registrada.
+
+Protocolo: {numero}
+Aplicativo: {aplicativo}
+Assunto: {assunto}
+
+Primeira resposta da equipe: até {prazo}, no horário de Brasília.
+
+Vamos analisar o que você informou. Se precisarmos de mais detalhes, entraremos em contato por este atendimento. A previsão de solução será informada após a análise.
+
+Para acompanhar, envie MEUS PROTOCOLOS.`;
+export const defaultBusinessHours = {
+  days: [1, 2, 3, 4, 5],
+  start: "09:00",
+  end: "18:00",
+  holidays: [] as string[],
+};
 export const defaults = {
   attendant_bot: "",
   instructions: "",
   absence_instructions:
     "Nossa equipe está ausente. Abrimos um protocolo para acompanhar sua solicitação.",
   protocol_response_hours: 24,
+  protocol_response_unit: "hours",
+  protocol_response_days: 3,
+  business_hours: defaultBusinessHours,
+  ticket_categories: [],
+  protocol_confirmation: defaultProtocolConfirmation,
+  // Opening text of the main menu. Empty keeps "Como podemos ajudar?".
+  menu_greeting: "",
   telegram_group: "",
   telegram_connection: "",
   reply_mode: "command",

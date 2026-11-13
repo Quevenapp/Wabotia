@@ -1,5 +1,5 @@
 import { capabilities } from "./whatsapp";
-import { authorizedMedia, mediaResponse, uploadPart } from "./media";
+import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
 import { callView, callPermission } from "./calls";
 import {
   zernioCredentials,
@@ -61,6 +61,8 @@ import {
   telegram,
 } from "./integrations";
 import { openapi } from "./openapi";
+import { ticketStatuses, activeTicketSql } from "./protocols";
+import { listServiceTemplates } from "./service-templates";
 import { buildInfo } from "./build-info.generated";
 import {
   listContacts,
@@ -345,6 +347,16 @@ const mobileToken = (c: any) => {
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
 };
 app.get("/api/v1/me", (c) => c.json(c.get("actor")));
+// Static catalogue, previewed in the panel before an administrator applies it.
+app.get("/api/v1/service-templates", (c) => {
+  if (c.get("actor").kind !== "user")
+    throw new ApiError(
+      403,
+      "user_required",
+      "Os modelos de central são consultados por pessoas autenticadas.",
+    );
+  return c.json({ data: listServiceTemplates() });
+});
 app.post("/api/v1/installation/area/bootstrap", async (c) =>
   c.json(
     await ensureInstallationArea(c.env, c.get("actor"), c.get("requestId")),
@@ -717,6 +729,7 @@ const commands = [
   ["POST", "router/messages", "router.send"],
   ["POST", "router/messages/:id/cancel", "router.cancel"],
   ["PUT", "settings", "settings"],
+  ["POST", "service-templates/:id/apply", "service-template.apply"],
   ["POST", "activate", "activate"],
   ["POST", "pause", "pause"],
   ["POST", "connections", "connection.save"],
@@ -979,16 +992,24 @@ for (const [path, [table, scope]] of Object.entries(readLists))
       }
       const status = c.req.query("status");
       if (status) {
+        // One state or a comma-separated list, combined with OR.
+        const wanted = [...new Set(status.split(",").map((s) => s.trim()))];
         requireValue(
-          ["open", "in_progress", "closed"].includes(status),
+          wanted.every((s) => ticketStatuses.includes(s)),
           "Estado inválido.",
         );
-        filter += " AND status=?";
-        params.push(status);
+        filter += " AND status IN (SELECT value FROM json_each(?))";
+        params.push(JSON.stringify(wanted));
+      }
+      // Active: neither resolved nor closed.
+      if (c.req.query("active") === "1") filter += ` AND ${activeTicketSql()}`;
+      const category = (c.req.query("category") || "").slice(0, 100);
+      if (category) {
+        filter += " AND category=?";
+        params.push(category);
       }
       if (c.req.query("overdue") === "1") {
-        filter +=
-          " AND response_due_at<? AND first_response_at IS NULL AND status!='closed'";
+        filter += ` AND response_due_at<? AND first_response_at IS NULL AND ${activeTicketSql()}`;
         params.push(now());
       }
     }
@@ -1081,6 +1102,51 @@ app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
     ),
   );
 });
+const messageKinds = [
+  "text",
+  "image",
+  "video",
+  "audio",
+  "document",
+  "location",
+  "contacts",
+  "sticker",
+  "interactive",
+];
+/** Replaces the joined lm_* columns of a conversation row with last_message. */
+function lastMessageView(row: any) {
+  const {
+    lm_text,
+    lm_direction,
+    lm_created,
+    lm_delivery_status,
+    lm_attachments,
+    lm_content,
+    lm_media_type,
+    ...conversation
+  } = row;
+  if (!lm_direction) return { ...conversation, last_message: null };
+  const content = json(lm_content),
+    attachments = json(lm_attachments, []);
+  const count = Array.isArray(attachments) ? attachments.length : 0;
+  let kind = content.type === "voice" ? "audio" : content.type;
+  if (kind === "file") kind = "document";
+  if ((!kind || kind === "text") && count)
+    kind = lm_media_type ? mediaKind(lm_media_type) : "document";
+  if (content.deleted || !messageKinds.includes(kind))
+    kind = count && !content.deleted ? "document" : "text";
+  return {
+    ...conversation,
+    last_message: {
+      text: lm_text || "",
+      direction: lm_direction,
+      created: lm_created,
+      delivery_status: lm_delivery_status || "",
+      attachments: count,
+      kind,
+    },
+  };
+}
 app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   const p = c.req.param("profile");
   access(c.get("actor"), p, "conversations:read");
@@ -1096,9 +1162,15 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   const state = c.req.query("state") || "",
     department = (c.req.query("department_id") || "").slice(0, 100),
     q = (c.req.query("q") || "").slice(0, 200);
+  // The page is selected first; the newest message is then looked up once per
+  // returned conversation through messages_history(conversation_id,created,id).
+  // Internal notes only count for callers allowed to read them.
+  const notes =
+    c.get("actor").kind !== "app" ||
+    c.get("actor").scopes.includes("notes:read");
   const rows = await all(
     c.env,
-    "SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?",
+    "SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type FROM (SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC",
     c.get("actor").kind === "user" ||
       c.get("actor").scopes.includes("contacts:read")
       ? 1
@@ -1120,12 +1192,13 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     after?.[0] ?? 0,
     after?.[1] ?? "",
     limit + 1,
+    notes ? 1 : 0,
   );
   const more = rows.length > limit;
   rows.splice(limit);
   const last = rows.at(-1);
   return c.json({
-    data: rows,
+    data: rows.map(lastMessageView),
     next_cursor:
       more && last ? btoa(JSON.stringify([last.updated, last.id])) : null,
   });

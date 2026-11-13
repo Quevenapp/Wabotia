@@ -166,6 +166,8 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     private fun fillPreviews() {
         val cache = container.conversationCache
         val pending = items.take(30).filter { c ->
+            // Servidor 0.14+ já manda `last_message` na lista: nada a buscar para essa conversa.
+            if (c.lastMessage != null) return@filter false
             val known = cache.previews[c.id]
             (known == null || known.kind == "attachment" || known.at < c.last_customer) && fillAttempted.add(c.id + ":" + c.updated)
         }.take(15)

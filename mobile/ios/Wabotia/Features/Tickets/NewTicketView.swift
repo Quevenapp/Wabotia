@@ -10,6 +10,9 @@ struct NewTicketView: View {
     let conversationId: String
 
     @State private var title = ""
+    /// Categoria (aplicativo ou assunto): opcional, só oferecida quando o perfil tem categorias (servidor 0.14+).
+    @State private var category: String?
+    @ObservedObject private var workspace = Workspace.shared
     @State private var busy = false
     @State private var error: String?
     @State private var created: Ticket?
@@ -20,6 +23,7 @@ struct NewTicketView: View {
 
     private static let titleLimit = 300
     private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var offeredCategories: [TicketCategory] { workspace.ticketCategories.filter(\.enabled) }
 
     var body: some View {
         ScrollView {
@@ -42,6 +46,14 @@ struct NewTicketView: View {
                     Text("\(title.count)/\(Self.titleLimit)")
                         .font(Theme.font(12))
                         .foregroundStyle(title.count >= Self.titleLimit ? Theme.warn : Theme.textSecondary)
+                }
+                if !offeredCategories.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Categoria").font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                        Text("Aplicativo ou assunto da solicitação. Opcional.").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+                        TicketCategoryChips(categories: offeredCategories, selection: $category, disabled: busy)
+                            .onChange(of: category) { _ in idempotencyKey = APIClient.newIdempotencyKey() }
+                    }
                 }
                 if let error { InlineError(text: error) }
                 PrimaryButton(title: "Abrir protocolo", icon: "doc.text.fill", busy: busy, color: Theme.ticket, disabled: trimmedTitle.isEmpty, action: create)
@@ -79,7 +91,8 @@ struct NewTicketView: View {
         guard let profile = container.profileId, !busy else { return }
         busy = true
         error = nil
-        let body = TicketCreate(conversation_id: conversationId, title: trimmedTitle)
+        let chosen = category.flatMap { id in offeredCategories.contains { $0.id == id } ? id : nil }
+        let body = TicketCreate(conversation_id: conversationId, title: trimmedTitle, category: chosen)
         let key = idempotencyKey
         Task { @MainActor in
             do {

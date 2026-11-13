@@ -47,7 +47,16 @@ internal object Ids {
     const val T_SOON = "t-soon"
     const val T_PROGRESS = "t-progress"
     const val T_ANSWERED = "t-answered"
+    const val T_THIRD = "t-third"
+    const val T_RESOLVED = "t-resolved"
     const val T_CLOSED = "t-closed"
+
+    const val CAT_WABOTIA = "wabotia"
+    const val CAT_PRINTHER = "printher"
+    const val CAT_NFSE = "nfse-leve"
+    const val CAT_FAGOO = "fagoo-erp"
+    const val CAT_SERVIDOR = "servidor-integracao"
+    const val CAT_OUTRO = "outro"
 
     const val CHAT_ANA = "ic-ana"
     const val CHAT_VENDAS = "ic-vendas"
@@ -113,6 +122,8 @@ internal class DemoState(val t0: Long) {
     val lines = ArrayList<Row>()
     var menus: List<JsonObject> = emptyList()
     var departments: List<JsonObject> = emptyList()
+    /** `settings.ticket_categories` (servidor 0.14): aplicativo ou assunto do protocolo. */
+    var ticketCategories: List<JsonObject> = emptyList()
 
     val conversations = LinkedHashMap<String, Row>()
     val messages = HashMap<String, MutableList<Row>>()
@@ -263,6 +274,16 @@ internal class DemoState(val t0: Long) {
             j("id" to Ids.DEP_SUPORTE, "name" to "Suporte", "enabled" to true, "members" to listOf(Ids.MARINA, Ids.ANA)),
         )
 
+        ticketCategories = listOf(
+            j("id" to Ids.CAT_WABOTIA, "name" to "Wabotia", "enabled" to true),
+            j("id" to Ids.CAT_PRINTHER, "name" to "Printher", "enabled" to true),
+            j("id" to Ids.CAT_NFSE, "name" to "NFS-e Leve", "enabled" to true),
+            j("id" to Ids.CAT_FAGOO, "name" to "Fagoo ERP", "enabled" to true),
+            j("id" to Ids.CAT_SERVIDOR, "name" to "Servidor ou integração", "enabled" to true),
+            j("id" to Ids.CAT_OUTRO, "name" to "Outro ou não sei", "enabled" to true),
+            j("id" to "vinki", "name" to "Vinki", "enabled" to false),
+        )
+
         fun menu(id: String, label: String, type: String, parent: String? = null, bot: String = "") = j(
             "id" to id, "label" to label, "type" to type, "parent_id" to parent, "bot_id" to bot, "app_id" to "",
             "enabled" to true, "trigger" to "automatic", "line_ids" to emptyList<String>(),
@@ -277,6 +298,13 @@ internal class DemoState(val t0: Long) {
             menu("mn-fin-cobranca", "Contestar uma cobrança", "human", parent = "mn-financeiro"),
             menu("mn-sup-acesso", "Problemas de acesso", "bot", parent = "mn-suporte", bot = Ids.BOT_SUPORTE),
             menu("mn-sup-integracao", "Integrações e API", "human", parent = "mn-suporte"),
+            // Destinos que o aplicativo não monta, mas precisa mostrar e preservar ao editar.
+            JsonObject(
+                menu("mn-sup-protocolo", "Abrir protocolo", "ticket", parent = "mn-suporte") +
+                    ("category_id" to JsonPrimitive(Ids.CAT_WABOTIA)) +
+                    ("content" to JsonPrimitive("Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.")),
+            ),
+            menu("mn-protocolos", "Meus protocolos", "protocols"),
         )
 
         seedConversations()
@@ -447,11 +475,11 @@ internal class DemoState(val t0: Long) {
     }
 
     private fun seedTickets() {
-        fun ticket(id: String, number: String, conversation: String, title: String, status: String, owner: String?, due: Long?, firstResponse: Long?, created: Long, updated: Long) {
+        fun ticket(id: String, number: String, conversation: String, title: String, status: String, owner: String?, due: Long?, firstResponse: Long?, created: Long, updated: Long, category: String? = null) {
             tickets[id] = row(
                 "id" to id, "number" to number, "profile_id" to Ids.PROFILE, "conversation_id" to conversation, "title" to title,
                 "status" to status, "owner" to owner, "response_due_at" to due, "first_response_at" to firstResponse,
-                "created" to created, "updated" to updated,
+                "created" to created, "updated" to updated, "category" to category,
             )
             ticketUpdates[id] = ArrayList()
         }
@@ -460,28 +488,40 @@ internal class DemoState(val t0: Long) {
             list += row("id" to "tu-$ticketId-${list.size + 1}", "ticket_id" to ticketId, "actor" to actor, "text" to text, "internal" to if (internal) 1 else 0, "created" to at)
         }
 
-        ticket(Ids.T_OVERDUE, "WA-2026-000181", Ids.C_5H, "Segunda via do boleto de outubro com o valor corrigido", "open", Ids.ME, hoursAgo(2.0), null, hoursAgo(18.9), hoursAgo(18.9))
+        // Os seis estados (docs/CENTRAL-ATENDIMENTO.md §2), com categoria: Recebido (atrasado e vencendo), Em análise,
+        // Aguardando cliente, Aguardando terceiro, Resolvido e Encerrado (este sem categoria).
+        ticket(Ids.T_OVERDUE, "WA-2026-000181", Ids.C_5H, "Segunda via do boleto de outubro com o valor corrigido", "open", Ids.ME, hoursAgo(2.0), null, hoursAgo(18.9), hoursAgo(18.9), category = Ids.CAT_FAGOO)
         update(Ids.T_OVERDUE, "system", "Protocolo aberto por Bruno Almeida.", hoursAgo(18.9))
         update(Ids.T_OVERDUE, Ids.ME, "Financeiro precisa recalcular os juros antes de emitir a segunda via.", hoursAgo(18.5), internal = true)
 
-        ticket(Ids.T_SOON, "WA-2026-000185", Ids.C_ANA, "QR code da integração não aparece no painel", "open", Ids.ANA, t0 + 40 * 60_000L, null, minAgo(170), minAgo(170))
+        ticket(Ids.T_SOON, "WA-2026-000185", Ids.C_ANA, "QR code da integração não aparece no painel", "open", Ids.ANA, t0 + 40 * 60_000L, null, minAgo(170), minAgo(170), category = Ids.CAT_SERVIDOR)
         update(Ids.T_SOON, "system", "Protocolo aberto por Ana Souza.", minAgo(170))
 
-        ticket(Ids.T_PROGRESS, "WA-2026-000184", Ids.C_RICH, "Migração do histórico do painel antigo", "in_progress", Ids.ME, t0 + 22 * 3_600_000L, null, minAgo(160), minAgo(95))
+        ticket(Ids.T_PROGRESS, "WA-2026-000184", Ids.C_RICH, "Migração do histórico do painel antigo", "in_progress", Ids.ME, t0 + 22 * 3_600_000L, null, minAgo(160), minAgo(95), category = Ids.CAT_WABOTIA)
         update(Ids.T_PROGRESS, "system", "Protocolo aberto por Bruno Almeida.", minAgo(160))
         update(Ids.T_PROGRESS, Ids.ME, "Cliente usa o painel antigo desde 2022. Confirmar com o suporte se a exportação em CSV traz os anexos.", minAgo(155), internal = true)
         update(Ids.T_PROGRESS, Ids.MARINA, "Suporte confirmou: a exportação traz mensagens e anexos. Precisamos do acesso de administrador do cliente.", minAgo(120))
         update(Ids.T_PROGRESS, Ids.ME, "Estamos preparando a migração do seu histórico. Assim que tivermos o acesso de administrador, concluímos em até 2 dias úteis.", minAgo(95))
 
         val answeredAt = messages[Ids.C_RICH]?.firstOrNull { it.str("attachments")?.contains(DemoMedia.PDF_ID) == true }?.long("created") ?: hoursAgo(20.0)
-        ticket(Ids.T_ANSWERED, "WA-2026-000182", Ids.C_RICH, "Proposta do plano Empresarial para 20 atendentes", "in_progress", Ids.ME, answeredAt + 90 * 60_000L, answeredAt, answeredAt - 14 * 60_000L, answeredAt)
+        ticket(Ids.T_ANSWERED, "WA-2026-000182", Ids.C_RICH, "Proposta do plano Empresarial para 20 atendentes", "waiting_customer", Ids.ME, answeredAt + 90 * 60_000L, answeredAt, answeredAt - 14 * 60_000L, answeredAt, category = Ids.CAT_WABOTIA)
         update(Ids.T_ANSWERED, "system", "Protocolo aberto por Bruno Almeida.", answeredAt - 14 * 60_000L)
         update(Ids.T_ANSWERED, Ids.ME, "Proposta enviada com o desconto de parceiro. Aguardando a confirmação do CNPJ para emitir o contrato.", answeredAt)
+
+        ticket(Ids.T_THIRD, "WA-2026-000179", Ids.C_WINDOW_CLOSED, "Nota fiscal de serviço rejeitada pela prefeitura", "waiting_third", Ids.MARINA, hoursAgo(29.0), hoursAgo(30.5), hoursAgo(30.9), hoursAgo(26.0), category = Ids.CAT_NFSE)
+        update(Ids.T_THIRD, "system", "Protocolo aberto por Marina Lopes.", hoursAgo(30.9))
+        update(Ids.T_THIRD, Ids.MARINA, "Recebemos o retorno da prefeitura com o código da rejeição. Abrimos um chamado no portal do município.", hoursAgo(30.5))
+        update(Ids.T_THIRD, Ids.MARINA, "Aguardando a prefeitura liberar o novo código de serviço.", hoursAgo(26.0), internal = true)
+
+        ticket(Ids.T_RESOLVED, "WA-2026-000178", Ids.C_40MIN, "Etiquetas saindo cortadas na impressora térmica", "resolved", Ids.ANA, hoursAgo(40.0), hoursAgo(43.0), hoursAgo(44.0), hoursAgo(38.0), category = Ids.CAT_PRINTHER)
+        update(Ids.T_RESOLVED, "system", "Protocolo aberto por Ana Souza.", hoursAgo(44.0))
+        update(Ids.T_RESOLVED, Ids.ANA, "Ajustamos o tamanho da etiqueta no modelo de impressão. Pode testar com um pedido novo?", hoursAgo(43.0))
+        update(Ids.T_RESOLVED, Ids.ANA, "Cliente confirmou que as etiquetas voltaram a sair inteiras.", hoursAgo(38.0))
 
         ticket(Ids.T_CLOSED, "WA-2026-000176", Ids.C_DONE, "Dificuldade de acesso ao painel", "closed", Ids.CARLOS, hoursAgo(48.0), hoursAgo(49.5), hoursAgo(49.9), hoursAgo(46.7))
         update(Ids.T_CLOSED, "system", "Protocolo aberto por Carlos Pereira.", hoursAgo(49.9))
         update(Ids.T_CLOSED, Ids.CARLOS, "Enviamos um link para redefinir a senha no e-mail cadastrado.", hoursAgo(49.5))
-        update(Ids.T_CLOSED, Ids.CARLOS, "Acesso normalizado. Protocolo concluído.", hoursAgo(46.7))
+        update(Ids.T_CLOSED, Ids.CARLOS, "Acesso normalizado. Protocolo encerrado.", hoursAgo(46.7))
     }
 
     private fun seedBotRuns() {

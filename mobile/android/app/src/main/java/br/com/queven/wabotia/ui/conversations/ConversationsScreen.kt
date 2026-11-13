@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.MessagePreview
+import br.com.queven.wabotia.core.listPreview
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.Department
 import br.com.queven.wabotia.core.model.TeamContact
@@ -270,7 +271,7 @@ fun ConversationsScreen(
                                 meId = vm.meId,
                                 team = vm.team,
                                 departments = departments,
-                                preview = cache.previews[c.id],
+                                preview = listPreview(c, cache.previews[c.id]),
                                 unread = cache.unread[c.id] ?: 0,
                                 window = windowInfo(c, lineKinds, now),
                                 now = now,

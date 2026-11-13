@@ -24,8 +24,13 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -47,9 +52,12 @@ import androidx.compose.ui.unit.dp
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Bot
 import br.com.queven.wabotia.core.model.ServiceLine
+import br.com.queven.wabotia.core.model.TicketCategory
 import br.com.queven.wabotia.core.model.array
+import br.com.queven.wabotia.core.model.menuTypeLabel
 import br.com.queven.wabotia.core.model.asStringOrNull
 import br.com.queven.wabotia.core.model.bool
+import br.com.queven.wabotia.core.model.editedMenuItem
 import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
@@ -84,6 +92,7 @@ fun MenusScreen(container: AppContainer, onBack: () -> Unit) {
     var lines by remember(profile) { mutableStateOf<List<ServiceLine>>(emptyList()) }
     var bots by remember(profile) { mutableStateOf<List<Bot>>(emptyList()) }
     var apps by remember(profile) { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var categories by remember(profile) { mutableStateOf<List<TicketCategory>>(emptyList()) }
     var editing by remember { mutableStateOf<JsonObject?>(null) }
     var isNew by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -93,7 +102,9 @@ fun MenusScreen(container: AppContainer, onBack: () -> Unit) {
             menus = container.api.menus(profile).data
             lines = container.api.lines(profile).data
             bots = container.api.bots(profile).data
-            apps = container.api.profileStatus(profile).settings?.array("apps")?.mapNotNull { it as? JsonObject } ?: emptyList()
+            val status = container.api.profileStatus(profile)
+            apps = status.settings?.array("apps")?.mapNotNull { it as? JsonObject } ?: emptyList()
+            categories = status.ticketCategories()
             error = null
         } catch (e: CancellationException) {
             throw e
@@ -106,7 +117,7 @@ fun MenusScreen(container: AppContainer, onBack: () -> Unit) {
     LaunchedEffect(profile) { load() }
 
     editing?.let { item ->
-        MenuEditor(container, item, isNew, menus, lines, bots, apps, { editing = null }) { editing = null; scope.launch { load() } }
+        MenuEditor(container, item, isNew, menus, lines, bots, apps, categories, { editing = null }) { editing = null; scope.launch { load() } }
         return
     }
 
@@ -151,15 +162,20 @@ fun MenusScreen(container: AppContainer, onBack: () -> Unit) {
                     ) {
                         IconBubble(
                             when (type) {
+                                "human" -> Icons.Filled.Person
                                 "bot" -> Icons.Filled.SmartToy
                                 "submenu" -> Icons.Filled.AccountTree
                                 "app" -> Icons.Filled.Apps
-                                else -> Icons.Filled.Person
+                                "ticket", "protocols" -> Icons.Filled.ConfirmationNumber
+                                "link" -> Icons.Filled.Link
+                                "content" -> Icons.Filled.Info
+                                "survey" -> Icons.Filled.Star
+                                else -> Icons.Filled.MoreHoriz
                             },
                             when {
                                 disabled -> c.muted
                                 type == "bot" -> c.bot
-                                type == "submenu" -> c.ticket
+                                type == "submenu" || type == "ticket" || type == "protocols" -> c.ticket
                                 else -> c.brand
                             },
                             size = 44.dp,
@@ -168,11 +184,12 @@ fun MenusScreen(container: AppContainer, onBack: () -> Unit) {
                         Column(Modifier.weight(1f)) {
                             Text(menu.string("label")?.ifBlank { null } ?: "Opção", style = MaterialTheme.typography.titleMedium, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                (menus.firstOrNull { it.string("id") == menu.string("parent_id") }?.string("label") ?: "Menu principal") +
+                                menuTypeLabel(type) + " · " +
+                                    (menus.firstOrNull { it.string("id") == menu.string("parent_id") }?.string("label") ?: "Menu principal") +
                                     " · " + (if (menu.string("trigger") == "manual") "Sob demanda" else "Automático"),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = c.textSecondary,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
@@ -198,6 +215,7 @@ private fun MenuEditor(
     lines: List<ServiceLine>,
     bots: List<Bot>,
     apps: List<JsonObject>,
+    categories: List<TicketCategory>,
     onBack: () -> Unit,
     onSaved: () -> Unit,
 ) {
@@ -210,6 +228,9 @@ private fun MenuEditor(
     var parent by remember(id) { mutableStateOf(original.string("parent_id") ?: "") }
     var bot by remember(id) { mutableStateOf(original.string("bot_id") ?: "") }
     var app by remember(id) { mutableStateOf(original.string("app_id") ?: "") }
+    // Destino "Abrir protocolo" (servidor 0.14): categoria opcional do protocolo que o cliente abre.
+    var category by remember(id) { mutableStateOf(original.string("category_id") ?: "") }
+    val originalType = original.string("type") ?: "human"
     var trigger by remember(id) { mutableStateOf(original.string("trigger") ?: "automatic") }
     var enabled by remember(id) { mutableStateOf(original.bool("enabled") ?: true) }
     var selected by remember(id) { mutableStateOf(original.array("line_ids")?.mapNotNull { it.asStringOrNull() }?.toSet() ?: emptySet()) }
@@ -221,16 +242,10 @@ private fun MenuEditor(
     BackHandler(enabled = true) { if (!busy) onBack() }
 
     fun save() {
-        val item = JsonObject(original + buildJsonObject {
-            put("label", label.trim())
-            put("type", type)
-            put("parent_id", parent.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive) ?: JsonNull)
-            put("bot_id", bot)
-            put("app_id", app)
-            put("trigger", trigger)
-            put("enabled", enabled)
-            put("line_ids", JsonArray((if (all) emptyList() else selected.sorted()).map(::JsonPrimitive)))
-        })
+        val item = editedMenuItem(
+            original, label = label, type = type, parentId = parent, botId = bot, appId = app, categoryId = category,
+            trigger = trigger, enabled = enabled, lineIds = if (all) emptyList() else selected.sorted(),
+        )
         busy = true
         error = null
         scope.launch {
@@ -294,7 +309,19 @@ private fun MenuEditor(
                         enabled = !busy,
                     ) { parent = it }
                     RowDivider(startIndent = 16.dp)
-                    ServiceChoice("Destino", type, listOf("human" to "Pessoa", "bot" to "Bot", "submenu" to "Submenu", "app" to "Aplicativo"), enabled = !busy) { type = it }
+                    // Os destinos que esta tela sabe montar, mais o destino atual da opção quando for outro (link, mensagem,
+                    // consulta, pesquisa ou um tipo mais novo): ele continua selecionado e não é trocado ao salvar.
+                    val targets = listOf("human", "bot", "submenu", "app", "ticket").let { known -> if (originalType in known) known else known + originalType }
+                    ServiceChoice("Destino", type, targets.map { it to menuTypeLabel(it) }, enabled = !busy) { type = it }
+                    if (type == "ticket" && (categories.any { it.enabled } || category.isNotEmpty())) {
+                        RowDivider(startIndent = 16.dp)
+                        ServiceChoice(
+                            "Categoria do protocolo", category,
+                            listOf("" to "Sem categoria") + categories.filter { it.enabled || it.id == category }.map { it.id to it.name } +
+                                (if (category.isNotEmpty() && categories.none { it.id == category }) listOf(category to category) else emptyList()),
+                            enabled = !busy,
+                        ) { category = it }
+                    }
                     if (type == "bot") {
                         RowDivider(startIndent = 16.dp)
                         ServiceChoice("Bot", bot, listOf("" to "Selecione") + bots.map { it.id to it.name }, enabled = !busy) { bot = it }
@@ -305,6 +332,15 @@ private fun MenuEditor(
                     }
                     RowDivider(startIndent = 16.dp)
                     ServiceChoice("Disponibilidade", trigger, listOf("automatic" to "Automática", "manual" to "Quando pessoa ou bot chamar"), enabled = !busy) { trigger = it }
+                }
+            }
+            if (type == "ticket") {
+                item("ticket-hint") {
+                    ServiceHint("O cliente descreve o que precisa em uma mensagem e recebe o número do protocolo. A conversa não vai para a fila humana.")
+                }
+            } else if (type == originalType && type !in setOf("human", "bot", "submenu", "app")) {
+                item("other-hint") {
+                    ServiceHint("Os detalhes deste destino (${menuTypeLabel(type)}) são editados no painel web; aqui você ajusta texto, menu pai, disponibilidade e linhas.")
                 }
             }
             item("lines-label") { SectionLabel("Linhas") }

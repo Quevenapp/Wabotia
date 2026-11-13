@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { NumberPolicyEditor } from "./NumberPolicyEditor";
 import { numberPolicyPresets } from "../src/number-policy";
+import { defaultTicketQuestion } from "../src/protocols";
 import {
   menuDescendants,
   menuParentChoices,
@@ -14,6 +15,7 @@ import {
 } from "./menu-tree";
 import "./menu-tree.css";
 import { useMenuDrag, type MenuMove } from "./useMenuDrag";
+import { useUnsavedGuard } from "./app/hooks";
 
 type Row = Record<string, any>;
 type Props = { api: any; root: string; demo: boolean };
@@ -427,6 +429,9 @@ export function MenusPanel(props: Props) {
     [bots, setBots] = useState<Row[]>(props.demo ? demoBots : []),
     [apps, setApps] = useState<Row[]>([]),
     [departments, setDepartments] = useState<Row[]>([]),
+    [categories, setCategories] = useState<Row[]>([]),
+    [savedGreeting, setSavedGreeting] = useState(""),
+    [greeting, setGreeting] = useState<string | null>(null),
     [draft, setDraft] = useState<Row | null>(null),
     [removal, setRemoval] = useState<{
       id: string;
@@ -449,10 +454,25 @@ export function MenusPanel(props: Props) {
     setBots(b.data);
     setApps(status.settings?.apps || []);
     setDepartments(status.settings?.departments || []);
+    setCategories(status.settings?.ticket_categories || []);
+    setSavedGreeting(status.settings?.menu_greeting || "");
   }
   useEffect(() => {
     load().catch((e) => state.setError(e.message));
   }, [props.root]);
+  // Saudação do menu principal: rascunho local até salvar.
+  const greetingText = greeting ?? savedGreeting;
+  const greetingLength = Array.from(greetingText).length;
+  const greetingDirty = greeting !== null && greeting.trim() !== savedGreeting;
+  useUnsavedGuard(greetingDirty);
+  async function saveGreeting() {
+    if (!greetingDirty || greetingLength > 900) return;
+    const next = greetingText.trim();
+    if (await state.write("/settings", "PUT", { menu_greeting: next })) {
+      setSavedGreeting(next);
+      setGreeting(null);
+    }
+  }
   const editorHeading = useRef<HTMLHeadingElement>(null);
   const original = useRef<string | null>(null);
   const busy = state.busy || pending;
@@ -689,6 +709,7 @@ export function MenusPanel(props: Props) {
                           link: "Link",
                           content: "Conteúdo",
                           protocols: "Consulta de protocolos",
+                          ticket: "Abrir protocolo",
                           survey: "Avaliação",
                         } as Row
                       )[m.type]}{" "}
@@ -705,6 +726,15 @@ export function MenusPanel(props: Props) {
                         (departments.find((d) => d.id === m.department_id)
                           ?.name || "indisponível")
                       : "Fila geral"}
+                  </small>
+                )}
+                {m.type === "ticket" && (
+                  <small>
+                    {m.category_id
+                      ? "Categoria: " +
+                        (categories.find((c) => c.id === m.category_id)?.name ||
+                          m.category_id)
+                      : "Sem categoria definida"}
                   </small>
                 )}
                 <small>
@@ -988,6 +1018,7 @@ export function MenusPanel(props: Props) {
                       <option value="link">Conteúdo com link</option>
                       <option value="content">Mensagem informativa</option>
                       <option value="protocols">Consultar protocolos</option>
+                      <option value="ticket">Abrir protocolo</option>
                       <option value="survey">Avaliar atendimento</option>
                     </select>
                   </label>
@@ -1063,6 +1094,64 @@ export function MenusPanel(props: Props) {
                   cliente pode digitar o número completo para consultar um
                   protocolo específico.
                 </p>
+              )}
+              {draft.type === "ticket" && (
+                <>
+                  <p>
+                    O cliente recebe a pergunta, descreve o pedido em uma
+                    mensagem e o protocolo é aberto como Recebido, sem
+                    responsável. A conversa não vai para a fila humana e o
+                    cliente recebe a confirmação com o número e o prazo.
+                  </p>
+                  <label>
+                    Categoria do protocolo (opcional)
+                    <select
+                      value={draft.category_id || ""}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          category_id: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">Sem categoria</option>
+                      {categories
+                        .filter(
+                          (c) =>
+                            c.enabled !== false || c.id === draft.category_id,
+                        )
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.enabled === false ? " · desabilitada" : ""}
+                          </option>
+                        ))}
+                    </select>
+                    <small>
+                      {categories.length
+                        ? "Cadastre e edite as categorias em Regras de atendimento → Protocolos."
+                        : "Nenhuma categoria cadastrada. Cadastre em Regras de atendimento → Protocolos."}
+                    </small>
+                  </label>
+                  <label>
+                    Pergunta enviada ao cliente (opcional)
+                    <textarea
+                      maxLength={3500}
+                      placeholder={defaultTicketQuestion}
+                      value={draft.content || ""}
+                      onChange={(e) =>
+                        setDraft({ ...draft, content: e.target.value })
+                      }
+                    />
+                    <small>
+                      Em branco, usa a pergunta padrão acima. A próxima
+                      mensagem de texto do cliente vira o título do protocolo;
+                      MENU ou VOLTAR cancelam. Como Consultar protocolos e
+                      Avaliar atendimento, este destino só aparece em linhas
+                      com atendimento permitido e não existe em grupos.
+                    </small>
+                  </label>
+                </>
               )}
               {draft.type === "survey" && (
                 <label>
@@ -1179,6 +1268,49 @@ export function MenusPanel(props: Props) {
           </form>
         </section>
       )}
+      <section className="card menu-greeting">
+        <h3>Saudação do menu principal</h3>
+        <label>
+          Texto de abertura do menu principal
+          <textarea
+            rows={4}
+            value={greetingText}
+            disabled={busy}
+            placeholder="Como podemos ajudar?"
+            onChange={(e) => setGreeting(e.target.value)}
+          />
+          <small>
+            Substitui “Como podemos ajudar?” como texto de abertura do menu
+            principal enviado ao cliente. Submenus continuam usando o próprio
+            título. Em branco, volta ao texto padrão.
+          </small>
+        </label>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || !greetingDirty || greetingLength > 900}
+            onClick={() => saveGreeting()}
+          >
+            Salvar saudação
+          </button>
+          {greetingDirty && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setGreeting(null)}
+            >
+              Descartar
+            </button>
+          )}
+          <small
+            className={greetingLength > 900 ? "menu-greeting-over" : undefined}
+            aria-live="polite"
+          >
+            {greetingLength} / 900
+          </small>
+        </div>
+      </section>
       <section className="card">
         <h3>Menu principal</h3>
         <p id="menu-move-help">
@@ -1382,198 +1514,5 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
         <p>Sem setores cadastrados, os encaminhamentos usam a fila geral.</p>
       )}
     </section>
-  );
-}
-
-export function ConversationMenu({
-  conversation,
-  refresh,
-  ...props
-}: Props & { conversation: Row; refresh: () => Promise<any> }) {
-  const [menus, setMenus] = useState<Row[]>([]),
-    [open, setOpen] = useState(false),
-    [selected, setSelected] = useState(""),
-    [departments, setDepartments] = useState<Row[]>([]),
-    [department, setDepartment] = useState(""),
-    [protocol, setProtocol] = useState("");
-  const state = useWrite(props);
-  async function show() {
-    setOpen(true);
-    try {
-      if (!props.demo)
-        setDepartments(
-          (await props.api(props.root + "/status")).settings?.departments || [],
-        );
-      setMenus(
-        props.demo
-          ? demoMenus
-          : (
-              await props.api(
-                props.root +
-                  "/menus?connection_id=" +
-                  encodeURIComponent(conversation.connection_id || ""),
-              )
-            ).data,
-      );
-    } catch (e: any) {
-      state.setError(e.message);
-    }
-  }
-  return (
-    <div className="conversation-menu">
-      <button onClick={show}>Enviar menu ao cliente</button>
-      {open && (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (
-              await state.write(
-                `/conversations/${conversation.id}/actions`,
-                "POST",
-                { action: "menu", menu_id: selected || null },
-              )
-            ) {
-              setOpen(false);
-              await refresh();
-            }
-          }}
-        >
-          <label>
-            Menu a apresentar
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-            >
-              <option value="">Menu principal</option>
-              {menus
-                .filter((m) => m.type === "submenu" && m.enabled !== false)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {menuPath(menus as MenuItem[], m.id)}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <small>
-            O cliente poderá tocar ou digitar uma opção. A janela de 24 horas e
-            as permissões desta linha continuam valendo.
-          </small>
-          <div className="card-actions">
-            <button className="primary" disabled={state.busy}>
-              Enviar menu
-            </button>
-            <button
-              type="button"
-              disabled={state.busy}
-              onClick={() => setOpen(false)}
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
-      )}
-      {conversation.chat_type !== "group" && (
-        <details>
-          <summary>Protocolos, avaliação e setores</summary>
-          <label>
-            Número do protocolo (opcional)
-            <input
-              value={protocol}
-              onChange={(e) => setProtocol(e.target.value)}
-              placeholder="Em branco: protocolos do telefone"
-            />
-          </label>
-          <div className="card-actions">
-            <button
-              disabled={state.busy}
-              onClick={async () => {
-                if (
-                  await state.write(
-                    `/conversations/${conversation.id}/actions`,
-                    "POST",
-                    {
-                      action: "protocols",
-                      number: protocol.trim() || undefined,
-                    },
-                  )
-                )
-                  await refresh();
-              }}
-            >
-              Enviar consulta ao cliente
-            </button>
-            <button
-              disabled={state.busy}
-              onClick={async () => {
-                if (
-                  await state.write(
-                    `/conversations/${conversation.id}/actions`,
-                    "POST",
-                    { action: "survey" },
-                  )
-                )
-                  await refresh();
-              }}
-            >
-              Pedir avaliação
-            </button>
-            <button
-              disabled={state.busy}
-              onClick={async () => {
-                try {
-                  setDepartments(
-                    props.demo
-                      ? []
-                      : (await props.api(props.root + "/status")).settings
-                          ?.departments || [],
-                  );
-                } catch (e: any) {
-                  state.setError(e.message);
-                }
-              }}
-            >
-              Carregar setores
-            </button>
-          </div>
-          {departments.length > 0 && (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (
-                  await state.write(
-                    `/conversations/${conversation.id}/actions`,
-                    "POST",
-                    { action: "transfer", department_id: department },
-                  )
-                )
-                  await refresh();
-              }}
-            >
-              <label>
-                Encaminhar para setor
-                <select
-                  required
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                >
-                  <option value="">Selecione o setor</option>
-                  {departments
-                    .filter((d) => d.enabled !== false)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <button disabled={state.busy}>
-                Encaminhar para a fila do setor
-              </button>
-            </form>
-          )}
-        </details>
-      )}
-      <Feedback {...state} />
-    </div>
   );
 }

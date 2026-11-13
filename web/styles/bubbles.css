@@ -1,0 +1,443 @@
+/* Conversa: fundo, bolhas, ticks, chips e composer (mobile/DESIGN.md §5). */
+.chat-scroll-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background-color: var(--wallpaper);
+  background-image:
+    radial-gradient(var(--wallpaper-ink) 1px, transparent 1.4px),
+    radial-gradient(var(--wallpaper-ink) 1px, transparent 1.4px);
+  background-size: 28px 28px;
+  background-position:
+    0 0,
+    14px 14px;
+}
+.chat-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.chat-scroll:focus-visible {
+  outline-offset: -2px;
+}
+.chat-scroll-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 980px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 12px clamp(12px, 5%, 64px) 14px;
+  justify-content: flex-end;
+}
+.chat-to-bottom {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-2);
+  box-shadow: var(--shadow-2);
+  animation: pop-in 0.15s var(--ease);
+}
+[data-theme="dark"] .chat-to-bottom {
+  background: var(--panel);
+}
+.chat-to-bottom .count-badge {
+  position: absolute;
+  top: -7px;
+  right: -3px;
+}
+
+/* chips centrais */
+.chat-chip {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+}
+.chat-chip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, 92%);
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: var(--bubble-system);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow-1);
+}
+.chat-chip.day {
+  position: sticky;
+  top: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+.chat-chip.day span {
+  text-transform: capitalize;
+  font-weight: 550;
+}
+.chat-chip.event svg {
+  flex: none;
+}
+.chat-chip.event.danger span {
+  color: var(--danger-ink);
+}
+.chat-chip.event.warn span {
+  color: var(--warn-ink);
+}
+
+/* bolhas */
+.bubble-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+.bubble-row.tail {
+  margin-top: 8px;
+}
+.bubble-row.has-reactions {
+  margin-bottom: 18px;
+}
+.bubble-row.out,
+.bubble-row.note {
+  flex-direction: row-reverse;
+}
+.bubble {
+  position: relative;
+  min-width: 76px;
+  max-width: min(80%, 620px);
+  padding: 6px 9px 7px;
+  border-radius: var(--radius-bubble);
+  background: var(--bubble-in);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.38;
+  box-shadow: var(--shadow-1);
+  overflow-wrap: anywhere;
+}
+.bubble-row.out .bubble {
+  background: var(--bubble-out);
+}
+.bubble-row.note .bubble {
+  background: var(--bubble-note);
+}
+.bubble-row.tail.in .bubble {
+  border-top-left-radius: 0;
+}
+.bubble-row.tail.out .bubble,
+.bubble-row.tail.note .bubble {
+  border-top-right-radius: 0;
+}
+.bubble-row.tail .bubble::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 12px;
+  background: inherit;
+}
+.bubble-row.tail.in .bubble::before {
+  left: -8px;
+  clip-path: polygon(100% 0, 0 0, 100% 100%);
+}
+.bubble-row.tail.out .bubble::before,
+.bubble-row.tail.note .bubble::before {
+  right: -8px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+.bubble-row.highlighted .bubble {
+  animation: bubble-flash 1.4s ease-out;
+}
+@keyframes bubble-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 55%, transparent);
+  }
+}
+.bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.bubble a {
+  color: var(--ticket);
+  text-decoration: underline;
+}
+.bubble-row.out .bubble a {
+  color: var(--bubble-out-accent);
+}
+.bubble.media {
+  padding: 3px;
+}
+.bubble.media > p,
+.bubble.media > .bubble-label {
+  padding: 3px 6px 0;
+}
+.bubble-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.bubble-label.bot {
+  color: var(--bot);
+}
+.bubble-label.brand {
+  color: var(--brand);
+}
+.bubble-row.out .bubble-label.brand {
+  color: var(--bubble-out-accent);
+}
+.bubble-label.note {
+  color: var(--note-label);
+}
+.bubble-label.author.c0 { color: var(--avatar-0); }
+.bubble-label.author.c1 { color: var(--avatar-1); }
+.bubble-label.author.c2 { color: var(--avatar-2); }
+.bubble-label.author.c3 { color: var(--avatar-3); }
+.bubble-label.author.c4 { color: var(--avatar-4); }
+.bubble-label.author.c5 { color: var(--avatar-5); }
+.bubble-label.author.c6 { color: var(--avatar-6); }
+.bubble-label.author.c7 { color: var(--avatar-7); }
+.bubble-meta {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0 -3px 12px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+}
+.bubble-row.out .bubble-meta {
+  color: var(--bubble-out-meta);
+}
+.bubble-row.note .bubble-meta {
+  color: var(--note-label);
+}
+.bubble.media .bubble-meta {
+  margin: 4px 6px 2px 12px;
+}
+.ticks {
+  display: inline-grid;
+  place-items: center;
+}
+.ticks.read,
+.ticks.played {
+  color: var(--tick-read);
+}
+.ticks.failed {
+  color: var(--danger);
+}
+.bubble-reactions {
+  position: absolute;
+  left: 8px;
+  bottom: -17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline);
+  background: var(--bubble-in);
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-1);
+  z-index: 1;
+}
+.bubble-row.out .bubble-reactions,
+.bubble-row.note .bubble-reactions {
+  left: auto;
+  right: 8px;
+}
+.bubble-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.bubble-row:hover .bubble-tools,
+.bubble-row:focus-within .bubble-tools,
+.bubble-tools.open {
+  opacity: 1;
+}
+.bubble-tools button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  color: var(--text-2);
+}
+.bubble-tools button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+/* Sem mouse (celular): as ações ficam visíveis, discretas. */
+@media (hover: none) {
+  .bubble-tools {
+    opacity: 0.75;
+    gap: 0;
+  }
+  .bubble-tools button {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+  }
+}
+
+/* citação dentro da bolha */
+.bubble-quote {
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 5px 9px;
+  border: 0;
+  border-left: 4px solid var(--brand);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+}
+.bubble-quote strong {
+  display: block;
+  color: var(--brand);
+  font-size: 12.5px;
+}
+.bubble-row.out .bubble-quote strong {
+  color: var(--bubble-out-accent);
+}
+.bubble-row.out .bubble-quote {
+  border-left-color: var(--bubble-out-accent);
+}
+.bubble-quote span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* rodapé da conversa */
+.chat-footer {
+  flex: none;
+  background: var(--panel);
+  border-top: 1px solid var(--hairline);
+}
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.composer-field {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  min-height: 42px;
+  border-radius: 21px;
+  background: var(--bg);
+}
+[data-theme="dark"] .composer-field {
+  background: var(--field);
+}
+.composer-field:focus-within {
+  box-shadow: var(--focus-ring);
+}
+textarea.message-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+  max-height: 148px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 21px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 15px;
+  line-height: 1.45;
+  resize: none;
+}
+[data-theme="dark"] textarea.message-input {
+  background: transparent;
+}
+textarea.message-input:focus-visible {
+  box-shadow: none;
+}
+.composer .icon-button {
+  width: 42px;
+  height: 42px;
+}
+.composer-send {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--on-brand);
+  transition: background 0.15s var(--ease);
+}
+.composer-send:hover:not(:disabled) {
+  background: var(--brand-strong);
+}
+[data-theme="dark"] .composer-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brand) 86%, var(--text));
+}
+.composer-send:disabled {
+  opacity: 0.5;
+}
+/* Cartão do rodapé quando a conversa não é minha (Assumir, Reabrir…). */
+.footer-card {
+  display: flex;
+  align-items: center;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+}
+.footer-card > div {
+  flex: 1;
+  min-width: 180px;
+}
+.footer-card strong {
+  display: block;
+}
+.footer-card small {
+  color: var(--text-2);
+  font-size: 13px;
+}
+@media (max-width: 759px) {
+  .bubble {
+    max-width: 86%;
+  }
+  .chat-scroll-inner {
+    padding-inline: 10px;
+  }
+  .footer-card .button {
+    width: 100%;
+  }
+}

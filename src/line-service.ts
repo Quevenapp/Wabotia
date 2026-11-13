@@ -222,9 +222,15 @@ async function availableMenuTree(
       !(await departmentFor(env, profile, item.department_id))
     )
       continue;
-    if (["protocols", "survey"].includes(item.type) && !policy.service)
+    if (
+      ["protocols", "survey", "ticket"].includes(item.type) &&
+      !policy.service
+    )
       continue;
-    if (chatType === "group" && ["protocols", "survey"].includes(item.type))
+    if (
+      chatType === "group" &&
+      ["protocols", "survey", "ticket"].includes(item.type)
+    )
       continue;
     if (
       item.type === "bot" &&
@@ -447,7 +453,9 @@ export async function sendMenu(
     : null;
   const payload = menuPayload(
     items,
-    parent?.label || "Como podemos ajudar?",
+    parent?.label ||
+      String(cfg.menu_greeting || "").trim() ||
+      "Como podemos ajudar?",
     token,
     ["meta", "zernio"].includes(connection?.kind) && c.chat_type !== "group",
     !!menuId,

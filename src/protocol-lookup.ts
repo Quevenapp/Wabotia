@@ -1,6 +1,12 @@
 import { all } from "./db";
 import { type Conversation, type Env, requireValue, now } from "./types";
-import { enqueue } from "./service";
+import { enqueue, settings } from "./service";
+import { formatBrasilia } from "./business-time";
+import {
+  isActiveTicket,
+  ticketCustomerLabels,
+  categoryName,
+} from "./protocols";
 
 export function protocolNumber(value: string) {
   return String(value || "")
@@ -44,7 +50,7 @@ export async function lookupProtocols(
   // number. Public updates only; internal notes and operator IDs are never sent.
   return all(
     env,
-    `SELECT t.number,t.title,t.status,t.response_due_at,t.first_response_at,t.created,t.updated,
+    `SELECT t.number,t.title,t.status,t.category,t.response_due_at,t.first_response_at,t.created,t.updated,
       (SELECT u.text FROM ticket_updates u WHERE u.ticket_id=t.id AND u.internal=0 ORDER BY u.created DESC,u.rowid DESC LIMIT 1) latest_update
      FROM tickets t JOIN conversations original ON original.id=t.conversation_id
      WHERE t.profile_id=? AND original.profile_id=? AND original.chat_type!='group'
@@ -63,24 +69,25 @@ export async function lookupProtocols(
   );
 }
 
-export function protocolSummary(tickets: any[], requested = false) {
+export function protocolSummary(
+  tickets: any[],
+  requested = false,
+  config: any = {},
+) {
   if (!tickets.length)
     return requested
       ? "Não encontramos esse protocolo vinculado ao seu atendimento ou telefone. Confira o número completo ou peça ajuda à equipe."
       : "Ainda não há protocolos vinculados ao seu atendimento ou telefone. Para falar com a equipe, envie ATENDENTE.";
-  const states: Record<string, string> = {
-    open: "Aberto",
-    in_progress: "Em andamento",
-    closed: "Concluído",
-  };
   return (
     tickets
       .map((ticket) => {
+        // The first-response deadline only matters while the protocol is active.
         const due =
           ticket.response_due_at &&
           !ticket.first_response_at &&
-          ticket.status !== "closed";
-        return `${ticket.number} · ${states[ticket.status] || ticket.status}\n${String(ticket.title || "").slice(0, 300)}${due ? `\nPrazo de primeira resposta: ${new Date(ticket.response_due_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}${ticket.response_due_at < now() ? " (prazo vencido)" : ""}` : ""}${ticket.latest_update ? `\nÚltimo andamento: ${String(ticket.latest_update).slice(0, 250)}` : ""}`;
+          isActiveTicket(ticket.status);
+        const category = categoryName(config, ticket.category);
+        return `${ticket.number} · ${ticketCustomerLabels[ticket.status] || "Em acompanhamento"}${category ? `\nAplicativo: ${category}` : ""}\n${String(ticket.title || "").slice(0, 300)}${due ? `\nPrazo de primeira resposta: ${formatBrasilia(ticket.response_due_at)}${ticket.response_due_at < now() ? " (prazo vencido)" : ""}` : ""}${ticket.latest_update ? `\nÚltimo andamento: ${String(ticket.latest_update).slice(0, 250)}` : ""}`;
       })
       .join("\n\n") +
     "\n\nPara consultar um protocolo específico, envie seu número completo."
@@ -95,7 +102,11 @@ export async function sendProtocolLookup(
   actor = "system",
 ) {
   const tickets = await lookupProtocols(env, c, number);
-  const text = protocolSummary(tickets, !!number);
+  const text = protocolSummary(
+    tickets,
+    !!number,
+    await settings(env, c.profile_id),
+  );
   // Split long histories into bounded messages without losing any returned row.
   const parts = text.match(/[\s\S]{1,3800}/g) || [text];
   const ids = [];

@@ -129,6 +129,13 @@ export async function decideInterpretation(
       )
         criteria.menu =
           "Apresentar o menu autorizado proposto para o cliente escolher o destino do atendimento.";
+      if (
+        proposal.action === "ticket" &&
+        typeof proposal.text === "string" &&
+        proposal.text.trim()
+      )
+        criteria.ticket =
+          "Abrir um protocolo gratuito para análise da equipe com o pedido descrito em proposed_response, somente se o cliente pediu esse registro ou aceitou a oferta de abri-lo.";
       if (proposal.action === "protocols")
         criteria.protocols =
           "Consultar os protocolos do próprio cliente, com a verificação de titularidade feita pelo Wabotia.";

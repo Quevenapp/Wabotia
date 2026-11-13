@@ -1,17 +1,24 @@
+/* Árvore de menus com arrastar e soltar (cores por tokens.css). */
 .menu-tree {
-  list-style: none;
-  padding: 0;
-  margin: 0;
   min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .menu-tree .menu-tree {
-  padding-left: 18px;
-  margin-left: 10px;
-  border-left: 2px solid var(--line, #dce4df);
+  margin-left: 18px;
+  padding-left: 16px;
+  border-left: 2px solid var(--divider);
+}
+[data-theme="dark"] .menu-tree .menu-tree {
+  border-left-color: var(--hairline);
 }
 .menu-tree .menu-tree .menu-tree .menu-tree .menu-tree {
-  padding-left: 0;
   margin-left: 0;
+  padding-left: 0;
+}
+.card .menu-tree li + li {
+  margin-top: 0;
 }
 .menu-tree-node {
   min-width: 0;
@@ -20,27 +27,44 @@
   position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
   justify-content: space-between;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line, #dce4df);
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider);
 }
 .menu-drag-handle {
-  flex: 0 0 40px;
-  width: 40px;
-  height: 44px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+  align-self: flex-start;
+  width: 36px;
+  height: 40px;
   padding: 0;
-  font-size: 26px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 22px;
+  line-height: 1;
   cursor: grab;
   touch-action: none;
   user-select: none;
-  align-self: flex-start;
+}
+.menu-drag-handle:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
 }
 .menu-drag-handle:active {
   cursor: grabbing;
 }
+.menu-drag-handle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .menu-tree-node.dragging > .menu-tree-row {
-  background: #eef5f1;
+  border-radius: 10px;
+  background: var(--brand-soft);
+  opacity: 0.75;
 }
 .menu-drop-zones {
   position: absolute;
@@ -58,70 +82,80 @@
   align-items: center;
   justify-content: flex-end;
   padding: 4px 10px;
-  border: 1px dashed #698478;
-  background: #f4faf6d9;
-  color: #234e3c;
+  border: 1px dashed color-mix(in srgb, var(--brand) 55%, var(--divider));
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  color: var(--brand);
   font-size: 13px;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+[data-theme="dark"] .menu-drop-zone {
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  color: var(--accent);
+}
 .menu-drop-zone.chosen,
 .menu-root-drop.chosen {
-  background: #d0efdd;
-  outline: 2px solid #28744e;
+  background: color-mix(in srgb, var(--ok) 24%, var(--bg));
+  color: var(--ok-ink);
+  outline: 2px solid var(--ok);
   outline-offset: -2px;
 }
 .menu-drop-zone.invalid {
-  background: #ffdfdb;
-  outline: 2px solid #b54236;
+  background: color-mix(in srgb, var(--danger) 20%, var(--bg));
+  color: var(--danger-ink);
+  outline: 2px solid var(--danger);
   outline-offset: -2px;
-  color: #8c2920;
 }
 .menu-root-drop {
-  padding: 14px;
-  border: 1px dashed var(--line, #dce4df);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--muted);
+  padding: 12px 14px;
+  border: 1px dashed var(--divider);
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+[data-theme="dark"] .menu-root-drop {
+  border-color: var(--hairline);
 }
 .menu-root-drop.active {
-  border-color: #698478;
-  color: #234e3c;
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--text);
 }
 .menu-drag-status {
   position: fixed;
-  z-index: 100;
   right: 16px;
   bottom: 16px;
-  width: min(400px, calc(100vw - 32px));
-  box-sizing: border-box;
+  z-index: 250;
   display: grid;
   gap: 4px;
-  padding: 14px;
-  background: #153f2f;
-  color: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 18px #0003;
+  width: min(400px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--brand-strong);
+  color: var(--on-avatar);
+  box-shadow: var(--shadow-3);
   pointer-events: none;
   overflow-wrap: anywhere;
 }
 .menu-drag-status small {
-  color: #d5e8dc;
+  color: color-mix(in srgb, var(--on-avatar) 82%, transparent);
 }
 .menu-drag-status.invalid {
-  background: #802e26;
+  background: var(--danger-ink);
+}
+[data-theme="dark"] .menu-drag-status.invalid {
+  background: color-mix(in srgb, var(--danger) 55%, var(--bg));
 }
 .service-panel fieldset.menu-kind-choice {
-  padding: 12px;
-  border: 1px solid var(--line, #dce4df);
-  border-radius: 10px;
   display: grid;
   gap: 12px;
+  padding: 12px 14px;
 }
 .service-panel .menu-kind-choice label {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
+  gap: 10px;
+  font-weight: 400;
 }
 .service-panel .menu-kind-choice input[type="radio"] {
   flex: 0 0 auto;
@@ -130,8 +164,8 @@
   max-width: 18px;
   height: 18px;
   min-height: 18px;
+  margin-top: 2px;
   padding: 0;
-  margin-top: 3px;
 }
 .service-panel .menu-kind-choice span {
   min-width: 0;
@@ -147,31 +181,32 @@
 }
 .menu-tree-content strong {
   display: block;
+  font-size: 14.5px;
 }
 .menu-tree-actions {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
-  align-items: start;
-  gap: 8px;
+  gap: 6px;
 }
-.menu-tree-actions button {
+.service-panel .menu-tree-actions button {
+  min-height: 30px;
+  padding: 4px 11px;
   font-size: 13px;
-  padding: 8px 10px;
 }
 .menu-tree-empty {
-  margin: 0 0 10px;
+  margin: 4px 0 0;
+  color: var(--text-2);
   font-size: 13px;
-  color: var(--muted);
 }
 .menu-breadcrumb {
   overflow-wrap: anywhere;
 }
 .menu-delete-review {
-  padding: 14px;
-  border: 1px solid #bd7345;
-  border-radius: 10px;
-  background: #fff8f0;
   margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--warn-soft);
 }
 .menu-delete-review ul {
   padding-left: 20px;
@@ -182,23 +217,23 @@
 .service-panel fieldset.menu-editor-fields {
   display: grid;
   gap: 14px;
-  border: 0;
-  padding: 0;
   margin: 0;
+  padding: 0;
+  border: 0;
 }
 @media (max-width: 560px) {
   .menu-tree .menu-tree {
-    padding-left: 12px;
     margin-left: 4px;
+    padding-left: 12px;
   }
   .menu-tree .menu-tree .menu-tree .menu-tree .menu-tree {
-    padding-left: 0;
     margin-left: 0;
+    padding-left: 0;
   }
   .menu-tree-actions {
     width: 100%;
   }
-  .menu-tree-actions button {
+  .service-panel .menu-tree-actions button {
     flex: 1 1 auto;
   }
 }

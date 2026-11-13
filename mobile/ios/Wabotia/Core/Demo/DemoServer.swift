@@ -64,6 +64,9 @@ final class DemoServer {
     private var bots: [Row] = []
     private var departments: [Row] = []
     private var menus: [Row] = []
+    /// `settings.ticket_categories` (servidor 0.14): aplicativo ou assunto do protocolo.
+    private var ticketCategories: [Row] = []
+    private let ticketStatuses = ["open", "in_progress", "waiting_customer", "waiting_third", "resolved", "closed"]
     private var lines: [Row] = []
     private var conversations: [Row] = []
     private var messages: [String: [Row]] = [:]
@@ -116,6 +119,16 @@ final class DemoServer {
             ["id": "m_sup", "label": "Suporte técnico", "type": "submenu", "enabled": true, "trigger": "manual", "line_ids": [String]()],
             ["id": "m_sup_humano", "label": "Falar com um especialista", "type": "human", "parent_id": "m_sup", "department_id": "dep_sup", "enabled": true, "trigger": "manual", "line_ids": [String]()],
             ["id": "m_prot", "label": "Consultar protocolo", "type": "protocols", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
+            ["id": "m_abrir", "label": "Abrir protocolo", "type": "ticket", "category_id": "wabotia", "content": "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
+        ]
+        ticketCategories = [
+            ["id": "wabotia", "name": "Wabotia", "enabled": true],
+            ["id": "printher", "name": "Printher", "enabled": true],
+            ["id": "nfse-leve", "name": "NFS-e Leve", "enabled": true],
+            ["id": "fagoo-erp", "name": "Fagoo ERP", "enabled": true],
+            ["id": "servidor-integracao", "name": "Servidor ou integração", "enabled": true],
+            ["id": "outro", "name": "Outro ou não sei", "enabled": true],
+            ["id": "vinki", "name": "Vinki", "enabled": false],
         ]
         let policy: Row = ["pool": true, "human": true, "bots": true, "menu": true, "api": true, "service": true, "templates": true]
         lines = [
@@ -227,16 +240,21 @@ final class DemoServer {
             message("a3", "c_closed", "customer", "customer:a", "Obrigada!", at: 2 * 24 * 60, content: ["type": "text"]),
         ]
 
-        func ticket(_ id: String, _ number: String, _ title: String, conversation: String, status: String, owner: String?, due: Double?, firstResponse: Double? = nil, created: Double, updated: Double) -> Row {
+        func ticket(_ id: String, _ number: String, _ title: String, conversation: String, status: String, owner: String?, due: Double?, firstResponse: Double? = nil, created: Double, updated: Double, category: String? = nil) -> Row {
             ["id": id, "number": number, "profile_id": "demo", "conversation_id": conversation, "title": title, "status": status,
              "owner": owner ?? NSNull() as Any, "response_due_at": due.map { ago(-$0) } ?? NSNull() as Any,
-             "first_response_at": firstResponse.map { ago($0) } ?? NSNull() as Any, "created": ago(created), "updated": ago(updated)]
+             "first_response_at": firstResponse.map { ago($0) } ?? NSNull() as Any, "created": ago(created), "updated": ago(updated),
+             "category": category ?? NSNull() as Any]
         }
+        // Os seis estados (docs/CENTRAL-ATENDIMENTO.md §2), com categoria: Recebido (atrasado e vencendo), Em análise,
+        // Aguardando cliente, Aguardando terceiro, Resolvido e Encerrado (este sem categoria).
         tickets = [
-            ticket("t_cobranca", "WA-MF2A-1K9P", "Cobrança em duplicidade na fatura de outubro", conversation: "c_closedwin", status: "open", owner: "u_ana", due: -125, created: 29 * 60, updated: 29 * 60),
-            ticket("t_troca", "WA-MF3K-7Q2D", "Troca de produto avariado: pedido #48213", conversation: "c_rich", status: "open", owner: me, due: 40, created: 87, updated: 70),
-            ticket("t_endereco", "WA-MF1C-88XZ", "Atualização do endereço de entrega", conversation: "c_5h", status: "in_progress", owner: me, due: 5 * 60, created: 18 * 60, updated: 17 * 60),
-            ticket("t_nota", "WA-MEZ7-3H5T", "Segunda via de nota fiscal", conversation: "c_other", status: "in_progress", owner: "u_marina", due: -60, firstResponse: 170, created: 4 * 60, updated: 95),
+            ticket("t_cobranca", "WA-MF2A-1K9P", "Cobrança em duplicidade na fatura de outubro", conversation: "c_closedwin", status: "open", owner: "u_ana", due: -125, created: 29 * 60, updated: 29 * 60, category: "fagoo-erp"),
+            ticket("t_troca", "WA-MF3K-7Q2D", "Troca de produto avariado: pedido #48213", conversation: "c_rich", status: "open", owner: me, due: 40, created: 87, updated: 70, category: "outro"),
+            ticket("t_endereco", "WA-MF1C-88XZ", "Atualização do endereço de entrega", conversation: "c_5h", status: "in_progress", owner: me, due: 5 * 60, created: 18 * 60, updated: 17 * 60, category: "wabotia"),
+            ticket("t_nota", "WA-MEZ7-3H5T", "Segunda via de nota fiscal", conversation: "c_other", status: "waiting_customer", owner: "u_marina", due: -60, firstResponse: 170, created: 4 * 60, updated: 95, category: "nfse-leve"),
+            ticket("t_integracao", "WA-MEY4-5T8R", "Webhook do ERP parou de receber os pedidos", conversation: "c_queue", status: "waiting_third", owner: "u_marina", due: -20 * 60, firstResponse: 25 * 60, created: 26 * 60, updated: 22 * 60, category: "servidor-integracao"),
+            ticket("t_etiqueta", "WA-MEX9-2L4C", "Etiquetas saindo cortadas na impressora térmica", conversation: "c_40", status: "resolved", owner: "u_ana", due: -40 * 60, firstResponse: 43 * 60, created: 44 * 60, updated: 38 * 60, category: "printher"),
             ticket("t_garantia", "WA-MEX2-0B6M", "Dúvida sobre garantia estendida", conversation: "c_closed", status: "closed", owner: me, due: nil, firstResponse: 2 * 24 * 60 + 4, created: 2 * 24 * 60 + 18, updated: 2 * 24 * 60 - 30),
         ]
         func update(_ id: String, _ ticket: String, _ actor: String, _ text: String, at minutes: Double, internalNote: Bool = false) -> Row {
@@ -249,6 +267,14 @@ final class DemoServer {
         ticketUpdates["t_nota"] = [
             update("tu3", "t_nota", "u_marina", "Solicitamos a segunda via ao setor fiscal. Prazo de até 1 dia útil.", at: 170),
             update("tu4", "t_nota", "u_marina", "Nota fiscal reenviada para o e-mail cadastrado.", at: 95),
+        ]
+        ticketUpdates["t_integracao"] = [
+            update("tu8", "t_integracao", "u_marina", "Identificamos que o fornecedor do ERP trocou o certificado. Abrimos um chamado com eles.", at: 25 * 60),
+            update("tu9", "t_integracao", "u_marina", "Aguardando o fornecedor liberar o novo certificado.", at: 22 * 60, internalNote: true),
+        ]
+        ticketUpdates["t_etiqueta"] = [
+            update("tu10", "t_etiqueta", "u_ana", "Ajustamos o tamanho da etiqueta no modelo de impressão. Pode testar com um pedido novo?", at: 43 * 60),
+            update("tu11", "t_etiqueta", "u_ana", "Cliente confirmou que as etiquetas voltaram a sair inteiras.", at: 38 * 60),
         ]
         ticketUpdates["t_garantia"] = [
             update("tu5", "t_garantia", me, "A garantia estendida cobre a troca de bateria por 24 meses.", at: 2 * 24 * 60 + 4),
@@ -349,6 +375,37 @@ final class DemoServer {
 
     private func index(ofConversation id: String) -> Int? { conversations.firstIndex { $0["id"] as? String == id } }
 
+    /// Ativo = não é `resolved` nem `closed` (docs/CENTRAL-ATENDIMENTO.md §2).
+    private func isActive(_ ticket: Row) -> Bool {
+        let status = ticket["status"] as? String ?? ""
+        return status != "resolved" && status != "closed"
+    }
+
+    private func isEnabledCategory(_ id: String) -> Bool {
+        ticketCategories.contains { $0["id"] as? String == id && ($0["enabled"] as? Bool ?? true) }
+    }
+
+    /// `last_message` de GET /conversations (§6): a última mensagem da conversa, ou nulo.
+    private func lastMessage(_ conversationId: String) -> Any {
+        guard let last = messages[conversationId]?.last(where: { $0["direction"] as? String != "system" }) else { return NSNull() }
+        let attachments = parse(last["attachments"]) as? [String] ?? []
+        let content = parse(last["content"]) as? Row ?? [:]
+        let type = content["type"] as? String ?? ""
+        let mime = attachments.first.flatMap { media[$0]?["type"] as? String } ?? ""
+        let kind: String
+        if content["location"] != nil { kind = "location" }
+        else if content["contacts"] != nil { kind = "contacts" }
+        else if type == "voice" { kind = "audio" }
+        else if ["image", "video", "audio", "document", "sticker", "interactive"].contains(type) { kind = type }
+        else if mime.hasPrefix("image/") { kind = "image" }
+        else if mime.hasPrefix("video/") { kind = "video" }
+        else if mime.hasPrefix("audio/") { kind = "audio" }
+        else if !attachments.isEmpty { kind = "document" }
+        else { kind = "text" }
+        return ["text": last["text"] ?? "", "direction": last["direction"] ?? "", "created": last["created"] ?? 0,
+                "delivery_status": last["delivery_status"] ?? "", "attachments": attachments.count, "kind": kind] as Row
+    }
+
     private func isOfficial(_ conversation: Row) -> Bool {
         let line = lines.first { $0["id"] as? String == conversation["connection_id"] as? String }
         return ["meta", "zernio"].contains(line?["kind"] as? String ?? "")
@@ -406,7 +463,7 @@ final class DemoServer {
         let session: Row = ["token": "wabu_demo", "expires": now + 30 * 86_400_000, "user": ["id": me, "name": "Bruno Martins", "email": "bruno@demo.wabotia", "role": "admin", "profiles": ["demo"]] as Row]
 
         // Descoberta e conta
-        if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "0.13.0", "commit": "demo"]) }
+        if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "0.14.0", "commit": "demo"]) }
         if get, m("api/auth/status") != nil { return ok(["initialized": true, "configured": true]) }
         if post, m("api/auth/mobile/login") != nil {
             guard (body["password"] as? String)?.isEmpty == false else { return fail(401, "invalid_credentials", "E-mail ou senha incorretos.") }
@@ -450,7 +507,7 @@ final class DemoServer {
             var counts: [String: Int] = [:]
             conversations.forEach { counts[$0["state"] as? String ?? "", default: 0] += 1 }
             return ok([
-                "settings": ["departments": departments, "menus": menus, "apps": [Row]()] as Row,
+                "settings": ["departments": departments, "menus": menus, "apps": [Row](), "ticket_categories": ticketCategories] as Row,
                 "enabled": 1,
                 "conversations": counts.map { ["state": $0.key, "count": $0.value] as Row },
                 "deliveries": [Row](),
@@ -503,6 +560,11 @@ final class DemoServer {
                 }
             }
             list.sort { ($0["updated"] as? Int64 ?? 0) > ($1["updated"] as? Int64 ?? 0) }
+            list = list.map { row in
+                var row = row
+                row["last_message"] = lastMessage(row["id"] as? String ?? "")
+                return row
+            }
             return ok(["data": list, "next_cursor": NSNull()])
         }
         if get, let c = m(base + "conversations/*") { return detail(c[1]) }
@@ -562,9 +624,14 @@ final class DemoServer {
         // Protocolos
         if get, m(base + "tickets") != nil {
             var list = tickets
-            if let status = query["status"], !status.isEmpty { list = list.filter { $0["status"] as? String == status } }
+            if let status = query["status"], !status.isEmpty {
+                guard ticketStatuses.contains(status) else { return fail(400, "invalid", "Estado de protocolo inválido.") }
+                list = list.filter { $0["status"] as? String == status }
+            }
+            if query["active"] == "1" { list = list.filter(isActive) }
+            if let category = query["category"], !category.isEmpty { list = list.filter { $0["category"] as? String == category } }
             if query["overdue"] == "1" {
-                list = list.filter { $0["status"] as? String != "closed" && $0["first_response_at"] is NSNull && ($0["response_due_at"] as? Int64 ?? Int64.max) < now }
+                list = list.filter { isActive($0) && $0["first_response_at"] is NSNull && ($0["response_due_at"] as? Int64 ?? Int64.max) < now }
             }
             if let q = query["q"], !q.isEmpty {
                 let digits = q.filter(\.isNumber)
@@ -579,11 +646,14 @@ final class DemoServer {
         if post, m(base + "tickets") != nil {
             let title = (body["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { return fail(400, "invalid", "Informe o título do protocolo.") }
+            let category = (body["category"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let category, !isEnabledCategory(category) { return fail(400, "invalid", "Categoria de protocolo desconhecida.") }
             let id = nextId("t_n")
             let number = "WA-MF4\(Int.random(in: 0...9))-\(String(format: "%04d", Int.random(in: 0...9999)))"
             let conversation = body["conversation_id"] as? String ?? ""
             let ticket: Row = ["id": id, "number": number, "profile_id": "demo", "conversation_id": conversation, "title": title, "status": "open", "owner": me,
-                               "response_due_at": now + 4 * 3_600_000, "first_response_at": NSNull(), "created": now, "updated": now]
+                               "response_due_at": now + 4 * 3_600_000, "first_response_at": NSNull(), "created": now, "updated": now,
+                               "category": category ?? NSNull() as Any]
             tickets.insert(ticket, at: 0)
             emit("ticket.created", resource: id, ["id": id, "number": number, "conversation_id": conversation])
             return ok(ticket)
@@ -599,10 +669,19 @@ final class DemoServer {
         if patch, let c = m(base + "tickets/*") {
             guard let i = tickets.firstIndex(where: { $0["id"] as? String == c[1] }) else { return fail(404, "not_found", "Protocolo não encontrado.") }
             if body.keys.contains("response_due_at") {
-                guard tickets[i]["first_response_at"] is NSNull else { return fail(400, "invalid", "O prazo só pode ser alterado antes da primeira resposta.") }
+                guard tickets[i]["first_response_at"] is NSNull, isActive(tickets[i]) else { return fail(400, "invalid", "O prazo só pode ser alterado antes da primeira resposta.") }
                 tickets[i]["response_due_at"] = (body["response_due_at"] as? NSNumber)?.int64Value ?? NSNull() as Any
             }
-            if let status = body["status"] as? String { tickets[i]["status"] = status }
+            if let status = body["status"] as? String {
+                guard ticketStatuses.contains(status) else { return fail(400, "invalid", "Estado inválido.") }
+                tickets[i]["status"] = status
+            }
+            if body.keys.contains("category") {
+                // `category: null` limpa; valor desconhecido (ou desabilitado) é recusado com 400.
+                let category = (body["category"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                if let category, !isEnabledCategory(category) { return fail(400, "invalid", "Categoria de protocolo desconhecida.") }
+                tickets[i]["category"] = category ?? NSNull() as Any
+            }
             if let owner = body["owner"] as? String { tickets[i]["owner"] = owner }
             if let text = body["text"] as? String, !text.isEmpty {
                 ticketUpdates[c[1], default: []].append(["id": nextId("tu_n"), "ticket_id": c[1], "actor": me, "text": text, "internal": 0, "created": now])
@@ -859,6 +938,12 @@ final class DemoServer {
         conversations[i]["last_customer"] = now
         touch(i)
         emit("message.received", resource: messageId, ["conversation_id": id, "message_id": messageId, "text": text, "attachments": [String]()])
+        // O cliente respondeu: protocolo que estava "Aguardando cliente" volta sozinho para "Em análise" (§2).
+        for t in tickets.indices where tickets[t]["conversation_id"] as? String == id && tickets[t]["status"] as? String == "waiting_customer" {
+            tickets[t]["status"] = "in_progress"
+            tickets[t]["updated"] = now
+            emit("ticket.updated", resource: tickets[t]["id"] as? String, ["status": "in_progress", "number": tickets[t]["number"] ?? ""])
+        }
     }
 
     private func messageAction(_ id: String, _ body: Row) -> Reply {

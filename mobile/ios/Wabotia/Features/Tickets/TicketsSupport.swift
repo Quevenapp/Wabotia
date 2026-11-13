@@ -53,23 +53,20 @@ enum TicketsSupport {
 
     // MARK: Estados e prazos
 
-    static let statuses = ["open", "in_progress", "closed"]
+    /// Os seis estados, na ordem do seletor do detalhe.
+    static let statuses = TicketStatus.all
 
-    static func statusTitle(_ status: String) -> String {
-        switch status {
-        case "open": return "Aberto"
-        case "in_progress": return "Em andamento"
-        case "closed": return "Concluído"
-        default: return status
-        }
-    }
+    /// Recebido, Em análise, Aguardando cliente, Aguardando terceiro, Resolvido, Encerrado; desconhecido vira texto neutro.
+    static func statusTitle(_ status: String) -> String { TicketStatus.label(status) }
 
+    /// Recebido `ticket`, Em análise `warn`, os dois Aguardando `bot`, Resolvido `ok`, Encerrado e desconhecido `muted`.
     static func statusColor(_ status: String) -> Color {
         switch status {
-        case "open": return Theme.ticket
-        case "in_progress": return Theme.warn
-        case "closed": return Theme.ok
-        default: return Theme.textSecondary
+        case TicketStatus.open: return Theme.ticket
+        case TicketStatus.inProgress: return Theme.warn
+        case TicketStatus.waitingCustomer, TicketStatus.waitingThird: return Theme.bot
+        case TicketStatus.resolved: return Theme.ok
+        default: return Theme.muted
         }
     }
 
@@ -101,7 +98,7 @@ enum TicketsSupport {
     /// Prazo da primeira resposta: vermelho atrasado ("atrasado há 2h"), laranja abaixo de 1 h,
     /// "Respondido" quando já houve a primeira resposta, cinza sem prazo.
     static func due(for ticket: Ticket, now: Date = Date()) -> Due {
-        if ticket.status == "closed" { return Due(kind: .closed, text: "Concluído", fraction: 1) }
+        if !ticket.isActive { return Due(kind: .closed, text: statusTitle(ticket.status), fraction: 1) }
         if ticket.first_response_at != nil { return Due(kind: .answered, text: "Respondido", fraction: 1) }
         guard let dueDate = date(ticket.response_due_at) else { return Due(kind: .none, text: "Sem prazo", fraction: 0) }
         let remaining = dueDate.timeIntervalSince(now)
@@ -143,37 +140,101 @@ enum TicketsSupport {
 
 /// Filtros da lista de protocolos (mobile/README.md, seção Protocolos).
 enum TicketFilter: String, CaseIterable, Identifiable {
-    case open, inProgress, overdue, closed, all
+    case active, open, inProgress, waiting, overdue, resolved, all
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .open: return "Abertos"
-        case .inProgress: return "Em andamento"
+        case .active: return "Ativos"
+        case .open: return "Recebidos"
+        case .inProgress: return "Em análise"
+        case .waiting: return "Aguardando"
         case .overdue: return "Atrasados"
-        case .closed: return "Concluídos"
+        case .resolved: return "Resolvidos"
         case .all: return "Todos"
         }
     }
 
-    /// Parâmetro `status` da API (nil para Atrasados e Todos).
-    var status: String? {
+    /// Valores do parâmetro `status` da API. Vazio = sem filtro de estado; com mais de um valor a lista junta uma
+    /// consulta por estado (o servidor aceita um estado por consulta).
+    var statuses: [String] {
         switch self {
-        case .open: return "open"
-        case .inProgress: return "in_progress"
-        case .closed: return "closed"
-        case .overdue, .all: return nil
+        case .open: return [TicketStatus.open]
+        case .inProgress: return [TicketStatus.inProgress]
+        case .waiting: return TicketStatus.waiting
+        case .resolved: return TicketStatus.finished
+        case .active, .overdue, .all: return []
         }
     }
 
+    /// Usa `active=1` (servidor 0.14+).
+    var activeOnly: Bool { self == .active }
     var overdue: Bool { self == .overdue }
+
+    /// O que o filtro mostra, aplicado também no app: um servidor 0.13 ignora `active=1` e devolve tudo.
+    func matches(_ ticket: Ticket, now: Date = Date()) -> Bool {
+        switch self {
+        case .overdue: return ticket.isOverdue(at: now)
+        case .active: return ticket.isActive
+        case .all: return true
+        default: return statuses.contains(ticket.status)
+        }
+    }
 }
 
 /// Pílula de estado do protocolo.
 struct TicketStatusBadge: View {
     let status: String
     var body: some View { Pill(text: TicketsSupport.statusTitle(status), color: TicketsSupport.statusColor(status)) }
+}
+
+/// Categoria do protocolo (aplicativo ou assunto): ícone + nome em texto secundário, sem competir com a pílula de estado.
+struct TicketCategoryTag: View {
+    let name: String
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "square.grid.2x2.fill").font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+            Text(name).font(Theme.font(13, .medium)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Categoria: \(name)")
+    }
+}
+
+/// Escolha da categoria ao abrir um protocolo: chips em linha rolável, "Sem categoria" primeiro.
+/// Só as habilitadas são oferecidas. `selection` nulo = sem categoria.
+struct TicketCategoryChips: View {
+    let categories: [TicketCategory]
+    @Binding var selection: String?
+    var disabled = false
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("Sem categoria", id: nil)
+                ForEach(categories.filter(\.enabled)) { category in chip(category.name, id: category.id) }
+            }
+            .padding(.vertical, 1)
+        }
+        .disabled(disabled)
+    }
+
+    private func chip(_ title: String, id: String?) -> some View {
+        let selected = selection == id
+        return Button { selection = id } label: {
+            Text(title)
+                .font(Theme.font(14, selected ? .semibold : .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 34)
+                .foregroundStyle(selected ? Theme.ticket : Theme.textSecondary)
+                .background(Capsule().fill(selected ? Theme.ticket.opacity(0.16) : Theme.field))
+                .overlay(Capsule().stroke(selected ? Color.clear : Theme.divider, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
 }
 
 /// Prazo com o mesmo anel do relógio da janela.

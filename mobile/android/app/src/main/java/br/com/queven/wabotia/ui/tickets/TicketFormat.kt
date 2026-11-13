@@ -3,33 +3,33 @@ package br.com.queven.wabotia.ui.tickets
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketStatus
 import br.com.queven.wabotia.ui.components.formatSpan
 import br.com.queven.wabotia.ui.components.formatWhen
 import br.com.queven.wabotia.ui.theme.Wb
 
 // Textos, cores e prazos compartilhados pela lista, pelo cartão e pelo detalhe de protocolos (DESIGN.md, seção 8).
 
-fun ticketStatusLabel(status: String): String = when (status) {
-    "open" -> "Aberto"
-    "in_progress" -> "Em andamento"
-    "closed" -> "Concluído"
-    else -> status
-}
+/** Recebido, Em análise, Aguardando cliente, Aguardando terceiro, Resolvido, Encerrado; desconhecido vira texto neutro. */
+fun ticketStatusLabel(status: String): String = TicketStatus.label(status)
 
+/** Recebido `ticket`, Em análise `warn`, os dois Aguardando `bot`, Resolvido `ok`, Encerrado e desconhecido `muted`. */
 @Composable
 fun ticketStatusColor(status: String): Color = when (status) {
-    "open" -> Wb.colors.ticket
-    "in_progress" -> Wb.colors.warn
+    TicketStatus.OPEN -> Wb.colors.ticket
+    TicketStatus.IN_PROGRESS -> Wb.colors.warn
+    TicketStatus.WAITING_CUSTOMER, TicketStatus.WAITING_THIRD -> Wb.colors.bot
+    TicketStatus.RESOLVED -> Wb.colors.ok
     else -> Wb.colors.muted
 }
 
-/** Situação do prazo de primeira resposta, usada para cor e texto na lista e no detalhe. */
+/** Situação do prazo de primeira resposta, usada para cor e texto na lista e no detalhe. [Closed] = protocolo não ativo. */
 enum class DueTone { Overdue, Soon, Scheduled, None, Responded, Closed }
 
 fun Ticket.dueTone(now: Long = System.currentTimeMillis()): DueTone {
     val due = response_due_at
     return when {
-        status == "closed" -> DueTone.Closed
+        !isActive -> DueTone.Closed
         first_response_at != null -> DueTone.Responded
         due == null -> DueTone.None
         due < now -> DueTone.Overdue
@@ -38,11 +38,11 @@ fun Ticket.dueTone(now: Long = System.currentTimeMillis()): DueTone {
     }
 }
 
-/** Texto curto do cartão: "atrasado há 2h", "vence em 40 min", "até Hoje 18:00", "Respondido", "Sem prazo", "Concluído". */
+/** Texto curto do cartão: "atrasado há 2h", "vence em 40 min", "até Hoje 18:00", "Respondido", "Sem prazo", "Resolvido"/"Encerrado". */
 fun Ticket.dueLabel(now: Long = System.currentTimeMillis()): String {
     val due = response_due_at
     return when (dueTone(now)) {
-        DueTone.Closed -> "Concluído"
+        DueTone.Closed -> ticketStatusLabel(status)
         DueTone.Responded -> "Respondido"
         DueTone.None -> "Sem prazo"
         DueTone.Overdue -> {

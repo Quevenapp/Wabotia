@@ -139,7 +139,15 @@ enum DemoMode {
         case "info-group": launch.route = .conversationInfo(id: "c_group")
         case "tickets": launch.tab = "tickets"
         case "ticket": launch.tab = "tickets"; launch.route = .ticket(id: "t_troca")
-        case "ticket-answered": launch.tab = "tickets"; launch.route = .ticket(id: "t_nota")
+        case "ticket-answered", "ticket-waiting": launch.tab = "tickets"; launch.route = .ticket(id: "t_nota")
+        case "ticket-overdue": launch.tab = "tickets"; launch.route = .ticket(id: "t_cobranca")
+        case "ticket-progress-state": launch.tab = "tickets"; launch.route = .ticket(id: "t_endereco")
+        case "ticket-third": launch.tab = "tickets"; launch.route = .ticket(id: "t_integracao")
+        case "ticket-resolved": launch.tab = "tickets"; launch.route = .ticket(id: "t_etiqueta")
+        case "ticket-closed": launch.tab = "tickets"; launch.route = .ticket(id: "t_garantia")
+        case "ticket-category": launch.tab = "tickets"; launch.route = .ticket(id: "t_troca"); launch.sheet = "ticket-category"
+        // Lista de protocolos já em um filtro (`tickets-all`, `tickets-waiting`, `tickets-resolved`, `tickets-overdue`).
+        case "tickets-all", "tickets-waiting", "tickets-resolved", "tickets-overdue": launch.tab = "tickets"; launch.sheet = screen
         case "ticket-new": launch.route = .newTicket(conversationId: "c_rich")
         case "team": launch.tab = "team"
         case "team-people", "team-bots", "team-departments": launch.tab = "team"; launch.sheet = screen

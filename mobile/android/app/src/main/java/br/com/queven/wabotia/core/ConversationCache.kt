@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import br.com.queven.wabotia.core.media.MediaKinds
+import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.Event
+import br.com.queven.wabotia.core.model.LastMessage
 import br.com.queven.wabotia.core.model.Message
 import br.com.queven.wabotia.core.model.WabotiaJson
 import br.com.queven.wabotia.core.model.array
@@ -33,8 +35,36 @@ data class MessagePreview(
     val messageId: String = "",
 )
 
+/** `last_message` do servidor (0.14+) no formato da prévia da lista. */
+fun LastMessage.toPreview(): MessagePreview = MessagePreview(
+    text = text,
+    kind = when {
+        kind == "text" && attachments > 0 -> "attachment"
+        else -> kind
+    },
+    outgoing = !isIncoming && !isSystem,
+    note = isNote,
+    at = created,
+    status = if (isIncoming || isNote || isSystem) "" else deliveryStatus,
+)
+
 /**
- * A lista de conversas do servidor não traz prévia nem não lidas. Este cache local (por perfil) guarda
+ * Prévia mostrada na linha da conversa: `last_message` do servidor quando vier (0.14+); o cache local fica como reserva
+ * para servidores antigos e só passa na frente quando é mais novo (evento que chegou antes da recarga da lista). Para a
+ * mesma mensagem, o cache mantém o que só o detalhe sabe (áudio de voz, mensagem apagada).
+ */
+fun listPreview(conversation: Conversation, cached: MessagePreview?): MessagePreview? {
+    val server = conversation.lastMessage?.toPreview() ?: return cached
+    if (cached == null) return server
+    return when {
+        cached.at > server.at -> cached
+        cached.at == server.at && cached.kind in setOf("voice", "deleted") -> server.copy(kind = cached.kind, messageId = cached.messageId)
+        else -> server
+    }
+}
+
+/**
+ * Servidores até a 0.13 não mandam prévia na lista (a 0.14 manda `last_message`), e nenhum manda não lidas. Este cache local (por perfil) guarda
  * `conversa → prévia` e `conversa → não lidas`, alimentado por eventos `message.received` / `message.sent`,
  * pelo detalhe de cada conversa aberta e pelo preenchimento em segundo plano da lista. Abrir a conversa zera as não lidas.
  */

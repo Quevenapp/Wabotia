@@ -51,6 +51,7 @@ import br.com.queven.wabotia.calls.CallText
 import br.com.queven.wabotia.calls.CallsScreen
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Event
+import br.com.queven.wabotia.core.model.TicketStatus
 import br.com.queven.wabotia.core.push.IncomingCallBus
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.conversations.ConversationsScreen
@@ -72,7 +73,7 @@ enum class HomeTab(val key: String, val label: String, val icon: ImageVector, va
     Settings("settings", "Ajustes", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
-/** Contadores das abas: protocolos atrasados/abertos, conversas internas não lidas e ligações tocando. */
+/** Contadores das abas: protocolos atrasados/recebidos (só ativos), conversas internas não lidas e ligações tocando. */
 class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
     var overdueTickets by mutableStateOf(0)
         private set
@@ -87,8 +88,12 @@ class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
         val profile = container.session.profileId ?: return
         viewModelScope.launch {
             try {
-                overdueTickets = container.api.tickets(profile, overdue = "1").data.size
-                openTickets = container.api.tickets(profile, status = "open").data.size
+                // Uma consulta dos protocolos ativos (`active=1`; servidores 0.13 ignoram o filtro e o app filtra aqui):
+                // atrasados = ativos sem primeira resposta e com prazo vencido; senão, os recebidos ainda sem análise.
+                val now = System.currentTimeMillis()
+                val active = container.api.tickets(profile, active = "1").data.filter { it.isActive }
+                overdueTickets = active.count { it.isOverdueAt(now) }
+                openTickets = active.count { it.status == TicketStatus.OPEN }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -239,7 +244,7 @@ fun HomeScreen(
                     newTicket = newTicket,
                     showMessage = { text -> scope.launch { snackbar.showSnackbar(text) } },
                 )
-                HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) })
+                HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) }, initialFilter = initialArg)
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openCall, openConversation = { openConversation(it, null) })
                 HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines)

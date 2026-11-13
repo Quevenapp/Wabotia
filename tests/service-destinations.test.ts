@@ -192,7 +192,7 @@ describe("consulta de protocolos pelo titular", () => {
     const next = await receive(f, f.second, ticket.number.toLowerCase());
     await drain(f);
     expect((await latest(next.id)).text).toContain(ticket.number);
-    expect((await latest(next.id)).text).toContain("Aberto");
+    expect((await latest(next.id)).text).toContain("Recebido");
   });
 });
 

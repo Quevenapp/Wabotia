@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.TeamContact
+import br.com.queven.wabotia.core.model.nameOf
 import br.com.queven.wabotia.core.model.string
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.AvatarKind
@@ -66,6 +67,7 @@ import br.com.queven.wabotia.ui.components.WbBottomSheet
 import br.com.queven.wabotia.ui.components.rememberHaptics
 import br.com.queven.wabotia.ui.components.rememberNow
 import br.com.queven.wabotia.ui.theme.Wb
+import br.com.queven.wabotia.ui.tickets.CategoryChips
 import br.com.queven.wabotia.ui.tickets.TicketCard
 
 internal enum class TransferTab(val label: String, val key: String) {
@@ -105,6 +107,7 @@ internal fun TransferSheet(
     var choice by remember { mutableStateOf<TransferChoice?>(null) }
     var query by remember { mutableStateOf("") }
     var ticketTitle by rememberSaveable { mutableStateOf("") }
+    var ticketCategory by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         vm.sheetError = null
@@ -309,12 +312,21 @@ internal fun TransferSheet(
                                 Text("Abrir protocolo", style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
                                 Spacer(Modifier.height(8.dp))
                                 SheetField(ticketTitle, { if (it.length <= 300) ticketTitle = it }, "Título da solicitação", enabled = !vm.creatingTicket)
+                                // Categoria (aplicativo ou assunto), só quando o perfil tem categorias configuradas.
+                                val offered = vm.ticketCategories.filter { it.enabled }
+                                if (offered.isNotEmpty()) {
+                                    Spacer(Modifier.height(10.dp))
+                                    Text("Categoria (opcional)", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+                                    Spacer(Modifier.height(6.dp))
+                                    CategoryChips(offered, selected = ticketCategory, onSelect = { ticketCategory = it }, enabled = !vm.creatingTicket)
+                                }
                                 Spacer(Modifier.height(10.dp))
                                 PrimaryButton(
                                     "Abrir protocolo",
                                     onClick = {
-                                        vm.createTicket(ticketTitle) { ticket ->
+                                        vm.createTicket(ticketTitle, ticketCategory) { ticket ->
                                             ticketTitle = ""
+                                            ticketCategory = null
                                             haptics.confirm()
                                             vm.notice = "Protocolo ${ticket.number} aberto"
                                         }
@@ -357,6 +369,7 @@ internal fun TransferSheet(
                                     onClick = { openTicket(ticket.id) },
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp),
                                     compact = true,
+                                    categoryName = vm.ticketCategories.nameOf(ticket.category),
                                 )
                             }
                         }

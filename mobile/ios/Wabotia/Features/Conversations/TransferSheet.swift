@@ -53,6 +53,8 @@ struct TransferSheet: View {
     @State private var menusError: String?
     @State private var loadingMenus = false
     @State private var ticketTitle = ""
+    /// Categoria do protocolo a abrir (aplicativo ou assunto); nil = sem categoria.
+    @State private var ticketCategory: String?
     @State private var ticketKey = APIClient.newIdempotencyKey()
     @State private var creatingTicket = false
 
@@ -295,6 +297,12 @@ struct TransferSheet: View {
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.field))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.divider, lineWidth: 1))
                 .onChange(of: ticketTitle) { value in if value.count > 300 { ticketTitle = String(value.prefix(300)) } }
+            // Categoria (aplicativo ou assunto), só quando o perfil tem categorias configuradas.
+            if workspace.ticketCategories.contains(where: \.enabled) {
+                Text("Categoria (opcional)").font(Theme.font(12, .medium)).foregroundStyle(Theme.textSecondary)
+                TicketCategoryChips(categories: workspace.ticketCategories, selection: $ticketCategory, disabled: creatingTicket)
+                    .onChange(of: ticketCategory) { _ in ticketKey = APIClient.newIdempotencyKey() }
+            }
             PrimaryButton(title: "Abrir protocolo", icon: "doc.text.fill", busy: creatingTicket, color: Theme.ticket, disabled: ticketTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !vm.isOwned) {
                 createTicket()
             }
@@ -329,7 +337,7 @@ struct TransferSheet: View {
                     dismiss()
                     onOpenTicket(ticket.id)
                 } label: {
-                    TicketMiniRow(ticket: ticket, chevron: onOpenTicket != nil)
+                    TicketMiniRow(ticket: ticket, chevron: onOpenTicket != nil, categoryName: workspace.categoryName(ticket.category))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
@@ -347,8 +355,10 @@ struct TransferSheet: View {
         guard !title.isEmpty, !creatingTicket else { return }
         creatingTicket = true
         Task {
-            if await vm.openTicket(title: title, key: ticketKey) != nil {
+            let category = ticketCategory.flatMap { id in workspace.ticketCategories.contains { $0.id == id && $0.enabled } ? id : nil }
+            if await vm.openTicket(title: title, category: category, key: ticketKey) != nil {
                 ticketTitle = ""
+                ticketCategory = nil
                 ticketKey = APIClient.newIdempotencyKey()
                 dismiss()
             } else if vm.actionError != nil {
@@ -478,15 +488,18 @@ struct TransferSheet: View {
 struct TicketMiniRow: View {
     let ticket: Ticket
     var chevron = true
+    /// Nome da categoria já resolvido; nil quando o protocolo não tem categoria.
+    var categoryName: String? = nil
 
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(ticket.number).font(Theme.font(13, .semibold, design: .monospaced)).foregroundStyle(Theme.ticket)
-                    TicketStatusBadge(status: ticket.status)
+                    Text(ticket.number).font(Theme.font(13, .semibold, design: .monospaced)).foregroundStyle(Theme.ticket).lineLimit(1)
+                    TicketStatusBadge(status: ticket.status).fixedSize()
                 }
                 Text(ticket.title.isEmpty ? "Sem título" : ticket.title).font(Theme.font(14)).foregroundStyle(Theme.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+                if let categoryName, !categoryName.isEmpty { TicketCategoryTag(name: categoryName) }
             }
             Spacer(minLength: 4)
             if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted) }

@@ -17,6 +17,7 @@ import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.Department
 import br.com.queven.wabotia.core.model.TeamContact
 import br.com.queven.wabotia.core.model.Ticket
+import br.com.queven.wabotia.core.model.TicketCategory
 import br.com.queven.wabotia.core.model.TicketCreate
 import br.com.queven.wabotia.ui.components.digitsOf
 import br.com.queven.wabotia.ui.components.handleError
@@ -106,6 +107,9 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         private set
     /** `connection_id` → `kind` das linhas do perfil (relógio da janela só em meta/zernio). */
     var lineKinds by mutableStateOf<Map<String, String>?>(container.profileData.lineKinds(container.session.profileId))
+        private set
+    /** Categorias de protocolo (`settings.ticket_categories`, servidor 0.14+); vazio quando não configuradas. */
+    var ticketCategories by mutableStateOf<List<TicketCategory>>(container.profileData.cached(container.session.profileId)?.ticketCategories().orEmpty())
         private set
     var creatingTicket by mutableStateOf(false)
         private set
@@ -205,6 +209,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
             val status = container.profileData.load(profileId, maxAgeMs = 15_000)
             departments = status?.departments()?.filter { it.enabled } ?: departments ?: emptyList()
             status?.lineKinds()?.let { lineKinds = it }
+            status?.ticketCategories()?.let { ticketCategories = it }
         }
         viewModelScope.launch {
             try {
@@ -220,7 +225,12 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     }
 
     fun loadLineKinds() {
-        viewModelScope.launch { container.profileData.load(profileId)?.lineKinds()?.let { lineKinds = it } }
+        viewModelScope.launch {
+            container.profileData.load(profileId)?.let { status ->
+                lineKinds = status.lineKinds()
+                ticketCategories = status.ticketCategories()
+            }
+        }
     }
 
     fun loadTickets() {
@@ -238,18 +248,23 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         }
     }
 
-    /** Abrir protocolo a partir da folha (título obrigatório, até 300). Mesma chave ao repetir o mesmo título após falha de rede. */
-    fun createTicket(title: String, onCreated: (Ticket) -> Unit) {
+    /**
+     * Abrir protocolo a partir da folha (título obrigatório, até 300; categoria opcional). Mesma chave ao repetir o mesmo
+     * pedido (título e categoria) após falha de rede.
+     */
+    fun createTicket(title: String, category: String? = null, onCreated: (Ticket) -> Unit) {
         val value = title.trim()
         if (value.isEmpty()) { sheetError = "Informe o título do protocolo."; return }
         if (value.length > 300) { sheetError = "O título deve ter no máximo 300 caracteres."; return }
         if (creatingTicket) return
-        val key = ticketKey?.takeIf { it.first == value }?.second ?: ApiClient.newIdempotencyKey().also { ticketKey = value to it }
+        val chosen = category?.takeIf { id -> ticketCategories.any { it.id == id && it.enabled } }
+        val intent = value + "\u0000" + chosen.orEmpty()
+        val key = ticketKey?.takeIf { it.first == intent }?.second ?: ApiClient.newIdempotencyKey().also { ticketKey = intent to it }
         creatingTicket = true
         sheetError = null
         viewModelScope.launch {
             try {
-                val ticket = container.api.createTicket(profileId, key, TicketCreate(conversation_id = conversationId, title = value))
+                val ticket = container.api.createTicket(profileId, key, TicketCreate(conversation_id = conversationId, title = value, category = chosen))
                 ticketKey = null
                 loadTickets()
                 load(silent = true)

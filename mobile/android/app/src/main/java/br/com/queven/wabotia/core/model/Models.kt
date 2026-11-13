@@ -1,6 +1,7 @@
 package br.com.queven.wabotia.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -59,10 +60,52 @@ import kotlinx.serialization.json.JsonObject
     val contact_id: String? = null,
     val department_id: String? = null,
     val assigned_bot_id: String? = null,
+    /**
+     * Servidor 0.14+: prévia da última mensagem (`{text, direction, created, delivery_status, attachments, kind}`) ou
+     * null. Mantido como JSON cru para que um formato inesperado nunca derrube a lista; leia com [lastMessage].
+     */
+    val last_message: JsonElement? = null,
 ) {
     val displayName: String get() = contact_name?.takeIf { it.isNotBlank() } ?: title.takeIf { it.isNotBlank() } ?: phone ?: external_id
     val isGroup get() = chat_type == "group"
     fun isOwnedBy(userId: String?) = owner != null && owner == userId && state == "human"
+
+    /** `last_message` lido com tolerância; null em servidores antigos ou quando a conversa não tem mensagens. */
+    val lastMessage: LastMessage? get() = LastMessage.from(last_message)
+}
+
+/** Prévia da última mensagem que vem em cada linha de GET /conversations (docs/CENTRAL-ATENDIMENTO.md §6). */
+data class LastMessage(
+    val text: String,
+    val direction: String, // customer | outbound | operator | note | system
+    val created: Long,
+    val deliveryStatus: String,
+    /** Quantidade de anexos. */
+    val attachments: Int,
+    /** text | image | video | audio | document | location | contacts | sticker | interactive */
+    val kind: String,
+) {
+    val isIncoming get() = direction == "customer"
+    val isNote get() = direction == "note"
+    val isSystem get() = direction == "system"
+
+    companion object {
+        fun from(element: JsonElement?): LastMessage? {
+            val o = element as? JsonObject ?: return null
+            val attachments = when (val raw = o["attachments"]) {
+                is JsonArray -> raw.size
+                else -> o.long("attachments")?.toInt() ?: 0
+            }
+            return LastMessage(
+                text = o.string("text").orEmpty(),
+                direction = o.string("direction").orEmpty(),
+                created = o.long("created") ?: 0L,
+                deliveryStatus = o.string("delivery_status").orEmpty(),
+                attachments = attachments.coerceAtLeast(0),
+                kind = o.string("kind")?.takeIf { it.isNotBlank() } ?: "text",
+            )
+        }
+    }
 }
 
 @Serializable data class Message(
@@ -126,18 +169,65 @@ import kotlinx.serialization.json.JsonObject
     val profile_id: String = "",
     val conversation_id: String = "",
     val title: String = "",
-    val status: String = "open", // open | in_progress | closed
+    /** open | in_progress | waiting_customer | waiting_third | resolved | closed (ver [TicketStatus]). */
+    val status: String = "open",
     val owner: String? = null,
     val response_due_at: Long? = null,
     val first_response_at: Long? = null,
     val created: Long = 0,
     val updated: Long = 0,
+    /** Servidor 0.14+: `id` de uma categoria de `settings.ticket_categories` (aplicativo ou assunto). */
+    val category: String? = null,
 ) {
-    val isOverdue: Boolean get() = status != "closed" && first_response_at == null && response_due_at != null && response_due_at < System.currentTimeMillis()
+    /** Ativo = não é `resolved` nem `closed`. Um estado futuro desconhecido conta como ativo. */
+    val isActive: Boolean get() = TicketStatus.isActive(status)
+    val isOverdue: Boolean get() = isOverdueAt(System.currentTimeMillis())
+    /** Atrasado: só protocolo ativo, sem primeira resposta e com o prazo vencido. */
+    fun isOverdueAt(now: Long): Boolean = isActive && first_response_at == null && response_due_at != null && response_due_at < now
 }
+
+/** Os seis estados do protocolo (docs/CENTRAL-ATENDIMENTO.md §2), com o texto usado pela equipe. */
+object TicketStatus {
+    const val OPEN = "open"
+    const val IN_PROGRESS = "in_progress"
+    const val WAITING_CUSTOMER = "waiting_customer"
+    const val WAITING_THIRD = "waiting_third"
+    const val RESOLVED = "resolved"
+    const val CLOSED = "closed"
+
+    /** Ordem do seletor do detalhe. */
+    val all = listOf(OPEN, IN_PROGRESS, WAITING_CUSTOMER, WAITING_THIRD, RESOLVED, CLOSED)
+    val waiting = listOf(WAITING_CUSTOMER, WAITING_THIRD)
+    val finished = listOf(RESOLVED, CLOSED)
+
+    fun isKnown(status: String): Boolean = status in all
+    fun isActive(status: String): Boolean = status != RESOLVED && status != CLOSED
+
+    /** Estado desconhecido (servidor mais novo) vira texto neutro, legível, sem derrubar a tela. */
+    fun label(status: String): String = when (status) {
+        OPEN -> "Recebido"
+        IN_PROGRESS -> "Em análise"
+        WAITING_CUSTOMER -> "Aguardando cliente"
+        WAITING_THIRD -> "Aguardando terceiro"
+        RESOLVED -> "Resolvido"
+        CLOSED -> "Encerrado"
+        else -> status.replace('_', ' ').trim().replaceFirstChar { it.uppercase() }.ifBlank { "Sem estado" }
+    }
+}
+
+/** Categoria de protocolo (`settings.ticket_categories` de GET /status): aplicativo ou assunto. */
+data class TicketCategory(val id: String, val name: String, val enabled: Boolean)
+
+/** Nome da categoria gravada no protocolo; categoria removida da configuração mostra o `id` gravado. */
+fun List<TicketCategory>.nameOf(categoryId: String?): String? {
+    val id = categoryId?.takeIf { it.isNotBlank() } ?: return null
+    return firstOrNull { it.id == id }?.name ?: id
+}
+
 @Serializable data class TicketUpdate(val id: String, val ticket_id: String = "", val actor: String = "", val text: String = "", val internal: Int = 0, val created: Long = 0)
 @Serializable data class TicketDetail(val ticket: Ticket, val updates: List<TicketUpdate> = emptyList(), val conversation: JsonObject? = null)
-@Serializable data class TicketCreate(val conversation_id: String, val title: String)
+/** `category` nulo não é enviado (servidores 0.13 não conhecem o campo). */
+@Serializable data class TicketCreate(val conversation_id: String, val title: String, val category: String? = null)
 
 @Serializable data class Bot(val id: String, val profile_id: String = "", val connection_id: String = "", val remote_profile: String = "", val name: String = "", val enabled: Int = 0, val line_ids: String? = null)
 @Serializable data class BotRunRequest(val profile_id: String, val bot_id: String, val input: String)
@@ -234,6 +324,12 @@ import kotlinx.serialization.json.JsonObject
             enabled = o.bool("enabled") ?: true,
             members = o.array("members")?.mapNotNull { it.asStringOrNull() }.orEmpty(),
         )
+    }.orEmpty()
+    /** Categorias de protocolo (`settings.ticket_categories`, servidor 0.14+); vazio quando não configuradas. */
+    fun ticketCategories(): List<TicketCategory> = settings?.array("ticket_categories")?.mapNotNull { el ->
+        val o = el as? JsonObject ?: return@mapNotNull null
+        val id = o.string("id")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        TicketCategory(id = id, name = o.string("name").orEmpty().ifBlank { id }, enabled = o.bool("enabled") ?: true)
     }.orEmpty()
 }
 /** Setor de atendimento (`settings.departments` de GET /status). */

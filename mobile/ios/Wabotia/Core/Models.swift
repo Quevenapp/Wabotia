@@ -105,6 +105,12 @@ struct Conversation: Codable, Identifiable, Equatable {
     var contact_id: String?
     var department_id: String?
     var assigned_bot_id: String?
+    /// Servidor 0.14+: prévia da última mensagem (`{text, direction, created, delivery_status, attachments, kind}`)
+    /// ou nulo. Fica como JSON cru para um formato inesperado nunca derrubar a lista; leia com `lastMessage`.
+    var last_message: JSONValue?
+
+    /// `last_message` lido com tolerância; nil em servidores antigos ou quando a conversa não tem mensagens.
+    var lastMessage: LastMessage? { LastMessage(last_message) }
 
     var displayName: String {
         if let n = contact_name, !n.isEmpty { return n }
@@ -113,6 +119,30 @@ struct Conversation: Codable, Identifiable, Equatable {
     }
     var isGroup: Bool { chat_type == "group" }
     func isOwned(by userId: String?) -> Bool { owner != nil && owner == userId && state == "human" }
+}
+
+/// Prévia da última mensagem que vem em cada linha de GET /conversations (docs/CENTRAL-ATENDIMENTO.md §6).
+struct LastMessage: Equatable {
+    var text: String
+    /// customer | outbound | operator | note | system
+    var direction: String
+    var created: Int64
+    var deliveryStatus: String
+    /// Quantidade de anexos.
+    var attachments: Int
+    /// text | image | video | audio | document | location | contacts | sticker | interactive
+    var kind: String
+
+    init?(_ value: JSONValue?) {
+        guard let value, case .object = value else { return nil }
+        text = value["text"]?.stringValue ?? ""
+        direction = value["direction"]?.stringValue ?? ""
+        created = value["created"]?.intValue ?? 0
+        deliveryStatus = value["delivery_status"]?.stringValue ?? ""
+        if let list = value["attachments"]?.arrayValue { attachments = list.count } else { attachments = max(0, Int(value["attachments"]?.intValue ?? 0)) }
+        let k = value["kind"]?.stringValue ?? ""
+        kind = k.isEmpty ? "text" : k
+    }
 }
 
 struct Message: Codable, Identifiable, Equatable {
@@ -180,21 +210,78 @@ struct Ticket: Codable, Identifiable, Equatable {
     var profile_id: String = ""
     var conversation_id: String = ""
     var title: String = ""
-    var status: String = "open" // open | in_progress | closed
+    /// open | in_progress | waiting_customer | waiting_third | resolved | closed (ver `TicketStatus`).
+    var status: String = "open"
     var owner: String?
     var response_due_at: Int64?
     var first_response_at: Int64?
     var created: Int64 = 0
     var updated: Int64 = 0
+    /// Servidor 0.14+: `id` de uma categoria de `settings.ticket_categories` (aplicativo ou assunto).
+    var category: String?
 
-    var isOverdue: Bool {
-        guard status != "closed", first_response_at == nil, let due = response_due_at else { return false }
-        return Double(due) / 1000 < Date().timeIntervalSince1970
+    /// Ativo = não é `resolved` nem `closed`. Um estado futuro desconhecido conta como ativo.
+    var isActive: Bool { TicketStatus.isActive(status) }
+    var isOverdue: Bool { isOverdue(at: Date()) }
+    /// Atrasado: só protocolo ativo, sem primeira resposta e com o prazo vencido.
+    func isOverdue(at now: Date) -> Bool {
+        guard isActive, first_response_at == nil, let due = response_due_at else { return false }
+        return Double(due) / 1000 < now.timeIntervalSince1970
     }
 }
+
+/// Os seis estados do protocolo (docs/CENTRAL-ATENDIMENTO.md §2), com o texto usado pela equipe.
+enum TicketStatus {
+    static let open = "open"
+    static let inProgress = "in_progress"
+    static let waitingCustomer = "waiting_customer"
+    static let waitingThird = "waiting_third"
+    static let resolved = "resolved"
+    static let closed = "closed"
+
+    /// Ordem do seletor do detalhe.
+    static let all = [open, inProgress, waitingCustomer, waitingThird, resolved, closed]
+    static let waiting = [waitingCustomer, waitingThird]
+    static let finished = [resolved, closed]
+
+    static func isKnown(_ status: String) -> Bool { all.contains(status) }
+    static func isActive(_ status: String) -> Bool { status != resolved && status != closed }
+
+    /// Estado desconhecido (servidor mais novo) vira texto neutro, legível, sem derrubar a tela.
+    static func label(_ status: String) -> String {
+        switch status {
+        case open: return "Recebido"
+        case inProgress: return "Em análise"
+        case waitingCustomer: return "Aguardando cliente"
+        case waitingThird: return "Aguardando terceiro"
+        case resolved: return "Resolvido"
+        case closed: return "Encerrado"
+        default:
+            let text = status.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? "Sem estado" : text.prefix(1).uppercased() + text.dropFirst()
+        }
+    }
+}
+
+/// Categoria de protocolo (`settings.ticket_categories` de GET /status): aplicativo ou assunto.
+struct TicketCategory: Identifiable, Equatable {
+    var id: String
+    var name: String
+    var enabled: Bool
+}
+
+extension Array where Element == TicketCategory {
+    /// Nome da categoria gravada no protocolo; categoria removida da configuração mostra o `id` gravado.
+    func name(of categoryId: String?) -> String? {
+        guard let id = categoryId, !id.isEmpty else { return nil }
+        return first { $0.id == id }?.name ?? id
+    }
+}
+
 struct TicketUpdate: Codable, Identifiable, Equatable { var id: String; var ticket_id: String = ""; var actor: String = ""; var text: String = ""; var `internal`: Int? = 0; var created: Int64 = 0 }
 struct TicketDetail: Codable { var ticket: Ticket; var updates: [TicketUpdate] = []; var conversation: JSONValue? }
-struct TicketCreate: Codable { var conversation_id: String; var title: String }
+/// `category` nulo não é enviado (servidores 0.13 não conhecem o campo).
+struct TicketCreate: Codable { var conversation_id: String; var title: String; var category: String? = nil }
 
 struct Bot: Codable, Identifiable, Equatable { var id: String; var profile_id: String = ""; var connection_id: String = ""; var remote_profile: String = ""; var name: String = ""; var enabled: Int? = 0; var line_ids: String? }
 struct BotRunRequest: Codable { var profile_id: String; var bot_id: String; var input: String }
@@ -278,6 +365,15 @@ extension ProfileStatus {
                 enabled: item["enabled"]?.boolValue ?? true,
                 members: item["members"]?.arrayValue?.compactMap { $0.stringValue } ?? []
             )
+        }
+    }
+
+    /// Categorias de protocolo (`settings.ticket_categories`, servidor 0.14+); vazio quando não configuradas.
+    var ticketCategories: [TicketCategory] {
+        (settings?["ticket_categories"]?.arrayValue ?? []).compactMap { item in
+            guard let id = item["id"]?.stringValue, !id.isEmpty else { return nil }
+            let name = item["name"]?.stringValue ?? ""
+            return TicketCategory(id: id, name: name.isEmpty ? id : name, enabled: item["enabled"]?.boolValue ?? true)
         }
     }
 

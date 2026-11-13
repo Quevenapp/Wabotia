@@ -8,13 +8,18 @@ Cada instalação possui uma **Área de atendimento** da empresa, criada automat
 
 ## Navegação por tarefa
 
+A partir da 0.14.0 o painel tem a mesma organização dos aplicativos (desenho em [`web/DESIGN.md`](../web/DESIGN.md)). Um trilho à esquerda leva às áreas de quem atende, **Conversas**, **Protocolos**, **Equipe**, **Ligações** e **Contatos**, e a **Gestão**, que reúne as áreas de administração abaixo. Em telas estreitas o trilho vira uma barra de abas, como no aplicativo.
+
 | Área | O que a pessoa encontra |
 | --- | --- |
-| Início | Situação do atendimento e próximos passos de configuração. |
-| Atendimento | Conversas, ligações, grupos e protocolos. |
+| Conversas | Lista com prévia, não lidas e relógio da janela de 24 horas; conversa com assumir, transferir e dados do contato. |
+| Protocolos | Cartões com estado, categoria, responsável e prazo; detalhe com linha do tempo. |
+| Equipe | Presença, pessoas, bots, setores e conversa interna. |
+| Ligações | Histórico e tela da ligação. |
 | Contatos | Cadastro, busca, importação e vínculo de clientes às conversas. |
-| Equipe | Pessoas, disponibilidade e conversa interna. |
-| Automação | Bot Atendente, especialistas, menus, conhecimento e regras de atendimento. |
+| Gestão → Início | Situação do atendimento e próximos passos de configuração. |
+| Gestão → Pessoas e acessos | Contas e permissões da equipe. |
+| Gestão → Automação | Bot Atendente, especialistas, menus, modelos de atendimento, conhecimento e regras de atendimento. |
 | Canais | Integração Zernio, Telefones, destino de atendimento por linha, Hermes e Telegram. |
 | Avaliações e relatórios | Notas, comentários e acompanhamento da operação. |
 | Integrações | Aplicações externas, chaves e permissões de acesso. |

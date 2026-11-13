@@ -198,7 +198,7 @@ struct ConversationRow: View {
 
     private var role: ConversationRole { conversation.role(me: workspace.meId) }
     private var unread: Int { workspace.unread[conversation.id] ?? 0 }
-    private var preview: MessagePreview? { workspace.previews[conversation.id] }
+    private var preview: MessagePreview? { workspace.preview(for: conversation) }
     private var tags: [String] { JSONValue.parseStringList(conversation.tags) }
 
     /// Na fila há mais de 5 minutos: o horário vira "espera 12 min".

@@ -7,6 +7,7 @@ import {
   FileText,
   Headphones,
   LayoutDashboard,
+  LayoutTemplate,
   Link2,
   Menu,
   MessageCircle,
@@ -37,6 +38,7 @@ export const sections = [
   ["team", "Conversa interna", MessageCircle],
   ["bots", "Atendente e especialistas", Bot],
   ["menus", "Menus e ações", Menu],
+  ["templates", "Modelos de atendimento", LayoutTemplate],
   ["knowledge", "Conhecimento", BookOpen],
   ["settings", "Regras de atendimento", Settings],
   ["router", "Integração Zernio", Phone],
@@ -54,32 +56,46 @@ export const sections = [
 
 export type PageId = (typeof sections)[number][0];
 
+/**
+ * Áreas de atendimento do trilho (web/DESIGN.md §2). Cada página antiga do
+ * painel continua tendo um lugar: as de atendimento viraram áreas próprias e
+ * as demais ficam em Gestão.
+ */
+export type AreaId =
+  | "conversations"
+  | "tickets"
+  | "team"
+  | "calls"
+  | "contacts"
+  | "admin";
+
+/** Onde mora hoje cada página conhecida pelo assistente e pelos atalhos. */
+export const pageArea: Partial<Record<PageId, AreaId>> = {
+  conversations: "conversations",
+  tickets: "tickets",
+  calls: "calls",
+  contacts: "contacts",
+  // "Disponibilidade" e "Conversa interna" foram absorvidas por Equipe.
+  presence: "team",
+  team: "team",
+};
+
+export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
+
+/** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
-  {
-    id: "service",
-    label: "Atendimento",
-    icon: MessageCircle,
-    pages: ["conversations", "tickets", "calls", "groups"],
-  },
-  { id: "contacts", label: "Contatos", icon: BookOpen, pages: ["contacts"] },
-  {
-    id: "team",
-    label: "Equipe",
-    icon: Users,
-    pages: ["presence", "users", "team"],
-  },
   {
     id: "automation",
     label: "Automação",
     icon: Bot,
-    pages: ["bots", "menus", "knowledge", "settings"],
+    pages: ["bots", "menus", "templates", "knowledge", "settings"],
   },
   {
     id: "channels",
     label: "WhatsApp e canais",
     icon: Phone,
-    pages: ["router", "lines", "connections"],
+    pages: ["router", "lines", "connections", "groups"],
   },
   {
     id: "results",
@@ -94,12 +110,15 @@ export const workspaceGroups = [
     pages: ["applications", "bot-runs", "deliveries", "webhook-deliveries"],
   },
   { id: "system", label: "Sistema", icon: Cloud, pages: ["system"] },
+  { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
+  { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
 ] as const;
 
 const adminPages: ReadonlySet<string> = new Set([
   "setup",
   "settings",
   "menus",
+  "templates",
   "lines",
   "connections",
   "router",
@@ -144,10 +163,15 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   tickets: "Acompanhe solicitações, responsáveis e prazos de resposta.",
   calls:
     "Consulte o histórico de ligações. Áudio pelo navegador indisponível na Zernio.",
+  groups: "Sincronize, crie e administre os grupos das linhas conectadas.",
   contacts: "Encontre clientes, organize cadastros e importe sua agenda.",
+  users: "Acesso individual, responsabilidade clara.",
   bots: "Escolha quem conversa com o cliente e quais especialistas ajudam internamente.",
   menus:
     "Organize os caminhos do cliente para conteúdo, aplicativos, pessoas e bots.",
+  templates:
+    "Comece por um modelo pronto: menus, setores, categorias e prazos de uma vez.",
+  knowledge: "Informações confiáveis para fundamentar as respostas.",
   settings: "Defina orientações, prazos, avaliações e a participação do JEV.",
   router:
     "Configure a Integração Zernio, encontre seus telefones e configure a distribuição de mensagens.",
@@ -159,5 +183,10 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   team: "Converse com pessoas e bots da equipe sem enviar mensagens ao cliente.",
   surveys:
     "Acompanhe as notas e os comentários dos clientes após o atendimento.",
+  reports: "Consulte e exporte os registros da operação.",
+  consents: "Consulte os consentimentos pedidos e concedidos.",
+  "bot-runs": "Acompanhe as execuções pedidas aos bots e confira resultados.",
+  deliveries: "Confira o envio de cada mensagem ao canal.",
+  "webhook-deliveries": "Acompanhe os eventos enviados aos seus sistemas.",
   system: "Verifique versões, instale atualizações e mantenha sua instalação.",
 };
