@@ -133,3 +133,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 - **Instalação:** link que abre o token da Cloudflare preenchido, link de primeiro acesso e o [instalador pelo navegador](INSTALACAO.md#caminho-a-pelo-navegador-sem-nodejs-nem-terminal), disponível só no site oficial.
 
 As regras de atendimento novas estão em [Central de atendimento](CENTRAL-ATENDIMENTO.md).
+
+## Atualização 0.16.1: painel com um único modo
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O seletor **Simplificado / Avançado** deixa de existir no menu de Gestão e nas preferências: Consentimentos, Execuções de bots, Entregas de mensagens e Eventos para sistemas aparecem sempre, assim como o ID de conexões e bots. Quem usava o modo simplificado passa a ver essas páginas; nenhuma configuração é alterada. A Configuração guiada continua disponível.
