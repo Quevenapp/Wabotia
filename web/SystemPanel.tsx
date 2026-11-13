@@ -1018,8 +1018,14 @@ function PushSection({ api, demo }: { api: Api; demo: boolean }) {
                     {},
                     AbortSignal.timeout(45000),
                   );
-                  const devices = Number(result?.devices ?? 0),
-                    sent = Number(result?.sent ?? 0);
+                  // O servidor responde {results:[{status}]}, um por dispositivo.
+                  const results: { status?: string }[] = Array.isArray(
+                      result?.results,
+                    )
+                      ? result.results
+                      : [],
+                    devices = results.length,
+                    sent = results.filter((r) => r.status === "ok").length;
                   action.setMessage(
                     devices === 0
                       ? "Nenhum dispositivo registrado para a sua conta. Entre no aplicativo neste servidor e repita o teste."
