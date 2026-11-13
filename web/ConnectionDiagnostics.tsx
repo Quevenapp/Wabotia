@@ -130,11 +130,12 @@ export function ConnectionDiagnostics({
                       ))}
                     </ul>
                     <p>
-                      Na Equipe Bot, habilite os bots autorizados e escolha o
-                      Atendente.
+                      Em Atendente e especialistas, habilite os bots autorizados
+                      e escolha o Atendente.
                     </p>
                     <button className="text-link" onClick={showBots}>
-                      Ver bots na Equipe Bot <ArrowRight size={16} />
+                      Ver bots em Atendente e especialistas{" "}
+                      <ArrowRight size={16} />
                     </button>
                   </>
                 )}

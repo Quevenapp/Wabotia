@@ -4,7 +4,7 @@ import groupsImage from "../docs/screenshots/27-whatsapp-grupos.jpg";
 export function WhatsAppGuide() {
   return (
     <section id="whatsapp-recursos" className="system-card card">
-      <div className="eyebrow">DEPOIS DE INSTALAR · VERSÃO 0.5.0</div>
+      <div className="eyebrow">DEPOIS DE INSTALAR · WHATSAPP</div>
       <h2>Arquivos, áudio, grupos e ligações</h2>
       <p>
         Atualize o painel em <strong>Sistema e atualizações</strong>. Se usa QR

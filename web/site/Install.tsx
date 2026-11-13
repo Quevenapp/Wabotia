@@ -12,6 +12,7 @@ import { MetaGuide } from "../MetaGuide";
 import { WhatsAppGuide } from "../WhatsAppGuide";
 import { RouterGuide } from "../RouterGuide";
 import { SitePage } from "./SiteChrome";
+import { installTokenUrl } from "../../src/install-links";
 
 const installSteps = [
   [
@@ -19,16 +20,16 @@ const installSteps = [
     "Ative R2 e confira D1 e Workers. Zero Trust e domínio só são necessários se você escolher ligar o Hermes por túnel.",
   ],
   [
-    "Execute o instalador",
-    "Baixe o instalador oficial. Informe Account ID, o token Cloudflare (há um link que abre o formulário preenchido) e um nome novo. Ele publica os recursos e gera as chaves.",
+    "Instale pelo navegador",
+    "Abra o instalador do site oficial. Informe o ID da conta, o token Cloudflare (há um link que abre o formulário preenchido) e um nome novo. Ele publica os recursos e gera as chaves, sem terminal.",
   ],
   [
     "Crie seu administrador",
-    "Abra o link de primeiro acesso mostrado pelo instalador. Ele já leva o código de instalação; você só escolhe nome, e-mail e senha.",
+    "Baixe o arquivo de chaves e clique em Criar meu administrador ao final. O link já leva o código de instalação; você só escolhe nome, e-mail e senha.",
   ],
   [
     "Conecte o Hermes",
-    "Crie a conexão por plugin no painel e execute um comando na máquina do Hermes. Teste a conexão, descubra os bots e selecione o Atendente. Não precisa de túnel nem de domínio.",
+    "Em Hermes e canais, crie a conexão por plugin e execute um comando na máquina do Hermes. Teste a conexão, descubra os bots e selecione o Atendente. Não precisa de túnel nem de domínio.",
   ],
   [
     "Escolha seus canais",
@@ -42,6 +43,8 @@ const installSteps = [
 
 // Âncoras que abrem o bloco recolhido correspondente ao chegar pela URL.
 const anchors = [
+  "#navegador",
+  "#regras",
   "#nodejs",
   "#nodejs-erros",
   "#instalar",
@@ -60,18 +63,122 @@ const anchors = [
 ];
 
 const contents: [string, string][] = [
-  ["#nodejs", "Node.js"],
-  ["#instalar", "Instalar na Cloudflare"],
+  ["#navegador", "Instalar pelo navegador"],
   ["#requisitos", "Serviços da Cloudflare"],
-  ["#chaves", "Gerador de chaves"],
   ["#resumo", "Resumo das etapas"],
   ["#hermes", "Hermes"],
-  ["#atualizacoes", "Atualizações"],
-  ["#agenda", "Agenda de contatos"],
   ["#zernio-whatsapp", "WhatsApp pela Zernio"],
+  ["#regras", "Regras de atendimento"],
+  ["#atualizacoes", "Atualizações"],
+  ["#agenda", "Contatos"],
   ["#whatsapp-recursos", "Recursos do WhatsApp"],
   ["#roteador", "Distribuição por telefone"],
+  ["#nodejs", "Alternativa: terminal"],
+  ["#chaves", "Gerador de chaves"],
 ];
+
+const officialInstaller = "https://wabotia.queven.app/instalar";
+
+function BrowserInstall() {
+  return (
+    <section className="account-setup hermes-guide" id="navegador">
+      <div className="eyebrow">CAMINHO RECOMENDADO · SEM TERMINAL</div>
+      <h2>Instale pelo navegador</h2>
+      <p>
+        O instalador do site oficial publica o Wabotia na sua conta Cloudflare
+        sem Node.js e sem linha de comando. O painel, o banco e os arquivos
+        ficam na sua conta. O token passa pelo servidor do Wabotia durante a
+        instalação e não é guardado; quem preferir que ele vá direto do
+        computador para a Cloudflare usa o{" "}
+        <a href="#nodejs">instalador pelo terminal</a>.
+      </p>
+      <ol>
+        <li>
+          Na Cloudflare, ative o R2 (<a href="#requisitos">veja como</a>) e
+          copie o <strong>ID da conta</strong>: na página inicial da conta, abra
+          o menu de três pontos ao lado do nome e escolha{" "}
+          <strong>Copiar ID da conta</strong>.
+        </li>
+        <li>
+          Crie o token:{" "}
+          <a href={installTokenUrl} target="_blank" rel="noopener noreferrer">
+            abrir a Cloudflare com o token já preenchido ↗
+          </a>
+          . O formulário chega com o nome e as três permissões. Em recursos da
+          conta, escolha somente a conta da instalação, continue até o resumo e
+          crie. O valor aparece uma única vez.
+        </li>
+        <li>
+          Abra o instalador, cole o ID da conta e o token, escolha um nome novo,
+          como <code>wabotia-atendimento</code>, e clique em{" "}
+          <strong>Conferir a conta</strong>.
+        </li>
+        <li>
+          Clique em <strong>Baixar chaves</strong> e guarde o arquivo{" "}
+          <code>NOME-chaves.local.json</code> em local privado. Ele traz
+          MASTER_KEY e SETUP_TOKEN, que não são mostradas de novo. Depois clique
+          em <strong>Guardei o arquivo, instalar</strong> e acompanhe as etapas
+          sem fechar a página. Se uma etapa falhar, use{" "}
+          <strong>Tentar este passo de novo</strong>.
+        </li>
+        <li>
+          Ao terminar, clique em <strong>Criar meu administrador</strong>. O
+          link já leva o código de instalação; escolha nome, e-mail e senha.
+        </li>
+      </ol>
+      <div className="guide-actions">
+        <a className="button" href={officialInstaller}>
+          Abrir o instalador <ArrowRight size={18} />
+        </a>
+        <a
+          className="button secondary"
+          href="/guide/wabotia-instalacao.pdf"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Guia ilustrado em PDF <ArrowUpRight size={18} />
+        </a>
+      </div>
+    </section>
+  );
+}
+
+function ServiceRulesGuide() {
+  return (
+    <section className="account-setup hermes-guide" id="regras">
+      <div className="eyebrow">DEPOIS DE CONECTAR · ATENDIMENTO</div>
+      <h2>Defina as regras de atendimento</h2>
+      <p>
+        Em <strong>Gestão → Automação → Regras de atendimento</strong> você
+        escolhe o que acontece quando ninguém da equipe está disponível e como
+        as respostas são assinadas.
+      </p>
+      <ul>
+        <li>
+          <strong>Protocolo na ausência:</strong> o cliente recebe um número de
+          protocolo quando não há pessoa disponível.
+        </li>
+        <li>
+          <strong>Bot continua respondendo:</strong> depois do protocolo, o
+          Atendente segue na conversa até alguém da equipe assumir.
+        </li>
+        <li>
+          <strong>Pedido de autorização:</strong> o cliente confirma por botões
+          antes de continuar com o bot.
+        </li>
+        <li>
+          <strong>Assinatura:</strong> cada resposta pode levar o nome de quem
+          escreveu, como “Bruno - Humano” ou “Bia - IA”. Menus e avisos
+          automáticos não levam assinatura.
+        </li>
+      </ul>
+      <p>
+        Nas linhas da Zernio, o cliente vê <strong>digitando...</strong>{" "}
+        enquanto o bot prepara a resposta; não há o que configurar.
+      </p>
+    </section>
+  );
+}
 
 export function Install() {
   useEffect(() => {
@@ -103,6 +210,13 @@ export function Install() {
       className="guide-page"
       nav={
         <>
+          <a
+            href="/guide/wabotia-instalacao.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Guia em PDF
+          </a>
           <a href="/api-docs">Para desenvolvedores</a>
           <a href="/" className="text-link">
             Voltar ao início
@@ -127,19 +241,8 @@ export function Install() {
           <p className="lead">
             Você configura uma vez. Depois, tudo acontece pelo painel.
           </p>
-          <DirectInstall />
+          <BrowserInstall />
           <CloudflarePrerequisites />
-          <div className="guide-actions">
-            <a className="button secondary" href="#zernio-whatsapp">
-              Importar telefones da Zernio <ArrowRight size={18} />
-            </a>
-          </div>
-          <details className="guide-disclosure">
-            <summary>
-              Gerador de chaves para configuração manual (opcional)
-            </summary>
-            <InstallKeys />
-          </details>
           <div className="guide-grid" id="resumo">
             {installSteps.map(([title, desc], i) => (
               <article key={title}>
@@ -155,11 +258,19 @@ export function Install() {
             ))}
           </div>
           <HermesInstall />
+          <MetaGuide />
+          <ServiceRulesGuide />
           <MaintenanceGuide />
           <ContactGuide />
-          <MetaGuide />
           <WhatsAppGuide />
           <RouterGuide />
+          <DirectInstall />
+          <details className="guide-disclosure">
+            <summary>
+              Gerador de chaves para configuração manual (opcional)
+            </summary>
+            <InstallKeys />
+          </details>
           <aside className="callout">
             <ShieldCheck />
             <div>

@@ -33,8 +33,14 @@ export function HermesInstall() {
             </li>
             <li>
               No painel do Wabotia, abra{" "}
-              <strong>Hermes e canais → Conectar Hermes</strong>, mantenha{" "}
-              <strong>Plugin no Hermes</strong> e salve.
+              <strong>
+                Gestão → WhatsApp e canais → Hermes e canais → Nova conexão
+              </strong>
+              . Em Serviço, escolha <strong>Hermes</strong>; em Como ligar ao
+              Hermes, escolha{" "}
+              <strong>Plugin no Hermes (recomendado, sem túnel)</strong> e
+              salve. Painel aberto desde antes de uma atualização? Recarregue a
+              página para a opção aparecer.
             </li>
             <li>
               No cartão da conexão, clique em{" "}
@@ -49,12 +55,16 @@ export function HermesInstall() {
             </li>
             <li>
               Reinicie o gateway do Hermes (em Docker,{" "}
-              <code>docker restart CONTEINER</code>).
+              <code>docker restart CONTEINER</code>). Na Hostinger, o projeto do
+              Hermes fica em <strong>VPS → Gerenciador Docker</strong>: o link
+              Terminal abre dentro do contêiner e o menu de três pontos tem
+              Reiniciar.
             </li>
             <li>
               De volta ao cartão:{" "}
-              <strong>Testar conexão → Descobrir bots → Ativar</strong>. Em
-              Equipe Bot, habilite o bot e escolha o Atendente.
+              <strong>Testar conexão → Descobrir bots → Ativar</strong>. Em{" "}
+              <strong>Atendente e especialistas</strong>, habilite o bot e
+              escolha o Atendente.
             </li>
           </ol>
           <p>
@@ -199,7 +209,8 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
               é diferente do Client ID/Secret do Access.
             </li>
             <li>
-              Em <strong>Conexões → Preparar Hermes na Cloudflare</strong>,
+              Em{" "}
+              <strong>Hermes e canais → Preparar Hermes na Cloudflare</strong>,
               informe dois subdomínios novos, o nome no Hermes, as portas e as
               duas chaves Hermes do arquivo privado{" "}
               <code>chaves.local.txt</code>. Para outra máquina, escolha outros
@@ -232,9 +243,9 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           <p>
             Volte ao cartão criado, clique em{" "}
             <strong>Ativar → Testar conexão → Descobrir bots</strong>. O
-            resultado aparece no próprio cartão, com um atalho para a Equipe
-            Bot. Selecione o Atendente e ative o atendimento somente depois dos
-            testes.
+            resultado aparece no próprio cartão, com um atalho para Atendente e
+            especialistas. Selecione o Atendente e ative o atendimento somente
+            depois dos testes.
           </p>
           <p>
             O assistente preserva DNS, aplicações e túneis existentes. Se um
@@ -392,7 +403,8 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
         <div className="guide-detail">
           <p>
             Na área de atendimento da <strong>sua instalação</strong>, abra{" "}
-            <strong>Conexões → Nova conexão → Hermes</strong>. Mantenha o
+            <strong>Hermes e canais → Nova conexão → Hermes</strong> e escolha{" "}
+            <strong>URLs públicas com túnel Cloudflare</strong>. Mantenha o
             atendimento pausado até concluir os testes.
           </p>
           <div className="guide-table-scroll">
@@ -439,8 +451,9 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           <p>
             Salve, clique <strong>Testar conexão</strong> e{" "}
             <strong>Descobrir bots</strong>. Ative a conexão, habilite{" "}
-            <code>wabotia</code> em Equipe Bot e selecione-o como Atendente.
-            Confira modelo e provedor no Hermes antes de testar uma conversa.
+            <code>wabotia</code> em Atendente e especialistas e selecione-o como
+            Atendente. Confira modelo e provedor no Hermes antes de testar uma
+            conversa.
           </p>
         </div>
       </details>
@@ -458,7 +471,9 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           </p>
           <ol>
             <li>
-              No painel, abra <strong>Integrações</strong> e, no cartão{" "}
+              No painel, abra{" "}
+              <strong>Gestão → Integrações → Sistemas conectados</strong> e, no
+              cartão{" "}
               <strong>Ferramentas do Wabotia no Hermes Agent (MCP)</strong>,
               clique em <strong>Criar aplicação e chave para o Hermes</strong>.
               A chave aparece uma única vez.
@@ -476,7 +491,8 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' hermes`}</code>
           </ol>
           <p>
             As ferramentas respeitam as permissões da chave; revogue-a em{" "}
-            <strong>Integrações</strong> para cortar o acesso. Detalhes em{" "}
+            <strong>Sistemas conectados</strong> para cortar o acesso. Detalhes
+            em{" "}
             <a
               href="https://github.com/Quevenapp/Wabotia/blob/main/docs/API.md#mcp-para-o-hermes-agent"
               target="_blank"

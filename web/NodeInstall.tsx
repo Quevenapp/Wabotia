@@ -41,9 +41,11 @@ export function NodeInstall({
   const prefix = root ? "" : "sudo ";
   return (
     <section className="account-setup hermes-guide" id="nodejs">
-      <div className="eyebrow">PRIMEIRO PASSO · PREPARE O TERMINAL</div>
+      <div className="eyebrow">CAMINHO ALTERNATIVO · PELO TERMINAL</div>
       <h2>Instale o Node.js, sem pular etapas</h2>
       <p>
+        Só é necessário para quem vai instalar pelo terminal; o{" "}
+        <a href="#navegador">instalador pelo navegador</a> dispensa esta etapa.
         O Node.js executa o instalador do Wabotia. O npm vem junto e baixa as
         ferramentas necessárias. Você pode fazer isso no computador ou na VPS; o
         painel será publicado na Cloudflare. Se escolher a VPS, a pasta com as
