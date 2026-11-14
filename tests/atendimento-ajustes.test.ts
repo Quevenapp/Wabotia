@@ -196,6 +196,30 @@ describe("bot indisponível e protocolo de ausência", () => {
     expect(ticket.title).toBe(summary);
     expect(ticket.title).not.toContain("provedor");
 
+    // A later request goes into the open protocol as an internal note.
+    await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", c.id);
+    const again =
+      "Cliente usa iPhone e recebe erro 400 ao abrir o app desde ontem.";
+    for (let i = 0; i < 2; i++) {
+      await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", c.id);
+      await handoff(
+        env,
+        await conversation(env, c.id, f.profile),
+        "Bot transferiu para a equipe humana.",
+        null,
+        again,
+      );
+    }
+    expect(await tickets(c.id)).toHaveLength(1);
+    const notes = await all(
+      env,
+      "SELECT text,internal FROM ticket_updates WHERE ticket_id=?",
+      ticket.id,
+    );
+    expect(notes).toEqual([
+      { text: `Nova solicitação nesta conversa: ${again}`, internal: 1 },
+    ]);
+
     // Without a summary, the customer's last message names it.
     const other = await say(f, "Meu pedido 4411 não chegou", "5511920000004");
     await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", other.id);
