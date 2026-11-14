@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.17.0 de 14/11/2026: bot por provedor de IA, sem Hermes
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `80d9386b4d93e3c03e72001f5a032bfa69b9ef6e`, a partir da `main` (0.16.6) com o PR 17. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.17.0-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.17.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `e6c9efbfbfe80c8324599f316746689a5b1991c963cf6579de97dd2a7e4dd4a6` (16147901 bytes), e as 31 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Nova conexão **Provedor de IA** (`kind: "ai"`): Anthropic pelo SDK oficial `@anthropic-ai/sdk` 1.8.0, OpenAI, DeepSeek ou API compatível, com busca dos modelos da conta, esforço de raciocínio e a opção **Apenas mensagens** para áudio e vídeo. O SDK aumentou o pacote de 13,6 MB para 16,1 MB; o limite do atualizador é 20 MB. **606 testes em 50 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.17.0-distribution.json), [guia](PROVEDOR-IA.md).
+
+Não verificado: chamadas reais à Anthropic, à OpenAI e à DeepSeek (os testes simulam as APIs) e o formulário da conexão no navegador.
+
 ## Publicação 0.16.6 de 14/11/2026: uma só conversa com cada bot
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `501d57985dc5a6336ae6d755af4f06c37c9d0b14`, a partir da `main` (0.16.5) com o PR 15. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.6-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.6 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `356fdc71a9024f003e9bbf62da2b3f26f04833d5166327f9f282da55cb29b8a7` (13609017 bytes), e as 30 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
