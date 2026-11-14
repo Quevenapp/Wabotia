@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.19.0 de 14/11/2026: protocolo fácil de digitar, bot com a equipe ausente, Conhecimento editável
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `160c3ca3b150de9fe05b89bdd5124bfc828b08e3`, a partir da `main` (0.18.0) com o PR 20. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.0-distribution-20261114`, fora do Git); a migração `0018_knowledge_usage.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.19.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `75c766deafb7359b0ba66a43c9d610ffe592e09027ac7c5131062bfe63de8a11` (16335062 bytes), e as 34 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Corrige o caso relatado de um número de protocolo digitado em minúsculas e com espaço que, com o Bot Atendente numa conexão pausada, abria outro protocolo com o erro interno como assunto. Protocolos novos numerados só com dígitos a partir de 10001; opção de devolver a conversa ao bot com a equipe ausente; resumo do bot ao transferir; renomear bot; editar fontes do Conhecimento com orientação de uso. **649 testes em 56 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.19.0-distribution.json).
+
+Não verificado: as telas no navegador e o comportamento do modelo real com o prompt de resumo.
+
 ## Publicação 0.18.0 de 14/11/2026: fila de espera com senha, Senhapp, excluir setores
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `eb267f72ca0c364436e87212aca2e9a4cab4eb32`, a partir da `main` (0.17.1) com o PR 19. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.18.0-distribution-20261114`, fora do Git); a migração `0017_queue.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.18.0 nesse commit e `/painel` responde 200. O pacote baixado do catálogo confere com o SHA-256 `bc9054c6b45c03afbbbfcbaf6bdca5da45680c5a4b255b89ff938e7d3b5ee6bd` (16317078 bytes), e as 33 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.

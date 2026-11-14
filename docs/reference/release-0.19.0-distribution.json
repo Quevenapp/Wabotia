@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-14",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.19.0",
+  "commit": "160c3ca3b150de9fe05b89bdd5124bfc828b08e3",
+  "previous_version": "0.18.0",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.19.0-distribution-20261114 (fora do Git)",
+  "migrations": ["0018_knowledge_usage.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": true,
+  "package_verified": true,
+  "package_sha256_matches_catalog": true,
+  "package_size": 16335062,
+  "previous_versions_intact": 34,
+  "tests": { "files": 56, "passed": 649 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "operational_installation_updated": false,
+  "screens_tested_in_browser": false,
+  "summary_prompt_tested_against_real_model": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.19.0" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.19.0" },
+    { "route": "/releases/0.19.0/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/*/release.json", "versions": 35, "mismatches": 0 }
+  ]
+}
