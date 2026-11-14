@@ -150,6 +150,17 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.19.1: níveis de raciocínio, fila sem tempo de espera, bot de IA no menu
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0019_queue_wait_off.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+
+- **Esforço de raciocínio**: a conexão de provedor de IA lista todos os níveis de cada provedor (DeepSeek: Sem raciocínio, Baixo, Alto, Máximo; Anthropic: Baixo a Máximo; OpenAI: de Sem raciocínio a Muito alto). Em Muito alto e Máximo cada resposta pode levar até 3 minutos.
+- **Fila**: o tempo de espera mostrado ao cliente pode ser **Desligado**; o WhatsApp, o painel e o totem mostram só quantas pessoas estão à frente. O Senhapp precisa tratar a ausência do tempo.
+- **Cumprimentos**: um "Olá" respondido pelo bot não transfere mais para a equipe nem abre protocolo.
+- **Menu**: um item do tipo bot pode apontar para um bot de provedor de IA, que assume a conversa a partir da opção escolhida.
+
+Depois de atualizar, clique em **Reabrir painel atualizado**.
+
 ## Atualização 0.19.0: protocolo fácil de digitar, bot com a equipe ausente, Conhecimento editável
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0018_knowledge_usage.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
