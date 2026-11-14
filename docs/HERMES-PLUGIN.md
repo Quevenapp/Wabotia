@@ -87,9 +87,12 @@ Long-poll por HTTPS com `Authorization: Bearer wabl_…`.
   "profile": "wabotia",
   "body": { "input": "…", "instructions": "…" },
   "idempotency_key": "wabotia:RUN_ID",
+  "session_key": "wabotia:PERFIL:BOT:conv:CONVERSA",
   "deadline_ms": 12000
 }
 ```
+
+A chave `session_key` separa a memória do Hermes por conversa: uma por conversa de cliente (`…:conv:<id>`), uma por conversa interna (`…:internal:<id>`), uma por pessoa que pergunta direto ao bot (`…:user:<id>`) e uma por execução avulsa. O plugin a repassa como `X-Hermes-Session-Key` a partir da versão 1.1.0; versões anteriores ignoram o campo e tudo continua funcionando, sem a separação. No caminho por URLs o Wabotia envia o cabeçalho diretamente. O histórico de cada conversa continua indo no `input`; o Wabotia não usa `session_id`, para o Hermes não acumular transcrições repetidas. Para atualizar o plugin, gere um novo comando de instalação no cartão da conexão e reinicie o gateway.
 
 ### 4.2 Operações (lista fechada)
 
@@ -99,7 +102,7 @@ O plugin nunca recebe caminho ou URL. Para perfil diferente de `default` o prefi
 | --- | --- | --- |
 | `profiles.list` | — | o próprio plugin lista os perfis (substitui o backend `:9119`) |
 | `capabilities.get` | `profile` | `GET /v1/capabilities` |
-| `runs.create` | `profile`, `body`, `idempotency_key` | `POST /v1/runs` + `Idempotency-Key` |
+| `runs.create` | `profile`, `body`, `idempotency_key`, `session_key` (opcional, plugin 1.1.0) | `POST /v1/runs` + `Idempotency-Key` + `X-Hermes-Session-Key` |
 | `runs.get` | `profile`, `run_id` | `GET /v1/runs/{run_id}` |
 | `runs.stop` | `profile`, `run_id` | `POST /v1/runs/{run_id}/stop` |
 | `artifacts.download` | `profile`, `artifact_id` | `GET /v1/artifacts/download/{artifact_id}` |

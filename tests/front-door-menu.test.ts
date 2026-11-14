@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec } from "../src/db";
-import { conversation, perform } from "../src/service";
+import { conversation, handoff, perform } from "../src/service";
 import { now, uid } from "../src/types";
 import {
   bot,
@@ -90,9 +90,33 @@ describe("menu como porta de entrada sem bot", () => {
     await configure(f, { menus });
     const c = await say(f, "quero falar com um atendente", "5511910000004");
     expect(c.state).toBe("waiting");
-    expect(
-      (await texts(c.id)).some((t) => t.startsWith(menuText)),
-    ).toBe(false);
+    expect((await texts(c.id)).some((t) => t.startsWith(menuText))).toBe(false);
+  });
+
+  it("avisa o cliente de novo quando a conversa volta à fila depois de atendida", async () => {
+    const f = await fixture();
+    await configure(f, { menus });
+    let c = await say(f, "quero falar com um atendente", "5511910000044");
+    expect(c.state).toBe("waiting");
+    const first = (await texts(c.id)).length;
+    expect(first).toBeGreaterThan(0);
+
+    // Still waiting: a repeated handoff does not repeat the notice.
+    await handoff(env, c, "Cliente insistiu.");
+    await drain(f);
+    expect(await texts(c.id)).toHaveLength(first);
+
+    // A person answered and returned the conversation to the bot, in the same
+    // session. The next handoff is a new one and the customer must be told.
+    await exec(
+      env,
+      "UPDATE conversations SET state='ai',epoch=epoch+1 WHERE id=?",
+      c.id,
+    );
+    c = await conversation(env, c.id, f.profile);
+    await handoff(env, c, "Resposta automática sem fundamentação suficiente.");
+    await drain(f);
+    expect(await texts(c.id)).toHaveLength(first + 1);
   });
 
   it("linha com atendimento humano mostra o menu só na mensagem que abre a sessão", async () => {
@@ -109,7 +133,12 @@ describe("menu como porta de entrada sem bot", () => {
     expect(await texts(c.id)).toHaveLength(1);
 
     // Someone answering keeps the menu away.
-    const g = await receive(f, f.line, "Olá, preciso de ajuda", "5511910000006");
+    const g = await receive(
+      f,
+      f.line,
+      "Olá, preciso de ajuda",
+      "5511910000006",
+    );
     await claim(f, f.member, g.id);
     await drain(f);
     expect(await texts(g.id)).toHaveLength(0);
@@ -129,9 +158,9 @@ describe("menu como porta de entrada sem bot", () => {
     ]) {
       await setLine(f.second, { mode: "inherit", menu_mode: mode });
       c = await say(f, "Preciso de ajuda", phone, f.second);
-      expect(
-        (await texts(c.id)).some((t) => t.startsWith(menuText)),
-      ).toBe(false);
+      expect((await texts(c.id)).some((t) => t.startsWith(menuText))).toBe(
+        false,
+      );
     }
 
     // A group never gets the menu from a free text.
@@ -173,8 +202,6 @@ describe("menu como porta de entrada sem bot", () => {
     await configure(f, { menus, attendant_bot: id });
     const c = await say(f, "Preciso de ajuda", "5511910000010");
     expect(c.state).toBe("ai");
-    expect(
-      (await texts(c.id)).some((t) => t.startsWith(menuText)),
-    ).toBe(false);
+    expect((await texts(c.id)).some((t) => t.startsWith(menuText))).toBe(false);
   });
 });

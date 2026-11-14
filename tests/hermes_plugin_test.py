@@ -78,6 +78,13 @@ class LinkTests(unittest.TestCase):
         self.assertEqual(kwargs["headers"], {"Authorization": "Bearer profile-key-000000000", "Idempotency-Key": "wabotia:1"})
         self.assertEqual(kwargs["json"], {"input": "oi"})
 
+    def test_forwards_session_key_and_drops_invalid_ones(self):
+        worker, http = self.make(Response(200, {"run_id": "run_1"}), Response(200, {"run_id": "run_2"}))
+        self.run_job(worker, op="runs.create", profile="wabotia", body={"input": "oi"}, session_key="wabotia:p:b:conv:c1")
+        self.assertEqual(http.calls[0][2]["headers"]["X-Hermes-Session-Key"], "wabotia:p:b:conv:c1")
+        self.run_job(worker, op="runs.create", profile="wabotia", body={"input": "oi"}, session_key="linha1\nlinha2")
+        self.assertNotIn("X-Hermes-Session-Key", http.calls[1][2]["headers"])
+
     def test_default_profile_has_no_prefix_and_stop_posts(self):
         worker, http = self.make(Response(200, {"status": "running"}), Response(200, {}))
         self.run_job(worker, op="runs.get", run_id="run_1")

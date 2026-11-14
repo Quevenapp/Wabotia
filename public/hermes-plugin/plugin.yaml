@@ -1,7 +1,7 @@
 name: wabotia
 label: Wabotia
 kind: platform
-version: 1.0.0
+version: 1.1.0
 description: >
   Liga os bots deste Hermes a uma instalação Wabotia por conexão de saída,
   sem túnel nem porta aberta. Não é um canal de chat.

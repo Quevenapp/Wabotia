@@ -692,6 +692,67 @@ describe("linhas, menus e equipe interna", () => {
         .n,
     ).toBe(0);
   });
+  it("lista para cada pessoa só as execuções que ela pediu ao bot", async () => {
+    const f = await fixture();
+    await receive(f, f.line, "Olá");
+    const conv = await one(
+      env,
+      "SELECT id FROM conversations WHERE profile_id=?",
+      f.p,
+    );
+    const mine = uid(),
+      theirs = uid(),
+      customer = uid(),
+      stamp = now();
+    await batch(env, [
+      [
+        "INSERT INTO bot_runs(id,profile_id,bot_id,actor,input,created,updated) VALUES(?,?,?,?,'Pergunta de A',?,?)",
+        [mine, f.p, f.bot, f.a.id, stamp, stamp],
+      ],
+      [
+        "INSERT INTO bot_runs(id,profile_id,bot_id,actor,input,created,updated) VALUES(?,?,?,?,'Pergunta de B',?,?)",
+        [theirs, f.p, f.bot, f.b.id, stamp, stamp],
+      ],
+      [
+        "INSERT INTO bot_runs(id,profile_id,bot_id,actor,conversation_id,input,created,updated) VALUES(?,?,?,'system',?,'Cliente',?,?)",
+        [customer, f.p, f.bot, conv.id, stamp, stamp],
+      ],
+    ]);
+    const ids = async (actor: Actor, query = "") => {
+      const headers = { Authorization: `Bearer ${await token(actor)}` };
+      const list = await (
+        await SELF.fetch(
+          `https://test/api/v1/profiles/${f.p}/bot-runs${query}`,
+          { headers },
+        )
+      ).json<any>();
+      return list.data.map((r: any) => r.id);
+    };
+    const status = async (actor: Actor, id: string) =>
+      (
+        await SELF.fetch(`https://test/api/v1/bot-runs/${id}`, {
+          headers: { Authorization: `Bearer ${await token(actor)}` },
+        })
+      ).status;
+    // Quem pergunta vê só as próprias perguntas: nem as de colegas nem os
+    // atendimentos a clientes aparecem na tela do bot.
+    const seenByA = await ids(f.a);
+    expect(seenByA).toContain(mine);
+    expect(seenByA).not.toContain(theirs);
+    expect(seenByA).not.toContain(customer);
+    // Pedir "todas" sem ser administrador não muda nada.
+    expect(await ids(f.a, "?all=1")).not.toContain(theirs);
+    expect(await status(f.a, mine)).toBe(200);
+    expect(await status(f.a, theirs)).toBe(404);
+    // O administrador também vê só as dele por padrão, e a lista completa
+    // quando a página de Execuções de bots pede.
+    expect(await ids(f.admin)).not.toContain(mine);
+    const everything = await ids(f.admin, "?all=1");
+    expect(everything).toContain(mine);
+    expect(everything).toContain(theirs);
+    expect(everything).toContain(customer);
+    expect(await status(f.admin, theirs)).toBe(200);
+  });
   it("retorna as mensagens recentes após 500 mensagens", async () => {
     const f = await fixture();
     const chat = await internalCommand(

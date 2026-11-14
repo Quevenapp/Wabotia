@@ -5,6 +5,7 @@ import { uid, now, defaults, json, type Actor } from "../src/types";
 import { secret } from "../src/security";
 import { perform } from "../src/service";
 import { hermesRequest, hermesArtifact, discover } from "../src/integrations";
+import { sessionKey } from "../src/engine";
 
 const admin: Actor = {
   id: "user-admin",
@@ -242,6 +243,56 @@ describe("operações pelo vínculo", () => {
     await expect(
       hermesRequest(env, await connection(f.id), "/v1/capabilities"),
     ).rejects.toThrow("Hermes offline");
+  });
+  it("separa a memória do Hermes por conversa, conversa interna e pessoa", async () => {
+    const run = (extra: Record<string, unknown>) =>
+      ({
+        id: "run-9",
+        profile_id: "p1",
+        bot_id: "b1",
+        actor: "system",
+        conversation_id: null,
+        context: "{}",
+        ...extra,
+      }) as any;
+    expect(sessionKey(run({ conversation_id: "c1" }))).toBe(
+      "wabotia:p1:b1:conv:c1",
+    );
+    expect(sessionKey(run({ conversation_id: "c2" }))).toBe(
+      "wabotia:p1:b1:conv:c2",
+    );
+    expect(
+      sessionKey(
+        run({
+          actor: "u1",
+          context: JSON.stringify({ internal_chat_id: "i1" }),
+        }),
+      ),
+    ).toBe("wabotia:p1:b1:internal:i1");
+    expect(sessionKey(run({ actor: "u1" }))).toBe("wabotia:p1:b1:user:u1");
+    expect(sessionKey(run({ actor: "u2" }))).toBe("wabotia:p1:b1:user:u2");
+    expect(sessionKey(run({}))).toBe("wabotia:p1:b1:run:run-9");
+
+    const f = await fixture();
+    const waiting = poll(f.token, 5);
+    await new Promise((r) => setTimeout(r, 50));
+    const call = hermesRequest(
+      env,
+      await connection(f.id),
+      "/v1/runs",
+      { input: "Olá" },
+      "wabotia",
+      "wabotia:run-9",
+      "wabotia:p1:b1:conv:c1",
+    );
+    const [job] = await waiting;
+    expect(job.session_key).toBe("wabotia:p1:b1:conv:c1");
+    await answer(f.token, job.id, {
+      ok: true,
+      http_status: 200,
+      body: { run_id: "remote-9" },
+    });
+    expect((await call).run_id).toBe("remote-9");
   });
   it("entrega a execução a um poll em espera e devolve a resposta", async () => {
     const f = await fixture();
