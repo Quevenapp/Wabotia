@@ -49,7 +49,7 @@ Por exemplo, a ação “segunda via de boleto” pode consultar um bot financei
 
 O contrato existente usa `settings.attendant_bot` e `settings.capabilities`. Cada ação interna identifica o bot, a condição e as instruções. O especialista recebe a solicitação e o telefone do cliente; seu resultado volta a uma execução do Atendente. Ver [execução e consulta de especialistas](../src/engine.ts), [validação das configurações](../src/service.ts) e [conexão Hermes](../src/integrations.ts).
 
-O Atendente também pode ser um bot de **provedor de IA direto** (Anthropic, OpenAI, DeepSeek ou API compatível), sem Hermes nem servidor próprio. Ele conversa e decide as mesmas ações do Atendente, mas não tem ferramentas: não pode ser especialista nem item de menu do tipo bot, e o painel o oculta nesses seletores. Ver [Bot por provedor de IA](PROVEDOR-IA.md).
+O Atendente também pode ser um bot de **provedor de IA direto** (Anthropic, OpenAI, DeepSeek ou API compatível), sem Hermes nem servidor próprio. Ele conversa e decide as mesmas ações do Atendente, mas não tem ferramentas: não pode ser especialista, e o painel o oculta nesse seletor. Como item de menu do tipo bot, ele assume a conversa a partir da opção escolhida e continua atendendo. Ver [Bot por provedor de IA](PROVEDOR-IA.md).
 
 O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A chave é salva separadamente por `POST /api/v1/profiles/{profile}/jev`, com `{ "key": "..." }`. O fluxo é **Atendente → interpretação estruturada → decisão JEV → ação autorizada**. Após a consulta a um especialista, a resposta preparada pelo Atendente também passa pela decisão. Com JEV desligado, permanece o fluxo normal do Atendente. Ver [regras, limites e recuperação](JEV.md).
 

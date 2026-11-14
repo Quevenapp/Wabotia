@@ -157,8 +157,9 @@ function IssueDialog({
             {issued.preferential ? "Preferencial" : "Normal"}
           </p>
           <p>
-            {issued.ahead} à frente · espera estimada de {issued.wait_minutes}{" "}
-            min
+            {issued.ahead} à frente
+            {issued.wait_minutes !== null &&
+              ` · espera estimada de ${issued.wait_minutes} min`}
           </p>
         </div>
       </Dialog>
@@ -348,11 +349,12 @@ export function QueueArea() {
             <div className="queue-stat" key={q.id}>
               <strong>{q.name}</strong>
               <span>
-                <b>{q.waiting.normal}</b> normal · ~{q.wait_minutes.normal} min
+                <b>{q.waiting.normal}</b> normal
+                {q.wait_minutes && ` · ~${q.wait_minutes.normal} min`}
               </span>
               <span>
-                <b>{q.waiting.preferential}</b> preferencial · ~
-                {q.wait_minutes.preferential} min
+                <b>{q.waiting.preferential}</b> preferencial
+                {q.wait_minutes && ` · ~${q.wait_minutes.preferential} min`}
               </span>
               <small>{q.open_counters} guichê(s) aberto(s)</small>
             </div>

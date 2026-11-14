@@ -136,20 +136,28 @@ function QueueDialog({
         options={[
           ["average", "Média real dos atendimentos do dia"],
           ["fixed", "Tempo fixo por atendimento"],
+          ["off", "Desligado: não mostrar tempo de espera"],
         ]}
-      />
-      <Field
-        label={
-          form.wait_mode === "fixed"
-            ? "Minutos por atendimento"
-            : "Minutos por atendimento (padrão sem histórico)"
+        help={
+          form.wait_mode === "off"
+            ? "O cliente, o painel e o totem veem a senha e quantas pessoas estão à frente, sem estimativa de tempo."
+            : undefined
         }
-        type="number"
-        min={1}
-        max={600}
-        value={form.service_minutes}
-        onChange={set("service_minutes")}
       />
+      {form.wait_mode !== "off" && (
+        <Field
+          label={
+            form.wait_mode === "fixed"
+              ? "Minutos por atendimento"
+              : "Minutos por atendimento (padrão sem histórico)"
+          }
+          type="number"
+          min={1}
+          max={600}
+          value={form.service_minutes}
+          onChange={set("service_minutes")}
+        />
+      )}
       <fieldset className="queue-checks">
         <legend>Onde o cliente retira senha</legend>
         {[
@@ -868,9 +876,11 @@ export function QueueSettingsPage() {
               "wait_mode",
               "Tempo de espera",
               (q) =>
-                q.wait_mode === "fixed"
-                  ? `Fixo · ${q.service_minutes} min`
-                  : `Média real · padrão ${q.service_minutes} min`,
+                q.wait_mode === "off"
+                  ? "Desligado"
+                  : q.wait_mode === "fixed"
+                    ? `Fixo · ${q.service_minutes} min`
+                    : `Média real · padrão ${q.service_minutes} min`,
             ],
             [
               "channels",

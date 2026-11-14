@@ -273,7 +273,7 @@ describe("cadastro da conexão de provedor de IA", () => {
       save({
         name: "IA",
         kind: "ai",
-        config: { provider: "openai", model: "gpt-test", effort: "none" },
+        config: { provider: "openai", model: "gpt-test", effort: "max" },
         secrets: { api_key: "sk-test-123456" },
       }),
     ).rejects.toThrow("Esforço inválido");
@@ -298,10 +298,28 @@ describe("cadastro da conexão de provedor de IA", () => {
       save({
         name: "IA",
         kind: "ai",
-        config: { provider: "anthropic", effort: "max" },
+        config: { provider: "anthropic", effort: "none" },
         secrets: { api_key: "sk-test-123456" },
       }),
     ).rejects.toThrow("Esforço inválido");
+    // Every level each provider documents is accepted.
+    for (const [provider, effort] of [
+      ["anthropic", "xhigh"],
+      ["anthropic", "max"],
+      ["deepseek", "max"],
+      ["openai", "minimal"],
+      ["openai", "xhigh"],
+    ])
+      await save({
+        name: "IA",
+        kind: "ai",
+        config: {
+          provider,
+          model: provider === "anthropic" ? undefined : "m",
+          effort,
+        },
+        secrets: { api_key: "sk-test-123456" },
+      });
 
     const saved: any = await save({
       name: "IA",
@@ -447,7 +465,45 @@ describe("cadastro da conexão de provedor de IA", () => {
     ).toHaveLength(0);
   });
 
-  it("bot de IA não pode ser especialista nem item de menu do tipo bot", async () => {
+  it("bot de IA no menu assume a conversa como atendente", async () => {
+    const f = await serviceFixture({ provider: "openai", model: "gpt-test" });
+    await perform(
+      env,
+      admin,
+      f.profile,
+      "settings",
+      {
+        menus: [{ id: "m1", label: "Financeiro", type: "bot", bot_id: f.bot }],
+      },
+      uid(),
+    );
+    await exec(
+      env,
+      "UPDATE connections SET config=? WHERE id=?",
+      JSON.stringify({
+        number: "5511999999999",
+        service: { menu_mode: "automatic" },
+      }),
+      f.line,
+    );
+    const conversation = await receive(f, "oi");
+    expect(await runOf(conversation)).toBeNull();
+    await receive(f, "1");
+    const run = (await runOf(conversation))!;
+    expect(run).toMatchObject({ bot_id: f.bot, phase: "attendant" });
+    expect(json(run.input).request).toContain("Financeiro");
+    expect(
+      (
+        await one(
+          env,
+          "SELECT assigned_bot_id FROM conversations WHERE id=?",
+          conversation,
+        )
+      ).assigned_bot_id,
+    ).toBe(f.bot);
+  });
+
+  it("bot de IA não pode ser especialista", async () => {
     const f = await serviceFixture({ provider: "openai", model: "gpt-test" });
     await expect(
       perform(
@@ -470,20 +526,6 @@ describe("cadastro da conexão de provedor de IA", () => {
         uid(),
       ),
     ).rejects.toThrow("Especialistas precisam de um bot Hermes");
-    await expect(
-      perform(
-        env,
-        admin,
-        f.profile,
-        "settings",
-        {
-          menus: [
-            { id: "m1", label: "Financeiro", type: "bot", bot_id: f.bot },
-          ],
-        },
-        uid(),
-      ),
-    ).rejects.toThrow("Itens de menu do tipo bot precisam de um bot Hermes");
     // Como Atendente, o mesmo bot é aceito.
     await perform(
       env,
@@ -612,13 +654,15 @@ describe("modelos e esforço", () => {
     const f = await serviceFixture({
       provider: "anthropic",
       model: "claude-sonnet-5-5",
-      effort: "high",
+      effort: "max",
     });
     const conversation = await receive(f, "Qual o horário?");
     const run = await withSource((await runOf(conversation))!);
     const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
     await processRun(env, run);
-    expect(calls[0].body.output_config.effort).toBe("high");
+    expect(calls[0].body.output_config.effort).toBe("max");
+    // The highest levels get room to think before the answer.
+    expect(calls[0].body.max_tokens).toBe(32000);
 
     const g = await serviceFixture({
       provider: "openai",
@@ -680,6 +724,46 @@ describe("atendimento por provedor de IA", () => {
     expect((await fresh(run)).status).toBe("completed");
     const sent = await outbox(conversation);
     expect(sent.map((row) => json(row.payload).text)).toContain(answer.text);
+  });
+
+  it("um Olá respondido sem fonte não abre protocolo", async () => {
+    const f = await serviceFixture({
+      provider: "deepseek",
+      model: "deepseek-flash",
+    });
+    const conversation = await receive(f, "Olá");
+    const run = await runOf(conversation);
+    expect(run).toBeTruthy();
+    mockFetch(() =>
+      openaiMessage(
+        JSON.stringify({
+          ...answer,
+          text: "Olá! Como posso ajudar?",
+          citations: [],
+        }),
+      ),
+    );
+    await processRun(env, run!);
+    const sent = await outbox(conversation);
+    expect(sent.map((row) => json(row.payload).text)).toContain(
+      "Olá! Como posso ajudar?",
+    );
+    expect(
+      await all(
+        env,
+        "SELECT id FROM tickets WHERE conversation_id=?",
+        conversation,
+      ),
+    ).toHaveLength(0);
+    expect(
+      (
+        await one(
+          env,
+          "SELECT state FROM conversations WHERE id=?",
+          conversation,
+        )
+      ).state,
+    ).toBe("ai");
   });
 
   it("Anthropic: saída estruturada, esforço baixo e sem thinking", async () => {

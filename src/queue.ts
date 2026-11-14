@@ -192,6 +192,8 @@ async function openCounters(env: Env, profile: string, queueId: string) {
     )?.n || 0
   );
 }
+/** The queue shows a waiting-time estimate (wait_mode is not "off"). */
+export const waitShown = (queue: any) => Number(queue?.show_wait ?? 1) !== 0;
 /** Minutes per service for the estimate, by the queue's mode. */
 export async function serviceMinutes(env: Env, queue: any) {
   const fallback = Math.max(1, Number(queue.service_minutes) || 10);
@@ -331,8 +333,10 @@ export async function ticketView(
         )
       : null);
   const ahead = await aheadOf(env, row);
-  const minutes =
-    row.status === "waiting"
+  // null: the queue does not show a waiting time.
+  const minutes = !waitShown(queue)
+    ? null
+    : row.status === "waiting"
       ? estimateMinutes(
           ahead,
           await serviceMinutes(env, queue),
@@ -416,14 +420,20 @@ export async function overview(
     out.push({
       ...queuePublic(q),
       waiting,
-      wait_minutes: {
-        normal: estimateMinutes(aheadOfNew(waiting, false), minutes, counters),
-        preferential: estimateMinutes(
-          aheadOfNew(waiting, true, normalsOwed(q)),
-          minutes,
-          counters,
-        ),
-      },
+      wait_minutes: waitShown(q)
+        ? {
+            normal: estimateMinutes(
+              aheadOfNew(waiting, false),
+              minutes,
+              counters,
+            ),
+            preferential: estimateMinutes(
+              aheadOfNew(waiting, true, normalsOwed(q)),
+              minutes,
+              counters,
+            ),
+          }
+        : null,
       open_counters: counters,
     });
   }
@@ -497,7 +507,7 @@ function queuePublic(q: any) {
     prefix_preferential: q.prefix_preferential,
     normals_per_preferential: q.normals_per_preferential,
     priority: q.priority,
-    wait_mode: q.wait_mode,
+    wait_mode: waitShown(q) ? q.wait_mode : "off",
     service_minutes: q.service_minutes,
     channels: json(q.channels, []),
     preferential_notice: q.preferential_notice,
@@ -1374,7 +1384,7 @@ async function saveQueue(env: Env, actor: Actor, profile: string, data: any) {
     normals_per_preferential:
       data.normals_per_preferential ?? old?.normals_per_preferential ?? 2,
     priority: data.priority ?? old?.priority ?? 0,
-    wait_mode: data.wait_mode ?? old?.wait_mode ?? "average",
+    wait_mode: data.wait_mode ?? (old ? queuePublic(old).wait_mode : "average"),
     service_minutes: data.service_minutes ?? old?.service_minutes ?? 10,
     channels:
       data.channels ?? (old ? json(old.channels, []) : ["whatsapp", "kiosk"]),
@@ -1403,7 +1413,7 @@ async function saveQueue(env: Env, actor: Actor, profile: string, data: any) {
     "Prioridade da fila: de -100 a 100.",
   );
   requireValue(
-    ["average", "fixed"].includes(next.wait_mode),
+    ["average", "fixed", "off"].includes(next.wait_mode),
     "Modo do tempo de espera inválido.",
   );
   requireValue(
@@ -1434,9 +1444,16 @@ async function saveQueue(env: Env, actor: Actor, profile: string, data: any) {
     );
   const id = old?.id || uid(),
     at = now();
+  // "off" hides the estimate; the column keeps the last real mode.
+  const showWait = next.wait_mode !== "off",
+    storedMode = showWait
+      ? next.wait_mode
+      : old?.wait_mode === "fixed"
+        ? "fixed"
+        : "average";
   await exec(
     env,
-    "INSERT INTO queues(id,profile_id,name,prefix_normal,prefix_preferential,normals_per_preferential,priority,wait_mode,service_minutes,channels,preferential_notice,whatsapp_line_id,sort,enabled,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,prefix_normal=excluded.prefix_normal,prefix_preferential=excluded.prefix_preferential,normals_per_preferential=excluded.normals_per_preferential,priority=excluded.priority,wait_mode=excluded.wait_mode,service_minutes=excluded.service_minutes,channels=excluded.channels,preferential_notice=excluded.preferential_notice,whatsapp_line_id=excluded.whatsapp_line_id,sort=excluded.sort,enabled=excluded.enabled,updated=excluded.updated",
+    "INSERT INTO queues(id,profile_id,name,prefix_normal,prefix_preferential,normals_per_preferential,priority,wait_mode,show_wait,service_minutes,channels,preferential_notice,whatsapp_line_id,sort,enabled,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,prefix_normal=excluded.prefix_normal,prefix_preferential=excluded.prefix_preferential,normals_per_preferential=excluded.normals_per_preferential,priority=excluded.priority,wait_mode=excluded.wait_mode,show_wait=excluded.show_wait,service_minutes=excluded.service_minutes,channels=excluded.channels,preferential_notice=excluded.preferential_notice,whatsapp_line_id=excluded.whatsapp_line_id,sort=excluded.sort,enabled=excluded.enabled,updated=excluded.updated",
     id,
     profile,
     next.name,
@@ -1444,7 +1461,8 @@ async function saveQueue(env: Env, actor: Actor, profile: string, data: any) {
     next.prefix_preferential,
     next.normals_per_preferential,
     next.priority,
-    next.wait_mode,
+    storedMode,
+    showWait ? 1 : 0,
     next.service_minutes,
     JSON.stringify([...new Set(next.channels)]),
     next.preferential_notice.trim(),
