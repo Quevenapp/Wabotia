@@ -9,7 +9,7 @@ const contact = "suporte@queven.com.br";
 export function Privacy() {
   return (
     <SitePage
-      className="guide-page"
+      className="guide-page policy-page"
       nav={
         <>
           <a href="/install">Guia de instalação</a>

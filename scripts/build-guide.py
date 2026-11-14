@@ -81,12 +81,12 @@ def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Pa
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 append_zernio_chapter=runpy.run_path(str(ROOT/'scripts/zernio-guide-pages.py'))['append_zernio_chapter']
 # Capa
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.16.1','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.16.3','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare pelo navegador,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
 p(link('Instalar agora em wabotia.queven.app/instalar','https://wabotia.queven.app/instalar'))
-p('Edição de 13/11/2026. Leia na ordem. A instalação é feita pelo navegador, sem terminal. O painel fica na sua conta Cloudflare; o Hermes continua no computador ou servidor que você escolher.','small')
+p('Edição de 14/11/2026. Leia na ordem. A instalação é feita pelo navegador, sem terminal. O painel fica na sua conta Cloudflare; o Hermes continua no computador ou servidor que você escolher.','small')
 
 title(0,'Do zero ao atendimento','visao')
 p('Você não precisa instalar programas no computador, criar conta no GitHub nem ter domínio próprio. A instalação cria tudo na sua conta Cloudflare e as próximas versões chegam pelo painel.')
@@ -547,7 +547,7 @@ def on_page(c,doc):
     c.setFillColor(CREAM);c.rect(0,0,W,H,fill=1,stroke=0)
     c.setFillColor(GREEN);c.rect(0,H-8,W,8,fill=1,stroke=0)
     c.setStrokeColor(LINE);c.line(M,39,W-M,39)
-    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  '+('WhatsApp com Zernio' if WHATSAPP_ONLY else 'Instalação na Cloudflare')+'  |  13/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
+    c.setFont('Sans',8);c.setFillColor(MUTE);c.drawString(M,25,'WABOTIA  |  '+('WhatsApp com Zernio' if WHATSAPP_ONLY else 'Instalação na Cloudflare')+'  |  14/11/2026');c.drawRightString(W-M,25,f'{doc.page:02d}')
 class NumberedCanvas(canvas.Canvas):
     def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.setTitle('Wabotia - WhatsApp com Zernio' if WHATSAPP_ONLY else 'Wabotia - Guia ilustrado de instalação');self.setAuthor('Quevenapp');self.setSubject('Conexão WhatsApp pela Zernio' if WHATSAPP_ONLY else 'Instalação Cloudflare e conexão Hermes, WhatsApp e API')
 doc=SimpleDocTemplate(str(OUT),pagesize=A4,rightMargin=M,leftMargin=M,topMargin=43,bottomMargin=52,title='Wabotia - WhatsApp com Zernio' if WHATSAPP_ONLY else 'Wabotia - Guia de instalação',author='Quevenapp',allowSplitting=0)
