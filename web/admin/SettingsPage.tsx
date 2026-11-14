@@ -162,6 +162,60 @@ export function SettingsPage() {
           <label className="check-field">
             <input
               type="checkbox"
+              checked={!!settings.notifications?.enabled}
+              onChange={(event) =>
+                edit({
+                  notifications: {
+                    language: "pt_BR",
+                    template_name: "",
+                    ...settings.notifications,
+                    enabled: event.target.checked,
+                  },
+                })
+              }
+            />
+            Notificações de protocolo pelo WhatsApp
+          </label>
+          <p className="workspace-help">
+            Com o cliente de acordo, o andamento do protocolo chega a ele mesmo
+            fora da janela de 24 horas, por um modelo de mensagem (template)
+            UTILITY aprovado na Integração Zernio, com as variáveis {"{{1}}"}{" "}
+            (protocolo) e {"{{2}}"} (andamento). Ligadas, o cliente recebe a
+            pergunta de autorização acima ao abrir um protocolo.
+          </p>
+          {settings.notifications?.enabled && (
+            <>
+              <Field
+                label="Nome do modelo aprovado"
+                value={settings.notifications?.template_name}
+                onChange={(value) =>
+                  edit({
+                    notifications: {
+                      ...settings.notifications,
+                      template_name: value,
+                    },
+                  })
+                }
+                required
+              />
+              <Field
+                label="Idioma do modelo"
+                value={settings.notifications?.language || "pt_BR"}
+                onChange={(value) =>
+                  edit({
+                    notifications: {
+                      ...settings.notifications,
+                      language: value,
+                    },
+                  })
+                }
+                help="Como cadastrado no WhatsApp, por exemplo pt_BR."
+              />
+            </>
+          )}
+          <label className="check-field">
+            <input
+              type="checkbox"
               checked={settings.sender_signature !== false}
               onChange={(event) =>
                 edit({ sender_signature: event.target.checked })
@@ -186,6 +240,21 @@ export function SettingsPage() {
             />
             Pedir avaliação ao concluir
           </label>
+          <label className="check-field">
+            <input
+              type="checkbox"
+              checked={settings.absence_survey === true}
+              disabled={settings.absence_ticket === false}
+              onChange={(event) =>
+                edit({ absence_survey: event.target.checked })
+              }
+            />
+            Pedir avaliação depois de abrir o protocolo com a equipe ausente
+          </label>
+          <p className="workspace-help">
+            Depois da confirmação do protocolo (e da pergunta de autorização,
+            quando houver), o cliente recebe o pedido de nota de 1 a 5.
+          </p>
           <label className="check-field">
             <input
               type="checkbox"

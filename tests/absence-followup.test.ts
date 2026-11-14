@@ -158,6 +158,45 @@ describe("autorização de notificações ao abrir protocolo", () => {
       await all(env, "SELECT id FROM consents WHERE conversation_id=?", c2.id),
     ).toEqual([]);
   });
+  it("pede a avaliação depois do protocolo e da autorização", async () => {
+    const f = await fixture();
+    await configure(f, { notifications, absence_survey: true });
+    const c = await handedOff(f);
+    const texts = (await outbox(c.id)).map((p) => String(p.text));
+    const protocol = texts.findIndex((t) => t.includes("Abrimos um protocolo"));
+    const consent = texts.findIndex((t) => /AUTORIZO ou NÃO/.test(t));
+    const survey = texts.findIndex((t) =>
+      t.includes("Como você avalia este atendimento?"),
+    );
+    expect(protocol).toBeGreaterThanOrEqual(0);
+    expect(consent).toBeGreaterThan(protocol);
+    expect(survey).toBeGreaterThan(consent);
+    expect(
+      await all(env, "SELECT id FROM surveys WHERE conversation_id=?", c.id),
+    ).toHaveLength(1);
+  });
+  it("valida as notificações de protocolo salvas pelo painel", async () => {
+    const f = await fixture();
+    await expect(
+      configure(f, { notifications: { enabled: true, template_name: "" } }),
+    ).rejects.toThrow("nome do modelo");
+    await configure(f, {
+      notifications: {
+        enabled: true,
+        template_name: " aviso ",
+        language: "pt_BR",
+      },
+    });
+    const saved = json(
+      (await one(env, "SELECT settings FROM profiles WHERE id=?", f.profile))
+        .settings,
+    ).notifications;
+    expect(saved).toEqual({
+      enabled: true,
+      template_name: "aviso",
+      language: "pt_BR",
+    });
+  });
 });
 
 describe("acompanhamento pelo bot com a equipe ausente", () => {

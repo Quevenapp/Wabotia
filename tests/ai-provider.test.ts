@@ -766,6 +766,65 @@ describe("atendimento por provedor de IA", () => {
     ).toBe("ai");
   });
 
+  it("resposta à pergunta do bot não volta ao menu", async () => {
+    const f = await serviceFixture({
+      provider: "deepseek",
+      model: "deepseek-flash",
+    });
+    await perform(
+      env,
+      admin,
+      f.profile,
+      "settings",
+      {
+        menus: [{ id: "fagoo", label: "Fagoo", type: "content", content: "x" }],
+      },
+      uid(),
+    );
+    const conversation = await receive(f, "Preciso de ajuda com um aplicativo");
+    mockFetch(() =>
+      openaiMessage(
+        JSON.stringify({
+          ...answer,
+          action: "clarify",
+          text: "Claro. Qual aplicativo você quer tratar e o que precisa?",
+          citations: [],
+        }),
+      ),
+    );
+    await processRun(env, (await runOf(conversation))!);
+    await receive(f, "Fagoo");
+    const first = (await runOf(conversation))!;
+    let calls = mockFetch(() =>
+      openaiMessage(JSON.stringify({ ...answer, action: "menu", text: "" })),
+    );
+    await processRun(env, first);
+    // The menu is not sent; the same turn is asked again without it.
+    const retry = (await runOf(conversation))!;
+    expect(retry.id).not.toBe(first.id);
+    expect(json(retry.context).no_menu).toBe(true);
+    expect(
+      (await outbox(conversation)).some(
+        (row) => json(row.payload).automation === "menu",
+      ),
+    ).toBe(false);
+    calls = mockFetch(() =>
+      openaiMessage(
+        JSON.stringify({
+          ...answer,
+          action: "clarify",
+          text: "Certo, Fagoo. O que está acontecendo?",
+          citations: [],
+        }),
+      ),
+    );
+    await processRun(env, retry);
+    expect(calls[0].body.messages[0].content).toContain("não use a ação menu");
+    expect(
+      (await outbox(conversation)).map((row) => json(row.payload).text),
+    ).toContain("Certo, Fagoo. O que está acontecendo?");
+  });
+
   it("Anthropic: saída estruturada, esforço baixo e sem thinking", async () => {
     const f = await serviceFixture({
       provider: "anthropic",
