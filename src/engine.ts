@@ -868,6 +868,21 @@ function parseOutput(output: any) {
     .replace(/\s*```$/, "");
   return JSON.parse(candidate);
 }
+/**
+ * Escopo de memória enviado ao Hermes em cada execução. O Wabotia já manda o
+ * histórico de que o bot precisa; esta chave serve para o Hermes não juntar,
+ * na memória dele, o que ouviu de clientes e de pessoas diferentes. Uma chave
+ * por conversa de cliente, por conversa interna e por pessoa que pergunta
+ * direto ao bot; execuções avulsas ficam isoladas.
+ */
+export function sessionKey(run: Run) {
+  const base = `wabotia:${run.profile_id}:${run.bot_id}`,
+    internal = json(run.context).internal_chat_id;
+  if (run.conversation_id) return `${base}:conv:${run.conversation_id}`;
+  if (internal) return `${base}:internal:${internal}`;
+  if (run.actor && run.actor !== "system") return `${base}:user:${run.actor}`;
+  return `${base}:run:${run.id}`;
+}
 export async function processRun(env: Env, run: Run) {
   if (run.conversation_id) {
     const c = await conversation(env, run.conversation_id, run.profile_id);
@@ -993,6 +1008,7 @@ export async function processRun(env: Env, run: Run) {
         requestBody,
         bot.remote_profile,
         `wabotia:${run.id}`,
+        sessionKey(run),
       );
       requireValue(result.run_id, "Hermes não retornou run_id.");
       await exec(

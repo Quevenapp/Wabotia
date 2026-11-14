@@ -92,7 +92,9 @@ export function ReportsPage() {
             }
           />
         )}
-        <p className="muted">{list.raw?.count || 0} registros nesta consulta.</p>
+        <p className="muted">
+          {list.raw?.count || 0} registros nesta consulta.
+        </p>
       </section>
       <Pager {...list} />
     </>
@@ -112,7 +114,11 @@ export function LogsPage({
 }) {
   const app = useApp();
   const { api, root } = app;
-  const list = useList(root + "/" + page);
+  // A lista de execuções traz só as do próprio usuário, a menos que o
+  // administrador peça todas.
+  const list = useList(
+    root + "/" + page + (page === "bot-runs" ? "?all=1" : ""),
+  );
   const { busy, run } = useAction();
   const [reconcile, setReconcile] = useState<Reconcile>(null);
   const [form, setForm] = useState<Row>({});

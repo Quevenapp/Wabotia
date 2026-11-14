@@ -33,6 +33,8 @@ export interface LinkJob {
   run_id?: string;
   artifact_id?: string;
   idempotency_key?: string;
+  // Escopo de memória do Hermes para esta conversa (X-Hermes-Session-Key).
+  session_key?: string;
   deadline_ms: number;
 }
 interface LinkResult {

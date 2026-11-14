@@ -14,7 +14,13 @@ import { secret, setSecret, safeFetch, random, sha } from "./security";
 import { isLink, linkCall, type LinkOp } from "./hermes-link";
 // No modo plugin o motor continua pedindo os mesmos caminhos; aqui eles viram
 // as operações fechadas do vínculo (docs/HERMES-PLUGIN.md).
-function linkJob(path: string, body?: any, profile?: string, idem?: string) {
+function linkJob(
+  path: string,
+  body?: any,
+  profile?: string,
+  idem?: string,
+  sessionKey?: string,
+) {
   if (path === "/api/profiles") return { op: "profiles.list" as LinkOp };
   const target = profile || "default";
   if (path === "/v1/capabilities")
@@ -25,6 +31,7 @@ function linkJob(path: string, body?: any, profile?: string, idem?: string) {
       profile: target,
       body,
       idempotency_key: idem,
+      ...(sessionKey ? { session_key: sessionKey } : {}),
     };
   const run = /^\/v1\/runs\/([^/]+)(\/stop)?$/.exec(path);
   if (run)
@@ -46,9 +53,16 @@ export async function hermesRequest(
   body?: any,
   profile?: string,
   idem?: string,
+  // Separa a memória do Hermes por conversa: sem isto, tudo o que o perfil
+  // atende compartilha o mesmo escopo.
+  sessionKey?: string,
 ) {
   if (isLink(connection))
-    return linkCall(env, connection, linkJob(path, body, profile, idem));
+    return linkCall(
+      env,
+      connection,
+      linkJob(path, body, profile, idem, sessionKey),
+    );
   const cfg = json(connection.config),
     keys = await secret(env, `connection:${connection.id}`);
   const api = path.startsWith("/v1/");
@@ -73,6 +87,7 @@ export async function hermesRequest(
     headers["CF-Access-Client-Secret"] = keys.access_client_secret;
   }
   if (idem) headers["Idempotency-Key"] = idem;
+  if (sessionKey) headers["X-Hermes-Session-Key"] = sessionKey;
   const r = await safeFetch(`${base}${prefix}${path}`, {
     method: body ? "POST" : "GET",
     headers,

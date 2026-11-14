@@ -182,31 +182,23 @@ app.post("/api/pairing/token", async (c) =>
 app.get("/api/install/status", (c) =>
   c.json({ enabled: webInstallerEnabled(c.env) }),
 );
-app.post(
-  "/api/install/step",
-  bodyLimit({ maxSize: 256 * 1024 }),
-  async (c) => {
-    if (!webInstallerEnabled(c.env))
-      throw new ApiError(
-        404,
-        "not_found",
-        "O instalador pelo navegador só existe no site oficial do Wabotia.",
-      );
-    if (c.req.header("Origin") !== new URL(c.req.url).origin)
-      throw new ApiError(
-        403,
-        "invalid_origin",
-        "Origem da requisição inválida.",
-      );
-    await rate(
-      c.env,
-      "web-install:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
-      400,
-      600_000,
+app.post("/api/install/step", bodyLimit({ maxSize: 256 * 1024 }), async (c) => {
+  if (!webInstallerEnabled(c.env))
+    throw new ApiError(
+      404,
+      "not_found",
+      "O instalador pelo navegador só existe no site oficial do Wabotia.",
     );
-    return c.json(await installStep(c.env, await c.req.json()));
-  },
-);
+  if (c.req.header("Origin") !== new URL(c.req.url).origin)
+    throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
+  await rate(
+    c.env,
+    "web-install:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
+    400,
+    600_000,
+  );
+  return c.json(await installStep(c.env, await c.req.json()));
+});
 // Vínculo do plugin Wabotia no Hermes Agent (docs/HERMES-PLUGIN.md). O token
 // wabl_ só vale nestas rotas; o estado do poll vive na instância do vínculo.
 app.post("/api/hermes-link/pair", bodyLimit({ maxSize: 4096 }), async (c) => {
@@ -894,9 +886,15 @@ app.get("/api/v1/bot-runs/:id", async (c) => {
   );
   if (!run) throw new ApiError(404, "not_found", "Execução não encontrada.");
   access(c.get("actor"), run.profile_id, "bots:invoke");
+  // Runs asked directly to a bot (no customer conversation) belong to whoever
+  // asked; only an administrator may read someone else's.
+  const viewer = c.get("actor"),
+    direct = !run.conversation_id && !json(run.context).internal_chat_id;
   if (
-    (c.get("actor").kind === "app" || json(run.context).internal_chat_id) &&
-    run.actor !== c.get("actor").id
+    run.actor !== viewer.id &&
+    (viewer.kind === "app" ||
+      json(run.context).internal_chat_id ||
+      (direct && viewer.role !== "admin"))
   )
     throw new ApiError(404, "not_found", "Execução não encontrada.");
   run.attachments = json(run.result, {}).attachments || [];
@@ -1066,9 +1064,23 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     let filter = "",
       params: any[] = [p, cursor];
     if (table === "bot_runs") {
-      filter +=
-        " AND (json_extract(context,'$.internal_chat_id') IS NULL OR actor=?)";
-      params.push(actor.id);
+      // A person sees only the runs they asked for: the bot screens build
+      // their history from this list, so anything else would show colleagues'
+      // questions and customer conversations. Administrators get the full
+      // list (the Execuções de bots page) by asking for it with all=1; other
+      // people's internal chats stay hidden even then.
+      const everything =
+        actor.kind === "user" &&
+        actor.role === "admin" &&
+        c.req.query("all") === "1";
+      if (actor.kind === "user" && !everything) {
+        filter += " AND actor=?";
+        params.push(actor.id);
+      } else {
+        filter +=
+          " AND (json_extract(context,'$.internal_chat_id') IS NULL OR actor=?)";
+        params.push(actor.id);
+      }
     }
     if (actor.kind === "app") {
       if (table === "bots") {

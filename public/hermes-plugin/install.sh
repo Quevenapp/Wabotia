@@ -42,7 +42,7 @@ grep -q '^name: wabotia$' "$STAGE/plugin.yaml" || fail "o endereço não respond
 echo "2/5 · Pareando com o Wabotia"
 HOST="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-100)"
 RESPONSE="$(curl -sS -X POST -H 'Content-Type: application/json' \
-  --data "{\"code\":\"$CODE\",\"host\":\"$HOST\",\"plugin_version\":\"1.0.0\"}" \
+  --data "{\"code\":\"$CODE\",\"host\":\"$HOST\",\"plugin_version\":\"1.1.0\"}" \
   "$URL/api/hermes-link/pair")" || fail "o Wabotia não respondeu ao pareamento."
 TOKEN="$(printf '%s' "$RESPONSE" | grep -Eo '"link_token":"wabl_[0-9a-f_-]+"' | cut -d'"' -f4 || true)"
 [ -n "$TOKEN" ] || fail "código recusado (usado ou expirado). Gere outro no painel."

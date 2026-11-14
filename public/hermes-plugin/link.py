@@ -12,7 +12,7 @@ from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.1.0"
 PROFILE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 RUN_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 ARTIFACT_ID = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
@@ -185,6 +185,12 @@ class WabotiaLink:
         elif op == "runs.create" and isinstance(job.get("body"), dict):
             if job.get("idempotency_key"):
                 headers["Idempotency-Key"] = str(job["idempotency_key"])[:200]
+            # Escopo de memória por conversa: o Hermes recusa caracteres de
+            # controle e mais de 256 caracteres, então uma chave fora disso é
+            # descartada em vez de derrubar a execução.
+            session = job.get("session_key")
+            if isinstance(session, str) and 0 < len(session) <= 256 and session.isprintable():
+                headers["X-Hermes-Session-Key"] = session
             request = ("POST", base + "/runs", job["body"])
         elif op in ("runs.get", "runs.stop") and isinstance(run_id, str) and RUN_ID.match(run_id):
             path = base + "/runs/" + quote(run_id, safe="")
