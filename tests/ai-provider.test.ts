@@ -256,15 +256,44 @@ describe("cadastro da conexão de provedor de IA", () => {
         secrets: { api_key: "sk-test-123456", dashboard_token: "x" },
       }),
     ).rejects.toThrow("só a chave");
-    // Esforço: a DeepSeek não tem o campo; acima de "high" não é oferecido.
+    // Esforço: a DeepSeek só tem none, low e high; acima de "high" não é oferecido.
     await expect(
       save({
         name: "IA",
         kind: "ai",
-        config: { provider: "deepseek", model: "deepseek-chat", effort: "low" },
+        config: {
+          provider: "deepseek",
+          model: "deepseek-flash",
+          effort: "medium",
+        },
         secrets: { api_key: "sk-test-123456" },
       }),
     ).rejects.toThrow("Esforço inválido");
+    await expect(
+      save({
+        name: "IA",
+        kind: "ai",
+        config: { provider: "openai", model: "gpt-test", effort: "none" },
+        secrets: { api_key: "sk-test-123456" },
+      }),
+    ).rejects.toThrow("Esforço inválido");
+    const deepseek: any = await save({
+      name: "DS",
+      kind: "ai",
+      config: { provider: "deepseek", model: "deepseek-flash" },
+      secrets: { api_key: "sk-test-123456" },
+    });
+    expect(
+      json(
+        (
+          await one(
+            env,
+            "SELECT config FROM connections WHERE id=?",
+            deepseek.id,
+          )
+        ).config,
+      ).effort,
+    ).toBe("low");
     await expect(
       save({
         name: "IA",
@@ -521,7 +550,14 @@ describe("modelos e esforço", () => {
         ? Response.json({ data: listed.map((id) => ({ id })) })
         : openaiMessage("", "length"),
     );
-    await perform(env, admin, profile, "connection.test", { id: saved.id }, uid());
+    await perform(
+      env,
+      admin,
+      profile,
+      "connection.test",
+      { id: saved.id },
+      uid(),
+    );
     expect(calls.map((call) => call.url)).toEqual([
       "https://api.openai.com/v1/models",
       "https://api.openai.com/v1/chat/completions",
@@ -559,7 +595,14 @@ describe("modelos e esforço", () => {
         ? new Response("not found", { status: 404 })
         : openaiMessage("ok"),
     );
-    await perform(env, admin, profile, "connection.test", { id: saved.id }, uid());
+    await perform(
+      env,
+      admin,
+      profile,
+      "connection.test",
+      { id: saved.id },
+      uid(),
+    );
     expect(calls[1].url).toBe("https://llm.example.com/v1/chat/completions");
     expect(calls[1].body.max_tokens).toBe(16);
     expect(calls[1].body.reasoning_effort).toBeUndefined();
@@ -588,6 +631,25 @@ describe("modelos e esforço", () => {
     await processRun(env, other);
     expect(openaiCalls[0].body.reasoning_effort).toBe("low");
     expect(openaiCalls[0].body.max_completion_tokens).toBeUndefined();
+
+    const h = await serviceFixture({
+      provider: "deepseek",
+      model: "deepseek-flash",
+      effort: "none",
+    });
+    const third = await receive(h, "Qual o horário?");
+    const deepseekRun = await withSource((await runOf(third))!);
+    const deepseekCalls = mockFetch(() =>
+      openaiMessage(JSON.stringify(answer)),
+    );
+    await processRun(env, deepseekRun);
+    expect(deepseekCalls[0].url).toBe(
+      "https://api.deepseek.com/chat/completions",
+    );
+    expect(deepseekCalls[0].body.reasoning_effort).toBe("none");
+    expect(deepseekCalls[0].body.response_format).toEqual({
+      type: "json_object",
+    });
   });
 });
 

@@ -9,6 +9,7 @@ import {
   LogOut,
   Settings,
   SlidersHorizontal,
+  Ticket,
   Users,
 } from "lucide-react";
 import { Avatar, Switch } from "../ui";
@@ -22,7 +23,12 @@ export function MoreArea() {
   return (
     <div className="more-area">
       <header className="more-user">
-        <Avatar name={app.me.name} seed={app.me.id} size={56} online={app.online} />
+        <Avatar
+          name={app.me.name}
+          seed={app.me.id}
+          size={56}
+          online={app.online}
+        />
         <div>
           <strong>{app.me.name}</strong>
           <small>
@@ -38,12 +44,20 @@ export function MoreArea() {
         />
       </header>
       <section className="more-group">
+        <a className="more-link" {...linkProps({ area: "queue" })}>
+          <Ticket size={21} />
+          <span>Fila de senhas</span>
+          <ChevronRight size={18} />
+        </a>
         <a className="more-link" {...linkProps({ area: "contacts" })}>
           <Contact size={21} />
           <span>Contatos</span>
           <ChevronRight size={18} />
         </a>
-        <a className="more-link" {...linkProps({ area: "admin", page: "overview" })}>
+        <a
+          className="more-link"
+          {...linkProps({ area: "admin", page: "overview" })}
+        >
           <Settings size={21} />
           <span>Gestão</span>
           <ChevronRight size={18} />
@@ -74,17 +88,31 @@ export function MoreArea() {
         </div>
       </section>
       <section className="more-group">
-        <button type="button" className="more-link" onClick={() => setPrefs(true)}>
+        <button
+          type="button"
+          className="more-link"
+          onClick={() => setPrefs(true)}
+        >
           <SlidersHorizontal size={21} />
           <span>Ajustes e notificações</span>
           <ChevronRight size={18} />
         </button>
-        <a className="more-link" href="/install" target="_blank" rel="noreferrer">
+        <a
+          className="more-link"
+          href="/install"
+          target="_blank"
+          rel="noreferrer"
+        >
           <BookOpen size={21} />
           <span>Guia de instalação</span>
           <ChevronRight size={18} />
         </a>
-        <a className="more-link" href="/api-docs" target="_blank" rel="noreferrer">
+        <a
+          className="more-link"
+          href="/api-docs"
+          target="_blank"
+          rel="noreferrer"
+        >
           <Code2 size={21} />
           <span>Documentação da API</span>
           <ChevronRight size={18} />

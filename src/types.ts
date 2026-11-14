@@ -42,6 +42,12 @@ export interface Conversation {
   ticket_prompt_category?: string | null;
   ticket_prompt_session?: string | null;
   ticket_prompt_source?: string | null;
+  queue_prompt_expires_at?: number | null;
+  queue_prompt_step?: string | null;
+  queue_prompt_queue_id?: string | null;
+  queue_prompt_session?: string | null;
+  queue_prompt_source?: string | null;
+  queue_menu_session?: string | null;
   menu_expires_at?: number | null;
   menu_token?: string | null;
   menu_items?: string;
@@ -159,4 +165,6 @@ export const defaults = {
   surveys_enabled: false,
   jev_enabled: false,
   notifications: { enabled: false, template_name: "", language: "pt_BR" },
+  // Fila de senhas (src/queue.ts → queueDefaults); merged field by field.
+  queue: {},
 };

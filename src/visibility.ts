@@ -30,6 +30,15 @@ export async function visibleEvent(env: Env, actor: Actor, e: any) {
       return false;
   }
   if (actor.kind !== "app") return true;
+  // Queue events carry no conversation content: any queue scope may read them.
+  if (e.kind.startsWith("queue."))
+    return (
+      !e.kind.startsWith("queue.blocked") &&
+      !e.kind.startsWith("queue.unblocked") &&
+      ["queue:read", "queue:issue", "queue:operate"].some((s) =>
+        actor.scopes.includes(s),
+      )
+    );
   const scope = e.kind.startsWith("call.")
     ? "calls:read"
     : e.kind.startsWith("bot.")

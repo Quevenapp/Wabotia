@@ -14,6 +14,7 @@ import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
+import { closeDay, overview as queueOverview } from "./queue";
 import {
   processInbox,
   processRun,
@@ -31,6 +32,7 @@ export class Coordinator extends DurableObject<Env> {
     const linkPath = new URL(request.url).pathname;
     if (linkPath.startsWith("/link-"))
       return this.link.handle(linkPath, request);
+    if (linkPath === "/queue-ws") return this.acceptQueueSocket(request);
     const body = await request.json<any>();
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
@@ -144,6 +146,8 @@ export class Coordinator extends DurableObject<Env> {
           body.key,
         );
         await this.schedule();
+        if (/^(queue|counter)\./.test(body.operation))
+          await this.broadcastQueue();
         return Response.json(value, { status });
       });
     if (new URL(request.url).pathname === "/transport")
@@ -190,6 +194,95 @@ export class Coordinator extends DurableObject<Env> {
     await this.schedule();
     return Response.json({ scheduled: true });
   }
+  /** TV panels, Senhapp and the team's queue screen (hibernatable sockets). */
+  private async acceptQueueSocket(request: Request) {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+      return new Response("WebSocket esperado.", { status: 426 });
+    this.profile = request.headers.get("X-Wabotia-Profile") || "";
+    await this.ctx.storage.put("profile", this.profile);
+    const filter = json(request.headers.get("X-Wabotia-Queues"), []);
+    if ((await this.ctx.storage.get<number>("queue_cursor")) === undefined) {
+      const last = await one(
+        this.env,
+        "SELECT max(id) id FROM events WHERE profile_id=?",
+        this.profile,
+      );
+      await this.ctx.storage.put("queue_cursor", last?.id || 0);
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server, ["queue"]);
+    server.serializeAttachment({ filter });
+    server.send(
+      JSON.stringify({
+        type: "snapshot",
+        data: await queueOverview(this.env, this.profile, filter),
+      }),
+    );
+    // Browsers send the display token as a subprotocol; answer with ours.
+    const offered = request.headers
+      .get("Sec-WebSocket-Protocol")
+      ?.split(",")
+      .map((s) => s.trim());
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: offered?.includes("wabotia-display")
+        ? { "Sec-WebSocket-Protocol": "wabotia-display" }
+        : {},
+    });
+  }
+  /** Sends new calls and a fresh snapshot to every connected panel. */
+  private async broadcastQueue() {
+    const sockets = this.ctx.getWebSockets("queue");
+    if (!sockets.length || !this.profile) return;
+    const cursor = (await this.ctx.storage.get<number>("queue_cursor")) || 0;
+    const rows = await all(
+      this.env,
+      "SELECT id,kind,payload FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' ORDER BY id LIMIT 200",
+      this.profile,
+      cursor,
+    );
+    if (!rows.length) return;
+    await this.ctx.storage.put("queue_cursor", rows.at(-1)!.id);
+    const calls = rows
+      .filter((r) => ["queue.called", "queue.recalled"].includes(r.kind))
+      .map((r) => json(r.payload));
+    const snapshots = new Map<string, string>();
+    for (const ws of sockets) {
+      const filter: string[] = ws.deserializeAttachment()?.filter || [];
+      const key = JSON.stringify(filter);
+      try {
+        for (const call of calls)
+          if (!filter.length || filter.includes(call.queue_id)) {
+            const { n, ...frame } = call;
+            ws.send(JSON.stringify({ type: "call", data: frame }));
+          }
+        if (!snapshots.has(key))
+          snapshots.set(
+            key,
+            JSON.stringify({
+              type: "snapshot",
+              data: await queueOverview(this.env, this.profile, filter),
+            }),
+          );
+        ws.send(snapshots.get(key)!);
+      } catch {
+        // A closed socket is dropped by the runtime.
+      }
+    }
+  }
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message === "string" && json(message, {}).type === "ping")
+      ws.send(JSON.stringify({ type: "pong" }));
+  }
+  async webSocketClose(ws: WebSocket, code: number) {
+    try {
+      ws.close(code === 1005 ? 1000 : code, "bye");
+    } catch {
+      // Already closed.
+    }
+  }
   private async schedule() {
     const scheduled = await this.ctx.storage.getAlarm();
     if (scheduled === null || scheduled > now() + 1000)
@@ -231,7 +324,9 @@ export class Coordinator extends DurableObject<Env> {
       );
       await expireCalls(this.env, this.profile);
       await expireUploads(this.env, this.profile);
+      await closeDay(this.env, this.profile);
       await processInbox(this.env, this.profile);
+      await this.broadcastQueue();
       for (const run of await all<Run>(
         this.env,
         "SELECT * FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)) ORDER BY created LIMIT 5",

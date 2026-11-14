@@ -45,12 +45,21 @@ const anthropicEfforts: [string, string][] = [
   ["medium", "Médio"],
   ["high", "Alto"],
 ];
+const deepseekEfforts: [string, string][] = [
+  ["none", "Sem raciocínio (mais rápido e barato)"],
+  ["low", "Baixo (recomendado para conversa)"],
+  ["high", "Alto"],
+];
 const openaiEfforts: [string, string][] = [
   ["", "Padrão do modelo"],
   ["low", "Baixo"],
   ["medium", "Médio"],
   ["high", "Alto"],
 ];
+
+/** Esforço usado quando nada foi escolhido; vazio deixa o padrão do modelo. */
+const defaultEffort = (provider: string) =>
+  provider === "anthropic" || provider === "deepseek" ? "low" : "";
 
 /** Campos da conexão direta com um provedor de IA, sem Hermes. */
 function AiFields({
@@ -180,7 +189,7 @@ function AiFields({
               models?.length
                 ? "Escolha da lista ou digite"
                 : provider === "deepseek"
-                  ? "deepseek-chat"
+                  ? "deepseek-flash"
                   : "Nome do modelo"
             }
             required
@@ -200,20 +209,26 @@ function AiFields({
           )}
         </label>
       )}
-      {provider !== "deepseek" && (
-        <Field
-          label="Esforço de raciocínio"
-          value={form.effort || (provider === "anthropic" ? "low" : "")}
-          onChange={change("effort")}
-          emptyOption={null}
-          options={provider === "anthropic" ? anthropicEfforts : openaiEfforts}
-          help={
-            provider === "anthropic"
-              ? effortHelp
+      <Field
+        label="Esforço de raciocínio"
+        value={form.effort || defaultEffort(provider)}
+        onChange={change("effort")}
+        emptyOption={null}
+        options={
+          provider === "anthropic"
+            ? anthropicEfforts
+            : provider === "deepseek"
+              ? deepseekEfforts
+              : openaiEfforts
+        }
+        help={
+          provider === "anthropic"
+            ? effortHelp
+            : provider === "deepseek"
+              ? `${effortHelp} A DeepSeek tem só estes níveis.`
               : `${effortHelp} Só modelos com raciocínio aceitam; o teste da conexão confere.`
-          }
-        />
-      )}
+        }
+      />
       {provider === "compatible" && (
         <>
           <label className="check-line">
@@ -288,12 +303,9 @@ export function ConnectionDialog({
           base_url: form.provider === "compatible" ? form.base_url : undefined,
           vision: form.provider === "compatible" ? !!form.vision : undefined,
           effort:
-            form.provider === "deepseek"
-              ? undefined
-              : form.effort ||
-                ((form.provider || "anthropic") === "anthropic"
-                  ? "low"
-                  : undefined),
+            form.effort ||
+            defaultEffort(form.provider || "anthropic") ||
+            undefined,
           text_only: form.text_only !== false,
         },
         secrets: form.api_key ? { api_key: form.api_key } : {},

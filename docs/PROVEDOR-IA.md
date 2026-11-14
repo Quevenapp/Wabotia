@@ -28,11 +28,11 @@ Quem precisa que o bot consulte boletos, pedidos ou outros sistemas continua usa
 4. Escolha o modelo. **Buscar modelos da conta** pergunta ao provedor, com a chave digitada (ou, na edição, a já cadastrada), quais modelos a conta tem, e passa a sugeri-los no campo. A chave usada na busca não é guardada.
    - **Anthropic**: Claude Opus 5.5 (padrão, mais capaz), Claude Sonnet 5.5 ou Claude Haiku 5.5 (mais barato). A busca mostra só os que a conta enxerga.
    - **OpenAI**: a lista deixa de fora modelos de imagem, voz e embeddings. Ainda é possível digitar qualquer nome.
-   - **DeepSeek** e APIs compatíveis: a lista vem como o provedor publica; sem lista, digite o nome (na DeepSeek, por exemplo, `deepseek-chat`).
+   - **DeepSeek** e APIs compatíveis: a lista vem como o provedor publica; sem lista, digite o nome (na DeepSeek, por exemplo, `deepseek-flash` ou `deepseek-v4-pro`).
 5. Escolha o **Esforço de raciocínio**: quanto o modelo pensa antes de responder. Mais esforço deixa a resposta mais cuidadosa, mais lenta e mais cara.
    - **Anthropic**: Baixo (padrão, recomendado para conversa), Médio ou Alto.
    - **OpenAI** e APIs compatíveis: Padrão do modelo (o campo não é enviado), Baixo, Médio ou Alto. Só modelos com raciocínio aceitam; com outro modelo, o **Testar conexão** acusa o erro.
-   - **DeepSeek**: não há escolha.
+   - **DeepSeek**: Sem raciocínio (mais rápido e barato), Baixo (padrão) ou Alto; a API da DeepSeek não tem nível médio. Sem escolha, a DeepSeek raciocinaria em Alto: conexões salvas antes da 0.18.0 passam a Baixo ao serem editadas e salvas.
    - Níveis acima de Alto não são oferecidos: podem passar do prazo de 60 segundos de cada resposta.
 6. Deixe marcada **Apenas mensagens (não receber áudio e vídeo)**, ou desmarque (veja abaixo).
 7. Salve e clique **Testar conexão**. O teste confere chave, modelo e endereço e cria o bot, desabilitado, com o nome da conexão. Na OpenAI e na DeepSeek, o modelo precisa estar na lista da conta; no formato OpenAI, o teste ainda faz uma chamada curta, que também valida o esforço. Uma conexão tem um único bot; para usar dois modelos, crie duas conexões.

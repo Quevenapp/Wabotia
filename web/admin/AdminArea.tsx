@@ -26,6 +26,7 @@ import { SettingsPage } from "./SettingsPage";
 import { UsersPage } from "./UsersPage";
 import { ApplicationsPage } from "./ApplicationsPage";
 import { TemplatesPage } from "./TemplatesPage";
+import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -123,6 +124,8 @@ function Page({ page }: { page: PageId }) {
       return <KnowledgePage />;
     case "settings":
       return <SettingsPage />;
+    case "queue-settings":
+      return <QueueSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

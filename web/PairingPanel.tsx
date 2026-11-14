@@ -13,7 +13,11 @@ const names: Row = {
   "bots:read": "Consultar bots",
   "bots:invoke": "Consultar os bots escolhidos",
   "events:read": "Acompanhar eventos",
+  "queue:read": "Ver a fila de senhas (painel)",
+  "queue:issue": "Emitir senhas (totem)",
+  "queue:operate": "Chamar e transferir senhas (guichê)",
 };
+const clientNames: Row = { vinki: "Vinki", fagoo: "Fagoo", senhapp: "Senhapp" };
 export function PairingPanel({
   api,
   demo,
@@ -85,7 +89,7 @@ export function PairingPanel({
   async function action(fn: () => Promise<void>) {
     if (demo) {
       setNotice(
-        "Demonstração: o pareamento funciona na sua instalação, com o código gerado pelo Vinki ou Fagoo.",
+        "Demonstração: o pareamento funciona na sua instalação, com o código gerado pelo Senhapp.",
       );
       return;
     }
@@ -106,10 +110,10 @@ export function PairingPanel({
   return (
     <section className="card pairing-panel">
       <h2>
-        <Link2 size={21} /> Parear Vinki ou Fagoo
+        <Link2 size={21} /> Parear Senhapp
       </h2>
       <p>
-        No sistema que deseja conectar, escolha{" "}
+        No Senhapp (totem, painel ou guichê), escolha{" "}
         <strong>Conectar ao Wabotia</strong> e informe o endereço desta
         instalação. Ele mostrará um código. Confirme o mesmo código aqui; as
         credenciais são trocadas automaticamente entre os servidores.
@@ -122,15 +126,24 @@ export function PairingPanel({
             const value = await api("v1/pairings/lookup", "POST", {
               user_code: code,
             });
+            // Vinki e Fagoo não são mais pareados pelo painel; os pareamentos
+            // existentes continuam listados abaixo para revogação.
+            if (value.client !== "senhapp")
+              throw new Error(
+                `Este código é do ${clientNames[value.client] || value.client}, que não é pareado pelo painel. Use um código gerado no Senhapp.`,
+              );
             setRequest(value);
             setScopes(
-              value.allowed_scopes.filter((scope: string) =>
-                [
-                  "routing:read",
-                  "routing:send",
-                  "conversations:write",
-                ].includes(scope),
-              ),
+              // Senhapp (totem/painel) needs only the queue: all of it by default.
+              value.client === "senhapp"
+                ? value.allowed_scopes
+                : value.allowed_scopes.filter((scope: string) =>
+                    [
+                      "routing:read",
+                      "routing:send",
+                      "conversations:write",
+                    ].includes(scope),
+                  ),
             );
           });
         }}
@@ -185,7 +198,7 @@ export function PairingPanel({
         >
           <div className="section-heading">
             <h3>
-              {request.client === "vinki" ? "Vinki" : "Fagoo"} ·{" "}
+              {clientNames[request.client] || request.client} ·{" "}
               {request.instance_name}
             </h3>
             <button
@@ -330,8 +343,7 @@ export function PairingPanel({
         <div className="connection-row" key={item.id}>
           <div>
             <strong>
-              {item.client === "vinki" ? "Vinki" : "Fagoo"} ·{" "}
-              {item.instance_name}
+              {clientNames[item.client] || item.client} · {item.instance_name}
             </strong>
             <small>
               {(

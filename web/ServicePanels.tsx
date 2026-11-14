@@ -1345,8 +1345,10 @@ export function MenusPanel(props: Props) {
 function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
   const state = useWrite(props);
   const [departments, setDepartments] = useState<Row[]>([]),
+    [menus, setMenus] = useState<Row[]>([]),
     [people, setPeople] = useState<Row[]>([]),
-    [draft, setDraft] = useState<Row | null>(null);
+    [draft, setDraft] = useState<Row | null>(null),
+    [removing, setRemoving] = useState<Row | null>(null);
   async function load() {
     if (props.demo) {
       setPeople([{ id: "demo-user", name: "Administrador", role: "admin" }]);
@@ -1358,6 +1360,7 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
     ]);
     const profile = props.root.split("/").at(-1);
     setDepartments(status.settings?.departments || []);
+    setMenus(status.settings?.menus || []);
     setPeople(
       (Array.isArray(users) ? users : users.data || []).filter(
         (user: Row) =>
@@ -1383,6 +1386,22 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
       await props.saved();
     }
   }
+  async function remove() {
+    if (!removing) return;
+    const latest =
+      (await props.api(props.root + "/status")).settings?.departments || [];
+    if (
+      await state.write("/settings", "PUT", {
+        departments: latest.filter((item: Row) => item.id !== removing.id),
+      })
+    ) {
+      setRemoving(null);
+      await load();
+      await props.saved();
+    }
+  }
+  const menusUsing = (id: string) =>
+    menus.filter((item) => item.type === "human" && item.department_id === id);
   return (
     <section className="card">
       <div className="section-heading">
@@ -1496,22 +1515,75 @@ function DepartmentsEditor(props: Props & { saved: () => Promise<void> }) {
         </form>
       )}
       {departments.map((department) => (
-        <div className="service-menu-row" key={department.id}>
-          <div>
-            <strong>{department.name}</strong>
-            <small>
-              {department.members.length} pessoa(s) ·{" "}
-              {department.enabled === false ? "Desativado" : "Habilitado"}
-            </small>
+        <React.Fragment key={department.id}>
+          <div className="service-menu-row">
+            <div>
+              <strong>{department.name}</strong>
+              <small>
+                {department.members.length} pessoa(s) ·{" "}
+                {department.enabled === false ? "Desativado" : "Habilitado"}
+              </small>
+            </div>
+            <div className="card-actions">
+              <button
+                disabled={state.busy || !!removing}
+                onClick={() =>
+                  setDraft({ ...department, members: [...department.members] })
+                }
+              >
+                Editar setor
+              </button>
+              <button
+                disabled={state.busy || !!draft || !!removing}
+                onClick={() => setRemoving(department)}
+                aria-label={"Excluir setor " + department.name}
+              >
+                Excluir setor
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() =>
-              setDraft({ ...department, members: [...department.members] })
-            }
-          >
-            Editar setor
-          </button>
-        </div>
+          {removing?.id === department.id && (
+            <div
+              className="menu-delete-review"
+              role="region"
+              aria-label="Confirmar exclusão do setor"
+            >
+              <strong>Excluir o setor {department.name}?</strong>
+              {menusUsing(department.id).length ? (
+                <p>
+                  Antes, troque o setor dos itens de menu que o usam:{" "}
+                  {menusUsing(department.id)
+                    .map((item) => `"${item.label}"`)
+                    .join(", ")}
+                  .
+                </p>
+              ) : (
+                <p>
+                  As conversas abertas deste setor voltam para a fila geral.
+                  Conversas encerradas e o histórico são preservados.
+                </p>
+              )}
+              <div className="card-actions">
+                <button
+                  type="button"
+                  disabled={state.busy || menusUsing(department.id).length > 0}
+                  onClick={() =>
+                    remove().catch((err) => state.setError(err.message))
+                  }
+                >
+                  Confirmar exclusão
+                </button>
+                <button
+                  type="button"
+                  disabled={state.busy}
+                  onClick={() => setRemoving(null)}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </React.Fragment>
       ))}
       {!departments.length && (
         <p>Sem setores cadastrados, os encaminhamentos usam a fila geral.</p>

@@ -440,12 +440,14 @@ export async function applyServiceTemplate(
   }
 
   // Same validation and write as PUT /settings (hierarchy, departments, lines).
+  // Applying a template never touches conversations: those of a removed
+  // department stay marked with it for the administrator to reassign.
   const saved = await perform(
     env,
     actor,
     profile,
     "settings",
-    changes,
+    { ...changes, keep_department_conversations: true },
     requestId,
   );
 

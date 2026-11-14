@@ -1,5 +1,7 @@
 # Pareamento com Vinki e Fagoo
 
+> **A partir da 0.18.0** o quadro **Integrações → Parear Senhapp** aceita só códigos do Senhapp (veja [Fila de espera com senha](FILA-SENHAS.md)). Um código gerado no Vinki ou no Fagoo é recusado pelo painel. Os pareamentos já feitos continuam funcionando e listados nesse quadro, com **Revogar acesso**. O servidor mantém as rotas abaixo para os vínculos existentes.
+
 No Vinki, abra **Gerente → Wabotia** no navegador da central. No Fagoo, abra **Preferências → Sistema → Wabotia**. Informe somente a URL HTTPS desta instalação e um nome reconhecível. Gere o código; no Wabotia, abra **Integrações → Parear Vinki ou Fagoo**, digite o código, confira o sistema e a instalação e escolha perfil, permissões, linhas/grupos e bots. Aprove e volte ao sistema de origem para verificar a aprovação.
 
 O código dura dez minutos e somente um administrador Wabotia pode aprová-lo. A credencial é trocada entre servidores, sem aparecer em URL, painel ou logs. Para enviar mensagens, selecione a consulta das linhas, **Enviar mensagens pelas linhas escolhidas** e **Enviar mensagens nas conversas autorizadas**. Nenhum pareamento concede modelos pagos. O Vinki pede `free_only:true`, também exigido no servidor para aplicações pareadas como Vinki: esse campo legado impede templates e não impõe saldo ou teto local. Configure o preset Vinki nas linhas; as respostas exigem janela real de 24 horas. As mensagens entregues são contabilizadas por categoria, sem estimativa de preço. Permissões de consulta podem ser aprovadas separadamente.

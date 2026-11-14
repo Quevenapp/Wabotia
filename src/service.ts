@@ -76,6 +76,7 @@ import {
   defaultProtocolConfirmation,
 } from "./protocols";
 import { applyServiceTemplate } from "./service-templates";
+import { queueCommand, validateQueueSettings } from "./queue";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -106,6 +107,9 @@ export const scopes = [
   "bots:invoke",
   "events:read",
   "webhooks:manage",
+  "queue:read",
+  "queue:issue",
+  "queue:operate",
 ];
 export const eventTypes = [
   "conversation.created",
@@ -118,6 +122,16 @@ export const eventTypes = [
   "ticket.updated",
   "bot.run.completed",
   "bot.run.failed",
+  "queue.issued",
+  "queue.called",
+  "queue.recalled",
+  "queue.started",
+  "queue.finished",
+  "queue.no_show",
+  "queue.cancelled",
+  "queue.transferred",
+  "queue.counter",
+  "queue.changed",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(
@@ -1026,6 +1040,8 @@ export async function perform(
     return groupCommand(env, actor, profile, op, data, requestId);
   if (op === "message.action")
     return messageAction(env, actor, profile, data, requestId);
+  if (op.startsWith("queue.") || op.startsWith("counter."))
+    return queueCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("contact."))
     return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("system.")) {
@@ -1236,7 +1252,7 @@ export async function perform(
   if (op === "settings") {
     admin(actor);
     const old = await settings(env, profile);
-    const { menus_revision, ...changes } = data;
+    const { menus_revision, keep_department_conversations, ...changes } = data;
     if (menus_revision !== undefined) {
       requireValue(
         typeof menus_revision === "string" &&
@@ -1264,6 +1280,24 @@ export async function perform(
     if (next.departments === undefined) next.departments = [];
     if (data.departments !== undefined)
       await validateDepartments(env, profile, next.departments);
+    // Setores excluídos: recusa enquanto um item de menu os usa; as conversas
+    // abertas deles voltam para a fila geral depois de salvar.
+    const removedDepartments = (old.departments || [])
+      .map((d: any) => d.id)
+      .filter((id: string) => !next.departments.some((d: any) => d.id === id));
+    if (removedDepartments.length) {
+      const users = (Array.isArray(next.menus) ? next.menus : []).filter(
+        (item: any) =>
+          item?.type === "human" &&
+          removedDepartments.includes(item.department_id),
+      );
+      if (users.length)
+        throw new ApiError(
+          409,
+          "department_in_use",
+          `Antes de excluir o setor, troque-o ${users.length > 1 ? "nos itens" : "no item"} de menu ${users.map((item: any) => `"${item.label}"`).join(", ")}.`,
+        );
+    }
     // Service-center fields. A partial business_hours keeps the saved parts.
     next.ticket_categories = validateTicketCategories(
       next.ticket_categories ?? [],
@@ -1304,6 +1338,11 @@ export async function perform(
       "A saudação do menu deve ter até 900 caracteres.",
     );
     next.menu_greeting = next.menu_greeting.trim();
+    if (data.queue !== undefined)
+      next.queue = validateQueueSettings({
+        ...(old.queue || {}),
+        ...data.queue,
+      });
     requireValue(
       JSON.stringify(next).length <= 150000,
       "Configuração muito grande.",
@@ -1371,9 +1410,20 @@ export async function perform(
           "protocols",
           "survey",
           "ticket",
+          "queue",
         ].includes(item.type),
         "Destino de menu inválido.",
       );
+      if (item.type === "queue" && item.queue_id)
+        requireValue(
+          await one(
+            env,
+            "SELECT id FROM queues WHERE id=? AND profile_id=?",
+            item.queue_id,
+            profile,
+          ),
+          "Fila do menu não encontrada.",
+        );
       if (item.type === "ticket") {
         if (item.category_id)
           requireValue(
@@ -1442,6 +1492,14 @@ export async function perform(
       JSON.stringify(next),
       profile,
     );
+    if (removedDepartments.length && keep_department_conversations !== true)
+      await exec(
+        env,
+        `UPDATE conversations SET department_id=NULL,updated=? WHERE profile_id=? AND state!='closed' AND department_id IN (${removedDepartments.map(() => "?").join(",")})`,
+        now(),
+        profile,
+        ...removedDepartments,
+      );
     return next;
   }
   if (op === "activate" || op === "pause") {

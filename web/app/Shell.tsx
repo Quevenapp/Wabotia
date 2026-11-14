@@ -17,11 +17,18 @@ import {
   Settings,
   SlidersHorizontal,
   Sun,
+  Ticket,
   Users,
   WifiOff,
 } from "lucide-react";
 import { Avatar, BrandMark, MenuButton } from "../ui";
-import { linkProps, navigate, useRoute, type Area, type Route } from "../lib/routes";
+import {
+  linkProps,
+  navigate,
+  useRoute,
+  type Area,
+  type Route,
+} from "../lib/routes";
 import { useTheme } from "../lib/theme";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
@@ -67,6 +74,7 @@ function useItems(): Item[] {
       count: app.ringingCalls.length,
       countLabel: "ligações tocando",
     },
+    { area: "queue", label: "Fila", icon: Ticket },
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "admin", label: "Gestão", icon: Settings },
   ];
@@ -83,7 +91,9 @@ function NavLink({
 }) {
   const Icon = item.icon;
   const route: Route =
-    item.area === "admin" ? { area: "admin", page: "overview" } : { area: item.area };
+    item.area === "admin"
+      ? { area: "admin", page: "overview" }
+      : { area: item.area };
   return (
     <a
       {...linkProps(route)}
@@ -116,7 +126,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Abaixo de 760 px a conversa, o protocolo ou a página aberta ocupa a tela
   // toda, sem a barra de abas (como no aplicativo).
   const detail =
-    !!route.id || (route.area === "admin" && !!route.page && route.page !== "overview");
+    !!route.id ||
+    (route.area === "admin" && !!route.page && route.page !== "overview");
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -144,7 +155,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
         setDialog("keys");
         return;
       }
-      if (event.altKey && !event.ctrlKey && !event.metaKey && /^[1-6]$/.test(event.key)) {
+      if (
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        /^[1-7]$/.test(event.key)
+      ) {
         const item = items[Number(event.key) - 1];
         if (item) {
           event.preventDefault();
@@ -235,10 +251,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
             align="start"
             items={[
               {
-                label: app.online ? "Online · alterar presença" : "Offline · alterar presença",
+                label: app.online
+                  ? "Online · alterar presença"
+                  : "Offline · alterar presença",
                 icon: (
                   <span
-                    className={"presence-dot " + (app.online ? "online" : "offline")}
+                    className={
+                      "presence-dot " + (app.online ? "online" : "offline")
+                    }
                     style={{ width: 10, height: 10, margin: "0 3px" }}
                   />
                 ),
@@ -266,7 +286,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
               },
             ]}
           >
-            <Avatar name={app.me.name} seed={app.me.id} size={36} online={app.online} />
+            <Avatar
+              name={app.me.name}
+              seed={app.me.id}
+              size={36}
+              online={app.online}
+            />
           </MenuButton>
         </div>
       </nav>
@@ -308,13 +333,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ))}
         <NavLink
           item={{ area: "more", label: "Mais", icon: Ellipsis }}
-          active={["more", "contacts", "admin"].includes(route.area)}
+          active={["more", "queue", "contacts", "admin"].includes(route.area)}
           className="tab-item"
         />
       </nav>
-      {dialog === "prefs" && <PreferencesDialog onClose={() => setDialog("")} />}
+      {dialog === "prefs" && (
+        <PreferencesDialog onClose={() => setDialog("")} />
+      )}
       {dialog === "keys" && <ShortcutsDialog onClose={() => setDialog("")} />}
-      {dialog === "presence" && <PresenceDialog onClose={() => setDialog("")} />}
+      {dialog === "presence" && (
+        <PresenceDialog onClose={() => setDialog("")} />
+      )}
     </div>
   );
 }

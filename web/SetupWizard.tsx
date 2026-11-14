@@ -795,17 +795,17 @@ export function SetupWizard({
                     </Action>
                   </article>
                   <article>
-                    <h4>Vinki e Fagoo</h4>
+                    <h4>Senhapp</h4>
                     <p>
-                      Gere um código em Conectar ao Wabotia no Vinki ou Fagoo.
-                      Confirme o código aqui e escolha as permissões. A conexão
-                      é concluída sem copiar tokens.
+                      Gere um código em Conectar ao Wabotia no Senhapp. Confirme
+                      o código aqui e escolha as permissões. A conexão é
+                      concluída sem copiar tokens.
                     </p>
                     <Action
                       secondary
                       onClick={() => onNavigate("applications")}
                     >
-                      Parear Vinki ou Fagoo
+                      Parear Senhapp
                     </Action>
                   </article>
                   <article>

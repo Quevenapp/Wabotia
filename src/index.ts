@@ -90,6 +90,33 @@ import {
 } from "./pairing";
 import { installStep, webInstallerEnabled } from "./web-install";
 import {
+  queueRead,
+  overview as queueOverview,
+  listTickets as listQueueTickets,
+  getTicket as getQueueTicket,
+  listBlocklist,
+  listDisplays,
+  displayByToken,
+  publicTicket,
+} from "./queue";
+
+/** Hands a WebSocket upgrade to the area's Coordinator (one per area). */
+function queueSocket(
+  env: Env,
+  request: Request,
+  profile: string,
+  filter: string[],
+) {
+  if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
+    throw new ApiError(426, "upgrade_required", "Use WebSocket nesta rota.");
+  const headers = new Headers(request.headers);
+  headers.set("X-Wabotia-Profile", profile);
+  headers.set("X-Wabotia-Queues", JSON.stringify(filter));
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(profile)).fetch(
+    new Request("https://coordinator/queue-ws", { method: "GET", headers }),
+  );
+}
+import {
   linkAuth,
   linkCodeConnection,
   linkForward,
@@ -185,6 +212,37 @@ app.post("/api/pairing/token", async (c) =>
 );
 // Instalador pelo navegador (docs/INSTALACAO.md). Só existe no site oficial.
 // O corpo traz o token da pessoa: nunca é registrado nem guardado.
+// Public queue pages: tracking by the ticket's token, TV panels by their token.
+app.get("/api/public/queue/:token", async (c) => {
+  await rate(
+    c.env,
+    "queue-public:" + (await sha(c.req.header("CF-Connecting-IP") || "")),
+    120,
+  );
+  return c.json(await publicTicket(c.env, c.req.param("token")));
+});
+const displayToken = (c: any) =>
+  c.req.header("Authorization")?.match(/^Display ([0-9a-f]{64})$/)?.[1] ||
+  c.req
+    .header("Sec-WebSocket-Protocol")
+    ?.split(",")
+    .map((s: string) => s.trim())
+    .find((s: string) => /^[0-9a-f]{64}$/.test(s));
+app.get("/api/public/queue-display/state", async (c) => {
+  const display = await displayByToken(c.env, displayToken(c));
+  if (!display)
+    throw new ApiError(401, "invalid_token", "Painel inválido ou revogado.");
+  return c.json({
+    display: { id: display.id, name: display.name },
+    ...(await queueOverview(c.env, display.profile, display.queue_ids)),
+  });
+});
+app.get("/api/public/queue-display/ws", async (c) => {
+  const display = await displayByToken(c.env, displayToken(c));
+  if (!display)
+    throw new ApiError(401, "invalid_token", "Painel inválido ou revogado.");
+  return queueSocket(c.env, c.req.raw, display.profile, display.queue_ids);
+});
 app.get("/api/install/status", (c) =>
   c.json({ enabled: webInstallerEnabled(c.env) }),
 );
@@ -900,6 +958,24 @@ const commands = [
   ["POST", "webhook-deliveries/:id/retry", "webhook.retry"],
   ["POST", "deliveries/:id/reconcile", "delivery.reconcile"],
   ["POST", "bot-runs/:id/reconcile", "run.reconcile"],
+  // Fila de senhas (docs/FILA-SENHAS.md).
+  ["POST", "queue/queues", "queue.save"],
+  ["PUT", "queue/queues/:id", "queue.save"],
+  ["POST", "queue/counters", "counter.save"],
+  ["PUT", "queue/counters/:id", "counter.save"],
+  ["POST", "queue/counters/:id/state", "counter.state"],
+  ["POST", "queue/counters/:id/call-next", "queue.call_next"],
+  ["POST", "queue/tickets", "queue.issue"],
+  ["POST", "queue/tickets/:id/recall", "queue.recall"],
+  ["POST", "queue/tickets/:id/start", "queue.start"],
+  ["POST", "queue/tickets/:id/finish", "queue.finish"],
+  ["POST", "queue/tickets/:id/no-show", "queue.no_show"],
+  ["POST", "queue/tickets/:id/cancel", "queue.cancel"],
+  ["POST", "queue/tickets/:id/transfer", "queue.transfer"],
+  ["POST", "queue/blocklist", "queue.block"],
+  ["DELETE", "queue/blocklist/:id", "queue.unblock"],
+  ["POST", "queue/displays", "queue.display.create"],
+  ["DELETE", "queue/displays/:id", "queue.display.revoke"],
 ];
 for (const [method, path, op] of commands)
   app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) =>
@@ -1452,6 +1528,40 @@ app.get("/api/v1/profiles/:profile/events", async (c) => {
     ).filter(Boolean),
     cursor: rows.at(-1)?.id || after,
   });
+});
+// Fila de senhas: leituras e WebSocket dos painéis.
+app.get("/api/v1/profiles/:profile/queue", async (c) => {
+  queueRead(c.get("actor"), c.req.param("profile"));
+  return c.json(await queueOverview(c.env, c.req.param("profile")));
+});
+app.get("/api/v1/profiles/:profile/queue/tickets", async (c) =>
+  c.json(
+    await listQueueTickets(c.env, c.get("actor"), c.req.param("profile"), {
+      queue_id: c.req.query("queue_id"),
+      status: c.req.query("status"),
+      day: c.req.query("day"),
+    }),
+  ),
+);
+app.get("/api/v1/profiles/:profile/queue/tickets/:id", async (c) =>
+  c.json(
+    await getQueueTicket(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/queue/blocklist", async (c) =>
+  c.json(await listBlocklist(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/queue/displays", async (c) =>
+  c.json(await listDisplays(c.env, c.get("actor"), c.req.param("profile"))),
+);
+app.get("/api/v1/profiles/:profile/queue/ws", async (c) => {
+  queueRead(c.get("actor"), c.req.param("profile"));
+  return queueSocket(c.env, c.req.raw, c.req.param("profile"), []);
 });
 app.get("/api/v1/profiles/:profile/webhook-subscriptions", async (c) => {
   access(c.get("actor"), c.req.param("profile"), "webhooks:manage");

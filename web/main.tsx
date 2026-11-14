@@ -14,6 +14,7 @@ import { Install } from "./site/Install";
 import { ApiDocs } from "./site/ApiDocs";
 import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
+import { QueueDisplay } from "./queue/QueueDisplay";
 
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
@@ -26,6 +27,8 @@ createRoot(document.getElementById("root")!).render(
     <Privacy />
   ) : location.pathname === "/api-docs" ? (
     <ApiDocs />
+  ) : location.pathname === "/painel" ? (
+    <QueueDisplay />
   ) : (
     <Landing />
   ),

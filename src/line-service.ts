@@ -223,13 +223,27 @@ async function availableMenuTree(
     )
       continue;
     if (
-      ["protocols", "survey", "ticket"].includes(item.type) &&
+      ["protocols", "survey", "ticket", "queue"].includes(item.type) &&
       !policy.service
     )
       continue;
     if (
       chatType === "group" &&
-      ["protocols", "survey", "ticket"].includes(item.type)
+      ["protocols", "survey", "ticket", "queue"].includes(item.type)
+    )
+      continue;
+    // "Entrar na fila" only while a queue takes tickets by WhatsApp.
+    if (
+      item.type === "queue" &&
+      !(
+        await all(
+          env,
+          "SELECT id,channels FROM queues WHERE profile_id=? AND enabled=1 AND (?='' OR id=?)",
+          profile,
+          item.queue_id || "",
+          item.queue_id || "",
+        )
+      ).some((q) => json(q.channels, []).includes("whatsapp"))
     )
       continue;
     if (

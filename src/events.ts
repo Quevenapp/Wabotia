@@ -41,7 +41,9 @@ export async function event(
       ? "bots:invoke"
       : kind.startsWith("ticket.")
         ? "tickets:read"
-        : "conversations:read";
+        : kind.startsWith("queue.")
+          ? "queue:read"
+          : "conversations:read";
   const deliveries = subs
     .filter(
       (s) =>
