@@ -37,19 +37,120 @@ describe("número de protocolo digitado pelo cliente", () => {
     expect(protocolNumber("preciso de ajuda com o pedido")).toBeUndefined();
   });
 
+  it("número novo: só dígitos, com protocolo ou # na frente", () => {
+    expect(protocolNumber("10001")).toBe("10001");
+    expect(protocolNumber("protocolo 10.001")).toBe("10001");
+    expect(protocolNumber("Protocolo: 10001")).toBe("10001");
+    expect(protocolNumber("#10001")).toBe("10001");
+    expect(isOnlyProtocolNumber("10 001")).toBe(true);
+    // Menu options, phone numbers and numbers inside a sentence are not.
+    expect(protocolNumber("2")).toBeUndefined();
+    expect(protocolNumber("5511999990000")).toBeUndefined();
+    expect(protocolNumber("o pedido 10001 atrasou")).toBeUndefined();
+  });
+
+  it("numera os protocolos em sequência, a partir de 10001", async () => {
+    const f = await fixture();
+    const first = await say(f, "quero falar com um atendente", "5511920000010");
+    const second = await say(
+      f,
+      "quero falar com um atendente",
+      "5511920000011",
+    );
+    const [a] = await tickets(first.id);
+    const [b] = await tickets(second.id);
+    expect(a.number).toMatch(/^\d{5,}$/);
+    expect(Number(a.number)).toBeGreaterThanOrEqual(10001);
+    expect(Number(b.number)).toBe(Number(a.number) + 1);
+  });
+
   it("consulta o protocolo em vez de abrir outro", async () => {
     const f = await fixture();
     const phone = "5511920000001";
     const c = await say(f, "quero falar com um atendente", phone);
     const [ticket] = await tickets(c.id);
     expect(ticket).toBeTruthy();
-    // Typed as in the report: lower case and a space before the last part.
-    const typed =
-      ticket.number.slice(0, -3).toLowerCase() + " " + ticket.number.slice(-3);
-    await say(f, typed, phone);
+    // Typed with a separator in the middle, as people do on the phone.
+    await say(
+      f,
+      ticket.number.slice(0, 2) + " " + ticket.number.slice(2),
+      phone,
+    );
     expect(await tickets(c.id)).toHaveLength(1);
     expect((await latest(c.id)).text).toContain(ticket.number);
     expect((await latest(c.id)).automation).toBe("protocols");
+
+    // Old numbers, typed as in the report: lower case and a space.
+    await exec(
+      env,
+      "UPDATE tickets SET number='WA-MWEQ9Z2Z-A185' WHERE id=?",
+      ticket.id,
+    );
+    await say(f, "WA-mweq9z2z-a 185", phone);
+    expect(await tickets(c.id)).toHaveLength(1);
+    expect((await latest(c.id)).text).toContain("WA-MWEQ9Z2Z-A185");
+  });
+
+  it("dígitos que não são protocolo do cliente seguem o atendimento", async () => {
+    const f = await fixture();
+    const c = await say(f, "55555", "5511920000012");
+    const sent = await latest(c.id);
+    expect(sent?.automation).not.toBe("protocols");
+  });
+});
+
+describe("equipe ausente: devolver a conversa ao bot", () => {
+  it("abre o protocolo e a conversa volta ao bot, fora da fila", async () => {
+    const f = await fixture();
+    const attendant = await bot(f);
+    await configure(f, {
+      attendant_bot: attendant,
+      absence_return_to_bot: true,
+    });
+    let c = await say(f, "oi", "5511920000013");
+    await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", c.id);
+    c = await conversation(env, c.id, f.profile);
+    await handoff(env, c, "Cliente solicitou atendimento humano.");
+    c = await conversation(env, c.id, f.profile);
+    expect(c.state).toBe("ai");
+    expect(await tickets(c.id)).toHaveLength(1);
+    expect((await latest(c.id)).text).toContain("sigo por aqui");
+
+    // A failure of the bot itself keeps the conversation in the queue.
+    await handoff(env, c, "Falha do bot.", null, null, false);
+    expect((await conversation(env, c.id, f.profile)).state).toBe("waiting");
+    expect(await tickets(c.id)).toHaveLength(1);
+  });
+
+  it("desligado, ou sem bot que possa atender, a conversa fica na fila", async () => {
+    const f = await fixture();
+    const attendant = await bot(f);
+    await configure(f, { attendant_bot: attendant });
+    let c = await say(f, "oi", "5511920000014");
+    await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", c.id);
+    await handoff(
+      env,
+      await conversation(env, c.id, f.profile),
+      "Cliente solicitou atendimento humano.",
+    );
+    expect((await conversation(env, c.id, f.profile)).state).toBe("waiting");
+
+    await configure(f, { absence_return_to_bot: true });
+    await exec(
+      env,
+      "UPDATE connections SET status='paused' WHERE id=(SELECT connection_id FROM bots WHERE id=?)",
+      attendant,
+    );
+    const other = await say(f, "oi", "5511920000015");
+    await exec(env, "UPDATE conversations SET state='ai' WHERE id=?", other.id);
+    await handoff(
+      env,
+      await conversation(env, other.id, f.profile),
+      "Cliente solicitou atendimento humano.",
+    );
+    expect((await conversation(env, other.id, f.profile)).state).toBe(
+      "waiting",
+    );
   });
 });
 

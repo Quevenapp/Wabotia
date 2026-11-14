@@ -143,6 +143,9 @@ export const defaults = {
   // While a conversation waits with nobody present, the Bot Atendente keeps
   // answering follow-up messages instead of leaving the customer in silence.
   absence_followup: true,
+  // Team absent and protocol opened: the conversation leaves the queue and goes
+  // back to the Bot Atendente; the team follows the case through the protocol.
+  absence_return_to_bot: false,
   // After a protocol is opened, ask once for consent to protocol notifications
   // (only when notifications are enabled).
   protocol_consent_prompt: true,

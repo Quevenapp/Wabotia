@@ -35,7 +35,9 @@ O cliente pode:
 
 - escolher uma opção **Consultar protocolos**;
 - escrever **CONSULTAR PROTOCOLO**, **MEUS PROTOCOLOS** ou uma frase equivalente;
-- digitar o número completo, como `WA-ABC123-1A2B`.
+- digitar o número, como `10001` (ou `protocolo 10001`, `#10001`). Espaços, pontos e minúsculas digitados no meio são aceitos, inclusive nos números antigos, como `WA-ABC123-1A2B`.
+
+Desde a 0.19.0 os protocolos novos são numerados em sequência, só com dígitos, a partir de 10001; os antigos mantêm o número `WA-…`. Uma mensagem que é só um número de 5 a 9 dígitos consulta o protocolo apenas quando o cliente tem um protocolo com esse número; caso contrário (um número de pedido, por exemplo), segue o atendimento normal.
 
 A lista mostra até dez protocolos recentes. Um número completo consulta também protocolos mais antigos. A resposta apresenta estado, aplicativo (quando o protocolo tem categoria), solicitação, prazo da primeira resposta enquanto o protocolo está ativo e último andamento público. Notas internas e IDs de responsáveis não são enviados.
 
@@ -44,7 +46,7 @@ A identificação usa o telefone recebido de um canal autenticado, dentro do mes
 O bot usa a ação estruturada `protocols`, com `protocol_number` opcional, e recebe a mesma verificação de titularidade. A equipe pode usar o botão da conversa ou a API:
 
 ```json
-{ "action": "protocols", "number": "WA-ABC123-1A2B" }
+{ "action": "protocols", "number": "10001" }
 ```
 
 Envie para `POST /api/v1/profiles/{profile}/conversations/{id}/actions`, com a autenticação e `Idempotency-Key` normais. Omitir `number` solicita a lista recente. O endpoint envia a consulta ao cliente e devolve os registros públicos consultados.

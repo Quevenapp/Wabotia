@@ -400,14 +400,17 @@ export async function createTicket(
   }
   const config = await settings(env, c.profile_id);
   const id = uid(),
-    at = now(),
-    number = `WA-${at.toString(36).toUpperCase()}-${id.slice(0, 4).toUpperCase()}`;
+    at = now();
   const writes: [string, any[]][] = [
     [
-      "INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated,category,source_key) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING",
+      // Protocol numbers are short sequential digits (10001, 10002...), easy to
+      // type on a phone. The next number is taken inside the INSERT, which D1
+      // runs serialized. Older protocols keep their WA-... numbers.
+      `INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated,category,source_key)
+       VALUES(?,(SELECT CAST(max(10000,coalesce(max(CAST(number AS INTEGER)),0))+1 AS TEXT) FROM tickets WHERE number!='' AND number NOT GLOB '*[^0-9]*'),?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING`,
       [
         id,
-        number,
         c.profile_id,
         c.id,
         title,
@@ -651,6 +654,8 @@ export async function handoff(
   /** Pedido do cliente ou resumo do bot. Informado (mesmo vazio), o motivo é
    * interno e o protocolo de ausência leva o pedido como assunto. */
   request?: string | null,
+  /** false when the bot itself failed: sending it back would fail again. */
+  botMayContinue = true,
 ) {
   const department = await departmentFor(env, c.profile_id, departmentId);
   requireValue(
@@ -680,7 +685,8 @@ export async function handoff(
   let reply = department
     ? `Vou encaminhar sua solicitação para o setor ${department.name}.`
     : "Vou encaminhar sua solicitação para nossa equipe.";
-  let opened: any = null;
+  let opened: any = null,
+    returned = false;
   if (!present) {
     const absent = department
       ? `O setor ${department.name} está sem atendentes disponíveis.\n`
@@ -710,6 +716,28 @@ export async function handoff(
           ? "\n" + protocolConfirmation(cfg, ticket)
           : `Protocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`
       }`;
+      // "Devolver ao bot": the protocol is the team's record and the
+      // conversation leaves the queue, back with the Bot Atendente.
+      if (
+        cfg.absence_return_to_bot === true &&
+        botMayContinue &&
+        policy.bots &&
+        (await attendantAvailable(env, c, cfg))
+      ) {
+        await exec(
+          env,
+          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,updated=? WHERE id=? AND epoch=?",
+          now(),
+          c.id,
+          c.epoch,
+        );
+        c = await conversation(env, c.id, c.profile_id);
+        if (c.state === "ai") {
+          returned = true;
+          reply +=
+            "\n\nEnquanto isso, sigo por aqui se precisar de mais alguma coisa.";
+        }
+      }
     }
   }
   const key = `handoff:${c.id}:${c.session}:${departmentId || "general"}`;
@@ -737,10 +765,22 @@ export async function handoff(
     if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
   }
   await event(env, c.profile_id, "conversation.updated", c.id, {
-    state: "waiting",
-    department_id: departmentId,
+    state: returned ? "ai" : "waiting",
+    department_id: returned ? null : departmentId,
     reason,
+    ...(returned ? { returned_to_bot: true } : {}),
   });
+}
+
+/** The line's attendant bot can take the conversation back right now. */
+async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
+  if (c.chat_type === "group") return false;
+  const line = await serviceForLine(env, c.connection_id);
+  if (line.mode === "human") return false;
+  const botId = line.mode === "bot" ? line.bot_id : cfg.attendant_bot;
+  return (
+    !!botId && (await botAllowsLine(env, botId, c.profile_id, c.connection_id))
+  );
 }
 export async function inbound(
   env: Env,
@@ -1310,6 +1350,11 @@ export async function perform(
       typeof next.jev_enabled === "boolean" &&
         typeof next.surveys_enabled === "boolean",
       "JEV e avaliações devem estar ligados ou desligados.",
+    );
+    requireValue(
+      next.absence_return_to_bot === undefined ||
+        typeof next.absence_return_to_bot === "boolean",
+      "Informe se a conversa volta ao bot com a equipe ausente.",
     );
     if (next.departments === undefined) next.departments = [];
     if (data.departments !== undefined)

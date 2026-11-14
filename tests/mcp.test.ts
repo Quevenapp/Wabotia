@@ -266,7 +266,7 @@ describe("MCP tools", () => {
       conversation_id: conversationId,
       title: "Solicitação",
     });
-    expect(ticket.result.structuredContent.number).toMatch(/^WA-/);
+    expect(ticket.result.structuredContent.number).toMatch(/^\d{5,}$/);
     const got = await call(f.token, "get_ticket", {
       ticket_id: ticket.result.structuredContent.id,
     });

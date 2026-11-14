@@ -782,7 +782,11 @@ const schemas = {
     type: "object",
     properties: {
       id: { type: "string" },
-      number: { type: "string", description: "Protocolo público, como WA-…" },
+      number: {
+        type: "string",
+        description:
+          "Protocolo público: dígitos em sequência, como 10001 (antigos: WA-…)",
+      },
       profile_id: { type: "string" },
       conversation_id: { type: "string" },
       title: { type: "string" },

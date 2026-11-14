@@ -8,11 +8,16 @@ import {
   categoryName,
 } from "./protocols";
 
+// Protocolos antigos: WA-MWEQ9Z2Z-A185. A partir da 0.19.0: só dígitos, em
+// sequência (10001, 10002...).
 const PROTOCOL = /\bWA-[A-Z0-9]+-[A-Z0-9]{4}\b/i;
 
 /** Número de protocolo citado na mensagem. Uma mensagem curta que é só o
  * número também vale com espaços, pontos ou traços digitados no meio
- * ("wa-mweq9z2z-a 185"), como acontece ao copiar ou ditar o número. */
+ * ("wa-mweq9z2z-a 185", "10.001"), como acontece ao copiar ou ditar o número.
+ * Só dígitos valem quando são a mensagem inteira, com "protocolo" ou "#" na
+ * frente se o cliente quiser: um número no meio de uma frase pode ser outra
+ * coisa (pedido, valor). */
 export function protocolNumber(value: string) {
   const text = String(value || "");
   const found =
@@ -20,15 +25,34 @@ export function protocolNumber(value: string) {
     (text.length <= 40
       ? compactProtocol(text).match(
           new RegExp(`^${PROTOCOL.source}$`, "i"),
-        )?.[0]
+        )?.[0] || numericProtocol(text)
       : undefined);
   return found?.toUpperCase();
 }
 
+/** Número só de dígitos: pode ser também um número de pedido ou de cliente,
+ * então quem consulta confere se esse protocolo existe para o cliente. */
+export const isNumericProtocol = (number?: string) =>
+  !!number && /^\d+$/.test(number);
+
 /** A mensagem inteira é um número de protocolo (com a mesma tolerância). */
 export function isOnlyProtocolNumber(value: string) {
   const number = protocolNumber(value);
-  return !!number && compactProtocol(value).toUpperCase() === number;
+  return (
+    !!number &&
+    (isNumericProtocol(number)
+      ? numericProtocol(value) === number
+      : compactProtocol(value).toUpperCase() === number)
+  );
+}
+
+function numericProtocol(value: string) {
+  const digits = String(value || "")
+    .trim()
+    .replace(/^(?:o\s+)?(?:meu\s+)?(?:protocolo|n[ºo°.]*|#)\s*[:#]?\s*/i, "")
+    .replace(/[\s.\-]+/g, "");
+  // 5 to 9 digits: menu options are shorter and phone numbers longer.
+  return /^\d{5,9}$/.test(digits) ? digits : undefined;
 }
 
 function compactProtocol(value: string) {
@@ -68,7 +92,7 @@ export async function lookupProtocols(
   const query = number ? protocolNumber(number) : undefined;
   requireValue(
     !number || isOnlyProtocolNumber(number),
-    "Informe o número completo do protocolo, como WA-ABC123-1A2B.",
+    "Informe o número completo do protocolo, como 10001.",
   );
   const phone = verifiedPhone(c);
   // The same response is returned for a nonexistent number and somebody else's

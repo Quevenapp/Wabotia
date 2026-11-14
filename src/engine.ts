@@ -13,6 +13,8 @@ import {
   sendProtocolLookup,
   protocolNumber,
   isOnlyProtocolNumber,
+  isNumericProtocol,
+  lookupProtocols,
 } from "./protocol-lookup";
 import {
   opensTicket,
@@ -305,6 +307,16 @@ export async function processInbox(env: Env, profile: string) {
     // Protocol opened by the customer. The source key makes a replayed row
     // finish the protocol it already opened instead of creating another one.
     let leftTicketPrompt = false;
+    // A protocol number typed by the customer. Digits alone count only when the
+    // customer has that protocol: otherwise they are an order number or similar.
+    const typedProtocol =
+      c.chat_type !== "group" && !replyId ? protocolNumber(value) : undefined;
+    const knownProtocol =
+      typedProtocol &&
+      (!isNumericProtocol(typedProtocol) ||
+        (await lookupProtocols(env, c, typedProtocol)).length)
+        ? typedProtocol
+        : undefined;
     if (c.chat_type !== "group") {
       const ticketKey = "inbox:" + row.id;
       const replayed = await one(
@@ -316,7 +328,9 @@ export async function processInbox(env: Env, profile: string) {
         ? "open"
         : !awaitingTicket
           ? null
-          : replyId || lookupCommand(normalized) || isOnlyProtocolNumber(value)
+          : replyId ||
+              lookupCommand(normalized) ||
+              (knownProtocol && isOnlyProtocolNumber(value))
             ? "leave"
             : ["menu", "voltar"].includes(normalized)
               ? "cancel"
@@ -402,18 +416,13 @@ export async function processInbox(env: Env, profile: string) {
       c.chat_type !== "group" &&
       (policy.menu || policy.bots) &&
       !data.content?.interactive_reply_id &&
-      (protocolNumber(value) ||
+      (knownProtocol ||
         (/\b(protocolo|protocolos|chamado|chamados)\b/.test(normalized) &&
           /\b(status|consultar|acompanhar|andamento|meus|minhas)\b/.test(
             normalized,
           )))
     ) {
-      await sendProtocolLookup(
-        env,
-        c,
-        protocolNumber(value),
-        `tickets:${row.id}`,
-      );
+      await sendProtocolLookup(env, c, knownProtocol, `tickets:${row.id}`);
       return;
     }
     if (
@@ -1732,7 +1741,14 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
     if (c.epoch === run.epoch && c.state === "ai")
       // The error stays in the run and the event; the protocol opened with the
       // team absent is named after what the customer asked.
-      await handoff(env, c, error, null, json(run.context).request ?? null);
+      await handoff(
+        env,
+        c,
+        error,
+        null,
+        json(run.context).request ?? null,
+        false,
+      );
     else if (
       c.epoch === run.epoch &&
       c.state === "waiting" &&
