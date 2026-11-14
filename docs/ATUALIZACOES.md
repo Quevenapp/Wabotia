@@ -150,6 +150,17 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.18.0: fila de espera com senha, Senhapp, excluir setores
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0017_queue.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+
+- **Fila de espera com senha:** em **Gestão → Filas e guichês**, crie filas e guichês, ligue a fila no WhatsApp (item de menu do tipo fila e, se quiser, porta de entrada em que qualquer mensagem abre o menu), configure painéis de TV e a lista negra. A equipe chama, rechama e transfere senhas na área **Fila**; o painel de TV fica em `/painel`. Detalhes em [Fila de espera com senha](FILA-SENHAS.md).
+- **Senhapp:** o quadro de Integrações passa a ser **Parear Senhapp** (totem, painel ou guichê). Códigos do Vinki e do Fagoo são recusados pelo painel; os pareamentos já feitos continuam funcionando e podem ser revogados ali.
+- **Excluir setor**, em **Menus e ações → Setores de atendimento**: recusado enquanto um item de menu usa o setor; as conversas abertas dele voltam para a fila geral.
+- **DeepSeek:** o esforço de raciocínio pode ser Sem raciocínio, Baixo (padrão) ou Alto. Conexões DeepSeek já cadastradas raciocinam em Alto até serem editadas e salvas; abra a conexão e salve para passar a Baixo.
+
+Depois de atualizar, clique em **Reabrir painel atualizado**.
+
 ## Atualização 0.17.1: excluir conexões Hermes e de IA
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare. Em **Hermes e canais**, o cartão de uma conexão Hermes ou de provedor de IA pausada ganha **Excluir conexão**, que apaga a conexão, os bots dela e a chave guardada; conversas, mensagens e execuções anteriores continuam no histórico. A exclusão é recusada, dizendo onde trocar, enquanto um bot da conexão for o Bot Atendente, especialista, item de menu, bot de uma linha ou estiver atendendo uma conversa, e enquanto houver execução em andamento. No Hermes por plugin, o token deixa de valer. O limite do pacote de atualização sobe de 20 MB para 24 MB; como as instalações até a 0.17.0 aceitam no máximo 20 MB, esta versão continua abaixo disso. Depois de atualizar, clique em **Reabrir painel atualizado**.
