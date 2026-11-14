@@ -55,7 +55,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
@@ -163,6 +166,21 @@ class BotChatViewModel(
             } finally {
                 loading = false
             }
+        }
+    }
+
+    /**
+     * Traz o que chegou por outro caminho: a mesma conversa com o bot também recebe perguntas de outro aparelho e da
+     * conversa interna. Silencioso: falha de rede aqui não vira erro na tela.
+     */
+    suspend fun refresh() {
+        if (profileId.isBlank() || loading) return
+        try {
+            merge(container.api.botRuns(profileId).data.filter { it.bot_id == botId })
+            runs.filter { !it.isFinal }.forEach { poll(it.id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
     }
 
@@ -291,6 +309,15 @@ fun BotChatScreen(container: AppContainer, botId: String, conversationId: String
         BotChatViewModel(container, profileId, botId, conversationId)
     }
     LaunchedEffect(vm) { vm.start() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle, vm) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(4000)
+                vm.refresh()
+            }
+        }
+    }
 
     val c = Wb.colors
     val clipboard = LocalClipboardManager.current
