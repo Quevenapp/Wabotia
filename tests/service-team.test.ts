@@ -692,6 +692,89 @@ describe("linhas, menus e equipe interna", () => {
         .n,
     ).toBe(0);
   });
+  it("pergunta direta ao bot e conversa interna são a mesma conversa", async () => {
+    const f = await fixture();
+    // Pela tela do bot (POST /bot-runs), como fazem o painel e os aplicativos.
+    const asked = await perform(
+      env,
+      f.a,
+      f.p,
+      "run.create",
+      { bot_id: f.bot, input: "Pergunta pela tela do bot" },
+      uid(),
+    );
+    const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", asked.id);
+    const chatId = json(run.context).internal_chat_id;
+    expect(chatId).toBeTruthy();
+    expect(json(run.context).direct).toBe(true);
+    await exec(
+      env,
+      "UPDATE bot_runs SET status='completed' WHERE id=?",
+      run.id,
+    );
+    await finishInternalRun(env, run, "Resposta do bot");
+    // Pela conversa interna, no mesmo par pessoa/bot.
+    const chat = await internalCommand(
+      env,
+      f.a,
+      f.p,
+      "internal.create",
+      { peer_id: `bot:${f.bot}` },
+      uid(),
+    );
+    expect(chat.id).toBe(chatId);
+    const sent = await internalCommand(
+      env,
+      f.a,
+      f.p,
+      "internal.send",
+      { id: chat.id, text: "Pergunta pela conversa interna" },
+      uid(),
+    );
+    expect(
+      (await internalChatDetail(env, f.a, f.p, chat.id)).messages.map(
+        (m: any) => m.text,
+      ),
+    ).toEqual([
+      "Pergunta pela tela do bot",
+      "Resposta do bot",
+      "Pergunta pela conversa interna",
+    ]);
+    // A tela do bot lista as duas, com o texto digitado e não o JSON com o
+    // histórico que vai para o Hermes.
+    const headers = { Authorization: `Bearer ${await token(f.a)}` };
+    const list = await (
+      await SELF.fetch(`https://test/api/v1/profiles/${f.p}/bot-runs`, {
+        headers,
+      })
+    ).json<any>();
+    const inputs = Object.fromEntries(
+      list.data.map((r: any) => [r.id, r.input]),
+    );
+    expect(inputs[run.id]).toBe("Pergunta pela tela do bot");
+    expect(inputs[sent.run_id]).toBe("Pergunta pela conversa interna");
+    const one_ = await (
+      await SELF.fetch(`https://test/api/v1/bot-runs/${sent.run_id}`, {
+        headers,
+      })
+    ).json<any>();
+    expect(one_.input).toBe("Pergunta pela conversa interna");
+    // A outra pessoa tem a própria conversa com o mesmo bot.
+    const other = await perform(
+      env,
+      f.b,
+      f.p,
+      "run.create",
+      { bot_id: f.bot, input: "Pergunta de B" },
+      uid(),
+    );
+    const otherRun = await one(
+      env,
+      "SELECT context FROM bot_runs WHERE id=?",
+      other.id,
+    );
+    expect(json(otherRun.context).internal_chat_id).not.toBe(chatId);
+  });
   it("lista para cada pessoa só as execuções que ela pediu ao bot", async () => {
     const f = await fixture();
     await receive(f, f.line, "Olá");

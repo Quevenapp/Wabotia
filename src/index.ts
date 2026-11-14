@@ -10,7 +10,12 @@ import { routerView, routedMessage, routerCommand } from "./number-router";
 import { zernioAccountCommand } from "./zernio-accounts";
 import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
-import { teamDirectory, listInternalChats, internalChatDetail } from "./team";
+import {
+  teamDirectory,
+  listInternalChats,
+  internalChatDetail,
+  runQuestion,
+} from "./team";
 import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
 import { Hono } from "hono";
@@ -898,6 +903,7 @@ app.get("/api/v1/bot-runs/:id", async (c) => {
   )
     throw new ApiError(404, "not_found", "Execução não encontrada.");
   run.attachments = json(run.result, {}).attachments || [];
+  run.input = runQuestion(run);
   delete run.context;
   delete run.request_body;
   return c.json(run);
@@ -1136,6 +1142,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     const more = rows.length > limit;
     rows.splice(limit);
     for (const row of rows) {
+      if (table === "bot_runs") row.input = runQuestion(row);
       delete row.object_key;
       delete row.context;
       delete row.request_body;
