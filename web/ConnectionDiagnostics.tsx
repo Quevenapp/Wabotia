@@ -11,6 +11,7 @@ type Result = {
 
 export function ConnectionDiagnostics({
   hermes,
+  listsBots = hermes,
   demo,
   disabled,
   request,
@@ -18,7 +19,10 @@ export function ConnectionDiagnostics({
   showBots,
   children,
 }: {
+  /** Mostra "Descobrir bots" (somente Hermes). */
   hermes: boolean;
+  /** O teste devolve os bots da conexão (Hermes e provedor de IA). */
+  listsBots?: boolean;
   demo: boolean;
   disabled: boolean;
   request: (action: Action, signal: AbortSignal) => Promise<any>;
@@ -52,13 +56,15 @@ export function ConnectionDiagnostics({
           action === "test"
             ? "Conexão verificada com sucesso."
             : "Busca de bots concluída.",
-        bots: hermes && Array.isArray(found) ? found : undefined,
+        bots: listsBots && Array.isArray(found) ? found : undefined,
       });
       await refresh();
     } catch (error) {
       setResult({
         error: signal.aborted
-          ? "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Confira se o Hermes e o túnel estão ligados antes de tentar novamente."
+          ? hermes
+            ? "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Confira se o Hermes e o túnel estão ligados antes de tentar novamente."
+            : "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Tente novamente em instantes."
           : error instanceof Error
             ? error.message
             : "Não foi possível verificar a conexão. Tente novamente.",
@@ -116,7 +122,9 @@ export function ConnectionDiagnostics({
               <>
                 <p>
                   {result.bots.length === 0
-                    ? "Nenhum bot encontrado. Confira os atendimentos criados no Hermes e tente novamente."
+                    ? hermes
+                      ? "Nenhum bot encontrado. Confira os atendimentos criados no Hermes e tente novamente."
+                      : "Nenhum bot encontrado. Tente novamente."
                     : `${result.bots.length} ${result.bots.length === 1 ? "bot encontrado" : "bots encontrados"}.`}
                 </p>
                 {result.bots.length > 0 && (

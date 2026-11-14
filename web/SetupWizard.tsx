@@ -319,6 +319,8 @@ export function SetupWizard({
 
   const cfg = snapshot?.status.settings || {};
   const hermes = snapshot?.connections.filter((c) => c.kind === "hermes") || [];
+  const aiConnections =
+    snapshot?.connections.filter((c) => c.kind === "ai") || [];
   const attendant = snapshot?.bots.find((b) => b.id === cfg.attendant_bot);
   const chosenBot = snapshot?.bots.find((b) => b.id === draft.attendant_bot);
   const current = steps[step];
@@ -544,11 +546,19 @@ export function SetupWizard({
                   para definir quando ele pode ser consultado. As credenciais
                   financeiras ficam configuradas no bot especialista do Hermes.
                 </p>
+                <p>
+                  Sem servidor próprio, conecte um provedor de IA (Anthropic,
+                  OpenAI, DeepSeek): o bot conversa com base nas suas fontes e
+                  menus, mas não executa ações nem pode ser especialista.
+                </p>
                 <ol className="setup-instructions">
-                  <li>Cadastre e teste a conexão com o Hermes.</li>
                   <li>
-                    Use <strong>Descobrir bots</strong> na conexão e habilite os
-                    bots desejados.
+                    Cadastre e teste a conexão com o Hermes ou com o provedor de
+                    IA.
+                  </li>
+                  <li>
+                    No Hermes, use <strong>Descobrir bots</strong>; no provedor
+                    de IA, o teste cria o bot. Habilite os bots desejados.
                   </li>
                   <li>
                     Escolha o bot principal na etapa Regras. Configure
@@ -557,7 +567,7 @@ export function SetupWizard({
                 </ol>
                 <div className="setup-status">
                   {snapshot
-                    ? `${hermes.length} conexão(ões) Hermes cadastrada(s) · ${snapshot.bots.filter((b) => b.enabled).length} bot(s) habilitado(s).`
+                    ? `${hermes.length} conexão(ões) Hermes · ${aiConnections.length} provedor(es) de IA · ${snapshot.bots.filter((b) => b.enabled).length} bot(s) habilitado(s).`
                     : "O Hermes e os bots ainda não foram consultados."}
                 </div>
                 <div className="setup-actions">
@@ -572,6 +582,18 @@ export function SetupWizard({
                       ? "Testar Hermes e descobrir bots"
                       : "Conectar Hermes"}{" "}
                     <ArrowRight size={16} />
+                  </Action>
+                  <Action
+                    secondary
+                    onClick={() =>
+                      aiConnections.length
+                        ? onNavigate("connections")
+                        : onConnect("ai")
+                    }
+                  >
+                    {aiConnections.length
+                      ? "Testar provedor de IA"
+                      : "Conectar provedor de IA"}
                   </Action>
                   <Action secondary onClick={() => onNavigate("bots")}>
                     Bots e ações internas

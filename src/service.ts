@@ -23,6 +23,7 @@ import { event, audit } from "./events";
 import { visibleConversation } from "./visibility";
 import { probe, discover, telegramRemoved } from "./integrations";
 import { isLink, linkCode, linkRevoke } from "./hermes-link";
+import { aiConfig, aiKey } from "./ai-provider";
 import { secret } from "./security";
 import { contactCommand } from "./contacts";
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
@@ -130,6 +131,35 @@ export async function settings(env: Env, profile: string) {
   if (!row)
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   return { ...defaults, ...json(row.settings) };
+}
+/**
+ * Especialistas e itens de menu do tipo bot executam ações em sistemas
+ * externos. Um bot de provedor de IA direto só conversa, então fica de fora.
+ */
+async function requireToolBot(
+  env: Env,
+  profile: string,
+  botId: string,
+  use: "menu" | "specialist",
+) {
+  const bot = await one(
+    env,
+    "SELECT b.id,c.kind FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=? AND b.profile_id=?",
+    botId,
+    profile,
+  );
+  requireValue(
+    bot,
+    use === "menu"
+      ? "Bot do menu não pertence à área de atendimento."
+      : "Especialista não pertence à área de atendimento.",
+  );
+  requireValue(
+    bot.kind !== "ai",
+    use === "menu"
+      ? "Itens de menu do tipo bot precisam de um bot Hermes. Bots de provedor de IA só conversam."
+      : "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
+  );
 }
 export async function conversation(
   env: Env,
@@ -1369,15 +1399,7 @@ export async function perform(
           "Aplicativo do menu não encontrado.",
         );
       if (item.type === "bot")
-        requireValue(
-          await one(
-            env,
-            "SELECT id FROM bots WHERE id=? AND profile_id=?",
-            item.bot_id,
-            profile,
-          ),
-          "Bot do menu não pertence à área de atendimento.",
-        );
+        await requireToolBot(env, profile, item.bot_id, "menu");
       const visited = new Set([item.id]);
       let parent = item.parent_id;
       while (parent) {
@@ -1413,15 +1435,7 @@ export async function perform(
         "Atendente não pertence à área de atendimento.",
       );
     for (const action of next.capabilities || [])
-      requireValue(
-        await one(
-          env,
-          "SELECT id FROM bots WHERE id=? AND profile_id=?",
-          action.bot_id,
-          profile,
-        ),
-        "Especialista não pertence à área de atendimento.",
-      );
+      await requireToolBot(env, profile, action.bot_id, "specialist");
     await exec(
       env,
       "UPDATE profiles SET settings=? WHERE id=?",
@@ -1470,7 +1484,7 @@ export async function perform(
     admin(actor);
     if (data.kind === "telegram") throw telegramRemoved();
     requireValue(
-      ["hermes", "zernio", "qr", "hermes-whatsapp"].includes(data.kind),
+      ["hermes", "zernio", "qr", "hermes-whatsapp", "ai"].includes(data.kind),
       "Conector inválido.",
     );
     const id = data.id || uid();
@@ -1494,7 +1508,19 @@ export async function perform(
         "Pause e reconcilie as entregas antes de alterar a conexão.",
       );
     }
-    const cfg = data.config || {};
+    let cfg = data.config || {};
+    if (data.kind === "ai") {
+      // Provedor de IA direto: só provedor, modelo, endereço e opções; a chave
+      // vai para o cofre. Editar exige testar de novo.
+      cfg = aiConfig(cfg);
+      const previous = await secret(env, `connection:${id}`);
+      const key = data.secrets?.api_key || previous.api_key;
+      aiKey(key);
+      const extra = Object.keys(data.secrets || {}).filter(
+        (k) => k !== "api_key",
+      );
+      requireValue(!extra.length, "A conexão de IA guarda só a chave de API.");
+    }
     if (old) {
       const previous = json(old.config);
       // Credential editors omit line assignments. Those are edited through line.save.
@@ -1600,6 +1626,10 @@ export async function perform(
     if (data.secrets) {
       const previous = await secret(env, `connection:${id}`);
       const supplied = { ...data.secrets };
+      if (data.kind === "ai") {
+        if (supplied.api_key) supplied.api_key = aiKey(supplied.api_key);
+        else delete supplied.api_key;
+      }
       if (data.kind === "zernio") {
         for (const key of ["api_key", "webhook_secret"])
           if (!supplied[key]) delete supplied[key];
@@ -1677,12 +1707,17 @@ export async function perform(
       const keys = await secret(env, `connection:${bot.connection_id}`),
         conn = await one(
           env,
-          "SELECT config FROM connections WHERE id=?",
+          "SELECT kind,config FROM connections WHERE id=?",
           bot.connection_id,
+        );
+      if (conn?.kind === "ai")
+        requireValue(
+          keys.api_key && json(conn.config).verified_at,
+          "Teste a conexão com o provedor de IA antes de habilitar o bot.",
         );
       // No modo plugin a chave fica no Hermes: vale o que "Descobrir bots"
       // verificou na API local desse atendimento.
-      if (isLink(conn))
+      else if (isLink(conn))
         requireValue(
           json(conn.config).capabilities?.[bot.remote_profile],
           "Crie a API_SERVER_KEY desse atendimento no Hermes e use Descobrir bots antes de habilitar.",

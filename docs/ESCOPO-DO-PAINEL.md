@@ -49,6 +49,8 @@ Por exemplo, a ação “segunda via de boleto” pode consultar um bot financei
 
 O contrato existente usa `settings.attendant_bot` e `settings.capabilities`. Cada ação interna identifica o bot, a condição e as instruções. O especialista recebe a solicitação e o telefone do cliente; seu resultado volta a uma execução do Atendente. Ver [execução e consulta de especialistas](../src/engine.ts), [validação das configurações](../src/service.ts) e [conexão Hermes](../src/integrations.ts).
 
+O Atendente também pode ser um bot de **provedor de IA direto** (Anthropic, OpenAI, DeepSeek ou API compatível), sem Hermes nem servidor próprio. Ele conversa e decide as mesmas ações do Atendente, mas não tem ferramentas: não pode ser especialista nem item de menu do tipo bot, e o painel o oculta nesses seletores. Ver [Bot por provedor de IA](PROVEDOR-IA.md).
+
 O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A chave é salva separadamente por `POST /api/v1/profiles/{profile}/jev`, com `{ "key": "..." }`. O fluxo é **Atendente → interpretação estruturada → decisão JEV → ação autorizada**. Após a consulta a um especialista, a resposta preparada pelo Atendente também passa pela decisão. Com JEV desligado, permanece o fluxo normal do Atendente. Ver [regras, limites e recuperação](JEV.md).
 
 ## Capacidades e lacunas verificadas
@@ -67,6 +69,7 @@ O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A ch
 | Contatos | Implementado | Cadastro, busca, edição, importação CSV e vínculo com conversas. Telefones não unem clientes automaticamente. [Contatos](../src/contacts.ts), [guia](CONTATOS.md). |
 | Atualizações automáticas | Implementado | Ativação opcional, janela diária, publicação oficial verificada, bloqueio de concorrência e recuperação conservadora. Exige instalador direto e autorização Cloudflare configurada. QR e Hermes permanecem processos separados. [Guia](ATUALIZACOES.md). |
 | Ponte WhatsApp–Telegram | Removido | A equipe atende pelo painel e pelos aplicativos. Conexões Telegram antigas só podem ser excluídas; o webhook responde `410 telegram_removed`. |
+| Bot sem servidor, direto no provedor de IA | Implementado | Conexão `ai` com Anthropic (SDK oficial), OpenAI, DeepSeek ou API compatível; um bot por conexão, como Atendente, bot de linha, transferência e conversa com a equipe. Sem ferramentas, arquivos ou transcrição de áudio; opção "apenas mensagens" para áudio e vídeo. Não validado ainda contra as APIs reais. [Guia](PROVEDOR-IA.md). |
 | JEV opcional e especialistas internos Hermes | Implementado | Atendente interpreta e propõe; JEV decide antes da ação. Respostas incertas ou indisponibilidade encaminham à equipe humana. As APIs e credenciais de sistemas precisam estar configuradas nos especialistas Hermes. [Guia](JEV.md). |
 
 ## Limites da configuração guiada

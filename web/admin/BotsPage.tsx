@@ -35,7 +35,8 @@ function CapabilityDialog({ onClose }: { onClose: () => void }) {
         label="Especialista Hermes"
         value={form.bot_id}
         onChange={change("bot_id")}
-        options={app.bots}
+        options={app.bots.filter((bot) => bot.connection_kind !== "ai")}
+        help="Só bots do Hermes executam ações. Bots de provedor de IA só conversam."
       />
       <Field
         label="Quando consultar este especialista"
@@ -80,8 +81,8 @@ export function BotsPage() {
       </section>
       <div className="toolbar">
         <p>
-          Selecione os bots criados no Hermes. Permissões continuam no
-          atendimento original.
+          Selecione os bots do Hermes ou de um provedor de IA. Permissões do
+          Hermes continuam no atendimento original.
         </p>
         <Button onClick={() => setAdding(true)} icon={<Plus size={17} />}>
           Ação de especialista
@@ -97,7 +98,11 @@ export function BotsPage() {
               <Badge value={bot.enabled ? "enabled" : "disabled"} />
             </div>
             <h2>{bot.name}</h2>
-            <p>Atendimento Hermes: {bot.remote_profile}</p>
+            <p>
+              {bot.connection_kind === "ai"
+                ? `Provedor de IA: ${bot.model || bot.provider || ""}. Conversa, sem ferramentas.`
+                : `Atendimento Hermes: ${bot.remote_profile}`}
+            </p>
             <Button
               secondary
               disabled={busy}
@@ -149,8 +154,8 @@ export function BotsPage() {
         <div className="card">
           <Empty
             icon={<Bot size={28} />}
-            title="Sua Equipe Bot começa no Hermes"
-            description="Cadastre a conexão Hermes e use Descobrir bots."
+            title="Sua Equipe Bot começa em Hermes e canais"
+            description="Cadastre o Hermes e use Descobrir bots, ou conecte um provedor de IA e use Testar conexão."
           />
         </div>
       )}

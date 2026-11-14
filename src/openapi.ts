@@ -38,7 +38,11 @@ const schemas = {
     properties: {
       id: { type: "string" },
       name: { type: "string", minLength: 1, maxLength: 100 },
-      kind: { enum: ["zernio", "qr", "hermes-whatsapp", "hermes"] },
+      kind: {
+        enum: ["zernio", "qr", "hermes-whatsapp", "hermes", "ai"],
+        description:
+          "ai: provedor de IA direto (OpenAI, DeepSeek, Anthropic ou API compatível com OpenAI), sem Hermes. Gera um único bot no primeiro teste da conexão.",
+      },
       mode: { type: "string", default: "direct" },
       config: {
         type: "object",
@@ -60,12 +64,44 @@ const schemas = {
             description:
               "ID da integração na Zernio (campo Profile ID), obrigatório para kind=zernio.",
           },
+          provider: {
+            enum: ["openai", "deepseek", "anthropic", "compatible"],
+            description: "Provedor de IA, obrigatório para kind=ai.",
+          },
+          model: {
+            type: "string",
+            maxLength: 100,
+            description:
+              "Modelo do provedor (kind=ai). Na Anthropic: claude-opus-5-5 (padrão), claude-sonnet-5-5 ou claude-haiku-5-5.",
+          },
+          base_url: {
+            type: "string",
+            format: "uri",
+            description:
+              "URL HTTPS da API compatível com OpenAI (kind=ai, provider=compatible).",
+          },
+          vision: {
+            type: "boolean",
+            description:
+              "Se o modelo entende imagens (só para provider=compatible; nos demais é definido pelo provedor).",
+          },
+          effort: {
+            enum: ["low", "medium", "high"],
+            description:
+              "Esforço de raciocínio (kind=ai). Anthropic: padrão low. OpenAI e compatível: enviado como reasoning_effort só quando informado. DeepSeek: não aceito.",
+          },
+          text_only: {
+            type: "boolean",
+            default: true,
+            description:
+              "kind=ai: apenas mensagens. Áudio e vídeo recebem um aviso pedindo texto e a conversa segue com o bot; desligado, vão para a equipe.",
+          },
         },
       },
       secrets: {
         type: "object",
         description:
-          "Para Zernio: api_key e webhook_secret obrigatórios na criação. Campos omitidos preservam valores na edição. Segredos ficam cifrados e não são devolvidos.",
+          "Para Zernio: api_key e webhook_secret obrigatórios na criação. Para kind=ai: api_key do provedor, obrigatória na criação. Campos omitidos preservam valores na edição. Segredos ficam cifrados e não são devolvidos.",
         properties: {
           api_key: {
             type: "string",

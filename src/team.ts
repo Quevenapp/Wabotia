@@ -72,7 +72,7 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
   );
   const bots = await all(
     env,
-    "SELECT b.id,b.name,b.enabled,b.line_ids,c.status,c.last_seen,p.checked_at,p.online FROM bots b JOIN connections c ON c.id=b.connection_id LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE b.profile_id=? ORDER BY b.name,b.id",
+    "SELECT b.id,b.name,b.enabled,b.line_ids,c.kind,c.status,c.last_seen,p.checked_at,p.online FROM bots b JOIN connections c ON c.id=b.connection_id LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE b.profile_id=? ORDER BY b.name,b.id",
     profile,
   );
   return {
@@ -88,12 +88,15 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
         kind: "bot",
         bot_id: b.id,
         name: b.name,
+        // Um provedor de IA não tem servidor a sondar: conta como online quando
+        // a conexão está ativa.
         online:
           !!b.enabled &&
           b.status === "active" &&
-          (b.checked_at >= (b.last_seen || 0)
-            ? !!b.online && now() - b.checked_at < 120000
-            : !!b.last_seen && now() - b.last_seen < 120000),
+          (b.kind === "ai" ||
+            (b.checked_at >= (b.last_seen || 0)
+              ? !!b.online && now() - b.checked_at < 120000
+              : !!b.last_seen && now() - b.last_seen < 120000)),
         enabled: !!b.enabled,
         last_seen: b.last_seen,
         line_ids: b.line_ids === null ? null : json(b.line_ids, []),

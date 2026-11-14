@@ -12,6 +12,7 @@ import { mediaKind, putStream, multipartStream } from "./media";
 import { zernioAccountList } from "./zernio-accounts";
 import { secret, setSecret, safeFetch, random, sha } from "./security";
 import { isLink, linkCall, type LinkOp } from "./hermes-link";
+import { aiProbe } from "./ai-provider";
 // No modo plugin o motor continua pedindo os mesmos caminhos; aqui eles viram
 // as operações fechadas do vínculo (docs/HERMES-PLUGIN.md).
 function linkJob(
@@ -344,6 +345,32 @@ export async function probe(
   let details: any = {};
   if (c.kind === "hermes")
     return { ok: true, bots: await discover(env, id, profile) };
+  if (c.kind === "ai") {
+    // Uma conexão de IA tem um único bot, criado (desabilitado) no primeiro
+    // teste bem-sucedido, com o nome da conexão.
+    await aiProbe(env, c);
+    await exec(
+      env,
+      "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name) VALUES(?,?,?,?,?) ON CONFLICT(connection_id,remote_profile) DO NOTHING",
+      uid(),
+      profile,
+      c.id,
+      "default",
+      c.name,
+    );
+    await exec(
+      env,
+      "UPDATE connections SET config=? WHERE id=?",
+      JSON.stringify({ ...cfg, verified_at: now() }),
+      id,
+    );
+    return {
+      ok: true,
+      provider: cfg.provider,
+      model: cfg.model,
+      bots: await all(env, "SELECT * FROM bots WHERE connection_id=?", id),
+    };
+  }
   if (c.kind === "telegram") throw telegramRemoved();
   if (c.kind === "meta") {
     throw new ApiError(

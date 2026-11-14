@@ -54,6 +54,7 @@ import {
   hex,
   MOBILE_TOKEN_PREFIX,
 } from "./security";
+import { aiListModels } from "./ai-provider";
 import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
 import { settings, scopes, eventTypes, conversation, perform } from "./service";
@@ -782,6 +783,37 @@ for (const [method, path, op] of [
     });
   });
 }
+// Modelos da conta de um provedor de IA, para o formulário da conexão. Fica
+// fora dos comandos idempotentes: a resposta não deve ir para os recibos, e a
+// chave digitada no formulário passa só por aqui, sem ser guardada.
+app.post("/api/v1/profiles/:profile/ai-models", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  admin(actor);
+  await rate(c.env, `ai-models:${actor.id}`, 10);
+  const body = await c.req.json<any>().catch(() => ({}));
+  let cfg: any = {},
+    key = typeof body.api_key === "string" ? body.api_key.trim() : "";
+  if (body.connection_id) {
+    const conn = await one(
+      c.env,
+      "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='ai'",
+      String(body.connection_id),
+      profile,
+    );
+    requireValue(conn, "Conexão não encontrada.");
+    cfg = json(conn.config);
+    if (!key) key = (await secret(c.env, `connection:${conn.id}`)).api_key;
+  }
+  requireValue(key, "Informe a chave de API para buscar os modelos.");
+  return c.json({
+    data: await aiListModels(
+      body.provider || cfg.provider,
+      key,
+      body.base_url || cfg.base_url,
+    ),
+  });
+});
 // A retired authorization URL must never be replayed from Coordinator receipts.
 // The local handler still enforces administrator and integration-area access.
 app.post("/api/v1/profiles/:profile/router/accounts/:id/connect", async (c) =>
@@ -1141,6 +1173,23 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     );
     const more = rows.length > limit;
     rows.splice(limit);
+    if (table === "bots" && rows.length) {
+      // O painel distingue bots do Hermes e de provedor de IA direto.
+      const connections = await all(
+        c.env,
+        "SELECT id,kind,config FROM connections WHERE profile_id=?",
+        p,
+      );
+      for (const row of rows) {
+        const connection = connections.find((x) => x.id === row.connection_id);
+        row.connection_kind = connection?.kind || null;
+        if (connection?.kind === "ai") {
+          const cfg = json(connection.config);
+          row.provider = cfg.provider;
+          row.model = cfg.model;
+        }
+      }
+    }
     for (const row of rows) {
       if (table === "bot_runs") row.input = runQuestion(row);
       delete row.object_key;
