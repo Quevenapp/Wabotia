@@ -1,5 +1,11 @@
 # Validação e limites
 
+## Publicação 0.19.3 de 14/11/2026: resumo no protocolo já aberto
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `06461756c58367c5f83a277a1fa86d51a8c1f83c`, a partir da `main` (0.19.2) com o PR 23. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.3-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.19.3 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `1fca118f63358f192fe9a5e6f7255401539d7db1a1d901463a8995ee257da55a` (16348196 bytes), e as 37 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Quando uma nova transferência com a equipe ausente encontra o protocolo da conversa ainda aberto, o resumo do bot ou o pedido do cliente entra nele como nota interna, uma vez por texto. **656 testes em 56 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.19.3-distribution.json).
+
 ## Publicação 0.19.2 de 14/11/2026: bot segue o atendimento, avaliação e notificações de protocolo
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `501b0cf4901914e907930e72ccc44c8a69f743f4`, a partir da `main` (0.19.1) com o PR 22. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.2-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.19.2 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `f88bde03c66cc2bd4cbc260b197d812dde3b6817bb7b54f652b173c67279b584` (16347400 bytes), e as 36 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
