@@ -52,6 +52,12 @@ function dockerCommand(pairing: Row, where: "host" | "inside") {
     ? `${script} | docker exec -i -u hermes CONTEINER bash -s -- ${args}`
     : `${script} | su -s /bin/bash hermes -c 'HERMES_BIN=/opt/hermes/bin/hermes HERMES_HOME=/opt/data bash -s -- ${args}'`;
 }
+const dockerSteps = {
+  list: "docker ps --format '{{.Names}}  {{.Image}}'",
+  restart: "docker restart CONTEINER",
+  version:
+    "docker exec -u hermes CONTEINER grep PLUGIN_VERSION /opt/data/plugins/wabotia/link.py",
+};
 
 export function ConnectionsPage() {
   const app = useApp();
@@ -321,27 +327,47 @@ export function ConnectionsPage() {
           <details>
             <summary>Meu Hermes roda em Docker</summary>
             <p>
-              Nesse caso o comando acima não encontra o Hermes. No terminal do
-              servidor, troque <code>CONTEINER</code> pelo nome mostrado em{" "}
-              <code>docker ps</code>:
+              Nesse caso o comando acima não encontra o Hermes. Siga estes
+              passos no terminal do servidor, trocando <code>CONTEINER</code>{" "}
+              pelo nome do contêiner do Hermes.
             </p>
+            <p>1. Descubra o nome do contêiner:</p>
+            <div className="secret-box">
+              <code>{dockerSteps.list}</code>
+              <CopyButton value={dockerSteps.list} />
+            </div>
+            <p>2. Instale o plugin:</p>
             <div className="secret-box">
               <code>{dockerCommand(pairing, "host")}</code>
               <CopyButton value={dockerCommand(pairing, "host")} />
             </div>
             <p>
               Se o terminal já abre dentro do contêiner (como no painel da
-              Hostinger), use:
+              Hostinger), use este no lugar:
             </p>
             <div className="secret-box">
               <code>{dockerCommand(pairing, "inside")}</code>
               <CopyButton value={dockerCommand(pairing, "inside")} />
             </div>
-            <p>
-              Depois reinicie o contêiner pelo servidor:{" "}
-              <code>docker restart CONTEINER</code>.
-            </p>
+            <p>3. Reinicie o contêiner, pelo servidor:</p>
+            <div className="secret-box">
+              <code>{dockerSteps.restart}</code>
+              <CopyButton value={dockerSteps.restart} />
+            </div>
+            <p>4. Confira a versão do plugin instalado:</p>
+            <div className="secret-box">
+              <code>{dockerSteps.version}</code>
+              <CopyButton value={dockerSteps.version} />
+            </div>
           </details>
+          {parse(list.rows.find((r) => r.id === pairing.connection_id)?.config)
+            .link && (
+            <p>
+              Esta conexão já está pareada: o plugin atual funciona até o
+              comando ser executado e, depois dele, os bots ficam fora do ar até
+              o gateway reiniciar. É assim que se atualiza o plugin.
+            </p>
+          )}
           <p>
             Depois de reiniciar o gateway do Hermes, volte a este cartão e use{" "}
             <strong>Testar conexão</strong>, <strong>Descobrir bots</strong> e{" "}
