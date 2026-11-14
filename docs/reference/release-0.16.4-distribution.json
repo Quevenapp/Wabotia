@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-14",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.16.4",
+  "commit": "6fc21795f563072c245e746e06cd985aa5b278fc",
+  "previous_version": "0.16.3",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.16.4-distribution-20261114 (fora do Git)",
+  "migrations": [],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": true,
+  "package_verified": true,
+  "package_sha256_matches_catalog": true,
+  "package_size": 13605657,
+  "previous_versions_intact": 28,
+  "tests": { "files": 49, "passed": 587 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "operational_installation_updated": false,
+  "hermes_plugin_version": "1.1.0",
+  "hermes_session_key_tested_on_real_hermes": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.16.4" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.16.4" },
+    { "route": "/releases/0.16.4/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/*/release.json", "versions": 29, "mismatches": 0 },
+    { "route": "/hermes-plugin/link.py", "status": 200, "plugin_version": "1.1.0" }
+  ]
+}

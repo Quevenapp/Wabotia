@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.16.4 de 14/11/2026: aviso de fila, privacidade do bot e memória por conversa
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `6fc21795f563072c245e746e06cd985aa5b278fc`, a partir da `main` (0.16.3) com os PRs 12 e 13. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.4-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.4 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `30add1c644ea41d11fdc691faebd54cf98ddd9319a4c3c411b12e9dd3d675ebd` (13.605.657 bytes), e as 28 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+O cliente é avisado a cada nova entrada na fila (antes, uma segunda transferência na mesma sessão não enviava nada), a tela do bot mostra a cada pessoa só as execuções que ela pediu, e o Wabotia envia ao Hermes uma chave de sessão por conversa (`X-Hermes-Session-Key`; pelo vínculo de saída, com o plugin 1.1.0). **587 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.16.4-distribution.json).
+
+Não verificado: a chave de sessão contra um Hermes real (só os testes do plugin e do Worker), e o efeito na memória do Hermes de conversas anteriores, que continuam na sessão antiga.
+
 ## Publicação 0.16.3 de 13/11/2026: política de privacidade e teste de notificações
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `91fafb597d5bafee6cbfedac38d1369bc2295618`, a partir da `main` (0.16.2) com os PRs 10 e 11. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.3-distribution-20261113`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.3 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `5178dfd7bc4651c3890c31f438c05f4dc9101afb50130f8245b1496dbda39a51` (13.603.181 bytes), e as 27 versões anteriores continuam disponíveis com os mesmos resumos. A instalação operacional não foi atualizada nesta publicação.
