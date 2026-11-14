@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.19.1 de 14/11/2026: níveis de raciocínio, fila sem tempo de espera, bot de IA no menu
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `e80e4218c7d65e628141ed4f2c8aaf3d2063ac1f`, a partir da `main` (0.19.0) com o PR 21. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.1-distribution-20261114`, fora do Git); a migração `0019_queue_wait_off.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.19.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `a9f3619699bfad126052df7c8bd6ae537bdeec2a90601e1e8b29c4577bf8d1ad` (16341316 bytes), e as 35 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Todos os níveis de raciocínio de cada provedor de IA, com prazo de até 3 minutos nos mais altos; tempo de espera da fila desligável (`wait_mode: "off"`); resposta sem fonte a um cumprimento enviada sem transferir para a equipe; bot de provedor de IA como destino de item de menu. **653 testes em 56 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.19.1-distribution.json).
+
+Não verificado: as telas no navegador, os níveis Muito alto e Máximo contra as APIs reais e o Senhapp com `wait_minutes: null`.
+
 ## Publicação 0.19.0 de 14/11/2026: protocolo fácil de digitar, bot com a equipe ausente, Conhecimento editável
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `160c3ca3b150de9fe05b89bdd5124bfc828b08e3`, a partir da `main` (0.18.0) com o PR 20. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.0-distribution-20261114`, fora do Git); a migração `0018_knowledge_usage.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.19.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `75c766deafb7359b0ba66a43c9d610ffe592e09027ac7c5131062bfe63de8a11` (16335062 bytes), e as 34 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
