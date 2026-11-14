@@ -150,6 +150,19 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.19.0: protocolo fácil de digitar, bot com a equipe ausente, Conhecimento editável
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0018_knowledge_usage.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+
+- **Protocolos novos só com dígitos**, em sequência a partir de 10001. O cliente consulta digitando o número (aceita `protocolo 10001`, `#10001`, espaços e pontos). Os protocolos antigos mantêm o número `WA-…` e continuam consultáveis, inclusive digitados em minúsculas ou com espaço.
+- **Com a equipe ausente, devolver a conversa ao bot** (Regras de atendimento, desligado por padrão): o protocolo é aberto, a conversa sai da fila e o Bot Atendente continua atendendo; a equipe acompanha pelo protocolo.
+- **Bot com conexão pausada não recebe conversas**: o cliente segue para o menu ou para a equipe. O protocolo aberto com a equipe ausente usa o resumo do bot ou o pedido do cliente como assunto, nunca uma mensagem de erro interna.
+- **Resumo ao transferir**: o Bot Atendente pergunta o que falta e, ao passar para a equipe, escreve um resumo do pedido, que vira nota interna e, com a equipe ausente, o assunto do protocolo.
+- **Como o atendimento começa**, em Quem atende cada linha: menu primeiro, bot primeiro ou sem menu.
+- **Renomear bot** em Atendente e especialistas, e **editar fontes do Conhecimento**, com o campo "Quando e como o bot pode usar".
+
+Depois de atualizar, clique em **Reabrir painel atualizado**.
+
 ## Atualização 0.18.0: fila de espera com senha, Senhapp, excluir setores
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0017_queue.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
