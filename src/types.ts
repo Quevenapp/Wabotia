@@ -146,6 +146,8 @@ export const defaults = {
   // Team absent and protocol opened: the conversation leaves the queue and goes
   // back to the Bot Atendente; the team follows the case through the protocol.
   absence_return_to_bot: false,
+  // Team absent and protocol opened: ask the customer to rate the service.
+  absence_survey: false,
   // After a protocol is opened, ask once for consent to protocol notifications
   // (only when notifications are enabled).
   protocol_consent_prompt: true,

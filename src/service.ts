@@ -763,7 +763,13 @@ export async function handoff(
       // One notice per entry into the queue: the epoch was just advanced.
       `${key}:${c.epoch}`,
     );
-    if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
+    if (opened) {
+      await offerProtocolConsent(env, c, cfg, opened.id);
+      // Team absent: the protocol closes this part of the service, so the
+      // customer can rate it now instead of only when a person concludes it.
+      if (cfg.absence_survey === true && c.chat_type !== "group")
+        await requestSurvey(env, c, `absence-survey:${opened.id}`);
+    }
   }
   await event(env, c.profile_id, "conversation.updated", c.id, {
     state: returned ? "ai" : "waiting",
@@ -1357,6 +1363,33 @@ export async function perform(
         typeof next.absence_return_to_bot === "boolean",
       "Informe se a conversa volta ao bot com a equipe ausente.",
     );
+    requireValue(
+      next.absence_survey === undefined ||
+        typeof next.absence_survey === "boolean",
+      "Informe se a avaliação é pedida depois do protocolo de ausência.",
+    );
+    if (data.notifications !== undefined) {
+      const n = data.notifications;
+      requireValue(
+        n &&
+          typeof n === "object" &&
+          typeof n.enabled === "boolean" &&
+          typeof (n.template_name ?? "") === "string" &&
+          String(n.template_name ?? "").length <= 512 &&
+          typeof (n.language ?? "pt_BR") === "string" &&
+          /^[a-z]{2,3}(_[A-Z]{2})?$/.test(n.language ?? "pt_BR"),
+        "Notificações de protocolo: informe se estão ligadas, o nome do modelo e o idioma (ex.: pt_BR).",
+      );
+      requireValue(
+        !n.enabled || String(n.template_name || "").trim(),
+        "Para ligar as notificações de protocolo, informe o nome do modelo aprovado no WhatsApp.",
+      );
+      next.notifications = {
+        enabled: n.enabled,
+        template_name: String(n.template_name || "").trim(),
+        language: n.language || "pt_BR",
+      };
+    }
     if (next.departments === undefined) next.departments = [];
     if (data.departments !== undefined)
       await validateDepartments(env, profile, next.departments);
