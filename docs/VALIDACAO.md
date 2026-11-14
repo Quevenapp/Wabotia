@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.19.2 de 14/11/2026: bot segue o atendimento, avaliação e notificações de protocolo
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `501b0cf4901914e907930e72ccc44c8a69f743f4`, a partir da `main` (0.19.1) com o PR 22. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.2-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.19.2 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `f88bde03c66cc2bd4cbc260b197d812dde3b6817bb7b54f652b173c67279b584` (16347400 bytes), e as 36 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+O bot deixa de voltar ao menu quando o cliente responde à pergunta dele (prompt e nova tentativa sem a ação menu); avaliação opcional depois do protocolo de ausência; notificações de protocolo configuráveis no painel, o que libera a pergunta de autorização. **656 testes em 56 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.19.2-distribution.json).
+
+Não verificado: as telas no navegador e o comportamento do DeepSeek real com o novo prompt.
+
 ## Publicação 0.19.1 de 14/11/2026: níveis de raciocínio, fila sem tempo de espera, bot de IA no menu
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `e80e4218c7d65e628141ed4f2c8aaf3d2063ac1f`, a partir da `main` (0.19.0) com o PR 21. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.1-distribution-20261114`, fora do Git); a migração `0019_queue_wait_off.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.19.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `a9f3619699bfad126052df7c8bd6ae537bdeec2a90601e1e8b29c4577bf8d1ad` (16341316 bytes), e as 35 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
