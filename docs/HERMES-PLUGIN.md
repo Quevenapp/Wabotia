@@ -45,6 +45,43 @@ Só perfis com `API_SERVER_KEY` viram bots executáveis. Para incluir outros per
 
 Para o agente também usar as ferramentas do Wabotia, configure o MCP ([API.md](API.md#mcp-para-o-hermes-agent)); são recursos independentes.
 
+### 2.1 Atualizar o plugin
+
+O plugin não se atualiza sozinho. Uma versão nova do Wabotia pode trazer um plugin novo (a tabela abaixo diz quando); para instalá-lo, rode o instalador de novo na máquina do Hermes. A conexão, os bots e as regras de atendimento não mudam, e as chaves do Hermes são preservadas.
+
+1. Atualize o Wabotia primeiro: **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e depois **Reabrir painel atualizado**. O instalador baixa o plugin da sua própria instalação, então ela precisa estar na versão nova.
+2. No painel, em **Conexões**, no cartão da conexão Hermes, clique em **Parear novamente**. O painel mostra um comando novo, com um código de uso único que vale 15 minutos. O plugin atual continua funcionando até o comando ser executado.
+3. Na máquina do Hermes, com o usuário do Hermes, execute o comando copiado. Se a instalação original incluiu outros perfis, repita os nomes ao final:
+
+   ```sh
+   curl -fsSL https://SUA_INSTALACAO/hermes-plugin/install.sh | bash -s -- https://SUA_INSTALACAO wabp_CODIGO [perfil ...]
+   ```
+
+   **Hermes em Docker:** o painel mostra o comando na forma acima; troque `bash -s --` por `docker exec -i -u hermes CONTEINER bash -s --`, como na instalação:
+
+   ```sh
+   curl -fsSL https://SUA_INSTALACAO/hermes-plugin/install.sh | docker exec -i -u hermes CONTEINER bash -s -- https://SUA_INSTALACAO wabp_CODIGO
+   ```
+
+   O script deve terminar com `Pronto.` Se disser `código recusado`, o código venceu ou já foi usado: volte ao passo 2.
+4. Reinicie o gateway do Hermes (em Docker, `docker restart CONTEINER`). Sem reiniciar, o gateway segue com o plugin antigo em memória e com o token antigo, que deixou de valer no passo 3: os bots ficam fora do ar até o reinício.
+5. Confira a versão instalada, na máquina do Hermes (em Docker, dentro do contêiner; ajuste o caminho se `HERMES_HOME` for outro, por exemplo `/opt/data`):
+
+   ```sh
+   grep PLUGIN_VERSION ~/.hermes/plugins/wabotia/link.py
+   ```
+
+6. No painel, no cartão da conexão, clique em **Testar conexão**. Não é preciso **Descobrir bots** de novo, a menos que os perfis tenham mudado. Envie uma mensagem de teste a um bot para confirmar que ele responde.
+
+Entre o passo 3 e o fim do reinício do passo 4 os bots não respondem; as mensagens de clientes que chegarem nesse intervalo seguem as regras de quando o Hermes está fora do ar. Prefira um horário de pouco movimento.
+
+| Plugin | Chega com o Wabotia | O que muda |
+| --- | --- | --- |
+| 1.0.0 | 0.16.0 | Primeira versão. |
+| 1.1.0 | 0.16.4 | Repassa a chave de sessão por conversa (`X-Hermes-Session-Key`): o bot deixa de misturar a memória de clientes, conversas internas e pessoas diferentes. A memória que o Hermes já guardou na sessão anterior não é apagada. |
+
+Um plugin antigo continua funcionando com um Wabotia mais novo, sem os recursos da versão nova.
+
 ## 3. Pareamento
 
 `POST /api/hermes-link/pair`, sem autenticação além do código (20 tentativas por IP a cada 10 minutos):
@@ -92,7 +129,7 @@ Long-poll por HTTPS com `Authorization: Bearer wabl_…`.
 }
 ```
 
-A chave `session_key` separa a memória do Hermes por conversa: uma por conversa de cliente (`…:conv:<id>`), uma por conversa interna (`…:internal:<id>`), uma por pessoa que pergunta direto ao bot (`…:user:<id>`) e uma por execução avulsa. O plugin a repassa como `X-Hermes-Session-Key` a partir da versão 1.1.0; versões anteriores ignoram o campo e tudo continua funcionando, sem a separação. No caminho por URLs o Wabotia envia o cabeçalho diretamente. O histórico de cada conversa continua indo no `input`; o Wabotia não usa `session_id`, para o Hermes não acumular transcrições repetidas. Para atualizar o plugin, gere um novo comando de instalação no cartão da conexão e reinicie o gateway.
+A chave `session_key` separa a memória do Hermes por conversa: uma por conversa de cliente (`…:conv:<id>`), uma por conversa interna (`…:internal:<id>`), uma por pessoa que pergunta direto ao bot (`…:user:<id>`) e uma por execução avulsa. O plugin a repassa como `X-Hermes-Session-Key` a partir da versão 1.1.0; versões anteriores ignoram o campo e tudo continua funcionando, sem a separação. No caminho por URLs o Wabotia envia o cabeçalho diretamente. O histórico de cada conversa continua indo no `input`; o Wabotia não usa `session_id`, para o Hermes não acumular transcrições repetidas. Para atualizar o plugin, siga a seção 2.1.
 
 ### 4.2 Operações (lista fechada)
 
