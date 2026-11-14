@@ -35,10 +35,20 @@ export const ANTHROPIC_MODELS = [
 // Esforço de raciocínio que o painel oferece. Na Anthropic vai em
 // output_config.effort (padrão "low", suficiente para conversa); na OpenAI e em
 // APIs compatíveis, em reasoning_effort, e só quando escolhido, porque modelos
-// sem raciocínio recusam o campo. Níveis acima de "high" ficam de fora: podem
-// passar do prazo de 60 segundos de cada chamada.
-export const AI_EFFORTS = ["low", "medium", "high"];
-const EFFORT_PROVIDERS: AiProvider[] = ["anthropic", "openai", "compatible"];
+// sem raciocínio recusam o campo. A DeepSeek aceita reasoning_effort "none"
+// (sem raciocínio), "low" e "high" e, sem o campo, raciocina em "high"; o
+// padrão aqui é "low". Níveis acima de "high" ficam de fora: podem passar do
+// prazo de 60 segundos de cada chamada.
+export const AI_EFFORTS: Record<AiProvider, string[]> = {
+  anthropic: ["low", "medium", "high"],
+  openai: ["low", "medium", "high"],
+  compatible: ["low", "medium", "high"],
+  deepseek: ["none", "low", "high"],
+};
+const DEFAULT_EFFORT: Partial<Record<AiProvider, string>> = {
+  anthropic: "low",
+  deepseek: "low",
+};
 
 const CALL_TIMEOUT = 60_000;
 
@@ -78,10 +88,10 @@ export function aiConfig(input: any) {
     cfg.base_url = publicUrl(String(input.base_url));
     cfg.vision = input.vision === true;
   } else cfg.vision = AI_PROVIDERS[provider].vision;
-  const effort = input.effort || (provider === "anthropic" ? "low" : "");
+  const effort = input.effort || DEFAULT_EFFORT[provider] || "";
   if (effort) {
     requireValue(
-      EFFORT_PROVIDERS.includes(provider) && AI_EFFORTS.includes(effort),
+      AI_EFFORTS[provider].includes(effort),
       "Esforço inválido para este provedor.",
     );
     cfg.effort = effort;
@@ -294,8 +304,7 @@ async function openaiComplete(
   if (probe)
     body[cfg.provider === "openai" ? "max_completion_tokens" : "max_tokens"] =
       16;
-  if (cfg.effort && cfg.provider !== "deepseek")
-    body.reasoning_effort = cfg.effort;
+  if (cfg.effort) body.reasoning_effort = cfg.effort;
   // Modo JSON documentado pela OpenAI e pela DeepSeek. Em APIs compatíveis o
   // suporte varia, então a resposta é validada pelo motor de qualquer forma.
   if (request.json && cfg.provider !== "compatible")
@@ -401,7 +410,9 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
           : null;
     // A saída estruturada vai no pedido; a validação fica aqui, depois de
     // conferir o motivo de parada (uma recusa não segue o formato).
-    const effort = AI_EFFORTS.includes(cfg.effort) ? cfg.effort : "low";
+    const effort = AI_EFFORTS.anthropic.includes(cfg.effort)
+      ? cfg.effort
+      : "low";
     const response = await client.messages.create({
       ...params,
       output_config: schema

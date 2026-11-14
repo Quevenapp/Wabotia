@@ -1,4 +1,4 @@
-// Sistemas conectados: pareamento (Vinki, Fagoo) e integração manual pela API.
+// Sistemas conectados: pareamento (Senhapp) e integração manual pela API.
 import React, { useState } from "react";
 import { ArrowUpRight, Code2, Link2, Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
@@ -141,23 +141,17 @@ export function ApplicationsPage() {
       <section className="card integration-explainer">
         <h2>Depois de conectar</h2>
         <p>
-          Para o Vinki, autorize as linhas e os grupos em{" "}
-          <strong>Integração Zernio → Acesso dos sistemas</strong>. Para
-          consultas internas do Fagoo, configure um especialista no Hermes e uma
-          ação permitida para o Atendente.
+          Para o Senhapp, crie as filas e os guichês em{" "}
+          <strong>Gestão → Filas e guichês</strong>. O totem emite senhas, o
+          painel de TV mostra as chamadas e o guichê chama e transfere, cada um
+          com as permissões aprovadas no pareamento.
         </p>
         <div className="card-actions">
           <Button
             secondary
-            onClick={() => navigate({ area: "admin", page: "router" })}
+            onClick={() => navigate({ area: "admin", page: "queue-settings" })}
           >
-            Configurar linhas e distribuição
-          </Button>
-          <Button
-            secondary
-            onClick={() => navigate({ area: "admin", page: "bots" })}
-          >
-            Configurar especialista Hermes
+            Configurar filas e guichês
           </Button>
         </div>
       </section>
