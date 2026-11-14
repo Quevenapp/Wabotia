@@ -50,7 +50,7 @@ import {
   sendMenu,
   availableMenus,
 } from "./line-service";
-import { internalCommand } from "./team";
+import { askBotInChat, internalCommand } from "./team";
 import {
   validateDepartments,
   departmentFor,
@@ -2204,7 +2204,11 @@ export async function perform(
     );
     return { id };
   }
-  if (op === "run.create") return createRun(env, actor, profile, data);
+  if (op === "run.create")
+    return (
+      (await askBotInChat(env, actor, profile, data, requestId)) ||
+      createRun(env, actor, profile, data)
+    );
   if (op === "run.cancel") {
     access(actor, profile, "bots:invoke");
     const run = await one(

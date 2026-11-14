@@ -971,7 +971,7 @@ export async function processRun(env: Env, run: Run) {
       if (json(run.context).followup)
         instructions +=
           " Situação desta mensagem: a conversa já foi encaminhada à equipe humana, que está ausente, e o cliente continua escrevendo. A fonte atendimento descreve o que já foi informado a ele. Responda de forma breve e acolhedora com action answer citando essa fonte, ou clarify se precisar de um detalhe. Não transfira, não abra outro protocolo, não mostre menu e não prometa prazo ou solução além do que está nas fontes.";
-      if (json(run.context).internal_chat_id)
+      if (json(run.context).internal_chat_id && !json(run.context).direct)
         instructions +=
           " Esta é uma conversa interna privada com uma pessoa da equipe, fora do WhatsApp. Responda apenas em texto e não crie arquivos nem envie mensagens a terceiros.";
       if (run.phase === "specialist")
@@ -1095,7 +1095,7 @@ export async function processRun(env: Env, run: Run) {
       if (
         parsed &&
         Array.isArray(parsed.files) &&
-        !json(run.context).internal_chat_id
+        (!json(run.context).internal_chat_id || json(run.context).direct)
       ) {
         const attachments: string[] = [];
         for (const file of parsed.files.slice(0, 5)) {

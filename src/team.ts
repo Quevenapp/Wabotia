@@ -184,6 +184,9 @@ export async function internalCommand(
   op: string,
   data: any,
   requestId: string,
+  // A question asked from the bot screen: same conversation, but the bot may
+  // still return files, as a direct question always could.
+  direct = false,
 ) {
   teamAccess(actor, profile);
   if (op === "internal.create") {
@@ -256,7 +259,11 @@ export async function internalCommand(
       },
       {
         source_key: source,
-        context: { internal_chat_id: chat.id, internal_message_id: id },
+        context: {
+          internal_chat_id: chat.id,
+          internal_message_id: id,
+          ...(direct ? { direct: true } : {}),
+        },
       },
     );
     runId = run.id;
@@ -293,6 +300,66 @@ export async function internalCommand(
     status: runId ? "queued" : "sent",
     run_id: runId,
   };
+}
+/**
+ * A person asking a bot directly (the bot screen of the panel and of the
+ * apps) talks in the same private conversation the internal chat shows, so
+ * the history is one and follows the person across devices. Returns null when
+ * that conversation is not available (integrations, or a bot outside the
+ * person's team directory); the caller then runs a plain direct question.
+ */
+export async function askBotInChat(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  data: any,
+  requestId: string,
+) {
+  if (actor.kind !== "user" || typeof data?.bot_id !== "string") return null;
+  if (typeof data.input !== "string" || !data.input.trim()) return null;
+  const peerId = `bot:${data.bot_id}`;
+  let chat: any;
+  try {
+    if (
+      !(await teamDirectory(env, actor, profile)).data.some(
+        (entry) => entry.id === peerId,
+      )
+    )
+      return null;
+    chat = await internalCommand(
+      env,
+      actor,
+      profile,
+      "internal.create",
+      { peer_id: peerId },
+      requestId,
+    );
+  } catch (error) {
+    if (error instanceof ApiError) return null;
+    throw error;
+  }
+  const message = await internalCommand(
+    env,
+    actor,
+    profile,
+    "internal.send",
+    { id: chat.id, text: data.input },
+    requestId,
+    true,
+  );
+  if (!message.run_id) return null;
+  const run = await one(
+    env,
+    "SELECT id,status FROM bot_runs WHERE id=?",
+    message.run_id,
+  );
+  return { id: message.run_id, status: run?.status || "queued" };
+}
+/** What the person typed, for a run whose input carries the chat history. */
+export function runQuestion(run: any) {
+  if (!json(run.context).internal_chat_id) return run.input;
+  const parsed = json(run.input, null);
+  return typeof parsed?.message === "string" ? parsed.message : run.input;
 }
 export async function finishInternalRun(env: Env, run: any, output: string) {
   const chatId = json(run.context).internal_chat_id;
