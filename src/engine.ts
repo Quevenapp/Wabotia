@@ -58,6 +58,13 @@ import { zernioSend, zernioTemplatePayload, zernioTyping } from "./zernio";
 import { presentInDepartment } from "./departments";
 import { formatBrasilia } from "./business-time";
 import { visibleEvent } from "./visibility";
+import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
+import {
+  activeBlock,
+  blockMessage,
+  normalizePhone,
+  queueSettings,
+} from "./queue";
 const system: Actor = {
   id: "bot:attendant",
   kind: "user",
@@ -231,6 +238,65 @@ export async function processInbox(env: Env, profile: string) {
       line.menu_mode === "automatic" && c.state !== "human";
     const menuInteraction = policy.menu && (automaticMenus || !!c.menu_active);
     const replyId = data.content?.interactive_reply_id;
+    // Fila de senhas: coupon link, SENHA/SAIR and the open queue question.
+    const queueResult = await queueTurn(env, c, row, value, replyId);
+    if (queueResult.handled) {
+      if (
+        queueResult.menu &&
+        policy.menu &&
+        (
+          await availableMenus(
+            env,
+            profile,
+            c.connection_id,
+            null,
+            !!c.menu_manual,
+            c.chat_type,
+          )
+        ).length
+      )
+        await sendMenu(
+          env,
+          system,
+          c,
+          null,
+          `queue-menu:${row.id}`,
+          !!c.menu_manual,
+        );
+      return;
+    }
+    c = await conversation(env, c.id, profile);
+    // Front door of the queue: any first message of the session gets the menu.
+    const menuOpen =
+      !!c.menu_active &&
+      !!c.menu_token?.startsWith(c.session + ".") &&
+      (c.menu_expires_at || 0) > now();
+    if (
+      policy.menu &&
+      automaticMenus &&
+      !replyId &&
+      !awaitingTicket &&
+      !menuOpen &&
+      (c.state === "ai" || (c.state === "waiting" && data.queued_by_line)) &&
+      (await queueFrontDoor(env, c, row.id, async () => {
+        if (
+          !(
+            await availableMenus(
+              env,
+              profile,
+              c.connection_id,
+              null,
+              false,
+              c.chat_type,
+            )
+          ).length
+        )
+          return false;
+        await sendMenu(env, system, c, null, `front:${row.id}`, false);
+        return true;
+      }))
+    )
+      return;
     // Protocol opened by the customer. The source key makes a replayed row
     // finish the protocol it already opened instead of creating another one.
     let leftTicketPrompt = false;
@@ -529,7 +595,30 @@ export async function processInbox(env: Env, profile: string) {
         );
         return;
       }
+      if (choice.type === "queue" && c.chat_type !== "group") {
+        await startQueue(env, c, choice.queue_id || null, row.id);
+        return;
+      }
       if (choice.type === "human") {
+        const qcfg = queueSettings(cfg);
+        const blocked = qcfg.blocked_can_talk
+          ? null
+          : await activeBlock(
+              env,
+              profile,
+              normalizePhone(c.phone || c.external_id),
+            );
+        if (blocked) {
+          await enqueue(
+            env,
+            c,
+            "system",
+            "text",
+            { text: blockMessage(blocked), automation: "queue" },
+            `queue-blocked:${row.id}`,
+          );
+          return;
+        }
         await handoff(
           env,
           c,

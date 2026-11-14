@@ -13,6 +13,9 @@ const names: Row = {
   "bots:read": "Consultar bots",
   "bots:invoke": "Consultar os bots escolhidos",
   "events:read": "Acompanhar eventos",
+  "queue:read": "Ver a fila de senhas (painel)",
+  "queue:issue": "Emitir senhas (totem)",
+  "queue:operate": "Chamar e transferir senhas (guichê)",
 };
 export function PairingPanel({
   api,
@@ -85,7 +88,7 @@ export function PairingPanel({
   async function action(fn: () => Promise<void>) {
     if (demo) {
       setNotice(
-        "Demonstração: o pareamento funciona na sua instalação, com o código gerado pelo Vinki ou Fagoo.",
+        "Demonstração: o pareamento funciona na sua instalação, com o código gerado pelo Vinki, Fagoo ou Senhapp.",
       );
       return;
     }
@@ -106,7 +109,7 @@ export function PairingPanel({
   return (
     <section className="card pairing-panel">
       <h2>
-        <Link2 size={21} /> Parear Vinki ou Fagoo
+        <Link2 size={21} /> Parear Vinki, Fagoo ou Senhapp
       </h2>
       <p>
         No sistema que deseja conectar, escolha{" "}
@@ -124,13 +127,16 @@ export function PairingPanel({
             });
             setRequest(value);
             setScopes(
-              value.allowed_scopes.filter((scope: string) =>
-                [
-                  "routing:read",
-                  "routing:send",
-                  "conversations:write",
-                ].includes(scope),
-              ),
+              // Senhapp (totem/painel) needs only the queue: all of it by default.
+              value.client === "senhapp"
+                ? value.allowed_scopes
+                : value.allowed_scopes.filter((scope: string) =>
+                    [
+                      "routing:read",
+                      "routing:send",
+                      "conversations:write",
+                    ].includes(scope),
+                  ),
             );
           });
         }}

@@ -15,6 +15,7 @@ import { TeamArea } from "../team/TeamArea";
 import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
+import { QueueArea } from "../queue/QueueArea";
 
 function Areas() {
   const app = useApp();
@@ -50,6 +51,8 @@ function Areas() {
         <TeamArea key={app.profile} sub={route.sub} id={route.id} />
       ) : route.area === "calls" ? (
         <CallsArea key={app.profile} />
+      ) : route.area === "queue" ? (
+        <QueueArea key={app.profile} />
       ) : route.area === "contacts" ? (
         <ContactsArea key={app.profile} />
       ) : route.area === "more" ? (

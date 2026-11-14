@@ -37,6 +37,10 @@ export const pairingClients = {
       "events:read",
     ],
   },
+  senhapp: {
+    name: "Senhapp",
+    scopes: ["queue:read", "queue:issue", "queue:operate", "events:read"],
+  },
 } as const;
 type Client = keyof typeof pairingClients;
 const duration = 10 * 60_000;
@@ -87,7 +91,7 @@ export async function pairingStart(
   await rate(env, "pair-start:" + (await sha(ip)), 10, 600_000);
   requireValue(
     body && Object.hasOwn(pairingClients, body.client),
-    "Escolha Vinki ou Fagoo.",
+    "Escolha Vinki, Fagoo ou Senhapp.",
   );
   requireValue(
     typeof body.instance_name === "string" &&

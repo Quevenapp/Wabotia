@@ -76,6 +76,7 @@ import {
   defaultProtocolConfirmation,
 } from "./protocols";
 import { applyServiceTemplate } from "./service-templates";
+import { queueCommand, validateQueueSettings } from "./queue";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -106,6 +107,9 @@ export const scopes = [
   "bots:invoke",
   "events:read",
   "webhooks:manage",
+  "queue:read",
+  "queue:issue",
+  "queue:operate",
 ];
 export const eventTypes = [
   "conversation.created",
@@ -118,6 +122,16 @@ export const eventTypes = [
   "ticket.updated",
   "bot.run.completed",
   "bot.run.failed",
+  "queue.issued",
+  "queue.called",
+  "queue.recalled",
+  "queue.started",
+  "queue.finished",
+  "queue.no_show",
+  "queue.cancelled",
+  "queue.transferred",
+  "queue.counter",
+  "queue.changed",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(
@@ -1026,6 +1040,8 @@ export async function perform(
     return groupCommand(env, actor, profile, op, data, requestId);
   if (op === "message.action")
     return messageAction(env, actor, profile, data, requestId);
+  if (op.startsWith("queue.") || op.startsWith("counter."))
+    return queueCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("contact."))
     return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("system.")) {
@@ -1304,6 +1320,11 @@ export async function perform(
       "A saudação do menu deve ter até 900 caracteres.",
     );
     next.menu_greeting = next.menu_greeting.trim();
+    if (data.queue !== undefined)
+      next.queue = validateQueueSettings({
+        ...(old.queue || {}),
+        ...data.queue,
+      });
     requireValue(
       JSON.stringify(next).length <= 150000,
       "Configuração muito grande.",
@@ -1371,9 +1392,20 @@ export async function perform(
           "protocols",
           "survey",
           "ticket",
+          "queue",
         ].includes(item.type),
         "Destino de menu inválido.",
       );
+      if (item.type === "queue" && item.queue_id)
+        requireValue(
+          await one(
+            env,
+            "SELECT id FROM queues WHERE id=? AND profile_id=?",
+            item.queue_id,
+            profile,
+          ),
+          "Fila do menu não encontrada.",
+        );
       if (item.type === "ticket") {
         if (item.category_id)
           requireValue(

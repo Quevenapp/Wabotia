@@ -262,7 +262,19 @@ export async function zernioTemplatePayload(
     "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
     conversation.id,
   );
-  if (consent?.status !== "granted" || !cfg.notifications?.enabled)
+  // A queue call is a notice the customer asked for when taking the ticket.
+  const queueTicket = payload.queue_ticket_id
+    ? await one(
+        env,
+        "SELECT id FROM queue_tickets WHERE id=? AND conversation_id=? AND status IN ('waiting','called','serving')",
+        payload.queue_ticket_id,
+        conversation.id,
+      )
+    : null;
+  if (
+    (consent?.status !== "granted" && !queueTicket) ||
+    !cfg.notifications?.enabled
+  )
     throw new ApiError(
       409,
       "notification_waiting",

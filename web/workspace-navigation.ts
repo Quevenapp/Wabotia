@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   Star,
+  Ticket,
   Users,
   Zap,
 } from "lucide-react";
@@ -30,6 +31,7 @@ export const sections = [
   ["calls", "Ligações", Phone],
   ["groups", "Grupos WhatsApp", Users],
   ["tickets", "Protocolos", FileText],
+  ["queue", "Fila de senhas", Ticket],
   ["contacts", "Contatos", BookOpen],
   ["users", "Pessoas e acessos", Users],
   ["presence", "Disponibilidade", Headphones],
@@ -39,6 +41,7 @@ export const sections = [
   ["templates", "Modelos de atendimento", LayoutTemplate],
   ["knowledge", "Conhecimento", BookOpen],
   ["settings", "Regras de atendimento", Settings],
+  ["queue-settings", "Filas e guichês", Ticket],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -64,6 +67,7 @@ export type AreaId =
   | "tickets"
   | "team"
   | "calls"
+  | "queue"
   | "contacts"
   | "admin";
 
@@ -72,6 +76,7 @@ export const pageArea: Partial<Record<PageId, AreaId>> = {
   conversations: "conversations",
   tickets: "tickets",
   calls: "calls",
+  queue: "queue",
   contacts: "contacts",
   // "Disponibilidade" e "Conversa interna" foram absorvidas por Equipe.
   presence: "team",
@@ -87,7 +92,14 @@ export const workspaceGroups = [
     id: "automation",
     label: "Automação",
     icon: Bot,
-    pages: ["bots", "menus", "templates", "knowledge", "settings"],
+    pages: [
+      "bots",
+      "menus",
+      "templates",
+      "knowledge",
+      "settings",
+      "queue-settings",
+    ],
   },
   {
     id: "channels",
@@ -115,6 +127,7 @@ export const workspaceGroups = [
 const adminPages: ReadonlySet<string> = new Set([
   "setup",
   "settings",
+  "queue-settings",
   "menus",
   "templates",
   "lines",
@@ -163,12 +176,17 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Comece por um modelo pronto: menus, setores, categorias e prazos de uma vez.",
   knowledge: "Informações confiáveis para fundamentar as respostas.",
   settings: "Defina orientações, prazos, avaliações e a participação do JEV.",
+  queue:
+    "Chame senhas no guichê, transfira entre filas e acompanhe a espera.",
+  "queue-settings":
+    "Crie filas e guichês, ligue a fila no WhatsApp, painéis de TV, totens Senhapp e a lista negra.",
   router:
     "Configure a Integração Zernio, encontre seus telefones e configure a distribuição de mensagens.",
   lines: "Escolha o bot ou a equipe responsável por cada telefone conectado.",
   connections:
     "Conecte o Hermes ou um provedor de IA e confira o funcionamento dos canais.",
-  applications: "Gerencie o acesso de sistemas como Vinki e Fagoo ao Wabotia.",
+  applications:
+    "Gerencie o acesso de sistemas como Vinki, Fagoo e Senhapp ao Wabotia.",
   presence: "Informe quando você está disponível para assumir atendimentos.",
   team: "Converse com pessoas e bots da equipe sem enviar mensagens ao cliente.",
   surveys:
