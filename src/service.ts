@@ -591,6 +591,12 @@ export async function handoff(
     "Setor de atendimento indisponível.",
   );
   const policy = await getNumberPolicy(env, c.connection_id);
+  // Already waiting for the same team: a repeated handoff (the customer asks
+  // again, the bot fails again) must not repeat the notice. Any other handoff
+  // is a new one and the customer has to be told, even in the same session:
+  // a person may have answered and returned the conversation to the bot.
+  const repeated =
+    c.state === "waiting" && (c.department_id || null) === departmentId;
   await batch(env, [
     [
       "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
@@ -629,14 +635,27 @@ export async function handoff(
       }`;
     }
   }
-  if (policy.human && policy.service && (policy.menu || policy.bots)) {
+  const key = `handoff:${c.id}:${c.session}:${departmentId || "general"}`;
+  // Nothing new to say to someone already waiting and already told in this
+  // session, unless a protocol was opened just now.
+  const told =
+    repeated &&
+    !opened &&
+    !!(await one(
+      env,
+      "SELECT 1 AS x FROM outbox WHERE substr(dedupe,1,?)=? LIMIT 1",
+      key.length,
+      key,
+    ));
+  if (policy.human && policy.service && (policy.menu || policy.bots) && !told) {
     await enqueue(
       env,
       c,
       "system",
       "text",
       { text: reply },
-      `handoff:${c.id}:${c.session}:${departmentId || "general"}`,
+      // One notice per entry into the queue: the epoch was just advanced.
+      `${key}:${c.epoch}`,
     );
     if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
   }
