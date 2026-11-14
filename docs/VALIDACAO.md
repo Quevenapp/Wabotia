@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.17.1 de 14/11/2026: excluir conexões Hermes e de IA
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `33bd3a011b745fa094b149ab6b484225b2bb7c27`, a partir da `main` (0.17.0) com o PR 18. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.17.1-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.17.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `cd3dc2cd1bb453b1f685014c539e93f3c118d07af97a03252fb960f43d0dba2c` (16155401 bytes), e as 32 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Conexões Hermes e de provedor de IA pausadas podem ser excluídas: a conexão, os bots e a chave são apagados, o histórico fica, e a exclusão é recusada enquanto um bot dela estiver em uso ou com execução em andamento. O limite do pacote no atualizador sobe para 24 MB; instalações até a 0.17.0 aceitam 20 MB, e este pacote tem 16,2 MB. **611 testes em 51 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.17.1-distribution.json).
+
+Não verificado: o botão **Excluir conexão** no navegador.
+
 ## Publicação 0.17.0 de 14/11/2026: bot por provedor de IA, sem Hermes
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `80d9386b4d93e3c03e72001f5a032bfa69b9ef6e`, a partir da `main` (0.16.6) com o PR 17. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.17.0-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.17.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `e6c9efbfbfe80c8324599f316746689a5b1991c963cf6579de97dd2a7e4dd4a6` (16147901 bytes), e as 31 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
