@@ -33,6 +33,7 @@ import {
   requireValue,
 } from "./types";
 import { all, one, exec, batch } from "./db";
+import { documentText } from "./knowledge";
 import {
   ensureInstallationArea,
   installationAreaInsert,
@@ -952,6 +953,7 @@ const commands = [
   ["POST", "bot-runs", "run.create"],
   ["POST", "bot-runs/:id/cancel", "run.cancel"],
   ["POST", "knowledge", "knowledge.create"],
+  ["PATCH", "knowledge/:id", "knowledge.update"],
   ["DELETE", "knowledge/:id", "knowledge.delete"],
   ["POST", "webhook-subscriptions", "webhook.create"],
   ["DELETE", "webhook-subscriptions/:id", "webhook.disable"],
@@ -986,6 +988,22 @@ for (const [method, path, op] of commands)
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
     }),
   );
+// Uma fonte do Conhecimento com o texto completo, para edição no painel.
+app.get("/api/v1/profiles/:profile/knowledge/:id", async (c) => {
+  const profile = c.req.param("profile");
+  access(c.get("actor"), profile, "knowledge:read");
+  const doc = await one(
+    c.env,
+    "SELECT * FROM documents WHERE id=? AND profile_id=?",
+    c.req.param("id"),
+    profile,
+  );
+  if (!doc) throw new ApiError(404, "not_found", "Fonte não encontrada.");
+  return c.json({
+    ...doc,
+    text: await documentText(c.env, profile, doc.id),
+  });
+});
 app.post("/api/v1/bot-runs", async (c) => {
   const data = await c.req.json();
   requireValue(typeof data.profile_id === "string", "Informe profile_id.");
