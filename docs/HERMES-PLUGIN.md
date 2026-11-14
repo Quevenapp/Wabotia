@@ -57,7 +57,7 @@ O plugin não se atualiza sozinho. Uma versão nova do Wabotia pode trazer um pl
    curl -fsSL https://SUA_INSTALACAO/hermes-plugin/install.sh | bash -s -- https://SUA_INSTALACAO wabp_CODIGO [perfil ...]
    ```
 
-   **Hermes em Docker:** o painel mostra o comando na forma acima; troque `bash -s --` por `docker exec -i -u hermes CONTEINER bash -s --`, como na instalação:
+   **Hermes em Docker:** na mesma janela, abra **Meu Hermes roda em Docker**: ela traz, prontos para copiar, os comandos para descobrir o nome do contêiner, instalar, reiniciar e conferir a versão. O de instalação tem esta forma:
 
    ```sh
    curl -fsSL https://SUA_INSTALACAO/hermes-plugin/install.sh | docker exec -i -u hermes CONTEINER bash -s -- https://SUA_INSTALACAO wabp_CODIGO
