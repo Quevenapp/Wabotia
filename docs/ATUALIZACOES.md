@@ -150,6 +150,10 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.19.3: resumo no protocolo já aberto
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. Com a equipe ausente, cada conversa tem um protocolo aberto por vez; quando o bot transfere de novo e já existe um, o cliente recebe o mesmo número e o resumo do novo pedido entra nesse protocolo como nota interna ("Nova solicitação nesta conversa"), visível só para a equipe. Depois de atualizar, clique em **Reabrir painel atualizado**.
+
 ## Atualização 0.19.2: bot segue o atendimento, avaliação e notificações de protocolo
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare.
