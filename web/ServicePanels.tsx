@@ -1181,11 +1181,14 @@ export function MenusPanel(props: Props) {
                     }
                   >
                     <option value="">Selecione</option>
-                    {bots.map((b) => (
-                      <option value={b.id} key={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
+                    {/* Item de menu executa uma ação: só bots do Hermes. */}
+                    {bots
+                      .filter((b) => b.connection_kind !== "ai")
+                      .map((b) => (
+                        <option value={b.id} key={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
                   </select>
                 </label>
               )}

@@ -21,18 +21,27 @@ import { CloudflareDeploy } from "../SystemPanel";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { SecretDialog, useList } from "./shared";
 
+const aiProviderText: Row = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  deepseek: "DeepSeek",
+  compatible: "API compatível com OpenAI",
+};
+
 const kindText = (kind: string) =>
   kind === "hermes"
     ? "Bots e ferramentas"
-    : kind === "telegram"
-      ? "Telegram · canal removido"
-      : kind === "meta"
-        ? "WhatsApp Meta · integração anterior"
-        : kind === "zernio"
-          ? "WhatsApp pela Zernio"
-          : kind === "qr"
-            ? "WhatsApp por QR"
-            : "WhatsApp pelo Hermes";
+    : kind === "ai"
+      ? "Bot por provedor de IA, sem servidor"
+      : kind === "telegram"
+        ? "Telegram · canal removido"
+        : kind === "meta"
+          ? "WhatsApp Meta · integração anterior"
+          : kind === "zernio"
+            ? "WhatsApp pela Zernio"
+            : kind === "qr"
+              ? "WhatsApp por QR"
+              : "WhatsApp pelo Hermes";
 
 // Tipos de conexão que deixaram de existir: só podem ser excluídos.
 const removedKinds = ["meta", "telegram"];
@@ -79,8 +88,9 @@ export function ConnectionsPage() {
         <div>
           <strong>Um lugar para cada conexão</strong>
           <p>
-            Cadastre o Hermes para usar seus bots. A equipe atende pelo painel e
-            pelos aplicativos. A Integração Zernio e seus telefones ficam em{" "}
+            Use bots pelo Hermes, com ferramentas, ou direto por um provedor de
+            IA, sem servidor. A equipe atende pelo painel e pelos aplicativos. A
+            Integração Zernio e seus telefones ficam em{" "}
             <a {...linkProps({ area: "admin", page: "router" })}>
               Integração Zernio
             </a>
@@ -100,7 +110,10 @@ export function ConnectionsPage() {
         />
       </details>
       <div className="toolbar">
-        <p>Hermes fornece a inteligência. Os canais trazem as conversas.</p>
+        <p>
+          O Hermes ou o provedor de IA fornece a inteligência. Os canais trazem
+          as conversas.
+        </p>
         <Button
           onClick={() => setEditing({ kind: "hermes" })}
           icon={<Plus size={17} />}
@@ -119,7 +132,7 @@ export function ConnectionsPage() {
           <section className="card integration-card" key={row.id}>
             <div className="section-heading">
               <span className="integration-icon">
-                {row.kind === "hermes" ? <Bot /> : <Plug />}
+                {["hermes", "ai"].includes(row.kind) ? <Bot /> : <Plug />}
               </span>
               <Badge value={row.status} />
             </div>
@@ -141,10 +154,24 @@ export function ConnectionsPage() {
               </button>
             )}
             <p>{kindText(row.kind)}</p>
+            {row.kind === "ai" && (
+              <p>
+                {aiProviderText[parse(row.config).provider] ||
+                  parse(row.config).provider}{" "}
+                · {parse(row.config).model}
+                {parse(row.config).effort
+                  ? ` · esforço ${({ low: "baixo", medium: "médio", high: "alto" } as Row)[parse(row.config).effort] || parse(row.config).effort}`
+                  : ""}
+                {parse(row.config).text_only !== false
+                  ? " · apenas mensagens"
+                  : ""}
+              </p>
+            )}
             <small>Último contato: {date(row.last_seen)}</small>
             {!removedKinds.includes(row.kind) && (
               <ConnectionDiagnostics
                 hermes={row.kind === "hermes"}
+                listsBots={["hermes", "ai"].includes(row.kind)}
                 demo={demo}
                 disabled={busy}
                 request={(action, signal) =>
@@ -285,7 +312,7 @@ export function ConnectionsPage() {
           <Empty
             icon={<Plug size={28} />}
             title="Conecte seu primeiro serviço"
-            description="Comece pelo Hermes. Depois configure o WhatsApp."
+            description="Comece pelo Hermes ou por um provedor de IA. Depois configure o WhatsApp."
           />
         </section>
       )}

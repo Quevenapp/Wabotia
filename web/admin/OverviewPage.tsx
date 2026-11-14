@@ -46,6 +46,7 @@ function Stat({
 
 const connectionKinds: Row = {
   hermes: "Hermes",
+  ai: "Provedor de IA",
   zernio: "WhatsApp · Zernio",
   qr: "WhatsApp · QR",
   "hermes-whatsapp": "WhatsApp · Hermes",
@@ -199,7 +200,7 @@ export function OverviewPage() {
               compact
               icon={<Link2 size={24} />}
               title="O primeiro elo começa aqui"
-              description="Conecte o Hermes e seus canais para acompanhar o estado de cada serviço."
+              description="Conecte o Hermes ou um provedor de IA e seus canais para acompanhar o estado de cada serviço."
             />
           )}
           {app.isAdmin && (

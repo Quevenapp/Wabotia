@@ -269,6 +269,8 @@ Pause os canais antigos antes de ativar os mesmos números/bots na nova instala�
 
 ## 4. Conecte o Hermes pelo plugin (recomendado)
 
+**Sem servidor para o Hermes?** Conecte um provedor de IA direto (Anthropic, OpenAI, DeepSeek ou API compatível) em **Hermes e canais → Nova conexão → Provedor de IA**, teste a conexão e pule para o item 5 da seção 6. O bot conversa com base nas suas fontes e menus, mas não executa ações em outros sistemas nem pode ser especialista. Veja [Bot por provedor de IA](PROVEDOR-IA.md).
+
 Um comando na máquina do Hermes, sem túnel, sem domínio e sem chaves do Hermes guardadas no Wabotia. Detalhes e limites em [Plugin Wabotia para o Hermes Agent](HERMES-PLUGIN.md).
 
 1. Tenha o Hermes funcionando, com modelo e provedor configurados. Quem ainda não tem pode usar uma VPS com a imagem pronta do Hermes Agent, como a da Hostinger.
@@ -307,7 +309,7 @@ O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele
 
 ## 6. Conecte e escolha a Equipe Bot
 
-Com o plugin, a conexão já está feita: comece no item 5. Os itens 1 a 4 valem para o caminho por túnel.
+Com o plugin, a conexão já está feita: comece no item 5. Com um provedor de IA, o **Testar conexão** cria o bot: ative a conexão, habilite o bot em **Atendente e especialistas**, escolha-o como Atendente e siga do item 6. Os itens 1 a 4 valem para o caminho por túnel.
 
 1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, escolha **URLs públicas com túnel Cloudflare**, dê um nome e preencha as URLs HTTPS administrativa e da API.
 2. Cole o token administrativo e a `API_SERVER_KEY` de cada atendimento Hermes. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários atendimentos Hermes, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 atendimentos Hermes por conexão.
