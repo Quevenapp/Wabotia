@@ -81,7 +81,7 @@ def shot(name,caption,width=CW,crop=None):story.extend([Shot(name,width,crop),Pa
 def link(label,url):return f'<link href="{url}" color="#34684f"><u>{label}</u></link>'
 append_zernio_chapter=runpy.run_path(str(ROOT/'scripts/zernio-guide-pages.py'))['append_zernio_chapter']
 # Capa
-p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.16.6','eyebrow')
+p('WABOTIA / CÓDIGO ABERTO / VERSÃO 0.17.0','eyebrow')
 p('Seu atendimento.<br/>Bem conectado.','cover')
 p('Guia para instalar na Cloudflare pelo navegador,<br/>conectar o Hermes e preparar sua equipe.','sub')
 shot('01-inicio.jpg','Página inicial do Wabotia. As ilustrações e conversas de exemplo são fictícias.',width=430)
