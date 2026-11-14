@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.18.0 de 14/11/2026: fila de espera com senha, Senhapp, excluir setores
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `eb267f72ca0c364436e87212aca2e9a4cab4eb32`, a partir da `main` (0.17.1) com o PR 19. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.18.0-distribution-20261114`, fora do Git); a migração `0017_queue.sql` foi aplicada na distribuição antes do deploy. `/api/health` responde 0.18.0 nesse commit e `/painel` responde 200. O pacote baixado do catálogo confere com o SHA-256 `bc9054c6b45c03afbbbfcbaf6bdca5da45680c5a4b255b89ff938e7d3b5ee6bd` (16317078 bytes), e as 33 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Fila de espera com senha ([contrato](FILA-SENHAS.md)) com pareamento do Senhapp; o painel deixa de parear Vinki e Fagoo, mantendo os vínculos existentes. Exclusão de setores, recusada enquanto um item de menu usa o setor. Esforço de raciocínio na DeepSeek (`none`, `low`, `high`). Sem Durable Object, binding ou secret novo. **638 testes em 55 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.18.0-distribution.json).
+
+Não verificado: as telas novas no navegador, a fila com o Senhapp real nesta base (testada em bancada sobre a 0.16.6) e chamadas reais à DeepSeek com `reasoning_effort`.
+
 ## Publicação 0.17.1 de 14/11/2026: excluir conexões Hermes e de IA
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `33bd3a011b745fa094b149ab6b484225b2bb7c27`, a partir da `main` (0.17.0) com o PR 18. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.17.1-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.17.1 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `cd3dc2cd1bb453b1f685014c539e93f3c118d07af97a03252fb960f43d0dba2c` (16155401 bytes), e as 32 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
