@@ -261,6 +261,8 @@ export async function discover(env: Env, id: string, profile: string) {
   );
   requireValue(c, "Conexão Hermes não encontrada.");
   const data = await hermesRequest(env, c, "/api/profiles");
+  // A bot renamed in the panel keeps its name; the others follow the Hermes.
+  const names = json(c.config).bot_names || {};
   for (const p of data.profiles || []) {
     if (typeof p.name !== "string") continue;
     await exec(
@@ -270,7 +272,9 @@ export async function discover(env: Env, id: string, profile: string) {
       profile,
       c.id,
       p.name,
-      p.display_name || p.name,
+      (typeof names[p.name] === "string" && names[p.name]) ||
+        p.display_name ||
+        p.name,
     );
   }
   const keys = await secret(env, `connection:${id}`);

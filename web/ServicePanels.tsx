@@ -267,18 +267,27 @@ function LineCard({
           </label>
         )}
         <label>
-          Quando apresentar o menu
+          Como o atendimento começa
           <select
             value={draft.menu_mode}
             disabled={state.busy}
             onChange={(e) => setDraft({ ...draft, menu_mode: e.target.value })}
           >
             <option value="automatic">
-              Automaticamente e quando solicitado
+              Menu primeiro: o cliente escolhe no menu e o bot continua
             </option>
-            <option value="manual">Quando uma pessoa ou bot chamar</option>
-            <option value="off">Não usar menus nesta linha</option>
+            <option value="manual">
+              Bot primeiro: o bot conversa e abre o menu quando precisar
+            </option>
+            <option value="off">Sem menu: só o bot ou a equipe</option>
           </select>
+          <small>
+            {draft.menu_mode === "manual"
+              ? "O bot faz o pré-atendimento, pergunta o que falta e responde pelo Conhecimento. Se não resolver, transfere com um resumo: com a equipe ausente, o resumo vira o protocolo. Se o cliente pedir o menu, o bot o abre."
+              : draft.menu_mode === "off"
+                ? "Nenhum menu é mostrado nesta linha, nem a pedido do cliente."
+                : "Saudações como “oi” recebem o menu. Mensagens com uma pergunta vão direto ao bot, que também pode abrir o menu."}
+          </small>
         </label>
         <button className="primary" disabled={state.busy}>
           Salvar atendimento da linha

@@ -559,6 +559,29 @@ const schemas = {
       text: { type: "string" },
       url: { type: "string", format: "uri" },
       media_id: { type: "string" },
+      usage: {
+        type: "string",
+        maxLength: 2000,
+        description:
+          "Quando e como o bot pode usar a fonte. Vai com os trechos para o bot.",
+      },
+    },
+  },
+  KnowledgeUpdate: {
+    type: "object",
+    properties: {
+      title: { type: "string" },
+      text: {
+        type: "string",
+        description: "Só em fontes de texto: substitui todo o conteúdo.",
+      },
+      url: {
+        type: "string",
+        format: "uri",
+        description:
+          "Só em página ou vídeo: um endereço novo é importado de novo.",
+      },
+      usage: { type: "string", description: "Vazio remove a orientação." },
     },
   },
   Webhook: {
@@ -930,6 +953,19 @@ const operations: [string, string, string, string?, string?][] = [
     "Importar fonte",
     "knowledge:write",
     "Knowledge",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/knowledge/{id}",
+    "Consultar fonte com o texto completo",
+    "knowledge:read",
+  ],
+  [
+    "patch",
+    "/profiles/{profile}/knowledge/{id}",
+    "Editar fonte",
+    "knowledge:write",
+    "KnowledgeUpdate",
   ],
   [
     "delete",

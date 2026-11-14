@@ -8,10 +8,35 @@ import {
   categoryName,
 } from "./protocols";
 
+const PROTOCOL = /\bWA-[A-Z0-9]+-[A-Z0-9]{4}\b/i;
+
+/** Número de protocolo citado na mensagem. Uma mensagem curta que é só o
+ * número também vale com espaços, pontos ou traços digitados no meio
+ * ("wa-mweq9z2z-a 185"), como acontece ao copiar ou ditar o número. */
 export function protocolNumber(value: string) {
+  const text = String(value || "");
+  const found =
+    text.match(PROTOCOL)?.[0] ||
+    (text.length <= 40
+      ? compactProtocol(text).match(
+          new RegExp(`^${PROTOCOL.source}$`, "i"),
+        )?.[0]
+      : undefined);
+  return found?.toUpperCase();
+}
+
+/** A mensagem inteira é um número de protocolo (com a mesma tolerância). */
+export function isOnlyProtocolNumber(value: string) {
+  const number = protocolNumber(value);
+  return !!number && compactProtocol(value).toUpperCase() === number;
+}
+
+function compactProtocol(value: string) {
+  // Separadores dentro de cada parte somem; os traços entre as partes ficam.
   return String(value || "")
-    .match(/\bWA-[A-Z0-9]+-[A-Z0-9]{4}\b/i)?.[0]
-    .toUpperCase();
+    .trim()
+    .replace(/[\s.]+/g, "")
+    .replace(/[–—_]/g, "-");
 }
 
 // Only provider-authenticated identities may join conversations. A phone supplied
@@ -42,7 +67,7 @@ export async function lookupProtocols(
   );
   const query = number ? protocolNumber(number) : undefined;
   requireValue(
-    !number || query === number.trim().toUpperCase(),
+    !number || isOnlyProtocolNumber(number),
     "Informe o número completo do protocolo, como WA-ABC123-1A2B.",
   );
   const phone = verifiedPhone(c);
