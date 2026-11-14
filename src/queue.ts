@@ -211,24 +211,50 @@ export function estimateMinutes(
 ) {
   return Math.ceil((ahead * minutes) / Math.max(1, counters));
 }
+/**
+ * Normals the queue still owes before the next preferential (the cycle of
+ * `pickNext`): right after a preferential, `normals_per_preferential` normals
+ * go first when they are waiting.
+ */
+export const normalsOwed = (queue: any) =>
+  !queue?.normals_per_preferential ||
+  queue.normals_since_preferential === null ||
+  queue.normals_since_preferential === undefined
+    ? 0
+    : Math.max(
+        0,
+        queue.normals_per_preferential - queue.normals_since_preferential,
+      );
+
 /** People ahead of a new ticket of this type. */
-const aheadOfNew = (
+export const aheadOfNew = (
   waiting: { normal: number; preferential: number },
   preferential: boolean,
+  owed = 0,
 ) =>
-  preferential ? waiting.preferential : waiting.normal + waiting.preferential;
+  preferential
+    ? waiting.preferential + Math.min(owed, waiting.normal)
+    : waiting.normal + waiting.preferential;
 
 /** People ahead of an existing waiting ticket. */
 async function aheadOf(env: Env, ticket: any) {
   if (ticket.status !== "waiting") return 0;
+  if (ticket.preferential) {
+    const row = await one(
+      env,
+      "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1 AND (created_at<?3 OR (created_at=?3 AND seq<?4))) pref,(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0) normal,(SELECT normals_per_preferential FROM queues WHERE id=?1) normals_per_preferential,(SELECT normals_since_preferential FROM queues WHERE id=?1) normals_since_preferential",
+      ticket.queue_id,
+      ticket.service_day,
+      ticket.created_at,
+      ticket.seq,
+    );
+    return (row?.pref || 0) + Math.min(normalsOwed(row), row?.normal || 0);
+  }
   const row = await one(
     env,
-    ticket.preferential
-      ? "SELECT count(*) n FROM queue_tickets WHERE queue_id=? AND service_day=? AND status='waiting' AND preferential=1 AND (created_at<? OR (created_at=? AND seq<?))"
-      : "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0 AND (created_at<?3 OR (created_at=?4 AND seq<?5)))+(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1) n",
+    "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0 AND (created_at<?3 OR (created_at=?3 AND seq<?4)))+(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1) n",
     ticket.queue_id,
     ticket.service_day,
-    ticket.created_at,
     ticket.created_at,
     ticket.seq,
   );
@@ -393,7 +419,7 @@ export async function overview(
       wait_minutes: {
         normal: estimateMinutes(aheadOfNew(waiting, false), minutes, counters),
         preferential: estimateMinutes(
-          aheadOfNew(waiting, true),
+          aheadOfNew(waiting, true, normalsOwed(q)),
           minutes,
           counters,
         ),

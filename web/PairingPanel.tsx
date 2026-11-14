@@ -17,6 +17,7 @@ const names: Row = {
   "queue:issue": "Emitir senhas (totem)",
   "queue:operate": "Chamar e transferir senhas (guichê)",
 };
+const clientNames: Row = { vinki: "Vinki", fagoo: "Fagoo", senhapp: "Senhapp" };
 export function PairingPanel({
   api,
   demo,
@@ -191,7 +192,7 @@ export function PairingPanel({
         >
           <div className="section-heading">
             <h3>
-              {request.client === "vinki" ? "Vinki" : "Fagoo"} ·{" "}
+              {clientNames[request.client] || request.client} ·{" "}
               {request.instance_name}
             </h3>
             <button
@@ -336,8 +337,7 @@ export function PairingPanel({
         <div className="connection-row" key={item.id}>
           <div>
             <strong>
-              {item.client === "vinki" ? "Vinki" : "Fagoo"} ·{" "}
-              {item.instance_name}
+              {clientNames[item.client] || item.client} · {item.instance_name}
             </strong>
             <small>
               {(

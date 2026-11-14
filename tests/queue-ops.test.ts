@@ -135,6 +135,28 @@ describe("operações da fila", () => {
     expect(done.n).toBe(3);
   });
 
+  it("à frente da preferencial conta as normais que ainda têm a vez", async () => {
+    // Bancada 14/11: depois de chamar uma preferencial, a nova P003 dizia
+    // "Você é o próximo", mas a normal N003 (devida) foi chamada antes.
+    const { f, queue, counter } = await setup({ normals_per_preferential: 2 });
+    await issue(f, queue.id, true);
+    await run(f, f.member, "queue.call_next", { id: counter.id });
+    await issue(f, queue.id);
+    const pref = await issue(f, queue.id, true);
+    expect(pref.ahead).toBe(1);
+    const overview = await (
+      await api(await bearer(f.member), `/profiles/${f.profile}/queue`)
+    ).json<any>();
+    // A new preferential would wait behind P002 and the owed N001.
+    expect(overview.queues[0].wait_minutes.preferential).toBe(20);
+    expect(
+      (await run(f, f.member, "queue.call_next", { id: counter.id })).code,
+    ).toBe("N001");
+    expect(
+      (await run(f, f.member, "queue.call_next", { id: counter.id })).code,
+    ).toBe("P002");
+  });
+
   it("rechamar, iniciar, concluir, ausente e transições inválidas", async () => {
     const { f, queue, counter } = await setup();
     const t = await issue(f, queue.id);

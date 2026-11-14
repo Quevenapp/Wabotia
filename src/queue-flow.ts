@@ -7,6 +7,8 @@ import { enqueue, settings } from "./service";
 import {
   activeBlock,
   activeTicketFor,
+  aheadOfNew,
+  normalsOwed,
   blockMessage,
   customerCancel,
   estimateMinutes,
@@ -182,7 +184,7 @@ async function waitText(env: Env, queue: any) {
     )?.n || 0;
   const line = (label: string, waiting: number, ahead: number) =>
     `Senha ${label}: ${plural(waiting, "pessoa aguardando", "pessoas aguardando")}, espera estimada de ${estimateMinutes(ahead, minutes, open)} min.`;
-  return `*${queue.name}*\n${line("normal", normal, normal + preferential)}\n${line("preferencial", preferential, preferential)}${
+  return `*${queue.name}*\n${line("normal", normal, normal + preferential)}\n${line("preferencial", preferential, aheadOfNew({ normal, preferential }, true, normalsOwed(queue)))}${
     open
       ? ""
       : "\n\nNo momento nenhum guichê está aberto; a espera pode ser maior."
