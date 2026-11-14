@@ -339,7 +339,10 @@ export const tools: Tool[] = [
     input: {
       profile,
       conversation_id: conversationId,
-      number: { type: "string", description: "Número do protocolo, como WA-…" },
+      number: {
+        type: "string",
+        description: "Número do protocolo, como 10001 (antigos: WA-…)",
+      },
       idempotency_key: idempotency,
     },
     required: ["conversation_id"],

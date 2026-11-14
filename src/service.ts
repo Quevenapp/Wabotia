@@ -58,6 +58,7 @@ import {
   assertDepartmentAccess,
   presentInDepartment,
 } from "./departments";
+import { chunkWrites, documentText, searchKnowledge } from "./knowledge";
 import { sendProtocolLookup } from "./protocol-lookup";
 import {
   protocolDueAt,
@@ -399,14 +400,17 @@ export async function createTicket(
   }
   const config = await settings(env, c.profile_id);
   const id = uid(),
-    at = now(),
-    number = `WA-${at.toString(36).toUpperCase()}-${id.slice(0, 4).toUpperCase()}`;
+    at = now();
   const writes: [string, any[]][] = [
     [
-      "INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated,category,source_key) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING",
+      // Protocol numbers are short sequential digits (10001, 10002...), easy to
+      // type on a phone. The next number is taken inside the INSERT, which D1
+      // runs serialized. Older protocols keep their WA-... numbers.
+      `INSERT INTO tickets(id,number,profile_id,conversation_id,title,owner,response_due_at,created,updated,category,source_key)
+       VALUES(?,(SELECT CAST(max(10000,coalesce(max(CAST(number AS INTEGER)),0))+1 AS TEXT) FROM tickets WHERE number!='' AND number NOT GLOB '*[^0-9]*'),?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING`,
       [
         id,
-        number,
         c.profile_id,
         c.id,
         title,
@@ -623,11 +627,35 @@ export async function offerProtocolConsent(
     `consent:${id}`,
   );
 }
+/** Assunto do protocolo aberto com a equipe ausente quando o motivo da
+ * transferência é interno (falha do bot, resposta sem fonte): o resumo escrito
+ * pelo bot ou, sem ele, o pedido do cliente. O motivo continua no evento. */
+async function requestTitle(env: Env, c: Conversation, request?: string) {
+  const text =
+    request?.trim() ||
+    (
+      await one(
+        env,
+        "SELECT text FROM messages WHERE conversation_id=? AND direction='customer' AND trim(coalesce(text,''))!='' ORDER BY created DESC,rowid DESC LIMIT 1",
+        c.id,
+      )
+    )?.text?.trim() ||
+    "";
+  if (!text) return null;
+  const line = text.replace(/\s+/g, " ");
+  return line.length > 120 ? line.slice(0, 117).trimEnd() + "..." : line;
+}
+
 export async function handoff(
   env: Env,
   c: Conversation,
   reason: string,
   departmentId: string | null = null,
+  /** Pedido do cliente ou resumo do bot. Informado (mesmo vazio), o motivo é
+   * interno e o protocolo de ausência leva o pedido como assunto. */
+  request?: string | null,
+  /** false when the bot itself failed: sending it back would fail again. */
+  botMayContinue = true,
 ) {
   const department = await departmentFor(env, c.profile_id, departmentId);
   requireValue(
@@ -657,7 +685,8 @@ export async function handoff(
   let reply = department
     ? `Vou encaminhar sua solicitação para o setor ${department.name}.`
     : "Vou encaminhar sua solicitação para nossa equipe.";
-  let opened: any = null;
+  let opened: any = null,
+    returned = false;
   if (!present) {
     const absent = department
       ? `O setor ${department.name} está sem atendentes disponíveis.\n`
@@ -668,8 +697,18 @@ export async function handoff(
     } else {
       // One active protocol per conversation in this automatic opening. A new
       // protocol gets the configured confirmation; a reused one is only cited.
-      const { ticket, created } = await createTicket(env, c, reason, {
+      const title =
+        request === undefined
+          ? reason
+          : (await requestTitle(env, c, request ?? undefined)) ||
+            "Solicitação de atendimento";
+      const summary = request?.trim();
+      const { ticket, created } = await createTicket(env, c, title, {
         dedupe: true,
+        // The bot's full summary when the title had to be shortened.
+        ...(summary && summary.replace(/\s+/g, " ") !== title
+          ? { description: summary.slice(0, 20000) }
+          : {}),
       });
       if (created) opened = ticket;
       reply = `${absent}${cfg.absence_instructions}\n${
@@ -677,6 +716,28 @@ export async function handoff(
           ? "\n" + protocolConfirmation(cfg, ticket)
           : `Protocolo: ${ticket.number}. Para acompanhar, envie CONSULTAR PROTOCOLO ou o número completo.`
       }`;
+      // "Devolver ao bot": the protocol is the team's record and the
+      // conversation leaves the queue, back with the Bot Atendente.
+      if (
+        cfg.absence_return_to_bot === true &&
+        botMayContinue &&
+        policy.bots &&
+        (await attendantAvailable(env, c, cfg))
+      ) {
+        await exec(
+          env,
+          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,updated=? WHERE id=? AND epoch=?",
+          now(),
+          c.id,
+          c.epoch,
+        );
+        c = await conversation(env, c.id, c.profile_id);
+        if (c.state === "ai") {
+          returned = true;
+          reply +=
+            "\n\nEnquanto isso, sigo por aqui se precisar de mais alguma coisa.";
+        }
+      }
     }
   }
   const key = `handoff:${c.id}:${c.session}:${departmentId || "general"}`;
@@ -704,10 +765,22 @@ export async function handoff(
     if (opened) await offerProtocolConsent(env, c, cfg, opened.id);
   }
   await event(env, c.profile_id, "conversation.updated", c.id, {
-    state: "waiting",
-    department_id: departmentId,
+    state: returned ? "ai" : "waiting",
+    department_id: returned ? null : departmentId,
     reason,
+    ...(returned ? { returned_to_bot: true } : {}),
   });
+}
+
+/** The line's attendant bot can take the conversation back right now. */
+async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
+  if (c.chat_type === "group") return false;
+  const line = await serviceForLine(env, c.connection_id);
+  if (line.mode === "human") return false;
+  const botId = line.mode === "bot" ? line.bot_id : cfg.attendant_bot;
+  return (
+    !!botId && (await botAllowsLine(env, botId, c.profile_id, c.connection_id))
+  );
 }
 export async function inbound(
   env: Env,
@@ -943,7 +1016,8 @@ export async function createRun(
     if (!(await getNumberPolicy(env, c.connection_id)).bots)
       throw numberPolicyError("bots");
     requireValue(
-      await botAllowsLine(env, data.bot_id, profile, c.connection_id),
+      // A paused connection fails the run itself, which hands off to the team.
+      await botAllowsLine(env, data.bot_id, profile, c.connection_id, false),
       "Este bot não atende esta linha.",
     );
   }
@@ -1277,6 +1351,11 @@ export async function perform(
         typeof next.surveys_enabled === "boolean",
       "JEV e avaliações devem estar ligados ou desligados.",
     );
+    requireValue(
+      next.absence_return_to_bot === undefined ||
+        typeof next.absence_return_to_bot === "boolean",
+      "Informe se a conversa volta ao bot com a equipe ausente.",
+    );
     if (next.departments === undefined) next.departments = [];
     if (data.departments !== undefined)
       await validateDepartments(env, profile, next.departments);
@@ -1588,6 +1667,8 @@ export async function perform(
       // do plugin sobrevive à edição do nome.
       cfg.transport = previous.transport;
       cfg.link = previous.link;
+      // Nomes dados aos bots no painel valem sobre os do Hermes.
+      cfg.bot_names = previous.bot_names;
     }
     if (data.kind === "hermes" && cfg.transport === "link") {
       delete cfg.url;
@@ -1760,6 +1841,32 @@ export async function perform(
     requireValue(bot, "Bot não encontrado.");
     if (data.line_ids !== undefined)
       await validateLineIds(env, profile, data.line_ids, true);
+    if (data.name !== undefined) {
+      requireValue(
+        typeof data.name === "string" &&
+          data.name.trim().length > 0 &&
+          data.name.trim().length <= 80,
+        "Informe o nome do bot, com até 80 caracteres.",
+      );
+      data.name = data.name.trim();
+      // Kept in the connection so "Descobrir bots" does not undo the rename.
+      const owner = await one(
+        env,
+        "SELECT config FROM connections WHERE id=?",
+        bot.connection_id,
+      );
+      const config = json(owner?.config, {});
+      config.bot_names = {
+        ...(config.bot_names || {}),
+        [bot.remote_profile]: data.name,
+      };
+      await exec(
+        env,
+        "UPDATE connections SET config=? WHERE id=?",
+        JSON.stringify(config),
+        bot.connection_id,
+      );
+    }
     const enabled = data.enabled === undefined ? !!bot.enabled : !!data.enabled;
     if (enabled && !bot.enabled) {
       const keys = await secret(env, `connection:${bot.connection_id}`),
@@ -1999,16 +2106,7 @@ export async function perform(
                   .match(/[\p{L}\p{N}]{3,}/gu) || [],
               ),
             ).slice(0, 24);
-            const sources = words.length
-              ? await all(
-                  env,
-                  "SELECT rowid id,document_id,text,url FROM chunks WHERE profile_id=? AND chunks MATCH ? ORDER BY rank LIMIT 5",
-                  profile,
-                  words
-                    .map((w) => '"' + w.replaceAll('"', "") + '"')
-                    .join(" OR "),
-                )
-              : [];
+            const sources = await searchKnowledge(env, profile, words);
             const cfg = await settings(env, profile);
             const menus = (
               await availableMenus(env, profile, c.connection_id, null, true)
@@ -2345,18 +2443,72 @@ export async function perform(
       data.media_id || null,
       now(),
     );
+    if (data.usage !== undefined && data.usage !== null && data.usage !== "")
+      await exec(
+        env,
+        "UPDATE documents SET usage=? WHERE id=?",
+        text(data.usage, 2000),
+        id,
+      );
     if (data.kind === "text") {
-      const value = text(data.text, 500000);
-      const chunks: [string, any[]][] = [];
-      for (let i = 0; i < value.length; i += 1300)
-        chunks.push([
-          "INSERT INTO chunks(profile_id,document_id,text,url) VALUES(?,?,?,?)",
-          [profile, id, value.slice(i, i + 1600), ""],
-        ]);
-      await batch(env, chunks);
+      await batch(env, chunkWrites(profile, id, text(data.text, 500000)));
       await exec(env, "UPDATE documents SET status='ready' WHERE id=?", id);
     }
     return { id };
+  }
+  if (op === "knowledge.update") {
+    access(actor, profile, "knowledge:write");
+    const doc = await one(
+      env,
+      "SELECT * FROM documents WHERE id=? AND profile_id=?",
+      data.id,
+      profile,
+    );
+    requireValue(doc, "Fonte não encontrada.");
+    const usage =
+      data.usage === undefined
+        ? doc.usage
+        : String(data.usage ?? "").trim()
+          ? text(data.usage, 2000)
+          : null;
+    const writes: [string, any[]][] = [
+      [
+        "UPDATE documents SET title=?,usage=? WHERE id=?",
+        [
+          data.title === undefined ? doc.title : text(data.title, 200),
+          usage,
+          doc.id,
+        ],
+      ],
+    ];
+    if (doc.kind === "text" && data.text !== undefined)
+      // New content replaces every passage of the source at once.
+      writes.push(
+        [
+          "DELETE FROM chunks WHERE document_id=? AND profile_id=?",
+          [doc.id, profile],
+        ],
+        ...chunkWrites(profile, doc.id, text(data.text, 500000)),
+        ["UPDATE documents SET status='ready',error=NULL WHERE id=?", [doc.id]],
+      );
+    else if (
+      ["url", "youtube"].includes(doc.kind) &&
+      data.url !== undefined &&
+      publicUrl(data.url) !== doc.url
+    )
+      // A new address is imported again by the scheduled import.
+      writes.push(
+        [
+          "DELETE FROM chunks WHERE document_id=? AND profile_id=?",
+          [doc.id, profile],
+        ],
+        [
+          "UPDATE documents SET url=?,status='pending',error=NULL WHERE id=?",
+          [publicUrl(data.url), doc.id],
+        ],
+      );
+    await batch(env, writes);
+    return { id: doc.id };
   }
   if (op === "knowledge.delete") {
     access(actor, profile, "knowledge:write");

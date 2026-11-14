@@ -39,12 +39,17 @@ export async function botAllowsLine(
   botId: string,
   profile: string,
   connection: string | null,
+  activeOnly = true,
 ) {
+  // A bot whose connection is paused cannot answer: treating it as available
+  // would send the customer to a run that fails and to an error protocol.
+  // Configuration (activeOnly=false) may still point a line at it.
   const bot = await one(
     env,
-    "SELECT * FROM bots WHERE id=? AND profile_id=? AND enabled=1",
+    "SELECT b.* FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=? AND b.profile_id=? AND b.enabled=1 AND (? OR c.status='active')",
     botId,
     profile,
+    activeOnly ? 0 : 1,
   );
   return (
     !!bot &&
@@ -125,7 +130,7 @@ export async function saveLine(
   if (service.mode === "bot")
     requireValue(
       service.bot_id &&
-        (await botAllowsLine(env, service.bot_id, profile, row.id)),
+        (await botAllowsLine(env, service.bot_id, profile, row.id, false)),
       "Selecione um bot habilitado e autorizado para esta linha.",
     );
   if (data.number_policy !== undefined) {

@@ -116,6 +116,23 @@ export function SettingsPage() {
           <label className="check-field">
             <input
               type="checkbox"
+              checked={settings.absence_return_to_bot === true}
+              disabled={settings.absence_ticket === false}
+              onChange={(event) =>
+                edit({ absence_return_to_bot: event.target.checked })
+              }
+            />
+            Com a equipe ausente, devolver a conversa ao bot
+          </label>
+          <p className="workspace-help">
+            Ligado: depois de abrir o protocolo, a conversa sai da fila e o Bot
+            Atendente continua atendendo; a equipe acompanha pelo protocolo. Se
+            o bot não puder atender (linha da equipe, bot desabilitado, conexão
+            pausada ou falha do próprio bot), a conversa fica na fila.
+          </p>
+          <label className="check-field">
+            <input
+              type="checkbox"
               checked={settings.absence_followup !== false}
               onChange={(event) =>
                 edit({ absence_followup: event.target.checked })

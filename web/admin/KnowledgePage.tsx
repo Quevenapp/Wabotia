@@ -1,10 +1,18 @@
 // Conhecimento: fontes que fundamentam as respostas dos bots.
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { BookOpen, Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
-import { Button, Empty, Field, Notice, SkeletonBlock, Table, toast } from "../ui";
+import {
+  Button,
+  Empty,
+  Field,
+  Notice,
+  SkeletonBlock,
+  Table,
+  toast,
+} from "../ui";
 import { FormDialog, Pager, useList } from "./shared";
 
 const kindNames: Row = {
@@ -14,35 +22,53 @@ const kindNames: Row = {
   youtube: "Vídeo com transcrição",
 };
 
+const usageHelp =
+  "Opcional. Diga ao bot quando e como usar esta fonte, por exemplo: “Use só para clientes do plano empresarial” ou “Não informe valores; ofereça abrir um protocolo”.";
+
+/** Nova fonte, ou edição de uma existente (`initial` com o texto completo). */
 function KnowledgeDialog({
+  initial,
   onClose,
   onSaved,
 }: {
+  initial?: Row;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const app = useApp();
-  const [form, setForm] = useState<Row>({ kind: "text" });
+  const editing = !!initial?.id;
+  const [form, setForm] = useState<Row>(initial || { kind: "text" });
   const file = useRef<HTMLInputElement>(null);
   const change = (key: string) => (value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
   return (
     <FormDialog
-      title="Adicionar conhecimento"
+      title={editing ? "Editar fonte" : "Adicionar conhecimento"}
       onClose={onClose}
       onSubmit={async () => {
-        let mediaId;
-        const chosen = file.current?.files?.[0];
-        if (chosen) {
-          const data = new FormData();
-          data.set("file", chosen);
-          mediaId = (await app.api(app.root + "/media", "POST", data)).id;
+        if (editing) {
+          await app.api(app.root + "/knowledge/" + initial!.id, "PATCH", {
+            title: form.title,
+            usage: form.usage || "",
+            ...(form.kind === "text" ? { text: form.text || "" } : {}),
+            ...(["url", "youtube"].includes(form.kind)
+              ? { url: form.url }
+              : {}),
+          });
+        } else {
+          let mediaId;
+          const chosen = file.current?.files?.[0];
+          if (chosen) {
+            const data = new FormData();
+            data.set("file", chosen);
+            mediaId = (await app.api(app.root + "/media", "POST", data)).id;
+          }
+          await app.api(app.root + "/knowledge", "POST", {
+            ...form,
+            kind: chosen ? "file" : form.kind || "text",
+            media_id: mediaId,
+          });
         }
-        await app.api(app.root + "/knowledge", "POST", {
-          ...form,
-          kind: chosen ? "file" : form.kind || "text",
-          media_id: mediaId,
-        });
         toast("Salvo com sucesso.");
         await onSaved();
         onClose();
@@ -54,34 +80,68 @@ function KnowledgeDialog({
         onChange={change("title")}
         required
       />
-      <Field
-        label="Tipo de fonte"
-        value={form.kind}
-        onChange={change("kind")}
-        emptyOption={null}
-        options={[
-          ["text", "Texto"],
-          ["url", "Página da internet"],
-          ["file", "Documento"],
-          ["youtube", "Vídeo com transcrição"],
-        ]}
-      />
+      {editing ? (
+        <p>Tipo de fonte: {kindNames[form.kind] || form.kind}</p>
+      ) : (
+        <Field
+          label="Tipo de fonte"
+          value={form.kind}
+          onChange={change("kind")}
+          emptyOption={null}
+          options={[
+            ["text", "Texto"],
+            ["url", "Página da internet"],
+            ["file", "Documento"],
+            ["youtube", "Vídeo com transcrição"],
+          ]}
+        />
+      )}
       {form.kind === "text" ? (
         <Field
           label="Conteúdo"
           type="textarea"
+          rows={12}
           value={form.text}
           onChange={change("text")}
         />
       ) : form.kind === "file" ? (
-        <label className="field">
-          <span>Documento</span>
-          <input ref={file} type="file" accept=".pdf,.docx,.txt,.md,.srt,.vtt" />
-          <small>PDF, DOCX, TXT, MD, VTT ou SRT · até 20 MB</small>
-        </label>
+        editing ? (
+          <p>
+            Para trocar o documento, remova esta fonte e adicione o arquivo
+            novo.
+          </p>
+        ) : (
+          <label className="field">
+            <span>Documento</span>
+            <input
+              ref={file}
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.srt,.vtt"
+            />
+            <small>PDF, DOCX, TXT, MD, VTT ou SRT · até 20 MB</small>
+          </label>
+        )
       ) : (
-        <Field label="URL pública" value={form.url} onChange={change("url")} />
+        <Field
+          label="URL pública"
+          value={form.url}
+          onChange={change("url")}
+          help={
+            editing
+              ? "Trocar o endereço importa a página de novo em alguns minutos."
+              : undefined
+          }
+        />
       )}
+      <Field
+        label="Quando e como o bot pode usar"
+        type="textarea"
+        rows={3}
+        maxLength={2000}
+        value={form.usage}
+        onChange={change("usage")}
+        help={usageHelp}
+      />
     </FormDialog>
   );
 }
@@ -90,7 +150,21 @@ export function KnowledgePage() {
   const app = useApp();
   const list = useList(app.root + "/knowledge");
   const { busy, run } = useAction();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(false),
+    [editing, setEditing] = useState<Row | null>(null),
+    [loadingId, setLoadingId] = useState("");
+  useEffect(() => {
+    if (!loadingId) return;
+    let alive = true;
+    app
+      .api(app.root + "/knowledge/" + loadingId)
+      .then((doc: Row) => alive && setEditing(doc))
+      .catch((e: any) => toast(e.message))
+      .finally(() => alive && setLoadingId(""));
+    return () => {
+      alive = false;
+    };
+  }, [loadingId]);
   return (
     <>
       <div className="toolbar">
@@ -114,22 +188,33 @@ export function KnowledgePage() {
               ["title", "Fonte"],
               ["kind", "Tipo", (row) => kindNames[row.kind] || row.kind || "—"],
               ["status", "Estado"],
-              ["error", "Observação"],
+              ["usage", "Quando usar", (row) => row.usage || row.error || "—"],
             ]}
             action={(row) => (
-              <button
-                type="button"
-                className="text-link"
-                disabled={busy}
-                onClick={() =>
-                  run(
-                    () => app.api(app.root + "/knowledge/" + row.id, "DELETE"),
-                    { success: "Salvo com sucesso." },
-                  ).then(list.reload)
-                }
-              >
-                Remover
-              </button>
+              <div className="card-actions">
+                <button
+                  type="button"
+                  className="text-link"
+                  disabled={busy || !!loadingId || app.demo}
+                  onClick={() => setLoadingId(row.id)}
+                >
+                  Editar
+                </button>
+                <button
+                  type="button"
+                  className="text-link"
+                  disabled={busy}
+                  onClick={() =>
+                    run(
+                      () =>
+                        app.api(app.root + "/knowledge/" + row.id, "DELETE"),
+                      { success: "Salvo com sucesso." },
+                    ).then(list.reload)
+                  }
+                >
+                  Remover
+                </button>
+              </div>
             )}
             empty={
               <Empty
@@ -143,7 +228,17 @@ export function KnowledgePage() {
       </section>
       <Pager {...list} />
       {adding && (
-        <KnowledgeDialog onClose={() => setAdding(false)} onSaved={list.reload} />
+        <KnowledgeDialog
+          onClose={() => setAdding(false)}
+          onSaved={list.reload}
+        />
+      )}
+      {editing && (
+        <KnowledgeDialog
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSaved={list.reload}
+        />
       )}
     </>
   );

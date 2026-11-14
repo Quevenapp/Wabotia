@@ -1,6 +1,6 @@
 // Atendente e especialistas: bots do Hermes, linhas de cada bot e as ações
 // internas que o Atendente pode pedir a um especialista.
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowRight, Bot, Check, Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
@@ -58,7 +58,10 @@ export function BotsPage() {
   const app = useApp();
   const { api, root, demo, bots, settings } = app;
   const { busy, run } = useAction();
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(false),
+    [renaming, setRenaming] = useState<Row | null>(null),
+    [name, setName] = useState("");
+  useEffect(() => setName(renaming?.name || ""), [renaming?.id]);
   const save = (fn: () => Promise<any>) =>
     run(fn, { success: "Salvo com sucesso." }).then(() => app.refresh());
   return (
@@ -103,19 +106,30 @@ export function BotsPage() {
                 ? `Provedor de IA: ${bot.model || bot.provider || ""}. Conversa, sem ferramentas.`
                 : `Atendimento Hermes: ${bot.remote_profile}`}
             </p>
-            <Button
-              secondary
-              disabled={busy}
-              onClick={() =>
-                save(() =>
-                  api(root + "/bots/" + bot.id, "PATCH", {
-                    enabled: !bot.enabled,
-                  }),
-                )
-              }
-            >
-              {bot.enabled ? "Desabilitar" : "Habilitar"}
-            </Button>
+            <div className="card-actions">
+              <Button
+                secondary
+                disabled={busy}
+                onClick={() =>
+                  save(() =>
+                    api(root + "/bots/" + bot.id, "PATCH", {
+                      enabled: !bot.enabled,
+                    }),
+                  )
+                }
+              >
+                {bot.enabled ? "Desabilitar" : "Habilitar"}
+              </Button>
+              {app.isAdmin && (
+                <Button
+                  secondary
+                  disabled={busy}
+                  onClick={() => setRenaming(bot)}
+                >
+                  Renomear
+                </Button>
+              )}
+            </div>
             <button
               type="button"
               className="text-link block"
@@ -192,6 +206,28 @@ export function BotsPage() {
         )}
       </section>
       {adding && <CapabilityDialog onClose={() => setAdding(false)} />}
+      {renaming && (
+        <FormDialog
+          title="Renomear bot"
+          size="sm"
+          onClose={() => setRenaming(null)}
+          onSubmit={async () => {
+            await api(root + "/bots/" + renaming.id, "PATCH", { name });
+            toast("Salvo com sucesso.");
+            await app.refresh();
+            setRenaming(null);
+          }}
+        >
+          <Field
+            label="Nome do bot"
+            value={name}
+            onChange={setName}
+            maxLength={80}
+            required
+            help="É o nome que a equipe e o cliente veem (“Nome - IA”). Descobrir bots no Hermes não desfaz a troca."
+          />
+        </FormDialog>
+      )}
     </>
   );
 }
