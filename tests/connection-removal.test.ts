@@ -560,9 +560,13 @@ it.each(["sending", "unknown"])(
   },
 );
 
-it("não exclui uma conexão Hermes pelo comando de telefone", async () => {
+it("exige pausar a conexão Hermes antes de excluir", async () => {
   const f = await fixture("hermes");
   await expect(
     removeConnection(env, admin, f.profile, f.id),
-  ).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+  ).rejects.toMatchObject({
+    status: 400,
+    code: "invalid_request",
+    message: "Pause a conexão antes de excluir.",
+  });
 });

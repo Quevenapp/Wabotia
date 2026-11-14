@@ -126,11 +126,20 @@ const schemas = {
   },
   ConnectionRemoved: {
     type: "object",
-    required: ["id", "deleted", "conversations_preserved"],
+    required: ["id", "deleted"],
     properties: {
       id: { type: "string" },
       deleted: { const: true },
-      conversations_preserved: { type: "integer", minimum: 0 },
+      conversations_preserved: {
+        type: "integer",
+        minimum: 0,
+        description: "Telefones: conversas mantidas no histórico.",
+      },
+      bots_removed: {
+        type: "integer",
+        minimum: 0,
+        description: "Conexões de bots (hermes ou ai): bots excluídos.",
+      },
     },
   },
   MessageContent: {
@@ -1030,7 +1039,7 @@ operations.push(
   [
     "delete",
     "/profiles/{profile}/connections/{id}",
-    "Excluir telefone local preservando o histórico",
+    "Excluir telefone ou conexão de bots preservando o histórico",
     "administrador humano",
   ],
   [
@@ -1628,7 +1637,7 @@ export function openapi(origin: string) {
     }
     if (path.endsWith("/connections/{id}") && method === "delete") {
       entry.description +=
-        " Remove apenas a conexão local WhatsApp (Zernio, QR, Hermes WhatsApp ou legado Meta), suas credenciais e vínculos no roteador. Não desconecta a conta no provedor. Preserva mensagens, protocolos e conversas, encerrando o atendimento e impedindo novos envios por essa linha. Cancela mensagens e operações de grupo ainda na fila (pending). Retorna 409 connection_busy com envios ou operações já iniciados/ambíguos (sending/unknown) ou ligações abertas; conclua ou reconcilie antes de repetir.";
+        " Remove apenas a conexão local WhatsApp (Zernio, QR, Hermes WhatsApp ou legado Meta), suas credenciais e vínculos no roteador. Não desconecta a conta no provedor. Preserva mensagens, protocolos e conversas, encerrando o atendimento e impedindo novos envios por essa linha. Cancela mensagens e operações de grupo ainda na fila (pending). Retorna 409 connection_busy com envios ou operações já iniciados/ambíguos (sending/unknown) ou ligações abertas; conclua ou reconcilie antes de repetir. Para conexões de bots (hermes ou ai), exige a conexão pausada e remove a conexão, seus bots e a chave guardada, preservando conversas, mensagens e execuções; execuções ainda na fila são canceladas e os bots saem das permissões de aplicativos. Retorna 409 connection_in_use enquanto um desses bots for o Atendente, especialista, item de menu, bot de uma linha ou atender uma conversa, e 409 connection_busy com execução em andamento.";
       success.content["application/json"].schema = {
         $ref: "#/components/schemas/ConnectionRemoved",
       };

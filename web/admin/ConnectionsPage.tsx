@@ -45,6 +45,8 @@ const kindText = (kind: string) =>
 
 // Tipos de conexão que deixaram de existir: só podem ser excluídos.
 const removedKinds = ["meta", "telegram"];
+// Conexões de telefone: excluir remove a linha, não a conta no provedor.
+const phoneKinds = ["meta", "zernio", "qr", "hermes-whatsapp"];
 
 const zernioWebhook = (row: Row) =>
   location.origin +
@@ -216,9 +218,15 @@ export function ConnectionsPage() {
                 telefone já conectado na Zernio. O histórico é preservado.
               </p>
             )}
-            {["meta", "zernio", "qr", "hermes-whatsapp", "telegram"].includes(
-              row.kind,
-            ) && (
+            {[
+              "meta",
+              "zernio",
+              "qr",
+              "hermes-whatsapp",
+              "telegram",
+              "hermes",
+              "ai",
+            ].includes(row.kind) && (
               <Button
                 secondary
                 disabled={busy}
@@ -226,9 +234,9 @@ export function ConnectionsPage() {
                   if (!app.demoBlocked()) setRemoving(row);
                 }}
               >
-                {row.kind === "telegram"
-                  ? "Excluir conexão"
-                  : "Excluir telefone"}
+                {phoneKinds.includes(row.kind)
+                  ? "Excluir telefone"
+                  : "Excluir conexão"}
               </Button>
             )}
             {["qr", "hermes-whatsapp"].includes(row.kind) && (
@@ -430,7 +438,7 @@ export function ConnectionsPage() {
           </p>
         </Confirm>
       )}
-      {removing && (
+      {removing && phoneKinds.includes(removing.kind) && (
         <Confirm
           title={"Excluir o telefone " + removing.name + " do Wabotia?"}
           confirmLabel="Excluir telefone"
@@ -452,6 +460,43 @@ export function ConnectionsPage() {
             fila serão canceladas. Resolva envios em andamento, operações sem
             confirmação e ligações abertas antes de excluir.
           </p>
+        </Confirm>
+      )}
+      {removing && !phoneKinds.includes(removing.kind) && (
+        <Confirm
+          title={"Excluir a conexão " + removing.name + " do Wabotia?"}
+          confirmLabel="Excluir conexão"
+          danger
+          busy={busy}
+          onClose={() => setRemoving(null)}
+          onConfirm={() =>
+            run(() => api(root + "/connections/" + removing.id, "DELETE", {}), {
+              success: "Conexão excluída. Histórico preservado.",
+            }).then(async () => {
+              setRemoving(null);
+              await reload();
+            })
+          }
+        >
+          {removing.kind === "telegram" ? (
+            <p>A conexão Telegram não é mais usada e será removida.</p>
+          ) : (
+            <>
+              <p>
+                Os bots desta conexão deixam de existir no Wabotia e a chave
+                guardada é apagada. Conversas, mensagens e execuções anteriores
+                continuam no histórico.{" "}
+                {removing.kind === "ai"
+                  ? "A conta no provedor de IA não é alterada."
+                  : "O Hermes não é alterado; se o plugin estiver instalado, ele perde o acesso e pode ser desativado no Hermes."}
+              </p>
+              <p>
+                Pause a conexão antes. Se um bot dela for o Bot Atendente, um
+                especialista, um item de menu ou o bot de uma linha, troque-o
+                antes de excluir.
+              </p>
+            </>
+          )}
         </Confirm>
       )}
     </>
