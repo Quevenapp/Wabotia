@@ -133,8 +133,15 @@ const release = {
     })),
 };
 const content = JSON.stringify(release);
-if (Buffer.byteLength(content) > 20 * 1024 * 1024)
-  throw Error("Pacote excede 20 MB.");
+// Teto igual a MAX_PACKAGE em src/release.ts. Acima de 20 MB, as instalações
+// até a 0.17.0 recusam o pacote; só publique assim depois que elas tiverem
+// atualizado (WABOTIA_ALLOW_OVER_20MB=1).
+const size = Buffer.byteLength(content);
+if (size > 24 * 1024 * 1024) throw Error("Pacote excede 24 MB.");
+if (size > 20 * 1024 * 1024 && process.env.WABOTIA_ALLOW_OVER_20MB !== "1")
+  throw Error(
+    "Pacote excede 20 MB: instalações até a 0.17.0 não conseguiriam atualizar. Publique antes uma versão com o limite de 24 MB e use WABOTIA_ALLOW_OVER_20MB=1.",
+  );
 const index = {
   format: 1,
   version: pkg.version,

@@ -32,6 +32,8 @@ export async function removeConnection(
       "not_found",
       "Telefone não encontrado nesta área de atendimento.",
     );
+  if (connection.kind === "hermes" || connection.kind === "ai")
+    return removeBotConnection(env, profile, connection);
   if (connection.kind === "telegram") {
     // Leftover of the removed Telegram channel: nothing depends on it anymore.
     await batch(env, [
@@ -163,4 +165,120 @@ export async function removeConnection(
   );
   await batch(env, statements);
   return { id, deleted: true, conversations_preserved: conversations.n };
+}
+
+/**
+ * Exclui uma conexão de bots (Hermes ou provedor de IA) e os bots dela. Recusa
+ * enquanto algum desses bots ainda atende: a pessoa escolhe o substituto antes,
+ * em vez de o atendimento mudar sem aviso. Conversas, mensagens e execuções
+ * anteriores ficam no histórico.
+ */
+async function removeBotConnection(env: Env, profile: string, connection: any) {
+  const id = connection.id;
+  requireValue(
+    connection.status === "paused",
+    "Pause a conexão antes de excluir.",
+  );
+  const bots = await all(
+    env,
+    "SELECT id,name FROM bots WHERE connection_id=?",
+    id,
+  );
+  const ids = bots.map((bot) => bot.id as string);
+  const name = (botId: string) =>
+    bots.find((bot) => bot.id === botId)?.name || botId;
+  const row = await one(
+    env,
+    "SELECT settings FROM profiles WHERE id=?",
+    profile,
+  );
+  const settings = json(row?.settings);
+  const uses: string[] = [];
+  if (ids.includes(settings.attendant_bot))
+    uses.push(`${name(settings.attendant_bot)} é o Bot Atendente`);
+  for (const action of settings.capabilities || [])
+    if (ids.includes(action.bot_id))
+      uses.push(
+        `${name(action.bot_id)} é o especialista da ação "${action.name}"`,
+      );
+  for (const menu of settings.menus || [])
+    if (menu.type === "bot" && ids.includes(menu.bot_id))
+      uses.push(`${name(menu.bot_id)} está no item de menu "${menu.label}"`);
+  for (const line of await all(
+    env,
+    "SELECT name,config FROM connections WHERE profile_id=? AND id!=?",
+    profile,
+    id,
+  )) {
+    const service = json(line.config).service;
+    if (service?.mode === "bot" && ids.includes(service.bot_id))
+      uses.push(`${name(service.bot_id)} atende a linha ${line.name}`);
+  }
+  if (uses.length)
+    throw new ApiError(
+      409,
+      "connection_in_use",
+      `Antes de excluir, troque ou remova: ${uses.join("; ")}.`,
+    );
+  if (ids.length) {
+    const list = JSON.stringify(ids);
+    if (
+      await one(
+        env,
+        "SELECT id FROM conversations WHERE state='ai' AND assigned_bot_id IN (SELECT value FROM json_each(?)) LIMIT 1",
+        list,
+      )
+    )
+      throw new ApiError(
+        409,
+        "connection_in_use",
+        "Há conversas sendo atendidas por um bot desta conexão. Transfira-as ou encerre-as antes de excluir.",
+      );
+    if (
+      await one(
+        env,
+        "SELECT id FROM bot_runs WHERE status IN ('starting','running','cancelling') AND bot_id IN (SELECT value FROM json_each(?)) LIMIT 1",
+        list,
+      )
+    )
+      throw new ApiError(
+        409,
+        "connection_busy",
+        "Aguarde as execuções de bots em andamento antes de excluir.",
+      );
+  }
+  const time = now();
+  const list = JSON.stringify(ids);
+  const statements: [string, any[]][] = [
+    [
+      "UPDATE bot_runs SET status='cancelled',error='Conexão excluída.',updated=? WHERE status='queued' AND bot_id IN (SELECT value FROM json_each(?))",
+      [time, list],
+    ],
+    [
+      "UPDATE conversations SET assigned_bot_id=NULL WHERE assigned_bot_id IN (SELECT value FROM json_each(?))",
+      [list],
+    ],
+  ];
+  // Sistemas pareados guardam a lista de bots que podem consultar.
+  for (const app of await all(env, "SELECT id,bots FROM applications")) {
+    const allowed = json(app.bots, []);
+    if (Array.isArray(allowed) && allowed.some((bot) => ids.includes(bot)))
+      statements.push([
+        "UPDATE applications SET bots=? WHERE id=?",
+        [
+          JSON.stringify(allowed.filter((bot) => !ids.includes(bot))),
+          app.id,
+        ],
+      ]);
+  }
+  statements.push(
+    ["DELETE FROM team_connection_presence WHERE connection_id=?", [id]],
+    ["DELETE FROM artifact_imports WHERE connection_id=?", [id]],
+    ["DELETE FROM bots WHERE connection_id=?", [id]],
+    // Sem o segredo, o token do plugin do Hermes deixa de valer.
+    ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
+    ["DELETE FROM connections WHERE id=? AND profile_id=?", [id, profile]],
+  );
+  await batch(env, statements);
+  return { id, deleted: true, bots_removed: ids.length };
 }

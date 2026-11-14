@@ -3,7 +3,12 @@
 import { Buffer } from "node:buffer";
 
 export const RELEASE_ORIGIN = "https://wabotia.queven.app";
-export const MAX_PACKAGE = 20 * 1024 * 1024;
+// Abaixo dos 25 MiB por arquivo estático da Cloudflare, que serve o pacote, e
+// com folga para a memória de 128 MB do Worker que o lê e decodifica.
+// Instalações até a 0.17.0 aceitam no máximo 20 MB: um pacote maior só pode
+// sair depois que elas tiverem atualizado para uma versão com este limite
+// (scripts/release.mjs confere).
+export const MAX_PACKAGE = 24 * 1024 * 1024;
 export interface ReleaseIndex {
   format: 1;
   version: string;

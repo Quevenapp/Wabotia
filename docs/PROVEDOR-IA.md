@@ -40,6 +40,8 @@ Quem precisa que o bot consulte boletos, pedidos ou outros sistemas continua usa
 
 A chave fica cifrada no cofre da instalação e nunca é devolvida ao painel. Para trocá-la, pause a conexão, edite e preencha **Nova chave de API**; vazio mantém a atual. Editar exige testar de novo antes de reativar. O provedor não pode ser trocado: crie outra conexão.
 
+Para remover a conexão, pause-a e use **Excluir conexão** no cartão. O bot dela deixa de existir e a chave é apagada; conversas, mensagens e execuções anteriores continuam no histórico, e a conta no provedor não é alterada. A exclusão é recusada enquanto o bot for o Atendente, o bot de uma linha ou estiver atendendo uma conversa: troque-o antes. O mesmo vale para conexões Hermes.
+
 ## Áudio, vídeo e imagens
 
 - **Apenas mensagens ligada (padrão):** quem manda áudio ou vídeo recebe "No momento este atendimento recebe apenas mensagens de texto. Por favor, escreva sua mensagem." A conversa continua com o bot e a equipe não é chamada. Vários áudios seguidos geram um único aviso; um novo aviso só sai depois de outra mensagem enviada.

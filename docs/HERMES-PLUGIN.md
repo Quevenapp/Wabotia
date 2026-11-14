@@ -101,6 +101,7 @@ Resposta `200`:
 - O Worker guarda só o hash do token, no cofre da conexão (`secrets`, `connection:<id>`). `host`, versões e data ficam em `config.link`.
 - O token vale para **uma conexão** e só para as rotas `/api/hermes-link/*`. Não abre a API v1 nem o MCP.
 - **Parear novamente** emite outro código; o token antigo vale até a nova troca. **Revogar plugin** (`POST …/connections/{id}/link-revoke`) apaga o hash: o próximo poll recebe `401` e o plugin encerra o laço.
+- **Excluir conexão** (com a conexão pausada) apaga a conexão, os bots dela e o cofre, com o mesmo efeito no plugin. É recusada enquanto um desses bots for Atendente, especialista, item de menu, bot de uma linha ou estiver atendendo uma conversa. O plugin continua instalado no Hermes até ser desativado lá.
 
 Rotas do painel (administrador, com `Idempotency-Key`): `POST /api/v1/profiles/{perfil}/connections/{id}/link-code` → `{connection_id, code, expires, command}` e `…/link-revoke` → `{id, revoked}`.
 
