@@ -1,5 +1,15 @@
 # Validação e limites
 
+## Publicação 0.16.5 de 14/11/2026: comandos do plugin na janela de pareamento
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `23994421435fa24d1c9bd8edc71d5a93c116393c`, a partir da `main` (0.16.4) com o PR 14. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.5-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.5 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `1d8a57a4dc6df32391bdebd1ff830999cdde2f48c39778219a45d330cc9054d8` (13606869 bytes), e as 29 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+A janela de pareamento do plugin traz os comandos para Hermes em Docker (nome do contêiner, instalação, reinício e conferência da versão) e a documentação ganha o roteiro de atualização do plugin. Só uma tela e documentação mudam; o servidor é o da 0.16.4. **587 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.16.5-distribution.json).
+
+No mesmo dia o proprietário instalou o plugin 1.1.0 no Hermes em Docker da instalação operacional e a versão foi conferida no arquivo instalado.
+
+Não verificado: a janela nova vista na tela (só compilação, build e a presença dos comandos no pacote publicado) e a separação de memória por conversa observada no Hermes real.
+
 ## Publicação 0.16.4 de 14/11/2026: aviso de fila, privacidade do bot e memória por conversa
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `6fc21795f563072c245e746e06cd985aa5b278fc`, a partir da `main` (0.16.3) com os PRs 12 e 13. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.4-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.4 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `30add1c644ea41d11fdc691faebd54cf98ddd9319a4c3c411b12e9dd3d675ebd` (13.605.657 bytes), e as 28 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.

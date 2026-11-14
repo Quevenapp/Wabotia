@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-14",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.16.5",
+  "commit": "23994421435fa24d1c9bd8edc71d5a93c116393c",
+  "previous_version": "0.16.4",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.16.5-distribution-20261114 (fora do Git)",
+  "migrations": [],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": false,
+  "package_verified": true,
+  "package_sha256_matches_catalog": true,
+  "package_size": 13606869,
+  "previous_versions_intact": 29,
+  "tests": { "files": 49, "passed": 587 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "operational_installation_updated": false,
+  "pairing_dialog_seen_on_screen": false,
+  "hermes_plugin_version": "1.1.0",
+  "hermes_plugin_1_1_0_installed_by_owner": true,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.16.5" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.16.5" },
+    { "route": "/releases/0.16.5/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/*/release.json", "versions": 30, "mismatches": 0 },
+    { "route": "/app", "status": 200, "bundle_has_docker_commands": true }
+  ]
+}
