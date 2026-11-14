@@ -712,6 +712,28 @@ export async function handoff(
           : {}),
       });
       if (created) opened = ticket;
+      else if (summary) {
+        // One active protocol per conversation: the new request (the bot's
+        // summary or the customer's message) goes into the existing one as
+        // an internal note, so the team sees it. The same text is kept once.
+        const at = now();
+        await batch(env, [
+          [
+            "INSERT OR IGNORE INTO ticket_updates(id,ticket_id,actor,text,internal,created) VALUES(?,?,?,?,1,?)",
+            [
+              `request:${ticket.id}:${await sha(summary)}`,
+              ticket.id,
+              "system",
+              `Nova solicitação nesta conversa: ${summary.slice(0, 20000)}`,
+              at,
+            ],
+          ],
+          [
+            "UPDATE tickets SET updated=? WHERE id=? AND changes()>0",
+            [at, ticket.id],
+          ],
+        ]);
+      }
       reply = `${absent}${cfg.absence_instructions}\n${
         created
           ? "\n" + protocolConfirmation(cfg, ticket)
