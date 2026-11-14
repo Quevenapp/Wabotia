@@ -581,6 +581,13 @@
   margin: 0 auto;
   padding: 44px 24px 64px;
 }
+/* Página de texto único (política de privacidade): coluna centralizada. */
+.policy-page > main {
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 44px 24px 64px;
+}
 .guide-page h1 {
   margin: 14px 0 12px;
   font-size: clamp(30px, 4vw, 42px);
@@ -1001,7 +1008,8 @@
     padding: 24px 20px;
   }
   .guide-layout,
-  .api-page > main {
+  .api-page > main,
+  .policy-page > main {
     padding-inline: 16px;
   }
   .guide-page main {
