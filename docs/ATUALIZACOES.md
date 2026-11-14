@@ -150,6 +150,16 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.19.2: bot segue o atendimento, avaliação e notificações de protocolo
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare.
+
+- **O bot não volta ao menu** quando o cliente responde a uma pergunta dele; se ainda assim escolher o menu, o Wabotia pede a resposta de novo, sem o menu.
+- **Avaliação depois do protocolo de ausência** (Regras de atendimento, desligada por padrão): depois da confirmação do protocolo e da pergunta de autorização, o cliente recebe o pedido de nota.
+- **Notificações de protocolo pelo WhatsApp** agora se ligam em Regras de atendimento, com o nome e o idioma do modelo aprovado. Ligadas, o cliente recebe a pergunta de autorização ao abrir um protocolo.
+
+Depois de atualizar, clique em **Reabrir painel atualizado**.
+
 ## Atualização 0.19.1: níveis de raciocínio, fila sem tempo de espera, bot de IA no menu
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0019_queue_wait_off.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
