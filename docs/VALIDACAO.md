@@ -1,5 +1,13 @@
 # Validação e limites
 
+## Publicação 0.16.6 de 14/11/2026: uma só conversa com cada bot
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `501d57985dc5a6336ae6d755af4f06c37c9d0b14`, a partir da `main` (0.16.5) com o PR 15. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.6-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.6 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `356fdc71a9024f003e9bbf62da2b3f26f04833d5166327f9f282da55cb29b8a7` (13609017 bytes), e as 30 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+A pergunta feita pela tela do bot (`POST /bot-runs` por uma pessoa) passa a ser gravada na conversa interna dela com esse bot, e a lista e a consulta de execuções devolvem o texto digitado. A causa foi confirmada na instalação operacional: uma pergunta feita no aplicativo Android estava gravada sem conversa interna, e a conversa interna aberta no iPhone estava vazia. **588 testes em 49 arquivos**, TypeScript e build passaram no commit publicado. [Evidência](reference/release-0.16.6-distribution.json).
+
+Não verificado: o comportamento nos aplicativos publicados (Android e iOS 0.17.0) e no painel depois da atualização; só os testes do servidor.
+
 ## Publicação 0.16.5 de 14/11/2026: comandos do plugin na janela de pareamento
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `23994421435fa24d1c9bd8edc71d5a93c116393c`, a partir da `main` (0.16.4) com o PR 14. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.16.5-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.16.5 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `1d8a57a4dc6df32391bdebd1ff830999cdde2f48c39778219a45d330cc9054d8` (13606869 bytes), e as 29 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
