@@ -12,7 +12,8 @@ O bot de provedor de IA é um **atendente que conversa**. A cada mensagem, o Wab
 | Instalação | plugin ou túnel | chave de API no painel |
 | Custo | servidor + modelo | só o uso do modelo, cobrado pelo provedor |
 | Atendente, transferência, conversa com a equipe | sim | sim |
-| Especialista e item de menu do tipo bot | sim | não |
+| Especialista | sim | não |
+| Item de menu do tipo bot | executa a opção com ferramentas | assume a conversa a partir da opção |
 | Ferramentas, ações em outros sistemas | sim | não |
 | Arquivos gerados pelo bot | sim | não |
 | Áudio | transcrito pelo Hermes | aviso pedindo texto, ou equipe |
@@ -30,10 +31,11 @@ Quem precisa que o bot consulte boletos, pedidos ou outros sistemas continua usa
    - **OpenAI**: a lista deixa de fora modelos de imagem, voz e embeddings. Ainda é possível digitar qualquer nome.
    - **DeepSeek** e APIs compatíveis: a lista vem como o provedor publica; sem lista, digite o nome (na DeepSeek, por exemplo, `deepseek-flash` ou `deepseek-v4-pro`).
 5. Escolha o **Esforço de raciocínio**: quanto o modelo pensa antes de responder. Mais esforço deixa a resposta mais cuidadosa, mais lenta e mais cara.
-   - **Anthropic**: Baixo (padrão, recomendado para conversa), Médio ou Alto.
-   - **OpenAI** e APIs compatíveis: Padrão do modelo (o campo não é enviado), Baixo, Médio ou Alto. Só modelos com raciocínio aceitam; com outro modelo, o **Testar conexão** acusa o erro.
-   - **DeepSeek**: Sem raciocínio (mais rápido e barato), Baixo (padrão) ou Alto; a API da DeepSeek não tem nível médio. Sem escolha, a DeepSeek raciocinaria em Alto: conexões salvas antes da 0.18.0 passam a Baixo ao serem editadas e salvas.
-   - Níveis acima de Alto não são oferecidos: podem passar do prazo de 60 segundos de cada resposta.
+   - **Anthropic**: Baixo (padrão, recomendado para conversa), Médio, Alto, Muito alto ou Máximo.
+   - **OpenAI**: Padrão do modelo (o campo não é enviado), Sem raciocínio, Mínimo, Baixo, Médio, Alto ou Muito alto. Cada modelo aceita só alguns níveis; com um nível que o modelo não aceita, o **Testar conexão** acusa o erro.
+   - **APIs compatíveis**: os mesmos da OpenAI e mais Máximo, repassados como estão.
+   - **DeepSeek**: Sem raciocínio (mais rápido e barato), Baixo (padrão), Alto ou Máximo; a API da DeepSeek não tem Médio nem Muito alto. Sem escolha, a DeepSeek raciocinaria em Alto: conexões salvas antes da 0.18.0 passam a Baixo ao serem editadas e salvas.
+   - Prazo de cada resposta: 60 segundos até Médio, 90 em Alto e 3 minutos em Muito alto e Máximo. As respostas de uma área saem em série, então nesses níveis as outras conversas esperam mais.
 6. Deixe marcada **Apenas mensagens (não receber áudio e vídeo)**, ou desmarque (veja abaixo).
 7. Salve e clique **Testar conexão**. O teste confere chave, modelo e endereço e cria o bot, desabilitado, com o nome da conexão. Na OpenAI e na DeepSeek, o modelo precisa estar na lista da conta; no formato OpenAI, o teste ainda faz uma chamada curta, que também valida o esforço. Uma conexão tem um único bot; para usar dois modelos, crie duas conexões.
 8. **Ativar** a conexão. Em **Atendente e especialistas**, habilite o bot e escolha **Usar como Bot Atendente**, ou defina-o como bot de uma linha.

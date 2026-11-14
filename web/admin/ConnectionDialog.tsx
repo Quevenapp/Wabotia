@@ -39,22 +39,33 @@ const anthropicModels: [string, string][] = [
 ];
 
 const effortHelp =
-  "Quanto o modelo pensa antes de responder. Mais esforço deixa a resposta mais cuidadosa, mais lenta e mais cara.";
+  "Quanto o modelo pensa antes de responder. Mais esforço deixa a resposta mais cuidadosa, mais lenta e mais cara. Nos níveis Muito alto e Máximo cada resposta pode levar até 3 minutos, e as conversas da área esperam na fila enquanto isso.";
 const anthropicEfforts: [string, string][] = [
   ["low", "Baixo (recomendado para conversa)"],
   ["medium", "Médio"],
   ["high", "Alto"],
+  ["xhigh", "Muito alto"],
+  ["max", "Máximo"],
 ];
 const deepseekEfforts: [string, string][] = [
   ["none", "Sem raciocínio (mais rápido e barato)"],
   ["low", "Baixo (recomendado para conversa)"],
   ["high", "Alto"],
+  ["max", "Máximo"],
 ];
 const openaiEfforts: [string, string][] = [
   ["", "Padrão do modelo"],
+  ["none", "Sem raciocínio"],
+  ["minimal", "Mínimo"],
   ["low", "Baixo"],
   ["medium", "Médio"],
   ["high", "Alto"],
+  ["xhigh", "Muito alto"],
+];
+// Compatible APIs pass the value through: any level the model accepts.
+const compatibleEfforts: [string, string][] = [
+  ...openaiEfforts,
+  ["max", "Máximo"],
 ];
 
 /** Esforço usado quando nada foi escolhido; vazio deixa o padrão do modelo. */
@@ -219,14 +230,16 @@ function AiFields({
             ? anthropicEfforts
             : provider === "deepseek"
               ? deepseekEfforts
-              : openaiEfforts
+              : provider === "compatible"
+                ? compatibleEfforts
+                : openaiEfforts
         }
         help={
           provider === "anthropic"
             ? effortHelp
             : provider === "deepseek"
-              ? `${effortHelp} A DeepSeek tem só estes níveis.`
-              : `${effortHelp} Só modelos com raciocínio aceitam; o teste da conexão confere.`
+              ? `${effortHelp} Estes são todos os níveis da DeepSeek: ela não tem Médio nem Muito alto.`
+              : `${effortHelp} Cada modelo aceita só alguns níveis; o teste da conexão confere o escolhido.`
         }
       />
       {provider === "compatible" && (

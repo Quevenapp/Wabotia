@@ -32,25 +32,32 @@ export const ANTHROPIC_MODELS = [
   "claude-haiku-5-5",
 ];
 
-// Esforço de raciocínio que o painel oferece. Na Anthropic vai em
-// output_config.effort (padrão "low", suficiente para conversa); na OpenAI e em
-// APIs compatíveis, em reasoning_effort, e só quando escolhido, porque modelos
-// sem raciocínio recusam o campo. A DeepSeek aceita reasoning_effort "none"
-// (sem raciocínio), "low" e "high" e, sem o campo, raciocina em "high"; o
-// padrão aqui é "low". Níveis acima de "high" ficam de fora: podem passar do
-// prazo de 60 segundos de cada chamada.
+// Todos os níveis de esforço de raciocínio de cada provedor. Na Anthropic vão
+// em output_config.effort (Opus, Sonnet e Haiku 5.5 aceitam de low a max;
+// padrão aqui "low", suficiente para conversa). Na OpenAI e em APIs
+// compatíveis, em reasoning_effort, e só quando escolhido, porque modelos sem
+// raciocínio recusam o campo; cada modelo aceita uma parte dos níveis e o
+// teste da conexão confere. A DeepSeek aceita none, low, high e max e, sem o
+// campo, raciocina em high; o padrão aqui é "low".
 export const AI_EFFORTS: Record<AiProvider, string[]> = {
-  anthropic: ["low", "medium", "high"],
-  openai: ["low", "medium", "high"],
-  compatible: ["low", "medium", "high"],
-  deepseek: ["none", "low", "high"],
+  anthropic: ["low", "medium", "high", "xhigh", "max"],
+  openai: ["none", "minimal", "low", "medium", "high", "xhigh"],
+  compatible: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  deepseek: ["none", "low", "high", "max"],
 };
 const DEFAULT_EFFORT: Partial<Record<AiProvider, string>> = {
   anthropic: "low",
   deepseek: "low",
 };
 
-const CALL_TIMEOUT = 60_000;
+/** Prazo de cada chamada: os níveis mais altos pensam por mais tempo. */
+export function aiCallTimeout(cfg: any) {
+  return ["xhigh", "max"].includes(cfg?.effort)
+    ? 180_000
+    : cfg?.effort === "high"
+      ? 90_000
+      : 60_000;
+}
 
 /** Erro do provedor. `transient` diz se vale tentar de novo daqui a pouco. */
 export class AiError extends ApiError {
@@ -318,7 +325,7 @@ async function openaiComplete(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(CALL_TIMEOUT),
+      signal: AbortSignal.timeout(probe ? 60_000 : aiCallTimeout(cfg)),
     });
   } catch (error) {
     if (error instanceof ApiError) throw new AiError(error.message, false);
@@ -366,8 +373,8 @@ function httpError(status: number) {
   );
 }
 
-function anthropicClient(apiKey: string) {
-  return new Anthropic({ apiKey, timeout: CALL_TIMEOUT, maxRetries: 1 });
+function anthropicClient(apiKey: string, timeout = 60_000) {
+  return new Anthropic({ apiKey, timeout, maxRetries: 1 });
 }
 
 function anthropicError(error: unknown) {
@@ -394,13 +401,15 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
       });
   }
   content.push({ type: "text", text: request.input });
+  const deep = ["xhigh", "max"].includes(cfg.effort);
   const params = {
     model: cfg.model,
-    max_tokens: 16000,
+    // The highest levels think longer before the short JSON answer.
+    max_tokens: deep ? 32000 : 16000,
     system: request.instructions,
     messages: [{ role: "user" as const, content }],
   };
-  const client = anthropicClient(key);
+  const client = anthropicClient(key, aiCallTimeout(cfg));
   try {
     const schema =
       request.json === "attendant-jev"

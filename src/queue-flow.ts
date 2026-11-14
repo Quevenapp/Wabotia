@@ -19,6 +19,7 @@ import {
   serviceDay,
   serviceMinutes,
   ticketView,
+  waitShown,
 } from "./queue";
 
 export const QUEUE_PROMPT_MS = 10 * 60000;
@@ -156,7 +157,7 @@ async function statusText(env: Env, ticket: any) {
   if (view.status === "waiting")
     return `Sua senha é *${view.code}* (${view.queue_name}${view.preferential ? ", preferencial" : ""}).\n${
       view.ahead
-        ? `${plural(view.ahead, "pessoa", "pessoas")} à sua frente, espera estimada de ${view.wait_minutes} min.`
+        ? `${plural(view.ahead, "pessoa", "pessoas")} à sua frente${view.wait_minutes === null ? "." : `, espera estimada de ${view.wait_minutes} min.`}`
         : "Você é o próximo!"
     }\n\nAvisaremos aqui quando for chamada. Envie SENHA para ver sua posição ou SAIR para desistir.`;
   return `Sua senha *${view.code}* foi chamada${view.counter_name ? `: dirija-se ao ${view.counter_name}` : ""}.`;
@@ -182,10 +183,11 @@ async function waitText(env: Env, queue: any) {
         queue.id,
       )
     )?.n || 0;
+  const shown = waitShown(queue);
   const line = (label: string, waiting: number, ahead: number) =>
-    `Senha ${label}: ${plural(waiting, "pessoa aguardando", "pessoas aguardando")}, espera estimada de ${estimateMinutes(ahead, minutes, open)} min.`;
+    `Senha ${label}: ${plural(waiting, "pessoa aguardando", "pessoas aguardando")}${shown ? `, espera estimada de ${estimateMinutes(ahead, minutes, open)} min.` : "."}`;
   return `*${queue.name}*\n${line("normal", normal, normal + preferential)}\n${line("preferencial", preferential, aheadOfNew({ normal, preferential }, true, normalsOwed(queue)))}${
-    open
+    open || !shown
       ? ""
       : "\n\nNo momento nenhum guichê está aberto; a espera pode ser maior."
   }`;

@@ -4,6 +4,7 @@ import { all, exec, one } from "../src/db";
 import { conversation, handoff, perform } from "../src/service";
 import { botAllowsLine } from "../src/line-service";
 import { documentText, searchKnowledge } from "../src/knowledge";
+import { conversationalAnswer } from "../src/engine";
 import { isOnlyProtocolNumber, protocolNumber } from "../src/protocol-lookup";
 import { json, uid } from "../src/types";
 import {
@@ -207,6 +208,68 @@ describe("bot indisponível e protocolo de ausência", () => {
     );
     const titles = (await tickets(other.id)).map((t: any) => t.title);
     expect(titles.at(-1)).toBe("Meu pedido 4411 não chegou");
+  });
+});
+
+describe("cumprimento e fila", () => {
+  it("resposta sem fonte a um cumprimento não vai para a equipe", () => {
+    const answer = { action: "answer", text: "Olá! Como posso ajudar?" };
+    expect(conversationalAnswer({ ...answer, citations: [] }, "Olá")).toBe(
+      true,
+    );
+    expect(conversationalAnswer(answer, "Bom dia!! tudo bem?")).toBe(true);
+    expect(conversationalAnswer(answer, "obrigada")).toBe(true);
+    // A real question still needs a source.
+    expect(
+      conversationalAnswer(answer, "Olá, qual o preço do plano anual?"),
+    ).toBe(false);
+    expect(conversationalAnswer({ ...answer, action: "human" }, "Olá")).toBe(
+      false,
+    );
+  });
+
+  it("tempo de espera desligado não mostra estimativa", async () => {
+    const f = await fixture();
+    const run = (op: string, data: any) =>
+      perform(env, f.admin, f.profile, op, data, uid());
+    const queue = await run("queue.save", {
+      name: "Geral",
+      wait_mode: "off",
+      service_minutes: 10,
+    });
+    expect(queue.wait_mode).toBe("off");
+    const counter = await run("counter.save", {
+      name: "Guichê 1",
+      queue_ids: [queue.id],
+    });
+    await perform(
+      env,
+      f.member,
+      f.profile,
+      "counter.state",
+      { id: counter.id, status: "open" },
+      uid(),
+    );
+    const issue = () =>
+      run("queue.issue", {
+        queue_id: queue.id,
+        preferential: false,
+        source: "staff",
+      });
+    await issue();
+    const hidden = await issue();
+    expect(hidden.ahead).toBe(1);
+    expect(hidden.wait_minutes).toBeNull();
+
+    // Back on: the mode kept underneath is used again.
+    const again = await run("queue.save", { id: queue.id, wait_mode: "fixed" });
+    expect(again.wait_mode).toBe("fixed");
+    expect((await issue()).wait_minutes).toBe(20);
+    // Saving other fields keeps "off" when it is on.
+    await run("queue.save", { id: queue.id, wait_mode: "off" });
+    expect(
+      (await run("queue.save", { id: queue.id, name: "Caixa" })).wait_mode,
+    ).toBe("off");
   });
 });
 

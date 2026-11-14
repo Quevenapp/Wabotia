@@ -169,12 +169,13 @@ async function requireToolBot(
       ? "Bot do menu não pertence à área de atendimento."
       : "Especialista não pertence à área de atendimento.",
   );
-  requireValue(
-    bot.kind !== "ai",
-    use === "menu"
-      ? "Itens de menu do tipo bot precisam de um bot Hermes. Bots de provedor de IA só conversam."
-      : "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
-  );
+  // A menu item hands the conversation to an AI bot, which then talks as the
+  // attendant; only a specialist has to run tools, which needs the Hermes.
+  if (use === "specialist")
+    requireValue(
+      bot.kind !== "ai",
+      "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
+    );
 }
 export async function conversation(
   env: Env,

@@ -50,6 +50,9 @@ Por fila, `wait_mode`:
 - `fixed`: `service_minutes` por atendimento.
 - `average`: média de `finished_at − started_at` dos últimos 20 atendimentos
   concluídos do dia; sem histórico usa `service_minutes`.
+- `off` (desde a 0.19.1): não mostra estimativa. `wait_minutes` vem `null` na
+  senha e na fila, e o WhatsApp informa só quantas pessoas estão à frente. O
+  Senhapp deve esconder o tempo quando receber `null`.
 
 `pessoas à frente`: preferencial = preferenciais aguardando; normal = normais +
 preferenciais aguardando. Espera = `ceil(à frente × minutos ÷ max(1, guichês
