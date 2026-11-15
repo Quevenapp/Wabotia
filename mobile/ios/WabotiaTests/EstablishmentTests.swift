@@ -14,6 +14,21 @@ final class EstablishmentTests: XCTestCase {
         XCTAssertTrue(plain.headerLines.isEmpty && plain.footerLines.isEmpty)
     }
 
+    func testCPFIsMaskedOnTheCoupon() throws {
+        var mei = configured
+        mei.documentType = "cpf"
+        mei.document = "12345678909"
+        mei.documentDisplay = "123.456.789-09"
+        XCTAssertEqual(mei.headerLines.first, "CPF ***.456.789-**")
+        let text = String(decoding: try XCTUnwrap(SenhaTicketReceipt(CouponData.of(QueueTicket(id: "t1", queueName: "Geral", code: "N001", createdAt: 1),
+                                                                                    header: "Totem", establishment: mei)).receiptBytes(layout: .counter)), as: UTF8.self)
+        XCTAssertFalse(text.contains("123.456.789-09"), "o cupom público nunca leva o CPF inteiro")
+        XCTAssertFalse(text.contains("12345678909"))
+        mei.documentDisplay = "123"
+        mei.document = "123"
+        XCTAssertEqual(mei.headerLines.first, "Rua das Flores, 120", "CPF incompleto: sem documento, nunca inteiro")
+    }
+
     func testTotemCouponUsesTheEstablishment() throws {
         let ticket = QueueTicket(id: "t1", queueName: "Geral", code: "N001", createdAt: 1)
         let device = CouponData.of(ticket, header: "Totem da entrada")

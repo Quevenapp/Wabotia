@@ -75,11 +75,15 @@ struct Establishment: Codable, Equatable {
     var footer: String?
     var configured: Bool?
 
-    /// As linhas do cabeçalho do cupom, depois do nome: documento, endereço (pode ter quebras) e telefone.
+    /// As linhas do cabeçalho do cupom, depois do nome: documento, endereço (pode ter quebras) e telefone. O cupom do
+    /// totem vai para desconhecidos: CPF (MEI ou autônomo que cadastrou o próprio) sai mascarado, `***.456.789-**`;
+    /// CNPJ sai inteiro.
     var headerLines: [String] {
         var out: [String] = []
-        if let doc = documentDisplay?.trimmingCharacters(in: .whitespaces), !doc.isEmpty {
-            out.append((documentType == "cpf" ? "CPF " : "CNPJ ") + doc)
+        if documentType == "cpf" {
+            if let masked = Self.maskedCPF(documentDisplay ?? document) { out.append("CPF " + masked) }
+        } else if let doc = documentDisplay?.trimmingCharacters(in: .whitespaces), !doc.isEmpty {
+            out.append("CNPJ " + doc)
         }
         for line in (address ?? "").split(whereSeparator: \.isNewline) {
             let text = line.trimmingCharacters(in: .whitespaces)
@@ -87,6 +91,13 @@ struct Establishment: Codable, Equatable {
         }
         if let phone = phone?.trimmingCharacters(in: .whitespaces), !phone.isEmpty { out.append(phone) }
         return out
+    }
+
+    /// Só os seis números do meio; sem 11 dígitos, nada (melhor sem documento do que com ele inteiro).
+    static func maskedCPF(_ text: String?) -> String? {
+        let digits = Array((text ?? "").filter { $0.isASCII && $0.isNumber })
+        guard digits.count == 11 else { return nil }
+        return "***.\(String(digits[3..<6])).\(String(digits[6..<9]))-**"
     }
 
     var footerLines: [String] {
