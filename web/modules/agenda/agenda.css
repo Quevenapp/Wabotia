@@ -8,6 +8,12 @@
   margin: 0;
   min-width: 150px;
 }
+.agenda-toolbar .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
 .agenda-nav {
   display: flex;
   align-items: flex-end;
@@ -23,6 +29,12 @@
   gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   align-items: start;
+}
+/* Na grade o espaço vem do gap; a margem de .card + .card (base.css)
+   descia os cartões seguintes e dobrava o espaço no celular. */
+.agenda-columns > .card + .card,
+.agenda-week > .card + .card {
+  margin-top: 0;
 }
 .agenda-column h2,
 .agenda-day h2 {
