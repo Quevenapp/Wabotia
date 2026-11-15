@@ -1173,6 +1173,12 @@ export async function paymentUpdated(
     );
     if (!claimed.meta.changes) return;
     await history(ctx, order, "payment", "provider", "Pagamento estornado.");
+    // Estorno ou contestação (revisão M8): pedido que ainda não foi para o
+    // preparo é cancelado; já em preparo ou entregue, vira pendência para a
+    // equipe (nota interna e needs_review no evento).
+    const fresh = await loadOrder(ctx, order.id);
+    const cancel = ["awaiting_payment", "received"].includes(fresh.status);
+    const review = !cancel && fresh.status !== "cancelled";
     await ctx.publish(
       "pedido.refunded",
       order.id,
@@ -1182,9 +1188,29 @@ export async function paymentUpdated(
         payment_id: payment.id,
         amount_cents: payment.amount_cents,
         conversation_id: order.conversation_id,
+        order_status: fresh.status,
+        needs_review: review,
       },
       { key: `refunded:${order.id}` },
     );
+    if (cancel)
+      await moveOrder(
+        ctx,
+        fresh,
+        "cancelled",
+        "provider",
+        "Pagamento estornado.",
+        { cancel_reason: "Pagamento estornado pelo provedor de pagamento." },
+      );
+    else if (review && fresh.conversation_id)
+      try {
+        await ctx.note(
+          await ctx.conversation(fresh.conversation_id),
+          `Pagamento do pedido nº ${fresh.number} estornado ou contestado com o pedido em "${STATUS_LABELS[fresh.status as OrderStatus] || fresh.status}". Confira com o cliente e com o Mercado Pago.`,
+        );
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+      }
   }
 }
 

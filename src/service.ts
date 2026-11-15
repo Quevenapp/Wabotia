@@ -170,6 +170,7 @@ export const eventTypes = [
   "payment.expired",
   "payment.cancelled",
   "payment.refunded",
+  "payment.duplicate",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(

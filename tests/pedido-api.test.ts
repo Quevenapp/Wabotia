@@ -1,7 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, one } from "../src/db";
-import { json } from "../src/types";
+import { json, uid } from "../src/types";
+import { perform } from "../src/service";
 import { openapi } from "../src/openapi";
 import { moduleRoutes } from "../src/modules/hooks";
 import { pedidoModule } from "../src/modules/pedido/definition";
@@ -126,7 +127,7 @@ describe("pedido: contrato da API", () => {
     expect(bare.error.message).toMatch(/conversation_id/);
   });
 
-  it("estorno confirmado pelo provedor fica registrado (pedido.refunded)", async () => {
+  async function paidPixOrder(phone: string) {
     const mp = stubMercadoPago();
     const { f } = await pedidoSetup({
       menus: MENUS,
@@ -134,8 +135,8 @@ describe("pedido: contrato da API", () => {
     });
     const account = await paymentAccount(f);
     const menu = await seedMenu(f);
-    await say(f, "oi", "5511973000001");
-    const c = await say(f, "1", "5511973000001");
+    await say(f, "oi", phone);
+    const c = await say(f, "1", phone);
     const link = (await outbox(c.id)).find((m) => codeIn(String(m.text)))!;
     await submitCart(codeIn(link.text), {
       [`q_${menu.suco.id}`]: "3",
@@ -155,21 +156,33 @@ describe("pedido: contrato da API", () => {
     );
     mp.remote.get(payment.provider_ref)!.status = "approved";
     await webhook(account.id, payment.provider_ref);
-    mp.remote.get(payment.provider_ref)!.status = "refunded";
-    await webhook(account.id, payment.provider_ref);
+    const refund = async () => {
+      mp.remote.get(payment.provider_ref)!.status = "refunded";
+      await webhook(account.id, payment.provider_ref);
+    };
+    return { f, c, order, refund };
+  }
+
+  it("estorno antes do preparo cancela o pedido (pedido.refunded, revisão M8)", async () => {
+    const { f, order, refund } = await paidPixOrder("5511973000001");
+    await refund();
     const after = await one(
       env,
       "SELECT payment_status,status FROM pedido_orders WHERE id=?",
       order.id,
     );
-    expect(after).toEqual({ payment_status: "refunded", status: "received" });
+    expect(after).toEqual({ payment_status: "refunded", status: "cancelled" });
     const refunded = await all(
       env,
       "SELECT payload FROM events WHERE profile_id=? AND kind='pedido.refunded'",
       f.profile,
     );
     expect(refunded.map((r) => json(r.payload))).toEqual([
-      expect.objectContaining({ order_id: order.id, amount_cents: 2400 }),
+      expect.objectContaining({
+        order_id: order.id,
+        amount_cents: 2400,
+        needs_review: false,
+      }),
     ]);
     // Todos os eventos publicados são declarados pelo módulo.
     const kinds = await all(
@@ -178,5 +191,39 @@ describe("pedido: contrato da API", () => {
       f.profile,
     );
     for (const { kind } of kinds) expect(pedidoModule.events).toContain(kind);
+  });
+
+  it("estorno com o pedido em preparo vira pendência para a equipe", async () => {
+    const { f, c, order, refund } = await paidPixOrder("5511973000002");
+    await perform(
+      env,
+      f.admin,
+      f.profile,
+      "pedido.status",
+      { id: order.id, status: "preparing" },
+      uid(),
+    );
+    await refund();
+    expect(
+      await one(
+        env,
+        "SELECT payment_status,status FROM pedido_orders WHERE id=?",
+        order.id,
+      ),
+    ).toEqual({ payment_status: "refunded", status: "preparing" });
+    const [event] = await all(
+      env,
+      "SELECT payload FROM events WHERE profile_id=? AND kind='pedido.refunded'",
+      f.profile,
+    );
+    expect(json(event.payload)).toMatchObject({ needs_review: true });
+    const notes = await all(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note'",
+      c.id,
+    );
+    expect(notes.map((n) => n.text).join("\n")).toContain(
+      `Pagamento do pedido nº ${order.number} estornado`,
+    );
   });
 });

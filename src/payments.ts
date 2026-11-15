@@ -579,6 +579,12 @@ async function transition(
     provider_payment_id?: string;
     paid_at?: number;
   } = {},
+  /**
+   * Estorno que chegou antes do primeiro aviso: o "paga" só fica registrado
+   * (evento e nota), sem gancho do módulo nem comprovante ao cliente; o
+   * módulo vê só o estorno (revisão M8).
+   */
+  options: { silent?: boolean } = {},
 ) {
   const from = transitions[next];
   const at = now();
@@ -588,15 +594,18 @@ async function transition(
     status: next,
     previous: row.status,
   });
+  const hookSql = options.silent
+    ? "hook_pending=hook_pending"
+    : "hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL";
   const result = await exec(
     env,
-    `UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(?,paid_at),updated=?,hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
+    `UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(?,paid_at),updated=?,${hookSql} WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
     next,
     extra.provider_status ?? null,
     extra.provider_payment_id ?? null,
     next === "paid" ? (extra.paid_at ?? at) : null,
     at,
-    pending,
+    ...(options.silent ? [] : [pending]),
     row.id,
     ...from,
   );
@@ -626,7 +635,7 @@ async function transition(
     };
     await message(env, c, "note", "system", notes[next]);
     // receipt: false → o módulo manda o próprio comprovante.
-    if (next === "paid" && fresh.receipt !== 0)
+    if (next === "paid" && fresh.receipt !== 0 && !options.silent)
       try {
         await enqueue(
           env,
@@ -645,7 +654,60 @@ async function transition(
         if (!(error instanceof ApiError)) throw error;
       }
   }
-  if (fresh.module_id) await deliverPaymentHooks(env, fresh.id);
+  if (fresh.module_id && !options.silent)
+    await deliverPaymentHooks(env, fresh.id);
+  return true;
+}
+
+/**
+ * Segundo pagamento aprovado da mesma cobrança (link pago duas vezes): outro
+ * id no provedor. Guarda, publica payment.duplicate e avisa a equipe numa
+ * nota interna para estornar; cada id só uma vez (revisão M8).
+ */
+async function recordDuplicate(
+  env: Env,
+  row: any,
+  remote: { id: string; amount_cents: number },
+) {
+  const entry = JSON.stringify({
+    id: String(remote.id),
+    amount_cents: remote.amount_cents,
+    at: now(),
+  });
+  const result = await exec(
+    env,
+    "UPDATE payments SET duplicate_payments=json_insert(coalesce(duplicate_payments,'[]'),'$[' || json_array_length(coalesce(duplicate_payments,'[]')) || ']',json(?)),updated=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=?)",
+    entry,
+    now(),
+    row.id,
+    String(remote.id),
+  );
+  if (!result.meta?.changes) return false;
+  const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
+  await event(
+    env,
+    fresh.profile_id,
+    "payment.duplicate",
+    fresh.id,
+    paymentEvent(fresh, {
+      duplicate_provider_payment_id: String(remote.id),
+      duplicate_amount_cents: remote.amount_cents,
+      needs_refund: true,
+    }),
+    `payment.duplicate:${fresh.id}:${remote.id}`,
+  );
+  try {
+    const c = await conversation(env, fresh.conversation_id, fresh.profile_id);
+    await message(
+      env,
+      c,
+      "note",
+      "system",
+      `Pagamento em duplicidade: ${fresh.description} foi pago de novo (${money(remote.amount_cents, fresh.currency)}, pagamento ${remote.id} no provedor). Estorne o valor a mais pelo painel do Mercado Pago.`,
+    );
+  } catch {
+    // Cobrança sem conversa: fica o evento.
+  }
   return true;
 }
 
@@ -788,9 +850,21 @@ export async function refreshFromProvider(
     );
     return { status: row.status, changed: false };
   }
-  // Pagamento aprovado e depois estornado antes de chegar o primeiro aviso.
+  // Outro pagamento aprovado da mesma cobrança (link pago duas vezes).
+  if (
+    next === "paid" &&
+    (row.status === "paid" || row.status === "refunded") &&
+    row.provider_payment_id &&
+    remote.id &&
+    String(remote.id) !== String(row.provider_payment_id)
+  ) {
+    const recorded = await recordDuplicate(env, row, remote);
+    return { status: row.status, changed: false, duplicate: recorded };
+  }
+  // Pagamento aprovado e depois estornado antes de chegar o primeiro aviso:
+  // o "paga" só fica registrado; o módulo e o cliente veem o estorno.
   if (next === "refunded" && row.status !== "paid") {
-    await transition(env, row, "paid", extra);
+    await transition(env, row, "paid", extra, { silent: true });
     const paid = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
     const changed = await transition(env, paid, "refunded", extra);
     return { status: "refunded", changed };
