@@ -4,6 +4,7 @@ import SwiftUI
 struct WabotiaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var container = AppContainer.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         Theme.applyAppearance()
@@ -15,5 +16,7 @@ struct WabotiaApp: App {
                 .environmentObject(container)
                 .onOpenURL { url in container.handle(deepLink: DeepLink(url: url)) }
         }
+        // Seletor de apps e segundo plano: a miniatura mostra só a marca, nunca dados de clientes.
+        .onChange(of: scenePhase) { phase in PrivacyShield.shared.update(phase) }
     }
 }
