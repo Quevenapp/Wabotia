@@ -63,6 +63,16 @@ export function registerInboundHandler(
 export const inboundHandlersFor = (type: string) =>
   inboundHandlers.get(type) || [];
 
+/** Tarefa periódica do módulo: (env, profile, now). Ver src/modules/schedule.ts. */
+const schedules = new Map<string, Hook>();
+export function registerSchedule(
+  module: string,
+  handler: (env: any, profile: string, now: number) => Promise<void>,
+) {
+  schedules.set(module, handler);
+}
+export const scheduledModules = () => [...schedules.entries()];
+
 /** Comando de escrita (Coordinator): (env, actor, profile, data, requestId). */
 const commands = new Map<string, Hook>();
 export function registerCommand(
