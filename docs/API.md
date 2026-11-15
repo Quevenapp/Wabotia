@@ -70,6 +70,29 @@ O primeiro uso é o módulo **Formulários**: o administrador cadastra `forms` e
 
 Pix e link de pagamento pelo Mercado Pago (módulo `payments`, passo a passo em [COBRANCA.md](COBRANCA.md)). O administrador configura a conta em `PUT /profiles/{perfil}/payments/account` (`access_token`, `webhook_secret`, `payer_email`, `enabled`); `GET /profiles/{perfil}/payments/account` nunca devolve os segredos, só `access_token_set`, `webhook_secret_set` e o `webhook_url` a cadastrar no Mercado Pago; `GET …/payments/account/check` confere as credenciais. Cobre com `POST /profiles/{perfil}/conversations/{id}/actions` e `{"action":"charge","method":"pix","amount_cents":4990,"description":"Consulta"}` (conversa assumida). Consulte `GET /profiles/{perfil}/payments?conversation_id=…` e `GET /profiles/{perfil}/payments/{id}`; cancele com `POST /profiles/{perfil}/payments/{id}/cancel`. O detalhe da conversa traz `payments`. Estados: `created`, `paid`, `expired`, `cancelled`, `refunded`; `paid` e `refunded` vêm só do webhook assinado do provedor seguido da consulta do pagamento. Eventos `payment.created`, `payment.paid`, `payment.expired`, `payment.cancelled` e `payment.refunded`.
 
+### Mensalidade (módulo `mensalidade`)
+
+Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profiles/{perfil}/mensalidade`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta sem repetir cobrança nem mensagem). Planos, importação, pausar/retomar/encerrar, baixa, isenção e gerar exigem administrador (pessoas) ou aplicação com `conversations:write`. Com o módulo desligado, todas respondem `409 module_disabled`. Valores em centavos inteiros; vencimentos `AAAA-MM-DD` no horário de Brasília; competência `AAAA-MM`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /mensalidade/plans` · `POST` · `PATCH /plans/{id}` · `DELETE /plans/{id}` | Planos: `name`, `amount_cents`, `period` (`monthly`, `quarterly`, `yearly`), `due_day` (1 a 31; no mês curto, o último dia), `active`. Excluir com assinaturas: `409 plan_in_use` |
+| `GET /mensalidade/subscriptions` | Filtros `status=active,paused,ended`, `plan_id`, `q`, `phone`, `conversation_id`, `limit`, `cursor`; traz `counts` e, por assinatura, `open_count`, `overdue_count`, `overdue_cents` |
+| `POST /mensalidade/subscriptions` | `plan_id` e `conversation_id` ou `phone` + `customer_name`; opcionais `amount_cents`, `discount_cents`, `due_day`, `start_date`, `end_date`, `notes` |
+| `POST /mensalidade/subscriptions/import` | `{"rows":[{"customer_name","phone","plan"\|"plan_id","discount_cents","due_day","start_date"}]}` (até 300); devolve `created`, `skipped` (já assinante do plano) e `errors` por linha |
+| `GET /mensalidade/subscriptions/{id}` · `PATCH` | Detalhe com `installments`; alteração vale para as próximas parcelas |
+| `POST /mensalidade/subscriptions/{id}/pause` · `/resume` · `/end` | Pausar e encerrar cancelam as parcelas abertas ainda não vencidas; retomar não cobra a pausa |
+| `GET /mensalidade/installments` | `month=AAAA-MM` (padrão: mês atual), `status=open,overdue,paid,waived,cancelled`, `subscription_id`, `q`; traz `counts` do mês |
+| `GET /mensalidade/installments/{id}` | Parcela com `payment` (`pix_code`, `url`, `expires_at`), `notices` e baixa (`paid_via` `pix`\|`link`\|`manual`, `paid_by`, `paid_note`) |
+| `POST /mensalidade/installments/{id}/charge` | Reenvia o Pix/link que vale ou cria outra cobrança; `409 no_conversation`, `409 payments_not_configured`, `409 installment_not_payable` |
+| `POST /mensalidade/installments/{id}/pay` | Baixa manual `{"note","paid_at":"AAAA-MM-DD","notify":true}`; registra quem deu baixa e envia o comprovante |
+| `POST /mensalidade/installments/{id}/waive` | Isenta `{"note"}` |
+| `GET /mensalidade/summary?month=AAAA-MM` | `expected_cents`, `received_cents`, `overdue_cents`, `open_cents`, `waived_cents`, `counts`, `received_in_month`, `overdue_total`, `payments_ready` |
+| `GET /mensalidade/delinquents` | Assinaturas com parcelas vencidas: `overdue_count`, `overdue_cents`, `oldest_due_date`, `notices_sent` |
+| `POST /mensalidade/generate` | Gera agora as parcelas do gancho periódico (sem avisos) |
+
+A parcela vira `paid` só pelo webhook assinado do provedor (cobrança do módulo `payments`) ou pela baixa manual; nunca por mensagem do cliente. Eventos (webhooks com `conversations:read`): `mensalidade.subscription_created`, `mensalidade.subscription_changed` (`change`: `updated`, `paused`, `resumed`, `ended`), `mensalidade.installment_created`, `mensalidade.charged`, `mensalidade.notice_sent` (`kind`: `before`, `due`, `overdue`), `mensalidade.overdue`, `mensalidade.paid` (`via`, `by`; `duplicate: true` quando entra um segundo pagamento), `mensalidade.waived`, `mensalidade.refunded`, `mensalidade.notice_failed` (`reason`: `no_conversation`…) e `mensalidade.setup_needed` (Cobrança não configurada, no máximo uma vez por dia).
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:

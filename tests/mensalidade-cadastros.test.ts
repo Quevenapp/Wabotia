@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { all, one } from "../src/db";
 import { perform } from "../src/service";
 import { json, uid } from "../src/types";
+import { openapi } from "../src/openapi";
+import { moduleRoutes } from "../src/modules/hooks";
 import {
   dueDates,
   money,
@@ -365,6 +367,27 @@ describe("mensalidade: assinaturas", () => {
     expect((await api(reader.token, root(f) + "/subscriptions")).status).toBe(
       200,
     );
+  });
+});
+
+describe("mensalidade: OpenAPI", () => {
+  it("documenta todas as rotas registradas pelo módulo", () => {
+    const spec = openapi("https://test");
+    const routes = moduleRoutes();
+    const documented = (method: string, path: string) =>
+      !!spec.paths[
+        "/profiles/{profile}/" + path.replace(/:([a-z_]+)/g, "{$1}")
+      ]?.[method.toLowerCase()];
+    const own = [
+      ...routes.write.map((r) => [r.method, r.path] as const),
+      ...routes.read.map((r) => ["GET", r.path] as const),
+    ].filter(([, path]) => path.startsWith("mensalidade/"));
+    expect(own.length).toBeGreaterThanOrEqual(20);
+    for (const [method, path] of own)
+      expect(documented(method, path), `${method} ${path}`).toBe(true);
+    const list = spec.paths["/profiles/{profile}/mensalidade/installments"].get;
+    expect(list.tags).toEqual(["Módulos"]);
+    expect(spec.components.schemas.MensalidadeInstallment).toBeTruthy();
   });
 });
 
