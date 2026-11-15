@@ -158,7 +158,14 @@ struct ServiceOrderDetailView: View {
         .navigationTitle(vm.order.map { "Ordem \($0.numberText)" } ?? "Ordem de serviço")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBarHidden(false)
-        .task { vm.observeEvents(); await vm.load() }
+        .task {
+            vm.observeEvents()
+            await vm.load()
+            #if DEBUG
+            // WABOTIA_DEMO_ACTION=quote (só depuração): abre o editor de orçamento, para conferir por print.
+            if AppContainer.shared.isDemo, DemoMode.action == "quote" { editingQuote = true }
+            #endif
+        }
         .refreshable { await vm.load() }
         .onChange(of: vm.done) { text in if let text { Workspace.shared.show(text, style: .success) } }
         .sheet(isPresented: $editingQuote) {

@@ -20,20 +20,36 @@ final class SilentPanelAudio: PanelCallAudio {
 
 /// Voz com `AVSpeechSynthesizer` em pt-BR e um gongo gerado no próprio app (dois tons com decaimento, sem arquivo de
 /// som). A sessão de áudio é `.playback`: o painel fala mesmo com a chave de silêncio do iPhone ligada, como uma TV.
-final class SpeechPanelAudio: PanelCallAudio {
+final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDelegate {
     private let synthesizer = AVSpeechSynthesizer()
     private let voice = AVSpeechSynthesisVoice(language: "pt-BR")
     private var player: AVAudioPlayer?
     /// A próxima fala espera o gongo terminar.
     private var chimeUntil = Date.distantPast
 
-    init() {
+    override init() {
+        super.init()
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
         try? session.setActive(true)
         player = try? AVAudioPlayer(data: Self.chimeWAV())
         player?.prepareToPlay()
+        synthesizer.delegate = self
+        #if DEBUG
+        // Para conferir pelo console do aparelho (`devicectl … --console`) que a voz é a de pt-BR.
+        print("[Wabotia] voz do painel: \(voice.map { "\($0.language) \($0.name)" } ?? "pt-BR não instalada")")
+        #endif
     }
+
+    #if DEBUG
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        print("[Wabotia] fala iniciada (\(utterance.voice?.language ?? "?")): \(utterance.speechString)")
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        print("[Wabotia] fala concluída: \(utterance.speechString)")
+    }
+    #endif
 
     deinit { stop() }
 
@@ -42,6 +58,9 @@ final class SpeechPanelAudio: PanelCallAudio {
         player.currentTime = 0
         player.play()
         chimeUntil = Date().addingTimeInterval(player.duration)
+        #if DEBUG
+        print("[Wabotia] gongo")
+        #endif
     }
 
     func speak(_ text: String) {

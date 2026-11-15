@@ -97,8 +97,8 @@ extension DemoMode {
     static let launchScreen: String? = env("WABOTIA_DEMO")?.lowercased()
     static let forceDark: Bool = env("WABOTIA_DEMO_DARK") == "1"
     static let anchor: String? = env("WABOTIA_DEMO_ANCHOR")
-    /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`
-    /// (aparelho) e `call` (guichê 2 chama a próxima).
+    /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`,
+    /// `printer`, `pin`, `unpair` (aparelho), `call` (guichê 2 chama a próxima), `week` (agenda) e `quote` (ordem).
     static let action: String? = env("WABOTIA_DEMO_ACTION")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen

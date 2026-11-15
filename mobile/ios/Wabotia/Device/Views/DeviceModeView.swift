@@ -67,6 +67,10 @@ struct DeviceModeView: View {
             vm.chooseQueue("dq-geral")
             vm.issue(preferential: true)
         case "settings": settings = true
+        case "printer":
+            settings = true
+            printer = true
+        case "unpair": vm.unpair()
         default: break
         }
     }
@@ -447,6 +451,17 @@ private struct DevicePanelScreen: View {
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .sheet(isPresented: $unlocking) { UnlockSheet(vm: vm, onUnlocked: onSettings) }
             .accessibilityIdentifier("device.panel")
+            #if DEBUG
+            .task {
+                // WABOTIA_DEMO_ACTION=pin (só depuração): cria o PIN 2580, toca na engrenagem e erra o PIN uma vez.
+                guard vm.demo, DemoMode.action == "pin" else { return }
+                _ = vm.createPin("2580", confirmation: "2580")
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guarded()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                _ = vm.unlock("1111")
+            }
+            #endif
         }
     }
 
