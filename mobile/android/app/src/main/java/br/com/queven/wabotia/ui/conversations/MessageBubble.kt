@@ -44,7 +44,7 @@ import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
@@ -407,7 +407,7 @@ internal fun StatusTick(status: String, subtle: Color, size: Dp = 16.dp, onClick
         "delivered" -> Icons.Filled.DoneAll to subtle
         "read", "played" -> Icons.Filled.DoneAll to c.tickRead
         "failed" -> Icons.Filled.ErrorOutline to c.danger
-        "unknown" -> Icons.Filled.HelpOutline to subtle
+        "unknown" -> Icons.AutoMirrored.Filled.HelpOutline to subtle
         else -> return
     }
     Icon(

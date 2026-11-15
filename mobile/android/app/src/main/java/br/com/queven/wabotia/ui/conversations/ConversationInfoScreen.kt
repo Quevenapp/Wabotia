@@ -35,7 +35,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
-import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,9 +54,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
+import android.content.ClipData
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -108,7 +108,7 @@ fun ConversationInfoScreen(
     val profileId = container.session.profileId ?: ""
     val c = Wb.colors
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val snackbar = remember { SnackbarHostState() }
     val now by rememberNow()
 
@@ -161,7 +161,7 @@ fun ConversationInfoScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(formatPhone(phone), color = c.textSecondary, fontSize = 15.sp)
                                     IconButton(onClick = {
-                                        clipboard.setText(AnnotatedString(phone))
+                                        clipboard.nativeClipboard.setPrimaryClip(ClipData.newPlainText("", phone))
                                         vm.notice = "Telefone copiado"
                                     }) { Icon(Icons.Filled.ContentCopy, contentDescription = "Copiar telefone", tint = c.textSecondary, modifier = Modifier.size(18.dp)) }
                                 }
@@ -348,7 +348,7 @@ fun ConversationInfoScreen(
                             }
                             if (own) {
                                 divider()
-                                SettingsRow(Icons.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy)
+                                SettingsRow(Icons.AutoMirrored.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy)
                                 divider()
                                 SettingsRow(Icons.Filled.TaskAlt, "Concluir", subtitle = "Encerra este atendimento", tint = c.danger, titleColor = c.danger, onClick = { confirmResolve = true }, enabled = !vm.busy)
                             }

@@ -49,9 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
+import android.content.ClipData
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -293,7 +293,7 @@ fun BotChatScreen(container: AppContainer, botId: String, conversationId: String
     LaunchedEffect(vm) { vm.start() }
 
     val c = Wb.colors
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -369,7 +369,7 @@ fun BotChatScreen(container: AppContainer, botId: String, conversationId: String
                             profileId = profileId,
                             onCancel = { vm.cancel(run.id) },
                             onCopy = { text ->
-                                clipboard.setText(AnnotatedString(text))
+                                clipboard.nativeClipboard.setPrimaryClip(ClipData.newPlainText("", text))
                                 showMessage(if (conversationId != null) "Resposta copiada. Cole no campo de mensagem da conversa." else "Resposta copiada.")
                             },
                             onMessage = { showMessage(it) },

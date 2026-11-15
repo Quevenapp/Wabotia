@@ -53,7 +53,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
-import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -518,7 +518,7 @@ private fun ConversationMenu(
             item("Abrir protocolo", Icons.Filled.ConfirmationNumber, action = onTicket)
             item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
-        if (own) item("Devolver ao bot", Icons.Filled.Undo, action = onResume)
+        if (own) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
         if (canHandOff && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
         item("Consultar bot", Icons.Filled.SmartToy, action = onBots)
         if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) item("Salvar contato", Icons.Filled.PersonAdd, action = onSaveContact)
