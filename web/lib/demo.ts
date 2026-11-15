@@ -391,6 +391,86 @@ const demoModules: Row[] = [
   },
   reservaDemoModule,
   pedidoDemoModule,
+  {
+    id: "mensalidade",
+    name: "Mensalidade",
+    version: "1.0.0",
+    description:
+      "Planos, assinaturas e parcelas com cobrança por Pix ou link antes do vencimento, avisos de atraso e comprovante pelo WhatsApp.",
+    builtin: true,
+    enabled: true,
+    default_enabled: false,
+    navigation: [
+      { id: "mensalidades", label: "Mensalidades", place: "admin", admin: false },
+      { id: "mensalidade-settings", label: "Planos e regras", place: "admin", admin: true },
+    ],
+    menu_item_types: [
+      { type: "mensalidade_list", label: "Minhas mensalidades" },
+      { type: "mensalidade_copy", label: "Segunda via" },
+    ],
+  },
+  {
+    id: "suporte",
+    name: "Suporte pago",
+    version: "1.0.0",
+    description:
+      "Atendimento humano liberado para quem paga: identifica pelo telefone ou CPF/CNPJ, confere a mensalidade e vende suporte avulso ou plano mensal por Pix ou link.",
+    builtin: true,
+    enabled: true,
+    default_enabled: false,
+    navigation: [
+      { id: "suporte", label: "Suporte pago", place: "admin", admin: false },
+      { id: "suporte-settings", label: "Regras do suporte", place: "admin", admin: true },
+    ],
+    menu_item_types: [{ type: "suporte_humano", label: "Atendimento humano (pago)" }],
+  },
+];
+
+// Suporte pago (módulo "suporte"): empresa de suporte técnico de TI, nos
+// formatos de GET /suporte/releases, /purchases, /offers e /conversations/{id}.
+const spPackages: Row[] = [
+  { id: "avulso", name: "Chamado avulso", price_cents: 8900, mode: "ticket", active: true, validity: "até o fim deste atendimento" },
+  { id: "dia", name: "Suporte 24 horas", price_cents: 14900, mode: "hours", hours: 24, active: true, validity: "24 horas de atendimento" },
+];
+const spRelease = (
+  n: number,
+  kind: string,
+  phone: string,
+  payer: string,
+  age: number,
+  extra: Row = {},
+): Row => ({
+  id: "rel-" + n,
+  conversation_id: n === 1 ? "demo-1" : "demo-" + (n + 1),
+  phone,
+  payer_id: payer ? "payer-" + n : null,
+  payer_name: payer,
+  kind,
+  kind_label: ({ subscription: "Assinatura em dia", installment: "Mensalidade paga", package: "Suporte avulso", courtesy: "Cortesia", team: "Confirmado pela equipe" } as Row)[kind],
+  ref_id: null,
+  phone_linked: true,
+  valid_until: null,
+  until_ticket: true,
+  reason: "",
+  summary: "",
+  actor: kind === "courtesy" ? "demo-user" : kind === "subscription" ? "system" : "provider",
+  status: "active",
+  ended_at: null,
+  ended_by: null,
+  created: t(age),
+  ...extra,
+});
+const spReleases: Row[] = [
+  spRelease(1, "subscription", "5511988001001", "Contabilidade Silva Ltda", 40 * M),
+  spRelease(2, "package", "5511988001002", "Padaria Pão Quente", 2 * H, { valid_until: t(2 * H - 24 * H), until_ticket: false }),
+  spRelease(3, "subscription", "5511988001003", "Clínica Sorriso", 5 * H, { phone_linked: false }),
+  spRelease(4, "installment", "5511988001004", "Escritório Moura", 26 * H),
+  spRelease(5, "courtesy", "5511988001005", "", 3 * 24 * H, { reason: "Falha no nosso servidor de backup", until_ticket: false, valid_until: t(3 * 24 * H - 4 * H), status: "ended" }),
+];
+const spPurchases: Row[] = [
+  { id: "buy-1", conversation_id: "demo-3", payer_id: "payer-2", document: "11222333000181", name: "Padaria Pão Quente", phone: "5511988001002", package_id: "dia", package_name: "Suporte 24 horas", price_cents: 14900, mode: "hours", hours: 24, validity: "24 horas de atendimento", method: "pix", payment: null, status: "paid", status_label: "Paga", paid_at: t(2 * H), created: t(2 * H + 6 * M), updated: t(2 * H) },
+  { id: "buy-2", conversation_id: "demo-7", payer_id: null, document: "52998224725", name: "João Pereira", phone: "5511988001007", package_id: "avulso", package_name: "Chamado avulso", price_cents: 8900, mode: "ticket", hours: null, validity: "até o fim deste atendimento", method: "link", payment: null, status: "pending", status_label: "Aguardando pagamento", paid_at: null, created: t(12 * M), updated: t(12 * M) },
+  { id: "buy-3", conversation_id: "demo-8", payer_id: null, document: "11144477735", name: "Ana Prado", phone: "5511988001008", package_id: "avulso", package_name: "Chamado avulso", price_cents: 8900, mode: "ticket", hours: null, validity: "até o fim deste atendimento", method: "pix", payment: null, status: "expired", status_label: "Expirada", paid_at: null, created: t(30 * H), updated: t(6 * H) },
 ];
 
 // Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
@@ -470,6 +550,152 @@ const osHistory = (order: Row): Row[] => [
     ? [{ id: order.id + "-h2", kind: "status", from_status: "received", to_status: order.status, actor: "demo-user", note: "", created: order.updated }]
     : []),
 ];
+
+// Mensalidade (módulo "mensalidade"): escola de idiomas, nos formatos de
+// GET /mensalidade/plans, /subscriptions, /installments, /summary e /delinquents.
+const msPlans: Row[] = [
+  { id: "plan-kids", name: "Inglês Kids", amount_cents: 18000, period: "monthly", period_label: "Mensal", due_day: 10, active: true, subscriptions: 3 },
+  { id: "plan-teens", name: "Inglês Teens", amount_cents: 21000, period: "monthly", period_label: "Mensal", due_day: 10, active: true, subscriptions: 3 },
+  { id: "plan-esp", name: "Espanhol Adulto", amount_cents: 24000, period: "monthly", period_label: "Mensal", due_day: 5, active: true, subscriptions: 1 },
+  { id: "plan-intensivo", name: "Conversação intensiva", amount_cents: 60000, period: "quarterly", period_label: "Trimestral", due_day: 15, active: true, subscriptions: 1 },
+];
+const msMonth = new Date(Date.now() - 3 * H).toISOString().slice(0, 7);
+const msToday = new Date(Date.now() - 3 * H).toISOString().slice(0, 10);
+const msMonthNames = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const msPrevMonth = (() => {
+  const [y, m] = msMonth.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+})();
+const msSub = (
+  n: number,
+  name: string,
+  phone: string,
+  plan: string,
+  discount: number,
+  status = "active",
+): Row => {
+  const p = msPlans.find((item) => item.id === plan)!;
+  return {
+    id: "sub-" + n,
+    plan_id: plan,
+    plan_name: p.name,
+    customer: { name, phone, contact_id: null, conversation_id: n <= 4 ? "demo-1" : null },
+    period: p.period,
+    period_label: p.period_label,
+    amount_cents: p.amount_cents,
+    discount_cents: discount,
+    charge_cents: p.amount_cents - discount,
+    due_day: p.due_day,
+    start_date: "2026-02-01",
+    end_date: null,
+    status,
+    status_label: status === "active" ? "Ativa" : "Pausada",
+    notes: n === 2 ? "Irmã do Lucas: 15% de desconto." : "",
+    paused_at: status === "paused" ? t(20 * 24 * H) : null,
+    ended_at: null,
+    created_by: "demo-user",
+    created: t(200 * 24 * H),
+    updated: t(5 * 24 * H),
+  };
+};
+const msSubs: Row[] = [
+  msSub(1, "Lucas Ferreira", "5511987001001", "plan-kids", 0),
+  msSub(2, "Sofia Ferreira", "5511987001001", "plan-kids", 2700),
+  msSub(3, "Gabriel Rocha", "5511987001003", "plan-teens", 0),
+  msSub(4, "Helena Martins", "5511987001004", "plan-teens", 0),
+  msSub(5, "Davi Nogueira", "5511987001005", "plan-teens", 3000),
+  msSub(6, "Laura Pires", "5511987001006", "plan-esp", 0),
+  msSub(7, "Marcos Tavares", "5511987001007", "plan-intensivo", 0),
+  msSub(8, "Isabela Duarte", "5511987001008", "plan-kids", 0, "paused"),
+];
+const msInstallment = (sub: Row, month: string, status: string, paid?: "pix" | "manual"): Row => {
+  const due = `${month}-${String(sub.due_day).padStart(2, "0")}`;
+  const [y, m] = month.split("-").map(Number);
+  const labels: Row = { open: "Aberta", paid: "Paga", overdue: "Vencida", waived: "Isenta" };
+  return {
+    id: `inst-${sub.id}-${month}`,
+    subscription_id: sub.id,
+    period_key: month,
+    period_label: `${msMonthNames[m - 1]}/${y}`,
+    due_date: due,
+    amount_cents: sub.charge_cents,
+    status,
+    status_label: labels[status],
+    customer: { name: sub.customer.name, phone: sub.customer.phone },
+    plan_name: sub.plan_name,
+    payment: status === "open" || status === "overdue" ? { id: "pay-" + sub.id, status: "created", pix_code: "00020126580014BR.GOV.BCB.PIX…", url: null } : null,
+    notices: { before_at: t(3 * 24 * H), due_at: null, overdue: status === "overdue" ? 2 : 0, overdue_at: null, error: null },
+    paid_at: paid ? t(6 * 24 * H) : null,
+    paid_via: paid === "manual" ? "manual" : paid ? "pix" : null,
+    paid_by: paid === "manual" ? "demo-user" : paid ? "provider" : null,
+    paid_note: paid === "manual" ? "Pagou em dinheiro na secretaria" : "",
+    created: t(30 * 24 * H),
+    updated: t(2 * 24 * H),
+  };
+};
+const msLate = (sub: Row) => `${msMonth}-${String(sub.due_day).padStart(2, "0")}` < msToday;
+const msInstallments: Row[] = [
+  ...msSubs.slice(0, 7).map((sub, index) =>
+    msInstallment(
+      sub,
+      msMonth,
+      index < 3 ? "paid" : index === 5 ? "waived" : msLate(sub) ? "overdue" : "open",
+      index === 1 ? "manual" : index < 3 ? "pix" : undefined,
+    ),
+  ),
+  ...msSubs.slice(0, 7).map((sub, index) =>
+    msInstallment(sub, msPrevMonth, index === 4 ? "overdue" : "paid", index === 2 ? "manual" : "pix"),
+  ),
+];
+// Pagadores: um por telefone (a família Ferreira paga duas assinaturas).
+function msPayers(): Row[] {
+  const byPhone = new Map<string, Row>();
+  msSubs.forEach((sub, index) => {
+    const id = `payer-${sub.customer.phone}`;
+    const found = byPhone.get(id);
+    if (found) {
+      found.subscriptions++;
+      return;
+    }
+    byPhone.set(id, {
+      id,
+      name: index < 2 ? "Rita Ferreira" : sub.customer.name,
+      document: index < 2 ? "52998224725" : null,
+      document_type: index < 2 ? "cpf" : null,
+      document_display: index < 2 ? "529.982.247-25" : null,
+      email: "",
+      notes: "",
+      phones: [{ phone: sub.customer.phone, label: index < 2 ? "Mãe" : "", created: t(200 * 24 * H) }],
+      subscriptions: 1,
+      created: t(200 * 24 * H),
+      updated: t(5 * 24 * H),
+    });
+  });
+  return [...byPhone.values()];
+}
+function msSummary(month: string) {
+  const rows = msInstallments.filter((row) => row.period_key === month);
+  const sum = (status: string) =>
+    rows.filter((row) => row.status === status).reduce((total, row) => total + row.amount_cents, 0);
+  const count = (status: string) => rows.filter((row) => row.status === status).length;
+  const overdue = msInstallments.filter((row) => row.status === "overdue");
+  return {
+    month,
+    expected_cents: sum("open") + sum("paid") + sum("overdue"),
+    received_cents: sum("paid"),
+    overdue_cents: sum("overdue"),
+    open_cents: sum("open"),
+    waived_cents: sum("waived"),
+    counts: { open: count("open"), paid: count("paid"), overdue: count("overdue"), cancelled: 0, waived: count("waived") },
+    received_in_month: { count: count("paid"), cents: sum("paid") },
+    overdue_total: {
+      count: overdue.length,
+      cents: overdue.reduce((total, row) => total + row.amount_cents, 0),
+      subscriptions: new Set(overdue.map((row) => row.subscription_id)).size,
+    },
+    payments_ready: true,
+  };
+}
 
 function read(path: string, query: URLSearchParams): any {
   if (path === "v1/me") return demoMe;
@@ -650,6 +876,126 @@ function read(path: string, query: URLSearchParams): any {
       providers: [{ id: "mercadopago", name: "Mercado Pago", methods: ["pix", "link"] }],
       updated: t(H),
     };
+  if (rest === "mensalidade/plans") return { data: msPlans };
+  if (rest === "mensalidade/summary") return msSummary(query.get("month") || msMonth);
+  if (rest === "mensalidade/subscriptions") {
+    const status = (query.get("status") || "").split(",").filter(Boolean),
+      q = (query.get("q") || "").toLowerCase();
+    const counts: Row = {};
+    for (const sub of msSubs) counts[sub.status] = (counts[sub.status] || 0) + 1;
+    return {
+      data: msSubs
+        .filter((sub) => !status.length || status.includes(sub.status))
+        .filter((sub) => !q || `${sub.customer.name} ${sub.customer.phone}`.toLowerCase().includes(q))
+        .map((sub) => {
+          const late = msInstallments.filter((row) => row.subscription_id === sub.id && row.status === "overdue");
+          return {
+            ...sub,
+            open_count: msInstallments.filter((row) => row.subscription_id === sub.id && row.status === "open").length,
+            overdue_count: late.length,
+            overdue_cents: late.reduce((total, row) => total + row.amount_cents, 0),
+          };
+        }),
+      next_cursor: null,
+      counts,
+    };
+  }
+  const msMatch = rest.match(/^mensalidade\/subscriptions\/([^/]+)$/);
+  if (msMatch) {
+    const sub = msSubs.find((item) => item.id === msMatch[1]) || msSubs[0];
+    return {
+      ...sub,
+      installments: msInstallments
+        .filter((row) => row.subscription_id === sub.id)
+        .sort((a, b) => (a.due_date < b.due_date ? 1 : -1)),
+    };
+  }
+  if (rest === "mensalidade/installments") {
+    const month = query.get("month") || msMonth,
+      status = (query.get("status") || "").split(",").filter(Boolean);
+    const rows = msInstallments.filter((row) => row.period_key === month);
+    const counts: Row = {};
+    for (const row of rows) counts[row.status] = (counts[row.status] || 0) + 1;
+    return {
+      month,
+      data: rows.filter((row) => !status.length || status.includes(row.status)),
+      next_cursor: null,
+      counts,
+    };
+  }
+  if (rest === "suporte/releases") {
+    const kind = query.get("kind");
+    const counts: Row = {};
+    for (const row of spReleases) counts[row.kind] = (counts[row.kind] || 0) + 1;
+    return { data: spReleases.filter((row) => !kind || row.kind === kind), next_cursor: null, counts };
+  }
+  if (rest === "suporte/purchases") {
+    const status = query.get("status");
+    const counts: Row = {};
+    for (const row of spPurchases) counts[row.status] = (counts[row.status] || 0) + 1;
+    return {
+      data: spPurchases.filter((row) => !status || row.status === status),
+      next_cursor: null,
+      counts,
+      paid_cents: spPurchases.filter((row) => row.status === "paid").reduce((sum, row) => sum + row.price_cents, 0),
+    };
+  }
+  if (rest === "suporte/offers")
+    return { payments_ready: true, mensalidade: true, methods: ["pix", "link"], packages: spPackages, plans: [] };
+  if (rest.startsWith("suporte/conversations/"))
+    return {
+      conversation_id: rest.split("/")[2],
+      phone: "5511988001001",
+      allowed: true,
+      reason: "released",
+      release: spReleases[0],
+      session: null,
+      awaiting_team: false,
+      unlinked_phone: null,
+      purchases: [],
+    };
+  if (rest === "mensalidade/payers") {
+    const q = (query.get("q") || "").toLowerCase();
+    return {
+      data: msPayers().filter(
+        (payer) => !q || `${payer.name} ${payer.document || ""}`.toLowerCase().includes(q),
+      ),
+      next_cursor: null,
+    };
+  }
+  const msPayerMatch = rest.match(/^mensalidade\/payers\/([^/]+)$/);
+  if (msPayerMatch) {
+    const payer = msPayers().find((item) => item.id === msPayerMatch[1]) || msPayers()[0];
+    const subs = msSubs.filter((sub) => `payer-${sub.customer.phone}` === payer.id);
+    const late = msInstallments.find(
+      (row) => row.status === "overdue" && subs.some((sub) => sub.id === row.subscription_id),
+    );
+    return {
+      ...payer,
+      subscriptions: subs,
+      situation: { status: late ? "em_atraso" : "em_dia", open_installment: late || null, grace_days: 3 },
+    };
+  }
+  if (rest === "mensalidade/delinquents") {
+    const late = msInstallments.filter((row) => row.status === "overdue");
+    return {
+      data: msSubs
+        .filter((sub) => late.some((row) => row.subscription_id === sub.id))
+        .map((sub) => {
+          const mine = late.filter((row) => row.subscription_id === sub.id);
+          return {
+            subscription_id: sub.id,
+            customer: sub.customer,
+            plan_name: sub.plan_name,
+            subscription_status: sub.status,
+            overdue_count: mine.length,
+            overdue_cents: mine.reduce((total, row) => total + row.amount_cents, 0),
+            oldest_due_date: mine.map((row) => row.due_date).sort()[0],
+            notices_sent: 2,
+          };
+        }),
+    };
+  }
   if (rest === "lines") return { data: [] };
   if (rest === "calls")
     return page([

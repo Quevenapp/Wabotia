@@ -129,6 +129,35 @@ Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com 
 
 Pix e link de pagamento pelo Mercado Pago (módulo `payments`, passo a passo em [COBRANCA.md](COBRANCA.md)). O administrador configura a conta em `PUT /profiles/{perfil}/payments/account` (`access_token`, `webhook_secret`, `payer_email`, `enabled`); `GET /profiles/{perfil}/payments/account` nunca devolve os segredos, só `access_token_set`, `webhook_secret_set` e o `webhook_url` a cadastrar no Mercado Pago; `GET …/payments/account/check` confere as credenciais. Cobre com `POST /profiles/{perfil}/conversations/{id}/actions` e `{"action":"charge","method":"pix","amount_cents":4990,"description":"Consulta"}` (conversa assumida). Consulte `GET /profiles/{perfil}/payments?conversation_id=…` e `GET /profiles/{perfil}/payments/{id}`; cancele com `POST /profiles/{perfil}/payments/{id}/cancel`. O detalhe da conversa traz `payments`. Estados: `created`, `paid`, `expired`, `cancelled`, `refunded`; `paid` e `refunded` vêm só do webhook assinado do provedor seguido da consulta do pagamento. Eventos `payment.created`, `payment.paid`, `payment.expired`, `payment.cancelled` e `payment.refunded`.
 
+<<<<<<< HEAD
+### Mensalidade (módulo `mensalidade`)
+
+Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profiles/{perfil}/mensalidade`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta sem repetir cobrança nem mensagem). Planos, importação, pausar/retomar/encerrar, baixa, isenção e gerar exigem administrador (pessoas) ou aplicação com `conversations:write`. Com o módulo desligado, todas respondem `409 module_disabled`. Valores em centavos inteiros; vencimentos `AAAA-MM-DD` no horário de Brasília; competência `AAAA-MM`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /mensalidade/plans` · `POST` · `PATCH /plans/{id}` · `DELETE /plans/{id}` | Planos: `name`, `amount_cents`, `period` (`monthly`, `quarterly`, `yearly`), `due_day` (1 a 31; no mês curto, o último dia), `active`. Excluir com assinaturas: `409 plan_in_use` |
+| `GET /mensalidade/subscriptions` | Filtros `status=active,paused,ended`, `plan_id`, `q`, `phone`, `conversation_id`, `limit`, `cursor`; traz `counts` e, por assinatura, `open_count`, `overdue_count`, `overdue_cents` |
+| `POST /mensalidade/subscriptions` | `plan_id` e `conversation_id` ou `phone` + `customer_name`; opcionais `amount_cents`, `discount_cents`, `due_day`, `start_date`, `end_date`, `notes` |
+| `POST /mensalidade/subscriptions/import` | `{"rows":[{"customer_name","phone","plan"\|"plan_id","discount_cents","due_day","start_date"}]}` (até 300); devolve `created`, `skipped` (já assinante do plano) e `errors` por linha |
+| `GET /mensalidade/subscriptions/{id}` · `PATCH` | Detalhe com `installments`; alteração vale para as próximas parcelas |
+| `POST /mensalidade/subscriptions/{id}/pause` · `/resume` · `/end` | Pausar e encerrar cancelam as parcelas abertas ainda não vencidas; retomar não cobra a pausa |
+| `GET /mensalidade/installments` | `month=AAAA-MM` (padrão: mês atual), `status=open,overdue,paid,waived,cancelled`, `subscription_id`, `q`; traz `counts` do mês |
+| `GET /mensalidade/installments/{id}` | Parcela com `payment` (`pix_code`, `url`, `expires_at`), `notices` e baixa (`paid_via` `pix`\|`link`\|`manual`, `paid_by`, `paid_note`) |
+| `POST /mensalidade/installments/{id}/charge` | Reenvia o Pix/link que vale ou cria outra cobrança; `409 no_conversation`, `409 payments_not_configured`, `409 installment_not_payable` |
+| `POST /mensalidade/installments/{id}/pay` | Baixa manual `{"note","paid_at":"AAAA-MM-DD","notify":true}`; registra quem deu baixa e envia o comprovante |
+| `POST /mensalidade/installments/{id}/waive` | Isenta `{"note"}` |
+| `GET /mensalidade/summary?month=AAAA-MM` | `expected_cents`, `received_cents`, `overdue_cents`, `open_cents`, `waived_cents`, `counts`, `received_in_month`, `overdue_total`, `payments_ready` |
+| `GET /mensalidade/delinquents` | Assinaturas com parcelas vencidas: `overdue_count`, `overdue_cents`, `oldest_due_date`, `notices_sent` |
+| `POST /mensalidade/generate` | Gera agora as parcelas do gancho periódico (sem avisos) |
+| `GET /mensalidade/payers` · `POST` · `GET /payers/{id}` · `PATCH` | Pagadores: `name`, `document` (CPF ou CNPJ, inclusive o alfanumérico, com dígitos conferidos; repetido: `409 payer_exists`), `email`, `notes`, `phones`. Busca `q` (nome, documento, telefone), `document`, `phone`. O detalhe traz `subscriptions` e `situation` |
+| `POST /mensalidade/payers/{id}/phones` · `/phones/remove` | Autoriza ou retira um telefone `{"phone","label"}` |
+| `GET /mensalidade/situation?phone=…` ou `?document=…` | `status` `em_dia`, `em_atraso` (com `open_installment`) ou `sem_assinatura`, com a carência (`grace_days`) das regras; `phone_linked` diz se o telefone é autorizado. Sem pagador: `404 payer_not_found` |
+
+Assinaturas aceitam `payer_id` ou `document` (+ `payer_name`) para ligar ao pagador; sem eles, cada assinatura cria um pagador com o próprio telefone. Planos têm `sellable` (contratação pelo WhatsApp) e `description`; as regras têm `grace_days`.
+
+A parcela vira `paid` só pelo webhook assinado do provedor (cobrança do módulo `payments`) ou pela baixa manual; nunca por mensagem do cliente. Eventos (webhooks com `conversations:read`): `mensalidade.subscription_created`, `mensalidade.subscription_changed` (`change`: `updated`, `paused`, `resumed`, `ended`), `mensalidade.installment_created`, `mensalidade.charged`, `mensalidade.notice_sent` (`kind`: `before`, `due`, `overdue`), `mensalidade.overdue`, `mensalidade.paid` (`via`, `by`; `duplicate: true` quando entra um segundo pagamento), `mensalidade.waived`, `mensalidade.refunded`, `mensalidade.notice_failed` (`reason`: `no_conversation`…), `mensalidade.setup_needed` (Cobrança não configurada, no máximo uma vez por dia), `mensalidade.payer_created` e `mensalidade.payer_changed` (`change`: `updated`, `phone_added`, `phone_removed`).
+=======
 ### Reserva e check-in
 
 Módulo `reserva` (desligado por padrão; guia de uso em [RESERVA.md](RESERVA.md)) para pousada, aluguel por temporada, quadra e salão. Datas em ms Unix; `start_date`, `end_date`, `arrival_time` e `departure_time` já vêm no horário de Brasília. Com o módulo desligado, tudo abaixo responde `409 module_disabled`.
@@ -140,6 +169,24 @@ Módulo `reserva` (desligado por padrão; guia de uso em [RESERVA.md](RESERVA.md
 - Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"reserva_checkin","booking_id":"opcional"}` (conversa assumida ou administrador).
 - WhatsApp: itens de menu `{"type":"reserva"}` (Fazer reserva) e `{"type":"reserva_mine"}` (Minhas reservas). Lista e botões nas linhas oficiais (ids `reserva:…`), opções numeradas no QR; o cliente responde CHECKIN para receber o link do check-in.
 - Eventos (permissão `conversations:read` nos webhooks): `reserva.created`, `reserva.confirmed` (`by: payment|staff`, `late`), `reserva.changed` (com `previous`), `reserva.cancelled` (`reason`), `reserva.expired` (`reason`), `reserva.completed`, `reserva.payment_late`, `reserva.checkin_sent` e `reserva.checkin_completed` (`answers`). Todos trazem `booking` (a reserva completa), `conversation_id`, `actor` (`customer` quando foi o cliente) e `module_id: "reserva"`.
+>>>>>>> refs/heads/feat/modulos-nucleo
+
+### Suporte pago (módulo `suporte`)
+
+Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade ligada e sai junto quando ela é desligada com `cascade`); uso em [SUPORTE.md](SUPORTE.md). Ligado, segura (`onHandoffRequest`) toda passagem automática para humano sem liberação ativa ou assinatura em dia e conduz o cliente pelo fluxo de pagamento. Rotas em `/profiles/{perfil}/suporte`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Desligado: `409 module_disabled`. A liberação vem só do pagamento confirmado pelo provedor, da situação em dia na Mensalidade ou de uma pessoa da equipe; nunca de mensagem do cliente.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /suporte/releases` | Liberações: `kind` (`subscription`, `installment`, `package`, `courtesy`, `team`), `status`, `conversation_id`, `payer_id`, `from`/`to` (ms), `q`, `cursor`; traz `counts` por forma |
+| `GET /suporte/purchases` | Compras de suporte avulso: `status` (`pending`, `paid`, `expired`, `cancelled`, `refunded`), `conversation_id`, `q`; traz `counts` e `paid_cents` |
+| `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
+| `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release`, `session`, `awaiting_team`, `unlinked_phone` e compras |
+| `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
+| `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ |
+| `POST /suporte/conversations/{id}/confirm` | Modo só telefone vinculado: equipe confirma `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
+| `POST /suporte/releases/{id}/end` | Encerra uma liberação (administrador) |
+
+Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (`any` ou `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
 
 ### Pedido (módulo `pedido`)
 

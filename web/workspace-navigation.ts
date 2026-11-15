@@ -19,6 +19,8 @@ import {
   Menu,
   MessageCircle,
   Phone,
+  PiggyBank,
+  LifeBuoy,
   Plug,
   Send,
   Settings,
@@ -69,6 +71,10 @@ export const sections = [
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
   ["modules", "Módulos", Blocks],
+  ["mensalidades", "Mensalidades", PiggyBank],
+  ["mensalidade-settings", "Planos e regras", PiggyBank],
+  ["suporte", "Suporte pago", LifeBuoy],
+  ["suporte-settings", "Regras do suporte", LifeBuoy],
   ["agenda", "Agenda", CalendarDays],
   ["agenda-settings", "Serviços e horários", CalendarClock],
   ["service-orders", "Ordens de serviço", Wrench],
@@ -111,6 +117,18 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
+  {
+    id: "mensalidades",
+    label: "Mensalidades",
+    icon: PiggyBank,
+    pages: ["mensalidades", "mensalidade-settings"],
+  },
+  {
+    id: "suporte",
+    label: "Suporte pago",
+    icon: LifeBuoy,
+    pages: ["suporte", "suporte-settings"],
+  },
   {
     id: "agenda",
     label: "Agenda",
@@ -196,7 +214,9 @@ const adminPages: ReadonlySet<string> = new Set([
   "agenda-settings",
   "service-orders-settings",
   "payments",
+  "mensalidade-settings",
   "establishment",
+  "suporte-settings",
   "reserva-settings",
   "pedidos-cardapio",
 ]);
@@ -214,6 +234,10 @@ export const pageModules: Partial<Record<string, string>> = {
   "service-orders": "os",
   "service-orders-settings": "os",
   payments: "payments",
+  mensalidades: "mensalidade",
+  "mensalidade-settings": "mensalidade",
+  suporte: "suporte",
+  "suporte-settings": "suporte",
   reserva: "reserva",
   "reserva-settings": "reserva",
   pedidos: "pedido",
@@ -317,6 +341,14 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
+  mensalidades:
+    "Assinaturas, parcelas do mês, inadimplentes, baixa manual e reenvio da cobrança.",
+  "mensalidade-settings":
+    "Planos, regras de cobrança e avisos de vencimento e atraso, e itens do menu.",
+  suporte:
+    "Quem foi liberado para o atendimento humano, como e até quando, e as compras de suporte avulso.",
+  "suporte-settings":
+    "Setor de destino, identificação, pacotes avulsos, planos oferecidos, formas de pagamento e textos.",
   establishment:
     "Nome fantasia, CPF ou CNPJ, endereço e telefone para cupons, comandas, recibos e páginas do cliente.",
   reserva:

@@ -153,6 +153,8 @@ export const moduleSchemas = {
   },
   ...serviceOrderSchemas(),
   ...pedidoSchemas(),
+  ...mensalidadeSchemas(),
+  ...suporteSchemas(),
   WebStep: {
     type: "object",
     description:
@@ -708,6 +710,8 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   ...reservaOperations,
   ...pedidoOperations,
+  ...mensalidadeOperations(),
+  ...suporteOperations(),
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -870,6 +874,10 @@ export function describeModuleOperation(
     return describePedidoOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
+  if (path.includes("/mensalidade/"))
+    return describeMensalidadeOperation(path, method, entry, success);
+  if (path.includes("/suporte/"))
+    return describeSuporteOperation(path, method, entry, success);
   if (path.includes("web-steps")) {
     entry.description +=
       " O cliente abre o link em /api/w/{código} (página pública, sem autenticação). Estados: sent (enviado), opened (aberto), completed (concluído, com answers), expired (venceu sem resposta) e cancelled. Cada mudança publica web_step.sent, web_step.opened, web_step.completed, web_step.expired ou web_step.cancelled com conversation_id.";
@@ -1262,4 +1270,988 @@ function describeServiceOrderOperation(
     entry.description +=
       " Resposta do cliente registrada pela equipe ou integração. 409 quote_expired com o orçamento vencido e 409 quote_not_pending fora de quoted.";
   success.content["application/json"].schema = ref;
+}
+
+// --- Mensalidade (módulo "mensalidade", docs/MENSALIDADE.md) ----------------
+function mensalidadeOperations(): [string, string, string, string?, string?][] {
+  const base = "/profiles/{profile}/mensalidade";
+  return [
+    ["get", `${base}/plans`, "Mensalidade: planos", "conversations:read"],
+    [
+      "post",
+      `${base}/plans`,
+      "Mensalidade: criar plano",
+      "conversations:write",
+      "MensalidadePlanInput",
+    ],
+    [
+      "patch",
+      `${base}/plans/{id}`,
+      "Mensalidade: alterar plano",
+      "conversations:write",
+      "MensalidadePlanInput",
+    ],
+    [
+      "delete",
+      `${base}/plans/{id}`,
+      "Mensalidade: excluir plano sem assinaturas",
+      "conversations:write",
+    ],
+    [
+      "get",
+      `${base}/subscriptions`,
+      "Mensalidade: assinaturas com filtro e busca",
+      "conversations:read",
+    ],
+    [
+      "post",
+      `${base}/subscriptions`,
+      "Mensalidade: criar assinatura",
+      "conversations:write",
+      "MensalidadeSubscriptionInput",
+    ],
+    [
+      "post",
+      `${base}/subscriptions/import`,
+      "Mensalidade: importar vários clientes",
+      "conversations:write",
+      "MensalidadeImport",
+    ],
+    [
+      "get",
+      `${base}/subscriptions/{id}`,
+      "Mensalidade: assinatura com parcelas",
+      "conversations:read",
+    ],
+    [
+      "patch",
+      `${base}/subscriptions/{id}`,
+      "Mensalidade: alterar assinatura",
+      "conversations:write",
+      "MensalidadeSubscriptionInput",
+    ],
+    [
+      "post",
+      `${base}/subscriptions/{id}/pause`,
+      "Mensalidade: pausar assinatura",
+      "conversations:write",
+    ],
+    [
+      "post",
+      `${base}/subscriptions/{id}/resume`,
+      "Mensalidade: retomar assinatura",
+      "conversations:write",
+    ],
+    [
+      "post",
+      `${base}/subscriptions/{id}/end`,
+      "Mensalidade: encerrar assinatura",
+      "conversations:write",
+    ],
+    [
+      "get",
+      `${base}/installments`,
+      "Mensalidade: parcelas por mês e estado",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/installments/{id}`,
+      "Mensalidade: uma parcela",
+      "conversations:read",
+    ],
+    [
+      "post",
+      `${base}/installments/{id}/charge`,
+      "Mensalidade: reenviar a cobrança da parcela",
+      "conversations:write",
+    ],
+    [
+      "post",
+      `${base}/installments/{id}/pay`,
+      "Mensalidade: baixa manual",
+      "conversations:write",
+      "MensalidadePay",
+    ],
+    [
+      "post",
+      `${base}/installments/{id}/waive`,
+      "Mensalidade: isentar parcela",
+      "conversations:write",
+      "MensalidadeWaive",
+    ],
+    [
+      "get",
+      `${base}/summary`,
+      "Mensalidade: resumo do mês",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/delinquents`,
+      "Mensalidade: inadimplentes",
+      "conversations:read",
+    ],
+    [
+      "post",
+      `${base}/generate`,
+      "Mensalidade: gerar parcelas agora",
+      "conversations:write",
+    ],
+    ["get", `${base}/payers`, "Mensalidade: pagadores", "conversations:read"],
+    [
+      "post",
+      `${base}/payers`,
+      "Mensalidade: cadastrar pagador",
+      "conversations:write",
+      "MensalidadePayerInput",
+    ],
+    [
+      "get",
+      `${base}/payers/{id}`,
+      "Mensalidade: pagador com assinaturas e situação",
+      "conversations:read",
+    ],
+    [
+      "patch",
+      `${base}/payers/{id}`,
+      "Mensalidade: alterar pagador",
+      "conversations:write",
+      "MensalidadePayerInput",
+    ],
+    [
+      "post",
+      `${base}/payers/{id}/phones`,
+      "Mensalidade: autorizar telefone do pagador",
+      "conversations:write",
+      "MensalidadePayerPhone",
+    ],
+    [
+      "post",
+      `${base}/payers/{id}/phones/remove`,
+      "Mensalidade: retirar telefone do pagador",
+      "conversations:write",
+      "MensalidadePayerPhone",
+    ],
+    [
+      "get",
+      `${base}/situation`,
+      "Mensalidade: situação do pagador por telefone ou documento",
+      "conversations:read",
+    ],
+  ];
+}
+
+function mensalidadeSchemas() {
+  const period = {
+    enum: ["monthly", "quarterly", "yearly"],
+    description: "Mensal, trimestral ou anual.",
+  };
+  const dueDay = {
+    type: "integer",
+    minimum: 1,
+    maximum: 31,
+    description: "Dia de vencimento; no mês curto vale o último dia.",
+  };
+  const date = { type: "string", format: "date", example: "2026-12-10" };
+  const nullableDate = { type: ["string", "null"], format: "date" };
+  const centsField = (description: string) => ({
+    type: "integer",
+    minimum: 0,
+    maximum: 10000000,
+    description: description + " Em centavos (inteiro).",
+  });
+  return {
+    MensalidadePlan: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        amount_cents: centsField("Valor por período."),
+        period,
+        period_label: { type: "string", example: "Mensal" },
+        due_day: dueDay,
+        active: { type: "boolean" },
+        subscriptions: {
+          type: "integer",
+          description: "Assinaturas ativas ou pausadas (só na lista).",
+        },
+        created: { type: "integer" },
+        updated: { type: "integer" },
+      },
+    },
+    MensalidadePlanInput: {
+      type: "object",
+      required: ["name", "amount_cents"],
+      description: "No PATCH, todos os campos são opcionais.",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 80 },
+        amount_cents: { type: "integer", minimum: 1, maximum: 10000000 },
+        period: { ...period, default: "monthly" },
+        due_day: { ...dueDay, default: 10 },
+        active: { type: "boolean" },
+        sellable: {
+          type: "boolean",
+          description:
+            "Oferecido para contratação pelo WhatsApp (módulo Suporte).",
+        },
+        description: { type: "string", maxLength: 200 },
+      },
+    },
+    MensalidadeSubscription: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        plan_id: { type: "string" },
+        plan_name: { type: ["string", "null"] },
+        customer: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            phone: {
+              type: "string",
+              description: "Só dígitos, com DDI.",
+              example: "5511987650001",
+            },
+            contact_id: { type: ["string", "null"] },
+            conversation_id: {
+              type: ["string", "null"],
+              description:
+                "Conversa usada para avisar e cobrar; preenchida quando o cliente escreve ou é encontrada pelo telefone.",
+            },
+          },
+        },
+        period,
+        period_label: { type: "string" },
+        amount_cents: centsField("Valor sem desconto."),
+        discount_cents: centsField("Desconto."),
+        charge_cents: centsField("Valor de cada parcela."),
+        due_day: dueDay,
+        start_date: date,
+        end_date: nullableDate,
+        status: { enum: ["active", "paused", "ended"] },
+        status_label: { type: "string", example: "Ativa" },
+        notes: { type: "string" },
+        paused_at: { type: ["integer", "null"] },
+        ended_at: { type: ["integer", "null"] },
+        open_count: { type: "integer", description: "Só na lista." },
+        overdue_count: { type: "integer", description: "Só na lista." },
+        overdue_cents: { type: "integer", description: "Só na lista." },
+        installments: {
+          type: "array",
+          description: "Só no detalhe (até 120, mais recentes primeiro).",
+          items: { $ref: "#/components/schemas/MensalidadeInstallment" },
+        },
+        created_by: { type: "string" },
+        created: { type: "integer" },
+        updated: { type: "integer" },
+      },
+    },
+    MensalidadeSubscriptionInput: {
+      type: "object",
+      required: ["plan_id"],
+      description:
+        "Informe conversation_id ou phone (e customer_name). Valor, dia e periodicidade vêm do plano quando omitidos. No PATCH, todos os campos são opcionais; start_date e conversation_id não mudam.",
+      properties: {
+        plan_id: { type: "string" },
+        conversation_id: { type: "string" },
+        customer_name: { type: "string", maxLength: 120 },
+        phone: { type: "string", maxLength: 40 },
+        amount_cents: { type: "integer", minimum: 1, maximum: 10000000 },
+        discount_cents: { type: "integer", minimum: 0, maximum: 10000000 },
+        due_day: dueDay,
+        start_date: { ...date, description: "Padrão: hoje (Brasília)." },
+        end_date: nullableDate,
+        notes: { type: "string", maxLength: 1000 },
+      },
+    },
+    MensalidadeImport: {
+      type: "object",
+      required: ["rows"],
+      properties: {
+        rows: {
+          type: "array",
+          minItems: 1,
+          maxItems: 300,
+          items: {
+            type: "object",
+            required: ["phone"],
+            properties: {
+              customer_name: { type: "string" },
+              phone: { type: "string" },
+              plan_id: { type: "string" },
+              plan: {
+                type: "string",
+                description: "Nome do plano (sem acento e caixa).",
+              },
+              amount_cents: { type: "integer" },
+              discount_cents: { type: "integer" },
+              due_day: dueDay,
+              start_date: date,
+              notes: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    MensalidadeInstallment: {
+      type: "object",
+      description:
+        "Parcela de uma competência (period_key AAAA-MM). Datas de vencimento AAAA-MM-DD no horário de Brasília; instantes em milissegundos.",
+      properties: {
+        id: { type: "string" },
+        subscription_id: { type: "string" },
+        period_key: { type: "string", example: "2026-11" },
+        period_label: { type: "string", example: "nov/2026" },
+        due_date: date,
+        amount_cents: centsField("Valor da parcela."),
+        status: { enum: ["open", "paid", "overdue", "cancelled", "waived"] },
+        status_label: { type: "string", example: "Vencida" },
+        customer: {
+          type: "object",
+          description: "Na lista e no detalhe da parcela.",
+          properties: { name: { type: "string" }, phone: { type: "string" } },
+        },
+        plan_name: { type: ["string", "null"] },
+        payment: {
+          type: ["object", "null"],
+          description: "Cobrança em uso (módulo Cobrança).",
+          properties: {
+            id: { type: "string" },
+            status: {
+              enum: ["created", "paid", "expired", "cancelled", "refunded"],
+            },
+            expires_at: { type: ["integer", "null"] },
+            pix_code: {
+              type: ["string", "null"],
+              description: "Pix copia e cola.",
+            },
+            url: { type: ["string", "null"] },
+            charged_at: { type: ["integer", "null"] },
+          },
+        },
+        notices: {
+          type: "object",
+          properties: {
+            before_at: { type: ["integer", "null"] },
+            due_at: { type: ["integer", "null"] },
+            overdue: {
+              type: "integer",
+              description: "Avisos de atraso enviados.",
+            },
+            overdue_at: { type: ["integer", "null"] },
+            error: {
+              type: ["string", "null"],
+              description: "Último motivo de aviso ou cobrança que não saiu.",
+            },
+          },
+        },
+        paid_at: { type: ["integer", "null"] },
+        paid_via: { enum: ["pix", "link", "manual", null] },
+        paid_by: {
+          type: ["string", "null"],
+          description:
+            "provider (webhook) ou a pessoa/aplicação que deu baixa.",
+        },
+        paid_note: { type: "string" },
+        waived_at: { type: ["integer", "null"] },
+        waived_by: { type: ["string", "null"] },
+        cancelled_at: { type: ["integer", "null"] },
+        created: { type: "integer" },
+        updated: { type: "integer" },
+      },
+    },
+    MensalidadePay: {
+      type: "object",
+      properties: {
+        note: { type: "string", maxLength: 300 },
+        paid_at: {
+          description:
+            "AAAA-MM-DD ou milissegundos; padrão agora. Não pode ser futura.",
+          oneOf: [{ type: "string", format: "date" }, { type: "integer" }],
+        },
+        notify: {
+          type: "boolean",
+          default: true,
+          description: "Envia o comprovante ao cliente pelo WhatsApp.",
+        },
+      },
+    },
+    MensalidadeWaive: {
+      type: "object",
+      properties: { note: { type: "string", maxLength: 300 } },
+    },
+    MensalidadePayer: {
+      type: "object",
+      description:
+        "Quem paga (CPF ou CNPJ, inclusive o alfanumérico) e os telefones autorizados a falar por ele.",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        document: {
+          type: ["string", "null"],
+          description:
+            "Só dígitos (CPF) ou 12 alfanuméricos + 2 dígitos (CNPJ).",
+        },
+        document_type: { enum: ["cpf", "cnpj", null] },
+        document_display: {
+          type: ["string", "null"],
+          example: "11.222.333/0001-81",
+        },
+        email: { type: "string" },
+        notes: { type: "string" },
+        phones: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              phone: { type: "string", example: "5511981000001" },
+              label: { type: "string" },
+              created: { type: "integer" },
+            },
+          },
+        },
+        subscriptions: {
+          description:
+            "Na lista, quantas não encerradas; no detalhe, as assinaturas.",
+        },
+        situation: {
+          type: "object",
+          description: "Só no detalhe.",
+          properties: {
+            status: { enum: ["em_dia", "em_atraso", "sem_assinatura"] },
+            open_installment: {
+              oneOf: [
+                { $ref: "#/components/schemas/MensalidadeInstallment" },
+                { type: "null" },
+              ],
+            },
+            grace_days: { type: "integer" },
+          },
+        },
+      },
+    },
+    MensalidadePayerInput: {
+      type: "object",
+      required: ["name"],
+      description: "No PATCH, todos opcionais; telefones por /phones.",
+      properties: {
+        name: { type: "string", maxLength: 120 },
+        document: {
+          type: ["string", "null"],
+          description: "CPF ou CNPJ, com ou sem pontuação.",
+        },
+        email: { type: "string", maxLength: 200 },
+        notes: { type: "string", maxLength: 1000 },
+        phones: {
+          type: "array",
+          maxItems: 50,
+          description: "Só na criação: telefones ou {phone, label}.",
+        },
+      },
+    },
+    MensalidadePayerPhone: {
+      type: "object",
+      required: ["phone"],
+      properties: {
+        phone: { type: "string", maxLength: 40 },
+        label: { type: "string", maxLength: 60 },
+      },
+    },
+    MensalidadeSituation: {
+      type: "object",
+      properties: {
+        status: { enum: ["em_dia", "em_atraso", "sem_assinatura"] },
+        payer: { $ref: "#/components/schemas/MensalidadePayer" },
+        matched_by: { enum: ["phone", "document", "id"] },
+        phone_linked: {
+          type: ["boolean", "null"],
+          description: "O telefone consultado é autorizado pelo pagador.",
+        },
+        subscriptions: { type: "array", items: { type: "object" } },
+        open_installment: {
+          oneOf: [
+            { $ref: "#/components/schemas/MensalidadeInstallment" },
+            { type: "null" },
+          ],
+        },
+        grace_days: { type: "integer" },
+        payers: {
+          type: "integer",
+          description:
+            "Pela busca por telefone: quantos pagadores autorizaram o número.",
+        },
+      },
+    },
+    MensalidadeSummary: {
+      type: "object",
+      properties: {
+        month: { type: "string", example: "2026-11" },
+        expected_cents: {
+          type: "integer",
+          description: "Abertas + pagas + vencidas da competência.",
+        },
+        received_cents: { type: "integer" },
+        overdue_cents: { type: "integer" },
+        open_cents: { type: "integer" },
+        waived_cents: { type: "integer" },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+        received_in_month: {
+          type: "object",
+          description:
+            "Pagas dentro do mês pela data do pagamento, de qualquer competência.",
+          properties: {
+            count: { type: "integer" },
+            cents: { type: "integer" },
+          },
+        },
+        overdue_total: {
+          type: "object",
+          description: "Todas as vencidas da área, de qualquer mês.",
+          properties: {
+            count: { type: "integer" },
+            cents: { type: "integer" },
+            subscriptions: { type: "integer" },
+          },
+        },
+        payments_ready: {
+          type: "boolean",
+          description:
+            "Cobrança ligada e com conta configurada. false: avisos sem Pix e baixa manual.",
+        },
+      },
+    },
+  };
+}
+
+function describeMensalidadeOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+) {
+  const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  const list = (name: string, extra: Record<string, any> = {}) => ({
+    type: "object",
+    properties: {
+      data: { type: "array", items: ref(name) },
+      ...extra,
+    },
+  });
+  const query = (...names: string[]) =>
+    entry.parameters.push(
+      ...names.map((name) => ({
+        in: "query",
+        name,
+        schema: { type: "string" },
+      })),
+    );
+  entry.description +=
+    " Módulo Mensalidade (mensalidade); desligado, 409 module_disabled.";
+  const adminOnly =
+    /\/plans/.test(path) && method !== "get"
+      ? true
+      : /\/(import|pause|resume|end|pay|waive)$|\/generate$/.test(path);
+  if (adminOnly)
+    entry.description +=
+      " Pessoas: só administradores (403 admin_required). Aplicações: com conversations:write.";
+  if (path.endsWith("/plans")) {
+    if (method === "get")
+      success.content["application/json"].schema = list("MensalidadePlan");
+    else success.content["application/json"].schema = ref("MensalidadePlan");
+    return;
+  }
+  if (path.endsWith("/plans/{id}")) {
+    if (method === "delete")
+      entry.description +=
+        " Com assinaturas: 409 plan_in_use (desative com active=false).";
+    else {
+      entry.description +=
+        " Não muda assinaturas existentes (valor e periodicidade copiados na criação).";
+      success.content["application/json"].schema = ref("MensalidadePlan");
+    }
+    return;
+  }
+  if (path.endsWith("/subscriptions") && method === "get") {
+    query(
+      "status",
+      "plan_id",
+      "q",
+      "phone",
+      "conversation_id",
+      "limit",
+      "cursor",
+    );
+    entry.description +=
+      " status=active,paused,ended; counts por estado da área.";
+    success.content["application/json"].schema = list(
+      "MensalidadeSubscription",
+      {
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+      },
+    );
+    return;
+  }
+  if (path.endsWith("/subscriptions/import")) {
+    entry.description +=
+      " Linhas com erro voltam em errors (line começa em 1) sem impedir as outras; telefone com assinatura não encerrada no mesmo plano vai para skipped.";
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        created: { type: "array", items: ref("MensalidadeSubscription") },
+        skipped: { type: "array", items: { type: "object" } },
+        errors: { type: "array", items: { type: "object" } },
+      },
+    };
+    return;
+  }
+  if (/\/subscriptions\/\{id\}\/(pause|resume|end)$/.test(path)) {
+    entry.description +=
+      " Pausar e encerrar cancelam as parcelas abertas que ainda não venceram (as vencidas continuam devidas); retomar volta a gerar a partir de hoje, sem cobrar a pausa. Transição inválida: 409 invalid_transition.";
+    success.content["application/json"].schema = ref("MensalidadeSubscription");
+    return;
+  }
+  if (path.includes("/subscriptions")) {
+    success.content["application/json"].schema = ref("MensalidadeSubscription");
+    return;
+  }
+  if (path.endsWith("/installments")) {
+    query("month", "status", "subscription_id", "q", "limit", "cursor");
+    entry.description +=
+      " month=AAAA-MM (competência; padrão o mês atual em Brasília, dispensado com subscription_id); status=open,overdue,paid,waived,cancelled. counts por estado do mês.";
+    success.content["application/json"].schema = list(
+      "MensalidadeInstallment",
+      {
+        month: { type: ["string", "null"] },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+      },
+    );
+    return;
+  }
+  if (path.endsWith("/charge"))
+    entry.description +=
+      " Reenvia o Pix ou link que ainda vale (mensagem do módulo) ou cria outra cobrança (o núcleo entrega). 409 no_conversation sem conversa para o telefone, 409 payments_not_configured sem Cobrança, 409 installment_not_payable fora de open/overdue.";
+  if (path.endsWith("/pay"))
+    entry.description +=
+      " Baixa manual (dinheiro, transferência): registra paid_by e paid_note e, com notify, envia o comprovante. Fora de open/overdue: 409 installment_not_payable. A parcela também fica paga sozinha pelo webhook do provedor; nunca por mensagem do cliente.";
+  if (path.endsWith("/waive"))
+    entry.description += " Isenta parcela aberta, vencida ou cancelada.";
+  if (path.endsWith("/summary")) {
+    query("month");
+    success.content["application/json"].schema = ref("MensalidadeSummary");
+    return;
+  }
+  if (path.endsWith("/delinquents")) {
+    entry.description +=
+      " Assinaturas com parcelas vencidas: overdue_count, overdue_cents, oldest_due_date e notices_sent.";
+    return;
+  }
+  if (path.endsWith("/generate")) {
+    entry.description +=
+      " Faz agora a geração do gancho periódico (sem avisos): {created, overdue}.";
+    return;
+  }
+  if (path.endsWith("/situation")) {
+    query("phone", "document");
+    entry.description +=
+      " Em dia, em atraso (com open_installment: a parcela vencida além da carência ou a primeira parcela da contratação ainda sem pagar) ou sem assinatura ativa. Por telefone vale o pagador mais favorável entre os que o autorizaram. Documento inválido: 400; sem pagador: 404 payer_not_found.";
+    success.content["application/json"].schema = ref("MensalidadeSituation");
+    return;
+  }
+  if (path.endsWith("/payers") && method === "get") {
+    query("q", "document", "phone", "limit", "cursor");
+    success.content["application/json"].schema = list("MensalidadePayer", {
+      next_cursor: { type: ["string", "null"] },
+    });
+    return;
+  }
+  if (path.includes("/payers")) {
+    if (path.endsWith("/payers") || path.endsWith("/payers/{id}"))
+      entry.description +=
+        " CPF ou CNPJ com dígitos conferidos (aceita o CNPJ alfanumérico); repetido na área: 409 payer_exists.";
+    success.content["application/json"].schema = ref("MensalidadePayer");
+    return;
+  }
+  success.content["application/json"].schema = ref("MensalidadeInstallment");
+}
+
+// --- Suporte pago (módulo "suporte", docs/SUPORTE.md) -------------------------
+function suporteOperations(): [string, string, string, string?, string?][] {
+  const base = "/profiles/{profile}/suporte";
+  return [
+    [
+      "get",
+      `${base}/releases`,
+      "Suporte pago: liberações",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/purchases`,
+      "Suporte pago: compras avulsas",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/offers`,
+      "Suporte pago: pacotes e planos oferecidos",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/conversations/{id}`,
+      "Suporte pago: situação de uma conversa",
+      "conversations:read",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/courtesy`,
+      "Suporte pago: liberar como cortesia",
+      "conversations:write",
+      "SuporteCourtesy",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/link-phone`,
+      "Suporte pago: vincular o telefone ao pagador",
+      "conversations:write",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/confirm`,
+      "Suporte pago: equipe confirma e libera",
+      "conversations:write",
+      "SuporteConfirm",
+    ],
+    [
+      "post",
+      `${base}/releases/{id}/end`,
+      "Suporte pago: encerrar liberação",
+      "conversations:write",
+    ],
+  ];
+}
+
+function suporteSchemas() {
+  const kinds = ["subscription", "installment", "package", "courtesy", "team"];
+  return {
+    SuporteRelease: {
+      type: "object",
+      description:
+        "Liberação do atendimento humano: quem, como, por qual pagador e até quando.",
+      properties: {
+        id: { type: "string" },
+        conversation_id: { type: "string" },
+        phone: { type: "string" },
+        payer_id: { type: ["string", "null"] },
+        payer_name: { type: "string" },
+        kind: {
+          enum: kinds,
+          description:
+            "subscription (assinatura em dia), installment (mensalidade em atraso paga), package (avulso), courtesy (cortesia do atendente), team (equipe confirmou no modo só telefone vinculado).",
+        },
+        kind_label: { type: "string" },
+        ref_id: {
+          type: ["string", "null"],
+          description: "Assinatura, parcela ou compra que liberou.",
+        },
+        phone_linked: {
+          type: "boolean",
+          description:
+            "false: veio pelo CPF/CNPJ de um telefone não autorizado.",
+        },
+        valid_until: { type: ["integer", "null"] },
+        until_ticket: {
+          type: "boolean",
+          description: "Vale até o protocolo fechar.",
+        },
+        reason: { type: "string" },
+        summary: {
+          type: "string",
+          description: "Resumo entregue ao atendente.",
+        },
+        actor: {
+          type: "string",
+          description: "provider (pagamento confirmado), system ou a pessoa.",
+        },
+        status: { enum: ["active", "ended"] },
+        ended_at: { type: ["integer", "null"] },
+        ended_by: { type: ["string", "null"] },
+        created: { type: "integer" },
+      },
+    },
+    SuportePurchase: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        conversation_id: { type: "string" },
+        payer_id: { type: ["string", "null"] },
+        document: { type: ["string", "null"] },
+        name: { type: "string" },
+        phone: { type: "string" },
+        package_id: { type: "string" },
+        package_name: { type: "string" },
+        price_cents: { type: "integer" },
+        mode: { enum: ["ticket", "hours"] },
+        hours: { type: ["integer", "null"] },
+        validity: { type: "string" },
+        method: { enum: ["pix", "link"] },
+        payment: { type: ["object", "null"] },
+        status: {
+          enum: ["pending", "paid", "expired", "cancelled", "refunded"],
+        },
+        status_label: { type: "string" },
+        paid_at: { type: ["integer", "null"] },
+        created: { type: "integer" },
+      },
+    },
+    SuporteConversation: {
+      type: "object",
+      properties: {
+        conversation_id: { type: "string" },
+        phone: { type: "string" },
+        allowed: {
+          type: "boolean",
+          description:
+            "Pode ir para um humano agora (liberação ativa ou pagador em dia).",
+        },
+        reason: {
+          enum: [
+            "released",
+            "subscription",
+            "payment_required",
+            "module_disabled",
+          ],
+        },
+        release: {
+          oneOf: [
+            { $ref: "#/components/schemas/SuporteRelease" },
+            { type: "null" },
+          ],
+        },
+        session: { type: ["object", "null"] },
+        awaiting_team: { type: "boolean" },
+        unlinked_phone: {
+          type: ["object", "null"],
+          properties: {
+            payer_id: { type: "string" },
+            payer_name: { type: "string" },
+          },
+        },
+        purchases: {
+          type: "array",
+          items: { $ref: "#/components/schemas/SuportePurchase" },
+        },
+      },
+    },
+    SuporteCourtesy: {
+      type: "object",
+      required: ["reason"],
+      properties: {
+        reason: { type: "string", maxLength: 300 },
+        hours: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 720,
+          description: "Sem horas: até o protocolo fechar.",
+        },
+      },
+    },
+    SuporteConfirm: {
+      type: "object",
+      properties: {
+        link: {
+          type: "boolean",
+          default: true,
+          description: "Autoriza o telefone da conversa no pagador.",
+        },
+      },
+    },
+  };
+}
+
+function describeSuporteOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+) {
+  const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  const query = (...names: string[]) =>
+    entry.parameters.push(
+      ...names.map((name) => ({
+        in: "query",
+        name,
+        schema: { type: "string" },
+      })),
+    );
+  entry.description +=
+    " Módulo Suporte pago (suporte); desligado, 409 module_disabled.";
+  if (path.endsWith("/releases")) {
+    query(
+      "kind",
+      "status",
+      "conversation_id",
+      "payer_id",
+      "from",
+      "to",
+      "q",
+      "limit",
+      "cursor",
+    );
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: { type: "array", items: ref("SuporteRelease") },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/purchases")) {
+    query("status", "conversation_id", "q", "limit", "cursor");
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: { type: "array", items: ref("SuportePurchase") },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+        paid_cents: { type: "integer" },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/offers")) {
+    entry.description +=
+      " Pacotes avulsos ativos e planos vendáveis da Mensalidade (some com a Mensalidade desligada), com payments_ready.";
+    return;
+  }
+  if (path.endsWith("/courtesy")) {
+    entry.description +=
+      " Atendente com a conversa, administrador ou aplicação. Registra quem liberou e o motivo; repetir a Idempotency-Key devolve a mesma liberação.";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (path.endsWith("/link-phone")) {
+    entry.description +=
+      " Autoriza o telefone da conversa no pagador identificado pelo CPF/CNPJ. Sem vínculo pendente: 409 nothing_to_link.";
+    success.content["application/json"].schema = ref("SuporteConversation");
+    return;
+  }
+  if (path.endsWith("/confirm")) {
+    entry.description +=
+      " Modo só telefone vinculado: a equipe confirma a identidade (e vincula). Libera se o pagador estiver em dia; senão 409 payment_required. Sem confirmação pendente: 409 nothing_to_confirm.";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (path.endsWith("/end")) {
+    entry.description += " Só administradores (pessoas).";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (method === "get")
+    success.content["application/json"].schema = ref("SuporteConversation");
 }

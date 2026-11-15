@@ -1,0 +1,71 @@
+/* Mensalidade (web/modules/mensalidade): resumo do mês e detalhes. */
+.mensalidade-stats .stat-value {
+  font-size: 22px;
+}
+.mensalidade-month {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mensalidade-month strong {
+  min-width: 150px;
+  text-align: center;
+}
+.mensalidade-month strong::first-letter {
+  text-transform: uppercase;
+}
+.mensalidade-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+}
+.mensalidade-facts dt {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.mensalidade-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mensalidade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.mensalidade-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mensalidade-link:hover {
+  text-decoration: underline;
+}
+.mensalidade-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+}
+.mensalidade-error {
+  color: var(--danger, #b42318);
+  font-size: 12.5px;
+}
+@media (max-width: 559px) {
+  .mensalidade-facts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .mensalidade-facts dd {
+    margin-bottom: 8px;
+  }
+  .mensalidade-actions {
+    justify-content: flex-start;
+  }
+}

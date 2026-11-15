@@ -12,6 +12,8 @@ import { formsModule } from "./forms/definition";
 import { agendaModule } from "./agenda/definition";
 import { osModule } from "./os/definition";
 import { paymentsModule } from "./payments/definition";
+import { mensalidadeModule } from "./mensalidade/definition";
+import { suporteModule } from "./suporte/definition";
 import { reservaModule } from "./reserva/definition";
 import { pedidoModule } from "./pedido/definition";
 
@@ -24,6 +26,8 @@ export const modules: readonly ModuleDefinition[] = [
   agendaModule,
   osModule,
   paymentsModule,
+  mensalidadeModule,
+  suporteModule,
   reservaModule,
   pedidoModule,
 ];

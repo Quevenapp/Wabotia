@@ -34,6 +34,10 @@ import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
 import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
 import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
+import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
+import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
+import { SuportePage } from "../modules/suporte/SuportePage";
+import { SuporteSettingsPage } from "../modules/suporte/SuporteSettingsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
 import { ReservaPage } from "../modules/reserva/ReservaPage";
 import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
@@ -152,6 +156,14 @@ function Page({ page }: { page: PageId }) {
       return <ServiceOrdersSettingsPage />;
     case "payments":
       return <PaymentsPage />;
+    case "mensalidades":
+      return <MensalidadesPage />;
+    case "mensalidade-settings":
+      return <MensalidadeSettingsPage />;
+    case "suporte":
+      return <SuportePage />;
+    case "suporte-settings":
+      return <SuporteSettingsPage />;
     case "establishment":
       return <EstablishmentPage />;
     case "reserva":
