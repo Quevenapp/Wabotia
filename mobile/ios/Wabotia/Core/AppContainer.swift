@@ -21,6 +21,10 @@ final class AppContainer: ObservableObject {
     }
     /// Destino pendente vindo de notificação/deep link; consumido pela HomeView.
     @Published var pendingLink: DeepLink?
+    /// Modo aparelho aberto (totem, painel de chamadas, híbrido): ocupa o app inteiro, fora do login.
+    @Published var deviceLaunch: DeviceLaunch?
+    /// Na tela depois do servidor, a pessoa escolheu "Entrar" (e não o modo aparelho).
+    @Published var loginChosen = false
 
     private var client: APIClient?
 
@@ -43,6 +47,30 @@ final class AppContainer: ObservableObject {
         isLoggedIn = session.token != nil && session.user != nil && session.serverURL != nil
         user = session.user
         profileId = session.profileId
+        loginChosen = isLoggedIn
+        // Aparelho pareado (totem ou painel): abre direto na tela dele, como um quiosque que reinicia sozinho.
+        var debugLaunch = false
+        #if DEBUG
+        debugLaunch = DemoMode.launchScreen != nil
+        if DemoMode.launchScreen == "login" { loginChosen = true }
+        #endif
+        if !debugLaunch, KeychainDeviceConfigStore().load() != nil {
+            deviceLaunch = DeviceLaunch(demo: false, serverURL: nil)
+        }
+    }
+
+    /// "Usar este aparelho como painel ou totem", com o servidor já informado.
+    func openDeviceMode() {
+        deviceLaunch = DeviceLaunch(demo: false, serverURL: session.serverURL?.absoluteString)
+    }
+
+    /// O modo aparelho contra a demonstração: nada é guardado e nada sai do aparelho.
+    func openDemoDeviceMode(role: DeviceRole? = nil) {
+        deviceLaunch = DeviceLaunch(demo: true, serverURL: DemoMode.serverURL.absoluteString, role: role)
+    }
+
+    func closeDeviceMode() {
+        deviceLaunch = nil
     }
 
     /// Sessão atual é a demonstração (servidor fictício em memória).
@@ -92,6 +120,7 @@ final class AppContainer: ObservableObject {
         user = nil
         profileId = nil
         isLoggedIn = false
+        if !keepServer { loginChosen = false }
     }
 
     /// Renova o token quando faltam menos de 7 dias.

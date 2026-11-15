@@ -6,10 +6,13 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if container.session.serverURL == nil {
+            if let launch = container.deviceLaunch {
+                DeviceModeView(launch: launch) { container.closeDeviceMode() }
+                    .id(launch.id)
+            } else if container.session.serverURL == nil {
                 ServerView()
             } else if !container.isLoggedIn {
-                LoginView()
+                if container.loginChosen { LoginView() } else { StartView() }
             } else if container.session.profileId == nil {
                 ProfilePickerView()
             } else {

@@ -39,6 +39,10 @@ struct LoginView: View {
             }
             if let error { InlineError(text: error) }
             PrimaryButton(title: "Entrar", busy: busy, disabled: email.isEmpty || password.isEmpty, action: login)
+            Button("Voltar") { container.loginChosen = false }
+                .font(Theme.font(15, .semibold)).foregroundStyle(Theme.brand)
+                .frame(maxWidth: .infinity, minHeight: Theme.touch)
+                .disabled(busy)
             Button("Trocar servidor") { container.onLoggedOut(keepServer: false) }
                 .font(Theme.font(15, .semibold)).foregroundStyle(Theme.brand)
                 .frame(maxWidth: .infinity, minHeight: Theme.touch)
