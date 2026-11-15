@@ -33,6 +33,8 @@ class DeviceActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val container = (application as WabotiaApp).container
         val demo = intent.getBooleanExtra(EXTRA_DEMO, false)
+        // A demonstração recomeça a fila de exemplo a cada entrada (o ViewModel guarda o aparelho fictício na memória).
+        if (demo && savedInstanceState == null) DemoMode.startDevice()
         val server = if (demo) DemoMode.SERVER else intent.getStringExtra(EXTRA_SERVER) ?: container.session.serverUrl
         val services = DeviceServices(
             store = if (demo) MemoryDeviceConfigStore(demoPreset(intent.getStringExtra(EXTRA_DEMO_ROLE))) else container.deviceStore,
@@ -68,10 +70,19 @@ class DeviceActivity : ComponentActivity() {
         fun intent(context: Context, serverUrl: String? = null): Intent =
             Intent(context, DeviceActivity::class.java).apply { serverUrl?.let { putExtra(EXTRA_SERVER, it) } }
 
+        /**
+         * A demonstração do modo aparelho: pareamento aprovado sozinho contra o servidor em memória. Com [role], já
+         * entra pareado nesse papel (atalhos do build de depuração `--es demo device-totem|device-panel|device-hybrid`).
+         */
+        fun demoIntent(context: Context, role: DeviceRole? = null): Intent =
+            Intent(context, DeviceActivity::class.java).putExtra(EXTRA_DEMO, true).apply { role?.let { putExtra(EXTRA_DEMO_ROLE, it.name) } }
+
         /** Há um aparelho pareado neste celular: o app abre direto no modo aparelho. */
         fun isPaired(store: DeviceConfigStore): Boolean = store.load() != null
 
-        @Suppress("UNUSED_PARAMETER")
-        private fun demoPreset(role: String?): DeviceConfig? = null
+        private fun demoPreset(role: String?): DeviceConfig? {
+            val chosen = DeviceRole.entries.firstOrNull { it.name == role } ?: return null
+            return DemoMode.deviceConfig(chosen)
+        }
     }
 }

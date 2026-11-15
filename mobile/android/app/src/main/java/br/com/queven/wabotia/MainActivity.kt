@@ -111,6 +111,11 @@ class MainActivity : ComponentActivity() {
         if (link?.type == DeepLink.DEMO) {
             if (!BuildConfig.DEBUG) return null
             val container = (application as WabotiaApp).container
+            // `--es demo device[-totem|-panel|-hybrid]`: a demonstração do modo aparelho, fora da sessão de pessoa.
+            DemoMode.deviceRoleFor(link.demoScreen)?.let { role ->
+                startActivity(DeviceActivity.demoIntent(this, role.getOrNull()))
+                return null
+            }
             if (link.demoScreen == "signout") {
                 // `--es demo signout`: sai da demonstração e volta à tela inicial normal (Servidor), sem tocar em sessão real.
                 DemoMode.signOut(container)

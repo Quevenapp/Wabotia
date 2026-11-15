@@ -92,6 +92,11 @@ internal object DemoServer {
     private val lock = Any()
     private var state: DemoState? = null
 
+    /** A fila de senhas, o pareamento do modo aparelho e as capacidades ([DemoQueue]). */
+    private var queue: DemoQueue? = null
+
+    private fun queueOf(s: DemoState): DemoQueue = queue ?: DemoQueue(s.t0).also { queue = it }
+
     /** Ids de evento crescem sempre (inclusive entre reinícios do app), para o cursor salvo nunca "passar" dos novos. */
     private val eventSeq = AtomicLong(System.currentTimeMillis())
 
@@ -100,6 +105,7 @@ internal object DemoServer {
         val fresh = DemoState(System.currentTimeMillis())
         fresh.seed()
         state = fresh
+        queue = DemoQueue(fresh.t0)
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -168,6 +174,8 @@ internal object DemoServer {
             listOf("health") -> return ok(j("service" to "wabotia", "version" to "demonstração", "commit" to "", "runtime" to "demo"))
             listOf("auth", "status") -> return ok(j("initialized" to true, "configured" to true))
             listOf("auth", "mobile", "login") -> return ok(sessionJson(now))
+            listOf("pairing", "start") -> return queueOf(s).pairingStart(bodyJson(request))
+            listOf("pairing", "token") -> return queueOf(s).pairingToken(bodyJson(request))
         }
         if (path.firstOrNull() != "v1") return notFound()
         val p = path.drop(1)
@@ -176,6 +184,8 @@ internal object DemoServer {
             p == listOf("profiles") -> ok(JsonArray(listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS))))
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
+            p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
+            p == listOf("capabilities") -> queueOf(s).capabilities()
             p.firstOrNull() == "devices" -> devices(s, method, p.drop(1), request, now)
             p == listOf("bot-runs") && method == "POST" -> startBotRun(s, bodyJson(request), now)
             p.size == 2 && p[0] == "bot-runs" && method == "GET" ->
@@ -266,6 +276,8 @@ internal object DemoServer {
                 ok(j("ok" to true, "settings" to settings(s)))
             }
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
+            "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
+            "capabilities" -> queueOf(s).capabilities()
             else -> notFound()
         }
     }

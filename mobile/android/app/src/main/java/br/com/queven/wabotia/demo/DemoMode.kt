@@ -5,6 +5,9 @@ import android.net.Uri
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.User
+import br.com.queven.wabotia.device.DeviceConfig
+import br.com.queven.wabotia.device.DeviceRole
+import br.com.queven.wabotia.queue.DeviceScopes
 import okhttp3.Interceptor
 
 /**
@@ -30,6 +33,12 @@ object DemoMode {
     /** Domínio `.example` (RFC 2606): nunca é um endereço real. */
     const val USER_EMAIL = "diego@empresa.example"
 
+    /** Credencial fictícia do aparelho pareado na demonstração (nunca é um token real). */
+    const val DEVICE_TOKEN = "wab_demo"
+
+    /** Linha de WhatsApp fictícia do QR do cupom: DDD 20 (inexistente) e 9 0, como os telefones da demonstração. */
+    const val WHATSAPP_LINE = "5520900000000"
+
     private const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
 
     /** Responde em memória pelas chamadas a [SERVER]; as demais seguem para a rede normalmente. */
@@ -54,6 +63,38 @@ object DemoMode {
     /** Sai da demonstração e volta à tela Servidor (não há servidor a avisar nem aparelho registrado). */
     fun signOut(container: AppContainer) {
         if (isDemo(container.session.serverUrl)) container.onLoggedOut(keepServer = false)
+    }
+
+    /**
+     * O aparelho já pareado da demonstração do modo aparelho (atalhos `--es demo device-totem|device-panel|
+     * device-hybrid`): vive só na memória e conversa com a fila em memória.
+     */
+    fun deviceConfig(role: DeviceRole?): DeviceConfig = DeviceConfig(
+        deviceId = "demo-device",
+        baseUrl = SERVER,
+        token = DEVICE_TOKEN,
+        profileId = Ids.PROFILE,
+        name = "Recepção (demonstração)",
+        role = role,
+        scopes = DeviceScopes.requested,
+        demo = true,
+    )
+
+    /**
+     * Atalho do modo aparelho (`device`, `device-totem`, `device-panel`, `device-hybrid`): `null` quando a tela pedida não é
+     * do modo aparelho; `Result` vazio para entrar pelo pareamento.
+     */
+    fun deviceRoleFor(screen: String?): Result<DeviceRole?>? = when (screen?.trim()?.lowercase()) {
+        "device" -> Result.success(null)
+        "device-totem" -> Result.success(DeviceRole.TOTEM)
+        "device-panel" -> Result.success(DeviceRole.PANEL)
+        "device-hybrid" -> Result.success(DeviceRole.HYBRID)
+        else -> null
+    }
+
+    /** Entrar na demonstração do modo aparelho recomeça a fila de exemplo. */
+    fun startDevice() {
+        DemoServer.reset()
     }
 
     /**
@@ -124,6 +165,7 @@ object DemoMode {
             "menus" -> DemoDestination(route = "menus")
             "bot-lines" -> DemoDestination(route = "bot-lines")
             "bot-runs" -> DemoDestination(route = "bot-runs")
+            "counter" -> DemoDestination(route = "counter")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-login" -> DemoDestination(route = "preview/login")
