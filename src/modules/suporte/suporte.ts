@@ -6,6 +6,7 @@ import { one } from "../../db";
 import { ApiError, type Actor, now } from "../../types";
 import {
   moduleError,
+  modulesApi,
   onCommand,
   onConversationTurn,
   onHandoffRequest,
@@ -13,6 +14,7 @@ import {
   onPaymentUpdated,
   onRead,
   onRoute,
+  onSchedule,
   onSettingsSave,
   type ModuleContext,
 } from "../api";
@@ -21,6 +23,7 @@ import {
   linkPhone,
   mensalidadeAvailable,
   onInstallmentPaid,
+  onInstallmentRefunded,
   sellablePlans,
 } from "../mensalidade/public";
 import {
@@ -36,7 +39,12 @@ import {
   recentSessions,
   startFlow,
 } from "./flow";
-import { activeRelease, handoffGate } from "./handoff";
+import {
+  activeRelease,
+  handoffGate,
+  settleByRef,
+  settleReleases,
+} from "./handoff";
 import {
   endRelease,
   listPurchases,
@@ -61,9 +69,22 @@ onMenuChoice("suporte_humano", (ctx, c, _item, { rowId }) =>
 onHandoffRequest("suporte", async (ctx, c, request) => {
   if (c.chat_type === "group") return "allow";
   const at = now();
-  if ((await handoffGate(ctx, c, at)).allowed) return "allow";
+  if ((await handoffGate(ctx, c, at, { settle: true })).allowed) return "allow";
   await startFlow(ctx, c, `gate:${request.source}:${at}`, at);
   return "hold";
+});
+
+// Liberações que deixaram de valer (prazo, protocolo fechado, conversa
+// resolvida, assinatura fora do dia) são encerradas mesmo sem o cliente voltar.
+onSchedule("suporte", async (ctx, tick) => {
+  await settleReleases(ctx, tick.now);
+});
+
+// Estorno da parcela que liberou o atendimento: a liberação acaba.
+onInstallmentRefunded("suporte", async (env, profile, inst) => {
+  const ctx = modulesApi(env, profile, "suporte");
+  if (!(await ctx.enabled())) return;
+  await settleByRef(ctx, inst.id, "Pagamento da mensalidade estornado.");
 });
 
 // Respostas do cliente durante a liberação (documento, nome, opção, pagamento).
@@ -229,7 +250,6 @@ onCommand(
         : null,
       phone_linked: session ? session.phone_linked !== 0 : true,
       valid_until: hours ? now() + hours * 3_600_000 : null,
-      until_ticket: !hours,
       reason,
       actor: actor.id,
       sourceKey: `cortesia:${actor.id}:${requestId}`,

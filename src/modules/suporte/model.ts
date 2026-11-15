@@ -86,6 +86,27 @@ const text = (value: unknown, max: number, what: string, required = false) => {
 
 export const PACKAGES_LIMIT = 9;
 
+const HOUR = 3_600_000;
+/** Liberação "até o protocolo fechar": no máximo 7 dias, mesmo com ele aberto. */
+export const TICKET_RELEASE_MAX_MS = 7 * 24 * HOUR;
+/** Qualquer liberação: no máximo 30 dias. */
+export const RELEASE_MAX_MS = 30 * 24 * HOUR;
+/** Telefone não vinculado ao pagador: liberação sempre curta. */
+export const UNLINKED_RELEASE_MS = 4 * HOUR;
+
+/** Prazo absoluto de uma liberação gravada (as antigas, sem a coluna, pelo início). */
+export const releaseDeadline = (row: {
+  expires_at?: number | null;
+  until_ticket?: number;
+  valid_until?: number | null;
+  created: number;
+}) =>
+  row.expires_at ??
+  row.created +
+    (row.until_ticket && row.valid_until === null
+      ? TICKET_RELEASE_MAX_MS
+      : RELEASE_MAX_MS);
+
 export function validatePackages(value: unknown): SupportPackage[] {
   requireValue(
     Array.isArray(value) && value.length <= PACKAGES_LIMIT,

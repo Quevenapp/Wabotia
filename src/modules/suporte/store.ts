@@ -4,12 +4,18 @@ import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, json, now, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
+// Sem ctx para abrir protocolo: a liberação abre o da conversa pelo núcleo.
+import { createTicket } from "../../service";
 import {
   money,
   packageValidity,
   phoneDigits,
+  RELEASE_MAX_MS,
+  releaseDeadline,
   stamp,
   suporteSettings,
+  TICKET_RELEASE_MAX_MS,
+  UNLINKED_RELEASE_MS,
   type SupportPackage,
 } from "./model";
 import { passToTeam } from "./handoff";
@@ -142,6 +148,8 @@ export function releaseView(row: any) {
     phone_linked: !!row.phone_linked,
     valid_until: row.valid_until,
     until_ticket: !!row.until_ticket,
+    ticket_id: row.ticket_id ?? null,
+    expires_at: releaseDeadline(row),
     reason: row.reason,
     summary: row.summary,
     actor: row.actor,
@@ -159,8 +167,12 @@ export interface ReleaseInput {
   ref?: string | null;
   payer?: { id: string; name: string; document_display?: string | null } | null;
   phone_linked?: boolean;
+  /**
+   * Fim em horas; sem ele, vale até o protocolo da conversa (aberto agora se
+   * não houver) fechar ou a conversa ser resolvida. Telefone não vinculado:
+   * no máximo UNLINKED_RELEASE_MS. Prazo absoluto em ./model.ts.
+   */
   valid_until?: number | null;
-  until_ticket?: boolean;
   reason?: string;
   actor: string;
   /** Repetir a chave não grava outra liberação nem passa de novo. */
@@ -185,8 +197,34 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
   if (existing) return { release: existing, created: false };
   const cfg = suporteSettings(await ctx.settings());
   const at = now();
-  const c = input.c;
+  const c = await ctx.conversation(input.c.id);
   const linked = input.phone_linked !== false;
+  // Telefone não vinculado ao pagador: sempre curta, em horas.
+  let validUntil = input.valid_until ?? null;
+  let untilTicket = validUntil === null;
+  if (!linked && input.payer) {
+    validUntil = Math.min(validUntil ?? Infinity, at + UNLINKED_RELEASE_MS);
+    untilTicket = false;
+  }
+  const expiresAt = Math.min(
+    validUntil ?? Infinity,
+    at + (untilTicket ? TICKET_RELEASE_MAX_MS : RELEASE_MAX_MS),
+  );
+  // Presa ao protocolo e à sessão da conversa de agora: protocolo fechado ou
+  // conversa resolvida encerram; um protocolo aberto depois não a revive.
+  const ticket =
+    (await ctx.activeTicket(c)) ??
+    (
+      await createTicket(
+        ctx.env,
+        c,
+        `Suporte pago: ${KIND_LABELS[input.kind]}`,
+        {
+          dedupe: true,
+          sourceKey: `suporte:${input.sourceKey}`,
+        },
+      )
+    ).ticket;
   const lines = [
     `Suporte pago: ${KIND_LABELS[input.kind]}${input.detail ? ` (${input.detail})` : ""}.`,
     input.payer
@@ -195,14 +233,16 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
     !linked && input.payer
       ? `Atenção: telefone não vinculado ao pagador ${input.payer.name || ""}. Confira e vincule em Dados da conversa → Suporte pago.`
       : "",
-    input.valid_until ? `Liberado até ${stamp(input.valid_until)}.` : "",
+    validUntil
+      ? `Liberado até ${stamp(validUntil)}.`
+      : `Liberado até o protocolo ${ticket.number} fechar.`,
     input.reason ? `Motivo: ${input.reason}` : "",
   ].filter(Boolean);
   const summary = lines.join(" ");
   const id = uid();
   const inserted = await exec(
     ctx.env,
-    "INSERT INTO suporte_releases(id,profile_id,conversation_id,session_id,phone,payer_id,payer_name,kind,ref_id,phone_linked,valid_until,until_ticket,reason,summary,actor,status,source_key,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?) ON CONFLICT(source_key) DO NOTHING",
+    "INSERT INTO suporte_releases(id,profile_id,conversation_id,session_id,phone,payer_id,payer_name,kind,ref_id,phone_linked,valid_until,until_ticket,reason,summary,actor,status,source_key,created,ticket_id,conv_session,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
     id,
     ctx.profile,
     c.id,
@@ -213,13 +253,16 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
     input.kind,
     input.ref ?? null,
     linked ? 1 : 0,
-    input.valid_until ?? null,
-    input.until_ticket ? 1 : 0,
+    validUntil,
+    untilTicket ? 1 : 0,
     input.reason ?? "",
     summary,
     input.actor,
     input.sourceKey,
     at,
+    ticket.id,
+    c.session,
+    expiresAt,
   );
   if (!inserted.meta.changes)
     return {
@@ -253,7 +296,9 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
       ref_id: input.ref ?? null,
       payer_id: input.payer?.id ?? null,
       phone_linked: linked,
-      valid_until: input.valid_until ?? null,
+      valid_until: validUntil,
+      ticket_id: ticket.id,
+      expires_at: expiresAt,
       actor: input.actor,
     },
     { key: id },
@@ -642,7 +687,6 @@ export async function purchasePaymentUpdated(
       phone_linked: session?.phone_linked === 0 ? false : true,
       valid_until:
         purchase.mode === "hours" ? paidAt + purchase.hours * HOUR : null,
-      until_ticket: purchase.mode === "ticket",
       actor: "provider",
       sourceKey: `compra:${purchase.id}`,
       detail: `${purchase.package_name}, ${money(purchase.price_cents)}${purchase.document ? `, documento ${purchase.document}` : ""}`,

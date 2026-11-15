@@ -36,7 +36,12 @@ import {
 import { loadInstallment, paymentsReady } from "./installments";
 import { recordBillingConsent, resendCharge } from "./billing";
 
-export { onInstallmentPaid, type InstallmentPaid } from "./listeners";
+export {
+  onInstallmentPaid,
+  onInstallmentRefunded,
+  type InstallmentPaid,
+  type InstallmentRefunded,
+} from "./listeners";
 
 export type PayerStatus = "em_dia" | "em_atraso" | "sem_assinatura";
 

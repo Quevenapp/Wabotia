@@ -90,7 +90,7 @@ export async function startFlow(
   at = now(),
 ) {
   if (c.chat_type === "group") return;
-  const existing = await activeRelease(ctx, c, at);
+  const existing = await activeRelease(ctx, c, at, { settle: true });
   if (existing) {
     await say(
       ctx,
@@ -207,7 +207,6 @@ async function onSituation(
       ref: situation.subscriptions[0]?.id ?? null,
       payer,
       phone_linked: linked,
-      until_ticket: true,
       actor: "system",
       sourceKey: `sessao:${session.id}`,
       detail: situation.subscriptions
@@ -776,7 +775,6 @@ export async function installmentPaid(
           }
         : null,
       phone_linked: session.phone_linked !== 0,
-      until_ticket: true,
       actor: inst.paid_via === "manual" ? inst.paid_by : "provider",
       sourceKey: `sessao:${session.id}`,
       detail: `${money(inst.amount_cents)} pago${inst.paid_via === "manual" ? " (baixa manual)" : ""}`,
@@ -831,7 +829,6 @@ export async function confirmByTeam(
       document_display: situation.payer.document_display,
     },
     phone_linked: options.link || situation.phone_linked === true,
-    until_ticket: true,
     actor,
     sourceKey: `confirmado:${session.id}`,
     pass: false,

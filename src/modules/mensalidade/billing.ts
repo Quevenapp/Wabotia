@@ -20,7 +20,7 @@ import {
   type MensalidadeSettings,
 } from "./model";
 import { loadInstallment, paymentsReady } from "./installments";
-import { announcePaid } from "./listeners";
+import { announcePaid, notifyInstallmentRefunded } from "./listeners";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -666,7 +666,7 @@ export async function paymentUpdated(
       inst.id,
       payment.id,
     );
-    if (result.meta.changes)
+    if (result.meta.changes) {
       await ctx.publish(
         "mensalidade.refunded",
         inst.id,
@@ -678,6 +678,14 @@ export async function paymentUpdated(
         },
         { key: `${inst.id}:refunded:${payment.id}` },
       );
+      // Quem foi liberado por esta parcela (Suporte pago) perde a liberação.
+      await notifyInstallmentRefunded(ctx.env, ctx.profile, {
+        id: inst.id,
+        subscription_id: inst.subscription_id,
+        payment_id: payment.id,
+        amount_cents: payment.amount_cents,
+      });
+    }
     return;
   }
   // expired / cancelled: a próxima cobrança cria outra.

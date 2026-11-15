@@ -56,6 +56,29 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 **Suporte pago → Suporte pago** lista as liberações e as compras avulsas,
 com filtro, e busca pagadores.
 
+## Validade da liberação
+
+Toda liberação fica presa ao **protocolo** e à **sessão da conversa** em que
+foi dada. Se a conversa não tem protocolo ativo, o Suporte abre um ("Suporte
+pago: …") na hora de liberar.
+
+- **Até o fim deste atendimento** (assinatura em dia, mensalidade paga,
+  pacote "até o protocolo fechar", cortesia sem horas, confirmação da equipe):
+  vale enquanto aquele protocolo estiver ativo e a conversa não for resolvida.
+  Fechar o protocolo ou resolver a conversa encerra a liberação; um protocolo
+  aberto depois pelo cliente não a revive.
+- **Por horas** (pacote ou cortesia com horas): vale até a hora marcada.
+- **Prazo máximo:** 7 dias para "até o fim deste atendimento" e 30 dias para
+  qualquer liberação, mesmo com o protocolo aberto.
+- **Telefone não vinculado ao pagador:** no máximo 4 horas.
+- **Assinatura e confirmação da equipe:** a cada pedido de humano a situação
+  do pagador é consultada de novo; fora do dia, a liberação acaba.
+- **Estorno:** o estorno da mensalidade ou do pacote que liberou encerra a
+  liberação.
+
+O encerramento acontece no próximo pedido de humano e na rotina periódica do
+módulo (evento `suporte.release_ended`, com o motivo).
+
 ## Nenhum caminho contorna o pagamento
 
 Com o Suporte ligado, **toda passagem automática para humano** passa pela

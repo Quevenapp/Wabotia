@@ -50,6 +50,48 @@ export async function announcePaid(env: Env, profile: string, id: string) {
   });
 }
 
+export type InstallmentRefunded = {
+  id: string;
+  subscription_id: string;
+  payment_id: string;
+  amount_cents: number;
+};
+type RefundListener = (
+  env: Env,
+  profile: string,
+  installment: InstallmentRefunded,
+) => Promise<void>;
+const refundListeners = new Map<string, RefundListener>();
+
+/** Pagamento de parcela estornado pelo provedor (a parcela volta a ficar devida). */
+export function onInstallmentRefunded(
+  module: string,
+  listener: RefundListener,
+) {
+  refundListeners.set(module, listener);
+}
+
+export async function notifyInstallmentRefunded(
+  env: Env,
+  profile: string,
+  installment: InstallmentRefunded,
+) {
+  for (const [module, listener] of refundListeners)
+    try {
+      await listener(env, profile, installment);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "mensalidade-listener",
+          module,
+          installment: installment.id,
+          refunded: true,
+          error: String((error as Error)?.message || error),
+        }),
+      );
+    }
+}
+
 export async function notifyInstallmentPaid(
   env: Env,
   profile: string,
