@@ -23,8 +23,9 @@ class WabotiaMessagingService : FirebaseMessagingService() {
         val session = container.session
         val data = message.data
         val type = data["type"] ?: "message"
-        // Sem sessão não há o que abrir; só o aviso de teste ignora a preferência local.
-        if (!container.auth.value.isLoggedIn) return
+        // Sem sessão não há o que abrir; só o aviso de teste ignora a preferência local. Na demonstração nenhum aviso é
+        // de lá (ela não tem servidor), então nada é mostrado.
+        if (!container.auth.value.isLoggedIn || container.isDemo) return
         if (!session.notificationsEnabled && type != "test") return
         // Só mostra avisos do servidor em que a pessoa está conectada.
         val server = data["server"]?.trim()?.trimEnd('/')

@@ -811,6 +811,53 @@ struct OfflineBanner: View {
     }
 }
 
+/// Faixa fixa no topo enquanto a demonstração está aberta (em todas as telas depois da entrada): avisa que os
+/// dados são fictícios e oferece a volta à primeira tela, com uma confirmação curta.
+struct DemoBanner: View {
+    let onExit: () -> Void
+    @State private var confirm = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Theme.warn)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Demonstração").font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                Text("Dados fictícios · nada é enviado").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 8)
+            Button { confirm = true } label: {
+                Text("Sair")
+                    .font(Theme.font(14, .semibold))
+                    .foregroundStyle(Theme.brand)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 30)
+                    .background(Capsule().fill(Theme.brand.opacity(0.12)))
+                    .frame(minHeight: Theme.touch)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Sair da demonstração")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .frame(minHeight: Theme.touch)
+        .background(ZStack { Theme.background; Theme.warn.opacity(0.16) }.ignoresSafeArea(edges: .top))
+        .overlay(alignment: .bottom) { ThinDivider() }
+        .confirmationDialog("Sair da demonstração?", isPresented: $confirm, titleVisibility: .visible) {
+            Button("Sair da demonstração", role: .destructive, action: onExit)
+            Button("Continuar explorando", role: .cancel) {}
+        } message: {
+            Text("Você volta para a primeira tela para informar o servidor da sua empresa. Os dados de exemplo recomeçam na próxima vez.")
+        }
+    }
+}
+
 /// Divisor fino na cor do tema.
 struct ThinDivider: View {
     var leading: CGFloat = 0

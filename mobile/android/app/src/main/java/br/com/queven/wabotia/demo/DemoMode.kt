@@ -2,43 +2,69 @@ package br.com.queven.wabotia.demo
 
 import android.content.Context
 import android.net.Uri
+import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
-import br.com.queven.wabotia.core.DebugHooks
-import br.com.queven.wabotia.core.DemoDestination
 import br.com.queven.wabotia.core.model.User
+import okhttp3.Interceptor
 
 /**
- * Modo de demonstração (somente build de depuração).
+ * Modo de demonstração: uma instalação Wabotia fictícia, em memória, para quem ainda não tem servidor (e para a revisão
+ * das lojas). Entra pelo botão "Conhecer o app (demonstração)" da tela Servidor ou digitando `demo` como servidor;
+ * existe em todos os builds.
  *
- * - Digitar `demo` como endereço do servidor entra direto em uma instalação fictícia, em memória.
- * - `adb shell am start -n br.com.queven.wabotia.debug/br.com.queven.wabotia.MainActivity --es demo <tela> [--es arg <aba>]`
- *   entra na demonstração e abre a tela pedida (ver [destination]).
+ * - As telas e os view models rodam sem mudança: quem responde às chamadas é o [interceptor], instalado em todo cliente
+ *   HTTP do app (OkHttp da API, do Coil e do player). Nada para `demo.wabotia.localhost` sai do aparelho.
+ * - Na demonstração o aparelho nunca é registrado para push e o app não pede permissão de notificações.
+ * - Os dados são fictícios e recomeçam a cada entrada e a cada abertura do app.
+ * - Uma faixa fixa no topo ([br.com.queven.wabotia.ui.components.DemoBanner]) avisa que é demonstração e leva de volta
+ *   à tela Servidor.
  *
- * As telas e os view models rodam sem mudança: quem responde às chamadas é o [DemoInterceptor], instalado no
- * cliente HTTP por [DebugHooks]. Nada sai do aparelho e nenhuma credencial real é usada.
+ * Só no build de depuração: `adb shell am start -n br.com.queven.wabotia.debug/br.com.queven.wabotia.MainActivity
+ * --es demo <tela> [--es arg <aba>]` entra na demonstração e abre a tela pedida (ver [destination]).
  */
 object DemoMode {
+    /** Endereço fictício do servidor de demonstração; `.localhost` nunca é um endereço da internet. */
+    const val SERVER = "https://demo.wabotia.localhost"
+    const val PROFILE_NAME = "Empresa Exemplo"
+    const val USER_NAME = "Diego Andrade"
+    /** Domínio `.example` (RFC 2606): nunca é um endereço real. */
+    const val USER_EMAIL = "diego@empresa.example"
+
     private const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
 
-    @JvmStatic
-    fun install(container: AppContainer) {
-        DebugHooks.interceptor = DemoInterceptor()
-        DebugHooks.demoSignIn = { target -> signIn(target) }
-        DebugHooks.demoDestination = { screen, arg -> destination(screen, arg) }
-    }
+    /** Responde em memória pelas chamadas a [SERVER]; as demais seguem para a rede normalmente. */
+    val interceptor: Interceptor = DemoInterceptor()
 
-    private fun signIn(container: AppContainer): Boolean {
+    fun isDemo(serverUrl: String?): Boolean = serverUrl == SERVER
+
+    /** O texto digitado na tela Servidor pede a demonstração? */
+    fun wantsDemo(input: String): Boolean = input.trim().equals("demo", ignoreCase = true)
+
+    internal fun user() = User(id = Ids.ME, name = USER_NAME, email = USER_EMAIL, role = "admin", profiles = listOf(Ids.PROFILE))
+
+    /** Entra na demonstração: dados de exemplo do zero e uma sessão local, sem push. */
+    fun signIn(container: AppContainer) {
         val state = DemoServer.reset()
         seedLocalCaches(container, state)
-        container.onLoggedIn(
-            DebugHooks.DEMO_SERVER,
-            "wabu_demo",
-            System.currentTimeMillis() + THIRTY_DAYS_MS,
-            User(id = Ids.ME, name = "Bruno Almeida", email = "bruno@queven.demo", role = "admin", profiles = listOf(Ids.PROFILE)),
-        )
+        container.onLoggedIn(SERVER, "wabu_demo", System.currentTimeMillis() + THIRTY_DAYS_MS, user())
         container.onProfileSelected(Ids.PROFILE)
         container.session.setEventCursor(Ids.PROFILE, 0)
-        return true
+    }
+
+    /** Sai da demonstração e volta à tela Servidor (não há servidor a avisar nem aparelho registrado). */
+    fun signOut(container: AppContainer) {
+        if (isDemo(container.session.serverUrl)) container.onLoggedOut(keepServer = false)
+    }
+
+    /**
+     * Abertura do app com a demonstração aberta na última vez: os dados de exemplo vivem só na memória e recomeçam,
+     * então as prévias, as não lidas e o cursor de eventos guardados também voltam ao início.
+     */
+    fun restoreOnLaunch(container: AppContainer) {
+        if (!isDemo(container.session.serverUrl)) return
+        val state = DemoServer.reset()
+        seedLocalCaches(container, state)
+        container.session.setEventCursor(Ids.PROFILE, 0)
     }
 
     /**
@@ -60,7 +86,9 @@ object DemoMode {
         }
     }
 
-    private fun destination(screen: String, arg: String?): DemoDestination {
+    /** Atalho `--es demo <tela>` (só no build de depuração): aba, conversa, protocolo ou rota a abrir. */
+    fun destination(screen: String, arg: String?): DemoDestination? {
+        if (!BuildConfig.DEBUG) return null
         val option = arg?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         return when (screen.trim().lowercase()) {
             "conversations" -> DemoDestination(tab = "conversations", arg = option)
@@ -107,3 +135,17 @@ object DemoMode {
         }
     }
 }
+
+/**
+ * Destino de um atalho de demonstração. [tab]: conversations | tickets | team | calls | settings.
+ * [sheet] abre uma folha da conversa (transfer, attach, presence…) e [arg] escolhe a aba/segmento inicial.
+ */
+data class DemoDestination(
+    val tab: String? = null,
+    val conversationId: String? = null,
+    val ticketId: String? = null,
+    val info: Boolean = false,
+    val sheet: String? = null,
+    val arg: String? = null,
+    val route: String? = null,
+)

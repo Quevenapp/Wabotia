@@ -37,6 +37,8 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Acima da pilha de navegação: a faixa aparece em todas as telas da demonstração.
+            if container.isDemo { DemoBanner { container.exitDemo() } }
             if workspace.offline { OfflineBanner().transition(.move(edge: .top).combined(with: .opacity)) }
             RootNavigation(router: router) {
                 VStack(spacing: 0) {

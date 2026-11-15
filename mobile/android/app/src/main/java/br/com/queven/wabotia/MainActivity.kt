@@ -10,19 +10,30 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
-import br.com.queven.wabotia.core.DebugHooks
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.push.PushRegistrar
+import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.ui.components.DemoBanner
 import br.com.queven.wabotia.ui.nav.AppNavHost
 import br.com.queven.wabotia.ui.nav.DeepLink
+import br.com.queven.wabotia.ui.theme.Wb
 import br.com.queven.wabotia.ui.theme.WabotiaTheme
 
 class MainActivity : ComponentActivity() {
@@ -45,24 +56,36 @@ class MainActivity : ComponentActivity() {
             WabotiaTheme {
                 val nav = rememberNavController()
                 val auth by container.auth.collectAsState()
+                val demo = auth.isLoggedIn && DemoMode.isDemo(auth.serverUrl)
                 LaunchedEffect(Unit) {
-                    val demo = container.session.serverUrl == DebugHooks.DEMO_SERVER
-                    // Na demonstração não há servidor real: nada de registrar o aparelho.
-                    if (!demo) {
+                    // Na demonstração não há servidor real: nada de registrar o aparelho nem renovar a sessão.
+                    if (!container.isDemo) {
                         PushRegistrar.registerIfNeeded(container)
                         SessionRefresher.refreshInBackground(container)
                     }
                 }
                 // A permissão de notificações só é pedida depois do login, na primeira vez em que a tela inicial
                 // aparece (nunca na demonstração). Depois disso a pessoa ajusta em Ajustes > Notificações.
-                val home = auth.isLoggedIn && auth.profileId != null && auth.serverUrl != DebugHooks.DEMO_SERVER
+                val home = auth.isLoggedIn && auth.profileId != null && !demo
                 LaunchedEffect(home) {
                     if (home && !container.session.notificationPermissionAsked) {
                         container.session.notificationPermissionAsked = true
                         requestNotificationPermission()
                     }
                 }
-                AppNavHost(container, nav, pendingLink) { pendingLink = null }
+                Column(Modifier.fillMaxSize().background(Wb.colors.background)) {
+                    // Acima de toda a navegação: a faixa aparece em todas as telas da demonstração. Ela ocupa a área
+                    // da barra de status, então as telas abaixo não somam esse recuo de novo.
+                    if (demo) DemoBanner(onExit = { DemoMode.signOut(container) })
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .then(if (demo) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier),
+                    ) {
+                        AppNavHost(container, nav, pendingLink) { pendingLink = null }
+                    }
+                }
             }
         }
     }
@@ -73,16 +96,20 @@ class MainActivity : ComponentActivity() {
         accept(DeepLink.from(intent))?.let { pendingLink = it }
     }
 
-    /** O atalho de demonstração entra na sessão em memória (e recomeça os dados) antes de navegar. */
+    /**
+     * Atalho de demonstração (só no build de depuração; [DeepLink.fromDemo] não lê o extra no release): entra na sessão
+     * em memória (e recomeça os dados) antes de navegar.
+     */
     private fun accept(link: DeepLink?): DeepLink? {
         if (link?.type == DeepLink.DEMO) {
+            if (!BuildConfig.DEBUG) return null
             val container = (application as WabotiaApp).container
             if (link.demoScreen == "signout") {
                 // `--es demo signout`: sai da demonstração e volta à tela inicial normal (Servidor), sem tocar em sessão real.
-                if (container.session.serverUrl == DebugHooks.DEMO_SERVER) container.onLoggedOut(keepServer = false)
+                DemoMode.signOut(container)
                 return null
             }
-            if (!DebugHooks.signInDemo(container)) return null
+            DemoMode.signIn(container)
         }
         return link
     }

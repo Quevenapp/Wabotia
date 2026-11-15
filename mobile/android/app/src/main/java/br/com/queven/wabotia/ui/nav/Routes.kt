@@ -43,7 +43,7 @@ object Routes {
  * como extras e sem URI.
  *
  * No build de depuração há uma terceira origem: o extra `demo` (e `arg`), que entra na demonstração em memória e abre uma
- * tela ([demoScreen]); ver [br.com.queven.wabotia.core.DebugHooks].
+ * tela ([demoScreen]); ver [br.com.queven.wabotia.demo.DemoMode.destination].
  */
 data class DeepLink(
     val type: String,

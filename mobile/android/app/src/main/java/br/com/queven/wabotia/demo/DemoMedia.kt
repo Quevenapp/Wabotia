@@ -49,7 +49,7 @@ internal object DemoMedia {
     /** Anexos fixos das conversas e das execuções de bot. */
     fun fixtures(): List<Entry> = listOf(
         Entry(IMAGE_ID, "painel-atual.png", "image/png") { dashboardPng },
-        Entry(PDF_ID, "Proposta-Queven.pdf", "application/pdf") { proposalPdf },
+        Entry(PDF_ID, "Proposta-Empresa-Exemplo.pdf", "application/pdf") { proposalPdf },
         Entry(VOICE_ID, "voz-demo.wav", "audio/wav") { voiceWav },
         Entry(REPORT_ID, "relatorio-vendas-outubro.csv", "text/csv") { reportCsv },
     )
@@ -165,14 +165,14 @@ internal object DemoMedia {
         c.drawText("Proposta comercial", 48f, 78f, p)
         p.typeface = Typeface.DEFAULT
         p.textSize = 14f
-        c.drawText("Queven Atendimento · Plano Empresarial", 48f, 106f, p)
+        c.drawText("${DemoMode.PROFILE_NAME} · Plano Empresarial", 48f, 106f, p)
 
         p.color = 0xFF111B21.toInt()
         p.textSize = 13f
         var y = 200f
         val lines = listOf(
             "Cliente: Costa & Filhos Contabilidade",
-            "Contato: Mariana Costa · +55 11 98765-4321",
+            "Contato: Mariana Costa · +55 20 90876-5432",
             "",
             "Plano Empresarial para 20 atendentes",
             "  • WhatsApp oficial (API) com dois números",
@@ -181,7 +181,7 @@ internal object DemoMedia {
             "  • Migração do histórico e treinamento da equipe",
             "",
             "Investimento mensal: R$ 1.490,00",
-            "Implantação: R$ 0,00 (desconto de parceiro Fagoo)",
+            "Implantação: R$ 0,00 (desconto de parceiro)",
             "Validade desta proposta: 15 dias",
         )
         for (line in lines) {
@@ -209,7 +209,7 @@ internal object DemoMedia {
             "STREAM",
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         )
-        val stream = "BT /F1 24 Tf 60 760 Td (Proposta comercial Queven) Tj ET"
+        val stream = "BT /F1 24 Tf 60 760 Td (Proposta comercial) Tj ET"
         val sb = StringBuilder("%PDF-1.4\n")
         val offsets = ArrayList<Int>()
         for ((i, body) in objects.withIndex()) {

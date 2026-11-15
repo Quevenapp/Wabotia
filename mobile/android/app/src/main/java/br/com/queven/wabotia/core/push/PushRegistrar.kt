@@ -22,7 +22,7 @@ object PushRegistrar {
 
     /** Versão fire-and-forget usada no login, na abertura do app e quando o FCM troca o token. */
     fun registerIfNeeded(container: AppContainer, force: Boolean = false) {
-        if (!container.auth.value.isLoggedIn) return
+        if (!container.auth.value.isLoggedIn || container.isDemo) return
         container.scope.launch(Dispatchers.IO) {
             try {
                 register(container, force)
@@ -39,7 +39,8 @@ object PushRegistrar {
      */
     suspend fun register(container: AppContainer, force: Boolean = false): Boolean {
         val session = container.session
-        if (!container.auth.value.isLoggedIn) return false
+        // Na demonstração não há servidor: o aparelho nunca é registrado (nem o token FCM é pedido).
+        if (!container.auth.value.isLoggedIn || container.isDemo) return false
         val token = session.pushToken ?: runCatching { FirebaseMessaging.getInstance().token.await() }.getOrNull()
         if (token.isNullOrBlank()) return false
         session.pushToken = token
@@ -74,7 +75,7 @@ object PushRegistrar {
     /** DELETE /api/v1/devices/{id}; chamado antes de sair da conta. Nunca lança. */
     suspend fun unregister(container: AppContainer) {
         try {
-            container.api.deleteDevice(container.session.deviceId)
+            if (!container.isDemo) container.api.deleteDevice(container.session.deviceId)
         } catch (_: Exception) {
         } finally {
             container.session.registeredPushToken = null

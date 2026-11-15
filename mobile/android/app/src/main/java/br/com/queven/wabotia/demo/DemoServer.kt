@@ -19,8 +19,8 @@ import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Servidor Wabotia fictício, em memória, para o modo de demonstração do build de depuração.
- * Responde a toda chamada para `demo.wabotia.localhost`; as demais seguem para a rede normalmente.
+ * Servidor Wabotia fictício, em memória, para o modo de demonstração ([DemoMode]).
+ * Responde a toda chamada para `demo.wabotia.localhost` sem tocar na rede; as demais seguem normalmente.
  */
 internal class DemoInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -165,7 +165,7 @@ internal object DemoServer {
         if (segments.firstOrNull() != "api") return notFound()
         val path = segments.drop(1)
         when (path) {
-            listOf("health") -> return ok(j("service" to "wabotia", "version" to "0.14.0-demo", "commit" to "demo0000", "runtime" to "demo"))
+            listOf("health") -> return ok(j("service" to "wabotia", "version" to "demonstração", "commit" to "", "runtime" to "demo"))
             listOf("auth", "status") -> return ok(j("initialized" to true, "configured" to true))
             listOf("auth", "mobile", "login") -> return ok(sessionJson(now))
         }
@@ -173,7 +173,7 @@ internal object DemoServer {
         val p = path.drop(1)
         return when {
             p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE)))
-            p == listOf("profiles") -> ok(JsonArray(listOf(j("id" to Ids.PROFILE, "name" to "Queven Atendimento", "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS))))
+            p == listOf("profiles") -> ok(JsonArray(listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS))))
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p.firstOrNull() == "devices" -> devices(s, method, p.drop(1), request, now)
@@ -188,7 +188,7 @@ internal object DemoServer {
     private fun sessionJson(now: Long): JsonObject = j(
         "token" to "wabu_demo",
         "expires" to now + 30 * DAY_MS,
-        "user" to j("id" to Ids.ME, "name" to "Bruno Almeida", "email" to "bruno@queven.demo", "role" to "admin", "profiles" to listOf(Ids.PROFILE)),
+        "user" to j("id" to Ids.ME, "name" to DemoMode.USER_NAME, "email" to DemoMode.USER_EMAIL, "role" to "admin", "profiles" to listOf(Ids.PROFILE)),
     )
 
     private fun profile(s: DemoState, method: String, r: List<String>, request: Request, now: Long): Reply {
@@ -487,9 +487,9 @@ internal object DemoServer {
             val text = customerReplies[autoReplies++ % customerReplies.size]
             val group = groups[id]
             val content = if (group != null) {
-                j("type" to "text", "participant" to "5511970002222", "participant_name" to "Helena · Bloco B")
+                j("type" to "text", "participant" to "5520900002222", "participant_name" to "Helena · Bloco B")
             } else j("type" to "text")
-            val author = if (group != null) "5511970002222" else c.str("phone").orEmpty()
+            val author = if (group != null) "5520900002222" else c.str("phone").orEmpty()
             val message = addMessage(id, "customer", author, text, at, content = content, id = nextId("m-$id-c"))
             // A mensagem do cliente reabre a janela: o que estava na fila sai agora.
             list.filter { it.str("delivery_status") == "pending" }.forEach { advance(id, it, "pending", "delivered", at) }

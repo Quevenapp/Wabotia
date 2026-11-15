@@ -20,7 +20,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
-import br.com.queven.wabotia.core.DebugHooks
+import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.ui.auth.LoginScreen
 import br.com.queven.wabotia.ui.auth.ProfilePickerScreen
 import br.com.queven.wabotia.ui.auth.ServerScreen
@@ -63,17 +63,21 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         }
     }
 
-    // Notificação tocada (ou atalho de demonstração): abre o destino.
+    // Notificação tocada (ou atalho de demonstração do build de depuração): abre o destino.
     LaunchedEffect(deepLink, auth.isLoggedIn, auth.profileId) {
         val link = deepLink ?: return@LaunchedEffect
         if (link.type == DeepLink.DEMO) {
-            if (!auth.isLoggedIn || auth.serverUrl != DebugHooks.DEMO_SERVER) {
+            if (!BuildConfig.DEBUG) {
+                onDeepLinkConsumed()
+                return@LaunchedEffect
+            }
+            if (!auth.isLoggedIn || !DemoMode.isDemo(auth.serverUrl)) {
                 // Entra na demonstração; este efeito roda de novo quando a sessão mudar.
-                if (!DebugHooks.signInDemo(container)) onDeepLinkConsumed()
+                DemoMode.signIn(container)
                 return@LaunchedEffect
             }
             if (auth.profileId == null) return@LaunchedEffect
-            val destination = DebugHooks.destination(link.demoScreen ?: "conversations", link.demoArg)
+            val destination = DemoMode.destination(link.demoScreen ?: "conversations", link.demoArg)
             if (nav.currentDestination?.route != Routes.HOME) nav.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
             homeTab = HomeTab.entries.firstOrNull { it.key == destination?.tab } ?: HomeTab.Conversations
             homeArg = destination?.sheet ?: destination?.arg?.takeIf { destination.conversationId == null && destination.ticketId == null }
@@ -88,6 +92,11 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             return@LaunchedEffect
         }
         if (!auth.isLoggedIn || auth.profileId == null) return@LaunchedEffect
+        // Avisos são de servidores reais; na demonstração não há o que abrir.
+        if (DemoMode.isDemo(auth.serverUrl)) {
+            onDeepLinkConsumed()
+            return@LaunchedEffect
+        }
         if (link.profileId != null && link.profileId != auth.profileId && container.session.user?.let { it.isAdmin || link.profileId in it.profiles } == true) {
             container.onProfileSelected(link.profileId)
         }

@@ -7,6 +7,7 @@ import br.com.queven.wabotia.core.model.User
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
 import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.demo.DemoMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,10 +73,14 @@ class AppContainer(context: Context) {
         _auth.value = AuthState.from(session)
     }
 
+    /** Sessão atual é a demonstração (servidor fictício em memória, ver [DemoMode]). */
+    val isDemo: Boolean get() = DemoMode.isDemo(session.serverUrl)
+
     fun onLoggedOut(keepServer: Boolean) {
         val server = session.serverUrl
         session.clearSession()
-        if (keepServer) session.serverUrl = server
+        // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à tela Servidor.
+        if (keepServer && !DemoMode.isDemo(server)) session.serverUrl = server
         client = null
         profileData.clear()
         conversationCache.clear()

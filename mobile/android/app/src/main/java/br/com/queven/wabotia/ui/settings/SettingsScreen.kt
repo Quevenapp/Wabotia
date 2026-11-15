@@ -78,6 +78,7 @@ import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
+import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.ConnectionStrip
 import br.com.queven.wabotia.ui.components.InlineNotice
@@ -112,6 +113,9 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
     var systemAllows by remember { mutableStateOf(notificationsAllowed(context)) }
     var showProfiles by remember { mutableStateOf(false) }
     var showLogout by remember { mutableStateOf(false) }
+    var showExitDemo by remember { mutableStateOf(false) }
+    // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
+    val demo = container.isDemo
     val c = Wb.colors
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
@@ -163,7 +167,16 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
 
             // --- Notificações ---
             item("notifications-label") { SectionLabel("Notificações") }
-            item("notifications") {
+            if (demo) item("notifications-demo") {
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.NotificationsOff,
+                        "Desligadas na demonstração",
+                        subtitle = "O aparelho não é registrado e o app não pede permissão. Conectado ao servidor da sua empresa, você recebe avisos de mensagens, fila, transferências e protocolos.",
+                        tint = c.muted,
+                    )
+                }
+            } else item("notifications") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     SettingsRow(
                         if (state.notificationsEnabled) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
@@ -245,7 +258,13 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
 
             // --- Servidor ---
             item("server-label") { SectionLabel("Servidor") }
-            item("server") {
+            if (demo) item("server-demo") {
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(Icons.Filled.Dns, "Demonstração", subtitle = "Sem servidor: os dados são fictícios e ficam só na memória do aparelho.", tint = c.ticket)
+                    RowDivider()
+                    SettingsRow(Icons.Filled.SwapHoriz, "Perfil de atendimento", subtitle = DemoMode.PROFILE_NAME)
+                }
+            } else item("server") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     SettingsRow(
                         Icons.Filled.Dns,
@@ -289,7 +308,12 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                     )
                 }
             }
-            item("server-hint") { Hint("Para usar outro servidor, saia da conta e informe o novo endereço na tela de login.") }
+            item("server-hint") {
+                Hint(
+                    if (demo) "Para usar o app de verdade, saia da demonstração e informe o endereço do servidor da sua empresa."
+                    else "Para usar outro servidor, saia da conta e informe o novo endereço na tela de login.",
+                )
+            }
 
             // --- Dispositivo ---
             item("device-label") { SectionLabel("Dispositivo") }
@@ -323,7 +347,18 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
             }
 
             // --- Sair ---
-            item("logout") {
+            if (demo) item("logout-demo") {
+                WbCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
+                    SettingsRow(
+                        Icons.AutoMirrored.Filled.Logout,
+                        "Sair da demonstração",
+                        subtitle = "Volta para a tela inicial",
+                        tint = c.danger,
+                        titleColor = c.danger,
+                        onClick = { showExitDemo = true },
+                    )
+                }
+            } else item("logout") {
                 WbCard(Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
                     SettingsRow(
                         Icons.AutoMirrored.Filled.Logout,
@@ -357,6 +392,15 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
             },
             confirmButton = { TextButton(onClick = { showLogout = false; vm.logout() }) { Text("Sair", color = c.danger, fontWeight = FontWeight.SemiBold) } },
             dismissButton = { TextButton(onClick = { showLogout = false }) { Text("Cancelar") } },
+        )
+    }
+    if (showExitDemo) {
+        AlertDialog(
+            onDismissRequest = { showExitDemo = false },
+            title = { Text("Sair da demonstração?") },
+            text = { Text("Você volta para a tela inicial para informar o servidor da sua empresa. Os dados de exemplo recomeçam na próxima vez.") },
+            confirmButton = { TextButton(onClick = { showExitDemo = false; DemoMode.signOut(container) }) { Text("Sair", color = c.danger, fontWeight = FontWeight.SemiBold) } },
+            dismissButton = { TextButton(onClick = { showExitDemo = false }) { Text("Continuar explorando") } },
         )
     }
     state.logoutError?.let { err ->
