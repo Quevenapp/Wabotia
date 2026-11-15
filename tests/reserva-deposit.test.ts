@@ -215,6 +215,21 @@ describe("reserva: sinal pela Cobrança", () => {
     expect((await bookings(s))[0].status).toBe("confirmed");
   });
 
+  it("cancelar a reserva aguardando o sinal cancela a cobrança (ctx.cancelCharge)", async () => {
+    const s = await setup();
+    const { booking } = await pendingByChat(s, "5511972000009", future(8));
+    await s.run("reserva.cancel", { id: booking.id, reason: "Desistiu" });
+    const payment = await one(
+      env,
+      "SELECT status FROM payments WHERE id=?",
+      booking.payment_id,
+    );
+    expect(payment.status).toBe("cancelled");
+    expect((await bookings(s))[0]).toMatchObject({ status: "cancelled" });
+    // Só o reserva.cancelled: a cobrança cancelada não vira "expirada".
+    expect(await events(s, "reserva.expired")).toHaveLength(0);
+  });
+
   it("sinal vencido libera a unidade; pagamento atrasado vira aviso à equipe", async () => {
     const s = await setup();
     const start = future(7);

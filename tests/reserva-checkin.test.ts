@@ -1,6 +1,6 @@
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { all, one } from "../src/db";
+import { all, exec, one } from "../src/db";
 import { runDue } from "../src/modules/reserva/schedule";
 import { runModuleSchedules } from "../src/modules/schedule";
 import {
@@ -156,6 +156,14 @@ describe("reserva: check-in pelo passo web", () => {
     const s = await chatSetup();
     const phone = "5511973000002";
     const { c, booking } = await linked(s, phone, s.f.line);
+    // Janela de 24 h fechada de verdade: o núcleo recusa o link com
+    // window_closed e o módulo manda o convite.
+    await exec(
+      env,
+      "UPDATE conversations SET last_customer=? WHERE id=?",
+      Date.now() - 2 * 24 * H,
+      c.id,
+    );
     const due = await runDue(s.ctx, booking.arrival_at - 47 * H);
     expect(due.checkin).toEqual([booking.id]);
     const invite = (

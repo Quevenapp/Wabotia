@@ -10,7 +10,6 @@
 // ("responda CHECKIN") e o link sai quando o cliente responde.
 import { exec } from "../../db";
 import { ApiError, type Conversation, now as clock } from "../../types";
-import { interactiveLine } from "../../line-service";
 import type { ModuleContext, WebStepRequest } from "../api";
 import type { Answers } from "../../web-steps";
 import { moment, shortDay, type ReservaConfig } from "./config";
@@ -146,9 +145,34 @@ export async function sendCheckin(
       "Esta reserva não está ligada a uma conversa do WhatsApp.",
     );
   const c = options.conversation || (await ctx.conversation(b.conversation_id));
-  const closed =
-    (await interactiveLine(ctx.env, c)) && at - c.last_customer >= 86400000;
-  if (closed && options.trigger === "module") {
+  const ttl = Math.min(
+    7 * 24 * 60,
+    Math.max(60, Math.round((b.departure_at - at) / 60000)),
+  );
+  // Com a janela de 24 h fechada o núcleo recusa o link com window_closed:
+  // pelo gancho periódico, vira convite pelo modelo de notificação.
+  let opened: Awaited<ReturnType<ModuleContext["openWebStep"]>> | null = null;
+  try {
+    opened = await ctx.openWebStep(c, {
+      kind: "checkin",
+      ref: b.id,
+      trigger: options.trigger,
+      actor: options.actor,
+      sourceKey: options.sourceKey,
+      ttlMinutes: ttl,
+      text: `Faça o check-in online da reserva #${b.number} (${b.unit_name}, entrada ${moment(b.arrival_at)}):`,
+      button: "Fazer check-in",
+      spec: checkinSpec(config, b),
+    });
+  } catch (error) {
+    if (
+      !(error instanceof ApiError) ||
+      error.code !== "window_closed" ||
+      options.trigger !== "module"
+    )
+      throw error;
+  }
+  if (!opened) {
     await ctx.sendMessage(
       c,
       {
@@ -170,21 +194,6 @@ export async function sendCheckin(
       url: null,
     };
   }
-  const ttl = Math.min(
-    7 * 24 * 60,
-    Math.max(60, Math.round((b.departure_at - at) / 60000)),
-  );
-  const opened = await ctx.openWebStep(c, {
-    kind: "checkin",
-    ref: b.id,
-    trigger: options.trigger,
-    actor: options.actor,
-    sourceKey: options.sourceKey,
-    ttlMinutes: ttl,
-    text: `Faça o check-in online da reserva #${b.number} (${b.unit_name}, entrada ${moment(b.arrival_at)}):`,
-    button: "Fazer check-in",
-    spec: checkinSpec(config, b),
-  });
   await exec(
     ctx.env,
     "UPDATE reserva_bookings SET checkin_status='sent',checkin_step_id=?,checkin_sent_at=?,updated=? WHERE id=? AND profile_id=? AND checkin_status<>'completed'",

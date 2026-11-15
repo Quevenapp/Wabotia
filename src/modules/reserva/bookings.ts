@@ -661,6 +661,15 @@ export async function cancelBooking(
     ctx.profile,
   );
   if (!done.meta?.changes) await activeBooking(ctx, before.id);
+  // Sinal ainda aberto: cancela a cobrança para o cliente não pagar uma
+  // reserva cancelada. Se já tiver sido paga, segue o caminho de
+  // reserva.payment_late (deposit.ts).
+  if (before.status === "pending_payment" && before.payment_id)
+    try {
+      await ctx.cancelCharge(before.payment_id);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+    }
   const after = await getBooking(ctx, before.id);
   await publish(ctx, "reserva.cancelled", after, input.actor, { reason });
   if (input.notify ?? true)

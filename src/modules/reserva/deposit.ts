@@ -7,7 +7,6 @@ import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, now as clock } from "../../types";
 import type { Payment } from "../../payments";
 import type { ModuleContext } from "../api";
-import { moduleEnabled } from "../registry";
 import { fill, money, type ReservaConfig } from "./config";
 import { ACTIVE_SQL } from "./availability";
 import {
@@ -33,19 +32,15 @@ export interface DepositStatus {
 export async function depositStatus(
   ctx: ModuleContext,
 ): Promise<DepositStatus> {
-  if (!(await moduleEnabled(ctx.env, ctx.profile, "payments")))
+  const ready = await ctx.paymentsReady();
+  if (ready.reason === "payments_disabled")
     return {
       available: false,
       reason: "payments_disabled",
       message:
         "O módulo Cobrança está desligado: o sinal não pode ser cobrado. Ligue-o em Gestão → Módulos e configure a conta em Gestão → Cobrança.",
     };
-  const account = await one(
-    ctx.env,
-    "SELECT enabled FROM payment_accounts WHERE profile_id=?",
-    ctx.profile,
-  );
-  if (!account?.enabled)
+  if (ready.reason === "payments_not_configured")
     return {
       available: false,
       reason: "payments_not_configured",
