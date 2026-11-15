@@ -11,6 +11,7 @@ import {
   buildInteractive,
   interactiveFallbackText,
 } from "./whatsapp-interactive";
+import { normalizeZernioMetadata } from "./whatsapp-inbound";
 export { zernioPresignType } from "./zernio-media";
 
 const API = "https://zernio.com/api/v1/";
@@ -869,10 +870,13 @@ export async function zernioInbound(
   if (metadata.quotedMessage?.platformMessageId || metadata.quotedMessageId)
     content.reply_external_id =
       metadata.quotedMessage?.platformMessageId || metadata.quotedMessageId;
-  if (metadata.location) {
-    content.type = "location";
-    content.location = metadata.location;
-  }
+  // Location (numeric coordinates), Flow answers, catalog carts and product
+  // questions; see whatsapp-inbound.ts for the content the engine receives.
+  const normalized = normalizeZernioMetadata(
+    metadata,
+    typeof m.text === "string" ? m.text : "",
+  );
+  Object.assign(content, normalized.content);
   if (metadata.contacts) {
     content.type = "contacts";
     content.contacts = metadata.contacts.map((c: any) => ({
@@ -880,7 +884,7 @@ export async function zernioInbound(
       phone: c.phones?.[0]?.phone || "",
     }));
   }
-  let text = typeof m.text === "string" ? m.text : "";
+  let text = normalized.text;
   const attachments: string[] = [];
   for (let index = 0; index < (m.attachments || []).length; index++) {
     const attachment = m.attachments[index];
