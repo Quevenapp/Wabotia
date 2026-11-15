@@ -8,6 +8,7 @@ import {
   registerInboundHandler,
   registerMenuHandler,
   registerReadRoute,
+  registerSchedule,
   registerSettingsValidator,
   registerWebStepHook,
   registerWriteRoute,
@@ -303,6 +304,24 @@ export function onInboundContent(
     if (!(await ctx.enabled())) return false;
     return handler(ctx, c, content, { rowId });
   });
+}
+
+/**
+ * Tarefa periódica do módulo (lembretes, vencimentos). Roda no Coordinator
+ * de cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a
+ * cada 5 minutos (cron do Worker), com o instante da rodada em `now`. Deve ser
+ * idempotente: use chaves de envio derivadas do registro e do momento.
+ * Uma falha é registrada e não impede os outros módulos.
+ */
+export function onSchedule(
+  moduleId: string,
+  handler: (ctx: ModuleContext, tick: { now: number }) => Promise<void>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerSchedule(moduleId, (env, profile, now) =>
+    handler(modulesApi(env, profile, moduleId), { now }),
+  );
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */

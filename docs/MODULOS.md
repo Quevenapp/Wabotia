@@ -103,6 +103,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
+| `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 
 Exemplo mínimo (do módulo Formulários):
@@ -147,6 +148,35 @@ comando é gravada no recibo e devolvida igual ao repetir a mesma
 
 Documente as rotas novas em `src/modules/openapi.ts` (lista
 `moduleOperations` e `describeModuleOperation`) e em `docs/API.md`.
+
+### Tarefas periódicas (`onSchedule`)
+
+```ts
+import { onSchedule } from "../api";
+import { runDue } from "./reminders";   // função pura, testável com qualquer `now`
+
+onSchedule("agenda", async (ctx, { now }) => {
+  await runDue(ctx, now);
+});
+```
+
+- Quem chama: o alarme do `Coordinator` de cada área, serializado com o
+  resto do atendimento da área. O cron do Worker (`*/5 * * * *`) acorda todas
+  as áreas, então a rodada acontece **ao menos a cada 5 minutos**; quando há
+  movimento, **no máximo uma vez por minuto** (`SCHEDULE_INTERVAL_MS`).
+- Só roda em áreas com o módulo ligado. `now` é o instante da rodada (ms
+  Unix); use-o em vez de `Date.now()` para testar e para calcular janelas.
+- O horário não é exato: escolha "o que venceu até `now` e ainda não foi
+  feito" (por exemplo `lembrete_enviado_em IS NULL AND horario-24h <= now`) e
+  marque o registro na mesma rodada. Envie com chave de idempotência derivada
+  do registro (`ctx.sendMessage(c, …, { key: "lembrete:" + id })`): uma rodada
+  repetida não repete a mensagem.
+- Uma exceção é registrada no log (`component: "module-schedule"`) e não
+  impede os outros módulos; a próxima rodada tenta de novo.
+- Nos testes, chame `runModuleSchedules(env, profile, now)`
+  (`src/modules/schedule.ts`) ou a sua função `runDue` diretamente.
+- Mensagens fora da janela de 24 horas em linha oficial só saem como
+  notificação (`notification: true`), pelo modelo configurado.
 
 Chaves de idempotência: use sempre algo derivado do pedido (`rowId` do menu,
 `requestId` do comando, id do registro). Repetir a mesma chave não repete

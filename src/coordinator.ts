@@ -17,6 +17,7 @@ import { HermesLinkHub } from "./hermes-link";
 import { closeDay, overview as queueOverview } from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import "./modules/runtime";
+import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
 import {
   processInbox,
   processRun,
@@ -337,6 +338,14 @@ export class Coordinator extends DurableObject<Env> {
       await expireUploads(this.env, this.profile);
       await closeDay(this.env, this.profile);
       await expireWebSteps(this.env, this.profile);
+      // Tarefas periódicas dos módulos (onSchedule): no máximo uma rodada por
+      // minuto; o cron de 5 minutos garante a frequência mínima.
+      const tick = now();
+      const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
+      if (tick - last >= SCHEDULE_INTERVAL_MS) {
+        await this.ctx.storage.put("modules_tick", tick);
+        await runModuleSchedules(this.env, this.profile, tick);
+      }
       await processInbox(this.env, this.profile);
       await this.broadcastQueue();
       for (const run of await all<Run>(
