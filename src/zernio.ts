@@ -6,6 +6,11 @@ import { mediaKind, multipartStream } from "./media";
 import { validateMedia } from "./whatsapp";
 import { zernioPresignType } from "./zernio-media";
 import { normalizeZernioError } from "./zernio-errors";
+import {
+  type InteractiveSpec,
+  buildInteractive,
+  interactiveFallbackText,
+} from "./whatsapp-interactive";
 export { zernioPresignType } from "./zernio-media";
 
 const API = "https://zernio.com/api/v1/";
@@ -34,6 +39,8 @@ function accountId(conn: any): string {
   );
   return id;
 }
+/** The Zernio Account ID of this line's phone. */
+export const zernioAccountId = accountId;
 
 /** Paths are always relative to the fixed Zernio API origin. */
 export async function zernioRequest(
@@ -591,7 +598,12 @@ export async function zernioSend(
             title: b.reply.title,
             payload: b.reply.id,
           }));
-        } else body.interactive = content.interactive;
+        } else {
+          // The documented `interactive` sends carry their text inside the
+          // object; `payload.text` is the numbered fallback kept as history.
+          body.interactive = content.interactive;
+          delete body.message;
+        }
       }
       const mediaId = payload.media_id || payload.attachments?.[0];
       requireValue(
@@ -690,6 +702,33 @@ export async function zernioSend(
       "A Zernio não informou o ID da mensagem. Confira a entrega antes de repetir.",
     );
   return result.data.messageId;
+}
+
+/**
+ * Sends one typed interactive message (CTA URL, list, media carousel, location
+ * request, product, product list, catalog or Flow) in an open conversation.
+ * Outside the 24-hour window WhatsApp refuses it: use a template first.
+ * Automated replies should go through the outbox (sendInteractive in
+ * line-service.ts), which also covers lines without interactive messages.
+ */
+export async function zernioSendInteractive(
+  env: Env,
+  conn: any,
+  to: string,
+  spec: InteractiveSpec,
+  idempotencyKey?: string,
+) {
+  const interactive = buildInteractive(spec);
+  return zernioSend(
+    env,
+    conn,
+    to,
+    {
+      text: interactiveFallbackText(spec),
+      content: { type: "interactive", interactive },
+    },
+    idempotencyKey,
+  );
 }
 
 const date = (value: any) =>
