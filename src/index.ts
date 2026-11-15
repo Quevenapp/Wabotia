@@ -104,6 +104,7 @@ import {
   formPage,
   getWebStep,
   listWebSteps,
+  publicOrigin,
   rememberOrigin,
   statePage,
   touchWebStep,
@@ -1188,6 +1189,8 @@ app.get("/api/v1/system", async (c) => {
     updates: await updateStatus(c.env),
     cloudflare: await cloudflareSettings(c.env),
     deployments: await cloudflareJobs(c.env),
+    // Endereço dos links enviados aos clientes (src/web-steps.ts).
+    public_origin: await publicOrigin(c.env),
   });
 });
 app.get("/api/v1/system/updates/check", async (c) => {
@@ -1234,6 +1237,7 @@ for (const [path, operation] of [
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
+  ["origin/configure", "origin.save"],
 ])
   app.post("/api/v1/system/" + path, async (c) => {
     admin(c.get("actor"));

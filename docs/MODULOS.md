@@ -466,9 +466,12 @@ const { step, url, created } = await ctx.openWebStep(c, {
 - Fora da janela de 24 h numa linha oficial, só o gatilho `menu` envia o link
   (o cliente acabou de escrever); os demais recebem `400` pedindo que o
   cliente escreva antes.
-- O endereço do link é a origem pública vista nas requisições ao painel e
-  aos apps de pessoas (`instance_settings.public_origin`). Sem ela,
-  `409 origin_unknown`.
+- O endereço do link é o endereço público da instalação
+  (`instance_settings.public_origin`): a primeira origem vista nas
+  requisições de pessoas ao painel e aos apps vira o padrão e fica fixa
+  (abrir o painel por outro nome não muda os links). O administrador troca em
+  `POST /api/v1/system/origin/configure` `{public_origin}` e vê em
+  `GET /api/v1/system`. Sem endereço, `409 origin_unknown`.
 - **Entrega.** Numa linha oficial com `flow: {flow_id, flow_cta?, screen?}`
   (Flow publicado na conta, `src/whatsapp-flows.ts`), o passo sai como Flow
   nativo com `flow_token = "<flow_id>:<id do passo>"`, guardado em

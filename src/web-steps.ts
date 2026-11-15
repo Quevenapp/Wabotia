@@ -297,28 +297,56 @@ export function answersText(fields: WebField[], answers: Answers) {
 // Endereço público da instalação
 
 let knownOrigin = "";
-/** Guarda a origem vista numa requisição autenticada (painel, app, API). */
-export async function rememberOrigin(env: Env, url: string) {
-  let origin: string;
+/** Origem HTTPS (ou localhost) de uma URL, ou null. */
+function originOf(url: string) {
   try {
     const parsed = new URL(url);
     if (
       parsed.protocol !== "https:" &&
       !["localhost", "127.0.0.1"].includes(parsed.hostname)
     )
-      return;
-    origin = parsed.origin;
+      return null;
+    return parsed.origin;
   } catch {
-    return;
+    return null;
   }
-  if (origin === knownOrigin) return;
+}
+/**
+ * Primeira origem vista numa requisição autenticada (painel, app) vira o
+ * endereço público padrão. Depois fica fixo: abrir o painel por outro nome
+ * (workers.dev e o domínio próprio) não muda os links enviados aos clientes
+ * nem o notification_url do Mercado Pago. O administrador troca em
+ * POST /api/v1/system/origin/configure (system.origin.save).
+ */
+export async function rememberOrigin(env: Env, url: string) {
+  const origin = originOf(url);
+  if (!origin || origin === knownOrigin) return;
   knownOrigin = origin;
+  await exec(
+    env,
+    "INSERT INTO instance_settings(key,value,updated) VALUES('public_origin',?,?) ON CONFLICT(key) DO NOTHING",
+    origin,
+    now(),
+  );
+}
+/** system.origin.save: o administrador fixa o endereço público. */
+export async function savePublicOrigin(env: Env, data: any) {
+  const origin =
+    typeof data?.public_origin === "string"
+      ? originOf(data.public_origin.trim())
+      : null;
+  requireValue(
+    origin && origin === data.public_origin.trim().replace(/\/$/, ""),
+    "Informe public_origin: só o endereço HTTPS, sem caminho (ex.: https://atendimento.exemplo.com.br).",
+  );
   await exec(
     env,
     "INSERT INTO instance_settings(key,value,updated) VALUES('public_origin',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated=excluded.updated",
     origin,
     now(),
   );
+  knownOrigin = origin!;
+  return { public_origin: origin };
 }
 export async function publicOrigin(env: Env) {
   return (
