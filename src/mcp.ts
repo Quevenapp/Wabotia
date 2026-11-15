@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { type Actor, type Bindings, type Env, ApiError } from "./types";
 import { all } from "./db";
 import { resolveStates } from "./modules/registry";
-import { authenticate } from "./security";
+import { authenticate, canProfile } from "./security";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
 import { moduleMcpTools } from "./modules/hooks";
@@ -894,9 +894,21 @@ function validate(tool: Tool, raw: any) {
       throw new RpcError(-32602, `Parâmetro obrigatório: ${key}.`);
   return args;
 }
+// Identificador que pode virar segmento de caminho: sem "/", "?", "#", "%",
+// espaço, e nunca "." ou ".." sozinhos.
+const PATH_ID = /^(?!\.{1,2}$)[A-Za-z0-9_.:-]{1,200}$/;
+const MARK = "~~";
 function resolveProfile(tool: Tool, args: Row, actor: Actor) {
   if (!("profile" in tool.input)) return "";
-  if (args.profile) return String(args.profile);
+  if (args.profile) {
+    const id = String(args.profile);
+    if (!PATH_ID.test(id) || !canProfile(actor, id))
+      throw new RpcError(
+        -32602,
+        "profile inválido ou fora das áreas da chave.",
+      );
+    return id;
+  }
   if (actor.profiles.length === 1) return actor.profiles[0];
   throw new RpcError(
     -32602,
@@ -906,9 +918,54 @@ function resolveProfile(tool: Tool, args: Row, actor: Actor) {
   );
 }
 
+/**
+ * Monta a chamada sem deixar argumento mudar a rota (revisão A1): o modelo do
+ * caminho sai da própria ferramenta com marcadores no lugar dos argumentos;
+ * cada argumento que cai no caminho precisa ser um identificador (PATH_ID) e
+ * entra codificado. O caminho final tem de ser exatamente o modelo preenchido.
+ */
+export function checkedCall(tool: Tool, args: Row, profile: string): Call {
+  const mark = (key: string) => `${MARK}${key}${MARK}`;
+  const marked: Row = {};
+  for (const [k, v] of Object.entries(args))
+    marked[k] = typeof v === "string" && v !== "" ? mark(k) : v;
+  const template = tool.call(marked, mark("profile")).path;
+  const used = new Set<string>();
+  const expected = template.replace(
+    new RegExp(`${MARK}(\\w+)${MARK}`, "g"),
+    (_m, key: string) => {
+      const value = key === "profile" ? profile : String(args[key]);
+      if (!PATH_ID.test(value))
+        throw new RpcError(
+          -32602,
+          `Parâmetro ${key} inválido: use o identificador devolvido pela API.`,
+        );
+      used.add(key);
+      return encodeURIComponent(value);
+    },
+  );
+  if (expected.includes(MARK) || /[?#]/.test(expected))
+    throw new RpcError(-32603, "Modelo de caminho inválido na ferramenta.");
+  // Argumentos que caem no caminho, codificados; o resto da chamada (corpo e
+  // consulta) usa os valores originais.
+  const encoded: Row = { ...args };
+  for (const key of used)
+    if (key !== "profile") encoded[key] = encodeURIComponent(args[key]);
+  const path = tool.call(encoded, encodeURIComponent(profile)).path;
+  if (path !== expected)
+    throw new RpcError(
+      -32602,
+      "Caminho da ferramenta não confere com o modelo.",
+    );
+  return { ...tool.call(args, profile), path };
+}
+
 export function mountMcp(app: Hono<Bindings>) {
   async function dispatch(c: any, actor: Actor, call: Call, key?: string) {
     const url = new URL("/api/v1" + call.path, new URL(c.req.url).origin);
+    // Nada de normalização ("..", "."), consulta ou fragmento vindos do caminho.
+    if (url.pathname !== "/api/v1" + call.path || url.search || url.hash)
+      throw new RpcError(-32602, "Caminho da ferramenta inválido.");
     for (const [k, v] of Object.entries(call.query || {}))
       if (v !== undefined && v !== null && v !== "")
         url.searchParams.set(k, String(v));
@@ -953,7 +1010,7 @@ export function mountMcp(app: Hono<Bindings>) {
     const response = await dispatch(
       c,
       actor,
-      tool.call(args, profile),
+      checkedCall(tool, args, profile),
       args.idempotency_key,
     );
     const text = await response.text();
