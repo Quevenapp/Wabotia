@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { conversation, perform } from "../src/service";
 import { json, now, uid } from "../src/types";
@@ -10,6 +10,7 @@ import {
   handleQuoteReply,
   loadOrder,
   moveOrder,
+  quoteReplies,
   saveQuote,
   sendQuote,
 } from "../src/modules/os/store";
@@ -113,6 +114,13 @@ async function quoted(
 }
 
 describe("ordem de serviço pelo WhatsApp", () => {
+  // Simula o gancho de resposta do núcleo (botões e 1/2).
+  beforeEach(() => {
+    quoteReplies.wired = true;
+  });
+  afterEach(() => {
+    quoteReplies.wired = false;
+  });
   it("cliente abre pelo menu: passo web com item, problema e aceite dos termos", async () => {
     const { f } = await setup();
     await say(f, "oi", "5511961000001");
@@ -491,5 +499,81 @@ describe("ordem de serviço pelo WhatsApp", () => {
         f.profile,
       ),
     ).toEqual({ n: 3 });
+  });
+});
+
+describe("orçamento por link (sem o gancho de resposta do núcleo)", () => {
+  it("cliente aprova e recusa pela página do orçamento", async () => {
+    const { f, ctx } = await setup();
+    expect(quoteReplies.wired).toBe(false);
+    const approve = await quoted(f, ctx, "5511962000001");
+    const link = await latest(approve.c.id);
+    expect(link.text).toContain(
+      "Orçamento da ordem de serviço nº 1: total R$ 300,00, válido até",
+    );
+    expect(link.content.interactive).toMatchObject({ type: "cta_url" });
+    const code = codeIn(link.text);
+    const page = await (await SELF.fetch(`https://test/api/w/${code}`)).text();
+    expect(page).toContain("• Tela: R$ 300,00");
+    expect(page).toContain("Aprovar o orçamento");
+    expect(
+      (await submit(code, { f_decision: "Aprovar o orçamento" })).status,
+    ).toBe(200);
+    expect(await loadOrder(ctx, approve.order.id)).toMatchObject({
+      status: "approved",
+      decided_by: "customer:5511962000001",
+      decided_via: "web_step",
+    });
+    expect((await latest(approve.c.id)).text).toContain(
+      "Orçamento da ordem nº 1 aprovado",
+    );
+
+    // QR recebe o link no texto; recusa.
+    const decline = await quoted(f, ctx, "5511962000002", f.qr);
+    const qrLink = await latest(decline.c.id);
+    expect(qrLink.content).toBeUndefined();
+    expect(
+      (
+        await submit(codeIn(qrLink.text), {
+          f_decision: "Recusar o orçamento",
+        })
+      ).status,
+    ).toBe(200);
+    expect((await loadOrder(ctx, decline.order.id)).status).toBe("declined");
+    expect((await events(f, "os.declined"))[0]).toMatchObject({
+      via: "web_step",
+    });
+  });
+
+  it("link de orçamento vencido ou substituído não aprova", async () => {
+    const { f, ctx } = await setup();
+    const { c, order } = await quoted(f, ctx, "5511962000003");
+    const first = codeIn((await latest(c.id)).text);
+    // Reenvio: o link da versão 1 deixa de valer.
+    const resent = await sendQuote(
+      ctx,
+      await loadOrder(ctx, order.id),
+      f.member.id,
+    );
+    const second = codeIn((await latest(c.id)).text);
+    expect(second).not.toBe(first);
+    expect(
+      (await submit(first, { f_decision: "Aprovar o orçamento" })).status,
+    ).toBe(200);
+    expect((await latest(c.id)).text).toContain("foi atualizado");
+    expect((await loadOrder(ctx, order.id)).status).toBe("quoted");
+    // Vencido: o link responde, a ordem não muda e o cliente é avisado.
+    await exec(
+      env,
+      "UPDATE os_orders SET quote_valid_until=? WHERE id=?",
+      now() - 1,
+      resent.id,
+    );
+    expect(
+      (await submit(second, { f_decision: "Aprovar o orçamento" })).status,
+    ).toBe(200);
+    expect((await latest(c.id)).text).toContain("venceu em");
+    expect((await loadOrder(ctx, order.id)).status).toBe("quoted");
+    expect(await events(f, "os.approved")).toHaveLength(0);
   });
 });

@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { json, now, uid } from "../src/types";
 import { modulesApi } from "../src/modules/api";
-import { createOrder } from "../src/modules/os/store";
+import { createOrder, quoteReplies } from "../src/modules/os/store";
 import {
   endOfDayAfter,
   money,
@@ -250,6 +250,13 @@ describe("ordem de serviço: abertura e numeração", () => {
 });
 
 describe("ordem de serviço: estados e orçamento", () => {
+  // Simula o gancho de resposta do núcleo (botões Aprovar/Recusar).
+  beforeEach(() => {
+    quoteReplies.wired = true;
+  });
+  afterEach(() => {
+    quoteReplies.wired = false;
+  });
   it("aceita transições válidas, recusa inválidas e guarda o histórico", async () => {
     const { f, c, token } = await setup();
     const action = await api(
