@@ -20,6 +20,7 @@ import {
   type MensalidadeSettings,
 } from "./model";
 import { loadInstallment, paymentsReady } from "./installments";
+import { announcePaid } from "./listeners";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -155,11 +156,13 @@ export async function ensureCharge(
   cfg: MensalidadeSettings,
   kind: NoticeKind | "manual",
   at: number,
+  method: "pix" | "link" = cfg.method,
 ): Promise<ChargeResult> {
   if (
     inst.payment_id &&
     inst.payment_status === "created" &&
-    (inst.payment_expires_at || 0) > at + 3600_000
+    (inst.payment_expires_at || 0) > at + 3600_000 &&
+    (!inst.payment_method || inst.payment_method === method)
   )
     return { payment: null, created: false, inst };
   const seq = inst.charge_seq + 1;
@@ -169,7 +172,7 @@ export async function ensureCharge(
   let payment: Payment;
   try {
     payment = await ctx.charge(c, {
-      method: cfg.method,
+      method,
       amount_cents: inst.amount_cents,
       description: chargeDescription(inst, kind),
       ref: inst.id,
@@ -196,8 +199,9 @@ export async function ensureCharge(
   }
   await exec(
     ctx.env,
-    "UPDATE mensalidade_installments SET payment_id=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,charge_seq=?,charged_at=?,notice_error=NULL,updated=? WHERE id=?",
+    "UPDATE mensalidade_installments SET payment_id=?,payment_method=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,charge_seq=?,charged_at=?,notice_error=NULL,updated=? WHERE id=?",
     payment.id,
+    payment.method,
     payment.status,
     payment.expires_at,
     payment.pix_code,
@@ -432,6 +436,7 @@ export async function resendCharge(
   c: Conversation,
   key: string,
   at = now(),
+  method?: "pix" | "link",
 ) {
   if (!["open", "overdue"].includes(inst.status))
     throw new ApiError(
@@ -447,7 +452,15 @@ export async function resendCharge(
     );
   const cfg = mensalidadeSettings(await ctx.settings());
   const kind: NoticeKind = inst.status === "overdue" ? "overdue" : "before";
-  const result = await ensureCharge(ctx, inst, c, cfg, kind, at);
+  const result = await ensureCharge(
+    ctx,
+    inst,
+    c,
+    cfg,
+    kind,
+    at,
+    method || cfg.method,
+  );
   if (result.error)
     throw new ApiError(
       SETUP_ERRORS.has(result.error) ? 409 : 502,
@@ -581,6 +594,7 @@ export async function paymentUpdated(
       { key: `${inst.id}:paid:${payment.id}` },
     );
     await sendReceipt(ctx, inst.id);
+    await announcePaid(ctx.env, ctx.profile, inst.id);
     return;
   }
   if (payment.status === "refunded") {

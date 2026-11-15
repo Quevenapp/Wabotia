@@ -1366,6 +1366,47 @@ function mensalidadeOperations(): [string, string, string, string?, string?][] {
       "Mensalidade: gerar parcelas agora",
       "conversations:write",
     ],
+    ["get", `${base}/payers`, "Mensalidade: pagadores", "conversations:read"],
+    [
+      "post",
+      `${base}/payers`,
+      "Mensalidade: cadastrar pagador",
+      "conversations:write",
+      "MensalidadePayerInput",
+    ],
+    [
+      "get",
+      `${base}/payers/{id}`,
+      "Mensalidade: pagador com assinaturas e situação",
+      "conversations:read",
+    ],
+    [
+      "patch",
+      `${base}/payers/{id}`,
+      "Mensalidade: alterar pagador",
+      "conversations:write",
+      "MensalidadePayerInput",
+    ],
+    [
+      "post",
+      `${base}/payers/{id}/phones`,
+      "Mensalidade: autorizar telefone do pagador",
+      "conversations:write",
+      "MensalidadePayerPhone",
+    ],
+    [
+      "post",
+      `${base}/payers/{id}/phones/remove`,
+      "Mensalidade: retirar telefone do pagador",
+      "conversations:write",
+      "MensalidadePayerPhone",
+    ],
+    [
+      "get",
+      `${base}/situation`,
+      "Mensalidade: situação do pagador por telefone ou documento",
+      "conversations:read",
+    ],
   ];
 }
 
@@ -1417,6 +1458,12 @@ function mensalidadeSchemas() {
         period: { ...period, default: "monthly" },
         due_day: { ...dueDay, default: 10 },
         active: { type: "boolean" },
+        sellable: {
+          type: "boolean",
+          description:
+            "Oferecido para contratação pelo WhatsApp (módulo Suporte).",
+        },
+        description: { type: "string", maxLength: 200 },
       },
     },
     MensalidadeSubscription: {
@@ -1602,6 +1649,108 @@ function mensalidadeSchemas() {
       type: "object",
       properties: { note: { type: "string", maxLength: 300 } },
     },
+    MensalidadePayer: {
+      type: "object",
+      description:
+        "Quem paga (CPF ou CNPJ, inclusive o alfanumérico) e os telefones autorizados a falar por ele.",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        document: {
+          type: ["string", "null"],
+          description:
+            "Só dígitos (CPF) ou 12 alfanuméricos + 2 dígitos (CNPJ).",
+        },
+        document_type: { enum: ["cpf", "cnpj", null] },
+        document_display: {
+          type: ["string", "null"],
+          example: "11.222.333/0001-81",
+        },
+        email: { type: "string" },
+        notes: { type: "string" },
+        phones: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              phone: { type: "string", example: "5511981000001" },
+              label: { type: "string" },
+              created: { type: "integer" },
+            },
+          },
+        },
+        subscriptions: {
+          description:
+            "Na lista, quantas não encerradas; no detalhe, as assinaturas.",
+        },
+        situation: {
+          type: "object",
+          description: "Só no detalhe.",
+          properties: {
+            status: { enum: ["em_dia", "em_atraso", "sem_assinatura"] },
+            open_installment: {
+              oneOf: [
+                { $ref: "#/components/schemas/MensalidadeInstallment" },
+                { type: "null" },
+              ],
+            },
+            grace_days: { type: "integer" },
+          },
+        },
+      },
+    },
+    MensalidadePayerInput: {
+      type: "object",
+      required: ["name"],
+      description: "No PATCH, todos opcionais; telefones por /phones.",
+      properties: {
+        name: { type: "string", maxLength: 120 },
+        document: {
+          type: ["string", "null"],
+          description: "CPF ou CNPJ, com ou sem pontuação.",
+        },
+        email: { type: "string", maxLength: 200 },
+        notes: { type: "string", maxLength: 1000 },
+        phones: {
+          type: "array",
+          maxItems: 50,
+          description: "Só na criação: telefones ou {phone, label}.",
+        },
+      },
+    },
+    MensalidadePayerPhone: {
+      type: "object",
+      required: ["phone"],
+      properties: {
+        phone: { type: "string", maxLength: 40 },
+        label: { type: "string", maxLength: 60 },
+      },
+    },
+    MensalidadeSituation: {
+      type: "object",
+      properties: {
+        status: { enum: ["em_dia", "em_atraso", "sem_assinatura"] },
+        payer: { $ref: "#/components/schemas/MensalidadePayer" },
+        matched_by: { enum: ["phone", "document", "id"] },
+        phone_linked: {
+          type: ["boolean", "null"],
+          description: "O telefone consultado é autorizado pelo pagador.",
+        },
+        subscriptions: { type: "array", items: { type: "object" } },
+        open_installment: {
+          oneOf: [
+            { $ref: "#/components/schemas/MensalidadeInstallment" },
+            { type: "null" },
+          ],
+        },
+        grace_days: { type: "integer" },
+        payers: {
+          type: "integer",
+          description:
+            "Pela busca por telefone: quantos pagadores autorizaram o número.",
+        },
+      },
+    },
     MensalidadeSummary: {
       type: "object",
       properties: {
@@ -1770,6 +1919,27 @@ function describeMensalidadeOperation(
   if (path.endsWith("/generate")) {
     entry.description +=
       " Faz agora a geração do gancho periódico (sem avisos): {created, overdue}.";
+    return;
+  }
+  if (path.endsWith("/situation")) {
+    query("phone", "document");
+    entry.description +=
+      " Em dia, em atraso (com open_installment: a parcela vencida além da carência ou a primeira parcela da contratação ainda sem pagar) ou sem assinatura ativa. Por telefone vale o pagador mais favorável entre os que o autorizaram. Documento inválido: 400; sem pagador: 404 payer_not_found.";
+    success.content["application/json"].schema = ref("MensalidadeSituation");
+    return;
+  }
+  if (path.endsWith("/payers") && method === "get") {
+    query("q", "document", "phone", "limit", "cursor");
+    success.content["application/json"].schema = list("MensalidadePayer", {
+      next_cursor: { type: ["string", "null"] },
+    });
+    return;
+  }
+  if (path.includes("/payers")) {
+    if (path.endsWith("/payers") || path.endsWith("/payers/{id}"))
+      entry.description +=
+        " CPF ou CNPJ com dígitos conferidos (aceita o CNPJ alfanumérico); repetido na área: 409 payer_exists.";
+    success.content["application/json"].schema = ref("MensalidadePayer");
     return;
   }
   success.content["application/json"].schema = ref("MensalidadeInstallment");

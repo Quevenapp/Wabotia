@@ -17,6 +17,21 @@ import { validateMensalidadeSettings } from "./model";
 import { runDue } from "./due";
 import { handleTurn, menuCopy, menuStatement } from "./chat";
 import {
+  addPayerPhone,
+  createPayer,
+  listPayers,
+  loadPayer,
+  payerPhones,
+  payerView,
+  removePayerPhone,
+  updatePayer,
+} from "./payers";
+import {
+  situationByDocument,
+  situationByPayer,
+  situationByPhone,
+} from "./public";
+import {
   conversationFor,
   paymentUpdated,
   resendCharge,
@@ -133,6 +148,133 @@ onCommand(
     return installmentView(
       await resendCharge(ctx, inst, c, `reenvio:${actor.id}:${requestId}`),
     );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Pagadores: /api/v1/profiles/:profile/mensalidade/payers…
+
+onRead("mensalidade", "mensalidade/payers", async (ctx, actor, { query }) => {
+  ctx.access(actor, "conversations:read");
+  return listPayers(ctx, query);
+});
+
+onRead(
+  "mensalidade",
+  "mensalidade/payers/:id",
+  async (ctx, actor, { params }) => {
+    ctx.access(actor, "conversations:read");
+    const payer = await loadPayer(ctx, params.id);
+    const subs = await listSubscriptions(ctx, {
+      payer_id: payer.id,
+      limit: "200",
+    });
+    const situation = await situationByPayer(ctx.env, ctx.profile, payer.id);
+    return payerView(payer, await payerPhones(ctx, payer.id), {
+      subscriptions: subs.data,
+      situation: {
+        status: situation.status,
+        open_installment: situation.open_installment,
+        grace_days: situation.grace_days,
+      },
+    });
+  },
+);
+
+// GET mensalidade/situation?phone=…|document=…: em_dia, em_atraso ou
+// sem_assinatura (404 sem pagador).
+onRead(
+  "mensalidade",
+  "mensalidade/situation",
+  async (ctx, actor, { query }) => {
+    ctx.access(actor, "conversations:read");
+    const found = query.document
+      ? await situationByDocument(ctx.env, ctx.profile, query.document, {
+          phone: query.phone || null,
+        })
+      : query.phone
+        ? await situationByPhone(ctx.env, ctx.profile, query.phone)
+        : (() => {
+            throw moduleError(
+              400,
+              "invalid_request",
+              "Informe phone ou document.",
+            );
+          })();
+    if (!found)
+      throw moduleError(
+        404,
+        "payer_not_found",
+        "Nenhum pagador com esse dado.",
+      );
+    return found;
+  },
+);
+
+onRoute("mensalidade", {
+  method: "POST",
+  path: "mensalidade/payers",
+  op: "mensalidade.payer.create",
+});
+onCommand(
+  "mensalidade",
+  "mensalidade.payer.create",
+  async (ctx, actor, data) => {
+    ctx.access(actor, "conversations:write");
+    const payer = await createPayer(ctx, data, actor.id);
+    return payerView(payer, await payerPhones(ctx, payer.id));
+  },
+);
+
+onRoute("mensalidade", {
+  method: "PATCH",
+  path: "mensalidade/payers/:id",
+  op: "mensalidade.payer.update",
+});
+onCommand(
+  "mensalidade",
+  "mensalidade.payer.update",
+  async (ctx, actor, data) => {
+    ctx.access(actor, "conversations:write");
+    const payer = await updatePayer(
+      ctx,
+      await loadPayer(ctx, data.id),
+      data,
+      actor.id,
+    );
+    return payerView(payer, await payerPhones(ctx, payer.id));
+  },
+);
+
+onRoute("mensalidade", {
+  method: "POST",
+  path: "mensalidade/payers/:id/phones",
+  op: "mensalidade.payer.phone_add",
+});
+onCommand(
+  "mensalidade",
+  "mensalidade.payer.phone_add",
+  async (ctx, actor, data) => {
+    ctx.access(actor, "conversations:write");
+    const payer = await loadPayer(ctx, data.id);
+    await addPayerPhone(ctx, payer, data.phone, data.label, actor.id);
+    return payerView(payer, await payerPhones(ctx, payer.id));
+  },
+);
+
+onRoute("mensalidade", {
+  method: "POST",
+  path: "mensalidade/payers/:id/phones/remove",
+  op: "mensalidade.payer.phone_remove",
+});
+onCommand(
+  "mensalidade",
+  "mensalidade.payer.phone_remove",
+  async (ctx, actor, data) => {
+    ctx.access(actor, "conversations:write");
+    const payer = await loadPayer(ctx, data.id);
+    await removePayerPhone(ctx, payer, data.phone, actor.id);
+    return payerView(payer, await payerPhones(ctx, payer.id));
   },
 );
 

@@ -52,6 +52,7 @@ import {
   subscriptionLabels,
   subscriptionTones,
 } from "./shared";
+import { PayersTab } from "./PayersTab";
 import "./mensalidade.css";
 
 function useWrite() {
@@ -250,6 +251,8 @@ function SubscriptionForm({
     start_date: initial?.start_date || "",
     end_date: initial?.end_date || "",
     notes: initial?.notes || "",
+    document: "",
+    payer_name: "",
   }));
   const set = (key: string) => (value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -283,6 +286,8 @@ function SubscriptionForm({
         body.discount_cents = discount;
         if (draft.due_day) body.due_day = Number(draft.due_day);
         if (!initial && draft.start_date) body.start_date = draft.start_date;
+        if (!initial && draft.document) body.document = draft.document;
+        if (!initial && draft.payer_name) body.payer_name = draft.payer_name;
         const saved = initial
           ? await write(`/subscriptions/${initial.id}`, "PATCH", body)
           : await write("/subscriptions", "POST", body);
@@ -307,6 +312,24 @@ function SubscriptionForm({
           help="Com DDD. É por ele que o cliente recebe a cobrança e consulta no menu."
         />
       </div>
+      {!initial && (
+        <div className="form-field-grid">
+          <Field
+            label="CPF ou CNPJ do pagador (opcional)"
+            value={draft.document}
+            onChange={set("document")}
+            maxLength={20}
+            help="Com documento, assinaturas do mesmo pagador ficam juntas e o telefone passa a ser autorizado."
+          />
+          <Field
+            label="Nome do pagador (se for outro)"
+            value={draft.payer_name}
+            onChange={set("payer_name")}
+            maxLength={120}
+            placeholder="Ex.: empresa ou responsável"
+          />
+        </div>
+      )}
       <Field
         label="Plano"
         value={draft.plan_id}
@@ -555,6 +578,17 @@ function SubscriptionDetail({
         }
       >
         <dl className="mensalidade-facts">
+          {sub.payer && (
+            <>
+              <dt>Pagador</dt>
+              <dd>
+                {sub.payer.name || "—"}
+                {sub.payer.document_display
+                  ? ` · ${sub.payer.document_display}`
+                  : " · sem CPF/CNPJ"}
+              </dd>
+            </>
+          )}
           <dt>Telefone</dt>
           <dd>
             {phoneLabel(sub.customer.phone)}
@@ -990,7 +1024,7 @@ function DelinquentsTab({ onOpen }: { onOpen: (id: string) => void }) {
 export function MensalidadesPage() {
   const app = useApp();
   const [tab, setTab] = useState<
-    "installments" | "subscriptions" | "delinquents"
+    "installments" | "subscriptions" | "payers" | "delinquents"
   >("installments");
   const [month, setMonth] = useState(currentMonth());
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1095,6 +1129,7 @@ export function MensalidadesPage() {
         options={[
           { value: "installments", label: "Parcelas do mês" },
           { value: "subscriptions", label: "Assinaturas" },
+          { value: "payers", label: "Pagadores" },
           {
             value: "delinquents",
             label: "Inadimplentes",
@@ -1113,6 +1148,7 @@ export function MensalidadesPage() {
         />
       )}
       {tab === "delinquents" && <DelinquentsTab onOpen={setOpenId} />}
+      {tab === "payers" && <PayersTab onOpenSubscription={setOpenId} />}
       {openId && (
         <SubscriptionDetail
           id={openId}

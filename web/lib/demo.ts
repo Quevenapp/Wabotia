@@ -576,6 +576,32 @@ const msInstallments: Row[] = [
     msInstallment(sub, msPrevMonth, index === 4 ? "overdue" : "paid", index === 2 ? "manual" : "pix"),
   ),
 ];
+// Pagadores: um por telefone (a família Ferreira paga duas assinaturas).
+function msPayers(): Row[] {
+  const byPhone = new Map<string, Row>();
+  msSubs.forEach((sub, index) => {
+    const id = `payer-${sub.customer.phone}`;
+    const found = byPhone.get(id);
+    if (found) {
+      found.subscriptions++;
+      return;
+    }
+    byPhone.set(id, {
+      id,
+      name: index < 2 ? "Rita Ferreira" : sub.customer.name,
+      document: index < 2 ? "52998224725" : null,
+      document_type: index < 2 ? "cpf" : null,
+      document_display: index < 2 ? "529.982.247-25" : null,
+      email: "",
+      notes: "",
+      phones: [{ phone: sub.customer.phone, label: index < 2 ? "Mãe" : "", created: t(200 * 24 * H) }],
+      subscriptions: 1,
+      created: t(200 * 24 * H),
+      updated: t(5 * 24 * H),
+    });
+  });
+  return [...byPhone.values()];
+}
 function msSummary(month: string) {
   const rows = msInstallments.filter((row) => row.period_key === month);
   const sum = (status: string) =>
@@ -822,6 +848,28 @@ function read(path: string, query: URLSearchParams): any {
       data: rows.filter((row) => !status.length || status.includes(row.status)),
       next_cursor: null,
       counts,
+    };
+  }
+  if (rest === "mensalidade/payers") {
+    const q = (query.get("q") || "").toLowerCase();
+    return {
+      data: msPayers().filter(
+        (payer) => !q || `${payer.name} ${payer.document || ""}`.toLowerCase().includes(q),
+      ),
+      next_cursor: null,
+    };
+  }
+  const msPayerMatch = rest.match(/^mensalidade\/payers\/([^/]+)$/);
+  if (msPayerMatch) {
+    const payer = msPayers().find((item) => item.id === msPayerMatch[1]) || msPayers()[0];
+    const subs = msSubs.filter((sub) => `payer-${sub.customer.phone}` === payer.id);
+    const late = msInstallments.find(
+      (row) => row.status === "overdue" && subs.some((sub) => sub.id === row.subscription_id),
+    );
+    return {
+      ...payer,
+      subscriptions: subs,
+      situation: { status: late ? "em_atraso" : "em_dia", open_installment: late || null, grace_days: 3 },
     };
   }
   if (rest === "mensalidade/delinquents") {

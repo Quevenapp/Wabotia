@@ -69,6 +69,44 @@ Estados da parcela: **aberta**, **paga**, **vencida**, **cancelada** e
 - **Segunda via**: reenvia o código da parcela em aberto (ou pergunta qual,
   se houver mais de uma).
 
+## Pagadores
+
+Cada assinatura pertence a um **pagador**: quem paga, com CPF ou CNPJ (os
+dígitos são conferidos; o CNPJ com letras, válido a partir de julho de 2026,
+também), nome e **vários telefones autorizados**. Uma empresa paga e vários
+funcionários pedem suporte; uma mãe paga as aulas de dois filhos.
+
+- Informe o CPF ou CNPJ ao criar a assinatura (ou na importação, coluna
+  `document`): assinaturas do mesmo documento ficam no mesmo pagador e o
+  telefone da assinatura passa a ser autorizado.
+- Sem documento, cada assinatura cria um pagador com o próprio telefone. As
+  assinaturas anteriores a esta versão viraram pagadores assim (migração 0051).
+- **Mensalidades → Pagadores**: busca por nome, documento ou telefone,
+  telefones autorizados (com quem é cada um) e a situação.
+- **Situação**: em dia, em atraso ou sem assinatura. A **carência** (Planos e
+  regras) é quantos dias depois do vencimento o pagador ainda conta como em
+  dia. A primeira parcela de um plano contratado pelo WhatsApp só conta
+  depois de paga.
+
+## Para outros módulos (`src/modules/mensalidade/public.ts`)
+
+Enquanto o núcleo não tem `requires` entre módulos, quem depende da
+Mensalidade (o Suporte pago) importa direto deste arquivo e confere antes
+`mensalidadeAvailable(env, profile)`. As funções agem como o módulo
+`mensalidade`: cobranças, eventos e o gancho de pagamento continuam com ele.
+
+| Função | Para quê |
+|---|---|
+| `situationByPhone(env, p, phone)` | Situação entre os pagadores que autorizaram o telefone (vale a mais favorável); `null` sem pagador |
+| `situationByDocument(env, p, doc, {phone})` | Situação pelo CPF/CNPJ (400 inválido, `null` sem pagador); `phone_linked` diz se o telefone é autorizado |
+| `validDocument(valor)` | Confere o documento sem consultar nada |
+| `sellablePlans(env, p)` | Planos ativos marcados "Vender pelo WhatsApp" |
+| `contractPlan(env, p, {conversation, plan_id, document?, payer_id?, name?, method?, sourceKey, actor})` | Acha ou cria o pagador (autorizando o telefone da conversa), cria a assinatura e cobra a primeira parcela na hora; mesma `sourceKey` não duplica |
+| `chargeInstallment(env, p, {conversation, installment_id, method?, key})` | Cobra de novo a parcela em aberto (reaproveita o código que vale ou cria outra cobrança) |
+| `linkPhone(env, p, payer_id, phone, actor)` | Autoriza um telefone ("vincular com um toque") |
+| `findPayers(env, p, query)` | Busca de pagadores para o painel |
+| `onInstallmentPaid(módulo, ouvinte)` | Avisa quando uma parcela é paga pelo provedor ou por baixa manual |
+
 ## Fora da janela de 24 horas (linha oficial)
 
 Quase sempre o cliente não escreveu nas últimas 24 horas, então os avisos,

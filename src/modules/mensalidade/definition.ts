@@ -47,12 +47,14 @@ export const mensalidadeModule: ModuleDefinition = {
     "mensalidade.refunded",
     "mensalidade.notice_failed",
     "mensalidade.setup_needed",
+    "mensalidade.payer_created",
+    "mensalidade.payer_changed",
   ],
   settings: [
     {
       key: "mensalidade",
       description:
-        "Regras de cobrança: forma (Pix ou link), dias de antecedência, aviso no dia, avisos de atraso e instruções sem cobrança configurada.",
+        "Regras de cobrança: forma (Pix ou link), dias de antecedência, aviso no dia, avisos de atraso, carência e instruções sem cobrança configurada.",
     },
   ],
   routes: ["mensalidade"],

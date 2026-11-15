@@ -28,6 +28,7 @@ const defaults: Row = {
   overdue_every_days: 3,
   overdue_max: 3,
   manual_instructions: "",
+  grace_days: 0,
 };
 
 const menuTypes = [
@@ -52,6 +53,8 @@ function PlanForm({
     period: initial?.period || "monthly",
     due_day: String(initial?.due_day || 10),
     active: initial ? initial.active : true,
+    sellable: initial ? initial.sellable : false,
+    description: initial?.description || "",
   }));
   const set = (key: string) => (value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -74,6 +77,8 @@ function PlanForm({
           period: draft.period,
           due_day: Number(draft.due_day),
           active: !!draft.active,
+          sellable: !!draft.sellable,
+          description: draft.description,
         };
         if (initial)
           await write(
@@ -137,6 +142,29 @@ function PlanForm({
           />{" "}
           Plano ativo (desativado não aceita novas assinaturas)
         </label>
+      )}
+      <label className="mensalidade-check">
+        <input
+          type="checkbox"
+          checked={!!draft.sellable}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              sellable: event.target.checked,
+            }))
+          }
+        />{" "}
+        Vender pelo WhatsApp (o cliente contrata e paga a primeira parcela na
+        conversa, pelo módulo Suporte)
+      </label>
+      {draft.sellable && (
+        <Field
+          label="Descrição para o cliente"
+          value={draft.description}
+          onChange={set("description")}
+          maxLength={200}
+          placeholder="Ex.: atendimento humano ilimitado em horário comercial"
+        />
       )}
     </FormDialog>
   );
@@ -316,6 +344,7 @@ export function MensalidadeSettingsPage() {
                   overdue_every_days: Number(draft.overdue_every_days),
                   overdue_max: Number(draft.overdue_max),
                   manual_instructions: draft.manual_instructions || "",
+                  grace_days: Number(draft.grace_days) || 0,
                 },
               });
               await app.refresh();
@@ -367,6 +396,16 @@ export function MensalidadeSettingsPage() {
               value={draft.overdue_every_days}
               onChange={set("overdue_every_days", true)}
               required
+            />
+            <Field
+              label="Carência (dias após o vencimento)"
+              type="number"
+              min={0}
+              max={60}
+              value={draft.grace_days}
+              onChange={set("grace_days", true)}
+              required
+              help="Nesse prazo o pagador ainda conta como em dia para o Suporte e outros módulos."
             />
           </div>
           <label className="mensalidade-check">

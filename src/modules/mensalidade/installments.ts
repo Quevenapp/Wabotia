@@ -17,6 +17,7 @@ import {
   type Period,
 } from "./model";
 import { installmentView, notFound } from "./store";
+import { announcePaid } from "./listeners";
 
 /** Parcelas nascem até este número de dias antes do vencimento. */
 export const GENERATE_AHEAD_DAYS = 31;
@@ -38,7 +39,9 @@ export async function generateInstallments(
   const horizon = addDays(day, GENERATE_AHEAD_DAYS);
   const subs = await all(
     ctx.env,
-    `SELECT * FROM mensalidade_subscriptions WHERE profile_id=? AND status='active' AND (checked_until IS NULL OR checked_until<?)${subscriptionId ? " AND id=?" : ""} ORDER BY id LIMIT ?`,
+    // Contratada pelo WhatsApp e com a primeira parcela ainda sem pagar: não
+    // gera as seguintes (nem avisos) até o pagamento.
+    `SELECT * FROM mensalidade_subscriptions s WHERE profile_id=? AND status='active' AND (checked_until IS NULL OR checked_until<?)${subscriptionId ? " AND id=?" : ""} AND NOT EXISTS(SELECT 1 FROM mensalidade_installments u WHERE u.subscription_id=s.id AND u.upfront=1 AND u.status IN ('open','overdue')) ORDER BY id LIMIT ?`,
     ctx.profile,
     horizon,
     ...(subscriptionId ? [subscriptionId] : []),
@@ -391,6 +394,7 @@ export async function payManually(
     },
     { key: `${inst.id}:manual:${paidAt}` },
   );
+  await announcePaid(ctx.env, ctx.profile, inst.id);
   return fresh;
 }
 

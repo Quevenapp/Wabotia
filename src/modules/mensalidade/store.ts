@@ -27,6 +27,8 @@ import {
   type Period,
   type SubscriptionStatus,
 } from "./model";
+import { ensurePayer, loadPayer } from "./payers";
+import { formatDocument } from "../../establishment";
 
 export const notFound = (what = "Assinatura") =>
   new ApiError(404, "not_found", `${what} não encontrada.`);
@@ -54,6 +56,8 @@ export function planView(row: any) {
     period_label: PERIOD_LABELS[row.period as Period] || row.period,
     due_day: row.due_day,
     active: !!row.active,
+    sellable: !!row.sellable,
+    description: row.description ?? "",
     ...(row.subscriptions !== undefined
       ? { subscriptions: row.subscriptions }
       : {}),
@@ -116,6 +120,15 @@ function planFields(data: any, partial: boolean) {
     );
     out.active = data.active ? 1 : 0;
   }
+  if (Object.hasOwn(data, "sellable")) {
+    requireValue(
+      typeof data.sellable === "boolean",
+      "Informe sellable como verdadeiro ou falso.",
+    );
+    out.sellable = data.sellable ? 1 : 0;
+  }
+  if (Object.hasOwn(data, "description"))
+    out.description = text(data.description, 200, "a descrição do plano");
   return out;
 }
 
@@ -125,7 +138,7 @@ export async function createPlan(ctx: ModuleContext, data: any, actor: string) {
     at = now();
   await exec(
     ctx.env,
-    "INSERT INTO mensalidade_plans(id,profile_id,name,amount_cents,period,due_day,active,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO mensalidade_plans(id,profile_id,name,amount_cents,period,due_day,active,sellable,description,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
     id,
     ctx.profile,
     fields.name,
@@ -133,6 +146,8 @@ export async function createPlan(ctx: ModuleContext, data: any, actor: string) {
     fields.period,
     fields.due_day,
     fields.active ?? 1,
+    fields.sellable ?? 0,
+    fields.description ?? "",
     actor,
     at,
     at,
@@ -183,6 +198,8 @@ export async function deletePlan(ctx: ModuleContext, id: unknown) {
 // ---------------------------------------------------------------------------
 // Assinaturas
 
+const PAYER_COLUMNS = "y.name AS payer_name,y.document AS payer_document";
+
 export function subscriptionView(row: any, extra: Record<string, any> = {}) {
   const status = row.status as SubscriptionStatus;
   return {
@@ -195,6 +212,15 @@ export function subscriptionView(row: any, extra: Record<string, any> = {}) {
       contact_id: row.contact_id,
       conversation_id: row.conversation_id,
     },
+    payer: row.payer_id
+      ? {
+          id: row.payer_id,
+          name: row.payer_name ?? null,
+          document_display: row.payer_document
+            ? formatDocument(row.payer_document)
+            : null,
+        }
+      : null,
     period: row.period as Period,
     period_label: PERIOD_LABELS[row.period as Period] || row.period,
     amount_cents: row.amount_cents,
@@ -227,7 +253,7 @@ export async function loadSubscription(ctx: ModuleContext, id: unknown) {
   if (typeof id !== "string") throw notFound();
   const row = await one(
     ctx.env,
-    "SELECT s.*,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.id=? AND s.profile_id=?",
+    `SELECT s.*,p.name AS plan_name,${PAYER_COLUMNS} FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id LEFT JOIN mensalidade_payers y ON y.id=s.payer_id WHERE s.id=? AND s.profile_id=?`,
     id,
     ctx.profile,
   );
@@ -243,6 +269,8 @@ export function installmentView(row: any) {
     period_key: row.period_key,
     period_label: periodLabel(row.period_key),
     due_date: row.due_date,
+    /** Primeira parcela cobrada na contratação pelo WhatsApp. */
+    upfront: !!row.upfront,
     amount_cents: row.amount_cents,
     status,
     status_label: INSTALLMENT_LABELS[status] || status,
@@ -307,6 +335,10 @@ export async function listSubscriptions(
     where.push("s.plan_id=?");
     args.push(query.plan_id);
   }
+  if (query.payer_id) {
+    where.push("s.payer_id=?");
+    args.push(query.payer_id);
+  }
   if (query.phone) {
     where.push("s.phone=?");
     args.push(phoneDigits(query.phone));
@@ -321,12 +353,12 @@ export async function listSubscriptions(
       "%" + q.toLowerCase().replace(/[%_\\]/g, (m) => "\\" + m) + "%";
     const digits = /^[\d\s()+-]+$/.test(q) ? q.replace(/\D/g, "") : "";
     where.push(
-      "(lower(s.customer_name) LIKE ? ESCAPE '\\' OR lower(s.notes) LIKE ? ESCAPE '\\'" +
-        (digits.length >= 4 ? " OR s.phone LIKE ?" : "") +
+      "(lower(s.customer_name) LIKE ? ESCAPE '\\' OR lower(s.notes) LIKE ? ESCAPE '\\' OR lower(y.name) LIKE ? ESCAPE '\\'" +
+        (digits.length >= 4 ? " OR s.phone LIKE ? OR y.document LIKE ?" : "") +
         ")",
     );
-    args.push(like, like);
-    if (digits.length >= 4) args.push("%" + digits + "%");
+    args.push(like, like, like);
+    if (digits.length >= 4) args.push("%" + digits + "%", "%" + digits + "%");
   }
   if (query.cursor) {
     where.push("s.id>?");
@@ -335,7 +367,7 @@ export async function listSubscriptions(
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
   const rows = await all(
     ctx.env,
-    `SELECT s.*,p.name AS plan_name,${subscriptionCounts} FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE ${where.join(" AND ")} ORDER BY s.id LIMIT ?`,
+    `SELECT s.*,p.name AS plan_name,${PAYER_COLUMNS},${subscriptionCounts} FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id LEFT JOIN mensalidade_payers y ON y.id=s.payer_id WHERE ${where.join(" AND ")} ORDER BY s.id LIMIT ?`,
     ...args,
     limit + 1,
   );
@@ -381,6 +413,13 @@ export interface SubscriptionInput {
   start_date?: unknown;
   end_date?: unknown;
   notes?: unknown;
+  /** Pagador existente; sem ele, `document` (CPF/CNPJ) acha ou cria um. */
+  payer_id?: unknown;
+  document?: unknown;
+  /** Nome do pagador quando difere do cliente (empresa, responsável). */
+  payer_name?: unknown;
+  /** Repetir a chave devolve a mesma assinatura (contratação pelo WhatsApp). */
+  sourceKey?: string;
 }
 
 /** Valida e monta a linha da assinatura (sem gravar). */
@@ -465,11 +504,45 @@ export async function createSubscription(
   actor: string,
 ) {
   const at = now();
-  const row = await subscriptionRow(ctx, input, at);
+  if (input.sourceKey) {
+    const existing = await one(
+      ctx.env,
+      "SELECT id FROM mensalidade_subscriptions WHERE source_key=?",
+      input.sourceKey,
+    );
+    if (existing) return loadSubscription(ctx, existing.id);
+  }
+  const known =
+    input.payer_id !== undefined &&
+    input.payer_id !== null &&
+    input.payer_id !== ""
+      ? await loadPayer(ctx, input.payer_id)
+      : null;
+  const row = await subscriptionRow(
+    ctx,
+    {
+      ...input,
+      customer_name:
+        input.customer_name || known?.name || input.payer_name || undefined,
+    },
+    at,
+  );
+  // Depois de validar a assinatura: o pagador não nasce de um pedido inválido.
+  const payer =
+    known ||
+    (await ensurePayer(
+      ctx,
+      {
+        document: input.document,
+        name: input.payer_name || row.customer_name,
+        phone: row.phone,
+      },
+      actor,
+    ));
   const id = uid();
   await exec(
     ctx.env,
-    "INSERT INTO mensalidade_subscriptions(id,profile_id,plan_id,contact_id,conversation_id,customer_name,phone,period,amount_cents,discount_cents,due_day,start_date,end_date,status,bill_from,notes,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?)",
+    "INSERT INTO mensalidade_subscriptions(id,profile_id,plan_id,contact_id,conversation_id,customer_name,phone,period,amount_cents,discount_cents,due_day,start_date,end_date,status,bill_from,notes,payer_id,source_key,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?)",
     id,
     ctx.profile,
     row.plan.id,
@@ -485,6 +558,8 @@ export async function createSubscription(
     row.end_date,
     row.start_date,
     row.notes,
+    payer.id,
+    input.sourceKey ?? null,
     actor,
     at,
     at,
@@ -492,6 +567,7 @@ export async function createSubscription(
   const sub = await loadSubscription(ctx, id);
   await ctx.publish("mensalidade.subscription_created", id, {
     subscription_id: id,
+    payer_id: payer.id,
     plan_id: sub.plan_id,
     phone: sub.phone,
     conversation_id: sub.conversation_id,
@@ -720,6 +796,8 @@ export async function importSubscriptions(
           due_day: raw.due_day,
           start_date: raw.start_date,
           notes: raw.notes,
+          document: raw.document,
+          payer_name: raw.payer_name,
         },
         actor,
       );

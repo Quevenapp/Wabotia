@@ -3,6 +3,8 @@
 // os apps lerem o contrato.
 import { requireValue } from "../../types";
 import { BRASILIA_OFFSET_MS } from "../../business-time";
+// Funções puras do núcleo para CPF e CNPJ (mesma regra do estabelecimento).
+import { formatDocument, validCnpj, validCpf } from "../../establishment";
 
 export const DAY = 86_400_000;
 
@@ -235,6 +237,11 @@ export interface MensalidadeSettings {
   overdue_max: number;
   /** Instruções de pagamento sem cobrança configurada (secretaria, chave Pix…). */
   manual_instructions: string;
+  /**
+   * Carência: dias depois do vencimento em que o pagador ainda conta como em
+   * dia para quem consulta a situação (módulo Suporte, por exemplo).
+   */
+  grace_days: number;
 }
 
 export const MENSALIDADE_DEFAULTS: MensalidadeSettings = {
@@ -244,6 +251,7 @@ export const MENSALIDADE_DEFAULTS: MensalidadeSettings = {
   overdue_every_days: 3,
   overdue_max: 3,
   manual_instructions: "",
+  grace_days: 0,
 };
 
 export function mensalidadeSettings(cfg: any): MensalidadeSettings {
@@ -315,7 +323,42 @@ export function validateMensalidadeSettings(
     );
     out.manual_instructions = raw.manual_instructions.trim();
   }
+  if (raw.grace_days !== undefined)
+    out.grace_days = intIn(raw.grace_days, 0, 60, "dias de carência");
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Documento do pagador
+
+/**
+ * CPF (11 dígitos) ou CNPJ (12 caracteres [0-9A-Z] + 2 dígitos, inclusive o
+ * alfanumérico da Receita a partir de julho de 2026), com os dígitos
+ * conferidos. Aceita pontuação. Devolve null quando não é um documento válido.
+ */
+export function parseDocument(value: unknown) {
+  if (typeof value !== "string") return null;
+  const document = value.toUpperCase().replace(/[\s./-]/g, "");
+  if (document.length === 11 && validCpf(document))
+    return {
+      document,
+      type: "cpf" as const,
+      display: formatDocument(document),
+    };
+  if (document.length === 14 && validCnpj(document))
+    return {
+      document,
+      type: "cnpj" as const,
+      display: formatDocument(document),
+    };
+  return null;
+}
+
+/** Documento válido ou 400 com mensagem para quem digita. */
+export function requireDocument(value: unknown) {
+  const parsed = parseDocument(value);
+  requireValue(parsed, "CPF ou CNPJ inválido: confira os números.");
+  return parsed;
 }
 
 /** Texto curto, aparado, com limite; vazio permitido quando não obrigatório. */
