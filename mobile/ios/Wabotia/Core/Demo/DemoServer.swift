@@ -16,7 +16,7 @@ final class DemoURLProtocol: URLProtocol {
                 self.client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
                 return
             }
-            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body)
+            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body, key: request.value(forHTTPHeaderField: "Idempotency-Key"))
             let response = HTTPURLResponse(url: url, statusCode: result.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": result.type, "Content-Length": String(result.data.count)])!
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: result.data)
@@ -104,6 +104,9 @@ final class DemoServer {
     private var sequence = 0
     /// Efeitos com hora marcada (recibos avançando, resposta do cliente, resposta do bot).
     private var scheduled: [(due: Int64, run: () -> Void)] = []
+
+    /// Fila de senhas, pareamento do modo aparelho e capacidades (`DemoQueue`).
+    private(set) lazy var fila = DemoQueue(t0: start)
 
     private init() { buildFixtures() }
 
@@ -448,7 +451,7 @@ final class DemoServer {
 
     // MARK: - Rotas
 
-    func handle(method: String, url: URL, body data: Data) -> Reply {
+    func handle(method: String, url: URL, body data: Data, key: String? = nil) -> Reply {
         runScheduled()
         let parts = url.path.split(separator: "/").map(String.init)
         var query: [String: String] = [:]
@@ -466,6 +469,9 @@ final class DemoServer {
         }
         let get = method == "GET", post = method == "POST", put = method == "PUT", patch = method == "PATCH", delete = method == "DELETE"
         let session: Row = ["token": "wabu_demo", "expires": now + 30 * 86_400_000, "user": ["id": me, "name": DemoMode.meName, "email": DemoMode.meEmail, "role": "admin", "profiles": ["demo"]] as Row]
+
+        // Fila de senhas (guichê e modo aparelho), pareamento do aparelho e capacidades.
+        if let reply = fila.route(method: method, parts: parts, body: body, key: key, now: now) { return reply }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }

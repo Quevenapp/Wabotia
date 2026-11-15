@@ -19,7 +19,7 @@ struct DeviceModeView: View {
     @State private var settings = false
 
     init(launch: DeviceLaunch, onFinish: @escaping () -> Void) {
-        _vm = StateObject(wrappedValue: DeviceViewModel(services: launch.demo ? .demo() : .live(serverURL: launch.serverURL)))
+        _vm = StateObject(wrappedValue: DeviceViewModel(services: launch.demo ? .demo(role: launch.role) : .live(serverURL: launch.serverURL)))
         self.onFinish = onFinish
     }
 
@@ -51,7 +51,26 @@ struct DeviceModeView: View {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: vm.finished) { finished in if finished { onFinish() } }
+        #if DEBUG
+        .task { await runDebugAction() }
+        #endif
     }
+
+    #if DEBUG
+    /// `WABOTIA_DEMO_ACTION` (só depuração): a ação feita sozinha para conferir a tela por print.
+    private func runDebugAction() async {
+        guard vm.demo, let action = DemoMode.action else { return }
+        for _ in 0..<60 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        switch action {
+        case "choose": vm.chooseQueue("dq-geral")
+        case "issue":
+            vm.chooseQueue("dq-geral")
+            vm.issue(preferential: true)
+        case "settings": settings = true
+        default: break
+        }
+    }
+    #endif
 }
 
 // MARK: - Parear
@@ -208,7 +227,7 @@ private struct DeviceSettingsScreen: View {
                             CardRow(icon: "globe", iconColor: vm.revoked || vm.offline ? Theme.danger : Theme.ok,
                                     title: URL(string: config.baseUrl)?.host ?? config.baseUrl, subtitle: connectionText)
                             Button { confirmLeave = true } label: {
-                                CardRow(icon: "link.badge.plus", iconColor: Theme.danger, title: vm.demo ? "Sair da demonstração" : "Desfazer pareamento",
+                                CardRow(icon: "rectangle.portrait.and.arrow.right", iconColor: Theme.danger, title: vm.demo ? "Sair da demonstração" : "Desfazer pareamento",
                                         subtitle: vm.demo ? nil : "O aparelho esquece a credencial e avisa o Wabotia", titleColor: Theme.danger, divider: false)
                             }
                             .buttonStyle(.plain)

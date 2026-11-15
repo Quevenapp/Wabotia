@@ -97,6 +97,9 @@ extension DemoMode {
     static let launchScreen: String? = env("WABOTIA_DEMO")?.lowercased()
     static let forceDark: Bool = env("WABOTIA_DEMO_DARK") == "1"
     static let anchor: String? = env("WABOTIA_DEMO_ANCHOR")
+    /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`
+    /// (aparelho) e `call` (guichê 2 chama a próxima).
+    static let action: String? = env("WABOTIA_DEMO_ACTION")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).
@@ -181,6 +184,7 @@ extension DemoMode {
         case "calls": launch.tab = "calls"
         case "settings": launch.tab = "settings"
         case "lines": launch.tab = "settings"; launch.route = .lines
+        case "counter": launch.tab = "settings"; launch.route = .counter
         case "menus": launch.tab = "settings"; launch.route = .menus
         default: break
         }

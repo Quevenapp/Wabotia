@@ -59,6 +59,10 @@ struct TotemBoard: View {
     var body: some View {
         GeometryReader { geo in
             let columns = queues.count <= 1 ? 1 : (geo.size.width > geo.size.height * 1.2 ? min(queues.count, 3) : (queues.count > 3 ? 2 : 1))
+            let rows = max(1, Int((Double(queues.count) / Double(columns)).rounded(.up)))
+            // Os botões crescem para ocupar a tela (alvo grande, de longe), entre 6,5 e 14 unidades de altura.
+            let fill = (geo.size.height - base * 2.5 - CGFloat(rows) * base * 0.7) / CGFloat(rows)
+            let height = min(max(fill, base * 6.5), base * 14)
             ScrollView {
                 VStack(alignment: .leading, spacing: base * 0.7) {
                     Text(s.label("Toque na fila para retirar sua senha")).font(s.text(base * 0.95, .semibold)).foregroundStyle(s.muted)
@@ -71,7 +75,7 @@ struct TotemBoard: View {
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: base * 0.7), count: columns), spacing: base * 0.7) {
                         ForEach(queues) { queue in
-                            Button { onChoose(queue.id) } label: { QueueButtonLabel(queue: queue) }
+                            Button { onChoose(queue.id) } label: { QueueButtonLabel(queue: queue, height: height) }
                                 .buttonStyle(PressScaleStyle())
                                 .disabled(blocked)
                                 .opacity(blocked ? 0.5 : 1)
@@ -87,31 +91,34 @@ struct TotemBoard: View {
 
 private struct QueueButtonLabel: View {
     let queue: QueueInfo
+    let height: CGFloat
     @Environment(\.panelStyle) private var s
     @Environment(\.panelBase) private var base
 
     var body: some View {
         let color = s.queueColor(PanelQueueLetter.colorIndex(queue.prefixNormal?.first))
         let waiting = queue.waiting?.total ?? 0
-        VStack(alignment: .leading, spacing: base * 0.35) {
-            HStack(spacing: base * 0.5) {
+        // O texto acompanha a altura do botão: no iPad em pé, com poucas filas, a letra cresce.
+        let scale = min(max(height / (base * 6.5), 1), 1.8)
+        VStack(alignment: .leading, spacing: base * 0.35 * scale) {
+            HStack(spacing: base * 0.5 * scale) {
                 Text(queue.prefixNormal ?? "•")
-                    .font(s.display(base * 1.3)).foregroundStyle(Color.white)
-                    .frame(minWidth: base * 2.4, minHeight: base * 2.4)
+                    .font(s.display(base * 1.3 * scale)).foregroundStyle(Color.white)
+                    .frame(minWidth: base * 2.4 * scale, minHeight: base * 2.4 * scale)
                     .background(RoundedRectangle(cornerRadius: s.radius * 0.7).fill(color))
-                Text(queue.displayName).font(s.text(base * 1.5, .bold)).foregroundStyle(s.fg).lineLimit(2).minimumScaleFactor(0.7)
+                Text(queue.displayName).font(s.text(base * 1.5 * scale, .bold)).foregroundStyle(s.fg).lineLimit(2).minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
             }
             HStack(spacing: base * 0.8) {
-                Label("\(waiting) aguardando", systemImage: "person.2.fill").font(s.text(base * 0.95)).foregroundStyle(s.muted)
+                Label("\(waiting) aguardando", systemImage: "person.2.fill").font(s.text(base * 0.95 * scale)).foregroundStyle(s.muted)
                 if let minutes = queue.waitMinutes?.normal {
-                    Label("cerca de \(minutes) min", systemImage: "clock").font(s.text(base * 0.95)).foregroundStyle(s.muted)
+                    Label("cerca de \(minutes) min", systemImage: "clock").font(s.text(base * 0.95 * scale)).foregroundStyle(s.muted)
                 }
             }
             .lineLimit(1).minimumScaleFactor(0.7)
         }
         .padding(base)
-        .frame(maxWidth: .infinity, minHeight: base * 6.5, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: height, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: s.radius).fill(s.surface))
         .overlay(RoundedRectangle(cornerRadius: s.radius).stroke(color, lineWidth: max(s.border, 2)))
         .contentShape(Rectangle())
@@ -321,7 +328,7 @@ private struct PreviousCalls: View {
                     Text(call.stationLabel ?? "Balcão").font(s.text(base * 1.15, .semibold)).foregroundStyle(s.fg.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.6)
                 }
                 .padding(.trailing, base * 0.6)
-                .frame(minHeight: base * 2.8)
+                .frame(height: base * 3)
                 .background(RoundedRectangle(cornerRadius: s.radius * 0.6).fill(s.surface))
                 .clipShape(RoundedRectangle(cornerRadius: s.radius * 0.6))
             }

@@ -46,6 +46,15 @@ struct CounterView: View {
         }
         .onAppear { vm.start() }
         .onDisappear { vm.stop() }
+        #if DEBUG
+        .task {
+            // WABOTIA_DEMO_ACTION=call (só depuração): o guichê 2 chama a próxima, para conferir por print.
+            guard container.isDemo, DemoMode.action == "call" else { return }
+            for _ in 0..<60 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+            vm.chooseCounter("dc-2")
+            vm.callNext()
+        }
+        #endif
         .onChange(of: scenePhase) { phase in if phase == .active { vm.start() } else { vm.stop() } }
         .sheet(isPresented: $transferring) {
             if let ticket = vm.current {

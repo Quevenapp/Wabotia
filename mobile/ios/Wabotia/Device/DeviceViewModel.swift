@@ -23,10 +23,15 @@ struct DeviceServices {
                        settings: DefaultsPanelSettingsStore(), audio: { SpeechPanelAudio() }, serverURL: serverURL, demo: false, pollInterval: 5)
     }
 
-    /// Demonstração: nada vai para o Keychain nem sai do aparelho; o painel fala de verdade.
+    /// Demonstração: nada vai para o Keychain nem sai do aparelho; o painel fala de verdade. Com `role` (atalhos de
+    /// depuração), o aparelho já entra pareado e com o papel escolhido.
     @MainActor
-    static func demo() -> DeviceServices {
-        DeviceServices(store: MemoryDeviceConfigStore(), pairing: QueuePairing(), session: QueueHTTP.shared, printer: WabotiaPrinting.shared,
+    static func demo(role: DeviceRole? = nil) -> DeviceServices {
+        let paired = role.map {
+            DeviceConfig(deviceId: "demo-device", baseUrl: DemoMode.serverURL.absoluteString, token: DemoQueue.deviceToken, profileId: DemoMode.profileId,
+                         name: "Recepção (demonstração)", role: $0, scopes: DeviceScopes.requested, demo: true)
+        }
+        return DeviceServices(store: MemoryDeviceConfigStore(paired), pairing: QueuePairing(), session: QueueHTTP.shared, printer: WabotiaPrinting.shared,
                        settings: MemoryPanelSettingsStore(), audio: { SpeechPanelAudio() }, serverURL: DemoMode.serverURL.absoluteString, demo: true, pollInterval: 3)
     }
 }

@@ -53,6 +53,10 @@ final class AppContainer: ObservableObject {
         #if DEBUG
         debugLaunch = DemoMode.launchScreen != nil
         if DemoMode.launchScreen == "login" { loginChosen = true }
+        // WABOTIA_DEMO=device | device-totem | device-panel | device-hybrid: o modo aparelho da demonstração.
+        if let screen = DemoMode.launchScreen, screen.hasPrefix("device") {
+            deviceLaunch = DeviceLaunch(demo: true, serverURL: DemoMode.serverURL.absoluteString, role: DeviceRole(rawValue: String(screen.dropFirst("device-".count))))
+        }
         #endif
         if !debugLaunch, KeychainDeviceConfigStore().load() != nil {
             deviceLaunch = DeviceLaunch(demo: false, serverURL: nil)

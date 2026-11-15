@@ -1,0 +1,36 @@
+# Notas para a revisão da App Store (modo aparelho e guichê)
+
+Texto para o campo **Notas** de "Informações para a revisão do app" no App Store Connect. O revisor não precisa de
+conta nem de servidor: a demonstração da primeira tela responde em memória e nada sai do aparelho.
+
+## Português
+
+> O Wabotia é usado por equipes de atendimento pelo WhatsApp. Sem servidor da empresa, toque em **Conhecer o app
+> (demonstração)** na primeira tela: abre uma instalação fictícia, sem conta e sem enviar nada. Em **Ajustes →
+> Atendimento → Guichê da fila de senhas**, o atendente escolhe um guichê, abre, chama a próxima senha, rechama,
+> conclui e transfere.
+>
+> O mesmo app também transforma um iPad ou iPhone da recepção em totem de senhas ou painel de chamadas. Para ver: na
+> primeira tela, toque em **Ver o modo painel ou totem (demonstração)** → **Gerar código** (o código de exemplo é
+> aprovado sozinho em 2 segundos) → escolha **Totem**, **Painel de chamadas** ou **Painel híbrido**. O totem emite a
+> senha (o cupom só é impresso se houver uma impressora térmica escolhida; sem ela, a senha fica na tela). O painel
+> mostra e fala as chamadas; uma atendente fictícia chama uma senha a cada 20 segundos. A engrenagem no canto abre os
+> ajustes; **Sair da demonstração** volta à primeira tela.
+>
+> Bluetooth e rede local são pedidos só quando a pessoa procura uma impressora térmica para o cupom.
+
+## English
+
+> Wabotia is used by customer-service teams on WhatsApp. Without a company server, tap **Conhecer o app
+> (demonstração)** on the first screen: it opens a fictitious installation with no account, and nothing is sent. Under
+> **Ajustes → Atendimento → Guichê da fila de senhas** the agent picks a service desk, opens it, calls the next ticket,
+> recalls, finishes and transfers it.
+>
+> The same app also turns a front-desk iPad or iPhone into a ticket kiosk or a call display. To see it: on the first
+> screen tap **Ver o modo painel ou totem (demonstração)** → **Gerar código** (the sample code is approved by itself
+> in 2 seconds) → choose **Totem**, **Painel de chamadas** or **Painel híbrido**. The kiosk issues a ticket (a receipt is
+> printed only if a thermal printer was set up; otherwise the ticket stays on screen). The display shows and speaks the
+> calls; a fictitious agent calls a ticket every 20 seconds. The gear icon opens the settings; **Sair da demonstração**
+> returns to the first screen.
+>
+> Bluetooth and local network access are requested only when the user searches for a thermal receipt printer.
