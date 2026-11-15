@@ -1526,6 +1526,48 @@ td.table-actions > .card-actions {
   color: var(--on-avatar);
 }
 
+/*
+ * Telas de toque (celular e tablet): os controles compactos do computador
+ * ficam com 36 a 40 px de altura para o dedo. Com mouse nada muda.
+ */
+@media (pointer: coarse) {
+  .icon-button.sm {
+    width: 40px;
+    height: 40px;
+  }
+  .button.sm,
+  .button.small {
+    min-height: 38px;
+  }
+  .segmented button {
+    min-height: 36px;
+  }
+  .chip {
+    height: 36px;
+  }
+  .search-clear {
+    right: 2px;
+    width: 34px;
+    height: 34px;
+  }
+  button.text-link {
+    min-height: 36px;
+  }
+  /* Interruptor de 26 px: a área de toque passa de 44 x 26 para 52 x 44. */
+  .switch::before {
+    content: "";
+    position: absolute;
+    inset: -9px -4px;
+  }
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 36px;
+  }
+  summary {
+    padding-block: 8px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
