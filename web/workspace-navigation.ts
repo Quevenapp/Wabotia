@@ -21,6 +21,7 @@ import {
   Star,
   Ticket,
   Users,
+  Wrench,
   Zap,
 } from "lucide-react";
 
@@ -57,6 +58,8 @@ export const sections = [
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
   ["modules", "Módulos", Blocks],
+  ["service-orders", "Ordens de serviço", Wrench],
+  ["service-orders-settings", "Ordem de serviço", Wrench],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -92,6 +95,12 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
+  {
+    id: "service-orders",
+    label: "Ordens de serviço",
+    icon: Wrench,
+    pages: ["service-orders", "service-orders-settings"],
+  },
   {
     id: "automation",
     label: "Automação",
@@ -149,6 +158,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
   "modules",
+  "service-orders-settings",
 ]);
 
 /**
@@ -159,6 +169,8 @@ export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
+  "service-orders": "os",
+  "service-orders-settings": "os",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -233,4 +245,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
+  "service-orders":
+    "Ordens numeradas com orçamento, aprovação pelo WhatsApp, execução e retirada.",
+  "service-orders-settings":
+    "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
 };

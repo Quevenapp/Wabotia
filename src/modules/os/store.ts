@@ -226,7 +226,8 @@ export async function listOrders(
       )
     ).map((r) => [r.status, r.n]),
   );
-  const before = Number(query.before);
+  // Paginação por número: next_cursor volta em `cursor` (ou `before`).
+  const before = Number(query.cursor || query.before);
   if (Number.isInteger(before) && before > 0) {
     where.push("number<?");
     args.push(before);

@@ -29,6 +29,8 @@ import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
+import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
+import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -132,6 +134,10 @@ function Page({ page }: { page: PageId }) {
       return <ModulesPage />;
     case "forms":
       return <FormsPage />;
+    case "service-orders":
+      return <ServiceOrdersPage />;
+    case "service-orders-settings":
+      return <ServiceOrdersSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":
