@@ -106,7 +106,8 @@ struct ConversationView: View {
             guard vm.conversation != nil else { return }
             await vm.loadSuporte()
             #if DEBUG
-            if !container.isDemo, let script = DemoMode.conversationScript, !ranScript { ranScript = true; await runScript(script) }
+            // Também na demonstração (WABOTIA_DEMO=chat), para ver o caminho feliz: o Mercado Pago fictício paga sozinho.
+            if let script = DemoMode.conversationScript, !ranScript { ranScript = true; await runScript(script) }
             #endif
         }
         .confirmationDialog("Concluir este atendimento?", isPresented: $confirmResolve, titleVisibility: .visible) {
