@@ -12,11 +12,13 @@ import {
   onMenuChoice,
   onRead,
   onRoute,
+  onSchedule,
   onSettingsSave,
   onWebStepCompleted,
   type ModuleContext,
 } from "../api";
 import { agendaTurn, startBooking, startMine, type Turn } from "./chat";
+import { runDue } from "./reminders";
 import { sendBookingStep, sendMineStep, webStepDone } from "./webflow";
 import { agendaConfig, clockOf, DAY_MS, validateAgendaConfig } from "./config";
 import { availability } from "./availability";
@@ -136,6 +138,11 @@ onMenuChoice("agenda_mine", async (ctx, c, _item, { rowId }) => {
 
 onWebStepCompleted(MODULE, async (ctx, step, answers) => {
   await webStepDone(ctx, step, answers);
+});
+
+// Lembretes vencidos (gancho periódico do núcleo, ao menos a cada 5 minutos).
+onSchedule(MODULE, async (ctx, { now }) => {
+  await runDue(ctx, now, { chat: chatTurns });
 });
 
 // ---------------------------------------------------------------------------
