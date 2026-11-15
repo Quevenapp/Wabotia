@@ -16,6 +16,8 @@ object Routes {
     const val BOT_LINES = "bot-lines"
     const val BOT_RUNS = "bot-runs"
     const val PRINTER = "printer"
+    /** Guichê da fila de senhas (com o token da pessoa). */
+    const val COUNTER = "counter"
     const val CONVERSATION = "conversation/{id}?sheet={sheet}&arg={arg}"
     const val CONVERSATION_INFO = "conversation-info/{id}"
     const val TICKET = "ticket/{id}"

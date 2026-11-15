@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
@@ -112,6 +113,7 @@ fun SettingsScreen(
     openMenus: () -> Unit,
     openBotLines: () -> Unit,
     openPrinter: () -> Unit = {},
+    openCounter: () -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -163,6 +165,14 @@ fun SettingsScreen(
             item("service-label") { SectionLabel("Atendimento") }
             item("service") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.ConfirmationNumber,
+                        "Guichê da fila de senhas",
+                        subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
+                        tint = c.warn,
+                        onClick = openCounter,
+                    )
+                    RowDivider()
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
                     if (state.isAdmin) {
                         RowDivider()
