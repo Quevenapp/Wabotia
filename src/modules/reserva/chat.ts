@@ -15,8 +15,7 @@ import {
   now as clock,
   uid,
 } from "../../types";
-import { interactiveLine, interactivePayload } from "../../line-service";
-import type { ModuleContext } from "../api";
+import type { InteractiveSpec, ModuleContext } from "../api";
 import {
   addDays,
   brasiliaDate,
@@ -172,64 +171,41 @@ export const clearState = (ctx: ModuleContext, conversationId: string) =>
 // Envio de perguntas
 
 /**
- * Conteúdo de uma pergunta: botões de resposta (até 3 opções curtas) ou
- * lista nas linhas oficiais; o texto numerado sempre vai em `text`. Sem
- * opções (resposta digitada), só o texto.
+ * Pergunta como mensagem interativa tipada (ctx.sendInteractive): botões de
+ * resposta (até 3 opções curtas, sem descrição) ou lista. Nas linhas QR o
+ * núcleo manda o texto numerado com "Responda com o número da opção" e o
+ * rodapé.
  */
-export function questionPayload(
+export function questionSpec(
   body: string,
   options: Option[],
   ids: string[],
-  native: boolean,
-) {
-  const text = options.length
-    ? `${body}\n${options
-        .map(
-          (o, i) =>
-            `${i + 1}. ${o.title}${o.description ? ` - ${o.description}` : ""}`,
-        )
-        .join("\n")}\nResponda com o número da opção. Envie MENU para sair.`
-    : `${body}\nEnvie MENU para sair.`;
-  if (!native || !options.length) return { text };
+): InteractiveSpec {
   if (
     options.length <= 3 &&
     options.every((o) => Array.from(o.title).length <= 20 && !o.description)
   )
     return {
-      text,
-      content: {
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: cut(body, 1024) },
-          action: {
-            buttons: options.map((o, i) => ({
-              type: "reply",
-              reply: { id: ids[i], title: o.title },
-            })),
-          },
-        },
-      },
-    };
-  const payload = interactivePayload(
-    {
-      type: "list",
-      body: cut(body, 4096),
-      button: "Escolher",
+      type: "button",
+      body: cut(body, 1024),
       footer: "Envie MENU para sair.",
-      sections: [
-        {
-          rows: options.map((o, i) => ({
-            id: ids[i],
-            title: cut(o.title, 24),
-            ...(o.description ? { description: cut(o.description, 72) } : {}),
-          })),
-        },
-      ],
-    },
-    true,
-  );
-  return { text, content: (payload as any).content };
+      buttons: options.map((o, i) => ({ id: ids[i], title: o.title })),
+    };
+  return {
+    type: "list",
+    body: cut(body, 4096),
+    button: "Escolher",
+    footer: "Envie MENU para sair.",
+    sections: [
+      {
+        rows: options.map((o, i) => ({
+          id: ids[i],
+          title: cut(o.title, 24),
+          ...(o.description ? { description: cut(o.description, 72) } : {}),
+        })),
+      },
+    ],
+  };
 }
 
 interface Flow {
@@ -248,19 +224,30 @@ async function ask(
   options: Option[],
 ) {
   const token = uid().replace(/-/g, "").slice(0, 10);
-  const payload = questionPayload(
-    body,
-    options,
-    options.map((o) => `reserva:${token}:${o.id}`),
-    await interactiveLine(flow.ctx.env, flow.c),
-  );
   await saveState(flow.ctx, flow.c, {
     step,
     data: { ...data, options },
     token,
     expires_at: flow.at + CHAT_TTL_MS,
   });
-  await flow.ctx.sendMessage(flow.c, payload, { key: flow.key });
+  // Resposta digitada (sem opções): só o texto.
+  if (!options.length) {
+    await flow.ctx.sendMessage(
+      flow.c,
+      { text: `${body}\nEnvie MENU para sair.` },
+      { key: flow.key },
+    );
+    return;
+  }
+  await flow.ctx.sendInteractive(
+    flow.c,
+    questionSpec(
+      body,
+      options,
+      options.map((o) => `reserva:${token}:${o.id}`),
+    ),
+    { key: flow.key },
+  );
 }
 
 async function say(flow: Flow, text: string, key = flow.key) {

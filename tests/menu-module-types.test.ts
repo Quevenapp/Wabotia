@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { coreMenuTypes, menuTypeOptions } from "../web/menu-tree";
+import { modules as registered } from "../src/modules/registry";
 
 // Relato da sessão E: no editor de menus, um item os_open/os_track aparecia
 // com um <select> sem a opção certa (tipos fixos) e, salvo ali, virava outro
@@ -43,5 +44,23 @@ describe("tipos de item no editor de menus", () => {
     expect(
       menuTypeOptions(modules, "os_track").filter((t) => t.type === "os_track"),
     ).toHaveLength(1);
+  });
+
+  it("os módulos registrados no servidor entram no editor sem ajuste à mão (Reserva)", () => {
+    const declared = registered.map((m) => ({
+      enabled: true,
+      menu_item_types: m.menu_item_types,
+    }));
+    expect(menuTypeOptions(declared)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "reserva", label: "Fazer reserva" }),
+        expect.objectContaining({
+          type: "reserva_mine",
+          label: "Minhas reservas",
+        }),
+        expect.objectContaining({ type: "agenda" }),
+        expect.objectContaining({ type: "os_open" }),
+      ]),
+    );
   });
 });
