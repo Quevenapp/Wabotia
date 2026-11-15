@@ -90,8 +90,7 @@ class AgendaTest {
         val tomorrow = BrasiliaTime.addDays(BrasiliaTime.today(), 1)
         val vm = BookingViewModel(null, null, null, AgendaDeps(client, {}, { tomorrow }))
         vm.load()
-        vm.chooseProfessional("p-leo")
-        vm.loadSlots()
+        vm.chooseProfessional("p-leo").join()
         val slot = vm.slots.first()
         vm.slot = slot
         vm.customerName = "Primeiro"

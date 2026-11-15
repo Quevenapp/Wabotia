@@ -62,9 +62,10 @@ class ReservaViewModel(private val deps: ReservaDeps, container: AppContainer? =
     /** Aviso do sinal (Cobrança desligada ou sem conta), para a equipe saber antes de reservar com sinal. */
     val depositWarning: String? get() = overview?.deposit?.takeIf { it.available == false }?.message?.takeIf { it.isNotBlank() }
 
-    fun refresh() {
+    /** O `Job` devolvido serve aos testes para esperar a leitura. */
+    fun refresh(): Job {
         job?.cancel()
-        job = viewModelScope.launch { load() }
+        return viewModelScope.launch { load() }.also { job = it }
     }
 
     suspend fun load() {
@@ -89,10 +90,10 @@ class ReservaViewModel(private val deps: ReservaDeps, container: AppContainer? =
         }
     }
 
-    fun changeMode(mode: Mode) {
-        if (this.mode == mode) return
+    fun changeMode(mode: Mode): Job? {
+        if (this.mode == mode) return null
         this.mode = mode
-        refresh()
+        return refresh()
     }
 
     fun shift(direction: Int) {

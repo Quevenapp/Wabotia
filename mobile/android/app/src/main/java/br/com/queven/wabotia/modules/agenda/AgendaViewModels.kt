@@ -248,25 +248,27 @@ class BookingViewModel(
         }
     }
 
-    fun chooseDay(day: String) {
+    /* Cada escolha relê os horários; o `Job` devolvido serve aos testes para esperar a leitura. */
+
+    fun chooseDay(day: String): Job {
         this.day = day
-        reloadSlots()
+        return reloadSlots()
     }
 
-    fun chooseProfessional(id: String?) {
+    fun chooseProfessional(id: String?): Job {
         professionalId = id
-        reloadSlots()
+        return reloadSlots()
     }
 
-    fun chooseService(id: String) {
+    fun chooseService(id: String): Job {
         serviceId = id
         if (professionalId != null && professionals.none { it.id == professionalId }) professionalId = null
-        reloadSlots()
+        return reloadSlots()
     }
 
-    private fun reloadSlots() {
+    private fun reloadSlots(): Job {
         slotsJob?.cancel()
-        slotsJob = viewModelScope.launch { loadSlots() }
+        return viewModelScope.launch { loadSlots() }.also { slotsJob = it }
     }
 
     suspend fun loadSlots() {

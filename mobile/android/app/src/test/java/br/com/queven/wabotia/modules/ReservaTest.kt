@@ -93,8 +93,9 @@ class ReservaTest {
         vm.load()
         assertEquals(listOf("u-mar", "u-jardim", "u-familia", "u-salao"), vm.calendar?.units?.map { it.unitId })
         assertTrue(vm.upcoming.all { it.state in ReservaRules.ACTIVE })
-        vm.changeMode(ReservaViewModel.Mode.LIST)
-        vm.load()
+        // Espera a leitura que a troca dispara: solta, ela voltaria ao Main depois do `resetMain` e o runTest do teste
+        // seguinte acusaria "Main dispatcher missing".
+        vm.changeMode(ReservaViewModel.Mode.LIST)?.join()
         assertTrue(vm.bookings.isNotEmpty() && vm.bookings.all { it.state in ReservaRules.ACTIVE })
     }
 

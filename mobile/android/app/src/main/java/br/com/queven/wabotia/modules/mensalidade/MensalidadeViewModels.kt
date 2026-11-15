@@ -81,9 +81,10 @@ class MensalidadeViewModel(private val deps: MensalidadeDeps, container: AppCont
 
     fun subscriptionCount(filter: String): Int = if (filter == "all") subscriptionCounts.values.sum() else subscriptionCounts[filter] ?: 0
 
-    fun refresh() {
+    /** O `Job` devolvido serve aos testes para esperar a leitura. */
+    fun refresh(): Job {
         job?.cancel()
-        job = viewModelScope.launch { load() }
+        return viewModelScope.launch { load() }.also { job = it }
     }
 
     suspend fun load() {
@@ -116,11 +117,11 @@ class MensalidadeViewModel(private val deps: MensalidadeDeps, container: AppCont
         }
     }
 
-    fun changeMode(mode: Mode) {
-        if (this.mode == mode) return
+    fun changeMode(mode: Mode): Job? {
+        if (this.mode == mode) return null
         this.mode = mode
         query = ""
-        refresh()
+        return refresh()
     }
 
     fun shiftMonth(n: Int) {

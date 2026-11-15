@@ -105,8 +105,8 @@ class MensalidadeTest {
         vm.load()
         assertEquals(8, vm.count("all"))
         assertEquals(vm.installments.size, 8)
-        vm.changeMode(MensalidadeViewModel.Mode.DELINQUENTS)
-        vm.load()
+        // Espera a leitura que a troca dispara (solta, voltaria ao Main depois do `resetMain`).
+        vm.changeMode(MensalidadeViewModel.Mode.DELINQUENTS)?.join()
         val delinquent = vm.delinquents.first { it.subscriptionId == "ms-3" }
         assertTrue((delinquent.overdueCount ?: 0) >= 1)
         assertEquals(vm.delinquents.map { it.oldestDueDate }, vm.delinquents.map { it.oldestDueDate }.sortedBy { it })
