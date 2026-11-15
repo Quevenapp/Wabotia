@@ -396,17 +396,17 @@ export async function hourlySlots(
   date: string,
   duration: number,
   at: number,
-  options: { staff?: boolean; ignore?: string } = {},
+  options: { staff?: boolean; ignore?: string; occ?: Occupancy } = {},
 ) {
   const open = minuteOf(config.hourly_open)!,
     close = minuteOf(config.hourly_close)!;
   const day = dayStart(date);
-  const occ = await occupancy(
-    ctx,
-    day + open * MINUTE_MS,
-    day + close * MINUTE_MS,
-    { unitId: unit.id, ignore: options.ignore },
-  );
+  const occ =
+    options.occ ||
+    (await occupancy(ctx, day + open * MINUTE_MS, day + close * MINUTE_MS, {
+      unitId: unit.id,
+      ignore: options.ignore,
+    }));
   const slots: { starts: number; ends: number; price_cents: number }[] = [];
   for (
     let minute = open;
@@ -423,6 +423,35 @@ export async function hourlySlots(
     });
   }
   return slots;
+}
+
+/** Horários livres de vários dias com uma só leitura da ocupação. */
+export async function hourlyDays(
+  ctx: ModuleContext,
+  config: ReservaConfig,
+  unit: Unit,
+  dates: string[],
+  duration: number,
+  at: number,
+  options: { ignore?: string } = {},
+) {
+  if (!dates.length) return [];
+  const occ = await occupancy(
+    ctx,
+    dayStart(dates[0]),
+    dayStart(addDays(dates[dates.length - 1], 1)),
+    { unitId: unit.id, ignore: options.ignore },
+  );
+  const out: {
+    date: string;
+    slots: Awaited<ReturnType<typeof hourlySlots>>;
+  }[] = [];
+  for (const date of dates)
+    out.push({
+      date,
+      slots: await hourlySlots(ctx, config, unit, date, duration, at, { occ }),
+    });
+  return out;
 }
 
 /** Primeiro dia que o cliente pode escolher (antecedência mínima). */

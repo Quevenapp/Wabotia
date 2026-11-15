@@ -1,14 +1,22 @@
 // Reserva e check-in (módulo "reserva"): registra rotas, comandos e ganchos
 // no núcleo (src/modules/api.ts). Regras em units.ts (cadastros). Uso:
 // docs/RESERVA.md.
-import { requireValue, type Actor } from "../../types";
+import {
+  ApiError,
+  requireValue,
+  type Actor,
+  type Conversation,
+} from "../../types";
 import {
   onCommand,
+  onConversationTurn,
+  onMenuChoice,
   onRead,
   onRoute,
   onSettingsSave,
   type ModuleContext,
 } from "../api";
+import { reservaTurn, startBooking, startMine } from "./chat";
 import {
   addDays,
   brasiliaDate,
@@ -66,6 +74,46 @@ export function dateRange(query: Record<string, string>, at: number) {
   requireValue(to <= addDays(from, 92), "Consulte até 93 dias por vez.");
   return { from, to, starts: dayStart(from), ends: dayStart(addDays(to, 1)) };
 }
+
+// ---------------------------------------------------------------------------
+// WhatsApp
+
+// Próxima mensagem do cliente: respostas da conversa da Reserva (chat.ts).
+onConversationTurn(MODULE, (ctx, c, turn) => reservaTurn(ctx, c, turn));
+
+async function unavailable(
+  ctx: ModuleContext,
+  c: Conversation,
+  error: unknown,
+  key: string,
+) {
+  if (!(error instanceof ApiError)) throw error;
+  await ctx.sendMessage(
+    c,
+    {
+      text: "A reserva não está disponível agora. Envie MENU para ver as opções.",
+    },
+    { key: `menu-unavailable:${key}` },
+  );
+}
+
+// Item de menu "Fazer reserva".
+onMenuChoice("reserva", async (ctx, c, _item, { rowId }) => {
+  try {
+    await startBooking(ctx, c, { key: `menu:${rowId}` });
+  } catch (error) {
+    await unavailable(ctx, c, error, rowId);
+  }
+});
+
+// Item de menu "Minhas reservas".
+onMenuChoice("reserva_mine", async (ctx, c, _item, { rowId }) => {
+  try {
+    await startMine(ctx, c, { key: `menu:${rowId}` });
+  } catch (error) {
+    await unavailable(ctx, c, error, rowId);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Regras e cadastros
