@@ -784,9 +784,29 @@ app.use("/api/v1/*", async (c, next) => {
 // Rotas de um módulo desligado na área (/profiles/:profile/<rota do módulo>)
 // respondem 409 module_disabled antes de qualquer outra regra.
 app.use("/api/v1/profiles/*", async (c, next) => {
-  const [, , , , profile, segment] = c.req.path.split("/");
+  const [, , , , raw, segment] = c.req.path.split("/");
   const owner = segment ? moduleForRoute(segment) : null;
-  if (owner) await requireModule(c.env, decodeURIComponent(profile), owner.id);
+  if (owner) {
+    // Área de fora da credencial: 404 genérico antes de dizer se o módulo
+    // está ligado; "%" malformado também é 404 (revisão B5).
+    let profile: string;
+    try {
+      profile = decodeURIComponent(raw);
+    } catch {
+      throw new ApiError(
+        404,
+        "not_found",
+        "Área de atendimento não encontrada.",
+      );
+    }
+    if (!canProfile(c.get("actor"), profile))
+      throw new ApiError(
+        404,
+        "not_found",
+        "Área de atendimento não encontrada.",
+      );
+    await requireModule(c.env, profile, owner.id);
+  }
   await next();
 });
 mountMcp(app);
