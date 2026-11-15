@@ -207,6 +207,8 @@ final class DemoQueue {
             ["id": "os", "name": "Ordem de Serviço", "version": "1.0.0"],
             ["id": "reserva", "name": "Reserva e check-in", "version": "1.0.0"],
             ["id": "mensalidade", "name": "Mensalidade", "version": "1.0.0"],
+            ["id": "pedido", "name": "Pedido", "version": "1.0.0"],
+            ["id": "suporte", "name": "Suporte pago", "version": "1.0.0"],
         ]
         var answer: Row = [
             "capabilities_version": 1,

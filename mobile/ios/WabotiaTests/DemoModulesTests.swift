@@ -15,7 +15,7 @@ final class DemoModulesTests: XCTestCase {
 
     func testCapabilitiesListBothModules() async {
         let ids = await ModulesProbe(baseURL: base, profileId: DemoMode.profileId, token: { "wabu_demo" }, session: QueueHTTP.makeSession()).check()
-        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade"])
+        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "suporte"])
     }
 
     func testReservaDemo() async throws {
@@ -153,5 +153,84 @@ final class ModuleEventsTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 700_000_000)
         XCTAssertEqual(reloads, 1, "uma rajada vira uma leitura só")
         withExtendedLifetime(events) {}
+    }
+}
+
+/// Pedido (lanchonete) e Suporte pago na demonstração, pelo mesmo `DemoURLProtocol` do app.
+final class DemoPedidoSuporteTests: XCTestCase {
+    private let base = DemoMode.serverURL.absoluteString
+
+    override func setUp() {
+        super.setUp()
+        DemoServer.reset()
+    }
+
+    private var api: ProfileAPI { ProfileAPI(baseURL: base, profileId: DemoMode.profileId, session: QueueHTTP.makeSession()) { "wabu_demo" } }
+
+    /// O detalhe da conversa como o app lê (`GET /conversations/{id}`), direto do servidor da demonstração.
+    private func detailOf(_ id: String) throws -> ConversationDetail {
+        let url = URL(string: base + "/api/v1/profiles/\(DemoMode.profileId)/conversations/\(id)")!
+        return try JSONDecoder.wabotia.decode(ConversationDetail.self, from: DemoServer.shared.handle(method: "GET", url: url, body: Data()).data)
+    }
+
+    func testLanchoneteBoardOrderAndTicket() async throws {
+        let pedido = PedidoClient(api: api)
+        let board = try await pedido.board()
+        XCTAssertEqual(board.columns?.map(\.status), PedidoRules.active)
+        XCTAssertTrue(board.columns?.flatMap { $0.orders ?? [] }.contains { $0.late == true } ?? false, "há pedido atrasado no quadro")
+        let order = try await pedido.order("pd_44")
+        XCTAssertEqual(order.lines?.filter { $0.itemId == "xburger" }.map(\.slot), [0, 1], "duas montagens do mesmo X-Burger")
+        let ticket = try await pedido.ticket("pd_44", columns: 32)
+        let lines = (ticket.text ?? "").components(separatedBy: "\n")
+        XCTAssertTrue(lines.allSatisfy { $0.count <= 32 }, "nenhuma linha passa de 32 colunas")
+        XCTAssertTrue(lines.contains { $0.hasPrefix("PEDIDO Nº 44") })
+        // Recebido → em preparo → pronto; pagamento na retirada.
+        _ = try await pedido.setStatus("pd_44", status: "preparing", note: nil, reason: nil, notify: true, key: "pd-a")
+        let ready = try await pedido.setStatus("pd_44", status: "ready", note: nil, reason: nil, notify: true, key: "pd-b")
+        XCTAssertEqual(ready.nextStatuses, ["delivered", "preparing", "cancelled"])
+        let paid = try await pedido.markPaid("pd_44", note: nil, key: "pd-c")
+        XCTAssertEqual(paid.payment?.status, "paid")
+        do { _ = try await pedido.markPaid("pd_45", note: nil, key: "pd-d"); XCTFail("Pix aberto") } catch { XCTAssertEqual((error as? QueueError)?.code, "payment_online") }
+        do { _ = try await pedido.setStatus("pd_38", status: "preparing", note: nil, reason: nil, notify: true, key: "pd-e"); XCTFail() } catch { XCTAssertEqual((error as? QueueError)?.code, "invalid_transition") }
+        let chosen = try await pedido.setMethod("pd_46", method: "cash", key: "pd-f")
+        XCTAssertEqual(chosen.payment?.method, "cash")
+    }
+
+    func testLanchoneteStoreAndMenu() async throws {
+        let pedido = PedidoClient(api: api)
+        let store = try await pedido.pause(true, message: "voltamos às 19h", key: "st-a")
+        XCTAssertEqual(store.paused, true)
+        let pausedBoard = try await pedido.board()
+        XCTAssertEqual(PedidoRules.storeText(pausedBoard.store), "Loja pausada: não recebe pedidos agora")
+        let menu = try await pedido.menu()
+        XCTAssertEqual(menu.categories?.flatMap { $0.items ?? [] }.first { $0.id == "misto" }?.available, false)
+        _ = try await pedido.setItemAvailable("misto", available: true, key: "st-b")
+        _ = try await pedido.setOptionAvailable(groupId: "adicionais", optionId: "cheddar", available: true, key: "st-c")
+        let after = try await pedido.menu()
+        XCTAssertEqual(after.categories?.flatMap { $0.items ?? [] }.first { $0.id == "misto" }?.available, true)
+        XCTAssertEqual(after.groups?.first { $0.id == "adicionais" }?.options?.first { $0.id == "cheddar" }?.available, true)
+    }
+
+    func testHandoffAndSuporteActions() async throws {
+        let detail = try detailOf(DemoSuporte.conversationId)
+        XCTAssertEqual(detail.handoff?.module, "suporte")
+        XCTAssertTrue(detail.handoff?.visibleFlags.contains("telefone não vinculado ao pagador Ricardo Almeida") ?? false)
+        let suporte = SuporteClient(api: api)
+        let status = try await suporte.status(DemoSuporte.conversationId)
+        XCTAssertTrue(SuporteRules.canLink(status))
+        let linked = try await suporte.linkPhone(DemoSuporte.conversationId, key: "sp-a")
+        XCTAssertFalse(SuporteRules.canLink(linked))
+        let again = try detailOf(DemoSuporte.conversationId)
+        XCTAssertFalse(again.handoff?.visibleFlags.contains { $0.hasPrefix("telefone não vinculado") } ?? true, "o marcador some depois de vincular")
+        let courtesy = try await suporte.courtesy(DemoSuporte.conversationId, reason: "cliente antigo", hours: 24, key: "sp-b")
+        XCTAssertEqual(courtesy.kindLabel, "Cortesia")
+    }
+
+    func testPayerInDemoSubscription() async throws {
+        let ms = MensalidadeClient(api: api)
+        let s = try await ms.subscription("ms_3")
+        XCTAssertEqual(MensalidadeRules.documentText(s.payer?.documentDisplay), "CNPJ 12.345.678/0001-95")
+        let payer = try await ms.payer(try XCTUnwrap(s.payer?.id))
+        XCTAssertEqual(MensalidadeRules.payerPhones(payer).count, 2)
     }
 }

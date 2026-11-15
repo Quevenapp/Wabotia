@@ -359,6 +359,7 @@ final class DemoMensalidade {
             case "summary": return summary(query["month"] ?? String(BrasiliaTime.day(now).prefix(7)))
             case "plans": return ok(["data": plans.map { ["id": $0.key, "name": $0.value.0, "amount_cents": $0.value.1, "period": "monthly", "due_day": 10, "active": true] }])
             case "delinquents": return delinquents()
+            case "payers" where r.count == 2: return payerDetail(r[1])
             case "installments":
                 if r.count == 2, let i = items.first(where: { $0.id == r[1] }) { return ok(row(i)) }
                 let month = query["month"] ?? String(BrasiliaTime.day(now).prefix(7))
@@ -470,6 +471,27 @@ final class DemoMensalidade {
             "overdue_cents": mine.filter { $0.status == "overdue" }.reduce(0) { $0 + $1.amount },
         ]
         if withInstallments { out["installments"] = mine.sorted { $0.due > $1.due }.map(row) }
+        let p = payer(s)
+        out["payer"] = ["id": p.id, "name": p.name, "document_display": p.document]
         return out
+    }
+
+    // Pagadores: quem paga, com CPF/CNPJ e telefones autorizados. O João Pedro é aluno; quem paga é o pai, e o telefone
+    // da mãe também está autorizado. A Patrícia estuda pela empresa (CNPJ).
+    private func payer(_ s: S) -> (id: String, name: String, document: String, type: String, phones: [(String, String)]) {
+        switch s.id {
+        case "ms_6": return ("py_almeida", "Ricardo Almeida", "123.456.789-09", "cpf", [(s.phone, "Aluno"), ("5520906540000", "Cadastro"), ("5520906541111", "Vinculado pelo atendimento")])
+        case "ms_3": return ("py_nunes", "Nunes Consultoria LTDA", "12.345.678/0001-95", "cnpj", [("5520909880000", "Cadastro"), (s.phone, "Vinculado pelo atendimento")])
+        default: return ("py_\(s.id)", s.name, "987.654.321-00", "cpf", [(s.phone, "Cadastro")])
+        }
+    }
+
+    private func payerDetail(_ id: String) -> DemoServer.Reply {
+        guard let s = subs.first(where: { payer($0).id == id }) else { return fail(404, "not_found", "Pagador não encontrado.") }
+        let p = payer(s)
+        let digits = p.document.filter { $0.isNumber || $0.isLetter }
+        return ok(["id": p.id, "name": p.name, "document": digits, "document_type": p.type, "document_display": p.document, "email": NSNull(), "notes": "",
+                   "phones": p.phones.map { ["phone": $0.0, "label": $0.1, "created_by": "panel", "created": 0] as Row },
+                   "subscriptions": subs.filter { payer($0).id == id }.map { subRow($0, withInstallments: false) }])
     }
 }

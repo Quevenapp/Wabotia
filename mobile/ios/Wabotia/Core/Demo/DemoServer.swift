@@ -113,6 +113,9 @@ final class DemoServer {
     /// Reserva (pousada) e Mensalidade (escola de idiomas), em `DemoModulesExtra.swift`.
     private(set) lazy var reserva = DemoReserva(t0: start)
     private(set) lazy var mensalidade = DemoMensalidade(t0: start)
+    /// Pedido (lanchonete) e Suporte pago (passagem para humano), em `DemoPedidoSuporte.swift`.
+    private(set) lazy var pedido = DemoPedido(t0: start)
+    private(set) lazy var suporte = DemoSuporte(t0: start)
 
     private init() { buildFixtures() }
 
@@ -177,6 +180,7 @@ final class DemoServer {
         conversations = [
             conversation("c_rich", "Mariana Costa", "5520908765432", state: "human", owner: me, lastCustomer: 46, updated: 44, tags: ["VIP", "Troca"], department: "dep_fin"),
             conversation("c_queue", "Fernanda Rocha", "5520901122334", state: "waiting", lastCustomer: 12, updated: 12, tags: ["Suporte"], department: "dep_sup"),
+            conversation(DemoSuporte.conversationId, "Ricardo Almeida", "5520906541111", state: "waiting", lastCustomer: 6, updated: 6, tags: ["Suporte pago"], department: "dep_sup"),
             conversation("c_queue2", "Lucas Martins", "5520908876655", state: "waiting", line: "line_zernio", lastCustomer: 3, updated: 3),
             conversation("c_5h", "João Pedro Almeida", "5520906543210", state: "human", owner: me, line: "line_zernio", lastCustomer: 19 * 60 - 2, updated: 58, tags: ["Entrega"]),
             conversation("c_40", "Patrícia Nunes", "5520909887766", state: "human", owner: me, lastCustomer: 23 * 60 + 20, updated: 23 * 60 + 15, tags: ["Orçamento"]),
@@ -226,6 +230,19 @@ final class DemoServer {
             message("q1", "c_queue", "customer", "customer:q", "Bom dia! Meu sistema parou de emitir nota fiscal desde ontem.", at: 14, content: ["type": "text"]),
             message("q2", "c_queue", "outbound", "system", "Vou encaminhar sua solicitação para o setor Suporte.", at: 13, status: "delivered"),
             message("q3", "c_queue", "customer", "customer:q", "Preciso resolver isso hoje, por favor.", at: 12, content: ["type": "text"]),
+        ]
+        // Suporte pago: identificação pelo CPF de um telefone não vinculado, compra do avulso pelo Pix e passagem à equipe.
+        let sup = DemoSuporte.conversationId, ricardo = "customer:sup"
+        messages[sup] = [
+            message("s1", sup, "customer", ricardo, "Atendimento humano (pago)", at: 14, content: ["type": "text"]),
+            message("s2", sup, "outbound", "system", "Para falar com a equipe, informe o CPF ou CNPJ de quem paga o suporte.", at: 14, status: "read"),
+            message("s3", sup, "customer", ricardo, "123.456.789-09", at: 13, content: ["type": "text"]),
+            message("s4", sup, "outbound", "system", "Encontramos o cadastro de Ricardo Almeida, sem assinatura em dia. Escolha: 1. Suporte avulso (R$ 60,00, até o protocolo fechar) · 2. Plano mensal", at: 13, status: "read"),
+            message("s5", sup, "customer", ricardo, "1", at: 12, content: ["type": "text"]),
+            message("s6", sup, "outbound", "system", "Pix copia e cola para pagar R$ 60,00. Assim que o Mercado Pago confirmar, você é atendido.", at: 12, status: "read"),
+            message("s7", sup, "outbound", "system", "Pagamento confirmado. Vou passar você para a equipe de Suporte.", at: 6, status: "delivered"),
+            message("s8", sup, "customer", ricardo, "A impressora fiscal não liga desde a queda de energia de ontem.", at: 6, content: ["type": "text"]),
+            message("s9", sup, "note", "system", "Suporte pago: Ricardo Almeida (CPF 123.456.789-09), suporte avulso pago pelo Pix. Telefone não vinculado ao pagador.", at: 6),
         ]
         messages["c_queue2"] = [
             message("r1", "c_queue2", "customer", "customer:r", "Olá, quero falar com um atendente", at: 3, content: ["type": "text"]),
@@ -485,6 +502,8 @@ final class DemoServer {
         if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = reserva.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = pedido.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = suporte.route(method: method, parts: parts, body: body, key: key, now: now, emit: emitter) { return reply }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }
@@ -825,6 +844,7 @@ final class DemoServer {
             "contact": contacts[id] ?? NSNull() as Any,
             "messages": list,
             "deliveries": deliveries[id] ?? [],
+            "handoff": suporte.handoff(id),
         ])
     }
 
@@ -949,6 +969,10 @@ final class DemoServer {
         case "survey":
             let deliveryId = appendOutbound(id, author: me, text: "Como você avalia este atendimento?\nResponda de 1 a 5 e, se desejar, escreva um comentário. Para sair da avaliação, envie MENU.")
             return ok(["survey_id": nextId("sv"), "delivery_id": deliveryId, "status": "pending"])
+        case "pedido_link":
+            guard mine else { return fail(400, "invalid_request", "Assuma a conversa antes de enviar o pedido ao cliente.") }
+            _ = appendOutbound(id, author: me, text: "Monte seu pedido na Lanchonete da Ana: https://demo.wabotia.app/w/pedido (o link vale 60 minutos).")
+            return ok(["sent": true, "reason": NSNull(), "web_step": ["id": nextId("ws"), "status": "open"] as Row])
         default:
             return fail(400, "invalid", "Ação desconhecida.")
         }

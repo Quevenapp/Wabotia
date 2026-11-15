@@ -231,6 +231,15 @@ extension DemoMode {
         case "installment": launch.tab = "settings"; launch.route = .installment(id: "mi_6")
         case "subscription": launch.tab = "settings"; launch.route = .subscription(id: "ms_3")
         case "menus": launch.tab = "settings"; launch.route = .menus
+        // Pedido (lanchonete): WABOTIA_DEMO_ACTION=list ou menu abre a lista ou o cardápio. pedido-order: o X-Burger em duas
+        // montagens; pedido-delivery: entrega paga, ligada à conversa; pedido-choosing: cliente escolhendo como pagar.
+        case "pedido": launch.tab = "settings"; launch.route = .pedido
+        case "pedido-order": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_44")
+        case "pedido-delivery": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_42")
+        case "pedido-choosing": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_46")
+        // Passagem para humano pelo Suporte pago: a conversa com a faixa e os dados da conversa com as ações.
+        case "handoff": launch.route = .conversation(id: DemoSuporte.conversationId)
+        case "handoff-info": launch.route = .conversationInfo(id: DemoSuporte.conversationId)
         default: break
         }
         pendingSheet = launch.sheet

@@ -20,7 +20,14 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Ainda em **Ajustes → Atendimento**: **Reservas** (uma pousada de exemplo: ocupação das acomodações por dia, lista de
 > reservas, detalhe com sinal e check-in; o **+** reserva uma acomodação ou o salão por hora) e **Mensalidades** (uma
 > escola de idiomas de exemplo: resumo do mês, parcelas, assinaturas e inadimplentes; numa parcela, reenviar a cobrança,
-> dar baixa ou isentar).
+> dar baixa ou isentar; na assinatura e nos inadimplentes, o pagador com CPF ou CNPJ e os telefones autorizados).
+>
+> E **Pedidos** (uma lanchonete de exemplo: quadro da cozinha por estado, com o tempo de cada pedido e os atrasados em
+> vermelho; lista com filtro; cardápio para marcar item ou adicional como esgotado; **Pausar a loja**; no pedido,
+> mudar o estado, cancelar com motivo, registrar o pagamento na entrega e imprimir a comanda). Na conversa de **Ricardo
+> Almeida**, a faixa no topo mostra que o Suporte pago passou o cliente à equipe, com o resumo e os avisos ("telefone
+> não vinculado ao pagador"); o menu **⋯** e os dados da conversa trazem **Vincular telefone**, **Confirmar e liberar**
+> e **Liberar como cortesia**. Nenhum pagamento é feito no app: a cobrança é do servidor da empresa.
 >
 > O mesmo app também transforma um iPad ou iPhone da recepção em totem de senhas ou painel de chamadas. Para ver: na
 > primeira tela, toque em **Ver o modo painel ou totem (demonstração)** → **Gerar código** (o código de exemplo é
@@ -48,7 +55,16 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Also under **Ajustes → Atendimento**: **Reservas** (a sample guesthouse: daily occupancy of the rooms, the bookings list,
 > detail with deposit and check-in; **+** books a room or the hall by the hour) and **Mensalidades** (a sample language
 > school: the month's summary, installments, subscriptions and overdue customers; on an installment, resend the charge,
-> record a payment or waive it).
+> record a payment or waive it; on a subscription and in the overdue list, the payer with CPF or CNPJ and the
+> authorized phones).
+>
+> And **Pedidos** (a sample snack bar: the kitchen board by status, with each order's time and late orders in red; a
+> filtered list; the menu, where an item or add-on is marked sold out; **Pausar a loja** to stop taking orders; on an
+> order, change its status, cancel with a reason, record a payment on delivery and print the kitchen ticket). In
+> **Ricardo Almeida**'s conversation, the strip at the top shows that the paid-support module handed the customer to
+> the team, with a summary and warnings ("phone not linked to the payer"); the **⋯** menu and the conversation details
+> offer **Vincular telefone** (link phone), **Confirmar e liberar** (confirm and release) and **Liberar como cortesia**
+> (release as a courtesy). No payment happens in the app: charging is done by the company's server.
 >
 > The same app also turns a front-desk iPad or iPhone into a ticket kiosk or a call display. To see it: on the first
 > screen tap **Ver o modo painel ou totem (demonstração)** → **Gerar código** (the sample code is approved by itself
