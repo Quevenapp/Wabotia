@@ -130,6 +130,10 @@ struct SettingsView: View {
                 navRow("Agenda", "calendar", Theme.brand) { push(.agenda) }
                     .accessibilityIdentifier("settings.agenda")
             }
+            if moduleFeature.isAvailable(ModuleId.serviceOrders, container.profileId) {
+                navRow("Ordens de serviço", "wrench.and.screwdriver.fill", Theme.warn) { push(.serviceOrders) }
+                    .accessibilityIdentifier("settings.serviceOrders")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }

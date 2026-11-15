@@ -173,6 +173,9 @@ struct ConversationView: View {
             if !c.isGroup, modules.isAvailable(ModuleId.agenda, container.profileId) {
                 Button { push(.newAppointment(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Agendar para este cliente", systemImage: "calendar.badge.plus") }
             }
+            if !c.isGroup, modules.isAvailable(ModuleId.serviceOrders, container.profileId) {
+                Button { push(.newServiceOrder(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Abrir ordem de serviço", systemImage: "wrench.and.screwdriver") }
+            }
             if vm.canTransfer {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }
             }
