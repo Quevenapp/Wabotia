@@ -363,6 +363,36 @@ describe("pedido no WhatsApp: cardápio e carrinho", () => {
     ]);
   });
 
+  it("foto do item enviada para a área aparece no carrinho, servida pelo próprio link", async () => {
+    const { f, menu } = await setup();
+    const photo = await media(f);
+    const other = await media(f);
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    await env.MEDIA.put(`${f.profile}/${photo}/x`, bytes, {
+      httpMetadata: { contentType: "image/jpeg" },
+    });
+    await run(f, f.admin, "pedido.item.save", {
+      id: menu.suco.id,
+      photo_media_id: photo,
+    });
+    const { code } = await openCart(f, "5511970000019");
+    const page = await (await SELF.fetch(`https://test/api/w/${code}`)).text();
+    const src = `/api/w/${code}/img/${photo}`;
+    expect(page).toContain(`src="${src}"`);
+    const image = await SELF.fetch(`https://test${src}`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytes);
+    // Só as fotos do catálogo deste link.
+    expect(
+      (await SELF.fetch(`https://test/api/w/${code}/img/${other}`)).status,
+    ).toBe(404);
+    expect(
+      (await SELF.fetch(`https://test/api/w/codigo-errado/img/${photo}`))
+        .status,
+    ).toBe(404);
+  });
+
   it("pausar a loja pelo painel cancela os carrinhos abertos (ctx.cancelWebSteps)", async () => {
     const { f, menu } = await setup({ payments: { cash: true, card: false } });
     const open = await openCart(f, "5511970000018");

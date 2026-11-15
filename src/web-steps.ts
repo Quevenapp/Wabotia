@@ -33,6 +33,7 @@ import { flowToken } from "./whatsapp-interactive";
 import {
   cartPage,
   cartSummary,
+  catalogMedia,
   money as cartMoney,
   validateCartOrder,
   validateCatalog,
@@ -423,6 +424,20 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
     "O passo web é enviado só em conversas individuais.",
   );
   const spec = validateSpec(input.spec);
+  // Fotos do carrinho enviadas para a área: imagens desta área.
+  if (spec.page === "cart")
+    for (const id of catalogMedia(spec.cart!)) {
+      const media = await one(
+        env,
+        "SELECT type FROM media WHERE id=? AND profile_id=?",
+        id,
+        c.profile_id,
+      );
+      requireValue(
+        media && String(media.type).startsWith("image/"),
+        "Carrinho: a foto do item precisa ser uma imagem enviada para esta área (POST /media).",
+      );
+    }
   const kind = await lineKind(env, c);
   // Erro próprio, como na Cobrança: o módulo pode trocar por um convite
   // pelo modelo de notificação ("responda CHECKIN").
@@ -1113,8 +1128,20 @@ export function formPage(
   errors: Record<string, string> = {},
 ) {
   const spec: WebStepSpec = json(row.spec);
+  // row.public_code: o código da URL (src/index.ts), para as fotos da área.
   if (spec.page === "cart")
-    return cartPage(spec.cart!, spec, appName, values as CartInput, errors);
+    return cartPage(
+      spec.cart!,
+      {
+        ...spec,
+        ...(row.public_code
+          ? { image_base: `/api/w/${row.public_code}/img/` }
+          : {}),
+      },
+      appName,
+      values as CartInput,
+      errors,
+    );
   const body = `<div class="card"><h1>${escape(spec.title)}</h1>${spec.intro ? `<p class="intro">${escape(spec.intro)}</p>` : ""}${
     Object.keys(errors).length
       ? `<div class="error" role="alert">${escape(errors._form || "Confira os campos destacados.")}</div>`

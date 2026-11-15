@@ -842,6 +842,8 @@ export function cartCategories(menu: Menu) {
         ...(item.description ? { description: item.description } : {}),
         price_cents: item.price_cents,
         ...(item.image_url ? { image_url: item.image_url } : {}),
+        // Foto enviada para a área: a página do carrinho a serve pelo link.
+        ...(item.photo_media_id ? { image_media_id: item.photo_media_id } : {}),
         available: item.available,
         max_quantity: item.max_quantity,
         option_groups: item.group_ids

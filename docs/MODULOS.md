@@ -522,6 +522,10 @@ onWebStepCompleted("pedido", async (ctx, step, order) => {
   por item, 30 opções por grupo; ids com letras, números, `-` e `_`;
   preços em centavos inteiros. O catálogo é uma cópia: mudar o cardápio
   depois não altera links já enviados.
+- **Foto do item.** `image_url` (HTTPS externo) ou `image_media_id`: uma
+  imagem enviada para a área (`POST /media`). A página a serve pelo próprio
+  link (`/api/w/<código>/img/<id>`), só as citadas no catálogo daquele link;
+  `openWebStep` recusa mídia de outra área ou que não seja imagem.
 - **Forma de pagamento e troco na página.** Com `cart.payment: {methods:
   [{id, label, change?}], required?}`, a página pergunta "Como você quer
   pagar?" (antes do nome) e, para as formas com `change: true` (dinheiro),

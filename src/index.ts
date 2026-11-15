@@ -118,6 +118,7 @@ import {
   cartInput,
   cartReviewPage,
   validateCartOrder,
+  catalogMedia,
 } from "./web-cart";
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
@@ -332,7 +333,34 @@ app.get("/api/w/:code", async (c) => {
       }),
       410,
     );
-  return webStepHtml(c, formPage(current, brand));
+  return webStepHtml(
+    c,
+    formPage({ ...current, public_code: c.req.param("code") }, brand),
+  );
+});
+// Foto de item do carrinho enviada para a área (image_media_id): só as que o
+// catálogo deste link cita, só imagem, enquanto o link existir.
+app.get("/api/w/:code/img/:media", async (c) => {
+  await webStepRate(c);
+  const row = await webStepByCode(c.env, c.req.param("code"));
+  const spec = row ? json(row.spec) : null;
+  const id = c.req.param("media");
+  if (!row || spec?.page !== "cart" || !catalogMedia(spec.cart).includes(id))
+    throw new ApiError(404, "not_found", "Imagem não encontrada.");
+  const media = await one(
+    c.env,
+    "SELECT * FROM media WHERE id=? AND profile_id=?",
+    id,
+    row.profile_id,
+  );
+  if (!media || !String(media.type).startsWith("image/"))
+    throw new ApiError(404, "not_found", "Imagem não encontrada.");
+  const response = await mediaResponse(c.env, media, c.req.raw);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "private, max-age=3600");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Robots-Tag", "noindex");
+  return new Response(response.body, { status: response.status, headers });
 });
 app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   await webStepRate(c);
@@ -341,6 +369,8 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  // O código da URL, para as fotos da área na página (formPage).
+  row.public_code = c.req.param("code");
   const brand = await pageBrand(c.env, row.profile_id);
   const spec = json(row.spec);
   const form = await c.req.raw.formData().catch(() => new URLSearchParams());

@@ -28,6 +28,12 @@ export interface CartItem {
   price_cents: number;
   /** Foto (HTTPS). */
   image_url?: string;
+  /**
+   * Foto enviada para a área (POST /media, imagem): a página a serve pelo
+   * próprio link (/api/w/<código>/img/<id>), sem endereço público externo.
+   * Tem prioridade sobre image_url.
+   */
+  image_media_id?: string;
   available: boolean;
   /** Quantidade máxima por pedido (1 a 99, padrão 20). */
   max_quantity: number;
@@ -228,6 +234,14 @@ export function validateCatalog(value: any): CartCatalog {
         );
         const description = str(item.description, 300, "a descrição", false);
         if (description) out.description = description;
+        if (item.image_media_id) {
+          requireValue(
+            typeof item.image_media_id === "string" &&
+              ID.test(item.image_media_id),
+            "Carrinho: foto do item (image_media_id) inválida.",
+          );
+          out.image_media_id = item.image_media_id;
+        }
         if (item.image_url) {
           const url = str(item.image_url, 500, "a foto");
           requireValue(
@@ -287,6 +301,14 @@ export function validateCatalog(value: any): CartCatalog {
   }
   return out;
 }
+
+/** Fotos do catálogo enviadas para a área (servidas pelo próprio link). */
+export const catalogMedia = (catalog: CartCatalog) =>
+  catalog.categories.flatMap((category) =>
+    category.items.flatMap((item) =>
+      item.image_media_id ? [item.image_media_id] : [],
+    ),
+  );
 
 /** "50", "50,00", "R$ 1.250,50" → centavos; null se vazio; NaN se inválido. */
 function parseMoney(value: string) {
@@ -597,7 +619,13 @@ const err = (errors: Record<string, string>, key: string) =>
 /** Carrinho para montar ou corrigir o pedido (valores vêm do catálogo). */
 export function cartPage(
   catalog: CartCatalog,
-  meta: { title: string; intro?: string; submit_label?: string },
+  meta: {
+    title: string;
+    intro?: string;
+    submit_label?: string;
+    /** "/api/w/<código>/img/": base das fotos enviadas para a área. */
+    image_base?: string;
+  },
   appName: PageBrand,
   input: CartInput = {},
   errors: Record<string, string> = {},
@@ -657,7 +685,11 @@ export function cartPage(
                 : item.available
                   ? `<input type="hidden" name="slots_${escape(item.id)}" value="${slots}">`
                   : "";
-            return `<div class="item${item.available ? "" : " off"}" id="i-${escape(item.id)}">${item.image_url ? `<img src="${escape(item.image_url)}" alt="" loading="lazy">` : ""}<div class="info"><div class="name">${escape(item.name)}</div>${item.description ? `<small>${escape(item.description)}</small>` : ""}${blocks}${more}</div></div>`;
+            const photo =
+              item.image_media_id && meta.image_base
+                ? meta.image_base + item.image_media_id
+                : item.image_url;
+            return `<div class="item${item.available ? "" : " off"}" id="i-${escape(item.id)}">${photo ? `<img src="${escape(photo)}" alt="" loading="lazy">` : ""}<div class="info"><div class="name">${escape(item.name)}</div>${item.description ? `<small>${escape(item.description)}</small>` : ""}${blocks}${more}</div></div>`;
           })
           .join("")}`,
     )
