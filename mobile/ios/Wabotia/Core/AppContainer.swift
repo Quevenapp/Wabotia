@@ -146,6 +146,9 @@ final class AppContainer: ObservableObject {
     func onLoggedOut(keepServer: Bool) {
         // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à primeira tela.
         let keepServer = keepServer && !isDemo
+        // Saída de uma conta de verdade (normal, forçada ou por 401): nenhum aviso dela continua chegando nem fica na
+        // Central de Notificações, mesmo que o servidor não tenha apagado o registro do aparelho.
+        if isLoggedIn, !isDemo { PushManager.shared.forgetThisDevice() }
         // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
         Workspace.shared.reset()
         ModuleFeature.shared.clear()
@@ -175,7 +178,8 @@ final class AppContainer: ObservableObject {
         pendingLink = deepLink
     }
 
-    /// Sessão rejeitada pelo servidor (401): volta ao login mantendo o servidor.
+    /// Sessão rejeitada pelo servidor (401): volta ao login mantendo o servidor. `onLoggedOut` limpa os avisos e invalida
+    /// o token de push, porque o registro do aparelho não pôde ser apagado com o token recusado.
     func handleUnauthorized() {
         onLoggedOut(keepServer: true)
     }

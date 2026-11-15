@@ -135,9 +135,24 @@ final class PushManager: NSObject {
         }
     }
 
-    /// Remove todas as notificações entregues (ex.: ao sair da conta).
+    /// Remove todas as notificações entregues e o número no ícone (ex.: ao sair da conta).
     func clearAllNotifications() {
-        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        let center = UNUserNotificationCenter.current()
+        center.removeAllDeliveredNotifications()
+        if #available(iOS 16, *) { center.setBadgeCount(0) } else {
+            DispatchQueue.main.async { UIApplication.shared.applicationIconBadgeNumber = 0 }
+        }
+    }
+
+    /// Qualquer saída da conta, inclusive a forçada por 401, sem rede ou com "Sair mesmo assim": o registro em
+    /// /devices/{id} pode ter ficado no servidor, então o token FCM deste aparelho é invalidado. O servidor que ainda o
+    /// tiver recebe "não registrado" do FCM e nenhum aviso chega mais; o próximo login pede um token novo. Os avisos já
+    /// entregues saem da Central de Notificações.
+    func forgetThisDevice() {
+        clearAllNotifications()
+        #if canImport(FirebaseCore)
+        if firebaseReady { Messaging.messaging().deleteToken { _ in } }
+        #endif
     }
 
     func shouldPresentForeground(_ userInfo: [AnyHashable: Any]) -> Bool {
