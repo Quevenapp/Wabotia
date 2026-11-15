@@ -17,6 +17,7 @@ import {
   api,
   application,
   bearer,
+  claim,
   configure,
   drain,
   fixture,
@@ -34,6 +35,9 @@ async function setup() {
   await turn(f, true);
   const c = await receive(f, f.line, "bom dia", "5511960000001");
   await drain(f);
+  // A ação "Abrir ordem de serviço" avisa o cliente: quem abre atende a
+  // conversa (revisão B9).
+  await claim(f, f.member, c.id);
   const token = await bearer(f.member);
   return { f, c, token };
 }
@@ -134,6 +138,14 @@ describe("ordem de serviço: abertura e numeração", () => {
       },
     );
     expect(action.status).toBe(200);
+    // Revisão B9: quem não atende a conversa não abre OS por ela.
+    const outsider = await api(
+      await bearer(f.other),
+      `/profiles/${f.profile}/conversations/${c.id}/actions`,
+      "POST",
+      { action: "service_order", item: "X", problem: "Y" },
+    );
+    expect(outsider.status).toBeGreaterThanOrEqual(400);
     const order = await action.json<any>();
     expect(order).toMatchObject({
       number: 2,

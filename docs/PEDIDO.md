@@ -105,8 +105,10 @@ Os apps leem o quadro em `GET /profiles/{p}/pedido/board` e a comanda em
 Quem pede pelo WhatsApp (carrinho ou catálogo) fica com o consentimento de
 avisos do pedido registrado: os avisos de estado saem pelo modelo de
 notificação mesmo depois de 24 horas (encomenda para outro dia). No balcão,
-com só o telefone, marque `whatsapp_notices` quando o cliente aceitar
-receber os avisos: o Wabotia abre a conversa na linha oficial.
+com só o telefone, o administrador marca `whatsapp_notices` quando o cliente
+aceitar receber os avisos, com `notices_evidence` (como ele aceitou, por
+exemplo "ficha assinada no balcão"): o Wabotia abre a conversa na linha
+oficial e grava o consentimento com essa evidência.
 
 Cancelar um pedido com o Pix ou o link ainda abertos cancela a cobrança. Se
 o cliente pagar mesmo assim, o pedido fica marcado para estorno. Pagamento

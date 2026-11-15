@@ -728,13 +728,42 @@ describe("pedido no WhatsApp: pagamento", () => {
       )
     ).json<any>();
     expect(plain.customer.conversation_id).toBeNull();
+    // Revisão B9: aceite em nome do cliente só por administrador e com a
+    // evidência do aceite.
+    const byMember = await api(
+      await bearer(f.member),
+      `/profiles/${f.profile}/pedido/orders`,
+      "POST",
+      body("(11) 96666-3333", {
+        whatsapp_notices: true,
+        notices_evidence: "Ficha assinada",
+      }),
+    );
+    expect(byMember.status).toBe(403);
+    const noEvidence = await api(
+      admin,
+      `/profiles/${f.profile}/pedido/orders`,
+      "POST",
+      body("(11) 96666-3333", { whatsapp_notices: true }),
+    );
+    expect(noEvidence.status).toBe(400);
+    expect(
+      await one(
+        env,
+        "SELECT id FROM conversations WHERE profile_id=? AND phone='5511966663333'",
+        f.profile,
+      ),
+    ).toBeNull();
     // Com o aceite no balcão: conversa aberta na linha oficial.
     const noticed = await (
       await api(
         admin,
         `/profiles/${f.profile}/pedido/orders`,
         "POST",
-        body("(11) 96666-2222", { whatsapp_notices: true }),
+        body("(11) 96666-2222", {
+          whatsapp_notices: true,
+          notices_evidence: "Ficha de cadastro assinada no balcão",
+        }),
       )
     ).json<any>();
     const c = await one(
