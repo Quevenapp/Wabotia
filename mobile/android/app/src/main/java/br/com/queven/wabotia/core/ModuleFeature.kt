@@ -14,6 +14,8 @@ object ModuleIds {
     const val RESERVA = "reserva"
     const val MENSALIDADE = "mensalidade"
     const val PEDIDO = "pedido"
+    /** Suporte pago: passagem para humano só depois de conferir o pagamento (depende da Mensalidade). */
+    const val SUPORTE = "suporte"
 }
 
 /**

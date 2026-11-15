@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,9 +65,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.core.media.AuthenticatedMedia
 import br.com.queven.wabotia.core.model.MediaFile
 import br.com.queven.wabotia.core.model.nameOf
+import br.com.queven.wabotia.modules.suporte.CourtesyDialog
+import br.com.queven.wabotia.modules.suporte.HandoffBand
+import br.com.queven.wabotia.modules.suporte.ModuleHandoff
+import br.com.queven.wabotia.modules.suporte.SuporteConfirmDialog
+import br.com.queven.wabotia.modules.suporte.SuporteDeps
+import br.com.queven.wabotia.modules.suporte.SuporteRules
+import br.com.queven.wabotia.modules.suporte.SuporteViewModel
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.AvatarKind
 import br.com.queven.wabotia.ui.components.DetailTopBar
@@ -127,6 +136,36 @@ fun ConversationInfoScreen(
     var policyDialog by remember { mutableStateOf(false) }
     var confirmResolve by remember { mutableStateOf(false) }
     var viewer by remember { mutableStateOf<MediaFile?>(null) }
+
+    // Suporte pago: a situação e as ações do atendente, só com o módulo ligado.
+    val enabledModules by container.modules.enabled.collectAsState()
+    val suporteEnabled = ModuleIds.SUPORTE in enabledModules[profileId].orEmpty()
+    val suporteVm: SuporteViewModel = viewModel(key = "suporte-info:$conversationId") { SuporteViewModel(conversationId, SuporteDeps.of(container), container) }
+    val handoff = remember(vm.detail?.handoff) { ModuleHandoff.of(vm.detail?.handoff) }
+    var suporteDialog by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(suporteEnabled, vm.detail?.conversation?.state, vm.detail?.conversation?.isGroup, handoff) {
+        if (vm.detail?.conversation?.isGroup == false) suporteVm.load()
+    }
+    LaunchedEffect(suporteVm.done) {
+        val text = suporteVm.done ?: return@LaunchedEffect
+        suporteVm.done = null
+        vm.notice = text
+        vm.load(silent = true)
+    }
+    LaunchedEffect(suporteVm.notice) {
+        val text = suporteVm.notice ?: return@LaunchedEffect
+        suporteVm.notice = null
+        vm.notice = text
+    }
+    when (val action = suporteDialog) {
+        "link", "confirm" -> SuporteConfirmDialog(
+            action, suporteVm.status,
+            onConfirm = { suporteDialog = null; if (action == "link") suporteVm.link() else suporteVm.confirm() },
+            onDismiss = { suporteDialog = null },
+        )
+        "courtesy" -> CourtesyDialog(onRelease = { reason, hours -> suporteDialog = null; suporteVm.courtesy(reason, hours) }, onDismiss = { suporteDialog = null })
+        else -> Unit
+    }
 
     val detail = vm.detail
     Box(Modifier.fillMaxSize().background(c.background)) {
@@ -256,6 +295,20 @@ fun ConversationInfoScreen(
                             if (canHandOff) {
                                 RowDivider(startIndent = 16.dp)
                                 SettingsRow(Icons.AutoMirrored.Filled.Shortcut, "Encaminhar atendimento", subtitle = "Pessoas, bots, setores, menu e protocolo", onClick = openTransfer)
+                            }
+                        }
+
+                        // Passagem feita por módulo e Suporte pago (com o módulo ligado, fora de grupos).
+                        val suporte = suporteVm.status.takeIf { suporteEnabled && !conversation.isGroup }
+                        val shownHandoff = handoff.takeIf { SuporteRules.showBand(it, conversation.state, suporteEnabled) }
+                        if (shownHandoff != null || suporte != null) {
+                            SectionLabel(if (shownHandoff != null) "Passagem para a equipe" else "Suporte pago")
+                            WbCard(Modifier.padding(horizontal = 16.dp)) {
+                                HandoffBand(
+                                    handoff = shownHandoff, suporte = suporte, canAct = canHandOff, busy = suporteVm.busy,
+                                    onLink = { suporteDialog = "link" }, onConfirm = { suporteDialog = "confirm" }, onCourtesy = { suporteDialog = "courtesy" },
+                                    startExpanded = true,
+                                )
                             }
                         }
 

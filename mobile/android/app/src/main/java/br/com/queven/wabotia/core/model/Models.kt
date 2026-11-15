@@ -144,6 +144,11 @@ data class LastMessage(
     val contact: JsonObject? = null,
     val messages: List<Message> = emptyList(),
     val deliveries: List<Delivery> = emptyList(),
+    /**
+     * Passagem feita por um módulo (resumo e marcadores para o atendente; interno, como as notas). Cru: quem lê é
+     * [br.com.queven.wabotia.modules.suporte.ModuleHandoff.of].
+     */
+    val handoff: JsonElement? = null,
 ) {
     fun can(feature: String): Boolean = capabilities?.bool(feature) ?: false
 }

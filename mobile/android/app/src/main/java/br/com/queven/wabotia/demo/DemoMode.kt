@@ -141,6 +141,8 @@ object DemoMode {
             "chat-group" -> DemoDestination(conversationId = Ids.C_GROUP)
             "chat-expiring" -> DemoDestination(conversationId = Ids.C_40MIN)
             "chat-window-closed" -> DemoDestination(conversationId = Ids.C_WINDOW_CLOSED)
+            // Passada pelo Suporte pago: a faixa com vincular, confirmar e cortesia (assuma a conversa para agir).
+            "suporte", "chat-suporte" -> DemoDestination(conversationId = Ids.C_SUPORTE)
             "transfer" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "transfer", arg = option)
             "attach" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "attach")
             "actions" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "menu")

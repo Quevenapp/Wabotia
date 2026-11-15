@@ -120,6 +120,10 @@ internal object DemoServer {
 
     private fun pedidoOf(s: DemoState): DemoPedido = pedido ?: DemoPedido(s.t0).also { pedido = it }
 
+    private var suporte: DemoSuporte? = null
+
+    private fun suporteOf(s: DemoState): DemoSuporte = suporte ?: DemoSuporte(s.t0).also { suporte = it }
+
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
         s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
 
@@ -132,6 +136,7 @@ internal object DemoServer {
             j("id" to "reserva", "name" to "Reserva e check-in", "version" to "1.0.0"),
             j("id" to "mensalidade", "name" to "Mensalidade", "version" to "1.0.0"),
             j("id" to "pedido", "name" to "Pedido", "version" to "1.0.0"),
+            j("id" to "suporte", "name" to "Suporte pago", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -160,6 +165,7 @@ internal object DemoServer {
         reserva = null
         mensalidade = null
         pedido = null
+        suporte = null
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -335,6 +341,7 @@ internal object DemoServer {
             "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "mensalidade" -> mensalidadeOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            "suporte" -> suporteOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now, s.emitter(now))
             "pedido" -> pedidoOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
@@ -509,6 +516,8 @@ internal object DemoServer {
             "contact" to c.str("contact_id")?.let { s.contacts[it] },
             "messages" to messages.map { it.json() },
             "deliveries" to s.deliveries[id].orEmpty().map { it.json() },
+            // Passagem feita por módulo (o Suporte pago passou a conversa à equipe); `null` nas outras.
+            "handoff" to suporteOf(s).handoff(id),
         )
     }
 
