@@ -54,6 +54,8 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   modules: "modulos",
   forms: "formularios",
   payments: "cobranca",
+  reserva: "reservas",
+  "reserva-settings": "unidades-e-regras",
 };
 /** Segmentos de Equipe aceitos no endereço. */
 export const teamSegments = ["conversas", "pessoas", "bots", "setores"] as const;

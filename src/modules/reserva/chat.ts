@@ -700,7 +700,7 @@ async function askMine(flow: Flow) {
 /** Opções da reserva escolhida em Minhas reservas. */
 async function manageOptions(flow: Flow, b: Booking): Promise<Option[]> {
   const options: Option[] = [];
-  if (checkinOpen(flow.config, b, flow.at))
+  if (b.conversation_id === flow.c.id && checkinOpen(flow.config, b, flow.at))
     options.push({
       id: "checkin",
       title:

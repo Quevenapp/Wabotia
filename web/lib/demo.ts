@@ -2,6 +2,7 @@
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
+import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -362,6 +363,7 @@ const demoModules: Row[] = [
     navigation: [{ id: "payments", label: "Cobrança", place: "admin", admin: true }],
     menu_item_types: [],
   },
+  reservaDemoModule,
 ];
 
 function read(path: string, query: URLSearchParams): any {
@@ -492,6 +494,7 @@ function read(path: string, query: URLSearchParams): any {
     return { id: "demo-chat", peer: team[1], messages: internalMessages };
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
+  if (rest === "reserva" || rest.startsWith("reserva/")) return reservaDemo(rest, query);
   if (rest === "payments/account")
     return {
       configured: true,

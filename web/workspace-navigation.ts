@@ -1,7 +1,9 @@
 import {
   Activity,
+  BedDouble,
   Blocks,
   BookOpen,
+  CalendarRange,
   ClipboardList,
   CreditCard,
   Bot,
@@ -47,6 +49,8 @@ export const sections = [
   ["queue-settings", "Filas e guichês", Ticket],
   ["forms", "Formulários", ClipboardList],
   ["payments", "Cobrança", CreditCard],
+  ["reserva", "Reservas", BedDouble],
+  ["reserva-settings", "Unidades e regras", CalendarRange],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -110,6 +114,12 @@ export const workspaceGroups = [
     ],
   },
   {
+    id: "reserva",
+    label: "Reservas",
+    icon: BedDouble,
+    pages: ["reserva", "reserva-settings"],
+  },
+  {
     id: "channels",
     label: "WhatsApp e canais",
     icon: Phone,
@@ -153,6 +163,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
   "modules",
   "payments",
+  "reserva-settings",
 ]);
 
 /**
@@ -164,6 +175,8 @@ export const pageModules: Partial<Record<string, string>> = {
   "queue-settings": "queue",
   forms: "forms",
   payments: "payments",
+  reserva: "reserva",
+  "reserva-settings": "reserva",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -240,4 +253,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
+  reserva:
+    "Ocupação por unidade, reservas com sinal e check-in: crie, altere, confirme e cancele.",
+  "reserva-settings":
+    "Quartos, chalés, quadras e salões; bloqueios de datas e as regras de reserva, sinal e check-in.",
 };

@@ -30,6 +30,8 @@ import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
 import { PaymentsPage } from "./PaymentsPage";
+import { ReservaPage } from "../modules/reserva/ReservaPage";
+import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -135,6 +137,10 @@ function Page({ page }: { page: PageId }) {
       return <FormsPage />;
     case "payments":
       return <PaymentsPage />;
+    case "reserva":
+      return <ReservaPage />;
+    case "reserva-settings":
+      return <ReservaSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":
