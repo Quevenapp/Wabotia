@@ -7,6 +7,7 @@ import br.com.queven.wabotia.core.model.User
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
 import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.device.DeviceConfigStore
 import br.com.queven.wabotia.device.KeystoreDeviceConfigStore
@@ -111,6 +112,10 @@ class AppContainer(context: Context) {
 
     fun onLoggedOut(keepServer: Boolean) {
         val server = session.serverUrl
+        // Toda saída passa aqui, inclusive as forçadas (401, "Sair mesmo assim"): o token FCM é apagado, para o aparelho
+        // parar de receber avisos mesmo que o registro continue no servidor. Várias telas podem receber o mesmo 401:
+        // só a primeira saída (ainda com sessão) apaga. A demonstração nunca pediu token.
+        if ((_auth.value.isLoggedIn || session.token != null) && !DemoMode.isDemo(server)) PushRegistrar.forgetToken(this)
         session.clearSession()
         // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à tela Servidor.
         if (keepServer && !DemoMode.isDemo(server)) session.serverUrl = server

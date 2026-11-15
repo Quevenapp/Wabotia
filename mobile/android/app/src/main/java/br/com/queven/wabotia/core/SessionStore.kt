@@ -104,7 +104,8 @@ class SessionStore(context: Context) {
 
     /**
      * Apaga tudo o que é da conta: token, servidor, usuário, perfil, registro de push e cursores de eventos.
-     * Ficam só as preferências do aparelho (identificador da instalação, token FCM, notificações e aparência).
+     * Ficam só as preferências do aparelho (identificador da instalação, notificações e aparência); o token FCM é
+     * apagado à parte, por `PushRegistrar.forgetToken`, em toda saída da conta.
      */
     fun clearSession() {
         token = null
