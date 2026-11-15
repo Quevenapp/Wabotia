@@ -31,7 +31,12 @@ administradora): o item aparece no carrinho sem quantidade.
   meia-noite (18:00 às 02:00). Sem faixas, a loja fica sempre aberta.
 - **Pausar a loja** (quadro da cozinha): "loja fechada agora", para qualquer
   pessoa da equipe. Fechada ou pausada, o Cardápio responde com o horário (ou
-  a mensagem da pausa) e um carrinho aberto antes é recusado ao concluir.
+  a mensagem da pausa).
+- **Carrinho aberto antes**: ao pausar, os links de carrinho abertos são
+  cancelados; quem abrir ou enviar vê "Link indisponível" e pede um novo
+  quando a loja voltar. Se a loja fechar pelo horário ou um item esgotar
+  enquanto o cliente monta, a página recusa ao concluir, mostra o motivo e o
+  link continua aberto para ajustar.
 - **Pagamento**: Pix e cartão pelo link saem pela **Cobrança** (Gestão →
   Cobrança, Mercado Pago) e só aparecem com ela configurada; dinheiro e
   maquininha são pagos na entrega ou na retirada.
