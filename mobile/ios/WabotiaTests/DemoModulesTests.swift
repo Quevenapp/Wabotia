@@ -15,7 +15,53 @@ final class DemoModulesTests: XCTestCase {
 
     func testCapabilitiesListBothModules() async {
         let ids = await ModulesProbe(baseURL: base, profileId: DemoMode.profileId, token: { "wabu_demo" }, session: QueueHTTP.makeSession()).check()
-        XCTAssertEqual(ids, ["queue", "agenda", "os"])
+        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade"])
+    }
+
+    func testReservaDemo() async throws {
+        let reserva = ReservaClient(api: api)
+        let today = BrasiliaTime.today()
+        let calendar = try await reserva.calendar(from: today, to: BrasiliaTime.addDays(today, 13))
+        XCTAssertEqual(calendar.units?.count, 4)
+        XCTAssertTrue(calendar.units?.contains { $0.cells?.contains { $0.state == "blocked" } ?? false } ?? false, "há um bloqueio de manutenção")
+        XCTAssertTrue(calendar.bookings?.contains { $0.state == "pending_payment" } ?? false)
+        let free = try await reserva.dailyAvailability(start: today, nights: 2, guests: 2)
+        XCTAssertEqual(free.units?.first { $0.unitId == "u_mar" }?.available, false, "a suíte está ocupada hoje")
+        let available = try XCTUnwrap(free.units?.first { $0.available == true })
+        let created = try await reserva.create(["unit_id": available.unitId, "start_date": today, "nights": 2, "guests": 2, "customer_name": "Hóspede de teste"], key: "rs-a")
+        XCTAssertEqual(created.state, "confirmed")
+        do {
+            _ = try await reserva.create(["unit_id": available.unitId, "start_date": today, "nights": 2, "guests": 2, "customer_name": "Outro"], key: "rs-b")
+            XCTFail("mesma unidade, mesmo período")
+        } catch { XCTAssertEqual((error as? QueueError)?.code, "unit_unavailable") }
+        do {
+            _ = try await reserva.create(["unit_id": "u_mar", "start_date": today, "nights": 20, "guests": 2, "customer_name": "Longa"], key: "rs-c")
+            XCTFail("acima da estadia máxima")
+        } catch { XCTAssertTrue(ReservaRules.isConflict(error)) }
+        _ = try await reserva.cancel(created.id, reason: nil, key: "rs-d")
+        do { _ = try await reserva.confirm(created.id, key: "rs-e"); XCTFail() } catch { XCTAssertEqual((error as? QueueError)?.code, "booking_closed") }
+        let hourly = try await reserva.hourlyAvailability(date: BrasiliaTime.addDays(today, 3), minutes: 120, unitId: "u_salao")
+        XCTAssertFalse(hourly.units?.first?.slots?.isEmpty ?? true)
+    }
+
+    func testMensalidadeDemo() async throws {
+        let ms = MensalidadeClient(api: api)
+        let month = MensalidadeRules.currentMonth()
+        let summary = try await ms.summary(month: month)
+        XCTAssertGreaterThan(summary.receivedCents ?? 0, 0)
+        XCTAssertGreaterThan(summary.overdueCents ?? 0, 0)
+        let page = try await ms.installments(month: month, statuses: ["open"])
+        XCTAssertEqual(page.data?.count, 2)
+        let late = try await ms.delinquents()
+        XCTAssertEqual(late.first?.overdueCount, 2, "a aluna com duas parcelas vencidas vem primeiro")
+        let open = try XCTUnwrap(page.data?.first)
+        let paid = try await ms.pay(open.id, note: "dinheiro", paidAt: BrasiliaTime.today(), notify: false, key: "ms-a")
+        XCTAssertEqual(paid.state, "paid")
+        do { _ = try await ms.waive(open.id, note: nil, key: "ms-b"); XCTFail() } catch { XCTAssertEqual((error as? QueueError)?.code, "installment_not_payable") }
+        let paused = try await ms.subscriptionAction("ms_1", "pause", key: "ms-c")
+        XCTAssertEqual(paused.state, "paused")
+        let detail = try await ms.subscription("ms_3")
+        XCTAssertEqual(detail.installments?.count, 2)
     }
 
     func testAgendaDayAvailabilityAndConflict() async throws {

@@ -291,6 +291,11 @@ final class BookingFormViewModel: ObservableObject {
                 let found = try await client.dailyAvailability(start: startDate, nights: nights, guests: guests)
                 guard mine == generation else { return }
                 daily = found.units ?? []
+                // Reserva nova sem unidade escolhida de antemão: começa numa unidade livre no período.
+                if case let .new(_, _, preset, _) = purpose, preset == nil, chosenDaily?.available == false,
+                   let free = daily.first(where: { $0.available != false }) {
+                    unitId = free.unitId
+                }
             }
         } catch {
             guard mine == generation else { return }

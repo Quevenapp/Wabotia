@@ -17,6 +17,11 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > menu **⋯** traz **Agendar para este cliente** e **Abrir ordem de serviço**. Na demonstração, um cliente fictício marca
 > um horário depois de 40 segundos e outro aprova um orçamento depois de um minuto, e as telas abertas se atualizam.
 >
+> Ainda em **Ajustes → Atendimento**: **Reservas** (uma pousada de exemplo: ocupação das acomodações por dia, lista de
+> reservas, detalhe com sinal e check-in; o **+** reserva uma acomodação ou o salão por hora) e **Mensalidades** (uma
+> escola de idiomas de exemplo: resumo do mês, parcelas, assinaturas e inadimplentes; numa parcela, reenviar a cobrança,
+> dar baixa ou isentar).
+>
 > O mesmo app também transforma um iPad ou iPhone da recepção em totem de senhas ou painel de chamadas. Para ver: na
 > primeira tela, toque em **Ver o modo painel ou totem (demonstração)** → **Gerar código** (o código de exemplo é
 > aprovado sozinho em 2 segundos) → escolha **Totem**, **Painel de chamadas** ou **Painel híbrido**. O totem emite a
@@ -39,6 +44,11 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > delivery and a printed receipt). In a customer's conversation, the **⋯** menu offers **Agendar para este cliente**
 > (book for this customer) and **Abrir ordem de serviço** (open a service order). In the demo, a fictitious customer
 > books a slot after 40 seconds and another approves a quote after one minute, and the open screens update themselves.
+>
+> Also under **Ajustes → Atendimento**: **Reservas** (a sample guesthouse: daily occupancy of the rooms, the bookings list,
+> detail with deposit and check-in; **+** books a room or the hall by the hour) and **Mensalidades** (a sample language
+> school: the month's summary, installments, subscriptions and overdue customers; on an installment, resend the charge,
+> record a payment or waive it).
 >
 > The same app also turns a front-desk iPad or iPhone into a ticket kiosk or a call display. To see it: on the first
 > screen tap **Ver o modo painel ou totem (demonstração)** → **Gerar código** (the sample code is approved by itself

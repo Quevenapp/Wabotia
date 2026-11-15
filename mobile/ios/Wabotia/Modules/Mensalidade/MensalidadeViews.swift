@@ -33,7 +33,7 @@ struct MensalidadeView: View {
                 if vm.mode == .month {
                     HStack {
                         IconButton(systemName: "chevron.left", label: "Mês anterior") { vm.shiftMonth(-1) }
-                        Text(MensalidadeRules.monthTitle(vm.month).capitalized).font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary).frame(maxWidth: .infinity)
+                        Text(MensalidadeRules.monthTitle(vm.month).prefix(1).uppercased() + MensalidadeRules.monthTitle(vm.month).dropFirst()).font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary).frame(maxWidth: .infinity)
                         IconButton(systemName: "chevron.right", label: "Próximo mês") { vm.shiftMonth(1) }
                     }
                 }

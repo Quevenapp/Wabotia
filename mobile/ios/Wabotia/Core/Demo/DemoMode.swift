@@ -192,6 +192,13 @@ extension DemoMode {
         case "os": launch.tab = "settings"; launch.route = .serviceOrders
         case "os-detail": launch.tab = "settings"; launch.route = .serviceOrder(id: "os_6")
         case "os-new": launch.route = .newServiceOrder(conversationId: "c_rich", customer: "Mariana Costa")
+        // Reserva e Mensalidade (WABOTIA_DEMO_ACTION=list abre a lista de reservas; subscriptions e delinquents, as abas).
+        case "reserva": launch.tab = "settings"; launch.route = .reserva
+        case "reserva-booking": launch.tab = "settings"; launch.route = .booking(id: "rs_1")
+        case "booking-new": launch.route = .bookingForm(conversationId: "c_rich", customer: "Mariana Costa", unitId: nil, date: nil)
+        case "mensalidade": launch.tab = "settings"; launch.route = .mensalidade
+        case "installment": launch.tab = "settings"; launch.route = .installment(id: "mi_6")
+        case "subscription": launch.tab = "settings"; launch.route = .subscription(id: "ms_3")
         case "menus": launch.tab = "settings"; launch.route = .menus
         default: break
         }

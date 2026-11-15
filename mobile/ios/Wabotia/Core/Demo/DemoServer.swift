@@ -110,6 +110,9 @@ final class DemoServer {
     /// Agenda (barbearia) e Ordem de Serviço (assistência técnica), em `DemoModules.swift`.
     private(set) lazy var agenda = DemoAgenda(t0: start)
     private(set) lazy var ordens = DemoServiceOrders(t0: start)
+    /// Reserva (pousada) e Mensalidade (escola de idiomas), em `DemoModulesExtra.swift`.
+    private(set) lazy var reserva = DemoReserva(t0: start)
+    private(set) lazy var mensalidade = DemoMensalidade(t0: start)
 
     private init() { buildFixtures() }
 
@@ -480,6 +483,8 @@ final class DemoServer {
         let emitter: DemoEmit = { [unowned self] kind, payload in self.emit(kind, payload) }
         if let reply = agenda.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = reserva.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }
