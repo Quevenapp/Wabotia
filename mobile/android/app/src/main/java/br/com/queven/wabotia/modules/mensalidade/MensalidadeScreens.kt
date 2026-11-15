@@ -222,8 +222,18 @@ private fun Amount(label: String, cents: Long?, color: Color, modifier: Modifier
     }
 }
 
+/**
+ * Uma parcela na lista. Nas parcelas dentro da assinatura o servidor não repete cliente e plano: vêm da assinatura
+ * ([customerName] e [planName]), como no iOS.
+ */
 @Composable
-private fun InstallmentRow(i: Installment, showCustomer: Boolean = true, modifier: Modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), onClick: () -> Unit) {
+private fun InstallmentRow(
+    i: Installment,
+    customerName: String? = null,
+    planName: String? = null,
+    modifier: Modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    onClick: () -> Unit,
+) {
     val c = Wb.colors
     WbCard(modifier.testTag("mensalidade.installment"), onClick = onClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -232,8 +242,8 @@ private fun InstallmentRow(i: Installment, showCustomer: Boolean = true, modifie
                 Text("vence", fontSize = 11.sp, color = c.textSecondary)
             }
             Column(Modifier.weight(1f)) {
-                Text(if (showCustomer) i.customerName else i.periodLabel ?: i.periodKey.orEmpty(), color = c.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val detail = listOfNotNull(i.planName.takeIf { showCustomer }, i.periodLabel.takeIf { showCustomer }).joinToString(" · ")
+                Text(MensalidadeRules.rowTitle(i, customerName), color = c.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val detail = MensalidadeRules.rowDetail(i, planName)
                 if (detail.isNotEmpty()) Text(detail, color = c.textSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Column(horizontalAlignment = Alignment.End) {
@@ -271,8 +281,8 @@ private fun SubscriptionList(vm: MensalidadeViewModel, open: (String) -> Unit) {
                         listOfNotNull(s.planName, s.charge?.let(Money::format), s.dueDay?.let { "dia $it" }).joinToString(" · "),
                         color = c.textSecondary, style = MaterialTheme.typography.bodySmall,
                     )
-                    if (payer != null || s.payer?.documentDisplay != null) {
-                        Text("Pagador: " + listOfNotNull(payer ?: s.payer?.name, s.payer?.documentDisplay).joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
+                    if (payer != null || s.payer?.documentText != null) {
+                        Text("Pagador: " + listOfNotNull(payer ?: s.payer?.name, s.payer?.documentText).joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
                     }
                     if ((s.overdueCount ?: 0) > 0) {
                         Text("${countText(s.overdueCount ?: 0, "parcela vencida", "parcelas vencidas")} · ${Money.format(s.overdueCents ?: 0)}", color = c.danger, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
@@ -309,7 +319,30 @@ private fun DelinquentList(vm: MensalidadeViewModel, open: (String) -> Unit) {
                         color = c.textSecondary, style = MaterialTheme.typography.bodySmall,
                     )
                     Text("${countText(d.noticesSent ?: 0, "aviso enviado", "avisos enviados")}" + if (d.subscriptionStatus != null && d.subscriptionStatus != "active") " · assinatura ${MensalidadeRules.subscriptionLabel(d.subscriptionStatus).lowercase()}" else "", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
+                    // O pagador (nome, documento e telefones autorizados), buscado quando a linha aparece.
+                    LaunchedEffect(d.subscriptionId) { vm.loadPayer(d.subscriptionId) }
+                    vm.payers[d.subscriptionId]?.let { PayerSummary(it) }
                 }
+            }
+        }
+    }
+}
+
+/** O pagador na linha do inadimplente: nome e documento, e os telefones autorizados. */
+@Composable
+private fun PayerSummary(payer: Payer) {
+    val c = Wb.colors
+    val phones = MensalidadeRules.phones(payer, null).map { it.first }
+    Column(Modifier.padding(top = 2.dp).testTag("mensalidade.delinquent.payer")) {
+        Text(
+            "Pagador: " + listOfNotNull(payer.displayName, payer.documentText).joinToString(" · "),
+            color = c.textPrimary, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        if (phones.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Phone, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(phones.joinToString(", "), color = c.textSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -326,7 +359,7 @@ private fun PayerCard(payer: Payer?, ref: PayerRef?, customer: MensalidadeCustom
                 Text(payer?.displayName ?: ref?.name ?: customer?.displayName ?: "Cliente", Modifier.weight(1f), color = c.textPrimary, fontWeight = FontWeight.SemiBold)
                 payer?.situation?.status?.let { Pill(MensalidadeRules.situationLabel(it), mensalidadeColor(it)) }
             }
-            (payer?.documentText ?: ref?.documentDisplay)?.let { Text(it, color = c.textSecondary, style = MaterialTheme.typography.bodyMedium) }
+            (payer?.documentText ?: ref?.documentText)?.let { Text(it, color = c.textSecondary, style = MaterialTheme.typography.bodyMedium) }
             if (payer != null && payer.documentText == null) Text("Sem CPF ou CNPJ cadastrado", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
             val phones = MensalidadeRules.phones(payer, customer)
             if (phones.isNotEmpty()) {
@@ -574,7 +607,7 @@ fun SubscriptionScreen(container: AppContainer, id: String, onBack: () -> Unit, 
                 val list = s.installments.orEmpty()
                 SectionLabel("Parcelas · ${list.size}", Modifier.padding(start = 0.dp))
                 if (list.isEmpty()) Text("Nenhuma parcela gerada ainda.", color = c.textSecondary)
-                list.forEach { i -> InstallmentRow(i, showCustomer = false, modifier = Modifier) { openInstallment(i.id) } }
+                list.forEach { i -> InstallmentRow(i, customerName = s.customer?.displayName, planName = s.planName, modifier = Modifier) { openInstallment(i.id) } }
             }
         }
     }

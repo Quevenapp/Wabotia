@@ -12,6 +12,7 @@ import br.com.queven.wabotia.modules.mensalidade.MensalidadeRules
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeViewModel
 import br.com.queven.wabotia.modules.mensalidade.Payer
 import br.com.queven.wabotia.modules.mensalidade.PayerPhone
+import br.com.queven.wabotia.modules.mensalidade.PayerRef
 import br.com.queven.wabotia.modules.mensalidade.Subscription
 import br.com.queven.wabotia.modules.mensalidade.SubscriptionViewModel
 import br.com.queven.wabotia.queue.QueueException
@@ -88,6 +89,39 @@ class MensalidadeTest {
         assertEquals(listOf("(20) 90774-2222" to "Helena", "(20) 90774-1111" to "Gabriel (filho)"), phones)
         // Sem pagador (servidor antigo): o telefone da assinatura.
         assertEquals(listOf("(20) 90774-1111" to null), MensalidadeRules.phones(null, MensalidadeCustomer(phone = "5520907741111")))
+    }
+
+    @Test fun documentoDoPagadorEParcelaDentroDaAssinatura() {
+        assertEquals("CPF ***.456.789-**", MensalidadeRules.documentText("***.456.789-**", "cpf"))
+        assertEquals("CNPJ 11.222.333/0001-81", MensalidadeRules.documentText(" 11.222.333/0001-81 ", "CNPJ"))
+        // Sem o tipo (pagador resumido na assinatura): a barra do CNPJ decide.
+        assertEquals("CNPJ AB.CDE.FGH/0001-00", PayerRef("p", documentDisplay = "AB.CDE.FGH/0001-00").documentText)
+        assertEquals("CPF ***.456.789-**", PayerRef("p", documentDisplay = "***.456.789-**").documentText)
+        assertNull(MensalidadeRules.documentText("  "))
+        assertNull(Payer("p").documentText)
+        // Dentro da assinatura o servidor não repete cliente e plano: vêm da assinatura.
+        val bare = Installment(id = "i", periodLabel = "Novembro de 2026")
+        assertEquals("Gabriel Prado", MensalidadeRules.rowTitle(bare, "Gabriel Prado"))
+        assertEquals("Inglês · Novembro de 2026", MensalidadeRules.rowDetail(bare, "Inglês"))
+        val full = bare.copy(customer = MensalidadeCustomer(name = "Helena"), planName = "Espanhol")
+        assertEquals("Helena", MensalidadeRules.rowTitle(full, "Gabriel Prado"))
+        assertEquals("Espanhol · Novembro de 2026", MensalidadeRules.rowDetail(full, "Inglês"))
+        assertEquals("Cliente", MensalidadeRules.rowTitle(bare))
+    }
+
+    @Test fun pagadorDosInadimplentes() = runTest {
+        val vm = MensalidadeViewModel(deps(), initialMode = MensalidadeViewModel.Mode.DELINQUENTS)
+        vm.load()
+        val ids = vm.delinquents.map { it.subscriptionId }
+        assertTrue("ms-3" in ids)
+        ids.forEach { vm.loadPayer(it) }
+        val payer = vm.payers["ms-3"]
+        assertEquals("py-3", payer?.id)
+        assertEquals(listOf("(20) 90988-7766"), MensalidadeRules.phones(payer, null).map { it.first })
+        // Já carregado: não busca de novo; assinatura que não existe não guarda nada (tenta de novo depois).
+        vm.loadPayer("ms-3")
+        vm.loadPayer("nao-existe")
+        assertFalse("nao-existe" in vm.payers)
     }
 
     @Test fun mesNaDemonstracao() = runTest {

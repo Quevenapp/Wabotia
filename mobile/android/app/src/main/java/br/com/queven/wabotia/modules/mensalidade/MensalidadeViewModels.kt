@@ -67,11 +67,37 @@ class MensalidadeViewModel(private val deps: MensalidadeDeps, container: AppCont
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /**
+     * Pagador de cada assinatura na aba dos inadimplentes: `GET /delinquents` não traz o pagador, então a linha o busca
+     * pela assinatura quando aparece, uma vez. Valor `null` guardado: sem pagador (servidor antigo).
+     */
+    var payers by mutableStateOf<Map<String, Payer?>>(emptyMap())
+        private set
 
     private var job: Job? = null
+    private val payerLoading = mutableSetOf<String>()
 
     init {
         container?.let { observeModuleEvents(it, "mensalidade.") { load() } }
+    }
+
+    /** Busca o pagador da assinatura (com os telefones); sem a rota de pagadores, fica o resumo da assinatura. */
+    suspend fun loadPayer(subscriptionId: String) {
+        if (subscriptionId in payers || !payerLoading.add(subscriptionId)) return
+        try {
+            // Sem rede, nada fica guardado: a linha tenta de novo quando aparecer outra vez.
+            val ref = try {
+                deps.client.subscription(subscriptionId).payer
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return
+            }
+            val found = ref?.let { r -> runCatching { deps.client.payer(r.id) }.getOrNull() ?: Payer(r.id, name = r.name, documentDisplay = r.documentDisplay) }
+            payers = payers + (subscriptionId to found)
+        } finally {
+            payerLoading.remove(subscriptionId)
+        }
     }
 
     private val empty: Boolean get() = summary == null && installments.isEmpty() && subscriptions.isEmpty() && delinquents.isEmpty()

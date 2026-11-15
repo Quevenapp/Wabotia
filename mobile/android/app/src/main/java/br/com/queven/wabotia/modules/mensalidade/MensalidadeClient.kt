@@ -34,7 +34,10 @@ data class PayerRef(
     val id: String,
     val name: String? = null,
     @SerialName("document_display") val documentDisplay: String? = null,
-)
+) {
+    /** "CPF …" / "CNPJ …" (a assinatura não manda o tipo: a barra do CNPJ decide); `null` sem documento. */
+    val documentText: String? get() = MensalidadeRules.documentText(documentDisplay)
+}
 
 @Serializable
 data class PayerPhone(val phone: String, val label: String? = null, val created: Long? = null)
@@ -64,8 +67,7 @@ data class Payer(
     val displayName: String get() = name?.takeIf { it.isNotBlank() } ?: "Pagador"
 
     /** "CPF 123…" / "CNPJ …"; `null` sem documento. */
-    val documentText: String?
-        get() = documentDisplay?.takeIf { it.isNotBlank() }?.let { (if (documentType == "cpf") "CPF " else if (documentType == "cnpj") "CNPJ " else "") + it }
+    val documentText: String? get() = MensalidadeRules.documentText(documentDisplay, documentType)
 }
 
 @Serializable
@@ -306,6 +308,13 @@ object MensalidadeRules {
     fun count(counts: Map<String, Int>, filter: String): Int =
         if (filter == "all") counts.values.sum() else FILTERS.firstOrNull { it.first == filter }?.third.orEmpty().sumOf { counts[it] ?: 0 }
 
+    /** Título da linha da parcela: o cliente da parcela ou, dentro da assinatura (o servidor não repete), o dela. */
+    fun rowTitle(i: Installment, customerName: String? = null): String = i.customer?.displayName ?: customerName?.takeIf { it.isNotBlank() } ?: "Cliente"
+
+    /** Plano (o da parcela ou o da assinatura) e competência. */
+    fun rowDetail(i: Installment, planName: String? = null): String =
+        listOfNotNull(i.planName?.takeIf { it.isNotBlank() } ?: planName?.takeIf { it.isNotBlank() }, i.periodLabel?.takeIf { it.isNotBlank() } ?: i.periodKey).joinToString(" · ")
+
     /** "2026-11-10" → "10/11/2026". */
     fun dueText(day: String?): String = day?.let(BrasiliaTime::shortDay) ?: "—"
 
@@ -323,6 +332,20 @@ object MensalidadeRules {
         }
         if (BrasiliaTime.parse(iso) == null || iso > today) return null
         return iso
+    }
+
+    /**
+     * "CPF 123.456.789-09" / "CNPJ 12.345.678/0001-95" do documento já formatado pelo servidor; sem o tipo (o pagador
+     * resumido na assinatura não manda), a barra do CNPJ decide. `null` sem documento.
+     */
+    fun documentText(display: String?, type: String? = null): String? {
+        val d = display?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val kind = when (type?.lowercase()) {
+            "cpf" -> "CPF"
+            "cnpj" -> "CNPJ"
+            else -> if ('/' in d) "CNPJ" else "CPF"
+        }
+        return "$kind $d"
     }
 
     /** Os telefones do pagador (com o rótulo de quem é) ou, sem pagador, o telefone da assinatura; sem repetir. */
