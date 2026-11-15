@@ -256,7 +256,11 @@ export async function listOrders(
     where.push("number<?");
     args.push(before);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  // Inteiro (revisão B10: LIMIT não inteiro dava erro interno).
+  const limit = Math.min(
+    Math.max(Math.trunc(Number(query.limit)) || 50, 1),
+    200,
+  );
   const rows = await all(
     ctx.env,
     `SELECT * FROM os_orders WHERE ${where.join(" AND ")} ORDER BY number DESC LIMIT ?`,

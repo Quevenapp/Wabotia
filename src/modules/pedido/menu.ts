@@ -868,11 +868,19 @@ export function cartCategories(menu: Menu) {
 
 /** Itens do cardápio pelo retailer_id do catálogo da Meta. */
 export async function itemsByRetailer(ctx: ModuleContext, ids: string[]) {
-  if (!ids.length) return [];
-  return all(
-    ctx.env,
-    `SELECT * FROM pedido_items WHERE profile_id=? AND retailer_id IN (${ids.map(() => "?").join(",")})`,
-    ctx.profile,
-    ...ids,
-  );
+  // Em lotes: o D1 aceita até 100 parâmetros por instrução (revisão B10).
+  const unique = [...new Set(ids)];
+  const rows: any[] = [];
+  for (let i = 0; i < unique.length; i += 90) {
+    const part = unique.slice(i, i + 90);
+    rows.push(
+      ...(await all(
+        ctx.env,
+        `SELECT * FROM pedido_items WHERE profile_id=? AND retailer_id IN (${part.map(() => "?").join(",")})`,
+        ctx.profile,
+        ...part,
+      )),
+    );
+  }
+  return rows;
 }

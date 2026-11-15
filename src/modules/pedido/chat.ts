@@ -354,6 +354,9 @@ interface CatalogDraft {
   fulfillment?: "pickup" | "delivery";
 }
 
+/** Produtos distintos num carrinho do catálogo tratado pelo módulo. */
+export const CATALOG_ORDER_PRODUCTS = 60;
+
 /**
  * Carrinho enviado pelo catálogo do WhatsApp: vira pedido quando todos os
  * produtos têm retailer_id cadastrado no cardápio (preços do cardápio, nunca
@@ -377,7 +380,10 @@ export async function catalogOrder(
     if (!id || !Number.isInteger(quantity) || quantity < 1) return false;
     quantities.set(id, (quantities.get(id) || 0) + quantity);
   }
-  if (!quantities.size) return false;
+  // Carrinho com produtos demais vai para a equipe, como o sem
+  // correspondência (revisão B10: lista IN acima do limite do D1).
+  if (!quantities.size || quantities.size > CATALOG_ORDER_PRODUCTS)
+    return false;
   const items = await itemsByRetailer(ctx, [...quantities.keys()]);
   if (items.length !== quantities.size) return false;
   const key = `catalog:${rowId}`;

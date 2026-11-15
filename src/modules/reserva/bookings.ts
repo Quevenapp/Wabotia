@@ -242,11 +242,17 @@ export async function listBookings(
     if (digits.length >= 4) args.push(`%${digits}%`);
     if (number !== null) args.push(number);
   }
-  const limit = Math.min(Math.max(filter.limit || 500, 1), 1000);
+  // Inteiro entre 1 e 1000; não inteiro ou inválido vira o padrão, e o valor
+  // vai por parâmetro (revisão B10: LIMIT 10.5 dava erro interno).
+  const asked = Number(filter.limit);
+  const limit = Number.isInteger(asked)
+    ? Math.min(Math.max(asked, 1), 1000)
+    : 500;
   const rows = await all(
     ctx.env,
-    `SELECT * FROM reserva_bookings WHERE ${where.join(" AND ")} ORDER BY starts LIMIT ${limit}`,
+    `SELECT * FROM reserva_bookings WHERE ${where.join(" AND ")} ORDER BY starts LIMIT ?`,
     ...args,
+    limit,
   );
   return rows.map(bookingView);
 }
