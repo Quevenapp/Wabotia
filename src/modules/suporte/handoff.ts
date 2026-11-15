@@ -28,11 +28,7 @@ export async function activeRelease(
     if (row.until_ticket) {
       // Vale enquanto houver protocolo ativo, ou enquanto a conversa estiver
       // com a equipe.
-      const ticket = await one(
-        ctx.env,
-        "SELECT id FROM tickets WHERE conversation_id=? AND status NOT IN ('resolved','closed') LIMIT 1",
-        c.id,
-      );
+      const ticket = await ctx.activeTicket(c);
       if (ticket || ["waiting", "human"].includes(c.state)) return row;
     }
   }

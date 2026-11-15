@@ -29,6 +29,7 @@ import {
   requireValue,
 } from "../types";
 import { access } from "../security";
+import { activeTicketSql } from "../protocols";
 import { event } from "../events";
 import {
   conversation,
@@ -127,6 +128,12 @@ export interface ModuleContext {
     phone: string,
     options?: { open?: boolean; connection_id?: string },
   ): Promise<Conversation | null>;
+  /**
+   * Protocolo ativo da conversa (não resolvido nem fechado, o mais recente),
+   * ou null: `{id, number, status, title, created}`. Para regras como "vale
+   * até o protocolo fechar", sem ler a tabela tickets.
+   */
+  activeTicket(c: Conversation | string): Promise<ActiveTicket | null>;
   /** Contato vinculado à conversa, ou null. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
   /**
@@ -219,6 +226,14 @@ export interface ModuleContext {
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
 }
 
+export interface ActiveTicket {
+  id: string;
+  number: string;
+  status: string;
+  title: string;
+  created: number;
+}
+
 export interface SendOptions {
   key: string;
   actor?: string;
@@ -296,6 +311,14 @@ export function modulesApi(
         connectionId: options.connection_id ?? null,
         module: moduleId,
       }),
+    activeTicket(c) {
+      return one<ActiveTicket>(
+        env,
+        `SELECT id,number,status,title,created FROM tickets WHERE conversation_id=? AND profile_id=? AND ${activeTicketSql()} ORDER BY created DESC,id DESC LIMIT 1`,
+        typeof c === "string" ? c : c.id,
+        profile,
+      );
+    },
     async contact(c) {
       const id = typeof c === "string" ? c : c.id;
       return one<ContactSummary>(

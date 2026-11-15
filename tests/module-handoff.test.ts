@@ -120,6 +120,38 @@ describe("ctx.handoff", () => {
     });
   });
 
+  it("ctx.activeTicket: protocolo ativo da conversa, null depois de resolvido", async () => {
+    const { f, c, ctx } = await setup();
+    const resolve = (id: string) =>
+      perform(
+        env,
+        f.admin,
+        f.profile,
+        "ticket.update",
+        { id, status: "resolved" },
+        uid(),
+      );
+    // A mensagem do setup (sem bot, equipe ausente) já abriu um protocolo.
+    const absence = await ctx.activeTicket(c);
+    if (absence) await resolve(absence.id);
+    expect(await ctx.activeTicket(c)).toBeNull();
+    const opened = await perform(
+      env,
+      f.admin,
+      f.profile,
+      "ticket.create",
+      { conversation_id: c.id, title: "Impressora parada" },
+      uid(),
+    );
+    expect(await ctx.activeTicket(c.id)).toMatchObject({
+      id: opened.id,
+      title: "Impressora parada",
+      status: "open",
+    });
+    await resolve(opened.id);
+    expect(await ctx.activeTicket(c)).toBeNull();
+  });
+
   it("recusa destino inválido e marcadores fora do limite", async () => {
     const { c, ctx } = await setup();
     await expect(

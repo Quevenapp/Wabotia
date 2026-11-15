@@ -105,6 +105,10 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
   dependentes na mesma entrega.
 - Declare em `requires` todo módulo cujo `public.ts` você importa: é assim
   que o núcleo garante que ele está ligado quando o seu código roda.
+- Exemplo em uso: o Suporte pago tem `requires: ["mensalidade"]`. Desligar a
+  Mensalidade desliga o Suporte. Para vender só o atendimento avulso, deixe a
+  Mensalidade ligada e desmarque "Oferecer planos mensais" nas regras do
+  Suporte.
 
 ## 2. Interface interna (`src/modules/api.ts`)
 
@@ -115,6 +119,7 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
+| `activeTicket(c)` | Protocolo ativo da conversa (não resolvido nem fechado, o mais recente) ou null: `{id, number, status, title, created}`. Para regras como "vale até o protocolo fechar", sem ler a tabela `tickets` |
 | `conversationByPhone(phone, {open?, connection_id?})` | Conversa individual da área com o telefone (aceita com e sem o 9 do celular; sem DDI, no formato brasileiro, recebe 55), ou null. Com `open: true`, abre uma na linha oficial (Zernio) para o cliente que nunca escreveu: nasce sem janela de 24 h, então só sai notificação por modelo (`notification: true`, com o consentimento da finalidade) até ele responder, e a resposta cai na mesma conversa mesmo que o WhatsApp mande outro identificador. Publica `conversation.created` com `opened_by: "module:<id>"` |
 | `handoff(c, {target?, summary?, flags?, reason?, key?})` | Passa a conversa para atendimento humano: `target: {department_id}` (setor), `{user_id}` (pessoa, como a transferência da equipe) ou nada (fila geral). `summary` (até 3000) e `flags` (até 10, de até 60 caracteres, ex. "telefone não vinculado") viram nota interna e o campo `handoff` `{module, summary, flags, at}` do detalhe da conversa, mostrado no painel; somem na próxima passagem sem módulo e ao encerrar. Com `key`, repetir não passa de novo. Não passa pelos ganchos `onHandoffRequest` (é como o módulo libera a conversa que segurou). Devolve a conversa atualizada |
 | `establishment()` | Dados do estabelecimento para cupom, comanda, recibo e mensagens: `{name, document, document_type: "cpf"\|"cnpj"\|null, document_display, address, phone, footer, configured}`. Sem cadastro, `name` é o nome da área e `configured` é falso. Os aplicativos leem o mesmo em `GET /profiles/{p}/establishment`; as páginas do passo web já mostram nome no cabeçalho e o resto no rodapé |

@@ -2,7 +2,9 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { json, uid } from "../src/types";
-import { api, bearer, claim, configure } from "./service-center-fixture";
+import { conversation } from "../src/service";
+import { processRun } from "../src/engine";
+import { api, bearer, bot, claim, configure } from "./service-center-fixture";
 import { useMercadoPago } from "./mensalidade-mp";
 import {
   lastText,
@@ -86,6 +88,66 @@ describe("suporte: toda passagem automática para humano passa pela regra", () =
         c.id,
       ),
     ).toEqual({ n: 0 });
+  });
+
+  it("bot de IA que decide transferir também passa pela regra (não contorna o pagamento)", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const botId = await bot(f);
+    await configure(f, { attendant_bot: botId });
+    // Pergunta sem palavra-chave: vai para o bot, que decide "humano".
+    const ask = async (phone: string) => {
+      await talk(f, "minha impressora parou de imprimir", phone);
+      const c = await one(
+        env,
+        "SELECT * FROM conversations WHERE profile_id=? AND phone=?",
+        f.profile,
+        phone,
+      );
+      const run = await one(
+        env,
+        "SELECT * FROM bot_runs WHERE conversation_id=? ORDER BY created DESC,rowid DESC LIMIT 1",
+        c.id,
+      );
+      expect(run).toBeTruthy();
+      await exec(
+        env,
+        "UPDATE bot_runs SET status='completed',result=? WHERE id=?",
+        JSON.stringify({
+          action: "human",
+          text: "Cliente pede um técnico para a impressora.",
+        }),
+        run.id,
+      );
+      await processRun(
+        env,
+        await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id),
+      );
+      return conversation(env, c.id, f.profile);
+    };
+    // Sem pagamento: o Suporte segura e pede o CPF/CNPJ.
+    const free = await ask("5511972000005");
+    expect(free.state).not.toBe("waiting");
+    expect(await lastText(free.id)).toContain(
+      "digite o CPF ou o CNPJ de quem paga",
+    );
+    const held = (
+      await all(
+        env,
+        "SELECT payload FROM events WHERE profile_id=? AND kind='conversation.updated' AND resource_id=?",
+        f.profile,
+        free.id,
+      )
+    ).map((r) => json(r.payload).handoff_held);
+    expect(held).toContainEqual({
+      module: "suporte",
+      source: "bot",
+      reason: "Bot transferiu para a equipe humana.",
+    });
+    // Pagador em dia: a transferência do bot segue para a equipe.
+    const paid = "5511972000006";
+    await payerEmDia(s, paid);
+    expect((await ask(paid)).state).toBe("waiting");
   });
 
   it("Suporte desligado (efetivo): o núcleo passa sem consultar", async () => {
