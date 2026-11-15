@@ -725,15 +725,29 @@ export async function confirmBooking(
   const before = await activeBooking(ctx, input.id);
   if (before.status === "confirmed") return before;
   const at = clock();
-  await exec(
+  const done = await exec(
     ctx.env,
-    "UPDATE reserva_bookings SET status='confirmed',confirmed_at=?,confirmed_by=?,updated=? WHERE id=? AND profile_id=? AND status='pending_payment'",
+    "UPDATE reserva_bookings SET status='confirmed',confirmed_at=?,confirmed_by=?,updated=? WHERE id=? AND profile_id=? AND status='pending_payment' AND starts=? AND unit_id=?",
     at,
     input.actor,
     at,
     before.id,
     ctx.profile,
+    before.starts,
+    before.unit_id,
   );
+  // Corrida (revisão B7): liberada pelo prazo, paga ou alterada no meio.
+  // Sem linha mudada, nada de evento nem aviso ao cliente.
+  if (!done.meta?.changes) {
+    const now = await getBooking(ctx, before.id);
+    if (now.status === "confirmed") return now;
+    await activeBooking(ctx, before.id);
+    throw new ApiError(
+      409,
+      "booking_changed",
+      "Esta reserva acabou de mudar. Atualize e tente de novo.",
+    );
+  }
   const after = await getBooking(ctx, before.id);
   await publish(ctx, "reserva.confirmed", after, input.actor, {
     by: "staff",
