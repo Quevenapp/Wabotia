@@ -70,3 +70,22 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
 
 Rotas, formatos e eventos em [API.md](API.md#ordem-de-serviço-módulo-os) e no
 OpenAPI (`/api/openapi.json`, tag Módulos).
+
+**Contagem por estado.** `GET /profiles/{perfil}/service-orders` traz, além
+de `data` e `next_cursor`, o mapa `counts`: número de ordens da área em cada
+estado, para os chips de filtro e os totais das telas.
+
+```json
+"counts": { "received": 3, "analyzing": 1, "quoted": 2, "in_progress": 4, "ready": 1, "delivered": 12 }
+```
+
+- As chaves são os códigos de estado, iguais ao campo `status` das ordens:
+  `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`,
+  `ready`, `delivered`, `cancelled` (em inglês, minúsculas, com `_`).
+- **Só aparecem os estados com ao menos uma ordem**; chave ausente vale 0.
+  Os valores são inteiros.
+- A contagem é da área inteira: **não** segue os filtros da consulta
+  (`status`, `open`, `q`, `phone`, `conversation_id`) nem a paginação. Para
+  "abertas", some tudo menos `delivered` e `cancelled`.
+- Rótulos em português para exibir: Recebida, Em análise, Orçamento enviado,
+  Aprovada, Recusada, Em execução, Pronta, Entregue, Cancelada.

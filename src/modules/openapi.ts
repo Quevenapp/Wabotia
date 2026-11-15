@@ -1198,7 +1198,25 @@ function describeServiceOrderOperation(
       properties: {
         data: { type: "array", items: ref },
         next_cursor: { type: ["string", "null"] },
-        counts: { type: "object", additionalProperties: { type: "integer" } },
+        counts: {
+          type: "object",
+          description:
+            "Ordens da área por estado, sem os filtros da consulta. Chaves = códigos de status (received, analyzing, quoted, approved, declined, in_progress, ready, delivered, cancelled); estado sem ordens fica ausente (vale 0).",
+          properties: Object.fromEntries(
+            [
+              "received",
+              "analyzing",
+              "quoted",
+              "approved",
+              "declined",
+              "in_progress",
+              "ready",
+              "delivered",
+              "cancelled",
+            ].map((s) => [s, { type: "integer" }]),
+          ),
+          additionalProperties: false,
+        },
       },
     };
     return;

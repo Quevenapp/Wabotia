@@ -106,7 +106,7 @@ Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas 
 
 | Método e caminho | O quê |
 |---|---|
-| `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts` por estado |
+| `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts`: `{"received":3,"in_progress":4,…}`, chaves iguais aos códigos de `status`, só estados com ordens (ausente = 0), contando a área inteira sem os filtros ([detalhes](ORDEM-DE-SERVICO.md#integrações-e-aplicativos)) |
 | `GET /service-orders/{id}` | Ordem com `history` (quem mudou e quando) |
 | `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área, de `GET /people`), `due_at` (ms), `notify` |
 | `PATCH /service-orders/{id}` | Dados da ordem; encerrada, só `notes` |
