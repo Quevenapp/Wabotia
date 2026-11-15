@@ -352,6 +352,18 @@ const demoModules: Row[] = [
     menu_item_types: [{ type: "form", label: "Responder formulário" }],
   },
   agendaDemoModule,
+  {
+    id: "payments",
+    name: "Cobrança",
+    version: "1.0.0",
+    description:
+      "Pix e link de pagamento pelo Mercado Pago, enviados na conversa e confirmados pelo webhook do provedor.",
+    builtin: true,
+    enabled: true,
+    default_enabled: true,
+    navigation: [{ id: "payments", label: "Cobrança", place: "admin", admin: true }],
+    menu_item_types: [],
+  },
 ];
 
 function read(path: string, query: URLSearchParams): any {
@@ -483,6 +495,20 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
+  if (rest === "payments/account")
+    return {
+      configured: true,
+      id: "demo-pay",
+      provider: "mercadopago",
+      enabled: true,
+      payer_email: "pagamentos@exemplo.com.br",
+      access_token_set: true,
+      webhook_secret_set: true,
+      checked: { id: "1", name: "LOJA_EXEMPLO" },
+      webhook_url: location.origin + "/webhooks/payments/mercadopago/demo-pay",
+      providers: [{ id: "mercadopago", name: "Mercado Pago", methods: ["pix", "link"] }],
+      updated: t(H),
+    };
   if (rest === "lines") return { data: [] };
   if (rest === "calls")
     return page([

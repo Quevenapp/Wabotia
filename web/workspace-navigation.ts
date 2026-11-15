@@ -3,6 +3,7 @@ import {
   Blocks,
   BookOpen,
   ClipboardList,
+  CreditCard,
   Bot,
   CalendarClock,
   CalendarDays,
@@ -47,6 +48,7 @@ export const sections = [
   ["settings", "Regras de atendimento", Settings],
   ["queue-settings", "Filas e guichês", Ticket],
   ["forms", "Formulários", ClipboardList],
+  ["payments", "Cobrança", CreditCard],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -114,6 +116,7 @@ export const workspaceGroups = [
       "settings",
       "queue-settings",
       "forms",
+      "payments",
     ],
   },
   {
@@ -160,6 +163,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
   "modules",
   "agenda-settings",
+  "payments",
 ]);
 
 /**
@@ -172,6 +176,7 @@ export const pageModules: Partial<Record<string, string>> = {
   forms: "forms",
   agenda: "agenda",
   "agenda-settings": "agenda",
+  payments: "payments",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -250,4 +255,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Agenda do dia e da semana por profissional: marque, remarque, confirme e registre faltas.",
   "agenda-settings":
     "Serviços, profissionais, horários de trabalho, folgas e as regras do agendamento pelo WhatsApp.",
+  payments:
+    "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
 };

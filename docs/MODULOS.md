@@ -91,6 +91,8 @@ O que o núcleo faz com cada campo:
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |
 | `openWebStep(c, request)` | Abre um passo web do módulo (seção 4) |
 | `publish(kind, id, payload)` | Evento declarado em `events`; o núcleo acrescenta `module_id` |
+| `sendInteractive(c, spec, {key, actor?, notification?})` | Botões, lista, Flow, produto… (`spec` de `src/whatsapp-interactive.ts`): nativo na linha oficial, texto numerado com links no QR; `notification: true` fora da janela manda o texto pelo modelo de notificação |
+| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar") |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
@@ -103,6 +105,8 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
+| `onConversationTurn(module, handler)` (apelido `onInboundReply`) | Próxima mensagem do cliente numa conversa individual: `handler(ctx, c, {text, replyId, rowId})`; devolva `true` quando é do módulo. Veja "Conversa no chat" abaixo |
+| `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 
@@ -148,6 +152,47 @@ comando é gravada no recibo e devolvida igual ao repetir a mesma
 
 Documente as rotas novas em `src/modules/openapi.ts` (lista
 `moduleOperations` e `describeModuleOperation`) e em `docs/API.md`.
+
+### Conversa no chat (`onConversationTurn` + `ctx.sendInteractive`)
+
+Para fluxos que seguem no WhatsApp (serviço → profissional → horário;
+orçamento com Aprovar/Recusar; botões do lembrete):
+
+```ts
+import { onConversationTurn } from "../api";
+
+await ctx.sendInteractive(c, {
+  type: "list",
+  body: "Orçamento #12: R$ 150,00",
+  button: "Responder",
+  sections: [{ rows: [
+    { id: "os:aprovar:12", title: "Aprovar" },
+    { id: "os:recusar:12", title: "Recusar" },
+  ] }],
+}, { key: `orcamento:12` });
+
+onConversationTurn("os", async (ctx, c, { text, replyId, rowId }) => {
+  if (replyId?.startsWith("os:")) return handleQuoteReply(ctx, c, replyId, rowId);
+  if (!(await temOrcamentoPendente(ctx, c))) return false;  // texto alheio segue
+  return handleQuoteText(ctx, c, text, rowId);              // "1" / "2" no QR
+});
+```
+
+- Ordem no `processInbox`: consentimento, avaliação, Flow/carrinho, fila de
+  senhas, **módulos (na ordem de `runtime.ts`)**, porta de entrada,
+  protocolos, menu e bot. As regras de automação, número e sessão do resto
+  valem aqui também (área pausada ou mensagem de sessão antiga não chegam).
+- Só conversas individuais, só com o módulo ligado. `replyId` só vem quando
+  o toque chegou pelo próprio canal da conversa; caso contrário é `null`.
+- Devolva `true` só para o que é seu: replyId com o prefixo do módulo
+  (`agenda:`, `os:`) ou texto quando há estado aberto **na sua tabela**, com
+  validade. Um replyId com o seu prefixo nunca chega ao menu, então não
+  aparece "Esta opção não está mais disponível".
+- MENU/VOLTAR: limpe o estado e devolva `false`, para o menu responder.
+- Use `rowId` nas chaves de envio (`key: "turno:" + rowId`): um reprocessamento
+  da mesma mensagem não repete a resposta.
+- Os ids de opção: até 200 caracteres; títulos de lista até 24. A validação é
+  a mesma em todas as linhas (`src/whatsapp-interactive.ts`).
 
 ### Tarefas periódicas (`onSchedule`)
 
@@ -271,6 +316,55 @@ const { step, url, created } = await ctx.openWebStep(c, {
   Wabotia; use Flows de navegação.
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
+
+## 4b. Cobrar (Pix e link de pagamento)
+
+A Cobrança é do núcleo (módulo `payments`, `src/payments.ts`, contrato em
+[COBRANCA.md](COBRANCA.md)). Uma vertical cobra assim:
+
+```ts
+import { onPaymentUpdated } from "../api";
+
+// Ao fechar o pedido:
+const payment = await ctx.charge(c, {
+  method: "pix",                    // ou "link" (Checkout Pro: cartão, Pix…)
+  amount_cents: order.total_cents,  // inteiro, em centavos
+  description: `Pedido ${order.number}`,  // até 120 caracteres
+  ref: order.id,                    // vira ref_id na cobrança e no gancho
+  sourceKey: `order:${order.id}`,   // repetir não cobra de novo
+  expiresMinutes: 60,               // 30 min a 30 dias; padrão 24 h
+});
+// Guarde payment.id no registro do módulo, se quiser mostrar o estado.
+
+onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
+  if (payment.status === "paid") await marcarPago(ctx, payment.ref_id!);
+  if (payment.status === "refunded") await marcarEstornado(ctx, payment.ref_id!);
+  // expired e cancelled: liberar estoque, horário, quarto…
+});
+```
+
+- Pré-requisitos: módulo **Cobrança** ligado e conta configurada em
+  **Gestão → Cobrança**. Sem conta: `409 payments_not_configured`; módulo
+  desligado: `409 module_disabled`. Trate esses erros mostrando ao cliente
+  outra forma de pagar.
+- O núcleo entrega ao cliente (botão com URL na linha oficial, link no texto
+  no QR, e o código Pix numa mensagem separada), registra nota na conversa,
+  publica `payment.*` e envia "Pagamento recebido" quando paga. O módulo não
+  envia essas mensagens.
+- **Janela de 24 horas:** na linha oficial com a janela fechada, `charge`
+  recusa (`409 window_closed`), a menos que você passe `notification: true`
+  (lembrete de mensalidade, por exemplo): aí a cobrança sai em texto pelo
+  modelo de notificação configurado.
+- `paid` só chega pelo webhook do provedor, depois de consultar o pagamento.
+  Nunca marque um registro como pago por mensagem do cliente. O gancho roda no
+  `Coordinator` da área, uma vez por mudança, mesmo com webhooks repetidos.
+- Um pagamento aprovado depois de `expired` ou `cancelled` vira `paid` (o
+  dinheiro entrou): o gancho recebe `previous: "expired"`; decida no módulo
+  se ainda dá para atender ou se é preciso estornar pelo painel do provedor.
+- Sinal ou parcial: crie uma cobrança por parcela, cada uma com a sua
+  `sourceKey`.
+- Nos testes, simule o Mercado Pago com `vi.stubGlobal("fetch", …)` e o
+  webhook assinado como em `tests/payments.test.ts` (`mpManifest` + `hmac`).
 
 ## 5. Painel web
 

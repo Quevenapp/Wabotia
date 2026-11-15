@@ -444,7 +444,22 @@ const schemas = {
           "protocols",
           "survey",
           "form",
+          "charge",
         ],
+      },
+      method: {
+        enum: ["pix", "link"],
+        description: "Na ação charge (Cobrança): forma de pagamento.",
+      },
+      amount_cents: {
+        type: "integer",
+        minimum: 1,
+        description: "Na ação charge: valor em centavos.",
+      },
+      description: {
+        type: "string",
+        maxLength: 120,
+        description: "Na ação charge: o que está sendo cobrado.",
       },
       form_id: {
         type: "string",

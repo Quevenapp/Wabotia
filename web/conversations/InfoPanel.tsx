@@ -42,6 +42,7 @@ import { GroupControls } from "../WhatsAppGroups";
 import { isImage, mediaUrl } from "./Media";
 import { headerSubtitle, isMine, tagsOf } from "./model";
 import { WebStepsSection } from "./WebSteps";
+import { PaymentsSection } from "./Payments";
 
 export type InfoActions = {
   contact: () => void;
@@ -259,6 +260,15 @@ export function InfoPanel({
       </section>
 
       <WebStepsSection steps={detail.web_steps || []} />
+
+      {app.moduleOn("payments") && !group && (
+        <PaymentsSection
+          conversationId={c.id}
+          payments={detail.payments || []}
+          canCharge={mine || app.isAdmin}
+          refresh={refresh}
+        />
+      )}
 
       {group && (
         <section className="info-section">

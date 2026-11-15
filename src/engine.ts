@@ -67,7 +67,7 @@ import { formatBrasilia } from "./business-time";
 import { visibleEvent } from "./visibility";
 import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
 import { moduleEnabled } from "./modules/registry";
-import { menuHandler } from "./modules/hooks";
+import { menuHandler, turnHandlersList } from "./modules/hooks";
 import { isStructured, structuredInbound } from "./structured-inbound";
 import "./modules/runtime";
 import {
@@ -293,6 +293,25 @@ export async function processInbox(env: Env, profile: string) {
       return;
     }
     c = await conversation(env, c.id, profile);
+    // Módulos com conversa em andamento (src/modules/api.ts,
+    // onConversationTurn): a próxima mensagem vai a eles antes da porta de
+    // entrada, dos protocolos, do menu e do bot. Toques em botão só valem
+    // vindos do próprio canal, como no menu.
+    if (c.chat_type !== "group") {
+      const turn = {
+        text: value,
+        replyId:
+          replyId &&
+          c.connection_id &&
+          c.external_namespace === `channel:${c.connection_id}`
+            ? String(replyId)
+            : null,
+        rowId: row.id,
+      };
+      for (const [, handler] of turnHandlersList())
+        if (await handler(env, c, turn)) return;
+      c = await conversation(env, c.id, profile);
+    }
     // Front door of the queue: any first message of the session gets the menu.
     const menuOpen =
       !!c.menu_active &&

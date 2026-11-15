@@ -63,6 +63,21 @@ export function registerInboundHandler(
 export const inboundHandlersFor = (type: string) =>
   inboundHandlers.get(type) || [];
 
+/** Cobrança do módulo mudou de estado: (env, profile, payment, previous). */
+const paymentHooks = new Map<string, Hook>();
+export function registerPaymentHook(
+  module: string,
+  hook: (
+    env: any,
+    profile: string,
+    payment: any,
+    previous: string,
+  ) => Promise<void>,
+) {
+  paymentHooks.set(module, hook);
+}
+export const paymentHook = (module: string) => paymentHooks.get(module);
+
 /** Tarefa periódica do módulo: (env, profile, now). Ver src/modules/schedule.ts. */
 const schedules = new Map<string, Hook>();
 export function registerSchedule(
@@ -72,6 +87,25 @@ export function registerSchedule(
   schedules.set(module, handler);
 }
 export const scheduledModules = () => [...schedules.entries()];
+
+/**
+ * Próxima mensagem do cliente (texto, botão ou lista), antes do menu e do bot:
+ * (env, conversation, turn) → true quando o módulo tratou.
+ */
+const turnHandlers: [string, Hook][] = [];
+export function registerTurnHandler(
+  module: string,
+  handler: (
+    env: any,
+    c: any,
+    turn: { text: string; replyId: string | null; rowId: string },
+  ) => Promise<boolean>,
+) {
+  const index = turnHandlers.findIndex(([id]) => id === module);
+  if (index >= 0) turnHandlers[index] = [module, handler];
+  else turnHandlers.push([module, handler]);
+}
+export const turnHandlersList = () => [...turnHandlers];
 
 /** Comando de escrita (Coordinator): (env, actor, profile, data, requestId). */
 const commands = new Map<string, Hook>();

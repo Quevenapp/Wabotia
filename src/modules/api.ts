@@ -7,8 +7,10 @@ import {
   registerConversationAction,
   registerInboundHandler,
   registerMenuHandler,
+  registerPaymentHook,
   registerReadRoute,
   registerSchedule,
+  registerTurnHandler,
   registerSettingsValidator,
   registerWebStepHook,
   registerWriteRoute,
@@ -25,6 +27,15 @@ import {
 import { access } from "../security";
 import { event } from "../events";
 import { conversation, enqueue, settings } from "../service";
+import { createPayment, type Payment } from "../payments";
+import {
+  interactiveLine,
+  sendInteractive as sendInteractiveMessage,
+} from "../line-service";
+import {
+  interactiveFallbackText,
+  type InteractiveSpec,
+} from "../whatsapp-interactive";
 import {
   openWebStep,
   type Answers,
@@ -48,6 +59,7 @@ export interface ContactSummary {
   notes: string;
 }
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
+export type { InteractiveSpec } from "../whatsapp-interactive";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export interface OutgoingMessage {
@@ -83,6 +95,18 @@ export interface ModuleContext {
     message: OutgoingMessage,
     options: { key: string; actor?: string; notification?: boolean },
   ): Promise<string>;
+  /**
+   * Mensagem interativa (botões com URL, lista, Flow, produto…; tipos em
+   * src/whatsapp-interactive.ts). Linha oficial: o elemento nativo; QR ou
+   * grupo: texto numerado com links. Com a janela de 24 h fechada na linha
+   * oficial, `notification: true` envia o texto pelo modelo de notificação.
+   * Use ids de opção com o prefixo do módulo ("agenda:confirmar:…").
+   */
+  sendInteractive(
+    c: Conversation,
+    spec: InteractiveSpec,
+    options: { key: string; actor?: string; notification?: boolean },
+  ): Promise<string>;
   /** Abre um passo web em nome do módulo (web_steps.module_id). */
   openWebStep(
     c: Conversation,
@@ -90,6 +114,27 @@ export interface ModuleContext {
   ): ReturnType<typeof openWebStep>;
   /** Publica um evento declarado em `events` do módulo. */
   publish(kind: string, resourceId: string, payload: any): Promise<number>;
+  /**
+   * Cobra o cliente da conversa (Pix ou link) pela conta da área
+   * (docs/COBRANCA.md). A confirmação chega em onPaymentUpdated.
+   */
+  charge(c: Conversation, request: ChargeRequest): Promise<Payment>;
+}
+
+export interface ChargeRequest {
+  method: "pix" | "link";
+  amount_cents: number;
+  description: string;
+  /** Registro do módulo pago por esta cobrança (pedido, mensalidade…). */
+  ref?: string | null;
+  /** Repetir a chave devolve a mesma cobrança, sem cobrar de novo. */
+  sourceKey: string;
+  /** 30 min a 30 dias; padrão 24 h. */
+  expiresMinutes?: number;
+  trigger?: "module" | "agent" | "bot" | "menu";
+  actor?: string;
+  /** Janela de 24 h fechada: envia pelo modelo de notificação. */
+  notification?: boolean;
 }
 
 export function modulesApi(
@@ -145,6 +190,25 @@ export function modulesApi(
         `module:${moduleId}:${c.id}:${options.key}`,
       );
     },
+    async sendInteractive(c, spec, options) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      const key = `module:${moduleId}:${c.id}:${options.key}`;
+      const actor = options.actor || "system";
+      if (
+        options.notification &&
+        (await interactiveLine(env, c)) &&
+        Date.now() - c.last_customer >= 86400000
+      )
+        return enqueue(
+          env,
+          c,
+          actor,
+          "notification",
+          { text: interactiveFallbackText(spec), automation: moduleId },
+          key,
+        );
+      return sendInteractiveMessage(env, actor, c, spec, key, moduleId);
+    },
     openWebStep(c, request) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       return openWebStep(env, {
@@ -153,6 +217,24 @@ export function modulesApi(
         module: moduleId,
         sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
       });
+    },
+    async charge(c, request) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return (
+        await createPayment(env, {
+          conversation: c,
+          method: request.method,
+          amount_cents: request.amount_cents,
+          description: request.description,
+          module: moduleId,
+          ref: request.ref ?? null,
+          trigger: request.trigger || "module",
+          actor: request.actor || "system",
+          sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
+          expiresMinutes: request.expiresMinutes,
+          notification: request.notification,
+        })
+      ).payment;
     },
     async publish(kind, resourceId, payload) {
       if (!definition.events.includes(kind))
@@ -166,6 +248,24 @@ export function modulesApi(
     },
   };
   return ctx;
+}
+
+/**
+ * Cobrança aberta pelo módulo (ctx.charge) mudou de estado: paid, expired,
+ * cancelled ou refunded. Só depois do webhook assinado e da consulta ao
+ * provedor; repetições do webhook não chamam de novo.
+ */
+export function onPaymentUpdated(
+  moduleId: string,
+  hook: (
+    ctx: ModuleContext,
+    payment: Payment,
+    change: { previous: string },
+  ) => Promise<void>,
+) {
+  registerPaymentHook(moduleId, (env, profile, payment, previous) =>
+    hook(modulesApi(env, profile, moduleId), payment, { previous }),
+  );
 }
 
 /** Reage à conclusão dos passos web abertos pelo módulo. */
@@ -322,6 +422,39 @@ export function onSchedule(
   registerSchedule(moduleId, (env, profile, now) =>
     handler(modulesApi(env, profile, moduleId), { now }),
   );
+}
+
+/**
+ * Próxima mensagem do cliente numa conversa individual, com o módulo ligado:
+ * texto digitado (`text`) ou toque em botão/lista (`replyId`). Roda depois da
+ * fila de senhas e antes da porta de entrada, dos protocolos, do menu e do
+ * bot, com as mesmas regras de automação e sessão. Devolva true só quando a
+ * mensagem é do módulo (estado aberto na conversa ou replyId com o prefixo do
+ * módulo, "agenda:…"); false deixa seguir. Ao receber MENU/VOLTAR, limpe o
+ * estado e devolva false.
+ */
+export function onConversationTurn(
+  moduleId: string,
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    turn: { text: string; replyId: string | null; rowId: string },
+  ) => Promise<boolean>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerTurnHandler(moduleId, async (env, c, turn) => {
+    const ctx = modulesApi(env, c.profile_id, moduleId);
+    if (!(await ctx.enabled())) return false;
+    return handler(ctx, c, turn);
+  });
+}
+/** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */
+export function onInboundReply(
+  moduleId: string,
+  handler: Parameters<typeof onConversationTurn>[1],
+) {
+  onConversationTurn(moduleId, handler);
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */

@@ -85,6 +85,50 @@ export const moduleSchemas = {
     required: ["enabled"],
     properties: { enabled: { type: "boolean" } },
   },
+  PaymentAccountInput: {
+    type: "object",
+    properties: {
+      provider: { enum: ["mercadopago"] },
+      access_token: {
+        type: "string",
+        writeOnly: true,
+        description: "Access Token de produção. Omitido, mantém o guardado.",
+      },
+      webhook_secret: {
+        type: "string",
+        writeOnly: true,
+        description:
+          "Assinatura secreta do webhook. Omitida, mantém a guardada.",
+      },
+      payer_email: { type: "string", format: "email" },
+      enabled: { type: "boolean" },
+    },
+  },
+  Payment: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      conversation_id: { type: "string" },
+      provider: { type: "string", example: "mercadopago" },
+      method: { enum: ["pix", "link"] },
+      module_id: { type: ["string", "null"] },
+      ref_id: { type: ["string", "null"] },
+      description: { type: "string" },
+      amount_cents: { type: "integer" },
+      currency: { type: "string", example: "BRL" },
+      status: { enum: ["created", "paid", "expired", "cancelled", "refunded"] },
+      provider_status: { type: ["string", "null"] },
+      pix_code: { type: ["string", "null"], description: "Pix copia e cola." },
+      url: {
+        type: ["string", "null"],
+        description: "Página de pagamento do provedor.",
+      },
+      trigger: { enum: ["agent", "bot", "module", "menu"] },
+      expires_at: { type: "integer" },
+      paid_at: { type: ["integer", "null"] },
+      created: { type: "integer" },
+    },
+  },
   FormSend: {
     type: "object",
     required: ["conversation_id"],
@@ -361,6 +405,43 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "/profiles/{profile}/forms",
     "Formulários ativos da área (módulo Formulários)",
     "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/payments/account",
+    "Conta de pagamento da área (sem segredos)",
+    "",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/payments/account",
+    "Configurar a conta do Mercado Pago da área",
+    "",
+    "PaymentAccountInput",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/payments/account/check",
+    "Conferir as credenciais no provedor",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/payments",
+    "Cobranças de uma conversa (conversation_id)",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/payments/{id}",
+    "Consultar uma cobrança (com o QR do Pix)",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/payments/{id}/cancel",
+    "Cancelar uma cobrança aberta",
+    "conversations:write",
   ],
   [
     "post",
@@ -663,6 +744,29 @@ export function describeModuleOperation(
           properties: { data: { type: "array", items: ref("WebStep") } },
         }
       : ref("WebStep");
+    return;
+  }
+  if (path.includes("/payments")) {
+    if (path.includes("/account"))
+      entry.description =
+        "Exige administrador. Credenciais ficam cifradas e nunca voltam nas leituras (access_token_set e webhook_secret_set dizem se estão guardadas). webhook_url é o endereço a cadastrar no Mercado Pago. Veja docs/COBRANCA.md.";
+    else {
+      entry.description +=
+        ' Estados: created, paid, expired, cancelled e refunded. Só o webhook assinado do provedor, seguido da consulta do pagamento na API, marca paid ou refunded; mensagens do cliente nunca mudam o estado. Cada mudança publica payment.<estado> com conversation_id. Para cobrar, use POST /conversations/{id}/actions com {"action":"charge","method":"pix|link","amount_cents":1250,"description":"…"} (conversa assumida).';
+      if (path.endsWith("/payments"))
+        entry.parameters.push({
+          in: "query",
+          name: "conversation_id",
+          required: true,
+          schema: { type: "string" },
+        });
+      success.content["application/json"].schema = path.endsWith("/payments")
+        ? {
+            type: "object",
+            properties: { data: { type: "array", items: ref("Payment") } },
+          }
+        : ref("Payment");
+    }
     return;
   }
   if (path.endsWith("/forms/{id}/send")) {
