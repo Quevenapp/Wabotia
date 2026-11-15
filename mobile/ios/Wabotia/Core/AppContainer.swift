@@ -113,6 +113,7 @@ final class AppContainer: ObservableObject {
         let keepServer = keepServer && !isDemo
         // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
         Workspace.shared.reset()
+        QueueFeature.shared.clear()
         session.clearSession(keepServer: keepServer)
         // Anexos em memória (os arquivos em disco já foram removidos por `clearSession`).
         Task { await MediaLoader.shared.clear() }

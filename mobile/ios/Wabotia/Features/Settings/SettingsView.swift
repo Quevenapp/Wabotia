@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var confirmExitDemo = false
     @State private var showPresence = false
     @State private var appearance = AppAppearance.current
+    @State private var showPrinter = false
+    @ObservedObject private var queueFeature = QueueFeature.shared
 
     /// Na demonstração não há push nem servidor de verdade: essas seções dão lugar a explicações e à saída.
     private var demo: Bool { container.isDemo }
@@ -117,13 +119,22 @@ struct SettingsView: View {
 
     private var serviceSection: some View {
         SectionCard(title: "Atendimento", footer: vm.isAdmin ? nil : "Atendentes consultam as linhas; a edição é do administrador.") {
-            navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
-                .accessibilityIdentifier("settings.counter")
+            // Fila de senhas: só quando o servidor a oferece a esta área (rota de capacidades; GET /queue em servidor antigo).
+            if queueFeature.isAvailable(container.profileId) {
+                navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
+                    .accessibilityIdentifier("settings.counter")
+                navRow("Impressora do cupom", "printer.fill", Theme.muted) { showPrinter = true }
+                    .accessibilityIdentifier("settings.printer")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }
                 navRow("Linhas dos bots", "cpu", Theme.bot, divider: false) { push(.botLines) }
             }
+        }
+        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
+        .task(id: "\(active)-\(container.profileId ?? "")") {
+            if active { await QueueFeature.shared.refresh(container: container) }
         }
     }
 

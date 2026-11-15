@@ -36,27 +36,33 @@ final class CounterViewModel: ObservableObject {
     private let defaults: UserDefaults
     private let onUnauthorized: () -> Void
     private let onMessage: (String) -> Void
+    private let onModuleDisabled: () -> Void
     private var feed: QueueLiveFeed?
 
     /// Escrita sem resposta: a mesma intenção repete com esta chave até o servidor confirmar.
     private struct PendingWrite { let signature: String; let key: String; let fingerprint: String }
     private var pending: PendingWrite?
 
-    init(client: QueueClient, demo: Bool, defaults: UserDefaults = .standard, onUnauthorized: @escaping () -> Void, onMessage: @escaping (String) -> Void) {
+    init(client: QueueClient, demo: Bool, defaults: UserDefaults = .standard, onUnauthorized: @escaping () -> Void,
+         onMessage: @escaping (String) -> Void, onModuleDisabled: @escaping () -> Void = {}) {
         self.client = client
         self.profileId = client.profileId
         self.demo = demo
         self.defaults = defaults
         self.onUnauthorized = onUnauthorized
         self.onMessage = onMessage
+        self.onModuleDisabled = onModuleDisabled
         counterId = defaults.string(forKey: "queue.counter.\(client.profileId)")
     }
 
     /// Com a sessão de pessoa do app.
     convenience init(container: AppContainer) {
         let session = container.session
-        let client = QueueClient(baseURL: session.serverURL?.absoluteString ?? "", profileId: container.profileId ?? "") { session.token }
-        self.init(client: client, demo: container.isDemo, onUnauthorized: { container.handleUnauthorized() }, onMessage: { Workspace.shared.show($0, style: .success) })
+        let profile = container.profileId ?? ""
+        let client = QueueClient(baseURL: session.serverURL?.absoluteString ?? "", profileId: profile) { session.token }
+        self.init(client: client, demo: container.isDemo, onUnauthorized: { container.handleUnauthorized() },
+                  onMessage: { Workspace.shared.show($0, style: .success) },
+                  onModuleDisabled: { QueueFeature.shared.markDisabled(profile) })
     }
 
     // MARK: - Leitura
@@ -99,6 +105,7 @@ final class CounterViewModel: ObservableObject {
             settlePending()
         case .failure(let e):
             if e.unauthorized { onUnauthorized() }
+            if e.moduleDisabled { onModuleDisabled() }
             loading = false
             if overview == nil {
                 error = e.moduleDisabled ? "A fila de senhas está desligada neste Wabotia. Um administrador liga em Módulos." : e.message
