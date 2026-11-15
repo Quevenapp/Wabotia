@@ -264,7 +264,8 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
       await ctx.sendMessage(
         fresh,
         { text: cfg.texts.released },
-        { key: `liberado:${id}` },
+        // O pagamento pode ser confirmado depois da janela de 24 h.
+        { key: `liberado:${id}`, notification: true, purpose: "billing" },
       );
       await passToTeam(ctx, fresh, summary, {
         flags: [
@@ -529,6 +530,18 @@ export async function buyPackage(
       at,
       at,
     );
+  // Comprou pela conversa: aceita receber a cobrança e a liberação por aqui.
+  await ctx.recordConsent(input.c, {
+    purpose: "billing",
+    source: "whatsapp",
+    evidence: {
+      action: "buy_support_package",
+      package_id: input.pkg.id,
+      price_cents: input.pkg.price_cents,
+      purchase_id: id,
+    },
+    key: `compra:${id}`,
+  });
   const payment = await ctx.charge(input.c, {
     method: input.method,
     amount_cents: input.pkg.price_cents,

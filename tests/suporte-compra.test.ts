@@ -144,6 +144,14 @@ describe("suporte: sem assinatura, suporte avulso", () => {
     expect(rows[0].valid_until).toBe(
       Date.parse("2026-11-15T12:00:00.000-03:00") + 24 * 3_600_000,
     );
+    // Comprar pela conversa registra o aceite de cobrança (finalidade billing).
+    expect(
+      await one(
+        env,
+        "SELECT purpose,status,module_id FROM consents WHERE conversation_id=? AND purpose='billing'",
+        c.id,
+      ),
+    ).toMatchObject({ purpose: "billing", status: "granted" });
     expect(await eventsOf(f, "suporte.purchase_paid")).toHaveLength(1);
     expect(await eventsOf(f, "suporte.released")).toHaveLength(1);
     const list = await (
