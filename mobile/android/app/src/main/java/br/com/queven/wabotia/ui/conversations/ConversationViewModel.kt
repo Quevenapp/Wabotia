@@ -302,7 +302,13 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
 
     // --- ações da conversa (POST /actions) ---
 
-    private fun act(request: ActionRequest, successNotice: String? = null, inSheet: Boolean = false, onDone: (() -> Unit)? = null) {
+    private fun act(
+        request: ActionRequest,
+        successNotice: String? = null,
+        inSheet: Boolean = false,
+        resultNotice: ((JsonObject) -> String?)? = null,
+        onDone: (() -> Unit)? = null,
+    ) {
         if (busy) return
         if (inSheet) sheetError = null
         busyAction = request.action
@@ -312,10 +318,10 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         viewModelScope.launch {
             busy = true
             try {
-                container.api.act(profileId, conversationId, key, request)
+                val result = container.api.act(profileId, conversationId, key, request)
                 pendingAct = null
                 load(silent = true).join()
-                if (successNotice != null) notice = successNotice
+                (resultNotice?.invoke(result) ?: successNotice)?.let { notice = it }
                 onDone?.invoke()
             } catch (e: CancellationException) {
                 throw e
@@ -360,6 +366,15 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     /** Envia ao cliente a consulta de protocolos (opcionalmente de um número). */
     fun sendProtocols(number: String? = null, onDone: (() -> Unit)? = null) =
         act(ActionRequest(action = "protocols", number = number), "Consulta de protocolos enviada ao cliente", inSheet = onDone != null, onDone = onDone)
+    /**
+     * Pedido: envia ao cliente o link do carrinho ("Montar pedido para este cliente"; a conversa precisa estar assumida).
+     * Com a loja fechada ou pausada, o servidor manda o horário (ou a mensagem da pausa) e responde `sent: false`.
+     */
+    fun sendPedidoLink() = act(ActionRequest(action = "pedido_link"), "Link do pedido enviado ao cliente", resultNotice = { result ->
+        if ((result["sent"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "false") {
+            if (result.string("reason") == "empty_menu") "O cardápio está vazio: nada foi enviado." else "A loja está fechada agora: o cliente recebeu o horário em vez do link."
+        } else null
+    })
     fun saveTags(tags: List<String>) = act(ActionRequest(action = "tags", tags = tags.map { it.trim().take(40) }.filter { it.isNotEmpty() }.distinct().take(20)), "Etiquetas salvas")
 
     /** "Tentar de novo" de uma mensagem que falhou: novo pedido de resposta com o mesmo texto, anexos e conteúdo. */

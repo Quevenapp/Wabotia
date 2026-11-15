@@ -182,6 +182,12 @@ object DemoMode {
             // A parcela vencida do mês anterior (mi-5); a assinatura de quem tem dois telefones no pagador (ms-2).
             "mensalidade-installment" -> DemoDestination(route = "mensalidade/installment/mi-5")
             "mensalidade-subscription" -> DemoDestination(route = "mensalidade/subscription/ms-2")
+            "pedido" -> DemoDestination(route = "pedido")
+            "pedido-list" -> DemoDestination(route = "pedido?mode=list")
+            "pedido-menu" -> DemoDestination(route = "pedido?mode=menu")
+            // O pedido com o mesmo X-Burger em duas montagens (pd-44); `--es arg choosing` abre o que espera a forma de
+            // pagamento (pd-46) e `--es arg delivery` o que está em preparo para entrega (pd-42).
+            "pedido-order" -> DemoDestination(route = "pedido/order/" + when (option) { "choosing" -> "pd-46"; "delivery" -> "pd-42"; else -> "pd-44" })
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-start" -> DemoDestination(route = "preview/start")

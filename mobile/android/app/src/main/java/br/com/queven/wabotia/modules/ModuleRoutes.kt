@@ -23,6 +23,9 @@ import br.com.queven.wabotia.modules.mensalidade.SubscriptionScreen
 import br.com.queven.wabotia.modules.os.NewServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrdersScreen
+import br.com.queven.wabotia.modules.pedido.PedidoOrderScreen
+import br.com.queven.wabotia.modules.pedido.PedidoScreen
+import br.com.queven.wabotia.modules.pedido.PedidoViewModel
 import br.com.queven.wabotia.modules.reserva.ReservaBookingScreen
 import br.com.queven.wabotia.modules.reserva.ReservaFormScreen
 import br.com.queven.wabotia.modules.reserva.ReservaScreen
@@ -50,6 +53,13 @@ object ModuleRoutes {
     const val MENSALIDADE_HOME = "mensalidade?mode={mode}"
     const val MENSALIDADE_INSTALLMENT = "mensalidade/installment/{id}"
     const val MENSALIDADE_SUBSCRIPTION = "mensalidade/subscription/{id}"
+
+    /** Entrada do Pedido (o quadro da cozinha); `pedido?mode=list|menu` abre a lista ou o cardápio. */
+    const val PEDIDO = "pedido"
+    const val PEDIDO_HOME = "pedido?mode={mode}"
+    const val PEDIDO_ORDER = "pedido/order/{id}"
+
+    fun pedidoOrder(id: String) = "pedido/order/${Uri.encode(id)}"
 
     fun installment(id: String) = "mensalidade/installment/${Uri.encode(id)}"
 
@@ -122,6 +132,22 @@ fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostControlle
             onBack = { nav.popBackStack() },
             onCreated = { order -> nav.popBackStack(); nav.navigate(ModuleRoutes.serviceOrder(order.id)) },
         )
+    }
+    composable(ModuleRoutes.PEDIDO_HOME, arguments = listOf(optional("mode"))) { entry ->
+        PedidoScreen(
+            container,
+            onBack = { nav.popBackStack() },
+            openOrder = { nav.navigate(ModuleRoutes.pedidoOrder(it)) },
+            initialMode = when (entry.arguments?.getString("mode")) {
+                "list" -> PedidoViewModel.Mode.LIST
+                "menu" -> PedidoViewModel.Mode.MENU
+                else -> PedidoViewModel.Mode.BOARD
+            },
+        )
+    }
+    composable(ModuleRoutes.PEDIDO_ORDER, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+        PedidoOrderScreen(container, id, onBack = { nav.popBackStack() }, openConversation = openConversation, openPrinter = openPrinter)
     }
     composable(ModuleRoutes.MENSALIDADE_HOME, arguments = listOf(optional("mode"))) { entry ->
         MensalidadeScreen(

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
@@ -92,6 +93,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.modules.ModuleShortcut
 import br.com.queven.wabotia.core.model.Conversation
@@ -286,6 +288,7 @@ fun ConversationScreen(
                                 enabledModules[profileId].orEmpty(), conversation.id, conversation.displayName,
                             ),
                             onShortcut = { openRoute(it.route) },
+                            onPedidoLink = if (!conversation.isGroup && vm.isOwn && ModuleIds.PEDIDO in enabledModules[profileId].orEmpty()) ({ vm.sendPedidoLink() }) else null,
                         )
                     }
                 }
@@ -518,6 +521,8 @@ private fun ConversationMenu(
     onResolve: () -> Unit,
     shortcuts: List<ModuleShortcut> = emptyList(),
     onShortcut: (ModuleShortcut) -> Unit = {},
+    /** Pedido ligado e a conversa assumida (nunca em grupos): envia o link do carrinho. */
+    onPedidoLink: (() -> Unit)? = null,
 ) {
     val c = Wb.colors
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = if (c.isDark) c.surface else c.background, shape = RoundedCornerShape(16.dp)) {
@@ -535,6 +540,7 @@ private fun ConversationMenu(
             item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
         shortcuts.forEach { shortcut -> item(shortcut.label, shortcut.icon, action = { onShortcut(shortcut) }) }
+        onPedidoLink?.let { item("Montar pedido para este cliente", Icons.Filled.RestaurantMenu, action = it) }
         if (own) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
         if (canHandOff && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
         item("Consultar bot", Icons.Filled.SmartToy, action = onBots)

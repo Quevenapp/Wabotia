@@ -116,6 +116,10 @@ internal object DemoServer {
 
     private fun mensalidadeOf(s: DemoState): DemoMensalidade = mensalidade ?: DemoMensalidade(s.t0).also { mensalidade = it }
 
+    private var pedido: DemoPedido? = null
+
+    private fun pedidoOf(s: DemoState): DemoPedido = pedido ?: DemoPedido(s.t0).also { pedido = it }
+
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
         s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
 
@@ -127,6 +131,7 @@ internal object DemoServer {
             j("id" to "os", "name" to "Ordem de Serviço", "version" to "1.0.0"),
             j("id" to "reserva", "name" to "Reserva e check-in", "version" to "1.0.0"),
             j("id" to "mensalidade", "name" to "Mensalidade", "version" to "1.0.0"),
+            j("id" to "pedido", "name" to "Pedido", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -154,6 +159,7 @@ internal object DemoServer {
         serviceOrders = null
         reserva = null
         mensalidade = null
+        pedido = null
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -329,6 +335,7 @@ internal object DemoServer {
             "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "mensalidade" -> mensalidadeOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            "pedido" -> pedidoOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())
@@ -723,6 +730,18 @@ internal object DemoServer {
                 system(id, "Consulta de protocolos enviada ao cliente", now)
                 val message = outbound(c, text, now + 1, j("type" to "text", "automation" to "protocols"))
                 ok(j("delivery_id" to "d-${message.str("id")}", "status" to "queued"))
+            }
+            "pedido_link" -> {
+                // Como no servidor: quem atende ou um administrador (a pessoa da demonstração é), nunca em grupo; loja
+                // pausada manda o aviso em vez do link.
+                if (c.str("chat_type") == "group") return invalid("Envie pela conversa direta do cliente.")
+                if (pedidoOf(s).paused) {
+                    val message = outbound(c, "Estamos com a loja pausada agora. Assim que voltarmos, é só pedir de novo.", now + 1, j("type" to "text", "automation" to "pedido"))
+                    return ok(j("sent" to false, "reason" to "paused", "web_step" to null, "delivery_id" to "d-${message.str("id")}"))
+                }
+                system(id, "Link do pedido enviado ao cliente", now)
+                outbound(c, "Monte o seu pedido pelo botão Fazer pedido. O link vale por 60 minutos.", now + 1, j("type" to "text", "automation" to "pedido"))
+                ok(j("sent" to true, "reason" to "open", "web_step" to j("id" to nextId("ws-cart"), "kind" to "cart", "status" to "sent")))
             }
             "survey" -> {
                 system(id, "Pesquisa de satisfação enviada", now)

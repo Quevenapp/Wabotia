@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
@@ -203,6 +204,10 @@ fun SettingsScreen(
                     }
                     if (ModuleIds.MENSALIDADE in modules) {
                         SettingsRow(Icons.Filled.Payments, "Mensalidades", subtitle = "Parcelas do mês, assinaturas e inadimplentes", tint = c.ok, onClick = { openRoute(ModuleRoutes.MENSALIDADE) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.PEDIDO in modules) {
+                        SettingsRow(Icons.Filled.RestaurantMenu, "Pedidos", subtitle = "Quadro da cozinha, comanda, pausa da loja e esgotados", tint = c.ticket, onClick = { openRoute(ModuleRoutes.PEDIDO) })
                         RowDivider()
                     }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)

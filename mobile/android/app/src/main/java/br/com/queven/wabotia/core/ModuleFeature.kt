@@ -13,10 +13,11 @@ object ModuleIds {
     const val SERVICE_ORDERS = "os"
     const val RESERVA = "reserva"
     const val MENSALIDADE = "mensalidade"
+    const val PEDIDO = "pedido"
 }
 
 /**
- * Os módulos ligados no servidor para cada área (fila, agenda, ordem de serviço, reserva, mensalidade). As telas e os
+ * Os módulos ligados no servidor para cada área (fila, agenda, ordem de serviço, reserva, mensalidade, pedido). As telas e os
  * atalhos de um módulo só aparecem quando ele está na lista; servidor antigo, módulo desligado ou sem permissão escondem.
  * Consulta no máximo a cada minuto por área; um `409 module_disabled` vindo de qualquer tela esconde o módulo na hora.
  */
