@@ -38,7 +38,7 @@ export function ConversationSuporte({
     );
   return (
     <section className="info-section">
-      <h3>Suporte pago</h3>
+      <h4>Suporte pago</h4>
       {data.release ? (
         <p>
           <Pill tone="ok">Liberado</Pill>{" "}
