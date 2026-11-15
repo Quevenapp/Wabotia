@@ -5,6 +5,8 @@ import { now } from "../../types";
 import {
   moduleError,
   onCommand,
+  onConversationTurn,
+  onMenuChoice,
   onPaymentUpdated,
   onRead,
   onRoute,
@@ -13,6 +15,7 @@ import {
 } from "../api";
 import { validateMensalidadeSettings } from "./model";
 import { runDue } from "./due";
+import { handleTurn, menuCopy, menuStatement } from "./chat";
 import {
   conversationFor,
   paymentUpdated,
@@ -132,6 +135,15 @@ onCommand(
     );
   },
 );
+
+// WhatsApp: consulta e segunda via. Nenhuma mensagem do cliente dá baixa.
+onMenuChoice("mensalidade_list", (ctx, c, _item, { rowId }) =>
+  menuStatement(ctx, c, rowId),
+);
+onMenuChoice("mensalidade_copy", (ctx, c, _item, { rowId }) =>
+  menuCopy(ctx, c, rowId),
+);
+onConversationTurn("mensalidade", (ctx, c, turn) => handleTurn(ctx, c, turn));
 
 // Confirmação do provedor (webhook assinado + consulta) e comprovante.
 onPaymentUpdated("mensalidade", (ctx, payment, { previous }) =>
