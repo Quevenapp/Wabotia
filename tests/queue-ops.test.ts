@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { now, uid, type Actor } from "../src/types";
@@ -312,6 +312,25 @@ describe("operações da fila", () => {
         )
       ).status,
     ).toBe(403);
+    // O limite do totem conta por minuto do relógio (queue.ts). O relógio do
+    // teste começa no segundo 1 do próximo minuto e anda junto com o real:
+    // as 8 emissões abaixo nunca atravessam a virada, mesmo com a máquina
+    // carregada.
+    const realNow = Date.now.bind(Date);
+    const started = realNow();
+    const anchor = Math.ceil(started / 60_000) * 60_000 + 1_000;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => anchor + (realNow() - started));
+    try {
+      await kioskBurst(f, queue, kiosk);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  async function kioskBurst(f: Fixture, queue: any, kiosk: { token: string }) {
+    const body = { queue_id: queue.id, preferential: true };
     const key = uid();
     const first = await api(
       kiosk.token,
@@ -353,7 +372,7 @@ describe("operações da fila", () => {
     ).json<any>();
     expect(tracking).toMatchObject({ code: "P001", status: "waiting" });
     expect(tracking.phone).toBeUndefined();
-  });
+  }
 
   it("painel de TV por token só lê a fila", async () => {
     const { f, queue, counter } = await setup();
