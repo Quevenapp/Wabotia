@@ -31,6 +31,7 @@ import { access } from "../security";
 import { event } from "../events";
 import {
   conversation,
+  conversationByPhone,
   enqueue,
   handoff as coreHandoff,
   handoffToPerson,
@@ -113,6 +114,17 @@ export interface ModuleContext {
    */
   establishment(): Promise<Establishment>;
   conversation(id: string, actor?: Actor): Promise<Conversation>;
+  /**
+   * Conversa individual da área com o telefone (com e sem o 9 do celular),
+   * ou null. Com `open: true`, abre uma na linha oficial (ou na
+   * `connection_id` dada) para o cliente que nunca escreveu: sem janela de
+   * 24 h, só sai notificação por modelo (`notification: true` + consentimento
+   * da finalidade) até ele responder; a resposta cai na mesma conversa.
+   */
+  conversationByPhone(
+    phone: string,
+    options?: { open?: boolean; connection_id?: string },
+  ): Promise<Conversation | null>;
   /** Contato vinculado à conversa, ou null. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
   /**
@@ -262,6 +274,12 @@ export function modulesApi(
     settings: () => settings(env, profile),
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
+    conversationByPhone: (phone, options = {}) =>
+      conversationByPhone(env, profile, phone, {
+        open: options.open,
+        connectionId: options.connection_id ?? null,
+        module: moduleId,
+      }),
     async contact(c) {
       const id = typeof c === "string" ? c : c.id;
       return one<ContactSummary>(
