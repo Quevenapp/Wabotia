@@ -349,6 +349,99 @@ const { step, url, created } = await ctx.openWebStep(c, {
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
 
+### Página de carrinho (`spec.page: "cart"`)
+
+Segundo tipo de página do passo web, para pedidos (lanchonete, loja): o
+módulo entrega o catálogo ao abrir o passo; o cliente monta o carrinho,
+revisa e confirma; o módulo recebe o pedido validado.
+
+```ts
+const { url } = await ctx.openWebStep(c, {
+  kind: "cart",
+  ref: menuVersion,                 // o que o módulo quiser ligar ao passo
+  trigger: "menu",
+  actor: "system",
+  sourceKey: `cardapio:${rowId}`,
+  ttlMinutes: 120,
+  text: "Monte o seu pedido pelo link:",
+  button: "Fazer pedido",
+  spec: {
+    page: "cart",
+    title: "Lanchonete da Ana",
+    intro: "Peça até as 22h.",
+    fields: [],
+    return_message: "module",       // o módulo responde com o número do pedido
+    cart: {
+      categories: [
+        {
+          id: "lanches",
+          name: "Lanches",
+          items: [
+            {
+              id: "xburger",
+              name: "X-Burger",
+              description: "Pão, carne 150 g e queijo",
+              price_cents: 2500,
+              image_url: "https://…/x.jpg",          // opcional, HTTPS
+              available: true,                        // false: aparece, sem quantidade
+              max_quantity: 10,                       // padrão 20
+              option_groups: [
+                { id: "ponto", name: "Ponto da carne", min: 1, max: 1,
+                  options: [{ id: "mal", name: "Mal passada" }, { id: "bem", name: "Bem passada" }] },
+                { id: "adicionais", name: "Adicionais", min: 0, max: 2,
+                  options: [{ id: "bacon", name: "Bacon", price_cents: 500 },
+                            { id: "cheddar", name: "Cheddar", price_cents: 400, available: false }] },
+              ],
+            },
+          ],
+        },
+      ],
+      fulfillment: {
+        pickup: true, delivery: true,
+        delivery_fee_cents: 700, minimum_cents: 2000,
+        eta: "Pronto em 30 min", pickup_address: "Rua X, 100",
+      },
+      allow_note: true,
+    },
+  },
+});
+
+onWebStepCompleted("pedido", async (ctx, step, order) => {
+  if (step.page !== "cart") return;
+  // order: CartOrder (src/web-cart.ts), já validado e recalculado:
+  // { lines: [{item_id, name, quantity, unit_cents, options:[{group_id, id, name, price_cents}], note, total_cents}],
+  //   item_count, subtotal_cents, delivery_fee_cents, total_cents, currency: "BRL",
+  //   fulfillment: "pickup" | "delivery", customer_name, address: {street, district, complement, reference} | null, note }
+  const c = await ctx.conversation(step.conversation_id);
+  const pedido = await criarPedido(ctx, step, order);
+  await ctx.charge(c, { method: "pix", amount_cents: order.total_cents, description: `Pedido ${pedido.numero}`, ref: pedido.id, sourceKey: `pedido:${pedido.id}` });
+  return `Pedido nº ${pedido.numero} recebido! Total ${valor(order.total_cents)}.`;
+});
+```
+
+- **Valores só do servidor.** A página não manda preço, subtotal nem total: o
+  núcleo recalcula tudo a partir do catálogo guardado no passo ao revisar e de
+  novo ao confirmar. Campos extras enviados pela página são ignorados.
+- **Regras conferidas:** item disponível, quantidade de 0 a `max_quantity`,
+  adicionais existentes e disponíveis, entre `min` e `max` por grupo (grupo
+  com `min: 1, max: 1` vira escolha única), pedido mínimo sobre o subtotal,
+  nome do cliente, endereço (rua e bairro) na entrega.
+- **Fluxo da página, sem script:** carrinho → "Revisar pedido" (mostra linhas,
+  subtotal, entrega e total; nada muda) → "Confirmar pedido" (conclui, uso
+  único). "Voltar e alterar" volta ao carrinho com as escolhas.
+- Mesmas regras do passo web: link de uso único, validade, expiração,
+  `web_step.*`, nota interna com o pedido em texto, retorno no WhatsApp
+  (padrão "Recebemos seu pedido. Total: R$ …"; com `return_message: "module"`,
+  o texto devolvido pelo gancho). Carrinho não vai a protocolo por padrão
+  (`ticket: "none"`).
+- Limites: até 30 categorias, 100 itens por categoria e 300 no total; 10 grupos
+  por item, 30 opções por grupo; ids com letras, números, `-` e `_`;
+  preços em centavos inteiros. O catálogo é uma cópia: mudar o cardápio
+  depois não altera links já enviados.
+- Um mesmo item com duas montagens diferentes (um X-Burger mal passado e
+  outro bem passado) não cabe nesta versão: cada item tem uma montagem por
+  pedido. Use a observação do item ou dois itens no catálogo.
+
 ## 4b. Cobrar (Pix e link de pagamento)
 
 A Cobrança é do núcleo (módulo `payments`, `src/payments.ts`, contrato em

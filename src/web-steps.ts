@@ -29,6 +29,16 @@ import { activeTicketSql } from "./protocols";
 import { webStepHook } from "./modules/hooks";
 import { interactiveLine, sendInteractive } from "./line-service";
 import { flowToken } from "./whatsapp-interactive";
+import {
+  cartPage,
+  cartSummary,
+  money as cartMoney,
+  validateCartOrder,
+  validateCatalog,
+  type CartCatalog,
+  type CartInput,
+  type CartOrder,
+} from "./web-cart";
 
 export const WEB_STEP_PATH = "/api/w/";
 export const webStepStatuses = [
@@ -79,6 +89,10 @@ export interface WebField {
   options?: string[];
 }
 export interface WebStepSpec {
+  /** "form" (padrão): campos; "cart": carrinho montado a partir de `cart`. */
+  page?: "form" | "cart";
+  /** Catálogo do carrinho (src/web-cart.ts), guardado no passo. */
+  cart?: CartCatalog;
   title: string;
   intro?: string;
   fields: WebField[];
@@ -161,10 +175,23 @@ export function validateFields(value: unknown): WebField[] {
 
 export function validateSpec(value: any): WebStepSpec {
   requireValue(value && typeof value === "object", "Página inválida.");
+  const cart = value.page === "cart";
+  requireValue(
+    value.page === undefined || ["form", "cart"].includes(value.page),
+    "Página: use form ou cart.",
+  );
   const spec: WebStepSpec = {
     title: str(value.title, 120, "o título da página"),
-    fields: validateFields(value.fields),
+    fields: cart ? [] : validateFields(value.fields),
   };
+  if (cart) {
+    spec.page = "cart";
+    spec.cart = validateCatalog(value.cart);
+    requireValue(
+      JSON.stringify(spec.cart).length <= 200_000,
+      "Carrinho: catálogo grande demais.",
+    );
+  }
   for (const [key, max, what] of [
     ["intro", 1500, "a introdução"],
     ["submit_label", 30, "o texto do botão"],
@@ -174,7 +201,8 @@ export function validateSpec(value: any): WebStepSpec {
     const text = str(value[key], max, what, false);
     if (text) spec[key] = text;
   }
-  const ticket = value.ticket ?? "attach";
+  // Pedido do carrinho não vai a protocolo, a menos que o módulo peça.
+  const ticket = value.ticket ?? (cart ? "none" : "attach");
   requireValue(
     ["attach", "open", "none"].includes(ticket),
     "Protocolo: use attach, open ou none.",
@@ -200,7 +228,11 @@ const isoDate = (value: string) => {
   );
 };
 
-export type Answers = Record<string, string | boolean>;
+/**
+ * Respostas de um formulário (texto, escolha, data como string; aceite como
+ * boolean) ou, numa página de carrinho, o pedido validado (CartOrder).
+ */
+export type Answers = Record<string, any>;
 
 /** Confere o que o cliente enviou contra os campos fixados no passo. */
 export function validateAnswers(
@@ -345,6 +377,8 @@ export function webStepView(row: any) {
     answers: row.result ? json(row.result, null) : null,
     /** flow: entregue como Flow nativo; link: botão com URL ou texto. */
     delivery: row.flow_token ? "flow" : "link",
+    /** form (campos) ou cart (carrinho; answers é o pedido validado). */
+    page: json(row.spec).page === "cart" ? "cart" : "form",
     fields: (json(row.spec).fields || []).map((f: WebField) => ({
       id: f.id,
       type: f.type,
@@ -440,7 +474,11 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   // Linha oficial com Flow publicado: o formulário abre dentro do WhatsApp e a
   // resposta (content.type "flow_reply") volta casada pelo flow_token. Sem
   // Flow, botão com URL; em linha QR, o texto com o link (sendInteractive).
-  const flow = input.flow?.flow_id && (await interactiveLine(env, c));
+  // Flow só para formulários: o carrinho é sempre a página.
+  const flow =
+    spec.page !== "cart" &&
+    input.flow?.flow_id &&
+    (await interactiveLine(env, c));
   const token = flow ? flowToken(input.flow!.flow_id, id) : null;
   if (token)
     await exec(env, "UPDATE web_steps SET flow_token=? WHERE id=?", token, id);
@@ -673,7 +711,14 @@ export async function completeWebStep(
     return { ok: false, reason: "expired", whatsapp };
   }
   const spec: WebStepSpec = json(row.spec);
-  const { answers, errors, ok } = validateAnswers(spec.fields || [], input);
+  // Carrinho: valores recalculados a partir do catálogo guardado no passo.
+  const { answers, errors, ok } =
+    spec.page === "cart"
+      ? (() => {
+          const v = validateCartOrder(spec.cart!, input as CartInput);
+          return { answers: v.order as Answers, errors: v.errors, ok: v.ok };
+        })()
+      : validateAnswers(spec.fields || [], input);
   if (!ok) return { ok: false, reason: "invalid", errors, whatsapp };
   const at = now();
   const claimed = await exec(
@@ -705,14 +750,15 @@ export async function completeWebStep(
   // "module", o módulo responde: a string devolvida pelo gancho vira o
   // retorno; sem string, ele mesmo envia (ou nada é enviado).
   const moduleReturn = spec.return_message === "module";
-  if (c && !moduleReturn) await sendReturn(env, c, row, spec, after?.ticket);
+  if (c && !moduleReturn)
+    await sendReturn(env, c, row, spec, after?.ticket, answers);
   // O módulo dono reage (src/modules/api.ts, onWebStepCompleted).
   const hook = webStepHook(row.module_id);
   const reply = hook
     ? await hook(env, row.profile_id, done, answers)
     : undefined;
   if (c && moduleReturn && typeof reply === "string" && reply.trim())
-    await sendReturn(env, c, row, spec, after?.ticket, reply.trim());
+    await sendReturn(env, c, row, spec, after?.ticket, answers, reply.trim());
   return { ok: true, step: done, whatsapp };
 }
 
@@ -758,7 +804,10 @@ async function afterCompletion(
   spec: WebStepSpec,
   answers: Answers,
 ) {
-  const summary = answersText(spec.fields, answers);
+  const summary =
+    spec.page === "cart"
+      ? cartSummary(answers as CartOrder)
+      : answersText(spec.fields, answers);
   const contact = await one(
     env,
     "SELECT contact_id FROM conversation_contacts WHERE conversation_id=? AND profile_id=?",
@@ -822,9 +871,20 @@ async function afterCompletion(
     c,
     "note",
     "system",
-    `${spec.title}: respondido pelo cliente.\n${summary}`.slice(0, 20000),
+    `${spec.title}: ${spec.page === "cart" ? "pedido enviado" : "respondido"} pelo cliente.\n${summary}`.slice(
+      0,
+      20000,
+    ),
   );
   return { ticket };
+}
+
+/** Texto padrão do retorno: respostas recebidas ou o total do pedido. */
+function defaultReturn(spec: WebStepSpec, answers: Answers) {
+  if (spec.return_text) return spec.return_text;
+  return spec.page === "cart"
+    ? `Recebemos seu pedido. Total: ${cartMoney((answers as CartOrder).total_cents)}.`
+    : `Recebemos suas respostas de "${spec.title}". Obrigado!`;
 }
 
 /**
@@ -838,12 +898,12 @@ async function sendReturn(
   row: any,
   spec: WebStepSpec,
   ticket: any,
+  answers: Answers,
   override?: string,
 ) {
   const text = override
     ? override
-    : (spec.return_text ||
-        `Recebemos suas respostas de "${spec.title}". Obrigado!`) +
+    : defaultReturn(spec, answers) +
       (ticket ? `\n\nProtocolo: ${ticket.number}` : "");
   try {
     await enqueue(
@@ -868,7 +928,7 @@ async function sendReturn(
 // ---------------------------------------------------------------------------
 // Página pública
 
-const escape = (value: unknown) =>
+export const escape = (value: unknown) =>
   String(value ?? "").replace(
     /[&<>"']/g,
     (ch) =>
@@ -877,10 +937,15 @@ const escape = (value: unknown) =>
       ]!,
   );
 
-const STYLE = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#111b21}main{max-width:560px;margin:0 auto;padding:20px 16px 40px}.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(11,20,26,.08)}h1{font-size:22px;line-height:1.25;margin:0 0 8px}p{margin:0 0 14px;white-space:pre-line}.intro{color:#54656f}label,fieldset{display:block;margin:18px 0 0;border:0;padding:0}.label,legend{font-weight:600;display:block;margin-bottom:6px;padding:0}small{display:block;color:#667781;margin-top:4px}input[type=text],input[type=date],textarea{width:100%;font:inherit;padding:12px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}textarea{min-height:110px;resize:vertical}.option{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e9edef;border-radius:10px;margin-top:8px;font-weight:400}.option input{margin-top:4px;width:18px;height:18px}.error{color:#c62828;font-size:14px;margin-top:6px}.invalid input,.invalid textarea{border-color:#c62828}button,.button{display:block;width:100%;margin-top:24px;padding:14px;border:0;border-radius:24px;background:#008069;color:#fff;font:600 16px system-ui,sans-serif;text-align:center;text-decoration:none;cursor:pointer}.button.secondary{background:#fff;color:#008069;border:1px solid #008069}.state{text-align:center}.state .icon{font-size:44px;margin-bottom:8px}footer{margin-top:20px;text-align:center;color:#8696a0;font-size:13px}@media (prefers-color-scheme:dark){body{background:#0b141a;color:#e9edef}.card{background:#111b21}.intro,small{color:#8696a0}input[type=text],input[type=date],textarea{background:#202c33;border-color:#3b4a54}.option{border-color:#2a3942}.button.secondary{background:transparent;color:#00a884;border-color:#00a884}button,.button{background:#00a884;color:#111b21}}`;
+export const STYLE = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#111b21}main{max-width:560px;margin:0 auto;padding:20px 16px 40px}.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(11,20,26,.08)}h1{font-size:22px;line-height:1.25;margin:0 0 8px}p{margin:0 0 14px;white-space:pre-line}.intro{color:#54656f}label,fieldset{display:block;margin:18px 0 0;border:0;padding:0}.label,legend{font-weight:600;display:block;margin-bottom:6px;padding:0}small{display:block;color:#667781;margin-top:4px}input[type=text],input[type=date],textarea{width:100%;font:inherit;padding:12px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}textarea{min-height:110px;resize:vertical}.option{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e9edef;border-radius:10px;margin-top:8px;font-weight:400}.option input{margin-top:4px;width:18px;height:18px}.error{color:#c62828;font-size:14px;margin-top:6px}.invalid input,.invalid textarea{border-color:#c62828}button,.button{display:block;width:100%;margin-top:24px;padding:14px;border:0;border-radius:24px;background:#008069;color:#fff;font:600 16px system-ui,sans-serif;text-align:center;text-decoration:none;cursor:pointer}.button.secondary{background:#fff;color:#008069;border:1px solid #008069}.state{text-align:center}.state .icon{font-size:44px;margin-bottom:8px}footer{margin-top:20px;text-align:center;color:#8696a0;font-size:13px}@media (prefers-color-scheme:dark){body{background:#0b141a;color:#e9edef}.card{background:#111b21}.intro,small{color:#8696a0}input[type=text],input[type=date],textarea{background:#202c33;border-color:#3b4a54}.option{border-color:#2a3942}.button.secondary{background:transparent;color:#00a884;border-color:#00a884}button,.button{background:#00a884;color:#111b21}}`;
 
-function page(title: string, body: string, appName: string) {
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}</style></head><body><main>${body}<footer>${escape(appName)}</footer></main></body></html>`;
+export function page(
+  title: string,
+  body: string,
+  appName: string,
+  extraCss = "",
+) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${extraCss}</style></head><body><main>${body}<footer>${escape(appName)}</footer></main></body></html>`;
 }
 
 function fieldHtml(field: WebField, value: unknown, error: string | undefined) {
@@ -914,6 +979,8 @@ export function formPage(
   errors: Record<string, string> = {},
 ) {
   const spec: WebStepSpec = json(row.spec);
+  if (spec.page === "cart")
+    return cartPage(spec.cart!, spec, appName, values as CartInput, errors);
   const body = `<div class="card"><h1>${escape(spec.title)}</h1>${spec.intro ? `<p class="intro">${escape(spec.intro)}</p>` : ""}${
     Object.keys(errors).length
       ? `<div class="error" role="alert">Confira os campos destacados.</div>`

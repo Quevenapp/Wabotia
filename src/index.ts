@@ -112,6 +112,7 @@ import {
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
+import { cartInput, cartReviewPage, validateCartOrder } from "./web-cart";
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
@@ -259,7 +260,7 @@ app.get("/api/public/queue/:token", async (c) => {
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
 const webStepHeaders = {
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Robots-Tag": "noindex",
 };
@@ -318,9 +319,35 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
-  const input = formInput(
-    await c.req.raw.formData().catch(() => new URLSearchParams()),
-  );
+  const spec = json(row.spec);
+  const form = await c.req.raw.formData().catch(() => new URLSearchParams());
+  const cart = spec.page === "cart";
+  const input = cart ? cartInput(form) : formInput(form);
+  // Carrinho: montar e revisar não mudam nada; só "Confirmar pedido" conclui.
+  if (cart && (input as Record<string, string[]>).confirm?.[0] !== "1") {
+    const fields = input as Record<string, string[]>;
+    if (row.status === "completed")
+      return webStepHtml(c, statePage("used", appName(c.env)), 410);
+    if (
+      !["sent", "opened"].includes(row.status) ||
+      row.expires_at <= Date.now() ||
+      !(await webStepAvailable(c.env, row))
+    )
+      return webStepHtml(c, statePage("expired", appName(c.env)), 410);
+    if (fields.step?.[0] === "edit")
+      return webStepHtml(c, formPage(row, appName(c.env), fields));
+    const checked = validateCartOrder(spec.cart, fields);
+    return checked.ok
+      ? webStepHtml(
+          c,
+          cartReviewPage(checked.order, spec, appName(c.env), fields),
+        )
+      : webStepHtml(
+          c,
+          formPage(row, appName(c.env), fields, checked.errors),
+          422,
+        );
+  }
   if (!(await webStepAvailable(c.env, row)))
     return webStepHtml(
       c,
@@ -342,14 +369,15 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   });
   const result = await response.json<any>();
   if (result.ok) {
-    const spec = json(row.spec);
     return webStepHtml(
       c,
       statePage("done", appName(c.env), {
         title: spec.title,
         text:
           spec.done_text ||
-          "Recebemos suas respostas. A confirmação chega na conversa do WhatsApp.",
+          (cart
+            ? "Pedido enviado! A confirmação chega na conversa do WhatsApp."
+            : "Recebemos suas respostas. A confirmação chega na conversa do WhatsApp."),
         whatsapp: result.whatsapp,
       }),
     );
