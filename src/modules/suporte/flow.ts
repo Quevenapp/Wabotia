@@ -19,8 +19,9 @@ import {
   type InstallmentPaid,
   type PayerSituation,
 } from "../mensalidade/public";
-import { dayLabel, phoneDigits } from "../mensalidade/model";
 import {
+  dayLabel,
+  phoneDigits,
   METHOD_LABELS,
   money,
   normalize,
@@ -101,6 +102,7 @@ export async function startFlow(
       ctx,
       c,
       existing.summary || "Suporte pago: liberação ativa.",
+      { flags: ["Suporte pago: liberação ativa"], key: `ja-liberado:${rowId}` },
     );
     return;
   }
@@ -190,6 +192,10 @@ async function onSituation(
       ctx,
       c,
       `Suporte pago NÃO liberado: confirme a identidade antes de atender. Telefone não vinculado ao pagador ${payer.name || ""}${payer.document_display ? ` (${payer.document_display})` : ""}; situação ${situation.status.replace("_", " ")}. Em Dados da conversa → Suporte pago, confirme e vincule.`,
+      {
+        flags: ["Suporte pago: confirmar identidade", "telefone não vinculado"],
+        key: `confirmar:${session.id}`,
+      },
     );
     return;
   }

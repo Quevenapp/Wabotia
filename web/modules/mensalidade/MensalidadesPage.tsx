@@ -119,9 +119,9 @@ function PayDialog({
         <>
           <Notice>
             Use para pagamentos fora da cobrança (dinheiro, transferência). Fica
-            registrado quem deu baixa e quando. Se o cliente ainda tiver um Pix
-            aberto desta parcela, um pagamento por ele aparece como duplicado
-            para estorno no Mercado Pago.
+            registrado quem deu baixa e quando. O Pix ou link aberto desta
+            parcela é cancelado; um pagamento que entrar mesmo assim aparece
+            como duplicado, para estorno no Mercado Pago.
           </Notice>
           <Field
             label="Data do pagamento"

@@ -9,9 +9,9 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 
 ## Ligar
 
-1. **Gestão → Módulos**: ligue **Suporte pago** e **Mensalidade** (sem a
-   Mensalidade, só o suporte avulso é oferecido e não há identificação por
-   telefone).
+1. **Gestão → Módulos**: ligue **Mensalidade** e depois **Suporte pago**, que
+   depende dela (desligar a Mensalidade desliga o Suporte junto). Para vender
+   só suporte avulso, desmarque "Oferecer planos mensais" nas regras.
 2. **Gestão → Cobrança**: configure o Mercado Pago ([COBRANCA.md](COBRANCA.md)).
    Sem ele, nada é vendido pelo WhatsApp.
 3. **Mensalidades → Planos e regras**: marque **Vender pelo WhatsApp** nos
@@ -56,17 +56,16 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 **Suporte pago → Suporte pago** lista as liberações e as compras avulsas,
 com filtro, e busca pagadores.
 
-## O que ainda depende do núcleo
+## Nenhum caminho contorna o pagamento
 
-- **Passagem para humano pela interface dos módulos** (`ctx.handoff`): hoje o
-  módulo usa a mesma passagem do item de menu "humano" do núcleo; ao chegar
-  `ctx.handoff`, troca sozinho (`src/modules/suporte/handoff.ts`).
-- **Condicionar toda passagem automática para humano**: sem o gancho do
-  núcleo, o cliente ainda consegue pedir um humano ao bot de IA ou por outro
-  item "humano" do menu. A regra está pronta (`handoffGate`): libera com
-  liberação ativa ou pagador em dia.
-- **`requires` entre módulos**: hoje o Suporte importa a Mensalidade direto
-  (`src/modules/mensalidade/public.ts`) e confere se ela está ligada.
+Com o Suporte ligado, **toda passagem automática para humano** passa pela
+regra (`onHandoffRequest` do núcleo): outro item "humano" do menu, a
+palavra-chave "atendente", o bot de IA que decide transferir, a falha do bot
+ou um anexo. Sem liberação ativa nem assinatura em dia, a passagem é segurada
+e o cliente entra no mesmo fluxo de identificação e pagamento. Só a equipe
+(transferir, assumir) passa por cima, de propósito. A liberação usa a
+passagem do núcleo para módulos (`ctx.handoff`), com o resumo e os marcadores
+("telefone não vinculado") no detalhe da conversa.
 
 ## O que só uma conta real confirma
 

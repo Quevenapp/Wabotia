@@ -12,6 +12,8 @@ export const suporteModule: ModuleDefinition = {
     "Atendimento humano liberado para quem paga: identifica pelo telefone ou CPF/CNPJ, confere a mensalidade e vende suporte avulso ou plano mensal por Pix ou link.",
   builtin: true,
   default_enabled: false,
+  // Identifica o pagador e vende planos pela interface pública da Mensalidade.
+  requires: ["mensalidade"],
   navigation: [
     { id: "suporte", label: "Suporte pago", place: "admin", admin: false },
     {

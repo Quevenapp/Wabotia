@@ -208,6 +208,24 @@ export function InfoPanel({
         </p>
       </section>
 
+      {detail.handoff && (
+        // Passagem feita por um módulo (ctx.handoff): o que conferir antes
+        // de responder.
+        <section className="info-section">
+          <h4>Repassado por um módulo</h4>
+          {detail.handoff.summary && <p>{detail.handoff.summary}</p>}
+          {detail.handoff.flags?.length > 0 && (
+            <div className="info-tags">
+              {detail.handoff.flags.map((flag: string) => (
+                <Pill key={flag} tone="warn">
+                  {flag}
+                </Pill>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="info-section">
         <h4>
           Etiquetas

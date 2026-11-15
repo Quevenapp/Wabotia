@@ -43,7 +43,15 @@ mostra só "guardado". Para trocar, cole o novo valor e salve.
   últimas 24 horas.
 - **Pela API:** `POST /api/v1/profiles/{area}/conversations/{id}/actions` com
   `{"action":"charge","method":"pix","amount_cents":4990,"description":"Consulta"}`.
-- **Pelos módulos:** `ctx.charge(c, {...})` (veja `docs/MODULOS.md`).
+- **Pelos módulos:** `ctx.charge(c, {...})` (veja `docs/MODULOS.md`). O
+  módulo confere antes com `ctx.paymentsReady()`, cancela uma cobrança dele
+  com `ctx.cancelCharge(id)` e, com `receipt: false`, manda o próprio
+  comprovante em vez do "Pagamento recebido" do núcleo.
+
+O código Pix copia e cola chega numa mensagem só dele, separada do botão,
+para o cliente copiar sem sair do WhatsApp. Com a janela de 24 horas fechada
+na linha oficial (cobrança de módulo com `notification: true`), tudo vai numa
+mensagem só pelo modelo de notificação: link e, no Pix, o código.
 
 | Forma | O cliente recebe | No Mercado Pago |
 |---|---|---|
@@ -60,7 +68,7 @@ expira no Wabotia e é cancelada no provedor.
 | `created` | Criada no provedor e enviada ao cliente |
 | `paid` | Pagamento aprovado (`approved`) confirmado na API |
 | `expired` | Passou da validade sem pagamento |
-| `cancelled` | Cancelada pela equipe ou pelo provedor |
+| `cancelled` | Cancelada pela equipe, pelo módulo que a abriu ou pelo provedor |
 | `refunded` | Estornada ou contestada (`refunded`, `charged_back`) depois de paga |
 
 Dinheiro confirmado vence: se o pagamento for aprovado depois de expirar ou de

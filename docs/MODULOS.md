@@ -76,6 +76,35 @@ O que o núcleo faz com cada campo:
 | `settings` | Chaves das configurações da área que o módulo valida (`onSettingsSave`) |
 | `routes` | Com o módulo desligado, `/profiles/:profile/<rota>/…` responde `409 module_disabled` |
 | `operations` | Com o módulo desligado, os comandos com esses prefixos respondem `409 module_disabled` |
+| `requires` | Opcional: ids dos módulos dos quais este depende (veja abaixo) |
+
+### Dependência entre módulos (`requires`)
+
+```ts
+export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mensalidade"], … };
+```
+
+- **Ligar**: o dependente só liga com todos os requeridos ligados; senão
+  `PUT /modules/suporte` responde `409 module_requires` ("Suporte pago depende
+  de Mensalidade. Ligue esse módulo antes."). A tela Módulos mostra "Depende
+  de" e trava o botão até o requerido ligar.
+- **Desligar o requerido** com dependentes ligados responde
+  `409 module_required` listando os dependentes. Com `{"enabled":false,
+  "cascade":true}` (a tela Módulos pede confirmação e envia), o requerido e os
+  dependentes desligam juntos; cada um publica `module.changed`, os
+  dependentes com `because`. A resposta traz `also_disabled`. Religar o
+  requerido não religa os dependentes.
+- **Estado efetivo**: com um requerido desligado, o dependente conta como
+  desligado em todo lugar (`GET /modules`, capacidades, rotas, menus,
+  ganchos), mesmo que a linha salva diga ligado.
+- **Só `public.ts`**: um módulo usa do outro apenas `src/modules/<id>/public.ts`,
+  que o requerido mantém como contrato estável (funções que recebem
+  `ModuleContext`, tipos de leitura). Nunca importe outros arquivos do
+  requerido nem leia ou grave as tabelas dele (`mensalidade_`…). Mudança que
+  quebre `public.ts` exige subir a `version` do requerido e ajustar os
+  dependentes na mesma entrega.
+- Declare em `requires` todo módulo cujo `public.ts` você importa: é assim
+  que o núcleo garante que ele está ligado quando o seu código roda.
 
 ## 2. Interface interna (`src/modules/api.ts`)
 
@@ -86,14 +115,17 @@ O que o núcleo faz com cada campo:
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
+| `handoff(c, {target?, summary?, flags?, reason?, key?})` | Passa a conversa para atendimento humano: `target: {department_id}` (setor), `{user_id}` (pessoa, como a transferência da equipe) ou nada (fila geral). `summary` (até 3000) e `flags` (até 10, de até 60 caracteres, ex. "telefone não vinculado") viram nota interna e o campo `handoff` `{module, summary, flags, at}` do detalhe da conversa, mostrado no painel; somem na próxima passagem sem módulo e ao encerrar. Com `key`, repetir não passa de novo. Não passa pelos ganchos `onHandoffRequest` (é como o módulo libera a conversa que segurou). Devolve a conversa atualizada |
 | `establishment()` | Dados do estabelecimento para cupom, comanda, recibo e mensagens: `{name, document, document_type: "cpf"\|"cnpj"\|null, document_display, address, phone, footer, configured}`. Sem cadastro, `name` é o nome da área e `configured` é falso. Os aplicativos leem o mesmo em `GET /profiles/{p}/establishment`; as páginas do passo web já mostram nome no cabeçalho e o resto no rodapé |
 | `conversation(id, actor?)` | Conversa da área, respeitando a visibilidade do ator |
 | `contact(c)` | Contato vinculado à conversa (`id, name, phone, email, company, notes`) ou `null` |
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |
-| `openWebStep(c, request)` | Abre um passo web do módulo (seção 4) |
+| `openWebStep(c, request)` | Abre um passo web do módulo (seção 4). Linha oficial com a janela de 24 h fechada: `409 window_closed` (fora do menu); troque por um convite com `sendMessage(…, {notification: true})` |
 | `publish(kind, id, payload, {key?})` | Evento declarado em `events`; o núcleo acrescenta `module_id`. Com `key`, publicar de novo a mesma chave não duplica (use algo como `${id}:${updated}`) |
 | `sendInteractive(c, spec, {key, actor?, notification?})` | Botões, lista, Flow, produto… (`spec` de `src/whatsapp-interactive.ts`): nativo na linha oficial, texto numerado com links no QR; `notification: true` fora da janela manda o texto pelo modelo de notificação |
-| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar") |
+| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?, receipt?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar"). `receipt: false`: o núcleo não manda o "Pagamento recebido" (o módulo manda o próprio comprovante no `onPaymentUpdated`) |
+| `cancelCharge(payment \| id)` | Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes do sinal), no provedor também. Já cancelada ou expirada: devolve como está; paga ou estornada: `409 payment_closed`; de outro módulo: 404 |
+| `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
@@ -111,6 +143,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
+| `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
 
 Exemplo mínimo (do módulo Formulários):
 
@@ -203,6 +236,49 @@ onConversationTurn("os", async (ctx, c, { text, replyId, rowId }) => {
   da mesma mensagem não repete a resposta.
 - Os ids de opção: até 200 caracteres; títulos de lista até 24. A validação é
   a mesma em todas as linhas (`src/whatsapp-interactive.ts`).
+
+### Passagem para humano (`onHandoffRequest` + `ctx.handoff`)
+
+Para condicionar o atendimento humano (Suporte pago: só com assinatura em
+dia ou depois de pagar), o módulo segura a passagem automática e libera
+depois:
+
+```ts
+onHandoffRequest("suporte", async (ctx, c, request) => {
+  if (request.source === "menu" && request.menu_item_id !== "humano-pago")
+    return "allow";
+  if (await assinaturaEmDia(ctx, c)) return "allow";
+  await oferecerPagamento(ctx, c, request); // ctx.sendInteractive / ctx.charge
+  return "hold";
+});
+onPaymentUpdated("suporte", async (ctx, payment) => {
+  if (payment.status !== "paid") return;
+  const c = await ctx.conversation(payment.conversation_id!);
+  await ctx.handoff(c, {
+    summary: "Atendimento avulso pago.",
+    flags: ["telefone não vinculado"],
+    key: payment.id,
+  });
+});
+```
+
+- **Passam pelo gancho** (`source`): item de menu de atendimento humano
+  (`"menu"`, com `menu_item_id`), palavra-chave como "atendente" (`"keyword"`),
+  bot de IA ou especialista que transfere (`"bot"`), falha do bot
+  (`"bot_error"`), anexo que o bot não lê (`"attachment"`), carrinho ou Flow
+  sem dono (`"structured"`).
+- **Não passam**: a transferência feita pela equipe, o atendente que assume a
+  conversa e o próprio `ctx.handoff`.
+- **Segurar** (`"hold"`): o núcleo não muda a conversa nem avisa o cliente;
+  publica `conversation.updated` com `handoff_held: {module, source, reason}`.
+  O módulo conduz pelo `onConversationTurn` e chama `ctx.handoff` quando
+  liberar. Guarde `department_id` se quiser respeitar o setor pedido.
+- **Ordem com mais de um módulo**: a de `modules` em
+  `src/modules/registry.ts`; só módulos ligados; o primeiro `"hold"` encerra
+  a consulta e os seguintes não são chamados. Quem segura assume a conversa
+  inteira.
+- **Erro no gancho** libera a passagem e vai para o log: o cliente nunca fica
+  preso por falha do módulo.
 
 ### Ferramentas para bots (`onMcpTool`)
 

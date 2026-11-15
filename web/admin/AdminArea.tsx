@@ -39,6 +39,8 @@ import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSetti
 import { SuportePage } from "../modules/suporte/SuportePage";
 import { SuporteSettingsPage } from "../modules/suporte/SuporteSettingsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
+import { ReservaPage } from "../modules/reserva/ReservaPage";
+import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -162,6 +164,10 @@ function Page({ page }: { page: PageId }) {
       return <SuporteSettingsPage />;
     case "establishment":
       return <EstablishmentPage />;
+    case "reserva":
+      return <ReservaPage />;
+    case "reserva-settings":
+      return <ReservaSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

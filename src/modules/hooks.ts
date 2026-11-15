@@ -107,6 +107,22 @@ export function registerTurnHandler(
 }
 export const turnHandlersList = () => [...turnHandlers];
 
+/**
+ * Passagem automática para humano (menu, palavra-chave, bot…):
+ * (env, conversation, request) → "hold" quando o módulo segura a conversa.
+ * O núcleo consulta na ordem de `modules` (registry.ts).
+ */
+const handoffGates: [string, Hook][] = [];
+export function registerHandoffGate(
+  module: string,
+  gate: (env: any, c: any, request: any) => Promise<"allow" | "hold">,
+) {
+  const index = handoffGates.findIndex(([id]) => id === module);
+  if (index >= 0) handoffGates[index] = [module, gate];
+  else handoffGates.push([module, gate]);
+}
+export const handoffGatesList = () => [...handoffGates];
+
 /** Ferramenta MCP declarada por um módulo (traduzida para a API v1). */
 export interface ModuleMcpTool {
   module: string;

@@ -8,6 +8,7 @@ import {
   moduleError,
   onCommand,
   onConversationTurn,
+  onHandoffRequest,
   onMenuChoice,
   onPaymentUpdated,
   onRead,
@@ -22,9 +23,9 @@ import {
   onInstallmentPaid,
   sellablePlans,
 } from "../mensalidade/public";
-import { phoneDigits } from "../mensalidade/model";
 import {
   packageValidity,
+  phoneDigits,
   suporteSettings,
   validateSuporteSettings,
 } from "./model";
@@ -53,6 +54,17 @@ onSettingsSave("suporte", "suporte", validateSuporteSettings);
 onMenuChoice("suporte_humano", (ctx, c, _item, { rowId }) =>
   startFlow(ctx, c, rowId),
 );
+
+// Toda passagem automática para humano (item "humano" do menu, palavra-chave,
+// bot de IA que transfere, falha do bot, anexo) só segue com liberação ativa
+// ou pagador em dia; senão o Suporte segura e conduz a liberação.
+onHandoffRequest("suporte", async (ctx, c, request) => {
+  if (c.chat_type === "group") return "allow";
+  const at = now();
+  if ((await handoffGate(ctx, c, at)).allowed) return "allow";
+  await startFlow(ctx, c, `gate:${request.source}:${at}`, at);
+  return "hold";
+});
 
 // Respostas do cliente durante a liberação (documento, nome, opção, pagamento).
 onConversationTurn("suporte", (ctx, c, turn) => handleTurn(ctx, c, turn));

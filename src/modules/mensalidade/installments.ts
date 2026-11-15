@@ -16,7 +16,7 @@ import {
   type InstallmentStatus,
   type Period,
 } from "./model";
-import { installmentView, notFound } from "./store";
+import { cancelOpenCharge, installmentView, notFound } from "./store";
 import { announcePaid } from "./listeners";
 
 /** Parcelas nascem até este número de dias antes do vencimento. */
@@ -230,13 +230,7 @@ export async function listInstallments(
 
 /** Cobrança configurada na área (módulo Cobrança ligado e conta ativa). */
 export async function paymentsReady(ctx: ModuleContext) {
-  if (!(await modulesApi(ctx.env, ctx.profile, "payments").enabled()))
-    return false;
-  return !!(await one(
-    ctx.env,
-    "SELECT id FROM payment_accounts WHERE profile_id=? AND enabled=1",
-    ctx.profile,
-  ));
+  return (await ctx.paymentsReady()).ready;
 }
 
 /**
@@ -377,6 +371,8 @@ export async function payManually(
       "installment_not_payable",
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode receber baixa.`,
     );
+  // O Pix ou link que ainda estava aberto deixa de valer.
+  await cancelOpenCharge(ctx, inst);
   const fresh = await loadInstallment(ctx, inst.id);
   await ctx.publish(
     "mensalidade.paid",
@@ -423,6 +419,7 @@ export async function waive(
       "installment_not_payable",
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode ser isentada.`,
     );
+  await cancelOpenCharge(ctx, inst);
   await ctx.publish(
     "mensalidade.waived",
     inst.id,

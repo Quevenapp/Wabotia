@@ -307,6 +307,12 @@ describe("mensalidade: confirmação pelo webhook", () => {
     expect(receipt.text).toContain("Valor: R$ 200,00");
     expect(receipt.text).toContain("Pago em 15/11/2026 12:00 (Pix)");
     expect(receipt.kind).toBe("notification");
+    // Só o comprovante do módulo: o núcleo não manda "Pagamento recebido".
+    expect(
+      (await outboxRows(c.id)).filter((m) =>
+        m.text.startsWith("Pagamento recebido"),
+      ),
+    ).toHaveLength(0);
     // Repetido (o Mercado Pago reenvia): nada de novo.
     await webhook(account.id, payment.provider_ref);
     await webhook(account.id, payment.provider_ref, "outro-pedido");
@@ -345,6 +351,13 @@ describe("mensalidade: confirmação pelo webhook", () => {
         note: "Dinheiro",
       },
     );
+    // A baixa manual cancela o Pix que ainda estava aberto.
+    expect(
+      await one(env, "SELECT status FROM payments WHERE id=?", payment.id),
+    ).toEqual({
+      status: "cancelled",
+    });
+    // Se o cliente pagar mesmo assim (corrida), entra como duplicado.
     remote.get(payment.provider_ref)!.status = "approved";
     await webhook(account.id, payment.provider_ref);
     expect(await installment(sub.id)).toMatchObject({

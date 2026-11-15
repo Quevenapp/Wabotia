@@ -220,6 +220,27 @@ export const packageValidity = (pkg: {
     ? `${pkg.hours} ${pkg.hours === 1 ? "hora" : "horas"} de atendimento`
     : "até o fim deste atendimento";
 
+/** Só dígitos, com 55 quando o número veio sem DDI (10 ou 11 dígitos). */
+export function phoneDigits(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length === 10 || digits.length === 11 ? "55" + digits : digits;
+}
+
+const two = (n: number) => String(n).padStart(2, "0");
+const BRT = 3 * 3_600_000;
+
+/** "2026-11-10" → "10/11/2026" (data já em Brasília). */
+export const dayLabel = (date: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || "");
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+};
+
+/** "08/11/2026 14:32" em Brasília. */
+export function stamp(at: number) {
+  const d = new Date(at - BRT);
+  return `${two(d.getUTCDate())}/${two(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
+}
+
 export const normalize = (value: string) =>
   value
     .toLowerCase()

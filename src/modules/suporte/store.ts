@@ -4,10 +4,11 @@ import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, json, now, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
-import { phoneDigits, stamp } from "../mensalidade/model";
 import {
   money,
   packageValidity,
+  phoneDigits,
+  stamp,
   suporteSettings,
   type SupportPackage,
 } from "./model";
@@ -265,7 +266,13 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
         { text: cfg.texts.released },
         { key: `liberado:${id}` },
       );
-      await passToTeam(ctx, fresh, summary);
+      await passToTeam(ctx, fresh, summary, {
+        flags: [
+          `Suporte pago: ${KIND_LABELS[input.kind]}`,
+          ...(!linked && input.payer ? ["telefone não vinculado"] : []),
+        ],
+        key: `liberacao:${id}`,
+      });
     }
   }
   return { release: row, created: true };

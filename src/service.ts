@@ -86,9 +86,11 @@ import {
   moduleMenuTypes,
   requireOperation,
   resolveStates,
+  modules as registeredModules,
 } from "./modules/registry";
 import {
   conversationAction,
+  handoffGatesList,
   moduleCommandHandler,
   settingsValidator,
 } from "./modules/hooks";
@@ -693,6 +695,66 @@ async function requestTitle(env: Env, c: Conversation, request?: string) {
   return line.length > 120 ? line.slice(0, 117).trimEnd() + "..." : line;
 }
 
+/**
+ * De onde veio a passagem para humano. "staff" (transferência da equipe) e
+ * "module" (ctx.handoff) não passam pelos ganchos onHandoffRequest; as demais
+ * são automáticas e passam.
+ */
+export type HandoffSource =
+  | "menu"
+  | "keyword"
+  | "bot"
+  | "bot_error"
+  | "attachment"
+  | "structured"
+  | "system"
+  | "staff"
+  | "module";
+
+/**
+ * Ganchos dos módulos ligados, na ordem de `modules`: o primeiro que segura
+ * a conversa encerra a consulta. Erro num gancho não prende o cliente: a
+ * passagem segue e o erro vai para o log.
+ */
+async function handoffHeld(
+  env: Env,
+  c: Conversation,
+  request: {
+    source: HandoffSource;
+    reason: string;
+    department_id: string | null;
+    summary: string | null;
+    menu_item_id: string | null;
+  },
+) {
+  const gates = handoffGatesList();
+  if (!gates.length) return null;
+  const order = new Map(registeredModules.map((m, i) => [m.id, i]));
+  gates.sort(([a], [b]) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
+  for (const [module, gate] of gates) {
+    try {
+      if ((await gate(env, c, request)) === "hold") return module;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "handoff-gate",
+          module,
+          error: error instanceof ApiError ? error.code : String(error),
+        }),
+      );
+    }
+  }
+  return null;
+}
+
+/** Dados de uma passagem para humano feita por um módulo (ctx.handoff). */
+export interface HandoffMeta {
+  module: string;
+  summary: string;
+  flags: string[];
+  at: number;
+}
+
 export async function handoff(
   env: Env,
   c: Conversation,
@@ -703,7 +765,35 @@ export async function handoff(
   request?: string | null,
   /** false when the bot itself failed: sending it back would fail again. */
   botMayContinue = true,
+  /**
+   * Passagem pedida por um módulo (ctx.handoff): resumo e marcadores que o
+   * atendente vê. Sem ela, os de uma passagem anterior são limpos.
+   */
+  options: {
+    meta?: HandoffMeta | null;
+    source?: HandoffSource;
+    menuItemId?: string | null;
+  } = {},
 ) {
+  const source = options.source || "system";
+  // Um módulo pode segurar a passagem automática (Suporte pago: oferece o
+  // pagamento antes) e liberar depois por ctx.handoff.
+  if (source !== "staff" && source !== "module") {
+    const held = await handoffHeld(env, c, {
+      source,
+      reason,
+      department_id: departmentId,
+      summary: request ?? null,
+      menu_item_id: options.menuItemId ?? null,
+    });
+    if (held) {
+      await event(env, c.profile_id, "conversation.updated", c.id, {
+        state: c.state,
+        handoff_held: { module: held, source, reason },
+      });
+      return;
+    }
+  }
   const department = await departmentFor(env, c.profile_id, departmentId);
   requireValue(
     !departmentId || department,
@@ -718,8 +808,13 @@ export async function handoff(
     c.state === "waiting" && (c.department_id || null) === departmentId;
   await batch(env, [
     [
-      "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
-      [departmentId, now(), c.id],
+      "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,handoff=?,updated=? WHERE id=?",
+      [
+        departmentId,
+        options.meta ? JSON.stringify(options.meta) : null,
+        now(),
+        c.id,
+      ],
     ],
     [
       `UPDATE tickets SET owner=NULL WHERE conversation_id=? AND ${activeTicketSql()}`,
@@ -795,7 +890,7 @@ export async function handoff(
       ) {
         await exec(
           env,
-          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,updated=? WHERE id=? AND epoch=?",
+          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,handoff=NULL,updated=? WHERE id=? AND epoch=?",
           now(),
           c.id,
           c.epoch,
@@ -844,6 +939,70 @@ export async function handoff(
     department_id: returned ? null : departmentId,
     reason,
     ...(returned ? { returned_to_bot: true } : {}),
+  });
+}
+
+/**
+ * Passagem direta para uma pessoa (ctx.handoff com user_id): como a
+ * transferência da equipe, a conversa fica com ela em atendimento humano.
+ */
+export async function handoffToPerson(
+  env: Env,
+  c: Conversation,
+  userId: string,
+  reason: string,
+  meta: HandoffMeta | null,
+) {
+  const target = await one(
+    env,
+    "SELECT id,role,profiles FROM users WHERE id=? AND disabled=0",
+    userId,
+  );
+  requireValue(
+    target &&
+      (target.role === "admin" ||
+        json(target.profiles, []).includes(c.profile_id)),
+    "Atendente não autorizado.",
+  );
+  await assertDepartmentAccess(
+    env,
+    {
+      id: target.id,
+      kind: "user",
+      name: "",
+      role: target.role,
+      profiles: json(target.profiles, []),
+      scopes: [],
+      bots: [],
+      rate: 0,
+      runLimit: 0,
+    },
+    c,
+  );
+  await exec(
+    env,
+    "UPDATE conversations SET owner=?,state='human',assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,handoff=?,updated=? WHERE id=?",
+    target.id,
+    meta ? JSON.stringify(meta) : null,
+    now(),
+    c.id,
+  );
+  await clearTicketPrompt(env, c.id);
+  c = await conversation(env, c.id, c.profile_id);
+  const policy = await getNumberPolicy(env, c.connection_id);
+  if (policy.human && policy.service && (policy.menu || policy.bots))
+    await enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      { text: "Vou encaminhar sua solicitação para nossa equipe." },
+      `handoff:${c.id}:${c.session}:person:${c.epoch}`,
+    );
+  await event(env, c.profile_id, "conversation.updated", c.id, {
+    state: "human",
+    owner: target.id,
+    reason,
   });
 }
 
@@ -2247,7 +2406,15 @@ export async function perform(
             !data.target,
             "Escolha uma pessoa, bot ou setor por transferência.",
           );
-          await handoff(env, c, "Encaminhado pela equipe.", data.department_id);
+          await handoff(
+            env,
+            c,
+            "Encaminhado pela equipe.",
+            data.department_id,
+            undefined,
+            true,
+            { source: "staff" },
+          );
           return conversation(env, c.id, profile, actor);
         }
         const botId = String(data.target || "").startsWith("bot:")
@@ -2344,7 +2511,7 @@ export async function perform(
       } else if (action === "resolve" || action === "resume") {
         await exec(
           env,
-          "UPDATE conversations SET state=?,owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
+          "UPDATE conversations SET state=?,owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,handoff=NULL,updated=? WHERE id=?",
           action === "resolve" ? "closed" : "ai",
           now(),
           c.id,

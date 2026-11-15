@@ -14,6 +14,7 @@ import { osModule } from "./os/definition";
 import { paymentsModule } from "./payments/definition";
 import { mensalidadeModule } from "./mensalidade/definition";
 import { suporteModule } from "./suporte/definition";
+import { reservaModule } from "./reserva/definition";
 
 export type { ModuleDefinition } from "./types";
 
@@ -26,6 +27,7 @@ export const modules: readonly ModuleDefinition[] = [
   paymentsModule,
   mensalidadeModule,
   suporteModule,
+  reservaModule,
 ];
 
 export const moduleById = (id: unknown) =>
@@ -51,15 +53,73 @@ export const moduleMenuTypes = () =>
 
 export type ModuleStates = Record<string, boolean>;
 
-/** Estado de cada módulo a partir das linhas salvas (sem linha: padrão). */
-export function resolveStates(saved: Record<string, unknown>): ModuleStates {
+/**
+ * Estado de cada módulo a partir das linhas salvas (sem linha: padrão). Um
+ * módulo com `requires` conta como desligado se algum requerido estiver
+ * desligado, mesmo que a linha dele diga ligado.
+ */
+export function resolveStates(
+  saved: Record<string, unknown>,
+  list: readonly ModuleDefinition[] = modules,
+): ModuleStates {
+  const states = savedStates(saved, list);
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const m of list)
+      if (states[m.id] && (m.requires || []).some((r) => !states[r])) {
+        states[m.id] = false;
+        changed = true;
+      }
+  }
+  return states;
+}
+/** Estado salvo, sem aplicar as dependências. */
+function savedStates(
+  saved: Record<string, unknown>,
+  list: readonly ModuleDefinition[],
+): ModuleStates {
   const states: ModuleStates = {};
-  for (const m of modules)
+  for (const m of list)
     states[m.id] =
       saved && Object.hasOwn(saved, m.id)
         ? !!Number(saved[m.id])
         : m.default_enabled;
   return states;
+}
+
+/** Requeridos por `id` que estão desligados (para ligar `id`). */
+export function missingRequirements(
+  id: string,
+  states: ModuleStates,
+  list: readonly ModuleDefinition[] = modules,
+) {
+  const m = list.find((x) => x.id === id);
+  return (m?.requires || []).filter((r) => !states[r]);
+}
+
+/**
+ * Módulos ligados que dependem de `id`, direta ou indiretamente, na ordem
+ * de `list` (para desligar `id`).
+ */
+export function enabledDependents(
+  id: string,
+  states: ModuleStates,
+  list: readonly ModuleDefinition[] = modules,
+) {
+  const found = new Set<string>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const m of list)
+      if (
+        states[m.id] &&
+        !found.has(m.id) &&
+        (m.requires || []).some((r) => r === id || found.has(r))
+      ) {
+        found.add(m.id);
+        changed = true;
+      }
+  }
+  return list.filter((m) => found.has(m.id)).map((m) => m.id);
 }
 
 export async function moduleStates(
@@ -125,6 +185,7 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     events: m.events,
     settings: m.settings,
     scopes: m.scopes,
+    requires: m.requires || [],
   };
 }
 
@@ -174,22 +235,52 @@ export async function moduleCommand(
     await one(env, "SELECT id FROM profiles WHERE id=?", profile),
     "Área de atendimento não encontrada.",
   );
-  const before = await moduleEnabled(env, profile, definition.id);
-  await exec(
-    env,
-    "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
-    profile,
-    definition.id,
-    data.enabled ? 1 : 0,
-    now(),
-    actor.id,
-  );
-  if (before !== data.enabled)
-    await event(env, profile, "module.changed", definition.id, {
-      module_id: definition.id,
-      enabled: data.enabled,
-      version: definition.version,
-      actor: actor.id,
-    });
-  return moduleView(definition, data.enabled);
+  const states = await moduleStates(env, profile);
+  const name = (id: string) => moduleById(id)?.name || id;
+  // Dependências (requires): não liga sem os requeridos; ao desligar um
+  // requerido, avisa quem depende dele e só desliga junto com cascade.
+  let cascade: string[] = [];
+  if (data.enabled) {
+    const missing = missingRequirements(definition.id, states);
+    if (missing.length)
+      throw new ApiError(
+        409,
+        "module_requires",
+        `${definition.name} depende de ${missing.map(name).join(", ")}. Ligue ${missing.length > 1 ? "esses módulos" : "esse módulo"} antes.`,
+      );
+  } else {
+    cascade = enabledDependents(definition.id, states);
+    if (cascade.length && data.cascade !== true)
+      throw new ApiError(
+        409,
+        "module_required",
+        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme com cascade: true.`,
+      );
+  }
+  for (const id of [definition.id, ...cascade]) {
+    const target = moduleById(id)!;
+    const before = states[id];
+    const enabled = id === definition.id ? data.enabled : false;
+    await exec(
+      env,
+      "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
+      profile,
+      id,
+      enabled ? 1 : 0,
+      now(),
+      actor.id,
+    );
+    if (before !== enabled)
+      await event(env, profile, "module.changed", id, {
+        module_id: id,
+        enabled,
+        version: target.version,
+        actor: actor.id,
+        ...(id !== definition.id ? { because: definition.id } : {}),
+      });
+  }
+  return {
+    ...moduleView(definition, data.enabled),
+    ...(cascade.length ? { also_disabled: cascade } : {}),
+  };
 }

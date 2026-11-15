@@ -1,18 +1,13 @@
 // Passagem para o atendimento humano e a regra que a condiciona.
-//
-// LIGAÇÃO PROVISÓRIA (pendência da sessão A): o contrato dos módulos ainda não
-// tem `ctx.handoff` nem o gancho que condiciona toda passagem automática para
-// humano (inclusive a decidida pelo bot de IA). Enquanto isso:
-// - `passToTeam` usa `ctx.handoff` quando existir e, sem ele, a função
-//   `handoff` do núcleo (src/service.ts), a mesma do item de menu "humano".
-//   Ao chegar `ctx.handoff`, apague o ramo do núcleo.
-// - `handoffGate` é a regra pronta para o gancho: devolve se a conversa pode
-//   ir para um humano e por quê. Sem o gancho, o cliente ainda consegue pedir
-//   um humano ao bot de IA (contorno relatado).
+// - `handoffGate`: liberação ativa ou pagador em dia. Ligada ao gancho
+//   onHandoffRequest em ./suporte.ts: toda passagem automática (menu
+//   "humano", palavra-chave, bot de IA, falha do bot, anexo) sem liberação é
+//   segurada e o cliente entra no fluxo do Suporte.
+// - `passToTeam`: ctx.handoff ao setor das regras, com resumo e marcadores
+//   para o atendente; não passa pelo gancho.
 import { all, one } from "../../db";
 import { ApiError, type Conversation } from "../../types";
 import type { ModuleContext } from "../api";
-import { handoff as coreHandoff } from "../../service";
 import { mensalidadeAvailable, situationByPhone } from "../mensalidade/public";
 import { suporteSettings } from "./model";
 
@@ -31,8 +26,8 @@ export async function activeRelease(
   for (const row of rows) {
     if (row.valid_until !== null && row.valid_until > at) return row;
     if (row.until_ticket) {
-      // Vale enquanto houver protocolo ativo aberto depois da liberação, ou
-      // até a conversa voltar da equipe sem protocolo.
+      // Vale enquanto houver protocolo ativo, ou enquanto a conversa estiver
+      // com a equipe.
       const ticket = await one(
         ctx.env,
         "SELECT id FROM tickets WHERE conversation_id=? AND status NOT IN ('resolved','closed') LIMIT 1",
@@ -45,9 +40,8 @@ export async function activeRelease(
 }
 
 /**
- * Regra do gancho de passagem para humano: libera com liberação ativa ou
- * pagador em dia pelo telefone da conversa. Fora isso, `allowed: false` com o
- * motivo, e quem chamou deve oferecer o item "Atendimento humano (pago)".
+ * Regra da passagem para humano: libera com liberação ativa ou pagador em
+ * dia pelo telefone da conversa. Fora isso, `allowed: false` com o motivo.
  */
 export async function handoffGate(
   ctx: ModuleContext,
@@ -73,32 +67,31 @@ export async function handoffGate(
 }
 
 /**
- * Passa a conversa ao setor configurado com o resumo para o atendente
- * (motivo interno do protocolo de ausência, quando houver).
+ * Passa a conversa ao setor das regras (ou à equipe geral) com o resumo e os
+ * marcadores para o atendente. Com `key`, repetir não passa de novo.
  */
 export async function passToTeam(
   ctx: ModuleContext,
   c: Conversation,
   summary: string,
+  options: { flags?: string[]; key?: string } = {},
 ) {
   const cfg = suporteSettings(await ctx.settings());
-  const viaContract = (ctx as any).handoff;
-  if (typeof viaContract === "function")
-    return viaContract.call(ctx, c, {
-      department_id: cfg.department_id,
-      summary,
-    });
+  const request = {
+    summary: Array.from(summary).slice(0, 3000).join(""),
+    flags: options.flags,
+    reason: "Suporte pago",
+    key: options.key,
+  };
+  if (!cfg.department_id) return ctx.handoff(c, request);
   try {
-    return await coreHandoff(
-      ctx.env,
-      c,
-      "Suporte pago liberado",
-      cfg.department_id,
-      summary,
-    );
+    return await ctx.handoff(c, {
+      ...request,
+      target: { department_id: cfg.department_id },
+    });
   } catch (error) {
     // Setor apagado ou desligado depois de salvar as regras: equipe geral.
-    if (!cfg.department_id || !(error instanceof ApiError)) throw error;
-    return coreHandoff(ctx.env, c, "Suporte pago liberado", null, summary);
+    if (!(error instanceof ApiError)) throw error;
+    return ctx.handoff(c, request);
   }
 }

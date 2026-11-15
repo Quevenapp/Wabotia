@@ -179,6 +179,8 @@ export async function ensureCharge(
       sourceKey: `parcela:${inst.id}:${seq}`,
       expiresMinutes: Math.min(30 * 24 * 60, Math.max(60, minutes)),
       notification: true,
+      // O comprovante é do módulo (sendReceipt): sem o "Pagamento recebido".
+      receipt: false,
     });
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;

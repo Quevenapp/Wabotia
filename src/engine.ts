@@ -740,6 +740,9 @@ export async function processInbox(env: Env, profile: string) {
           c,
           `Menu: ${choice.label}`,
           choice.department_id || null,
+          undefined,
+          true,
+          { source: "menu", menuItemId: choice.id },
         );
         return;
       }
@@ -848,7 +851,15 @@ export async function processInbox(env: Env, profile: string) {
       policy.human &&
       /\b(humano|atendente|pessoa real|falar com alguem)\b/.test(normalized)
     ) {
-      await handoff(env, c, "Cliente solicitou atendimento humano.");
+      await handoff(
+        env,
+        c,
+        "Cliente solicitou atendimento humano.",
+        null,
+        undefined,
+        true,
+        { source: "keyword" },
+      );
       return;
     }
     // Front door without a bot: when no bot will answer, the message that
@@ -931,6 +942,8 @@ export async function processInbox(env: Env, profile: string) {
           "O bot selecionado não está habilitado para esta linha.",
           null,
           value,
+          true,
+          { source: "bot_error" },
         );
       return;
     }
@@ -1016,7 +1029,15 @@ export async function processInbox(env: Env, profile: string) {
           await followupAck(env, c, followup.ticket, `followup:${row.id}`);
           return;
         } else {
-          await handoff(env, c, "Anexo necessita análise humana.");
+          await handoff(
+            env,
+            c,
+            "Anexo necessita análise humana.",
+            null,
+            undefined,
+            true,
+            { source: "attachment" },
+          );
           return;
         }
       }
@@ -1061,6 +1082,10 @@ export async function processInbox(env: Env, profile: string) {
       error instanceof ApiError
         ? error.message
         : "Não foi possível concluir a triagem automática.",
+      null,
+      undefined,
+      true,
+      { source: "bot_error" },
     );
   } finally {
     await exec(env, "UPDATE inbox SET status='done' WHERE id=?", row.id);
@@ -1672,6 +1697,8 @@ export async function processRun(env: Env, run: Run) {
               "Especialista não resolveu a solicitação.",
               null,
               context.request ?? null,
+              true,
+              { source: "bot" },
             );
           } else {
             const source = {
@@ -1715,6 +1742,8 @@ export async function processRun(env: Env, run: Run) {
               "Ação de especialista não autorizada.",
               null,
               context.request ?? null,
+              true,
+              { source: "bot" },
             );
           else
             await createRun(
@@ -1821,6 +1850,8 @@ export async function processRun(env: Env, run: Run) {
                 : "Resposta automática sem fundamentação suficiente.",
             null,
             summary ?? context.request ?? null,
+            true,
+            { source: "bot" },
           );
         }
       }
@@ -1962,6 +1993,7 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
         null,
         json(run.context).request ?? null,
         false,
+        { source: "bot_error" },
       );
     else if (
       c.epoch === run.epoch &&

@@ -8,3 +8,4 @@ import "./os/os";
 import "./payments/payments";
 import "./mensalidade/mensalidade";
 import "./suporte/suporte";
+import "./reserva/reserva";

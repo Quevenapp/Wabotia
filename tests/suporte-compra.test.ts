@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { now, uid } from "../src/types";
+import { perform } from "../src/service";
 import { startFlow } from "../src/modules/suporte/flow";
 import { expirePayments } from "../src/payments";
 import { situationByPhone } from "../src/modules/mensalidade/public";
@@ -262,23 +263,19 @@ describe("suporte: sem cadastro, plano mensal", () => {
     });
   });
 
-  it("Mensalidade desligada: o plano mensal some e o avulso continua, com CPF e nome na compra", async () => {
-    const s = await setupSuporte();
+  it("sem planos oferecidos: só o avulso, com CPF e nome na compra", async () => {
+    const s = await setupSuporte({ offer_plans: false });
     const { f } = s;
-    await turnModule(f, "mensalidade", false);
     const phone = "5511971000005";
     let c = await talk(f, "oi", phone);
     await startFlow(s.sctx, c, uid());
+    c = await talk(f, CPF_NOVO, phone);
     const offer = (await texts(c.id)).at(-1)!;
     expect(rowsOf(offer).map((r: any) => r.id)).toEqual([
       "suporte:pkg:avulso",
       "suporte:pkg:dia",
     ]);
     c = await tap(f, phone, "suporte:pkg:avulso", "Atendimento avulso");
-    expect(await lastText(c.id)).toContain(
-      "Para a compra, digite o CPF ou o CNPJ",
-    );
-    c = await talk(f, CPF_EM_DIA, phone);
     expect(await lastText(c.id)).toBe(
       "Qual o nome completo ou a razão social de quem paga?",
     );
@@ -291,7 +288,7 @@ describe("suporte: sem cadastro, plano mensal", () => {
         c.id,
       ),
     ).toEqual({
-      document: "52998224725",
+      document: "11144477735",
       name: "Pedro Lima",
       payer_id: null,
       status: "pending",
@@ -300,11 +297,40 @@ describe("suporte: sem cadastro, plano mensal", () => {
       await api(await bearer(f.member), `/profiles/${f.profile}/suporte/offers`)
     ).json<any>();
     expect(offers).toMatchObject({
-      mensalidade: false,
+      mensalidade: true,
       payments_ready: true,
       plans: [],
     });
     expect(offers.packages).toHaveLength(2);
+  });
+
+  it("Mensalidade é requisito: desligar pede cascata e o Suporte sai junto", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    await expect(turnModule(f, "mensalidade", false)).rejects.toMatchObject({
+      code: "module_required",
+    });
+    const result = await perform(
+      env,
+      f.admin,
+      f.profile,
+      "module.set",
+      { id: "mensalidade", enabled: false, cascade: true },
+      uid(),
+    );
+    expect(JSON.stringify(result)).toContain("suporte");
+    const token = await bearer(f.member);
+    const off = await api(token, `/profiles/${f.profile}/suporte/offers`);
+    expect(off.status).toBe(409);
+    expect((await off.json<any>()).error.code).toBe("module_disabled");
+    await expect(turnModule(f, "suporte", true)).rejects.toMatchObject({
+      code: "module_requires",
+    });
+    await turnModule(f, "mensalidade", true);
+    await turnModule(f, "suporte", true);
+    expect(
+      (await api(token, `/profiles/${f.profile}/suporte/offers`)).status,
+    ).toBe(200);
   });
 
   it("sem a Cobrança configurada não oferece compra e explica", async () => {
