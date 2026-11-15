@@ -296,7 +296,16 @@ export async function contractPlan(
     c.chat_type !== "group",
     "Contratação só em conversa individual.",
   );
-  const phone = phoneDigits(c.phone || c.external_id);
+  // Só o telefone autenticado pelo canal: em conversa de integração o
+  // external_id é escolhido por quem chama.
+  const verified = ctx.verifiedPhone(c);
+  if (!verified)
+    throw new ApiError(
+      409,
+      "phone_not_verified",
+      "Contratação pelo WhatsApp só em conversa com o telefone verificado pelo canal.",
+    );
+  const phone = phoneDigits(verified);
   const method =
     input.method || mensalidadeSettings(await ctx.settings()).method;
   let payerId: string | null = null;

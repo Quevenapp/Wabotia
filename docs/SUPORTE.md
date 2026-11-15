@@ -87,8 +87,9 @@ pago: …") na hora de liberar.
 - **Estorno:** o estorno da mensalidade ou do pacote que liberou encerra a
   liberação.
 
-O encerramento acontece no próximo pedido de humano e na rotina periódica do
-módulo (evento `suporte.release_ended`, com o motivo).
+A validade é conferida a cada pedido de humano, que grava o encerramento
+(evento `suporte.release_ended`, com o motivo). A lista de liberações do
+painel já mostra como encerrada, com o motivo, a que deixou de valer.
 
 ## Compras e estornos
 
@@ -116,6 +117,17 @@ e o cliente entra no mesmo fluxo de identificação e pagamento. Só a equipe
 (transferir, assumir) passa por cima, de propósito. A liberação usa a
 passagem do núcleo para módulos (`ctx.handoff`), com o resumo e os marcadores
 ("telefone não vinculado") no detalhe da conversa.
+
+**Falha no Suporte.** O portão é *fail-closed*: se a regra der erro (banco,
+envio recusado), a passagem é segurada e a equipe recebe uma nota interna
+para conferir, em vez de o cliente passar sem pagar. A mensagem que pediu a
+passagem entra na chave: reprocessá-la não repete as perguntas.
+
+**Integrações.** Só o telefone verificado pelo canal identifica o pagador.
+Numa conversa criada por integração (`app:<id>`), o `external_id` é escolhido
+por quem chama e nunca identifica nem libera; o cliente cai na pergunta do
+CPF/CNPJ e não vê plano mensal. Cortesia, confirmação, vínculo e encerrar
+liberação por aplicação exigem `billing:write`.
 
 **Grupos.** Num grupo ninguém se identifica nem paga por todos, e o telefone
 de um participante em dia não libera o grupo. Pedido de humano no grupo

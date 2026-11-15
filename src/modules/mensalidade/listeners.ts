@@ -42,7 +42,12 @@ export async function announcePaid(
   env: Env,
   profile: string,
   id: string,
-  origin: { conversation_id?: string | null; contract_id?: string | null } = {},
+  origin: {
+    conversation_id?: string | null;
+    contract_id?: string | null;
+    /** Gancho de pagamento: a falha de um ouvinte faz o núcleo repetir. */
+    rethrow?: boolean;
+  } = {},
 ) {
   const row = await one(
     env,
@@ -51,18 +56,23 @@ export async function announcePaid(
     profile,
   );
   if (!row) return;
-  await notifyInstallmentPaid(env, profile, {
-    id: row.id,
-    subscription_id: row.subscription_id,
-    payer_id: row.payer_id,
-    period_key: row.period_key,
-    amount_cents: row.amount_cents,
-    paid_via: row.paid_via,
-    paid_by: row.paid_by,
-    paid_at: row.paid_at,
-    conversation_id: origin.conversation_id ?? null,
-    contract_id: origin.contract_id ?? null,
-  });
+  await notifyInstallmentPaid(
+    env,
+    profile,
+    {
+      id: row.id,
+      subscription_id: row.subscription_id,
+      payer_id: row.payer_id,
+      period_key: row.period_key,
+      amount_cents: row.amount_cents,
+      paid_via: row.paid_via,
+      paid_by: row.paid_by,
+      paid_at: row.paid_at,
+      conversation_id: origin.conversation_id ?? null,
+      contract_id: origin.contract_id ?? null,
+    },
+    { rethrow: origin.rethrow },
+  );
 }
 
 export type InstallmentRefunded = {
@@ -86,44 +96,68 @@ export function onInstallmentRefunded(
   refundListeners.set(module, listener);
 }
 
-export async function notifyInstallmentRefunded(
+/**
+ * Roda todos os ouvintes; a falha de um não impede os outros. Com `rethrow`
+ * (gancho de pagamento, que o núcleo repete até concluir), a primeira falha
+ * sobe depois de todos rodarem, para o gancho ser repetido; os ouvintes são
+ * idempotentes. Na baixa manual a falha só vai para o log.
+ */
+async function runListeners<T extends { id: string }>(
+  map: Map<
+    string,
+    (env: Env, profile: string, installment: T) => Promise<void>
+  >,
+  env: Env,
+  profile: string,
+  installment: T,
+  extra: Record<string, unknown>,
+  rethrow: boolean,
+) {
+  let failure: unknown = null;
+  for (const [module, listener] of map)
+    try {
+      await listener(env, profile, installment);
+    } catch (error) {
+      failure ??= error;
+      console.error(
+        JSON.stringify({
+          component: "mensalidade-listener",
+          module,
+          installment: installment.id,
+          ...extra,
+          error: String((error as Error)?.message || error),
+        }),
+      );
+    }
+  if (failure && rethrow) throw failure;
+}
+
+export const notifyInstallmentRefunded = (
   env: Env,
   profile: string,
   installment: InstallmentRefunded,
-) {
-  for (const [module, listener] of refundListeners)
-    try {
-      await listener(env, profile, installment);
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          component: "mensalidade-listener",
-          module,
-          installment: installment.id,
-          refunded: true,
-          error: String((error as Error)?.message || error),
-        }),
-      );
-    }
-}
+  options: { rethrow?: boolean } = {},
+) =>
+  runListeners(
+    refundListeners,
+    env,
+    profile,
+    installment,
+    { refunded: true },
+    options.rethrow === true,
+  );
 
-export async function notifyInstallmentPaid(
+export const notifyInstallmentPaid = (
   env: Env,
   profile: string,
   installment: InstallmentPaid,
-) {
-  for (const [module, listener] of listeners)
-    try {
-      await listener(env, profile, installment);
-    } catch (error) {
-      // A baixa já foi gravada; o ouvinte tenta de novo na própria rotina.
-      console.error(
-        JSON.stringify({
-          component: "mensalidade-listener",
-          module,
-          installment: installment.id,
-          error: String((error as Error)?.message || error),
-        }),
-      );
-    }
-}
+  options: { rethrow?: boolean } = {},
+) =>
+  runListeners(
+    listeners,
+    env,
+    profile,
+    installment,
+    {},
+    options.rethrow === true,
+  );

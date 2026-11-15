@@ -270,6 +270,18 @@ export function stamp(at: number) {
   return `${two(d.getUTCDate())}/${two(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
 }
 
+/** Cópia profunda sem as chaves dadas (dados sensíveis nas respostas da API). */
+export function withoutKeys(value: any, keys: Set<string>): any {
+  if (Array.isArray(value)) return value.map((item) => withoutKeys(item, keys));
+  if (value && typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [key, item] of Object.entries(value))
+      if (!keys.has(key)) out[key] = withoutKeys(item, keys);
+    return out;
+  }
+  return value;
+}
+
 export const normalize = (value: string) =>
   value
     .toLowerCase()

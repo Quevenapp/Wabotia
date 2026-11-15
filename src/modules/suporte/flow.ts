@@ -51,8 +51,12 @@ const CANCEL = new Set(["menu", "voltar", "sair", "cancelar"]);
 const say = (ctx: ModuleContext, c: Conversation, text: string, key: string) =>
   ctx.sendMessage(c, { text }, { key });
 
-const customerOf = (c: Conversation) =>
-  `customer:${phoneDigits(c.phone || c.external_id)}`;
+/** Telefone autenticado pelo canal ("" em grupo ou conversa de integração). */
+const verified = (ctx: ModuleContext, c: Conversation) =>
+  phoneDigits(ctx.verifiedPhone(c) ?? "");
+
+const customerOf = (ctx: ModuleContext, c: Conversation) =>
+  `customer:${verified(ctx, c) || c.id}`;
 
 /** Lista interativa com as opções guardadas na sessão (número na linha QR). */
 async function choose(
@@ -114,12 +118,10 @@ export async function startFlow(
   const session = await openSession(ctx, c, "start", at);
   if (!(await mensalidadeAvailable(ctx.env, ctx.profile)))
     return showOffers(ctx, c, session, rowId);
-  const found = await situationByPhone(
-    ctx.env,
-    ctx.profile,
-    c.phone || c.external_id,
-    at,
-  );
+  const phone = verified(ctx, c);
+  const found = phone
+    ? await situationByPhone(ctx.env, ctx.profile, phone, at)
+    : null;
   if (found) return onSituation(ctx, c, session, found, rowId);
   return askDocument(ctx, c, session, "identify", rowId);
 }
@@ -256,7 +258,11 @@ async function onSituation(
 // ---------------------------------------------------------------------------
 // Ofertas (sem assinatura)
 
-async function offers(ctx: ModuleContext, cfg: SuporteSettings) {
+async function offers(
+  ctx: ModuleContext,
+  c: Conversation,
+  cfg: SuporteSettings,
+) {
   if (!(await chargesReady(ctx.env, ctx.profile))) return [];
   const sections: {
     title: string;
@@ -275,7 +281,12 @@ async function offers(ctx: ModuleContext, cfg: SuporteSettings) {
         ),
       })),
     });
-  if (cfg.offer_plans && (await mensalidadeAvailable(ctx.env, ctx.profile))) {
+  // Plano mensal só com telefone verificado: o pagador nasce com ele.
+  if (
+    cfg.offer_plans &&
+    verified(ctx, c) &&
+    (await mensalidadeAvailable(ctx.env, ctx.profile))
+  ) {
     const plans = (await sellablePlans(ctx.env, ctx.profile)).filter(
       (p) => !cfg.plan_ids.length || cfg.plan_ids.includes(p.id),
     );
@@ -302,7 +313,7 @@ async function showOffers(
   rowId: string,
 ) {
   const cfg = suporteSettings(await ctx.settings());
-  const sections = await offers(ctx, cfg);
+  const sections = await offers(ctx, c, cfg);
   if (!sections.length) {
     await updateSession(ctx, session, { status: "closed" });
     await say(
@@ -471,7 +482,7 @@ async function charge(
         name: session.name,
         method,
         sourceKey: `suporte:${session.id}`,
-        actor: customerOf(c),
+        actor: customerOf(ctx, c),
       });
       await updateSession(ctx, session, {
         contract_id: result.contract?.id ?? null,
@@ -609,11 +620,11 @@ async function onDocument(
   const cfg = suporteSettings(await ctx.settings());
   const doc = validDocument(text);
   // Limite por telefone e por dia: ninguém testa documentos à vontade.
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = verified(ctx, c);
   const since = now() - 86_400_000;
   const used = await all(
     ctx.env,
-    "SELECT document FROM suporte_lookups WHERE profile_id=? AND (phone=? OR conversation_id=?) AND created>?",
+    "SELECT document FROM suporte_lookups WHERE profile_id=? AND ((phone<>'' AND phone=?) OR conversation_id=?) AND created>?",
     ctx.profile,
     phone,
     c.id,
@@ -687,7 +698,7 @@ async function onDocument(
       ctx.profile,
       doc.document,
       {
-        phone: c.phone || c.external_id,
+        phone: phone || null,
       },
     );
     if (situation) {
@@ -924,13 +935,21 @@ export async function confirmByTeam(
       "nothing_to_confirm",
       "Esta conversa não espera confirmação do suporte pago.",
     );
-  const phone = phoneDigits(c.phone || c.external_id);
-  if (options.link) await linkPhoneFn(session.payer_id, phone);
+  const phone = verified(ctx, c);
+  if (options.link) {
+    if (!phone)
+      throw new ApiError(
+        409,
+        "phone_not_verified",
+        "Esta conversa não tem telefone verificado pelo canal: confirme sem vincular ou vincule pelo cadastro do pagador.",
+      );
+    await linkPhoneFn(session.payer_id, phone);
+  }
   const situation = await situationByPayer(
     ctx.env,
     ctx.profile,
     session.payer_id,
-    { phone },
+    { phone: phone || null },
   );
   if (situation.status !== "em_dia")
     throw new ApiError(

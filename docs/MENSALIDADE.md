@@ -127,6 +127,23 @@ Mensalidade (o Suporte pago) importa direto deste arquivo e confere antes
 | `onInstallmentPaid(módulo, ouvinte)` | Avisa quando uma parcela é paga pelo provedor ou por baixa manual, com `conversation_id` da cobrança paga (null na baixa manual) e `contract_id` |
 | `onInstallmentRefunded(módulo, ouvinte)` | Avisa quando o pagamento de uma parcela é estornado |
 
+## Quem pode o quê
+
+- **Atendente**: cadastra assinaturas e pagadores pelo valor do plano,
+  corrige nome, telefone, dia e observações, reenvia cobrança. Na lista de
+  pagadores vê o documento mascarado (completo no detalhe).
+- **Administrador** (ou aplicação com `billing:write`): baixa manual,
+  isenção, planos, importação, pausar/retomar/encerrar, valor, desconto e
+  plano da assinatura, autorizar telefone num pagador, trocar o documento e
+  registrar o aceite de cobrança (com a evidência). `conversations:write` não
+  basta para uma aplicação; aparelhos pareados do Vinki e do Fagoo não
+  recebem `billing:write`.
+- **Aplicações** só recebem documento, e-mail e telefones com
+  `contacts:read`, e observações com `notes:read`.
+- **WhatsApp**: o cliente é reconhecido só pelo telefone verificado pelo
+  canal. Numa conversa criada por integração, nada é procurado nem vinculado
+  pelo telefone.
+
 ## Fora da janela de 24 horas (linha oficial)
 
 Quase sempre o cliente não escreveu nas últimas 24 horas, então os avisos,

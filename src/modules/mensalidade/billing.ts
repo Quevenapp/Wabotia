@@ -639,7 +639,15 @@ export async function paymentUpdated(
       at,
       inst.id,
     );
-    if (!result.meta.changes) {
+    // O núcleo repete o gancho até concluir: a mesma confirmação de novo
+    // refaz os passos seguintes (todos com chave), sem virar "em dobro".
+    const retry =
+      !result.meta.changes &&
+      inst.status === "paid" &&
+      inst.paid_by === "provider" &&
+      inst.payment_status === "paid" &&
+      inst.payment_id === payment.id;
+    if (!result.meta.changes && !retry) {
       // Já paga (baixa manual ou outra cobrança): dinheiro em dobro.
       await ctx.publish(
         "mensalidade.paid",
@@ -676,21 +684,13 @@ export async function paymentUpdated(
       { key: `${inst.id}:paid:${payment.id}` },
     );
     // O aviso aos módulos antes do comprovante: uma falha no envio (linha sem
-    // modelo, por exemplo) não impede a liberação de quem pagou.
+    // modelo, por exemplo) não impede a liberação de quem pagou, e o núcleo
+    // repete o gancho (o aviso e o comprovante têm chave).
     await announcePaid(ctx.env, ctx.profile, inst.id, {
       conversation_id: payment.conversation_id ?? null,
+      rethrow: true,
     });
-    try {
-      await sendReceipt(ctx, inst.id);
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          component: "mensalidade-receipt",
-          installment: inst.id,
-          error: String((error as Error)?.message || error),
-        }),
-      );
-    }
+    await sendReceipt(ctx, inst.id);
     return;
   }
   if (payment.status === "refunded") {
@@ -702,7 +702,14 @@ export async function paymentUpdated(
       inst.id,
       payment.id,
     );
-    if (result.meta.changes) {
+    // Repetição do mesmo estorno (o núcleo repete até concluir): refaz os
+    // avisos, que têm chave.
+    const retry =
+      !result.meta.changes &&
+      inst.status !== "paid" &&
+      inst.payment_status === "refunded" &&
+      inst.payment_id === payment.id;
+    if (result.meta.changes || retry) {
       await ctx.publish(
         "mensalidade.refunded",
         inst.id,
@@ -715,12 +722,17 @@ export async function paymentUpdated(
         { key: `${inst.id}:refunded:${payment.id}` },
       );
       // Quem foi liberado por esta parcela (Suporte pago) perde a liberação.
-      await notifyInstallmentRefunded(ctx.env, ctx.profile, {
-        id: inst.id,
-        subscription_id: inst.subscription_id,
-        payment_id: payment.id,
-        amount_cents: payment.amount_cents,
-      });
+      await notifyInstallmentRefunded(
+        ctx.env,
+        ctx.profile,
+        {
+          id: inst.id,
+          subscription_id: inst.subscription_id,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+        },
+        { rethrow: true },
+      );
     }
     return;
   }

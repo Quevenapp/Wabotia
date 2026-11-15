@@ -3,14 +3,16 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
-import { now, uid } from "../src/types";
+import { now, uid, type Actor, type Conversation } from "../src/types";
 import { conversation, handoff, perform } from "../src/service";
+import { gateFailsClosed, handoffGatesList } from "../src/modules/hooks";
 import { GROUP_REPLY } from "../src/modules/suporte/suporte";
 import { startFlow, UNLINKED_REPLY } from "../src/modules/suporte/flow";
 import { situationByPhone } from "../src/modules/mensalidade/public";
-import { settleReleases } from "../src/modules/suporte/handoff";
+import { handoffGate } from "../src/modules/suporte/handoff";
 import {
   api,
+  application,
   bearer,
   claim,
   configure,
@@ -116,14 +118,25 @@ describe("A2: liberação presa ao protocolo e à sessão da conversa", () => {
       "UPDATE conversations SET state='ai',owner=NULL WHERE id=?",
       c.id,
     );
-    expect(await settleReleases(s.sctx, now())).toBe(1);
+    // A lista do painel já mostra encerrada, com o motivo, sem gravar.
+    const list = await (
+      await api(
+        await bearer(f.admin),
+        `/profiles/${f.profile}/suporte/releases`,
+      )
+    ).json<any>();
+    expect(list.data[0]).toMatchObject({
+      status: "ended",
+      ended_reason: "Protocolo fechado.",
+    });
+    // O pedido de humano seguinte segura e grava o fim.
+    await talk(f, "menu", phone);
+    c = await talk(f, "1", phone);
+    expect(c.state).not.toBe("waiting");
     expect((await releases(c.id))[0]).toMatchObject({
       status: "ended",
       ended_by: "system",
     });
-    await talk(f, "menu", phone);
-    c = await talk(f, "1", phone);
-    expect(c.state).not.toBe("waiting");
   });
 
   it("prazo máximo absoluto: liberação em horas vencida pelo teto não vale", async () => {
@@ -487,5 +500,146 @@ describe("B1: regra de grupos", () => {
       source: "keyword",
     });
     expect((await conversation(env, c.id, f.profile)).state).toBe("waiting");
+  });
+});
+
+describe("M3, M6 e M7 no Suporte (base do núcleo)", () => {
+  it("M3: chave só de mensagens não libera como cortesia nem encerra liberação", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const c = await talk(f, "oi", "5511986000001");
+    const path = `/profiles/${f.profile}/suporte/conversations/${c.id}/courtesy`;
+    const chat = await application(f, [
+      "conversations:read",
+      "conversations:write",
+    ]);
+    const denied = await api(chat.token, path, "POST", { reason: "Bot pediu" });
+    expect(denied.status).toBe(403);
+    expect((await denied.json<any>()).error.code).toBe("missing_scope");
+    expect(await releases(c.id)).toHaveLength(0);
+    const erp = await application(f, [
+      "conversations:read",
+      "conversations:write",
+      "billing:write",
+    ]);
+    const granted = await api(erp.token, path, "POST", {
+      reason: "Contrato no ERP",
+      hours: 2,
+    });
+    expect(granted.status).toBe(200);
+    const end = `/profiles/${f.profile}/suporte/releases/${(await granted.json<any>()).id}/end`;
+    expect((await api(chat.token, end, "POST", {})).status).toBe(403);
+    expect((await api(erp.token, end, "POST", {})).status).toBe(200);
+  });
+
+  it("M6: aplicação sem contacts:read e notes:read não vê documento, telefone nem resumo", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const phone = "5511986000002";
+    let c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    c = await talk(f, CPF_NOVO, phone);
+    await tap(f, phone, "suporte:pkg:avulso", "Atendimento avulso");
+    await talk(f, "Maria Souza", phone);
+    await tap(f, phone, "suporte:method:pix", "Pix");
+    await claim(f, f.member, c.id);
+    await api(
+      await bearer(f.member),
+      `/profiles/${f.profile}/suporte/conversations/${c.id}/courtesy`,
+      "POST",
+      { reason: "Cliente antigo", hours: 1 },
+    );
+    const reader = await application(f, ["conversations:read"]);
+    for (const path of [
+      "purchases",
+      "releases",
+      "pending",
+      `conversations/${c.id}`,
+    ]) {
+      const body = JSON.stringify(
+        await (
+          await api(reader.token, `/profiles/${f.profile}/suporte/${path}`)
+        ).json<any>(),
+      );
+      expect(body, path).not.toContain("11144477735");
+      expect(body, path).not.toContain(phone);
+      expect(body, path).not.toContain("Cliente antigo");
+      expect(body, path).not.toContain('"summary"');
+    }
+    const full = await application(f, [
+      "conversations:read",
+      "contacts:read",
+      "notes:read",
+    ]);
+    const purchases = await (
+      await api(full.token, `/profiles/${f.profile}/suporte/purchases`)
+    ).json<any>();
+    expect(purchases.data[0]).toMatchObject({
+      document: "11144477735",
+      phone,
+    });
+  });
+
+  it("M7: conversa de integração com o telefone de um pagador em dia não passa nem se identifica", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const payerPhone = "5511986000003";
+    await payerEmDia(s, payerPhone);
+    const appActor: Actor = {
+      id: "app-integra",
+      kind: "app",
+      name: "Integração",
+      role: "operator",
+      profiles: [f.profile],
+      scopes: ["conversations:read", "conversations:write"],
+      bots: [],
+      rate: 60,
+      runLimit: 3,
+    };
+    await perform(
+      env,
+      appActor,
+      f.profile,
+      "conversation.create",
+      { external_id: payerPhone, phone: payerPhone, text: "oi" },
+      uid(),
+    );
+    const c = (await one(
+      env,
+      "SELECT * FROM conversations WHERE profile_id=? AND external_namespace=?",
+      f.profile,
+      "app:app-integra",
+    )) as Conversation;
+    expect(await handoffGate(s.sctx, c, now())).toMatchObject({
+      allowed: false,
+      reason: "payment_required",
+    });
+    await startFlow(s.sctx, c, uid());
+    expect(await releases(c.id)).toHaveLength(0);
+    expect(await lastText(c.id)).toContain("digite o CPF ou o CNPJ");
+  });
+});
+
+describe("B1: portão fail-closed e chave pela mensagem", () => {
+  it("o Suporte declara failClosed e reprocessar a mesma mensagem não repete a pergunta", async () => {
+    expect(gateFailsClosed("suporte")).toBe(true);
+    const s = await setupSuporte();
+    const { f } = s;
+    const c = await talk(f, "oi", "5511986000004");
+    const gate = handoffGatesList().find(([id]) => id === "suporte")![1];
+    const request = {
+      source: "keyword",
+      reason: "Cliente pediu atendente.",
+      department_id: null,
+      summary: null,
+      menu_item_id: null,
+      row_id: "inbox-123",
+    };
+    expect(await gate(env, c, request)).toBe("hold");
+    expect(await gate(env, c, request)).toBe("hold");
+    const asked = (await texts(c.id)).filter((m) =>
+      String(m.text).includes("digite o CPF ou o CNPJ"),
+    );
+    expect(asked).toHaveLength(1);
   });
 });

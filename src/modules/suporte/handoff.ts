@@ -121,29 +121,23 @@ export async function activeRelease(
 }
 
 /**
- * Rotina periódica: encerra as liberações que deixaram de valer (prazo,
- * protocolo fechado, conversa resolvida, assinatura fora do dia), para o
- * painel e os eventos refletirem o fim mesmo sem o cliente voltar.
+ * Estado efetivo de uma liberação gravada como ativa, sem gravar nada (para
+ * as listas do painel): `null` se vale, ou o motivo do fim. O encerramento
+ * gravado (com o evento) acontece no próximo pedido de humano.
  */
-export async function settleReleases(ctx: ModuleContext, at: number) {
-  const rows = await all(
-    ctx.env,
-    "SELECT * FROM suporte_releases WHERE profile_id=? AND status='active' ORDER BY created LIMIT 100",
-    ctx.profile,
-  );
-  let ended = 0;
-  for (const row of rows) {
-    let c: Conversation;
-    try {
-      c = await ctx.conversation(row.conversation_id);
-    } catch {
-      if (await settleRelease(ctx, row, "Conversa removida.")) ended++;
-      continue;
-    }
-    const reason = await releaseEndReason(ctx, c, row, at);
-    if (reason && (await settleRelease(ctx, row, reason))) ended++;
+export async function releaseEffectiveEnd(
+  ctx: ModuleContext,
+  row: any,
+  at: number,
+) {
+  if (row.status !== "active") return null;
+  let c: Conversation;
+  try {
+    c = await ctx.conversation(row.conversation_id);
+  } catch {
+    return "Conversa removida.";
   }
-  return ended;
+  return releaseEndReason(ctx, c, row, at);
 }
 
 /** Estorno de uma parcela da Mensalidade: encerra as liberações que ela deu. */
@@ -177,7 +171,7 @@ export async function handoffGate(
   const release = await activeRelease(ctx, c, at, options);
   if (release)
     return { allowed: true, reason: "released", release_id: release.id };
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = phoneDigits(ctx.verifiedPhone(c) ?? "");
   if (
     c.chat_type !== "group" &&
     phone &&

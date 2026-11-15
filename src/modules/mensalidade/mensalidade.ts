@@ -3,23 +3,45 @@
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
 import { type Actor, now, requireValue } from "../../types";
 import {
+  filteredHandlers,
   moduleError,
-  onCommand,
-  onConversationAction,
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
-  onRead,
   onRoute,
   onSchedule,
   onSettingsSave,
+  type ModuleContext,
 } from "../api";
 import {
+  maskDocument,
   parseDocument,
   phoneDigits,
   validateMensalidadeSettings,
+  withoutKeys,
 } from "./model";
+
+// Dados pessoais (documento, e-mail, telefones) só para aplicação com
+// contacts:read, e observações só com notes:read, como no núcleo; pessoas da
+// equipe veem. Toda rota de leitura e de escrita passa por este filtro.
+const CONTACT_FIELDS = new Set([
+  "document",
+  "document_display",
+  "payer_document",
+  "email",
+  "phones",
+  "phone",
+]);
+const NOTE_FIELDS = new Set(["notes", "paid_note"]);
+function visible(ctx: ModuleContext, actor: Actor, value: any) {
+  if (actor.kind !== "app") return value;
+  let out = value;
+  if (!ctx.mayRead(actor, "contacts")) out = withoutKeys(out, CONTACT_FIELDS);
+  if (!ctx.mayRead(actor, "notes")) out = withoutKeys(out, NOTE_FIELDS);
+  return out;
+}
+const { onRead, onCommand, onConversationAction } = filteredHandlers(visible);
 import { runDue } from "./due";
 import { handleTurn, menuCopy, menuStatement, openInstallments } from "./chat";
 import {
@@ -194,7 +216,23 @@ onCommand(
 
 onRead("mensalidade", "mensalidade/payers", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listPayers(ctx, query);
+  // Lista de pagadores é cadastro de pessoas: aplicação precisa de
+  // contacts:read (a busca por documento ou telefone também revelaria quem é
+  // cliente).
+  ctx.access(actor, "contacts:read");
+  const list = await listPayers(ctx, query);
+  // Na listagem, atendente vê o documento mascarado; completo no detalhe e
+  // para administrador.
+  if (actor.kind === "user" && actor.role !== "admin")
+    return {
+      ...list,
+      data: list.data.map((payer: any) => ({
+        ...payer,
+        document: null,
+        document_display: maskDocument(payer.document_display),
+      })),
+    };
+  return list;
 });
 
 onRead(
@@ -202,6 +240,7 @@ onRead(
   "mensalidade/payers/:id",
   async (ctx, actor, { params }) => {
     ctx.access(actor, "conversations:read");
+    ctx.access(actor, "contacts:read");
     const payer = await loadPayer(ctx, params.id);
     const subs = await listSubscriptions(ctx, {
       payer_id: payer.id,
@@ -226,6 +265,9 @@ onRead(
   "mensalidade/situation",
   async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
+    // Documento → pagador é consulta de dado pessoal: aplicação precisa de
+    // contacts:read.
+    if (query.document || query.phone) ctx.access(actor, "contacts:read");
     const found = query.document
       ? await situationByDocument(ctx.env, ctx.profile, query.document, {
           phone: query.phone || null,
@@ -339,7 +381,7 @@ onRead(
   async (ctx, actor, { params }) => {
     ctx.access(actor, "conversations:read");
     const c = await ctx.conversation(params.id, actor);
-    const phone = c.phone || c.external_id;
+    const phone = ctx.verifiedPhone(c);
     return {
       situation: phone
         ? await situationByPhone(ctx.env, ctx.profile, phone)

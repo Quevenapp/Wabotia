@@ -246,6 +246,9 @@ async function contractPaid(
   contract: any,
   payment: Payment,
 ) {
+  if (contract.status === "paid" && contract.payment_id === payment.id)
+    // O núcleo repete o gancho até concluir: refaz os avisos (com chave).
+    return contractAnnounce(ctx, contract, payment);
   if (contract.status === "paid") {
     if (contract.payment_id !== payment.id)
       await ctx.publish(
@@ -366,21 +369,46 @@ async function contractPaid(
     contract.id,
   );
   if (!claimed.meta.changes) return;
-  if (inserted.meta.changes)
-    await ctx.publish(
-      "mensalidade.installment_created",
-      inst.id,
-      {
-        installment_id: inst.id,
-        subscription_id: sub.id,
-        period_key: period,
-        due_date: day,
-        amount_cents: amount,
-        status: "paid",
-        upfront: true,
-      },
-      { key: inst.id },
-    );
+  return contractAnnounce(ctx, await loadContract(ctx, contract.id), payment);
+}
+
+/**
+ * Eventos, aviso aos módulos e comprovante de um contrato pago. Tudo com
+ * chave: a repetição do gancho pelo núcleo não duplica nada. O aviso vem
+ * antes do comprovante; uma falha no envio faz o núcleo repetir.
+ */
+async function contractAnnounce(
+  ctx: ModuleContext,
+  contract: any,
+  payment: Payment,
+) {
+  const inst = await one(
+    ctx.env,
+    "SELECT * FROM mensalidade_installments WHERE id=? AND profile_id=?",
+    contract.installment_id,
+    ctx.profile,
+  );
+  if (!inst) return;
+  const sub = { id: inst.subscription_id };
+  const period = inst.period_key,
+    day = inst.due_date,
+    amount = inst.amount_cents,
+    paidAt = inst.paid_at;
+  // Mesma chave do gerador: se ele criou a parcela antes, não repete.
+  await ctx.publish(
+    "mensalidade.installment_created",
+    inst.id,
+    {
+      installment_id: inst.id,
+      subscription_id: sub.id,
+      period_key: period,
+      due_date: day,
+      amount_cents: amount,
+      status: "paid",
+      upfront: true,
+    },
+    { key: inst.id },
+  );
   await ctx.publish(
     "mensalidade.paid",
     inst.id,
@@ -398,23 +426,12 @@ async function contractPaid(
     },
     { key: `${inst.id}:paid:${payment.id}` },
   );
-  // O aviso aos módulos antes do comprovante: uma falha no envio não impede
-  // a liberação de quem pagou.
   await announcePaid(ctx.env, ctx.profile, inst.id, {
     conversation_id: payment.conversation_id ?? contract.conversation_id,
     contract_id: contract.id,
+    rethrow: true,
   });
-  try {
-    await sendReceipt(ctx, inst.id);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        component: "mensalidade-receipt",
-        installment: inst.id,
-        error: String((error as Error)?.message || error),
-      }),
-    );
-  }
+  await sendReceipt(ctx, inst.id);
 }
 
 /**

@@ -5,16 +5,14 @@
 import { all, one } from "../../db";
 import { ApiError, type Actor, type Conversation, now } from "../../types";
 import {
+  filteredHandlers,
   moduleError,
   modulesApi,
-  onCommand,
   onConversationTurn,
   onHandoffRequest,
   onMenuChoice,
   onPaymentUpdated,
-  onRead,
   onRoute,
-  onSchedule,
   onSettingsSave,
   type ModuleContext,
 } from "../api";
@@ -27,6 +25,7 @@ import {
   sellablePlans,
 } from "../mensalidade/public";
 import {
+  withoutKeys,
   packageValidity,
   phoneDigits,
   suporteSettings,
@@ -39,12 +38,7 @@ import {
   recentSessions,
   startFlow,
 } from "./flow";
-import {
-  activeRelease,
-  handoffGate,
-  settleByRef,
-  settleReleases,
-} from "./handoff";
+import { activeRelease, handoffGate, settleByRef } from "./handoff";
 import {
   endRelease,
   listPurchases,
@@ -58,6 +52,20 @@ import {
   updateSession,
 } from "./store";
 
+// Dados pessoais (documento, telefone) só para aplicação com contacts:read,
+// e o resumo e o motivo dados à equipe só com notes:read; pessoas da equipe
+// veem. Toda rota passa por este filtro.
+const CONTACT_FIELDS = new Set(["document", "phone"]);
+const NOTE_FIELDS = new Set(["summary", "reason"]);
+function visible(ctx: ModuleContext, actor: Actor, value: any) {
+  if (actor.kind !== "app") return value;
+  let out = value;
+  if (!ctx.mayRead(actor, "contacts")) out = withoutKeys(out, CONTACT_FIELDS);
+  if (!ctx.mayRead(actor, "notes")) out = withoutKeys(out, NOTE_FIELDS);
+  return out;
+}
+const { onRead, onCommand } = filteredHandlers(visible);
+
 onSettingsSave("suporte", "suporte", validateSuporteSettings);
 
 // Item de menu "Atendimento humano (pago)".
@@ -67,27 +75,35 @@ onMenuChoice("suporte_humano", (ctx, c, _item, { rowId }) =>
 
 // Toda passagem automática para humano (item "humano" do menu, palavra-chave,
 // bot de IA que transfere, falha do bot, anexo) só segue com liberação ativa
-// ou pagador em dia; senão o Suporte segura e conduz a liberação.
-onHandoffRequest("suporte", async (ctx, c, request) => {
-  const at = now();
-  // Grupo: ninguém se identifica nem paga por todos ali. Passa só com uma
-  // liberação dada ao grupo pela equipe (cortesia); senão segura, avisa uma
-  // vez no grupo e deixa o pedido para a equipe (aba Aguardando confirmação).
-  if (c.chat_type === "group") {
-    if (await activeRelease(ctx, c, at, { settle: true })) return "allow";
-    await holdGroup(ctx, c, request.source, at);
+// ou pagador em dia; senão o Suporte segura e conduz a liberação. Erro aqui
+// (banco, envio recusado) segura a conversa e deixa nota para a equipe
+// (failClosed): quem vende acesso não libera de graça por falha.
+onHandoffRequest(
+  "suporte",
+  async (ctx, c, request) => {
+    const at = now();
+    // Grupo: ninguém se identifica nem paga por todos ali. Passa só com uma
+    // liberação dada ao grupo pela equipe (cortesia); senão segura, avisa uma
+    // vez no grupo e deixa o pedido para a equipe (aba Aguardando confirmação).
+    if (c.chat_type === "group") {
+      if (await activeRelease(ctx, c, at, { settle: true })) return "allow";
+      await holdGroup(ctx, c, request.source, at);
+      return "hold";
+    }
+    if ((await handoffGate(ctx, c, at, { settle: true })).allowed)
+      return "allow";
+    // A mensagem que pediu a passagem (estável no reprocessamento) na chave:
+    // reprocessar não repete as perguntas.
+    await startFlow(
+      ctx,
+      c,
+      `gate:${request.source}:${request.row_id ?? at}`,
+      at,
+    );
     return "hold";
-  }
-  if ((await handoffGate(ctx, c, at, { settle: true })).allowed) return "allow";
-  await startFlow(ctx, c, `gate:${request.source}:${at}`, at);
-  return "hold";
-});
-
-// Liberações que deixaram de valer (prazo, protocolo fechado, conversa
-// resolvida, assinatura fora do dia) são encerradas mesmo sem o cliente voltar.
-onSchedule("suporte", async (ctx, tick) => {
-  await settleReleases(ctx, tick.now);
-});
+  },
+  { failClosed: true },
+);
 
 // Estorno da parcela que liberou o atendimento: a liberação acaba.
 onInstallmentRefunded("suporte", async (env, profile, inst) => {
@@ -140,13 +156,37 @@ async function holdGroup(
   );
 }
 
-/** Atendente da conversa, administrador ou integração. */
+/** Telefone autenticado pelo canal, para vincular; sem ele, 409. */
+function verifiedOrFail(ctx: ModuleContext, c: Conversation) {
+  const phone = ctx.verifiedPhone(c);
+  if (!phone)
+    throw moduleError(
+      409,
+      "phone_not_verified",
+      "Esta conversa não tem telefone verificado pelo canal (grupo ou integração): vincule pelo cadastro do pagador.",
+    );
+  return phoneDigits(phone);
+}
+
+/**
+ * Atendente da conversa, administrador ou integração com `billing:write`:
+ * liberar ou vincular dá atendimento pago sem pagamento, então uma chave só
+ * de mensagens não basta.
+ */
 function mayAct(
   actor: Actor,
   c: { owner: string | null },
   message = "Assuma a conversa antes de liberar o suporte.",
 ) {
-  if (actor.kind === "app") return;
+  if (actor.kind === "app") {
+    if (!actor.scopes.includes("billing:write"))
+      throw new ApiError(
+        403,
+        "missing_scope",
+        "Permissão necessária: billing:write",
+      );
+    return;
+  }
   if (actor.kind === "user" && (actor.role === "admin" || c.owner === actor.id))
     return;
   throw new ApiError(403, "forbidden", message);
@@ -192,7 +232,7 @@ async function conversationStatus(
   });
   return {
     conversation_id: c.id,
-    phone: phoneDigits(c.phone || c.external_id),
+    phone: phoneDigits(ctx.verifiedPhone(c) ?? ""),
     allowed: gate.allowed,
     reason: gate.reason,
     release: rel ? releaseView(rel) : null,
@@ -349,7 +389,7 @@ onCommand("suporte", "suporte.link_phone", async (ctx, actor, data) => {
       "nothing_to_link",
       "Não há pagador aguardando vínculo nesta conversa.",
     );
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = verifiedOrFail(ctx, c);
   await linkPhone(
     ctx.env,
     ctx.profile,
@@ -417,7 +457,8 @@ onRoute("suporte", {
 });
 onCommand("suporte", "suporte.release_end", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
-  if (actor.kind === "user" && actor.role !== "admin")
+  if (actor.kind === "app") ctx.access(actor, "billing:write");
+  else if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(
       403,
       "admin_required",

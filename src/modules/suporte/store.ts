@@ -18,7 +18,7 @@ import {
   UNLINKED_RELEASE_MS,
   type SupportPackage,
 } from "./model";
-import { passToTeam } from "./handoff";
+import { passToTeam, releaseEffectiveEnd } from "./handoff";
 
 export const SESSION_MINUTES = 120;
 const HOUR = 3_600_000;
@@ -71,7 +71,7 @@ export async function openSession(
     id,
     ctx.profile,
     c.id,
-    phoneDigits(c.phone || c.external_id),
+    phoneDigits(ctx.verifiedPhone(c) ?? ""),
     step,
     at + SESSION_MINUTES * 60_000,
     at,
@@ -194,8 +194,13 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
     "SELECT * FROM suporte_releases WHERE source_key=?",
     input.sourceKey,
   );
-  if (existing) return { release: existing, created: false };
-  const cfg = suporteSettings(await ctx.settings());
+  if (existing) {
+    // Repetição (gancho repetido pelo núcleo depois de uma falha no meio):
+    // completa o aviso e a passagem que podem ter ficado para trás.
+    if (input.pass !== false && existing.status === "active")
+      await deliverRelease(ctx, existing);
+    return { release: existing, created: false };
+  }
   const at = now();
   const c = await ctx.conversation(input.c.id);
   const linked = input.phone_linked !== false;
@@ -247,7 +252,7 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
     ctx.profile,
     c.id,
     input.session?.id ?? null,
-    phoneDigits(c.phone || c.external_id),
+    phoneDigits(ctx.verifiedPhone(c) ?? ""),
     input.payer?.id ?? null,
     input.payer?.name ?? "",
     input.kind,
@@ -303,25 +308,32 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
     },
     { key: id },
   );
-  if (input.pass !== false) {
-    const fresh = await ctx.conversation(c.id);
-    if (!["human", "waiting"].includes(fresh.state)) {
-      await ctx.sendMessage(
-        fresh,
-        { text: cfg.texts.released },
-        // O pagamento pode ser confirmado depois da janela de 24 h.
-        { key: `liberado:${id}`, notification: true, purpose: "billing" },
-      );
-      await passToTeam(ctx, fresh, summary, {
-        flags: [
-          `Suporte pago: ${KIND_LABELS[input.kind]}`,
-          ...(!linked && input.payer ? ["telefone não vinculado"] : []),
-        ],
-        key: `liberacao:${id}`,
-      });
-    }
-  }
+  if (input.pass !== false) await deliverRelease(ctx, row);
   return { release: row, created: true };
+}
+
+/**
+ * Avisa o cliente e passa a conversa ao setor, se ela ainda não está com a
+ * equipe. Mensagem e passagem têm chave pela liberação: repetir (o núcleo
+ * repete o gancho de pagamento até concluir) não duplica nada.
+ */
+async function deliverRelease(ctx: ModuleContext, row: any) {
+  const cfg = suporteSettings(await ctx.settings());
+  const fresh = await ctx.conversation(row.conversation_id);
+  if (["human", "waiting"].includes(fresh.state)) return;
+  await ctx.sendMessage(
+    fresh,
+    { text: cfg.texts.released },
+    // O pagamento pode ser confirmado depois da janela de 24 h.
+    { key: `liberado:${row.id}`, notification: true, purpose: "billing" },
+  );
+  await passToTeam(ctx, fresh, row.summary, {
+    flags: [
+      `Suporte pago: ${KIND_LABELS[row.kind]}`,
+      ...(!row.phone_linked && row.payer_id ? ["telefone não vinculado"] : []),
+    ],
+    key: `liberacao:${row.id}`,
+  });
 }
 
 export async function endRelease(
@@ -427,7 +439,19 @@ export async function listReleases(
     ).map((r) => [r.kind, r.n]),
   );
   const result = page(rows, limit, (row: any) => String(row.created));
-  return { ...result, data: result.data.map(releaseView), counts };
+  // Ativa que já não vale (protocolo fechado, prazo…): aparece encerrada,
+  // com o motivo, mesmo antes de o próximo pedido de humano gravar o fim.
+  const at = now();
+  const data = [];
+  for (const row of result.data) {
+    const ended = await releaseEffectiveEnd(ctx, row, at);
+    data.push(
+      ended
+        ? { ...releaseView(row), status: "ended", ended_reason: ended }
+        : releaseView(row),
+    );
+  }
+  return { ...result, data, counts };
 }
 
 // ---------------------------------------------------------------------------
@@ -640,7 +664,7 @@ export async function buyPackage(
       input.payer_id ?? null,
       input.document ?? null,
       input.name ?? "",
-      phoneDigits(input.c.phone || input.c.external_id),
+      phoneDigits(ctx.verifiedPhone(input.c) ?? ""),
       input.pkg.id,
       input.pkg.name,
       input.pkg.price_cents,
@@ -735,7 +759,13 @@ export async function purchasePaymentUpdated(
       at,
       purchase.id,
     );
-    if (!changed.meta.changes) {
+    // O núcleo repete o gancho até concluir: a mesma confirmação de novo
+    // refaz a liberação (com chave), sem virar "em dobro".
+    const retry =
+      !changed.meta.changes &&
+      purchase.status === "paid" &&
+      purchase.payment_id === payment.id;
+    if (!changed.meta.changes && !retry) {
       // Outro pagamento da mesma compra (cobrança antiga paga junto com a
       // nova, link pago duas vezes): dinheiro em dobro para a equipe estornar.
       if (purchase.payment_id !== payment.id)
@@ -787,13 +817,14 @@ export async function purchasePaymentUpdated(
     // Estorno (ou chargeback) do pagamento que valeu: a compra volta e a
     // liberação acaba; a equipe fica sabendo para conferir o atendimento.
     if (purchase.payment_id !== payment.id) return;
-    const changed = await exec(
+    // Sem "já estornada, sai": a repetição do gancho refaz o encerramento e o
+    // aviso, que têm chave.
+    await exec(
       ctx.env,
       "UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=? AND status<>'refunded'",
       at,
       purchase.id,
     );
-    if (!changed.meta.changes) return;
     const rel = await one(
       ctx.env,
       "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'",

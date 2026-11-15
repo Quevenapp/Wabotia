@@ -361,6 +361,34 @@ export function requireDocument(value: unknown) {
   return parsed;
 }
 
+/** Cópia profunda sem as chaves dadas (dados sensíveis nas respostas da API). */
+export function withoutKeys(value: any, keys: Set<string>): any {
+  if (Array.isArray(value)) return value.map((item) => withoutKeys(item, keys));
+  if (value && typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [key, item] of Object.entries(value))
+      if (!keys.has(key)) out[key] = withoutKeys(item, keys);
+    return out;
+  }
+  return value;
+}
+
+// Documento na listagem para atendentes: só os 2 primeiros e os 2 últimos
+// dígitos do CPF (os 6 últimos do CNPJ: filial e verificadores) aparecem.
+export function maskDocument(display: string | null | undefined) {
+  if (!display) return display ?? null;
+  const digits = Array.from(display);
+  let seen = 0;
+  const total = digits.filter((ch) => /[0-9A-Z]/.test(ch)).length;
+  return digits
+    .map((ch) => {
+      if (!/[0-9A-Z]/.test(ch)) return ch;
+      seen++;
+      return seen <= 2 || seen > total - (total === 11 ? 2 : 6) ? ch : "*";
+    })
+    .join("");
+}
+
 /** Texto curto, aparado, com limite; vazio permitido quando não obrigatório. */
 export function text(
   value: unknown,

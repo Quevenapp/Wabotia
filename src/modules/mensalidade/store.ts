@@ -62,17 +62,29 @@ export async function cancelOpenCharge(
   }
 }
 
-/** Administrador (pessoa) ou integração com a permissão de escrita. */
+/**
+ * Operações financeiras: administrador (pessoa) ou aplicação com
+ * `billing:write` (uma chave só de mensagens, `conversations:write`, não
+ * basta; aparelhos pareados do Vinki e do Fagoo nunca a recebem).
+ */
 export const isManager = (actor: Actor) =>
-  actor.kind === "app" || (actor.kind === "user" && actor.role === "admin");
+  actor.kind === "app"
+    ? actor.scopes.includes("billing:write")
+    : actor.kind === "user" && actor.role === "admin";
 
 export function manager(actor: Actor, message?: string) {
-  if (!isManager(actor))
+  if (isManager(actor)) return;
+  if (actor.kind === "app")
     throw new ApiError(
       403,
-      "admin_required",
-      message || "Somente administradores podem fazer isto.",
+      "missing_scope",
+      "Permissão necessária: billing:write",
     );
+  throw new ApiError(
+    403,
+    "admin_required",
+    message || "Somente administradores podem fazer isto.",
+  );
 }
 
 // ---------------------------------------------------------------------------

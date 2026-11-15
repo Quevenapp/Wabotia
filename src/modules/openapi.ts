@@ -1869,10 +1869,21 @@ function describeMensalidadeOperation(
   const adminOnly =
     /\/plans/.test(path) && method !== "get"
       ? true
-      : /\/(import|pause|resume|end|pay|waive)$|\/generate$/.test(path);
+      : /\/(import|pause|resume|end|pay|waive)$|\/generate$|\/payers\/\{id\}\/phones$/.test(
+          path,
+        );
   if (adminOnly)
     entry.description +=
-      " Pessoas: só administradores (403 admin_required). Aplicações: com conversations:write.";
+      " Operação financeira: pessoas, só administradores (403 admin_required); aplicações, com billing:write (403 missing_scope).";
+  if (/\/subscriptions(\/\{id\})?$/.test(path) && method !== "get")
+    entry.description +=
+      " Valor, desconto e plano (e billing_consent, com billing_consent_evidence) exigem administrador ou aplicação com billing:write.";
+  if (/\/payers(\/\{id\})?$/.test(path) && method === "get")
+    entry.description +=
+      " Aplicações precisam de contacts:read. Na listagem, o atendente vê o documento mascarado.";
+  if (method === "get")
+    entry.description +=
+      " Sem contacts:read, a aplicação não recebe documento, e-mail nem telefones; sem notes:read, não recebe as observações.";
   if (path.endsWith("/plans")) {
     if (method === "get")
       success.content["application/json"].schema = list("MensalidadePlan");
@@ -2237,6 +2248,12 @@ function describeSuporteOperation(
     );
   entry.description +=
     " Módulo Suporte pago (suporte); desligado, 409 module_disabled.";
+  if (method === "get")
+    entry.description +=
+      " Sem contacts:read, a aplicação não recebe documento nem telefone; sem notes:read, não recebe resumo nem motivo.";
+  else if (/\/(courtesy|link-phone|confirm|end)$/.test(path))
+    entry.description +=
+      " Dá atendimento pago sem pagamento: aplicações precisam de billing:write; pessoas, da conversa assumida ou de administrador.";
   if (path.endsWith("/releases")) {
     query(
       "kind",
