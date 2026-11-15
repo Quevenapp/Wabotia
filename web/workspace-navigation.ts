@@ -23,10 +23,12 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  ShoppingBag,
   Star,
   Store,
   Ticket,
   Users,
+  UtensilsCrossed,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -72,6 +74,8 @@ export const sections = [
   ["service-orders", "Ordens de serviço", Wrench],
   ["service-orders-settings", "Ordem de serviço", Wrench],
   ["establishment", "Estabelecimento", Store],
+  ["pedidos", "Pedidos", ShoppingBag],
+  ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -118,6 +122,12 @@ export const workspaceGroups = [
     label: "Ordens de serviço",
     icon: Wrench,
     pages: ["service-orders", "service-orders-settings"],
+  },
+  {
+    id: "pedidos",
+    label: "Pedidos",
+    icon: ShoppingBag,
+    pages: ["pedidos", "pedidos-cardapio"],
   },
   {
     id: "automation",
@@ -188,6 +198,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "payments",
   "establishment",
   "reserva-settings",
+  "pedidos-cardapio",
 ]);
 
 /**
@@ -205,6 +216,8 @@ export const pageModules: Partial<Record<string, string>> = {
   payments: "payments",
   reserva: "reserva",
   "reserva-settings": "reserva",
+  pedidos: "pedido",
+  "pedidos-cardapio": "pedido",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -218,6 +231,7 @@ export const railPages: {
 }[] = [
   { page: "agenda", label: "Agenda", icon: CalendarDays },
   { page: "service-orders", label: "Ordens", icon: Wrench },
+  { page: "pedidos", label: "Pedidos", icon: ShoppingBag },
 ];
 
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
@@ -309,4 +323,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ocupação por unidade, reservas com sinal e check-in: crie, altere, confirme e cancele.",
   "reserva-settings":
     "Quartos, chalés, quadras e salões; bloqueios de datas e as regras de reserva, sinal e check-in.",
+  pedidos:
+    "Quadro da cozinha com os pedidos em andamento: mude o estado, registre o pagamento e imprima a comanda.",
+  "pedidos-cardapio":
+    "Cardápio com fotos e adicionais, imagens do WhatsApp, horário, entrega, pagamento e mensagens ao cliente.",
 };

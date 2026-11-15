@@ -141,6 +141,29 @@ Módulo `reserva` (desligado por padrão; guia de uso em [RESERVA.md](RESERVA.md
 - WhatsApp: itens de menu `{"type":"reserva"}` (Fazer reserva) e `{"type":"reserva_mine"}` (Minhas reservas). Lista e botões nas linhas oficiais (ids `reserva:…`), opções numeradas no QR; o cliente responde CHECKIN para receber o link do check-in.
 - Eventos (permissão `conversations:read` nos webhooks): `reserva.created`, `reserva.confirmed` (`by: payment|staff`, `late`), `reserva.changed` (com `previous`), `reserva.cancelled` (`reason`), `reserva.expired` (`reason`), `reserva.completed`, `reserva.payment_late`, `reserva.checkin_sent` e `reserva.checkin_completed` (`answers`). Todos trazem `booking` (a reserva completa), `conversation_id`, `actor` (`customer` quando foi o cliente) e `module_id: "reserva"`.
 
+### Pedido (módulo `pedido`)
+
+Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão; uso em [PEDIDO.md](PEDIDO.md)). Rotas em `/profiles/{perfil}/pedido…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (a mesma chave devolve a mesma resposta, sem criar outro pedido nem repetir mensagem). Valores em centavos inteiros; datas em ms; horário da loja em Brasília. Desligado: `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /pedido` | Regras da loja já com os padrões (`config`), situação (`store.open`, `reason` `open\|paused\|closed`, `opens_at`, `message`), `payments.offered` e contagem do cardápio |
+| `POST /pedido/store/pause` | `{"paused":true,"message":"…"}`: loja fechada agora (qualquer pessoa da equipe) |
+| `GET /pedido/menu` | Categorias com itens, grupos de adicionais e imagens do cardápio |
+| `POST`/`PUT`/`DELETE /pedido/categories[/{id}]`, `/pedido/items[/{id}]`, `/pedido/groups[/{id}]`; `PUT /pedido/menu-images` | Cadastro do cardápio (só administrador). Item: `category_id`, `name`, `price_cents`, `description`, `photo_media_id` (de `POST /media`), `image_url` (HTTPS, para o carrinho), `available`, `max_quantity`, `retailer_id` (catálogo da Meta, único: `409 retailer_id_taken`), `group_ids`. Grupo: `name`, `min`, `max`, `options [{id?, name, price_cents, available}]` |
+| `POST /pedido/items/{id}/availability`, `/pedido/groups/{id}/availability` | `{"available":false}` (com `option_id` no grupo): esgotado pela equipe |
+| `GET /pedido/board` | Quadro da cozinha: `columns` por estado em andamento com `minutes_in_status` e `late`, `store` e `today` |
+| `GET /pedido/orders` | `status=a,b`, `open=1`, `q` (cliente, número, telefone), `phone`, `conversation_id`, `from`, `to`, `limit`, `cursor`; traz `counts` por estado |
+| `POST /pedido/orders` | Pedido de balcão ou integração: `items [{item_id, quantity, options {"<group_id>":["<option_id>"]}, note}]` (repetir `item_id` = outra montagem), `fulfillment`, `address`, `customer_name`, `phone`, `conversation_id`, `payment_method`, `note`, `notes` |
+| `GET /pedido/orders/{id}` | Pedido com `history` |
+| `PATCH /pedido/orders/{id}` | `notes` (internas), `customer_name`, `eta_minutes` |
+| `POST /pedido/orders/{id}/status` | `{"status":"…","note":"…","reason":"…","notify":true}`; transição inválida: `409 invalid_transition` |
+| `POST /pedido/orders/{id}/paid` | Baixa do pagamento feito na hora; cobrança online aberta: `409 payment_online` |
+| `POST /pedido/orders/{id}/payment` | `{"method":"cash"}`: forma escolhida pela equipe; já definida: `409 payment_chosen` |
+| `GET /pedido/orders/{id}/ticket?columns=32\|42\|48` | Comanda: `establishment`, `order` e `text` em colunas fixas |
+
+Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada ou item esgotado), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed` e `pedido.store_changed`; todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:

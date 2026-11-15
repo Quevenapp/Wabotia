@@ -13,6 +13,7 @@ import { agendaModule } from "./agenda/definition";
 import { osModule } from "./os/definition";
 import { paymentsModule } from "./payments/definition";
 import { reservaModule } from "./reserva/definition";
+import { pedidoModule } from "./pedido/definition";
 
 export type { ModuleDefinition } from "./types";
 
@@ -24,6 +25,7 @@ export const modules: readonly ModuleDefinition[] = [
   osModule,
   paymentsModule,
   reservaModule,
+  pedidoModule,
 ];
 
 export const moduleById = (id: unknown) =>

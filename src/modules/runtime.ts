@@ -7,3 +7,4 @@ import "./agenda/agenda";
 import "./os/os";
 import "./payments/payments";
 import "./reserva/reserva";
+import "./pedido/pedido";

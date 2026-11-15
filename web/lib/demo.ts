@@ -4,6 +4,11 @@
 import type { Api, Row } from "./api";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
+import {
+  pedidoDemo,
+  pedidoDemoConfig,
+  pedidoDemoModule,
+} from "../modules/pedido/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -35,6 +40,7 @@ const settings: Row = {
   capabilities: [],
   menus: [],
   apps: [],
+  pedido: pedidoDemoConfig,
   departments: [
     { id: "suporte", name: "Suporte", members: ["demo-user", "demo-ana"], enabled: true },
     { id: "financeiro", name: "Financeiro", members: ["demo-ana"], enabled: true },
@@ -384,6 +390,7 @@ const demoModules: Row[] = [
     ],
   },
   reservaDemoModule,
+  pedidoDemoModule,
 ];
 
 // Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
@@ -593,6 +600,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
+  if (rest === "pedido" || rest.startsWith("pedido/")) return pedidoDemo(rest, query);
   if (rest === "service-orders") {
     const status = (query.get("status") || "").split(",").filter(Boolean),
       q = (query.get("q") || "").toLowerCase();

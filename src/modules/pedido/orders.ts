@@ -1,0 +1,1107 @@
+// Pedido: pedidos (criar com número sequencial, ler, mudar estado), forma de
+// pagamento, cobrança online pela Cobrança do núcleo e avisos ao cliente.
+// Fala com o núcleo pela interface de src/modules/api.ts.
+import { all, batch, exec, one } from "../../db";
+import {
+  ApiError,
+  type Conversation,
+  json,
+  now,
+  requireValue,
+  uid,
+} from "../../types";
+import type { InteractiveSpec, ModuleContext } from "../api";
+import type { Payment } from "../../payments";
+import {
+  ACTIVE_STATUSES,
+  PAYMENT_LABELS,
+  PAYMENT_TITLES,
+  STATUS_LABELS,
+  clockOf,
+  fill,
+  isOnline,
+  isStatus,
+  money,
+  nextStatuses,
+  phoneDigits,
+  type OrderStatus,
+  type PaymentMethod,
+  type PedidoConfig,
+  type TextKey,
+} from "./model";
+import { config, offeredMethods, paymentsReady } from "./store";
+
+export type OrderSource = "cart" | "catalog" | "panel" | "api";
+
+export interface OrderLine {
+  item_id: string;
+  slot: number;
+  name: string;
+  quantity: number;
+  unit_cents: number;
+  options: {
+    group_id: string;
+    group: string;
+    id: string;
+    name: string;
+    price_cents: number;
+  }[];
+  note: string;
+  total_cents: number;
+}
+
+export interface OrderAddress {
+  street: string;
+  district: string;
+  complement: string;
+  reference: string;
+}
+
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  choosing: "Cliente escolhendo a forma de pagamento",
+  pending: "Pagar na hora",
+  awaiting: "Aguardando pagamento online",
+  paid: "Pago",
+  expired: "Cobrança vencida",
+  failed: "Cobrança não gerada",
+  refunded: "Estornado",
+  cancelled: "Cobrança cancelada",
+};
+
+const notFound = () => new ApiError(404, "not_found", "Pedido não encontrado.");
+const conflict = () =>
+  new ApiError(
+    409,
+    "pedido_conflict",
+    "O pedido mudou enquanto isso. Atualize e tente de novo.",
+  );
+
+const clip = (value: string, max: number) =>
+  Array.from(value).slice(0, max).join("");
+
+// ---------------------------------------------------------------------------
+// Leitura
+
+export function addressText(address: OrderAddress | null) {
+  if (!address) return "";
+  return [
+    [address.street, address.district].filter(Boolean).join(" - "),
+    address.complement,
+  ]
+    .filter(Boolean)
+    .join(", ")
+    .concat(address.reference ? ` (${address.reference})` : "");
+}
+
+/** Formato da API (docs/API.md, Pedido). */
+export function orderView(row: any, history?: any[]) {
+  const status = row.status as OrderStatus;
+  const address: OrderAddress | null = row.address
+    ? json(row.address, null)
+    : null;
+  const method = row.payment_method as PaymentMethod | null;
+  return {
+    id: row.id,
+    number: row.number,
+    status,
+    status_label: STATUS_LABELS[status] || status,
+    status_at: row.status_at,
+    customer: {
+      name: row.customer_name,
+      phone: row.phone,
+      contact_id: row.contact_id,
+      conversation_id: row.conversation_id,
+    },
+    source: row.source,
+    web_step_id: row.web_step_id,
+    fulfillment: row.fulfillment as "pickup" | "delivery",
+    fulfillment_label: row.fulfillment === "delivery" ? "Entrega" : "Retirada",
+    address,
+    address_text: addressText(address),
+    lines: json(row.lines, []) as OrderLine[],
+    item_count: row.item_count,
+    subtotal_cents: row.subtotal_cents,
+    delivery_fee_cents: row.delivery_fee_cents,
+    total_cents: row.total_cents,
+    note: row.note,
+    notes: row.notes,
+    eta_minutes: row.eta_minutes,
+    /** Previsão: quando foi para o preparo + o tempo estimado. */
+    eta_at:
+      row.eta_minutes && row.confirmed_at
+        ? row.confirmed_at + row.eta_minutes * 60_000
+        : null,
+    payment: {
+      method,
+      method_label: method ? PAYMENT_LABELS[method] : null,
+      online: isOnline(method),
+      status: row.payment_status,
+      status_label:
+        row.payment_status === "pending"
+          ? row.fulfillment === "delivery"
+            ? "Pagar na entrega"
+            : "Pagar na retirada"
+          : PAYMENT_STATUS_LABELS[row.payment_status] || row.payment_status,
+      payment_id: row.payment_id,
+      due_at: row.payment_due_at,
+      paid_at: row.paid_at,
+      paid_by: row.paid_by,
+      error: row.payment_error,
+      change_for_cents: row.change_for_cents,
+      needs_refund: !!row.needs_refund,
+    },
+    next_statuses: nextStatuses(status, row.fulfillment),
+    cancel_reason: row.cancel_reason,
+    cancelled_by: row.cancelled_by,
+    confirmed_at: row.confirmed_at,
+    preparing_at: row.preparing_at,
+    ready_at: row.ready_at,
+    dispatched_at: row.dispatched_at,
+    delivered_at: row.delivered_at,
+    cancelled_at: row.cancelled_at,
+    created_by: row.created_by,
+    created: row.created,
+    updated: row.updated,
+    ...(history
+      ? {
+          history: history.map((h) => ({
+            id: h.id,
+            kind: h.kind,
+            from_status: h.from_status,
+            to_status: h.to_status,
+            actor: h.actor,
+            note: h.note,
+            created: h.created,
+          })),
+        }
+      : {}),
+  };
+}
+export type OrderView = ReturnType<typeof orderView>;
+
+export async function loadOrder(ctx: ModuleContext, id: unknown) {
+  if (typeof id !== "string") throw notFound();
+  const row = await one(
+    ctx.env,
+    "SELECT * FROM pedido_orders WHERE id=? AND profile_id=?",
+    id,
+    ctx.profile,
+  );
+  if (!row) throw notFound();
+  return row;
+}
+
+export const orderHistory = (ctx: ModuleContext, id: string) =>
+  all(
+    ctx.env,
+    "SELECT * FROM pedido_history WHERE order_id=? AND profile_id=? ORDER BY created,rowid",
+    id,
+    ctx.profile,
+  );
+
+async function history(
+  ctx: ModuleContext,
+  order: any,
+  kind: "created" | "status" | "payment" | "edit",
+  actor: string,
+  note: string,
+  to: string | null = order.status,
+) {
+  await exec(
+    ctx.env,
+    "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,?,?,?,?,?,?)",
+    uid(),
+    ctx.profile,
+    order.id,
+    kind,
+    order.status,
+    to,
+    actor,
+    note,
+    now(),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mensagens ao cliente
+
+export async function conversationOf(ctx: ModuleContext, order: any) {
+  if (!order.conversation_id) return null;
+  try {
+    const c = await ctx.conversation(order.conversation_id);
+    return c.chat_type === "group" ? null : c;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeName(ctx: ModuleContext, cfg: PedidoConfig) {
+  return cfg.store_name || (await ctx.establishment()).name || "Cardápio";
+}
+export async function pickupAddress(ctx: ModuleContext, cfg: PedidoConfig) {
+  return cfg.pickup_address || (await ctx.establishment()).address || "";
+}
+
+async function values(
+  ctx: ModuleContext,
+  cfg: PedidoConfig,
+  order: any,
+  extra: Record<string, string> = {},
+) {
+  const address = await pickupAddress(ctx, cfg);
+  return {
+    numero: String(order.number),
+    total: money(order.total_cents),
+    estado: STATUS_LABELS[order.status as OrderStatus] || order.status,
+    previsao: order.eta_minutes
+      ? `Previsão: cerca de ${order.eta_minutes} min.`
+      : "",
+    endereco: address ? `Retire em ${address}.` : "",
+    loja: await storeName(ctx, cfg),
+    cliente: order.customer_name || "",
+    motivo: order.cancel_reason || "",
+    ...extra,
+  };
+}
+
+/** Envia ao cliente, sem derrubar o fluxo quando a linha não aceita. */
+async function say(
+  ctx: ModuleContext,
+  c: Conversation | null,
+  text: string,
+  key: string,
+) {
+  if (!c || !text.trim()) return null;
+  try {
+    return await ctx.sendMessage(
+      c,
+      { text: clip(text, 3800) },
+      { key, notification: true },
+    );
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return null;
+  }
+}
+
+/**
+ * Mensagem configurável (Gestão → Cardápio e loja) ao cliente. Fora da
+ * janela de 24 horas sai pelo modelo de notificação; vazia não envia.
+ */
+export async function notify(
+  ctx: ModuleContext,
+  order: any,
+  textKey: TextKey,
+  key: string,
+  extra: Record<string, string> = {},
+) {
+  const cfg = await config(ctx);
+  const template = cfg.texts[textKey];
+  if (!template) return null;
+  const c = await conversationOf(ctx, order);
+  return say(ctx, c, fill(template, await values(ctx, cfg, order, extra)), key);
+}
+
+/** Pedido em texto: linhas, valores, entrega ou retirada (cliente e comanda). */
+export function orderSummary(order: any) {
+  const view = orderView(order);
+  const lines = view.lines.map((line) => {
+    const options = line.options.length
+      ? ` (${line.options.map((o) => o.name).join(", ")})`
+      : "";
+    const note = line.note ? ` — ${line.note}` : "";
+    return `${line.quantity}x ${line.name}${options}${note}: ${money(line.total_cents)}`;
+  });
+  return [
+    ...lines,
+    "",
+    `Subtotal: ${money(view.subtotal_cents)}`,
+    ...(view.fulfillment === "delivery"
+      ? [`Entrega: ${money(view.delivery_fee_cents)}`]
+      : []),
+    `Total: ${money(view.total_cents)}`,
+    view.fulfillment === "delivery"
+      ? `Entregar em: ${view.address_text}`
+      : "Retirada no local",
+    ...(view.note ? [`Observação: ${view.note}`] : []),
+  ].join("\n");
+}
+
+export async function sendSummary(
+  ctx: ModuleContext,
+  c: Conversation,
+  order: any,
+) {
+  const name = await storeName(ctx, await config(ctx));
+  return say(
+    ctx,
+    c,
+    `Pedido nº ${order.number} · ${name}\n\n${orderSummary(order)}`,
+    `summary:${order.id}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Criar
+
+export interface NewOrder {
+  conversation: Conversation | null;
+  customer_name: string;
+  phone?: string;
+  source: OrderSource;
+  /** Repetir a mesma chave devolve o pedido já criado. */
+  sourceKey: string;
+  web_step_id?: string | null;
+  lines: OrderLine[];
+  item_count: number;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
+  total_cents: number;
+  fulfillment: "pickup" | "delivery";
+  address: OrderAddress | null;
+  note: string;
+  notes?: string;
+  actor: string;
+}
+
+/**
+ * Cria o pedido em "Aguardando pagamento" com o próximo número da área (um
+ * UPSERT com RETURNING, atômico no D1: pedidos simultâneos nunca repetem
+ * número). A forma de pagamento vem depois (startPayment).
+ */
+export async function createOrder(ctx: ModuleContext, input: NewOrder) {
+  const existing = await one(
+    ctx.env,
+    "SELECT * FROM pedido_orders WHERE source_key=?",
+    input.sourceKey,
+  );
+  if (existing) return { order: existing, created: false };
+  const c = input.conversation;
+  if (c)
+    requireValue(
+      c.chat_type !== "group",
+      "Pedidos só em conversas individuais.",
+    );
+  const contact = c ? await ctx.contact(c) : null;
+  const phone = phoneDigits(
+    input.phone || c?.phone || contact?.phone || c?.external_id || "",
+  );
+  const cfg = await config(ctx);
+  const eta =
+    input.fulfillment === "delivery"
+      ? cfg.delivery_minutes
+      : cfg.pickup_minutes;
+  const counter = await one<{ last: number }>(
+    ctx.env,
+    "INSERT INTO pedido_counters(profile_id,last) VALUES(?,1) ON CONFLICT(profile_id) DO UPDATE SET last=last+1 RETURNING last",
+    ctx.profile,
+  );
+  const id = uid(),
+    at = now();
+  const [inserted] = await batch(ctx.env, [
+    [
+      "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,created_by,created,updated) VALUES(?,?,?,'awaiting_payment',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'choosing',?,?,?) ON CONFLICT(source_key) DO NOTHING",
+      [
+        id,
+        ctx.profile,
+        counter!.last,
+        at,
+        c?.id || null,
+        contact?.id || null,
+        clip(input.customer_name || contact?.name || "", 80),
+        phone,
+        input.source,
+        input.sourceKey,
+        input.web_step_id || null,
+        JSON.stringify(input.lines),
+        input.item_count,
+        input.subtotal_cents,
+        input.delivery_fee_cents,
+        input.total_cents,
+        input.fulfillment,
+        input.address ? JSON.stringify(input.address) : null,
+        input.note || "",
+        input.notes || "",
+        eta || null,
+        input.actor,
+        at,
+        at,
+      ],
+    ],
+    [
+      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'created',NULL,'awaiting_payment',?,?,? WHERE changes()=1",
+      [
+        uid(),
+        ctx.profile,
+        id,
+        input.actor,
+        `Pedido criado (${input.source}).`,
+        at,
+      ],
+    ],
+  ]);
+  if (!inserted.meta.changes)
+    return {
+      order: await one(
+        ctx.env,
+        "SELECT * FROM pedido_orders WHERE source_key=?",
+        input.sourceKey,
+      ),
+      created: false,
+    };
+  const order = await loadOrder(ctx, id);
+  await ctx.publish(
+    "pedido.created",
+    id,
+    {
+      order_id: id,
+      number: order.number,
+      source: order.source,
+      fulfillment: order.fulfillment,
+      total_cents: order.total_cents,
+      item_count: order.item_count,
+      conversation_id: order.conversation_id,
+      contact_id: order.contact_id,
+      phone: order.phone,
+      actor: input.actor,
+    },
+    { key: `created:${id}` },
+  );
+  return { order, created: true };
+}
+
+// ---------------------------------------------------------------------------
+// Estados
+
+const STAMP: Partial<Record<OrderStatus, string>> = {
+  preparing: "preparing_at",
+  ready: "ready_at",
+  out_for_delivery: "dispatched_at",
+  delivered: "delivered_at",
+  cancelled: "cancelled_at",
+};
+
+/**
+ * Muda o estado com UPDATE condicionado ao estado e à versão lidos (outra
+ * mudança no meio dá 409) e grava o histórico na mesma transação. Publica
+ * pedido.status_changed e avisa o cliente com o texto do novo estado.
+ */
+export async function moveOrder(
+  ctx: ModuleContext,
+  order: any,
+  to: OrderStatus,
+  actor: string,
+  note = "",
+  extra: Record<string, any> = {},
+  options: { notify?: boolean } = {},
+) {
+  const at = now();
+  const sets: Record<string, any> = {
+    status: to,
+    status_at: at,
+    updated: at,
+    stale_notified_at: null,
+    ...extra,
+  };
+  if (to === "received" && !order.confirmed_at) sets.confirmed_at = at;
+  const stamp = STAMP[to];
+  if (stamp) sets[stamp] = at;
+  if (to === "cancelled") {
+    sets.cancelled_by = actor;
+    // Pago: a loja estorna pelo painel do provedor. Cobrança online aberta
+    // continua "awaiting" (o contrato não cancela cobrança pelo módulo): se
+    // for paga depois, vira pedido.payment_late.
+    if (order.payment_status === "paid") sets.needs_refund = 1;
+    if (["choosing", "pending", "failed"].includes(order.payment_status))
+      sets.payment_status = "cancelled";
+  }
+  const keys = Object.keys(sets);
+  const historyId = uid();
+  const [update] = await batch(ctx.env, [
+    [
+      `UPDATE pedido_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND updated=?`,
+      [
+        ...keys.map((k) => sets[k]),
+        order.id,
+        ctx.profile,
+        order.status,
+        order.updated,
+      ],
+    ],
+    [
+      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'status',?,?,?,?,? WHERE changes()=1",
+      [historyId, ctx.profile, order.id, order.status, to, actor, note, at],
+    ],
+  ]);
+  if (!update.meta.changes) throw conflict();
+  const next = await loadOrder(ctx, order.id);
+  await ctx.publish(
+    "pedido.status_changed",
+    order.id,
+    {
+      order_id: order.id,
+      number: next.number,
+      from: order.status,
+      to,
+      actor,
+      note,
+      conversation_id: next.conversation_id,
+      fulfillment: next.fulfillment,
+    },
+    { key: `status:${historyId}` },
+  );
+  if (options.notify !== false)
+    await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
+  return next;
+}
+
+/** POST pedido/orders/:id/status {status, note?, reason?}: transições da equipe. */
+export async function changeStatus(
+  ctx: ModuleContext,
+  order: any,
+  to: unknown,
+  actor: string,
+  data: { note?: unknown; reason?: unknown; notify?: unknown } = {},
+) {
+  requireValue(isStatus(to), "Estado desconhecido.");
+  const note = typeof data.note === "string" ? clip(data.note.trim(), 500) : "";
+  if (!nextStatuses(order.status, order.fulfillment).includes(to))
+    throw new ApiError(
+      409,
+      "invalid_transition",
+      `Não é possível passar de "${STATUS_LABELS[order.status as OrderStatus]}" para "${STATUS_LABELS[to]}".`,
+    );
+  const extra: Record<string, any> = {};
+  if (to === "cancelled") {
+    const reason =
+      typeof data.reason === "string" ? clip(data.reason.trim(), 300) : "";
+    extra.cancel_reason = reason || "Cancelado pela loja.";
+  }
+  return moveOrder(
+    ctx,
+    order,
+    to,
+    actor,
+    note || extra.cancel_reason || "",
+    extra,
+    {
+      notify: data.notify !== false,
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forma de pagamento e cobrança
+
+/** Pergunta "Como você quer pagar?" com as formas oferecidas. */
+export function paymentSpec(
+  order: any,
+  methods: PaymentMethod[],
+): InteractiveSpec {
+  const body = `Como você quer pagar o pedido nº ${order.number} (${money(order.total_cents)})?`;
+  const id = (method: PaymentMethod) => `pedido:pay:${order.id}:${method}`;
+  return methods.length <= 3
+    ? {
+        type: "button",
+        body,
+        buttons: methods.map((method) => ({
+          id: id(method),
+          title: PAYMENT_TITLES[method],
+          description: PAYMENT_LABELS[method],
+        })),
+      }
+    : {
+        type: "list",
+        body,
+        button: "Escolher",
+        sections: [
+          {
+            rows: methods.map((method) => ({
+              id: id(method),
+              title: PAYMENT_TITLES[method],
+              description: PAYMENT_LABELS[method],
+            })),
+          },
+        ],
+      };
+}
+
+export async function saveChat(
+  ctx: ModuleContext,
+  c: Conversation,
+  step: "payment" | "change" | "fulfillment" | "address",
+  orderId: string | null,
+  data: Record<string, unknown>,
+  ttlMinutes: number,
+) {
+  await exec(
+    ctx.env,
+    "INSERT INTO pedido_chats(conversation_id,profile_id,step,order_id,data,expires_at,updated) VALUES(?,?,?,?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET profile_id=excluded.profile_id,step=excluded.step,order_id=excluded.order_id,data=excluded.data,expires_at=excluded.expires_at,updated=excluded.updated",
+    c.id,
+    ctx.profile,
+    step,
+    orderId,
+    JSON.stringify(data),
+    now() + ttlMinutes * 60_000,
+    now(),
+  );
+}
+export const clearChat = (ctx: ModuleContext, conversationId: string) =>
+  exec(
+    ctx.env,
+    "DELETE FROM pedido_chats WHERE conversation_id=? AND profile_id=?",
+    conversationId,
+    ctx.profile,
+  );
+
+async function askPayment(
+  ctx: ModuleContext,
+  c: Conversation,
+  order: any,
+  methods: PaymentMethod[],
+  cfg: PedidoConfig,
+  key: string,
+) {
+  await saveChat(ctx, c, "payment", order.id, { methods }, cfg.payment_minutes);
+  try {
+    await ctx.sendInteractive(c, paymentSpec(order, methods), {
+      key,
+      notification: true,
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+  }
+}
+
+/**
+ * Depois de criar o pedido: com uma forma só, aplica direto; com várias,
+ * pergunta ao cliente no WhatsApp. Sem conversa (pedido de balcão), fica para
+ * a equipe escolher.
+ */
+export async function startPayment(
+  ctx: ModuleContext,
+  order: any,
+  c: Conversation | null,
+  options: { actor: string; method?: PaymentMethod | null } = {
+    actor: "system",
+  },
+) {
+  const cfg = await config(ctx);
+  if (options.method)
+    return applyMethod(ctx, order, c, options.method, options.actor);
+  if (!c) return order;
+  const methods = await offeredMethods(ctx, cfg);
+  if (methods.length === 1)
+    return applyMethod(ctx, order, c, methods[0], options.actor);
+  if (!methods.length)
+    return paymentFailed(
+      ctx,
+      order,
+      c,
+      null,
+      "Nenhuma forma de pagamento disponível (a Cobrança não está configurada).",
+    );
+  await askPayment(ctx, c, order, methods, cfg, `pay-question:${order.id}`);
+  return order;
+}
+
+async function paymentFailed(
+  ctx: ModuleContext,
+  order: any,
+  c: Conversation | null,
+  method: PaymentMethod | null,
+  reason: string,
+) {
+  const cfg = await config(ctx);
+  await exec(
+    ctx.env,
+    "UPDATE pedido_orders SET payment_status='failed',payment_error=?,updated=? WHERE id=? AND profile_id=?",
+    clip(reason, 300),
+    now(),
+    order.id,
+    ctx.profile,
+  );
+  await history(
+    ctx,
+    order,
+    "payment",
+    "system",
+    `Cobrança não gerada: ${reason}`,
+  );
+  await ctx.publish(
+    "pedido.payment_failed",
+    order.id,
+    {
+      order_id: order.id,
+      number: order.number,
+      method,
+      reason,
+      conversation_id: order.conversation_id,
+    },
+    { key: `payment_failed:${order.id}:${method || "none"}` },
+  );
+  const fresh = await loadOrder(ctx, order.id);
+  if (!c) return fresh;
+  const offline = (await offeredMethods(ctx, cfg)).filter((m) => !isOnline(m));
+  if (offline.length) {
+    await say(
+      ctx,
+      c,
+      "Não foi possível gerar o pagamento online agora. Escolha outra forma de pagar:",
+      `pay-failed:${order.id}:${method || "none"}`,
+    );
+    await askPayment(
+      ctx,
+      c,
+      fresh,
+      offline,
+      cfg,
+      `pay-question:${order.id}:retry`,
+    );
+  } else
+    await say(
+      ctx,
+      c,
+      `Não foi possível gerar o pagamento do pedido nº ${order.number} agora. A equipe vai falar com você por aqui.`,
+      `pay-failed:${order.id}:${method || "none"}`,
+    );
+  return fresh;
+}
+
+/** Forma de pagamento ainda pode ser escolhida (cliente ou equipe). */
+export const choosable = (order: any) =>
+  (ACTIVE_STATUSES as readonly string[]).includes(order.status) &&
+  ["choosing", "failed"].includes(order.payment_status);
+
+/**
+ * Aplica a forma de pagamento escolhida. Na hora (dinheiro, maquininha): vai
+ * para o preparo. Online (Pix, link): cobra pela Cobrança do núcleo; com
+ * "preparo só depois de pago", espera o webhook confirmar.
+ */
+export async function applyMethod(
+  ctx: ModuleContext,
+  input: any,
+  c: Conversation | null,
+  method: PaymentMethod,
+  actor: string,
+) {
+  const order = await loadOrder(ctx, input.id);
+  // Pedido em andamento esperando a escolha, ou com a cobrança online não
+  // gerada (pode já estar no preparo, sem "preparo só depois de pago").
+  if (!choosable(order))
+    throw new ApiError(
+      409,
+      "payment_chosen",
+      `A forma de pagamento do pedido nº ${order.number} já foi definida.`,
+    );
+  const cfg = await config(ctx);
+  if (c) await clearChat(ctx, c.id);
+  if (!isOnline(method)) {
+    const at = now();
+    const result = await exec(
+      ctx.env,
+      "UPDATE pedido_orders SET payment_method=?,payment_status='pending',payment_error=NULL,payment_due_at=NULL,updated=? WHERE id=? AND profile_id=? AND updated=?",
+      method,
+      at,
+      order.id,
+      ctx.profile,
+      order.updated,
+    );
+    if (!result.meta.changes) throw conflict();
+    await history(
+      ctx,
+      order,
+      "payment",
+      actor,
+      `Pagamento: ${PAYMENT_LABELS[method]}.`,
+    );
+    let next = await loadOrder(ctx, order.id);
+    if (next.status === "awaiting_payment")
+      next = await moveOrder(
+        ctx,
+        next,
+        "received",
+        actor,
+        `Pagamento na ${order.fulfillment === "delivery" ? "entrega" : "retirada"}.`,
+      );
+    if (method === "cash" && c) {
+      await saveChat(ctx, c, "change", order.id, {}, 30);
+      await say(
+        ctx,
+        c,
+        `Vai precisar de troco? Responda com o valor que vai pagar (por exemplo, 100) ou NÃO.`,
+        `change-question:${order.id}`,
+      );
+    }
+    return next;
+  }
+  // Online: só com conversa (o cliente recebe a cobrança no WhatsApp).
+  if (!c)
+    throw new ApiError(
+      409,
+      "no_conversation",
+      "Pagamento online precisa de uma conversa do WhatsApp para enviar a cobrança.",
+    );
+  if (!(await paymentsReady(ctx)))
+    return paymentFailed(
+      ctx,
+      order,
+      c,
+      method,
+      "A Cobrança não está configurada nesta área.",
+    );
+  const due = now() + cfg.payment_minutes * 60_000;
+  const result = await exec(
+    ctx.env,
+    "UPDATE pedido_orders SET payment_method=?,payment_status='awaiting',payment_error=NULL,payment_due_at=?,updated=? WHERE id=? AND profile_id=? AND updated=?",
+    method,
+    due,
+    now(),
+    order.id,
+    ctx.profile,
+    order.updated,
+  );
+  if (!result.meta.changes) throw conflict();
+  let current = await loadOrder(ctx, order.id);
+  if (current.status !== "awaiting_payment") {
+    // Já no preparo: só a cobrança.
+  } else if (cfg.pay_before_prepare)
+    await notify(ctx, current, "awaiting_payment", `awaiting:${order.id}`);
+  else
+    current = await moveOrder(
+      ctx,
+      current,
+      "received",
+      actor,
+      "Para o preparo sem esperar o pagamento online.",
+    );
+  let payment: Payment;
+  try {
+    payment = await ctx.charge(c, {
+      method: method as "pix" | "link",
+      amount_cents: order.total_cents,
+      description: clip(
+        `Pedido nº ${order.number} · ${await storeName(ctx, cfg)}`,
+        120,
+      ),
+      ref: order.id,
+      sourceKey: `order:${order.id}:${method}`,
+      expiresMinutes: cfg.payment_minutes,
+      notification: true,
+      actor: "system",
+    });
+  } catch (error) {
+    const reason =
+      error instanceof ApiError
+        ? error.message
+        : "Falha ao falar com o provedor de pagamento.";
+    if (!(error instanceof ApiError))
+      console.error(
+        JSON.stringify({
+          component: "pedido",
+          order: order.id,
+          error: String((error as Error)?.message || error).slice(0, 300),
+        }),
+      );
+    return paymentFailed(ctx, current, c, method, reason);
+  }
+  await exec(
+    ctx.env,
+    "UPDATE pedido_orders SET payment_id=?,payment_due_at=?,updated=? WHERE id=? AND profile_id=?",
+    payment.id,
+    payment.expires_at || due,
+    now(),
+    order.id,
+    ctx.profile,
+  );
+  await history(
+    ctx,
+    current,
+    "payment",
+    actor,
+    `Cobrança enviada: ${PAYMENT_LABELS[method]} · ${money(order.total_cents)}.`,
+  );
+  return loadOrder(ctx, order.id);
+}
+
+/**
+ * Cobrança do pedido mudou (webhook do provedor já conferido pelo núcleo):
+ * pago vai para o preparo; vencido ou cancelado cancela o pedido que esperava
+ * o pagamento; estorno fica registrado. Repetições não fazem nada.
+ */
+export async function paymentUpdated(
+  ctx: ModuleContext,
+  payment: Payment,
+  previous: string,
+) {
+  if (!payment.ref_id) return;
+  const order = await one(
+    ctx.env,
+    "SELECT * FROM pedido_orders WHERE id=? AND profile_id=?",
+    payment.ref_id,
+    ctx.profile,
+  );
+  if (!order) return;
+  if (order.payment_id && order.payment_id !== payment.id) return;
+  const at = now();
+  if (payment.status === "paid") {
+    const claimed = await exec(
+      ctx.env,
+      "UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by='provider',payment_id=coalesce(payment_id,?),payment_error=NULL,needs_refund=CASE WHEN status='cancelled' THEN 1 ELSE needs_refund END,updated=? WHERE id=? AND payment_status<>'paid'",
+      payment.paid_at || at,
+      payment.id,
+      at,
+      order.id,
+    );
+    if (!claimed.meta.changes) return;
+    await history(
+      ctx,
+      order,
+      "payment",
+      "provider",
+      `Pagamento confirmado pelo provedor: ${money(payment.amount_cents)}.`,
+    );
+    await ctx.publish(
+      "pedido.paid",
+      order.id,
+      {
+        order_id: order.id,
+        number: order.number,
+        payment_id: payment.id,
+        amount_cents: payment.amount_cents,
+        method: order.payment_method,
+        previous_payment_status: previous,
+        conversation_id: order.conversation_id,
+      },
+      { key: `paid:${order.id}` },
+    );
+    const fresh = await loadOrder(ctx, order.id);
+    if (fresh.status === "awaiting_payment")
+      await moveOrder(
+        ctx,
+        fresh,
+        "received",
+        "provider",
+        "Pagamento confirmado.",
+      );
+    else if (fresh.status === "cancelled") {
+      await ctx.publish(
+        "pedido.payment_late",
+        order.id,
+        {
+          order_id: order.id,
+          number: order.number,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+          needs_refund: true,
+          conversation_id: order.conversation_id,
+        },
+        { key: `late:${order.id}` },
+      );
+      await say(
+        ctx,
+        await conversationOf(ctx, fresh),
+        `O pagamento do pedido nº ${order.number} chegou depois que ele foi cancelado. A loja vai devolver o valor.`,
+        `late:${order.id}`,
+      );
+    }
+    return;
+  }
+  if (payment.status === "expired" || payment.status === "cancelled") {
+    const claimed = await exec(
+      ctx.env,
+      "UPDATE pedido_orders SET payment_status=?,updated=? WHERE id=? AND payment_status='awaiting'",
+      payment.status,
+      at,
+      order.id,
+    );
+    if (!claimed.meta.changes) return;
+    await history(
+      ctx,
+      order,
+      "payment",
+      "provider",
+      payment.status === "expired"
+        ? "Cobrança vencida sem pagamento."
+        : "Cobrança cancelada.",
+    );
+    await ctx.publish(
+      "pedido.payment_expired",
+      order.id,
+      {
+        order_id: order.id,
+        number: order.number,
+        payment_id: payment.id,
+        status: payment.status,
+        order_status: order.status,
+        conversation_id: order.conversation_id,
+      },
+      { key: `expired:${order.id}:${payment.id}` },
+    );
+    const fresh = await loadOrder(ctx, order.id);
+    if (fresh.status === "awaiting_payment")
+      await moveOrder(
+        ctx,
+        fresh,
+        "cancelled",
+        "system",
+        "Pagamento não confirmado no prazo.",
+        { cancel_reason: "Pagamento não confirmado no prazo." },
+      );
+    return;
+  }
+  if (payment.status === "refunded") {
+    const claimed = await exec(
+      ctx.env,
+      "UPDATE pedido_orders SET payment_status='refunded',needs_refund=0,updated=? WHERE id=? AND payment_status<>'refunded'",
+      at,
+      order.id,
+    );
+    if (!claimed.meta.changes) return;
+    await history(ctx, order, "payment", "provider", "Pagamento estornado.");
+    await ctx.publish(
+      "pedido.refunded",
+      order.id,
+      {
+        order_id: order.id,
+        number: order.number,
+        payment_id: payment.id,
+        amount_cents: payment.amount_cents,
+        conversation_id: order.conversation_id,
+      },
+      { key: `refunded:${order.id}` },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Acompanhamento pelo cliente
+
+/** Pedidos em andamento do cliente (conversa ou telefone). */
+export async function openOrdersFor(ctx: ModuleContext, c: Conversation) {
+  const phone = phoneDigits(c.phone || c.external_id);
+  return all(
+    ctx.env,
+    `SELECT * FROM pedido_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
+    ctx.profile,
+    c.id,
+    phone,
+    ...ACTIVE_STATUSES,
+  );
+}
+
+export function trackLines(order: any) {
+  const view = orderView(order);
+  const lines = [
+    `Pedido nº ${view.number} · ${view.status_label}`,
+    `${view.item_count} ${view.item_count === 1 ? "item" : "itens"} · ${money(view.total_cents)} · ${view.fulfillment_label}`,
+  ];
+  if (view.payment.method)
+    lines.push(
+      `Pagamento: ${view.payment.method_label} (${view.payment.status_label.toLowerCase()})`,
+    );
+  else lines.push("Pagamento: aguardando a sua escolha");
+  if (view.eta_at && ["received", "preparing"].includes(view.status))
+    lines.push(`Previsão: ${clockOf(view.eta_at)}`);
+  return lines.join("\n");
+}
