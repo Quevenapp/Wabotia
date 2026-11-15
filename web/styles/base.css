@@ -1566,6 +1566,13 @@ td.table-actions > .card-actions {
   summary {
     padding-block: 8px;
   }
+  /* Campos com menos de 16 px fazem o Safari do iPhone ampliar a página a
+     cada toque, e a pessoa precisa reduzir de volta para ver o formulário. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
