@@ -136,6 +136,7 @@ export const moduleSchemas = {
   },
   ...serviceOrderSchemas(),
   ...mensalidadeSchemas(),
+  ...suporteSchemas(),
   WebStep: {
     type: "object",
     description:
@@ -689,6 +690,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "ServiceOrderDecision",
   ],
   ...mensalidadeOperations(),
+  ...suporteOperations(),
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -846,6 +848,8 @@ export function describeModuleOperation(
     return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("/mensalidade/"))
     return describeMensalidadeOperation(path, method, entry, success);
+  if (path.includes("/suporte/"))
+    return describeSuporteOperation(path, method, entry, success);
   if (path.includes("web-steps")) {
     entry.description +=
       " O cliente abre o link em /api/w/{código} (página pública, sem autenticação). Estados: sent (enviado), opened (aberto), completed (concluído, com answers), expired (venceu sem resposta) e cancelled. Cada mudança publica web_step.sent, web_step.opened, web_step.completed, web_step.expired ou web_step.cancelled com conversation_id.";
@@ -1943,4 +1947,283 @@ function describeMensalidadeOperation(
     return;
   }
   success.content["application/json"].schema = ref("MensalidadeInstallment");
+}
+
+// --- Suporte pago (módulo "suporte", docs/SUPORTE.md) -------------------------
+function suporteOperations(): [string, string, string, string?, string?][] {
+  const base = "/profiles/{profile}/suporte";
+  return [
+    [
+      "get",
+      `${base}/releases`,
+      "Suporte pago: liberações",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/purchases`,
+      "Suporte pago: compras avulsas",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/offers`,
+      "Suporte pago: pacotes e planos oferecidos",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/conversations/{id}`,
+      "Suporte pago: situação de uma conversa",
+      "conversations:read",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/courtesy`,
+      "Suporte pago: liberar como cortesia",
+      "conversations:write",
+      "SuporteCourtesy",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/link-phone`,
+      "Suporte pago: vincular o telefone ao pagador",
+      "conversations:write",
+    ],
+    [
+      "post",
+      `${base}/conversations/{id}/confirm`,
+      "Suporte pago: equipe confirma e libera",
+      "conversations:write",
+      "SuporteConfirm",
+    ],
+    [
+      "post",
+      `${base}/releases/{id}/end`,
+      "Suporte pago: encerrar liberação",
+      "conversations:write",
+    ],
+  ];
+}
+
+function suporteSchemas() {
+  const kinds = ["subscription", "installment", "package", "courtesy", "team"];
+  return {
+    SuporteRelease: {
+      type: "object",
+      description:
+        "Liberação do atendimento humano: quem, como, por qual pagador e até quando.",
+      properties: {
+        id: { type: "string" },
+        conversation_id: { type: "string" },
+        phone: { type: "string" },
+        payer_id: { type: ["string", "null"] },
+        payer_name: { type: "string" },
+        kind: {
+          enum: kinds,
+          description:
+            "subscription (assinatura em dia), installment (mensalidade em atraso paga), package (avulso), courtesy (cortesia do atendente), team (equipe confirmou no modo só telefone vinculado).",
+        },
+        kind_label: { type: "string" },
+        ref_id: {
+          type: ["string", "null"],
+          description: "Assinatura, parcela ou compra que liberou.",
+        },
+        phone_linked: {
+          type: "boolean",
+          description:
+            "false: veio pelo CPF/CNPJ de um telefone não autorizado.",
+        },
+        valid_until: { type: ["integer", "null"] },
+        until_ticket: {
+          type: "boolean",
+          description: "Vale até o protocolo fechar.",
+        },
+        reason: { type: "string" },
+        summary: {
+          type: "string",
+          description: "Resumo entregue ao atendente.",
+        },
+        actor: {
+          type: "string",
+          description: "provider (pagamento confirmado), system ou a pessoa.",
+        },
+        status: { enum: ["active", "ended"] },
+        ended_at: { type: ["integer", "null"] },
+        ended_by: { type: ["string", "null"] },
+        created: { type: "integer" },
+      },
+    },
+    SuportePurchase: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        conversation_id: { type: "string" },
+        payer_id: { type: ["string", "null"] },
+        document: { type: ["string", "null"] },
+        name: { type: "string" },
+        phone: { type: "string" },
+        package_id: { type: "string" },
+        package_name: { type: "string" },
+        price_cents: { type: "integer" },
+        mode: { enum: ["ticket", "hours"] },
+        hours: { type: ["integer", "null"] },
+        validity: { type: "string" },
+        method: { enum: ["pix", "link"] },
+        payment: { type: ["object", "null"] },
+        status: {
+          enum: ["pending", "paid", "expired", "cancelled", "refunded"],
+        },
+        status_label: { type: "string" },
+        paid_at: { type: ["integer", "null"] },
+        created: { type: "integer" },
+      },
+    },
+    SuporteConversation: {
+      type: "object",
+      properties: {
+        conversation_id: { type: "string" },
+        phone: { type: "string" },
+        allowed: {
+          type: "boolean",
+          description:
+            "Pode ir para um humano agora (liberação ativa ou pagador em dia).",
+        },
+        reason: {
+          enum: [
+            "released",
+            "subscription",
+            "payment_required",
+            "module_disabled",
+          ],
+        },
+        release: {
+          oneOf: [
+            { $ref: "#/components/schemas/SuporteRelease" },
+            { type: "null" },
+          ],
+        },
+        session: { type: ["object", "null"] },
+        awaiting_team: { type: "boolean" },
+        unlinked_phone: {
+          type: ["object", "null"],
+          properties: {
+            payer_id: { type: "string" },
+            payer_name: { type: "string" },
+          },
+        },
+        purchases: {
+          type: "array",
+          items: { $ref: "#/components/schemas/SuportePurchase" },
+        },
+      },
+    },
+    SuporteCourtesy: {
+      type: "object",
+      required: ["reason"],
+      properties: {
+        reason: { type: "string", maxLength: 300 },
+        hours: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 720,
+          description: "Sem horas: até o protocolo fechar.",
+        },
+      },
+    },
+    SuporteConfirm: {
+      type: "object",
+      properties: {
+        link: {
+          type: "boolean",
+          default: true,
+          description: "Autoriza o telefone da conversa no pagador.",
+        },
+      },
+    },
+  };
+}
+
+function describeSuporteOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+) {
+  const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  const query = (...names: string[]) =>
+    entry.parameters.push(
+      ...names.map((name) => ({
+        in: "query",
+        name,
+        schema: { type: "string" },
+      })),
+    );
+  entry.description +=
+    " Módulo Suporte pago (suporte); desligado, 409 module_disabled.";
+  if (path.endsWith("/releases")) {
+    query(
+      "kind",
+      "status",
+      "conversation_id",
+      "payer_id",
+      "from",
+      "to",
+      "q",
+      "limit",
+      "cursor",
+    );
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: { type: "array", items: ref("SuporteRelease") },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/purchases")) {
+    query("status", "conversation_id", "q", "limit", "cursor");
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: { type: "array", items: ref("SuportePurchase") },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+        paid_cents: { type: "integer" },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/offers")) {
+    entry.description +=
+      " Pacotes avulsos ativos e planos vendáveis da Mensalidade (some com a Mensalidade desligada), com payments_ready.";
+    return;
+  }
+  if (path.endsWith("/courtesy")) {
+    entry.description +=
+      " Atendente com a conversa, administrador ou aplicação. Registra quem liberou e o motivo; repetir a Idempotency-Key devolve a mesma liberação.";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (path.endsWith("/link-phone")) {
+    entry.description +=
+      " Autoriza o telefone da conversa no pagador identificado pelo CPF/CNPJ. Sem vínculo pendente: 409 nothing_to_link.";
+    success.content["application/json"].schema = ref("SuporteConversation");
+    return;
+  }
+  if (path.endsWith("/confirm")) {
+    entry.description +=
+      " Modo só telefone vinculado: a equipe confirma a identidade (e vincula). Libera se o pagador estiver em dia; senão 409 payment_required. Sem confirmação pendente: 409 nothing_to_confirm.";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (path.endsWith("/end")) {
+    entry.description += " Só administradores (pessoas).";
+    success.content["application/json"].schema = ref("SuporteRelease");
+    return;
+  }
+  if (method === "get")
+    success.content["application/json"].schema = ref("SuporteConversation");
 }

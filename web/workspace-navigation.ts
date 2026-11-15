@@ -18,6 +18,7 @@ import {
   MessageCircle,
   Phone,
   PiggyBank,
+  LifeBuoy,
   Plug,
   Send,
   Settings,
@@ -66,6 +67,8 @@ export const sections = [
   ["modules", "Módulos", Blocks],
   ["mensalidades", "Mensalidades", PiggyBank],
   ["mensalidade-settings", "Planos e regras", PiggyBank],
+  ["suporte", "Suporte pago", LifeBuoy],
+  ["suporte-settings", "Regras do suporte", LifeBuoy],
   ["agenda", "Agenda", CalendarDays],
   ["agenda-settings", "Serviços e horários", CalendarClock],
   ["service-orders", "Ordens de serviço", Wrench],
@@ -111,6 +114,12 @@ export const workspaceGroups = [
     label: "Mensalidades",
     icon: PiggyBank,
     pages: ["mensalidades", "mensalidade-settings"],
+  },
+  {
+    id: "suporte",
+    label: "Suporte pago",
+    icon: LifeBuoy,
+    pages: ["suporte", "suporte-settings"],
   },
   {
     id: "agenda",
@@ -187,6 +196,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "payments",
   "mensalidade-settings",
   "establishment",
+  "suporte-settings",
 ]);
 
 /**
@@ -204,6 +214,8 @@ export const pageModules: Partial<Record<string, string>> = {
   payments: "payments",
   mensalidades: "mensalidade",
   "mensalidade-settings": "mensalidade",
+  suporte: "suporte",
+  "suporte-settings": "suporte",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -306,6 +318,10 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Assinaturas, parcelas do mês, inadimplentes, baixa manual e reenvio da cobrança.",
   "mensalidade-settings":
     "Planos, regras de cobrança e avisos de vencimento e atraso, e itens do menu.",
+  suporte:
+    "Quem foi liberado para o atendimento humano, como e até quando, e as compras de suporte avulso.",
+  "suporte-settings":
+    "Setor de destino, identificação, pacotes avulsos, planos oferecidos, formas de pagamento e textos.",
   establishment:
     "Nome fantasia, CPF ou CNPJ, endereço e telefone para cupons, comandas, recibos e páginas do cliente.",
 };

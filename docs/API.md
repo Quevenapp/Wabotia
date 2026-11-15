@@ -149,6 +149,23 @@ Assinaturas aceitam `payer_id` ou `document` (+ `payer_name`) para ligar ao paga
 
 A parcela vira `paid` só pelo webhook assinado do provedor (cobrança do módulo `payments`) ou pela baixa manual; nunca por mensagem do cliente. Eventos (webhooks com `conversations:read`): `mensalidade.subscription_created`, `mensalidade.subscription_changed` (`change`: `updated`, `paused`, `resumed`, `ended`), `mensalidade.installment_created`, `mensalidade.charged`, `mensalidade.notice_sent` (`kind`: `before`, `due`, `overdue`), `mensalidade.overdue`, `mensalidade.paid` (`via`, `by`; `duplicate: true` quando entra um segundo pagamento), `mensalidade.waived`, `mensalidade.refunded`, `mensalidade.notice_failed` (`reason`: `no_conversation`…), `mensalidade.setup_needed` (Cobrança não configurada, no máximo uma vez por dia), `mensalidade.payer_created` e `mensalidade.payer_changed` (`change`: `updated`, `phone_added`, `phone_removed`).
 
+### Suporte pago (módulo `suporte`)
+
+Desligado por padrão; depende da Mensalidade para identificar o pagador e vender planos mensais (sem ela, só o suporte avulso); uso em [SUPORTE.md](SUPORTE.md). Rotas em `/profiles/{perfil}/suporte`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Desligado: `409 module_disabled`. A liberação vem só do pagamento confirmado pelo provedor, da situação em dia na Mensalidade ou de uma pessoa da equipe; nunca de mensagem do cliente.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /suporte/releases` | Liberações: `kind` (`subscription`, `installment`, `package`, `courtesy`, `team`), `status`, `conversation_id`, `payer_id`, `from`/`to` (ms), `q`, `cursor`; traz `counts` por forma |
+| `GET /suporte/purchases` | Compras de suporte avulso: `status` (`pending`, `paid`, `expired`, `cancelled`, `refunded`), `conversation_id`, `q`; traz `counts` e `paid_cents` |
+| `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
+| `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release`, `session`, `awaiting_team`, `unlinked_phone` e compras |
+| `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
+| `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ |
+| `POST /suporte/conversations/{id}/confirm` | Modo só telefone vinculado: equipe confirma `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
+| `POST /suporte/releases/{id}/end` | Encerra uma liberação (administrador) |
+
+Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (`any` ou `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:

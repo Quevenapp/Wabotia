@@ -36,6 +36,8 @@ import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPa
 import { PaymentsPage } from "./PaymentsPage";
 import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
 import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
+import { SuportePage } from "../modules/suporte/SuportePage";
+import { SuporteSettingsPage } from "../modules/suporte/SuporteSettingsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
 import {
   GroupsPage,
@@ -154,6 +156,10 @@ function Page({ page }: { page: PageId }) {
       return <MensalidadesPage />;
     case "mensalidade-settings":
       return <MensalidadeSettingsPage />;
+    case "suporte":
+      return <SuportePage />;
+    case "suporte-settings":
+      return <SuporteSettingsPage />;
     case "establishment":
       return <EstablishmentPage />;
     case "users":

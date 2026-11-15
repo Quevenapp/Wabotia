@@ -400,6 +400,68 @@ const demoModules: Row[] = [
       { type: "mensalidade_copy", label: "Segunda via" },
     ],
   },
+  {
+    id: "suporte",
+    name: "Suporte pago",
+    version: "1.0.0",
+    description:
+      "Atendimento humano liberado para quem paga: identifica pelo telefone ou CPF/CNPJ, confere a mensalidade e vende suporte avulso ou plano mensal por Pix ou link.",
+    builtin: true,
+    enabled: true,
+    default_enabled: false,
+    navigation: [
+      { id: "suporte", label: "Suporte pago", place: "admin", admin: false },
+      { id: "suporte-settings", label: "Regras do suporte", place: "admin", admin: true },
+    ],
+    menu_item_types: [{ type: "suporte_humano", label: "Atendimento humano (pago)" }],
+  },
+];
+
+// Suporte pago (módulo "suporte"): empresa de suporte técnico de TI, nos
+// formatos de GET /suporte/releases, /purchases, /offers e /conversations/{id}.
+const spPackages: Row[] = [
+  { id: "avulso", name: "Chamado avulso", price_cents: 8900, mode: "ticket", active: true, validity: "até o fim deste atendimento" },
+  { id: "dia", name: "Suporte 24 horas", price_cents: 14900, mode: "hours", hours: 24, active: true, validity: "24 horas de atendimento" },
+];
+const spRelease = (
+  n: number,
+  kind: string,
+  phone: string,
+  payer: string,
+  age: number,
+  extra: Row = {},
+): Row => ({
+  id: "rel-" + n,
+  conversation_id: n === 1 ? "demo-1" : "demo-" + (n + 1),
+  phone,
+  payer_id: payer ? "payer-" + n : null,
+  payer_name: payer,
+  kind,
+  kind_label: ({ subscription: "Assinatura em dia", installment: "Mensalidade paga", package: "Suporte avulso", courtesy: "Cortesia", team: "Confirmado pela equipe" } as Row)[kind],
+  ref_id: null,
+  phone_linked: true,
+  valid_until: null,
+  until_ticket: true,
+  reason: "",
+  summary: "",
+  actor: kind === "courtesy" ? "demo-user" : kind === "subscription" ? "system" : "provider",
+  status: "active",
+  ended_at: null,
+  ended_by: null,
+  created: t(age),
+  ...extra,
+});
+const spReleases: Row[] = [
+  spRelease(1, "subscription", "5511988001001", "Contabilidade Silva Ltda", 40 * M),
+  spRelease(2, "package", "5511988001002", "Padaria Pão Quente", 2 * H, { valid_until: t(2 * H - 24 * H), until_ticket: false }),
+  spRelease(3, "subscription", "5511988001003", "Clínica Sorriso", 5 * H, { phone_linked: false }),
+  spRelease(4, "installment", "5511988001004", "Escritório Moura", 26 * H),
+  spRelease(5, "courtesy", "5511988001005", "", 3 * 24 * H, { reason: "Falha no nosso servidor de backup", until_ticket: false, valid_until: t(3 * 24 * H - 4 * H), status: "ended" }),
+];
+const spPurchases: Row[] = [
+  { id: "buy-1", conversation_id: "demo-3", payer_id: "payer-2", document: "11222333000181", name: "Padaria Pão Quente", phone: "5511988001002", package_id: "dia", package_name: "Suporte 24 horas", price_cents: 14900, mode: "hours", hours: 24, validity: "24 horas de atendimento", method: "pix", payment: null, status: "paid", status_label: "Paga", paid_at: t(2 * H), created: t(2 * H + 6 * M), updated: t(2 * H) },
+  { id: "buy-2", conversation_id: "demo-7", payer_id: null, document: "52998224725", name: "João Pereira", phone: "5511988001007", package_id: "avulso", package_name: "Chamado avulso", price_cents: 8900, mode: "ticket", hours: null, validity: "até o fim deste atendimento", method: "link", payment: null, status: "pending", status_label: "Aguardando pagamento", paid_at: null, created: t(12 * M), updated: t(12 * M) },
+  { id: "buy-3", conversation_id: "demo-8", payer_id: null, document: "11144477735", name: "Ana Prado", phone: "5511988001008", package_id: "avulso", package_name: "Chamado avulso", price_cents: 8900, mode: "ticket", hours: null, validity: "até o fim deste atendimento", method: "pix", payment: null, status: "expired", status_label: "Expirada", paid_at: null, created: t(30 * H), updated: t(6 * H) },
 ];
 
 // Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
@@ -850,6 +912,37 @@ function read(path: string, query: URLSearchParams): any {
       counts,
     };
   }
+  if (rest === "suporte/releases") {
+    const kind = query.get("kind");
+    const counts: Row = {};
+    for (const row of spReleases) counts[row.kind] = (counts[row.kind] || 0) + 1;
+    return { data: spReleases.filter((row) => !kind || row.kind === kind), next_cursor: null, counts };
+  }
+  if (rest === "suporte/purchases") {
+    const status = query.get("status");
+    const counts: Row = {};
+    for (const row of spPurchases) counts[row.status] = (counts[row.status] || 0) + 1;
+    return {
+      data: spPurchases.filter((row) => !status || row.status === status),
+      next_cursor: null,
+      counts,
+      paid_cents: spPurchases.filter((row) => row.status === "paid").reduce((sum, row) => sum + row.price_cents, 0),
+    };
+  }
+  if (rest === "suporte/offers")
+    return { payments_ready: true, mensalidade: true, methods: ["pix", "link"], packages: spPackages, plans: [] };
+  if (rest.startsWith("suporte/conversations/"))
+    return {
+      conversation_id: rest.split("/")[2],
+      phone: "5511988001001",
+      allowed: true,
+      reason: "released",
+      release: spReleases[0],
+      session: null,
+      awaiting_team: false,
+      unlinked_phone: null,
+      purchases: [],
+    };
   if (rest === "mensalidade/payers") {
     const q = (query.get("q") || "").toLowerCase();
     return {

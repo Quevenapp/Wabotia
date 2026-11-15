@@ -6,6 +6,7 @@ import type React from "react";
 import type { Row } from "../lib/api";
 import { ConversationAgenda } from "./agenda/ConversationAgenda";
 import { ConversationServiceOrders } from "./os/ConversationServiceOrders";
+import { ConversationSuporte } from "./suporte/ConversationSuporte";
 
 export interface ConversationExtensionProps {
   /** A conversa (detail.conversation). */
@@ -20,4 +21,5 @@ export const conversationExtensions: {
 }[] = [
   { module: "agenda", Component: ConversationAgenda },
   { module: "os", Component: ConversationServiceOrders },
+  { module: "suporte", Component: ConversationSuporte },
 ];

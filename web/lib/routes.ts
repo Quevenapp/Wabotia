@@ -60,6 +60,8 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   payments: "cobranca",
   mensalidades: "mensalidades",
   "mensalidade-settings": "mensalidade",
+  suporte: "suporte-pago",
+  "suporte-settings": "regras-do-suporte",
   establishment: "estabelecimento",
 };
 /** Segmentos de Equipe aceitos no endereço. */
