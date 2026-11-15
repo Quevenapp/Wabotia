@@ -338,6 +338,17 @@ enum PedidoRules {
         return "Loja aberta, recebendo pedidos"
     }
 
+    /// O que o cliente lê com a loja pausada. O quadro manda só `message` (o texto de pausa da loja com a mensagem da
+    /// equipe); `GET /pedido` manda também `pause_message`. Loja aberta: nada.
+    static func pauseText(_ store: PedidoStore?) -> String? {
+        guard let store, store.paused == true else { return nil }
+        for text in [store.pauseMessage, store.message] {
+            let t = text?.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n\n", with: " · ") ?? ""
+            if !t.isEmpty { return t }
+        }
+        return nil
+    }
+
     /// As colunas da comanda que cabem na impressora: a maior entre 32, 42 e 48 que não passa da largura.
     static func ticketColumns(for printerColumns: Int) -> Int {
         [48, 42, 32].first { $0 <= printerColumns } ?? 32

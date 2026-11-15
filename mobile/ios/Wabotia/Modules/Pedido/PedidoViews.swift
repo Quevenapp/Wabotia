@@ -123,8 +123,8 @@ struct PedidoView: View {
             Circle().fill(color).frame(width: 10, height: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(PedidoRules.storeText(store)).font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
-                if paused, let message = store.pauseMessage, !message.isEmpty {
-                    Text(message).font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                if let message = PedidoRules.pauseText(store) {
+                    Text(message).font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(3)
                 } else if let today = vm.board?.today, vm.mode == .board {
                     Text("Hoje: \(today.orders ?? 0) pedido(s) · \(today.delivered ?? 0) entregue(s) · \(Money.format(today.totalCents ?? 0))")
                         .font(Theme.font(12)).foregroundStyle(Theme.textSecondary)

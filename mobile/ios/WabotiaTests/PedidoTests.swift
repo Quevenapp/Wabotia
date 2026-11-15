@@ -119,5 +119,10 @@ final class PedidoRulesTests: XCTestCase {
         XCTAssertNil(PedidoRules.elapsed(nil))
         XCTAssertEqual(PedidoRules.storeText(PedidoStore(open: false, paused: true)), "Loja pausada: não recebe pedidos agora")
         XCTAssertEqual(PedidoRules.storeText(PedidoStore(open: false, paused: false)), "Loja fechada pelo horário")
+        // O quadro manda só `message` com a loja pausada (sem `pause_message`).
+        XCTAssertEqual(PedidoRules.pauseText(PedidoStore(open: false, paused: true, message: "Loja pausada agora.\n\nVoltamos em 10 minutos")),
+                       "Loja pausada agora. · Voltamos em 10 minutos")
+        XCTAssertEqual(PedidoRules.pauseText(PedidoStore(paused: true, pauseMessage: "volto já", message: "x")), "volto já")
+        XCTAssertNil(PedidoRules.pauseText(PedidoStore(open: true, paused: false, message: "")))
     }
 }
