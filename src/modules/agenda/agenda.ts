@@ -287,7 +287,7 @@ onCommand(MODULE, "agenda.block.delete", (ctx, actor, data) =>
 // Disponibilidade e agendamentos
 
 // GET /agenda/availability?service_id=&professional_id=&date= (ou
-// from_date/to_date): horários livres por dia. staff=1 ignora a antecedência.
+// from_date/to_date): horários livres por dia. staff=1 ignora a antecedência, não o passado.
 onRead(MODULE, "agenda/availability", async (ctx, actor, { query }) => {
   read(ctx, actor);
   const found = await availability(ctx, await config(ctx), {

@@ -769,7 +769,10 @@ function describeAgendaOperation(
     query("date", "Dia AAAA-MM-DD; ou from_date e to_date (até 31 dias).");
     query("from_date", "Primeiro dia AAAA-MM-DD.");
     query("to_date", "Último dia AAAA-MM-DD.");
-    query("staff", "1 ignora a antecedência mínima e máxima (equipe).");
+    query(
+      "staff",
+      "1 ignora a antecedência mínima e máxima (equipe); horário que já passou nunca aparece (agendar no passado só com force).",
+    );
     entry.description +=
       " Cada slot traz starts, ends, time e os profissionais livres naquele início (professional_ids). Considera horário de trabalho, duração, intervalo entre horários, antecedência, folgas, bloqueios, feriados da área e agendamentos ativos.";
     schema({

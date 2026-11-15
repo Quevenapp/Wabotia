@@ -75,9 +75,9 @@ export function freeSlots(input: FreeSlotsInput): Slot[] {
   const { date, service, config, now } = input;
   if (!service.active) return [];
   const staff = !!input.rules?.staff;
-  const earliest = staff
-    ? -Infinity
-    : now + config.min_notice_minutes * MINUTE_MS;
+  // A equipe ignora a antecedência mínima, mas horário que já passou não é
+  // livre: só entra como encaixe (force), que não passa por aqui.
+  const earliest = staff ? now : now + config.min_notice_minutes * MINUTE_MS;
   const latest = staff ? Infinity : now + config.max_days_ahead * DAY_MS;
   if (config.close_on_holidays && input.holidays.includes(date)) return [];
   const base = dayStart(date),
