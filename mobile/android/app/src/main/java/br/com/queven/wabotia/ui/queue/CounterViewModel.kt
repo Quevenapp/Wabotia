@@ -12,7 +12,9 @@ import br.com.queven.wabotia.queue.QueueOverview
 import br.com.queven.wabotia.queue.QueueTicket
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,6 +67,7 @@ class CounterViewModel(private val container: AppContainer) : ViewModel() {
     private var pendingWrite: PendingWrite? = null
     private var loop: Job? = null
     private var socket: WebSocket? = null
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     /** Enquanto a tela está visível: WebSocket (com volta) e, sem ele, leitura a cada 5 s. */
     fun start() {
@@ -78,7 +81,8 @@ class CounterViewModel(private val container: AppContainer) : ViewModel() {
                     delay(if (ok) (if (demo) 3_000L else 5_000L) else backoff.also { backoff = (backoff * 2).coerceAtMost(30_000) })
                 } else {
                     backoff = 2_000L
-                    delay(60_000)
+                    // Ao vivo, uma leitura por minuto; se o WebSocket cair, [dropped] acorda o laço na hora.
+                    withTimeoutOrNull(60_000) { wake.receive() }
                     refresh()
                 }
             }
@@ -138,8 +142,10 @@ class CounterViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun dropped(webSocket: WebSocket) {
-        if (socket === webSocket) socket = null
+        if (socket !== webSocket) return
+        socket = null
         mutable.update { it.copy(live = false) }
+        wake.trySend(Unit)
     }
 
     // --- guichê ---------------------------------------------------------------
