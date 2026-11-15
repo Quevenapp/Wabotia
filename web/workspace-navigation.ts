@@ -3,6 +3,7 @@ import {
   Blocks,
   BookOpen,
   ClipboardList,
+  CreditCard,
   Bot,
   Cloud,
   Code2,
@@ -46,6 +47,7 @@ export const sections = [
   ["settings", "Regras de atendimento", Settings],
   ["queue-settings", "Filas e guichês", Ticket],
   ["forms", "Formulários", ClipboardList],
+  ["payments", "Cobrança", CreditCard],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -113,6 +115,7 @@ export const workspaceGroups = [
       "settings",
       "queue-settings",
       "forms",
+      "payments",
     ],
   },
   {
@@ -159,6 +162,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
   "modules",
   "service-orders-settings",
+  "payments",
 ]);
 
 /**
@@ -171,6 +175,7 @@ export const pageModules: Partial<Record<string, string>> = {
   forms: "forms",
   "service-orders": "os",
   "service-orders-settings": "os",
+  payments: "payments",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -249,4 +254,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ordens numeradas com orçamento, aprovação pelo WhatsApp, execução e retirada.",
   "service-orders-settings":
     "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
+  payments:
+    "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
 };

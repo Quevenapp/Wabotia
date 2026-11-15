@@ -111,6 +111,7 @@ import {
   whatsappReturnLink,
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
+import { paymentView, verifyPaymentWebhook } from "./payments";
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
@@ -1726,6 +1727,14 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
       "SELECT id,status,error,created FROM outbox WHERE conversation_id=? ORDER BY created",
       conv.id,
     ),
+    // Cobranças da conversa (criada, paga, expirada, cancelada, estornada).
+    payments: (
+      await all(
+        c.env,
+        "SELECT * FROM payments WHERE conversation_id=? ORDER BY created DESC,id DESC LIMIT 20",
+        conv.id,
+      )
+    ).map(paymentView),
     // Passos web da conversa (enviado, aberto, concluído, expirado).
     web_steps: (
       await all(
@@ -2109,6 +2118,32 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
     if (!response.ok) return response;
   }
   return c.json({ received: true });
+});
+// Webhook de pagamento (docs/COBRANCA.md). A assinatura é conferida aqui; o
+// estado só muda depois da consulta ao provedor, no Coordinator da área.
+app.post("/webhooks/payments/:provider/:account", async (c) => {
+  const url = new URL(c.req.url);
+  const body = json(await c.req.text(), {});
+  const { account, paymentId } = await verifyPaymentWebhook(
+    c.env,
+    c.req.param("provider"),
+    c.req.param("account"),
+    { headers: c.req.raw.headers, query: url.searchParams, body },
+  );
+  if (!paymentId) return c.json({ received: true, ignored: true });
+  const response = await c.env.COORDINATOR.get(
+    c.env.COORDINATOR.idFromName(account.profile_id),
+  ).fetch("https://coordinator/payment-webhook", {
+    method: "POST",
+    body: JSON.stringify({
+      profile: account.profile_id,
+      account: account.id,
+      payment_id: paymentId,
+    }),
+  });
+  // Falha ao consultar o provedor: o erro faz o provedor reenviar depois.
+  if (!response.ok) return response;
+  return c.json({ received: true, ...(await response.json<any>()) });
 });
 // Telegram was removed. A bot still pointing here gets a final answer.
 app.post("/webhooks/telegram/:id", () => {

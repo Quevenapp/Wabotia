@@ -156,6 +156,11 @@ export const eventTypes = [
   "web_step.expired",
   "web_step.cancelled",
   "form.submitted",
+  "payment.created",
+  "payment.paid",
+  "payment.expired",
+  "payment.cancelled",
+  "payment.refunded",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(

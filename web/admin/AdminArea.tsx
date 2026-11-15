@@ -31,6 +31,7 @@ import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
 import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
 import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
+import { PaymentsPage } from "./PaymentsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -138,6 +139,8 @@ function Page({ page }: { page: PageId }) {
       return <ServiceOrdersPage />;
     case "service-orders-settings":
       return <ServiceOrdersSettingsPage />;
+    case "payments":
+      return <PaymentsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

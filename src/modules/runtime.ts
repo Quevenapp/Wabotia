@@ -4,3 +4,4 @@
 // modules[] de src/modules/registry.ts.
 import "./forms/forms";
 import "./os/os";
+import "./payments/payments";

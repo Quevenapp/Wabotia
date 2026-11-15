@@ -63,6 +63,21 @@ export function registerInboundHandler(
 export const inboundHandlersFor = (type: string) =>
   inboundHandlers.get(type) || [];
 
+/** Cobrança do módulo mudou de estado: (env, profile, payment, previous). */
+const paymentHooks = new Map<string, Hook>();
+export function registerPaymentHook(
+  module: string,
+  hook: (
+    env: any,
+    profile: string,
+    payment: any,
+    previous: string,
+  ) => Promise<void>,
+) {
+  paymentHooks.set(module, hook);
+}
+export const paymentHook = (module: string) => paymentHooks.get(module);
+
 /** Tarefa periódica do módulo: (env, profile, now). Ver src/modules/schedule.ts. */
 const schedules = new Map<string, Hook>();
 export function registerSchedule(
