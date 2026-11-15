@@ -341,7 +341,11 @@ final class DemoMensalidade {
             guard let s = subs.first(where: { $0.id == id }) else { continue }
             for (period, status) in [(previous, before), (month, now)] {
                 n += 1
-                let i = I("mi_\(n)", s.id, period, "\(period)-\(String(format: "%02d", s.dueDay))", s.amount - s.discount, status)
+                var due = "\(period)-\(String(format: "%02d", s.dueDay))"
+                // Vencida não vence no futuro: no começo do mês, a do mês atual fica para ontem.
+                let today = BrasiliaTime.day(t0)
+                if status == "overdue", due >= today { due = BrasiliaTime.addDays(today, -1) }
+                let i = I("mi_\(n)", s.id, period, due, s.amount - s.discount, status)
                 if status == "paid" { i.paidAt = t0 - Int64(n) * 3_600_000 * 7; i.paidVia = n % 3 == 0 ? "manual" : "pix" }
                 if status == "waived" { i.waivedAt = t0 - 20 * 86_400_000; i.paidNote = "Bolsa por desempenho." }
                 if status == "overdue" { i.overdueNotices = 2; i.chargedAt = t0 - 5 * 86_400_000 }
