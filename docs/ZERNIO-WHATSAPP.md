@@ -40,6 +40,43 @@ Depois de remover seus telefones, selecione o cadastro em **Integração Zernio*
 
 Se a Zernio recusar **Encontrar ID na Zernio** ou **Buscar telefones**, o painel apresenta o motivo informado pelo provedor, incluindo código e campo quando disponíveis, sem exibir suas credenciais. Confira esse motivo antes de alterar a integração; um HTTP 400 sozinho não identifica qual configuração precisa ser corrigida.
 
+## Mensagens interativas, Flows e catálogo
+
+Nas linhas oficiais (Zernio), os módulos e o atendimento automático podem usar os recursos nativos do WhatsApp. Nas linhas QR e em grupos, o mesmo conteúdo sai como texto numerado, com os links no corpo da mensagem. Ainda não há tela no painel para montar essas mensagens: elas são usadas pelos módulos e pelo atendimento automático.
+
+| Recurso | Linha oficial | Linha QR e grupos |
+|---|---|---|
+| Botão com link | Botão que abre o link | Texto com "Rótulo: link" |
+| Lista (até 10 opções) | Lista nativa; o toque devolve o ID da opção | Opções numeradas; o cliente responde o número ou o título |
+| Carrossel de imagens ou vídeos (2 a 10 cartões, cada um com botão de link) | Carrossel | Cartões numerados com os links |
+| Pedido de localização | Botão "Enviar localização" | Instrução para enviar a localização pelo clipe |
+| Produto, lista de produtos (até 30 itens) e catálogo | Cartões do catálogo da Meta | Texto da mensagem e, quando informados, texto e link alternativos (por exemplo, a loja ou o passo web) |
+| Flow publicado | Botão que abre o formulário dentro do WhatsApp | Texto da mensagem e o link alternativo, quando informado |
+
+Os limites do WhatsApp são conferidos antes do envio, em todas as linhas, para que uma mensagem aceita no QR não falhe depois numa linha oficial: cabeçalho e rodapé até 60 caracteres, texto do botão até 20, título de opção até 24, descrição até 72, texto do cartão do carrossel até 160 e botão de Flow até 30. Emojis contam como um caractere. Mensagens interativas só podem ser enviadas com a janela de 24 horas aberta; fora dela, use um template aprovado.
+
+### O que depende de configuração na Meta
+
+- **Produto, lista de produtos e catálogo** exigem um catálogo da Meta ligado à conta WhatsApp Business no [Commerce Manager](https://business.facebook.com/commerce/), com os produtos cadastrados pelo **ID do produto** (Content ID ou SKU) usado na mensagem. O carrossel de imagens ou vídeos não depende de catálogo.
+- **Flows** precisam ser criados e publicados na conta WhatsApp Business. O Wabotia cria o rascunho, envia o JSON do Flow no formato da Meta, publica e lista os Flows pela Zernio. A publicação é definitiva: um Flow publicado não pode ser alterado; para mudar, crie uma nova versão a partir dele. Se a Meta recusar o JSON, os erros voltam com linha e coluna e a publicação é bloqueada até a correção.
+- Flows com endpoint próprio (`data_exchange`) exigem endpoint HTTPS e chave pública registrada no número. O Wabotia ainda não hospeda esse endpoint: use Flows de navegação (`navigate`), que funcionam só com o JSON publicado.
+
+### Respostas recebidas
+
+- **Formulário (Flow) e endereço**: chegam com os campos preenchidos e o token de correlação do envio. O texto da mensagem mostra um resumo, como "Formulário enviado." seguido de cada campo.
+- **Carrinho do catálogo**: chega com o catálogo, os itens (ID do produto, quantidade, preço unitário e moeda), a observação do cliente e o total, quando todos os itens têm preço na mesma moeda. O texto mostra o pedido; a Meta não envia o nome do produto, só o ID.
+- **Localização enviada pelo cliente**: latitude e longitude numéricas, nome e endereço, no mesmo formato da localização enviada pelo Wabotia.
+- **Pergunta sobre produto** ("Enviar mensagem à empresa" num produto) e **contato compartilhado a pedido** são identificados no conteúdo da mensagem.
+
+Toques em botões e listas continuam funcionando como antes.
+
+### Para módulos (código)
+
+- `sendInteractive(env, actor, conversa, spec, chave, automacao?)` em `src/line-service.ts` enfileira a mensagem com a queda automática para texto. `interactiveChoice(spec, texto, interactive_reply_id?)` devolve a opção escolhida, por toque ou por número.
+- Os tipos de `spec` (`cta_url`, `list`, `media_carousel`, `location_request`, `product`, `product_list`, `catalog`, `flow`) e `flowToken(flowId, referencia)` estão em `src/whatsapp-interactive.ts`.
+- Flows: `zernioListFlows`, `zernioCreateFlow`, `zernioUploadFlowJson`, `zernioPublishFlow` e `zernioSendFlow` em `src/whatsapp-flows.ts`. Para clientes sem telefone visível (identificador empresarial do WhatsApp), envie o Flow como `spec` do tipo `flow` por `sendInteractive`, que usa a conversa.
+- Recebimento: `content.type` passa a ser `flow_reply`, `order` ou `location`, com `content.flow_reply`, `content.order` e `content.location` (formato em `src/whatsapp-inbound.ts`).
+
 ## Regras e limites
 
 - A janela de atendimento termina 24 horas após a última mensagem recebida do cliente, no mesmo telefone. Cada nova mensagem do cliente renova o prazo; respostas e templates enviados não renovam. O chat mostra a última mensagem e o vencimento. Fora da janela, use template aprovado e consentimento apropriado.
@@ -50,4 +87,4 @@ Se a Zernio recusar **Encontrar ID na Zernio** ou **Buscar telefones**, o painel
 - Grupos empresariais exigem telefone elegível sem coexistência com o aplicativo. Confira a Zernio antes de habilitar o recurso e sincronize os grupos em **Grupos WhatsApp** antes de receber mensagens deles, para que sejam identificados corretamente.
 - O áudio de chamadas pelo navegador do Wabotia não está disponível na integração Zernio. Históricos anteriores são mantidos; as [opções de chamada da Zernio](https://docs.zernio.com/platforms/whatsapp/calling) possuem configuração própria.
 
-Referências: [WhatsApp Zernio](https://docs.zernio.com/platforms/whatsapp), [telefones cadastrados](https://docs.zernio.com/accounts/list-accounts), [inbox](https://docs.zernio.com/platforms/whatsapp/inbox), [grupos](https://docs.zernio.com/platforms/whatsapp/groups).
+Referências: [WhatsApp Zernio](https://docs.zernio.com/platforms/whatsapp), [telefones cadastrados](https://docs.zernio.com/accounts/list-accounts), [inbox](https://docs.zernio.com/platforms/whatsapp/inbox), [enviar mensagem](https://docs.zernio.com/messages/send-inbox-message), [Flows](https://docs.zernio.com/platforms/whatsapp/flows), [grupos](https://docs.zernio.com/platforms/whatsapp/groups).
