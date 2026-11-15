@@ -33,6 +33,7 @@ import {
   type ReservaConfig,
 } from "./config";
 import { getUnit, listUnits, type Unit } from "./units";
+import { depositFallbackText, requestDeposit } from "./deposit";
 import {
   dailyPeriod,
   firstDay,
@@ -635,7 +636,11 @@ async function finish(flow: Flow, data: ChatData) {
   await afterBooked(flow, booking);
 }
 
-/** Mensagem ao cliente depois de gravar (o sinal entra em deposit.ts). */
+/**
+ * Mensagem ao cliente depois de gravar. Com sinal: o texto com valor e prazo,
+ * depois a cobrança (o núcleo envia o botão e o código Pix). Sem conta de
+ * cobrança, a reserva segue aguardando e o cliente sabe que a equipe chama.
+ */
 async function afterBooked(flow: Flow, booking: Booking) {
   await say(
     flow,
@@ -647,6 +652,16 @@ async function afterBooked(flow: Flow, booking: Booking) {
     ),
     `booked:${booking.id}`,
   );
+  if (booking.status !== "pending_payment") return;
+  const { error, booking: after } = await requestDeposit(
+    flow.ctx,
+    flow.config,
+    booking,
+    flow.c,
+    { actor: "customer", at: flow.at },
+  );
+  if (error)
+    await say(flow, depositFallbackText(after), `deposit-failed:${booking.id}`);
 }
 
 // ---------------------------------------------------------------------------

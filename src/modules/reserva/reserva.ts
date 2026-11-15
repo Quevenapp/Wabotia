@@ -11,12 +11,16 @@ import {
   onCommand,
   onConversationTurn,
   onMenuChoice,
+  onPaymentUpdated,
   onRead,
   onRoute,
+  onSchedule,
   onSettingsSave,
   type ModuleContext,
 } from "../api";
 import { reservaTurn, startBooking, startMine } from "./chat";
+import { depositStatus, paymentUpdated, requestDeposit } from "./deposit";
+import { runDue } from "./schedule";
 import {
   addDays,
   brasiliaDate,
@@ -97,6 +101,16 @@ async function unavailable(
   );
 }
 
+// Sinal: a cobrança mudou (pago, vencido, cancelado, estornado).
+onPaymentUpdated(MODULE, async (ctx, payment, { previous }) => {
+  await paymentUpdated(ctx, await config(ctx), payment, previous);
+});
+
+// Prazos do sinal, check-in, lembrete e saída (ao menos a cada 5 minutos).
+onSchedule(MODULE, async (ctx, { now }) => {
+  await runDue(ctx, now);
+});
+
 // Item de menu "Fazer reserva".
 onMenuChoice("reserva", async (ctx, c, _item, { rowId }) => {
   try {
@@ -123,7 +137,12 @@ onSettingsSave(MODULE, "reserva", validateReservaConfig);
 // GET /profiles/:profile/reserva: regras (com os padrões) e unidades.
 onRead(MODULE, "reserva", async (ctx, actor) => {
   read(ctx, actor);
-  return { config: await config(ctx), units: await listUnits(ctx) };
+  return {
+    config: await config(ctx),
+    units: await listUnits(ctx),
+    // Sinal: se a Cobrança está pronta (aviso ao administrador no painel).
+    deposit: await depositStatus(ctx),
+  };
 });
 onRead(MODULE, "reserva/units", async (ctx, actor) => {
   read(ctx, actor);
@@ -389,19 +408,55 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
       (typeof data.customer_name === "string" && data.customer_name.trim()),
     "Informe conversation_id ou customer_name.",
   );
-  return (
-    await createBooking(ctx, await config(ctx), {
-      ...data,
-      id: `cmd-${requestId}`,
-      conversation,
-      source: sourceOf(actor),
-      actor: actor.id,
-      staff: true,
-      force: bool(data.force, "force"),
-      deposit: bool(data.deposit, "deposit") ?? false,
-      notify: bool(data.notify, "notify"),
-    })
-  ).booking;
+  const rules = await config(ctx);
+  const { booking, created } = await createBooking(ctx, rules, {
+    ...data,
+    id: `cmd-${requestId}`,
+    conversation,
+    source: sourceOf(actor),
+    actor: actor.id,
+    staff: true,
+    force: bool(data.force, "force"),
+    deposit: bool(data.deposit, "deposit") ?? false,
+    notify: bool(data.notify, "notify"),
+  });
+  // Sinal pedido pela equipe: cobra pela conversa (modelo de notificação se
+  // a janela de 24 horas estiver fechada).
+  if (created && conversation && booking.status === "pending_payment")
+    return (
+      await requestDeposit(ctx, rules, booking, conversation, {
+        actor: actor.id,
+        notification: true,
+      })
+    ).booking;
+  return booking;
+});
+
+// Cobrar (de novo) o sinal de uma reserva aguardando pagamento, por exemplo
+// depois de configurar a conta em Gestão → Cobrança.
+onRoute(MODULE, {
+  method: "POST",
+  path: "reserva/bookings/:id/deposit",
+  op: "reserva.deposit",
+});
+onCommand(MODULE, "reserva.deposit", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  const booking = await getBooking(ctx, data.id);
+  requireValue(
+    booking.status === "pending_payment" && booking.deposit_cents > 0,
+    "Só reservas aguardando o sinal podem ser cobradas.",
+  );
+  requireValue(
+    booking.conversation_id,
+    "Esta reserva não está ligada a uma conversa do WhatsApp.",
+  );
+  const c = await ctx.conversation(booking.conversation_id, actor);
+  const result = await requestDeposit(ctx, await config(ctx), booking, c, {
+    actor: actor.id,
+    notification: true,
+  });
+  if (result.error) throw result.error;
+  return result.booking;
 });
 
 onRoute(MODULE, {
