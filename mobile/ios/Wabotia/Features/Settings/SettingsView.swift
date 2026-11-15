@@ -134,6 +134,10 @@ struct SettingsView: View {
                 navRow("Ordens de serviço", "wrench.and.screwdriver.fill", Theme.warn) { push(.serviceOrders) }
                     .accessibilityIdentifier("settings.serviceOrders")
             }
+            if moduleFeature.isAvailable(ModuleId.reserva, container.profileId) {
+                navRow("Reservas", "bed.double.fill", Theme.ticket) { push(.reserva) }
+                    .accessibilityIdentifier("settings.reserva")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }

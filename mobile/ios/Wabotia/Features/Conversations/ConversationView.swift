@@ -176,6 +176,9 @@ struct ConversationView: View {
             if !c.isGroup, modules.isAvailable(ModuleId.serviceOrders, container.profileId) {
                 Button { push(.newServiceOrder(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Abrir ordem de serviço", systemImage: "wrench.and.screwdriver") }
             }
+            if !c.isGroup, modules.isAvailable(ModuleId.reserva, container.profileId) {
+                Button { push(.bookingForm(conversationId: conversationId, customer: vm.displayName, unitId: nil, date: nil)) } label: { Label("Reservar para este cliente", systemImage: "bed.double") }
+            }
             if vm.canTransfer {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }
             }

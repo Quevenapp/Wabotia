@@ -9,6 +9,8 @@ enum ModuleId {
     static let queue = "queue"
     static let agenda = "agenda"
     static let serviceOrders = "os"
+    static let reserva = "reserva"
+    static let mensalidade = "mensalidade"
 }
 
 /// Lê os módulos ligados na resposta da rota de capacidades (docs/MODULOS.md, seção 6):
