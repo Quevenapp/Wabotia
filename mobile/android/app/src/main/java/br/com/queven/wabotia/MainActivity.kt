@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A miniatura dos Recentes não guarda a tela aberta (conversa, pagador…); no Android 12 e anteriores, as telas
+        // com dados de clientes se protegem com FLAG_SECURE (SecureScreenEffect).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
         val container = (application as WabotiaApp).container
         // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
         if (savedInstanceState == null && intent?.getStringExtra("demo") == null && DeviceActivity.isPaired(container.deviceStore)) {

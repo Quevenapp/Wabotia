@@ -78,6 +78,7 @@ import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.Pill
 import br.com.queven.wabotia.ui.components.SearchField
 import br.com.queven.wabotia.ui.components.SecondaryButton
+import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SectionLabel
 import br.com.queven.wabotia.ui.components.SegmentedTabs
 import br.com.queven.wabotia.ui.components.WbCard
@@ -108,6 +109,8 @@ fun MensalidadeScreen(
     openSubscription: (String) -> Unit,
     initialMode: MensalidadeViewModel.Mode = MensalidadeViewModel.Mode.MONTH,
 ) {
+    // Pagadores, valores e atrasos: sem captura (Ajustes → Proteger telas com dados de clientes).
+    SecureScreenEffect(container)
     val vm: MensalidadeViewModel = viewModel { MensalidadeViewModel(MensalidadeDeps.of(container), container, initialMode) }
     val c = Wb.colors
     LifecycleResumeEffect(Unit) {
@@ -349,6 +352,8 @@ private fun PayerCard(payer: Payer?, ref: PayerRef?, customer: MensalidadeCustom
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InstallmentScreen(container: AppContainer, id: String, onBack: () -> Unit, openSubscription: (String) -> Unit, openConversation: (String) -> Unit) {
+    // O pagador (nome, CPF ou CNPJ, telefones) e a cobrança: sem captura.
+    SecureScreenEffect(container)
     val vm: InstallmentViewModel = viewModel(key = "installment:$id") { InstallmentViewModel(id, MensalidadeDeps.of(container), container) }
     val c = Wb.colors
     val snackbar = remember { SnackbarHostState() }
@@ -511,6 +516,8 @@ private fun PayDialog(today: String, onDismiss: () -> Unit, onConfirm: (note: St
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SubscriptionScreen(container: AppContainer, id: String, onBack: () -> Unit, openInstallment: (String) -> Unit, openConversation: (String) -> Unit) {
+    // O pagador (nome, CPF ou CNPJ, telefones) e as parcelas: sem captura.
+    SecureScreenEffect(container)
     val vm: SubscriptionViewModel = viewModel(key = "subscription:$id") { SubscriptionViewModel(id, MensalidadeDeps.of(container), container) }
     val c = Wb.colors
     val snackbar = remember { SnackbarHostState() }

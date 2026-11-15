@@ -93,6 +93,7 @@ import br.com.queven.wabotia.ui.components.PresencePill
 import br.com.queven.wabotia.ui.components.PresenceSheet
 import br.com.queven.wabotia.ui.components.RowDivider
 import br.com.queven.wabotia.ui.components.SearchField
+import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SheetAction
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.TabTopBar
@@ -126,6 +127,8 @@ fun ConversationsScreen(
     newTicket: (conversationId: String) -> Unit,
     showMessage: (String) -> Unit,
 ) {
+    // Nomes e prévias das mensagens dos clientes: sem captura (Ajustes → Proteger telas com dados de clientes).
+    SecureScreenEffect(container)
     val profileId = container.session.profileId ?: ""
     val vm: ConversationsViewModel = viewModel(key = "conversations:$profileId") { ConversationsViewModel(container) }
     val presence = rememberPresence(container)

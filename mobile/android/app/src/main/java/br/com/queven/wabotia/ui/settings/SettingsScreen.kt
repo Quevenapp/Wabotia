@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SupportAgent
@@ -302,6 +303,29 @@ fun SettingsScreen(
                             modifier = Modifier.padding(horizontal = 4.dp),
                         )
                     }
+                }
+            }
+
+            // --- Privacidade ---
+            item("privacy-label") { SectionLabel("Privacidade") }
+            item("privacy") {
+                val protect by container.protectScreens.collectAsState()
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.Security,
+                        "Proteger telas com dados de clientes",
+                        subtitle = if (protect) "Conversas e Mensalidade não aparecem em capturas, gravações nem na miniatura dos Recentes."
+                        else "Desligado: capturas e gravações de tela valem em todas as telas. Ligue de novo depois de capturar.",
+                        tint = if (protect) c.ok else c.warn,
+                        trailing = {
+                            BusySwitch(
+                                checked = protect,
+                                busy = false,
+                                onChange = container::setProtectScreens,
+                                description = if (protect) "Desligar a proteção de telas" else "Ligar a proteção de telas",
+                            )
+                        },
+                    )
                 }
             }
 

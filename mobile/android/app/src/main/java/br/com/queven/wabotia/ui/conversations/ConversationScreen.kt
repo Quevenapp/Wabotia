@@ -109,6 +109,7 @@ import br.com.queven.wabotia.ui.components.CountBadge
 import br.com.queven.wabotia.ui.components.ErrorState
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WindowInfo
 import br.com.queven.wabotia.ui.components.WindowRing
@@ -177,6 +178,8 @@ fun ConversationScreen(
     /** Telas dos módulos ligados (Agendar, Abrir ordem de serviço…), por [ModuleRoutes]. */
     openRoute: (String) -> Unit = {},
 ) {
+    // A conversa com o cliente: sem captura (Ajustes → Proteger telas com dados de clientes).
+    SecureScreenEffect(container)
     val vm: ConversationViewModel = viewModel(key = "conversation:$conversationId") { ConversationViewModel(container, conversationId) }
     val enabledModules by container.modules.enabled.collectAsState()
     LaunchedEffect(Unit) { container.modules.refresh() }

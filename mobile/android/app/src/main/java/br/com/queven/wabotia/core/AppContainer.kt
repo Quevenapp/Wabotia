@@ -40,6 +40,16 @@ class AppContainer(context: Context) {
 
     private var client: ApiClient? = null
 
+    private val _protectScreens = MutableStateFlow(session.protectScreens)
+
+    /** "Proteger telas com dados de clientes" (Ajustes): as telas de conversa e da Mensalidade leem daqui. */
+    val protectScreens: StateFlow<Boolean> = _protectScreens.asStateFlow()
+
+    fun setProtectScreens(enabled: Boolean) {
+        session.protectScreens = enabled
+        _protectScreens.value = enabled
+    }
+
     /** Dados do perfil usados por várias telas (contagens, tipos de linha, setores), com cache curto. */
     val profileData = ProfileData(this)
 

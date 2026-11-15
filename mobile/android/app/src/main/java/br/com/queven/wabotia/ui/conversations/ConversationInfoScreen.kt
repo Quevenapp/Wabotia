@@ -76,6 +76,7 @@ import br.com.queven.wabotia.ui.components.Pill
 import br.com.queven.wabotia.ui.components.RowDivider
 import br.com.queven.wabotia.ui.components.SectionLabel
 import br.com.queven.wabotia.ui.components.SecondaryButton
+import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SettingsRow
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WbCard
@@ -104,6 +105,8 @@ fun ConversationInfoScreen(
     openBot: (botId: String) -> Unit,
     openTransfer: () -> Unit,
 ) {
+    // Telefone, dados e notas do cliente: sem captura (Ajustes → Proteger telas com dados de clientes).
+    SecureScreenEffect(container)
     val vm: ConversationViewModel = viewModel(key = "conversation-info:$conversationId") { ConversationViewModel(container, conversationId) }
     val profileId = container.session.profileId ?: ""
     val c = Wb.colors
