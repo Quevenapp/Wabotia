@@ -5,6 +5,8 @@ import {
   ClipboardList,
   CreditCard,
   Bot,
+  CalendarClock,
+  CalendarDays,
   Cloud,
   Code2,
   FileText,
@@ -21,8 +23,10 @@ import {
   Settings,
   ShieldCheck,
   Star,
+  Store,
   Ticket,
   Users,
+  Wrench,
   Zap,
 } from "lucide-react";
 
@@ -62,6 +66,11 @@ export const sections = [
   ["modules", "Módulos", Blocks],
   ["mensalidades", "Mensalidades", PiggyBank],
   ["mensalidade-settings", "Planos e regras", PiggyBank],
+  ["agenda", "Agenda", CalendarDays],
+  ["agenda-settings", "Serviços e horários", CalendarClock],
+  ["service-orders", "Ordens de serviço", Wrench],
+  ["service-orders-settings", "Ordem de serviço", Wrench],
+  ["establishment", "Estabelecimento", Store],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -104,6 +113,18 @@ export const workspaceGroups = [
     pages: ["mensalidades", "mensalidade-settings"],
   },
   {
+    id: "agenda",
+    label: "Agenda",
+    icon: CalendarDays,
+    pages: ["agenda", "agenda-settings"],
+  },
+  {
+    id: "service-orders",
+    label: "Ordens de serviço",
+    icon: Wrench,
+    pages: ["service-orders", "service-orders-settings"],
+  },
+  {
     id: "automation",
     label: "Automação",
     icon: Bot,
@@ -140,7 +161,7 @@ export const workspaceGroups = [
     id: "system",
     label: "Sistema",
     icon: Cloud,
-    pages: ["modules", "system"],
+    pages: ["establishment", "modules", "system"],
   },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
@@ -161,8 +182,11 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
   "modules",
+  "agenda-settings",
+  "service-orders-settings",
   "payments",
   "mensalidade-settings",
+  "establishment",
 ]);
 
 /**
@@ -173,10 +197,28 @@ export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
+  agenda: "agenda",
+  "agenda-settings": "agenda",
+  "service-orders": "os",
+  "service-orders-settings": "os",
   payments: "payments",
   mensalidades: "mensalidade",
   "mensalidade-settings": "mensalidade",
 };
+/**
+ * Páginas de módulo que também aparecem no trilho principal (computador) e
+ * em Mais (celular), além de Gestão. Um módulo acrescenta UMA linha; a página
+ * precisa estar em `sections` e em `pageModules`. Abre a página de Gestão.
+ */
+export const railPages: {
+  page: PageId;
+  label: string;
+  icon: typeof Ticket;
+}[] = [
+  { page: "agenda", label: "Agenda", icon: CalendarDays },
+  { page: "service-orders", label: "Ordens", icon: Wrench },
+];
+
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
 export const moduleAllows = (page: string, modules?: ModuleStates) => {
@@ -250,10 +292,20 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
+  agenda:
+    "Agenda do dia e da semana por profissional: marque, remarque, confirme e registre faltas.",
+  "agenda-settings":
+    "Serviços, profissionais, horários de trabalho, folgas e as regras do agendamento pelo WhatsApp.",
+  "service-orders":
+    "Ordens numeradas com orçamento, aprovação pelo WhatsApp, execução e retirada.",
+  "service-orders-settings":
+    "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
   mensalidades:
     "Assinaturas, parcelas do mês, inadimplentes, baixa manual e reenvio da cobrança.",
   "mensalidade-settings":
     "Planos, regras de cobrança e avisos de vencimento e atraso, e itens do menu.",
+  establishment:
+    "Nome fantasia, CPF ou CNPJ, endereço e telefone para cupons, comandas, recibos e páginas do cliente.",
 };

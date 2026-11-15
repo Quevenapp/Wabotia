@@ -207,16 +207,21 @@ export async function ensureCharge(
     at,
     inst.id,
   );
-  await ctx.publish("mensalidade.charged", inst.id, {
-    installment_id: inst.id,
-    subscription_id: inst.subscription_id,
-    payment_id: payment.id,
-    method: payment.method,
-    amount_cents: payment.amount_cents,
-    expires_at: payment.expires_at,
-    conversation_id: c.id,
-    kind,
-  });
+  await ctx.publish(
+    "mensalidade.charged",
+    inst.id,
+    {
+      installment_id: inst.id,
+      subscription_id: inst.subscription_id,
+      payment_id: payment.id,
+      method: payment.method,
+      amount_cents: payment.amount_cents,
+      expires_at: payment.expires_at,
+      conversation_id: c.id,
+      kind,
+    },
+    { key: payment.id },
+  );
   return { payment, created: true, inst: await loadInstallment(ctx, inst.id) };
 }
 
@@ -262,7 +267,7 @@ export async function sendNotice(
   if (await paymentsReady(ctx)) {
     const result = await ensureCharge(ctx, inst, c, cfg, kind, at);
     if (!result.error && result.created) {
-      await published(ctx, inst, kind, c, true);
+      await published(ctx, inst, kind, c, true, key);
       return { sent: true, charged: true };
     }
     if (!result.error) {
@@ -271,7 +276,7 @@ export async function sendNotice(
         { text: `${noticeText(inst, kind, at)}\n\n${payLines(result.inst)}` },
         { key, notification: true },
       );
-      await published(ctx, inst, kind, c, false);
+      await published(ctx, inst, kind, c, false, key);
       return { sent: true, charged: false };
     }
     if (!SETUP_ERRORS.has(result.error)) {
@@ -295,7 +300,7 @@ export async function sendNotice(
     { text: `${noticeText(inst, kind, at)}\n\n${how}` },
     { key, notification: true },
   );
-  await published(ctx, inst, kind, c, false);
+  await published(ctx, inst, kind, c, false, key);
   return { sent: true, charged: false, fallback };
 }
 
@@ -305,14 +310,20 @@ const published = (
   kind: NoticeKind,
   c: Conversation,
   charged: boolean,
+  key: string,
 ) =>
-  ctx.publish("mensalidade.notice_sent", inst.id, {
-    installment_id: inst.id,
-    subscription_id: inst.subscription_id,
-    kind,
-    charged,
-    conversation_id: c.id,
-  });
+  ctx.publish(
+    "mensalidade.notice_sent",
+    inst.id,
+    {
+      installment_id: inst.id,
+      subscription_id: inst.subscription_id,
+      kind,
+      charged,
+      conversation_id: c.id,
+    },
+    { key },
+  );
 
 const SELECT_FULL =
   "SELECT i.*,s.customer_name,s.phone,s.conversation_id,s.status AS subscription_status,p.name AS plan_name FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id LEFT JOIN mensalidade_plans p ON p.id=s.plan_id";
@@ -458,7 +469,10 @@ export async function resendCharge(
 // Confirmação (webhook) e comprovante
 
 /** Comprovante em texto: cliente, plano, competência, valor, data e forma. */
-export function receiptText(inst: any) {
+export function receiptText(
+  inst: any,
+  shop?: { name: string; document_display?: string | null } | null,
+) {
   const via =
     inst.paid_via === "pix"
       ? "Pix"
@@ -467,6 +481,9 @@ export function receiptText(inst: any) {
         : "pagamento registrado pela equipe";
   return [
     "Comprovante de pagamento",
+    shop?.name
+      ? `${shop.name}${shop.document_display ? ` (${shop.document_display})` : ""}`
+      : "",
     inst.customer_name ? `Cliente: ${inst.customer_name}` : "",
     `Mensalidade: ${inst.plan_name ? inst.plan_name + " — " : ""}${periodLabel(inst.period_key)} (vencimento ${dayLabel(inst.due_date)})`,
     `Valor: ${money(inst.amount_cents)}`,
@@ -491,7 +508,7 @@ export async function sendReceipt(ctx: ModuleContext, instId: string) {
   if (!c) return null;
   return ctx.sendMessage(
     c,
-    { text: receiptText(inst) },
+    { text: receiptText(inst, await ctx.establishment()) },
     { key: `comprovante:${inst.id}:${inst.paid_at}`, notification: true },
   );
 }
@@ -529,30 +546,40 @@ export async function paymentUpdated(
     );
     if (!result.meta.changes) {
       // Já paga (baixa manual ou outra cobrança): dinheiro em dobro.
-      await ctx.publish("mensalidade.paid", inst.id, {
+      await ctx.publish(
+        "mensalidade.paid",
+        inst.id,
+        {
+          installment_id: inst.id,
+          subscription_id: inst.subscription_id,
+          period_key: inst.period_key,
+          amount_cents: payment.amount_cents,
+          via: payment.method,
+          by: "provider",
+          payment_id: payment.id,
+          duplicate: true,
+          previous,
+        },
+        { key: `${inst.id}:duplicate:${payment.id}` },
+      );
+      return;
+    }
+    await ctx.publish(
+      "mensalidade.paid",
+      inst.id,
+      {
         installment_id: inst.id,
         subscription_id: inst.subscription_id,
         period_key: inst.period_key,
-        amount_cents: payment.amount_cents,
+        amount_cents: inst.amount_cents,
         via: payment.method,
         by: "provider",
         payment_id: payment.id,
-        duplicate: true,
-        previous,
-      });
-      return;
-    }
-    await ctx.publish("mensalidade.paid", inst.id, {
-      installment_id: inst.id,
-      subscription_id: inst.subscription_id,
-      period_key: inst.period_key,
-      amount_cents: inst.amount_cents,
-      via: payment.method,
-      by: "provider",
-      payment_id: payment.id,
-      paid_at: payment.paid_at || at,
-      previous_status: inst.status,
-    });
+        paid_at: payment.paid_at || at,
+        previous_status: inst.status,
+      },
+      { key: `${inst.id}:paid:${payment.id}` },
+    );
     await sendReceipt(ctx, inst.id);
     return;
   }
@@ -566,12 +593,17 @@ export async function paymentUpdated(
       payment.id,
     );
     if (result.meta.changes)
-      await ctx.publish("mensalidade.refunded", inst.id, {
-        installment_id: inst.id,
-        subscription_id: inst.subscription_id,
-        payment_id: payment.id,
-        amount_cents: payment.amount_cents,
-      });
+      await ctx.publish(
+        "mensalidade.refunded",
+        inst.id,
+        {
+          installment_id: inst.id,
+          subscription_id: inst.subscription_id,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+        },
+        { key: `${inst.id}:refunded:${payment.id}` },
+      );
     return;
   }
   // expired / cancelled: a próxima cobrança cria outra.

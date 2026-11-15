@@ -36,6 +36,47 @@ export function menuListSnapshot(items: MenuItem[]): string {
   return `[${items.map(menuSnapshot).join(",")}]`;
 }
 
+/** Destinos do núcleo no editor de menus (fora submenu). */
+export const coreMenuTypes: { type: string; label: string }[] = [
+  { type: "human", label: "Equipe humana" },
+  { type: "bot", label: "Bot" },
+  { type: "app", label: "Aplicativo" },
+  { type: "link", label: "Conteúdo com link" },
+  { type: "content", label: "Mensagem informativa" },
+  { type: "protocols", label: "Consultar protocolos" },
+  { type: "ticket", label: "Abrir protocolo" },
+  { type: "survey", label: "Avaliar atendimento" },
+];
+
+/**
+ * Opções do destino de um item: as do núcleo, as dos módulos ligados
+ * (GET /modules, menu_item_types) e sempre o tipo atual do item, para que
+ * salvar nunca troque o tipo de um item de módulo sem a pessoa escolher.
+ */
+export function menuTypeOptions(
+  modules: {
+    enabled?: boolean;
+    menu_item_types?: { type: string; label: string }[];
+  }[],
+  current?: string,
+) {
+  const options = [...coreMenuTypes];
+  for (const module of modules)
+    if (module.enabled !== false)
+      for (const type of module.menu_item_types || [])
+        if (!options.some((o) => o.type === type.type)) options.push(type);
+  if (current && current !== "submenu" && !options.some((o) => o.type === current)) {
+    const known = modules
+      .flatMap((m) => m.menu_item_types || [])
+      .find((t) => t.type === current);
+    options.push({
+      type: current,
+      label: known ? `${known.label} (módulo desligado)` : current,
+    });
+  }
+  return options;
+}
+
 export type MenuPlacement = "before" | "after" | "inside";
 
 export function moveMenu(

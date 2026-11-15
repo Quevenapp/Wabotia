@@ -7,6 +7,7 @@ import { type Actor, type Bindings, ApiError } from "./types";
 import { authenticate } from "./security";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
+import { moduleMcpTools } from "./modules/hooks";
 
 type Row = Record<string, any>;
 type Call = {
@@ -795,9 +796,24 @@ export const tools: Tool[] = [
   },
 ];
 
-const catalog = new Map(tools.map((t) => [t.name, t]));
+/**
+ * Ferramentas do núcleo e as declaradas pelos módulos (src/modules/api.ts,
+ * onMcpTool). Chamadas a módulo desligado recebem o 409 da própria rota.
+ */
+const allTools = (): Tool[] => [
+  ...tools,
+  ...moduleMcpTools().map((t): Tool => ({
+    ...t,
+    input: {
+      profile,
+      ...t.input,
+      ...(t.write ? { idempotency_key: idempotency } : {}),
+    },
+  })),
+];
+const findTool = (name: string) => allTools().find((t) => t.name === name);
 export const toolList = () =>
-  tools.map((t) => ({
+  allTools().map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: {
@@ -896,7 +912,7 @@ export function mountMcp(app: Hono<Bindings>) {
     }
   }
   async function callTool(c: any, actor: Actor, params: any) {
-    const tool = catalog.get(String(params?.name || ""));
+    const tool = findTool(String(params?.name || ""));
     if (!tool)
       throw new RpcError(-32602, `Ferramenta desconhecida: ${params?.name}`);
     const args = validate(tool, params?.arguments);

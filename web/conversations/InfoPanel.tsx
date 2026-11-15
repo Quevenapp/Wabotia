@@ -43,6 +43,7 @@ import { isImage, mediaUrl } from "./Media";
 import { headerSubtitle, isMine, tagsOf } from "./model";
 import { WebStepsSection } from "./WebSteps";
 import { PaymentsSection } from "./Payments";
+import { conversationExtensions } from "../modules/conversation";
 
 export type InfoActions = {
   contact: () => void;
@@ -260,6 +261,13 @@ export function InfoPanel({
       </section>
 
       <WebStepsSection steps={detail.web_steps || []} />
+
+      {!group &&
+        conversationExtensions
+          .filter((extension) => app.moduleOn(extension.module))
+          .map(({ module, Component }) => (
+            <Component key={module} conversation={c} name={name} />
+          ))}
 
       {app.moduleOn("payments") && !group && (
         <PaymentsSection

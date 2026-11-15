@@ -22,6 +22,22 @@ function teamAccess(actor: Actor, profile: string) {
       "A conversa interna exige uma conta de pessoa.",
     );
 }
+/**
+ * Pessoas ativas da área (id, nome, papel), para os aplicativos escolherem um
+ * responsável (ordem de serviço, agenda…). Sem bots e sem sondar o Hermes,
+ * ao contrário de teamDirectory. Pessoa da área ou chave com conversations:read.
+ */
+export async function areaPeople(env: Env, actor: Actor, profile: string) {
+  access(actor, profile, "conversations:read");
+  const users = await all(
+    env,
+    "SELECT id,name,role FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+    profile,
+  );
+  return {
+    data: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+  };
+}
 export async function teamDirectory(env: Env, actor: Actor, profile: string) {
   teamAccess(actor, profile);
   const connections = await all(

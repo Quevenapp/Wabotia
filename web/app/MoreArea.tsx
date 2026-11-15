@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Avatar, Switch } from "../ui";
 import { linkProps } from "../lib/routes";
+import { canOpenPage, railPages } from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
 
@@ -51,6 +52,19 @@ export function MoreArea() {
             <ChevronRight size={18} />
           </a>
         )}
+        {railPages
+          .filter((item) => canOpenPage(item.page, app.me.role, app.modules))
+          .map((item) => (
+            <a
+              key={item.page}
+              className="more-link"
+              {...linkProps({ area: "admin", page: item.page })}
+            >
+              <item.icon size={21} />
+              <span>{item.label}</span>
+              <ChevronRight size={18} />
+            </a>
+          ))}
         <a className="more-link" {...linkProps({ area: "contacts" })}>
           <Contact size={21} />
           <span>Contatos</span>

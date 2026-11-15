@@ -75,15 +75,20 @@ export async function generateInstallments(
       );
       if (!result.meta.changes) continue;
       created++;
-      await ctx.publish("mensalidade.installment_created", id, {
-        installment_id: id,
-        subscription_id: sub.id,
-        period_key: due.period_key,
-        due_date: due.due_date,
-        amount_cents: sub.amount_cents - sub.discount_cents,
-        status: late ? "overdue" : "open",
-        retroactive: late,
-      });
+      await ctx.publish(
+        "mensalidade.installment_created",
+        id,
+        {
+          installment_id: id,
+          subscription_id: sub.id,
+          period_key: due.period_key,
+          due_date: due.due_date,
+          amount_cents: sub.amount_cents - sub.discount_cents,
+          status: late ? "overdue" : "open",
+          retroactive: late,
+        },
+        { key: id },
+      );
     }
     await exec(
       ctx.env,
@@ -106,13 +111,18 @@ export async function markOverdue(ctx: ModuleContext, at: number) {
     today(at),
   );
   for (const row of rows)
-    await ctx.publish("mensalidade.overdue", row.id, {
-      installment_id: row.id,
-      subscription_id: row.subscription_id,
-      period_key: row.period_key,
-      due_date: row.due_date,
-      amount_cents: row.amount_cents,
-    });
+    await ctx.publish(
+      "mensalidade.overdue",
+      row.id,
+      {
+        installment_id: row.id,
+        subscription_id: row.subscription_id,
+        period_key: row.period_key,
+        due_date: row.due_date,
+        amount_cents: row.amount_cents,
+      },
+      { key: `${row.id}:${row.updated}` },
+    );
   return rows.length;
 }
 
@@ -365,17 +375,22 @@ export async function payManually(
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode receber baixa.`,
     );
   const fresh = await loadInstallment(ctx, inst.id);
-  await ctx.publish("mensalidade.paid", inst.id, {
-    installment_id: inst.id,
-    subscription_id: inst.subscription_id,
-    period_key: inst.period_key,
-    amount_cents: inst.amount_cents,
-    via: "manual",
-    by: actor,
-    paid_at: paidAt,
-    note,
-    payment_id: inst.payment_id,
-  });
+  await ctx.publish(
+    "mensalidade.paid",
+    inst.id,
+    {
+      installment_id: inst.id,
+      subscription_id: inst.subscription_id,
+      period_key: inst.period_key,
+      amount_cents: inst.amount_cents,
+      via: "manual",
+      by: actor,
+      paid_at: paidAt,
+      note,
+      payment_id: inst.payment_id,
+    },
+    { key: `${inst.id}:manual:${paidAt}` },
+  );
   return fresh;
 }
 
@@ -404,13 +419,18 @@ export async function waive(
       "installment_not_payable",
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode ser isentada.`,
     );
-  await ctx.publish("mensalidade.waived", inst.id, {
-    installment_id: inst.id,
-    subscription_id: inst.subscription_id,
-    period_key: inst.period_key,
-    amount_cents: inst.amount_cents,
-    by: actor,
-    note,
-  });
+  await ctx.publish(
+    "mensalidade.waived",
+    inst.id,
+    {
+      installment_id: inst.id,
+      subscription_id: inst.subscription_id,
+      period_key: inst.period_key,
+      amount_cents: inst.amount_cents,
+      by: actor,
+      note,
+    },
+    { key: `${inst.id}:waived:${at}` },
+  );
   return loadInstallment(ctx, inst.id);
 }

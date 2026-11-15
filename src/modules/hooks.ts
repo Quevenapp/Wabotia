@@ -18,7 +18,7 @@ export function registerWebStepHook(
     profile: string,
     step: any,
     answers: Answers,
-  ) => Promise<void>,
+  ) => Promise<void | string | false>,
 ) {
   webStepHooks.set(module, hook);
 }
@@ -106,6 +106,34 @@ export function registerTurnHandler(
   else turnHandlers.push([module, handler]);
 }
 export const turnHandlersList = () => [...turnHandlers];
+
+/** Ferramenta MCP declarada por um módulo (traduzida para a API v1). */
+export interface ModuleMcpTool {
+  module: string;
+  name: string;
+  description: string;
+  /** Parâmetros (JSON Schema simples); profile é acrescentado pelo núcleo. */
+  input: Record<string, any>;
+  required?: string[];
+  /** Escrita: o núcleo acrescenta idempotency_key. */
+  write?: boolean;
+  call: (
+    args: Record<string, any>,
+    profile: string,
+  ) => {
+    method?: "GET" | "POST" | "PATCH" | "PUT";
+    path: string;
+    query?: Record<string, any>;
+    body?: Record<string, any>;
+  };
+}
+const mcpTools: ModuleMcpTool[] = [];
+export function registerMcpTool(tool: ModuleMcpTool) {
+  const index = mcpTools.findIndex((t) => t.name === tool.name);
+  if (index >= 0) mcpTools[index] = tool;
+  else mcpTools.push(tool);
+}
+export const moduleMcpTools = () => [...mcpTools];
 
 /** Comando de escrita (Coordinator): (env, actor, profile, data, requestId). */
 const commands = new Map<string, Hook>();

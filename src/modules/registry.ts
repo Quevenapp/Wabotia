@@ -9,6 +9,8 @@ import { event } from "../events";
 import type { ModuleDefinition } from "./types";
 import { queueModule } from "./queue";
 import { formsModule } from "./forms/definition";
+import { agendaModule } from "./agenda/definition";
+import { osModule } from "./os/definition";
 import { paymentsModule } from "./payments/definition";
 import { mensalidadeModule } from "./mensalidade/definition";
 
@@ -18,6 +20,8 @@ export type { ModuleDefinition } from "./types";
 export const modules: readonly ModuleDefinition[] = [
   queueModule,
   formsModule,
+  agendaModule,
+  osModule,
   paymentsModule,
   mensalidadeModule,
 ];

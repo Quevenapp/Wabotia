@@ -30,12 +30,19 @@ import {
   type Route,
 } from "../lib/routes";
 import { useTheme } from "../lib/theme";
-import { moduleAllows } from "../workspace-navigation";
+import {
+  canOpenPage,
+  moduleAllows,
+  railPages,
+  type PageId,
+} from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
   area: Area;
+  /** Página de Gestão aberta por um item de módulo (railPages). */
+  page?: PageId;
   label: string;
   icon: typeof MessageCircle;
   count?: number;
@@ -76,10 +83,37 @@ function useItems(): Item[] {
       countLabel: "ligações tocando",
     },
     { area: "queue", label: "Fila", icon: Ticket },
+    // Módulos com lugar no trilho (web/workspace-navigation.ts, railPages).
+    ...railPages
+      .filter(
+        (item) =>
+          moduleAllows(item.page, app.modules) &&
+          canOpenPage(item.page, app.me.role, app.modules),
+      )
+      .map((item) => ({
+        area: "admin" as Area,
+        page: item.page,
+        label: item.label,
+        icon: item.icon,
+      })),
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "admin", label: "Gestão", icon: Settings },
   ].filter((item) => moduleAllows(item.area, app.modules)) as Item[];
 }
+
+const itemRoute = (item: Item): Route =>
+  item.area === "admin"
+    ? { area: "admin", page: item.page || "overview" }
+    : { area: item.area };
+
+/** Item de módulo ativo na sua página; Gestão, nas demais páginas de Gestão. */
+const itemActive = (item: Item, route: Route) =>
+  item.page
+    ? route.area === "admin" && route.page === item.page
+    : item.area === "admin"
+      ? route.area === "admin" &&
+        !railPages.some((rail) => rail.page === route.page)
+      : route.area === item.area;
 
 function NavLink({
   item,
@@ -91,10 +125,7 @@ function NavLink({
   className: string;
 }) {
   const Icon = item.icon;
-  const route: Route =
-    item.area === "admin"
-      ? { area: "admin", page: "overview" }
-      : { area: item.area };
+  const route = itemRoute(item);
   return (
     <a
       {...linkProps(route)}
@@ -165,11 +196,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         const item = items[Number(event.key) - 1];
         if (item) {
           event.preventDefault();
-          navigate(
-            item.area === "admin"
-              ? { area: "admin", page: "overview" }
-              : { area: item.area },
-          );
+          navigate(itemRoute(item));
         }
       }
     };
@@ -192,9 +219,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="rail-items">
           {items.map((item) => (
             <NavLink
-              key={item.area}
+              key={item.page || item.area}
               item={item}
-              active={route.area === item.area}
+              active={itemActive(item, route)}
               className="rail-item"
             />
           ))}
@@ -326,9 +353,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <nav className="tabbar" aria-label="Áreas do painel">
         {items.slice(0, 4).map((item) => (
           <NavLink
-            key={item.area}
+            key={item.page || item.area}
             item={item}
-            active={route.area === item.area}
+            active={itemActive(item, route)}
             className="tab-item"
           />
         ))}

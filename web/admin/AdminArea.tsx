@@ -29,9 +29,14 @@ import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
+import { AgendaPage } from "../modules/agenda/AgendaPage";
+import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
+import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
+import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
 import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
 import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
+import { EstablishmentPage } from "./EstablishmentPage";
 import {
   GroupsPage,
   LogsPage,
@@ -135,12 +140,22 @@ function Page({ page }: { page: PageId }) {
       return <ModulesPage />;
     case "forms":
       return <FormsPage />;
+    case "agenda":
+      return <AgendaPage />;
+    case "agenda-settings":
+      return <AgendaSettingsPage />;
+    case "service-orders":
+      return <ServiceOrdersPage />;
+    case "service-orders-settings":
+      return <ServiceOrdersSettingsPage />;
     case "payments":
       return <PaymentsPage />;
     case "mensalidades":
       return <MensalidadesPage />;
     case "mensalidade-settings":
       return <MensalidadeSettingsPage />;
+    case "establishment":
+      return <EstablishmentPage />;
     case "users":
       return <UsersPage />;
     case "applications":

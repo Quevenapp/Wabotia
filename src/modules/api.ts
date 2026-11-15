@@ -9,8 +9,10 @@ import {
   registerMenuHandler,
   registerPaymentHook,
   registerReadRoute,
+  registerMcpTool,
   registerSchedule,
   registerTurnHandler,
+  type ModuleMcpTool,
   registerSettingsValidator,
   registerWebStepHook,
   registerWriteRoute,
@@ -28,14 +30,13 @@ import { access } from "../security";
 import { event } from "../events";
 import { conversation, enqueue, settings } from "../service";
 import { createPayment, type Payment } from "../payments";
+import { establishment, type Establishment } from "../establishment";
 import {
   interactiveLine,
+  interactivePayload,
   sendInteractive as sendInteractiveMessage,
 } from "../line-service";
-import {
-  interactiveFallbackText,
-  type InteractiveSpec,
-} from "../whatsapp-interactive";
+import type { InteractiveSpec } from "../whatsapp-interactive";
 import {
   openWebStep,
   type Answers,
@@ -60,6 +61,7 @@ export interface ContactSummary {
 }
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
 export type { InteractiveSpec } from "../whatsapp-interactive";
+export type { Establishment } from "../establishment";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export interface OutgoingMessage {
@@ -82,6 +84,12 @@ export interface ModuleContext {
   access(actor: Actor, scope: string): void;
   /** Configurações da área (itens de menu de módulos desligados ocultos). */
   settings(): Promise<any>;
+  /**
+   * Dados do estabelecimento (nome fantasia, CPF/CNPJ, endereço, telefone,
+   * rodapé) para cupom, comanda, recibo e mensagens. Sem cadastro, `name` é o
+   * nome da área e `configured` é falso.
+   */
+  establishment(): Promise<Establishment>;
   conversation(id: string, actor?: Actor): Promise<Conversation>;
   /** Contato vinculado à conversa, ou null. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
@@ -112,8 +120,16 @@ export interface ModuleContext {
     c: Conversation,
     request: WebStepRequest,
   ): ReturnType<typeof openWebStep>;
-  /** Publica um evento declarado em `events` do módulo. */
-  publish(kind: string, resourceId: string, payload: any): Promise<number>;
+  /**
+   * Publica um evento declarado em `events` do módulo. Com `key`, publicar de
+   * novo a mesma chave não gera outro evento (gancho repetido, nova tentativa).
+   */
+  publish(
+    kind: string,
+    resourceId: string,
+    payload: any,
+    options?: { key?: string },
+  ): Promise<number>;
   /**
    * Cobra o cliente da conversa (Pix ou link) pela conta da área
    * (docs/COBRANCA.md). A confirmação chega em onPaymentUpdated.
@@ -155,6 +171,7 @@ export function modulesApi(
     },
     access: (actor, scope) => access(actor, profile, scope),
     settings: () => settings(env, profile),
+    establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
     async contact(c) {
       const id = typeof c === "string" ? c : c.id;
@@ -194,19 +211,20 @@ export function modulesApi(
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       const key = `module:${moduleId}:${c.id}:${options.key}`;
       const actor = options.actor || "system";
-      if (
-        options.notification &&
-        (await interactiveLine(env, c)) &&
-        Date.now() - c.last_customer >= 86400000
-      )
+      if (options.notification) {
+        // Notificação: com a janela aberta na oficial, o elemento nativo; com
+        // ela fechada, o texto numerado pelo modelo de notificação.
+        const official = await interactiveLine(env, c);
+        const open = Date.now() - c.last_customer < 86400000;
         return enqueue(
           env,
           c,
           actor,
           "notification",
-          { text: interactiveFallbackText(spec), automation: moduleId },
+          interactivePayload(spec, official && open, { automation: moduleId }),
           key,
         );
+      }
       return sendInteractiveMessage(env, actor, c, spec, key, moduleId);
     },
     openWebStep(c, request) {
@@ -236,15 +254,21 @@ export function modulesApi(
         })
       ).payment;
     },
-    async publish(kind, resourceId, payload) {
+    async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))
         throw new Error(
           `Evento ${kind} não declarado pelo módulo ${moduleId} (events).`,
         );
-      return event(env, profile, kind, resourceId, {
-        ...payload,
-        module_id: moduleId,
-      });
+      return event(
+        env,
+        profile,
+        kind,
+        resourceId,
+        { ...payload, module_id: moduleId },
+        options?.key
+          ? `module:${moduleId}:${profile}:${kind}:${options.key}`
+          : undefined,
+      );
     },
   };
   return ctx;
@@ -268,10 +292,20 @@ export function onPaymentUpdated(
   );
 }
 
-/** Reage à conclusão dos passos web abertos pelo módulo. */
+/**
+ * Reage à conclusão dos passos web abertos pelo módulo. Por padrão o núcleo
+ * já mandou o retorno (`return_text`) antes de chamar o gancho. Aberto com
+ * `spec.return_message: "module"`, o núcleo não manda nada: a string
+ * devolvida aqui vira o retorno ao cliente (com o número da ordem, por
+ * exemplo); sem string, só o que o próprio módulo enviar.
+ */
 export function onWebStepCompleted(
   moduleId: string,
-  hook: (ctx: ModuleContext, step: WebStep, answers: Answers) => Promise<void>,
+  hook: (
+    ctx: ModuleContext,
+    step: WebStep,
+    answers: Answers,
+  ) => Promise<void | string | false>,
 ) {
   registerWebStepHook(moduleId, (env, profile, step, answers) =>
     hook(modulesApi(env, profile, moduleId), step, answers),
@@ -455,6 +489,27 @@ export function onInboundReply(
   handler: Parameters<typeof onConversationTurn>[1],
 ) {
   onConversationTurn(moduleId, handler);
+}
+
+/**
+ * Ferramenta MCP para bots (Hermes e outros clientes MCP), traduzida para uma
+ * chamada à API v1 desta instalação com a chave do cliente: permissões,
+ * idempotência e 409 module_disabled valem como na API. O nome começa com o
+ * id do módulo ("agenda_horarios_livres"); `profile` entra sozinho e, com
+ * `write: true`, também `idempotency_key`.
+ */
+export function onMcpTool(
+  moduleId: string,
+  tool: Omit<ModuleMcpTool, "module">,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  if (
+    !tool.name.startsWith(`${moduleId}_`) ||
+    !/^[a-z0-9_]{3,64}$/.test(tool.name)
+  )
+    throw new Error(`Ferramenta ${tool.name}: use o prefixo ${moduleId}_.`);
+  registerMcpTool({ ...tool, module: moduleId });
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */

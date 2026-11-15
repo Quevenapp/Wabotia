@@ -12,6 +12,7 @@ import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
 import {
   teamDirectory,
+  areaPeople,
   listInternalChats,
   internalChatDetail,
   runQuestion,
@@ -112,9 +113,16 @@ import {
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
+import {
+  addCartSlot,
+  cartInput,
+  cartReviewPage,
+  validateCartOrder,
+} from "./web-cart";
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
+import { establishment } from "./establishment";
 import {
   queueRead,
   overview as queueOverview,
@@ -259,13 +267,18 @@ app.get("/api/public/queue/:token", async (c) => {
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
 const webStepHeaders = {
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Robots-Tag": "noindex",
 };
 const webStepHtml = (c: any, body: string, status = 200) =>
   c.html(body, status, webStepHeaders);
 const appName = (env: Env) => env.APP_NAME || "Wabotia";
+// Páginas do passo web assinadas com os dados do estabelecimento da área.
+const pageBrand = async (env: Env, profile: string) => ({
+  app: appName(env),
+  establishment: await establishment(env, profile).catch(() => null),
+});
 async function webStepRate(c: any) {
   await rate(
     c.env,
@@ -282,6 +295,7 @@ app.get("/api/w/:code", async (c) => {
   await webStepRate(c);
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  const brand = await pageBrand(c.env, row.profile_id);
   const current = await touchWebStep(c.env, row);
   const conv = await one(
     c.env,
@@ -290,14 +304,14 @@ app.get("/api/w/:code", async (c) => {
   );
   const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
   if (current.status === "completed")
-    return webStepHtml(c, statePage("used", appName(c.env), { whatsapp }));
+    return webStepHtml(c, statePage("used", brand, { whatsapp }));
   if (
     !["sent", "opened"].includes(current.status) ||
     !(await webStepAvailable(c.env, row))
   )
     return webStepHtml(
       c,
-      statePage("expired", appName(c.env), {
+      statePage("expired", brand, {
         whatsapp,
         ...(current.status === "cancelled" ||
         ["sent", "opened"].includes(current.status)
@@ -309,7 +323,7 @@ app.get("/api/w/:code", async (c) => {
       }),
       410,
     );
-  return webStepHtml(c, formPage(current, appName(c.env)));
+  return webStepHtml(c, formPage(current, brand));
 });
 app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   await webStepRate(c);
@@ -318,13 +332,42 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
-  const input = formInput(
-    await c.req.raw.formData().catch(() => new URLSearchParams()),
-  );
+  const brand = await pageBrand(c.env, row.profile_id);
+  const spec = json(row.spec);
+  const form = await c.req.raw.formData().catch(() => new URLSearchParams());
+  const cart = spec.page === "cart";
+  const input = cart ? cartInput(form) : formInput(form);
+  // Carrinho: montar e revisar não mudam nada; só "Confirmar pedido" conclui.
+  if (cart && (input as Record<string, string[]>).confirm?.[0] !== "1") {
+    const fields = input as Record<string, string[]>;
+    if (row.status === "completed")
+      return webStepHtml(c, statePage("used", brand), 410);
+    if (
+      !["sent", "opened"].includes(row.status) ||
+      row.expires_at <= Date.now() ||
+      !(await webStepAvailable(c.env, row))
+    )
+      return webStepHtml(c, statePage("expired", brand), 410);
+    if (fields.step?.[0] === "edit")
+      return webStepHtml(c, formPage(row, brand, fields));
+    if (fields.step?.[0]?.startsWith("add:"))
+      return webStepHtml(
+        c,
+        formPage(
+          row,
+          brand,
+          addCartSlot(spec.cart, fields, fields.step[0].slice(4)),
+        ),
+      );
+    const checked = validateCartOrder(spec.cart, fields);
+    return checked.ok
+      ? webStepHtml(c, cartReviewPage(checked.order, spec, brand, fields))
+      : webStepHtml(c, formPage(row, brand, fields, checked.errors), 422);
+  }
   if (!(await webStepAvailable(c.env, row)))
     return webStepHtml(
       c,
-      statePage("expired", appName(c.env), {
+      statePage("expired", brand, {
         title: "Link indisponível",
         text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
       }),
@@ -342,14 +385,15 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   });
   const result = await response.json<any>();
   if (result.ok) {
-    const spec = json(row.spec);
     return webStepHtml(
       c,
-      statePage("done", appName(c.env), {
+      statePage("done", brand, {
         title: spec.title,
         text:
           spec.done_text ||
-          "Recebemos suas respostas. A confirmação chega na conversa do WhatsApp.",
+          (cart
+            ? "Pedido enviado! A confirmação chega na conversa do WhatsApp."
+            : "Recebemos suas respostas. A confirmação chega na conversa do WhatsApp."),
         whatsapp: result.whatsapp,
       }),
     );
@@ -357,7 +401,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   if (result.reason === "invalid")
     return webStepHtml(
       c,
-      formPage(row, appName(c.env), input, result.errors || {}),
+      formPage(row, brand, input, result.errors || {}),
       422,
     );
   return webStepHtml(
@@ -368,7 +412,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
         : result.reason === "not_found"
           ? "not_found"
           : "expired",
-      appName(c.env),
+      brand,
       { whatsapp: result.whatsapp },
     ),
     result.reason === "not_found" ? 404 : 410,
@@ -686,6 +730,14 @@ app.get("/api/v1/profiles/:profile/capabilities", async (c) => {
     c.req.param("profile"),
   );
   return c.json({ ...result, modules: result.profiles[0].modules });
+});
+// Dados do estabelecimento (cupom, comanda, recibo): pessoa com acesso à área
+// ou chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio.
+app.get("/api/v1/profiles/:profile/establishment", async (c) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return c.json(await establishment(c.env, profile));
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
@@ -1312,6 +1364,10 @@ app.get("/api/v1/profiles/:profile/menus", async (c) =>
 );
 app.get("/api/v1/profiles/:profile/team", async (c) =>
   c.json(await teamDirectory(c.env, c.get("actor"), c.req.param("profile"))),
+);
+// Pessoas da área para escolher responsável (aplicativos; docs/API.md).
+app.get("/api/v1/profiles/:profile/people", async (c) =>
+  c.json(await areaPeople(c.env, c.get("actor"), c.req.param("profile"))),
 );
 app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
   c.json(

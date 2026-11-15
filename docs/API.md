@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps"],
+  "features": ["modules", "web_steps", "establishment"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -60,11 +60,62 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 
 `GET /profiles/{perfil}/modules` lista todos os módulos da versão instalada com `enabled`, `default_enabled`, a navegação do painel, os tipos de item de menu, os eventos e as chaves de configuração. `PUT /profiles/{perfil}/modules/{id}` com `{"enabled":false}` e `Idempotency-Key` liga ou desliga (somente administrador) e publica o evento `module.changed`. Com o módulo desligado, suas rotas e operações respondem `409 module_disabled` e seus itens de menu somem do WhatsApp e do editor de menus, sem serem apagados: voltam ao religar.
 
+### Dados do estabelecimento
+
+Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de rodapé (Gestão → Estabelecimento), para cupom do totem, comanda, recibo da ordem de serviço e cabeçalho e rodapé das páginas do passo web. Leia em `GET /profiles/{perfil}/establishment`: aceita a pessoa da área e chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio (`404` se a credencial não alcançar a área). O recurso `establishment` em `features` de `/capabilities` indica que a rota existe.
+
+```json
+{
+  "name": "Assistência Exemplo",
+  "document": "11222333000181",
+  "document_type": "cnpj",
+  "document_display": "11.222.333/0001-81",
+  "address": "Rua das Flores, 120 — Centro, Campinas/SP",
+  "phone": "(19) 3333-4444",
+  "footer": "Garantia de 90 dias nos serviços.",
+  "configured": true
+}
+```
+
+Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document_type` é `null` e `configured` é `false`. `footer` e `address` podem ter quebras de linha. O administrador grava com `PUT /profiles/{perfil}/settings` e `{"establishment":{"name","document","address","phone","footer"}}` (substitui o bloco inteiro; o documento vai com ou sem pontuação, e CPF e CNPJ, inclusive o alfanumérico, têm os dígitos verificadores conferidos).
+
+### Pessoas da área
+
+Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+
 ### Passo web e formulários
 
 O que não cabe no chat sai por um **passo web**: um link curto e de uso único (`/api/w/{código}`, 16 caracteres) amarrado à conversa, que abre uma página leve no celular. O código vale até a validade definida (padrão 24 horas) e só o hash fica guardado; a API nunca devolve o código. Ao concluir, o Wabotia publica `web_step.completed` com as respostas, registra uma nota interna na conversa, anexa as respostas ao protocolo ativo (ou abre um, conforme o formulário) e envia a mensagem de retorno no WhatsApp. Se a janela de 24 horas da linha oficial estiver fechada, o retorno sai pelo modelo de notificação configurado em `notifications`, como as chamadas da fila. A página mostra **Voltar ao WhatsApp** (`wa.me` da linha). Abrir de novo um link concluído, expirado ou cancelado mostra o aviso correspondente e não aceita outra resposta.
 
 O primeiro uso é o módulo **Formulários**: o administrador cadastra `forms` em `PUT /profiles/{perfil}/settings` (campos `text`, `choice`, `date` e `accept`) e o cliente recebe o link por um item de menu `{"type":"form","form_id":"..."}`, pela equipe ou por uma integração (`POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"form","form_id":"..."}`, ou `POST /profiles/{perfil}/forms/{id}/send` com `{"conversation_id":"..."}`; conversa assumida) ou por um bot (ferramenta MCP `send_form`). Consulte `GET /profiles/{perfil}/forms`, `GET /profiles/{perfil}/conversations/{id}/web-steps` e `GET /profiles/{perfil}/web-steps/{id}`; cancele um link aberto com `POST /profiles/{perfil}/web-steps/{id}/cancel`. O detalhe da conversa traz `web_steps` e o detalhe do contato traz as respostas das conversas vinculadas. Eventos: `web_step.sent`, `web_step.opened`, `web_step.completed`, `web_step.expired`, `web_step.cancelled` e `form.submitted` (com `form_id` e `answers`). O contrato para módulos está em [MODULOS.md](MODULOS.md).
+
+### Agenda
+
+Módulo `agenda` (desligado por padrão; guia de uso em [AGENDA.md](AGENDA.md)). Horários em ms Unix; dias e horas de trabalho no horário de Brasília. Com o módulo desligado, tudo abaixo responde `409 module_disabled`.
+
+- Leitura (`conversations:read`): `GET /profiles/{perfil}/agenda` (configuração já com os padrões, `services`, `professionals`), `/agenda/services`, `/agenda/professionals` (com `service_ids` e `hours` `[{weekday,start,end}]`), `/agenda/blocks?from=&to=`, `/agenda/availability?service_id=&professional_id=&date=` (ou `from_date`/`to_date`, até 31 dias; `staff=1` ignora a antecedência) e `/agenda/appointments?from=&to=&professional_id=&status=&conversation_id=` (até 62 dias), `/agenda/appointments/{id}`.
+- Cadastros (somente administrador, `Idempotency-Key`): `POST`/`PUT /agenda/services[/{id}]` `{name, duration_minutes, price_cents?, description?, active?}`; `POST`/`PUT /agenda/professionals[/{id}]` `{name, user_id?, service_ids?, hours?, active?}`; `POST /agenda/blocks` `{professional_id?, date, until?}` (dias inteiros), `{professional_id?, date, start, end}` ou `{starts, ends}`; `DELETE` em `/agenda/services/{id}`, `/agenda/professionals/{id}` (arquivam) e `/agenda/blocks/{id}`. A configuração é a chave `agenda` de `PUT /profiles/{perfil}/settings`.
+- Agendamentos (`conversations:write`, `Idempotency-Key`): `POST /agenda/appointments` `{service_id, starts, professional_id?, conversation_id? | customer_name, customer_phone?, notes?, force?, notify?}`; `POST /agenda/appointments/{id}/move` `{starts, professional_id?}`, `/cancel` `{reason?}`, `/confirm` e `/no-show` (só depois do início). A reserva é atômica: dois pedidos para o mesmo horário do mesmo profissional nunca ficam os dois; o segundo recebe `409 slot_taken` ou `409 slot_unavailable`. `professional_id` nulo escolhe quem estiver livre. Agendamento ligado a uma conversa avisa o cliente (agendado, remarcado, cancelado), pelo modelo de notificação se a janela de 24 horas estiver fechada; `notify:false` não avisa.
+- Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"agenda","service_id":"...","starts":...}` (Agendar para este cliente) ou `{"action":"agenda_link"}` (o cliente recebe o link para escolher sozinho). Exigem a conversa assumida pela credencial ou administrador.
+- WhatsApp: itens de menu `{"type":"agenda","service_id":"opcional"}` (Agendar horário) e `{"type":"agenda_mine"}` (Meus agendamentos). O cliente escolhe na própria conversa (lista e botões nas linhas oficiais, com ids `agenda:…`; opções numeradas no QR); com `web_page: true` na chave `agenda`, numa página aberta pelo link. O lembrete traz Confirmar, Remarcar e Cancelar (ids `agenda:remind:{id}:confirm|move|cancel`).
+- Eventos (permissão `conversations:read` nos webhooks): `agenda.booked`, `agenda.rescheduled` (com `previous`), `agenda.cancelled` (com `reason`), `agenda.confirmed` e `agenda.no_show`. Todos trazem `appointment` (o agendamento completo), `conversation_id`, `actor` (`customer` quando foi o cliente) e `module_id: "agenda"`.
+
+### Ordem de serviço (módulo `os`)
+
+Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas em `/profiles/{perfil}/service-orders`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta, sem abrir outra ordem nem reenviar mensagem). Com o módulo desligado, todas respondem `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts`: `{"received":3,"in_progress":4,…}`, chaves iguais aos códigos de `status`, só estados com ordens (ausente = 0), contando a área inteira sem os filtros ([detalhes](ORDEM-DE-SERVICO.md#integrações-e-aplicativos)) |
+| `GET /service-orders/{id}` | Ordem com `history` (quem mudou e quando) |
+| `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área, de `GET /people`), `due_at` (ms), `notify` |
+| `PATCH /service-orders/{id}` | Dados da ordem; encerrada, só `notes` |
+| `POST /service-orders/{id}/status` | `{"status":"…","note":"…"}`; transição inválida: `409 invalid_transition` |
+| `PUT /service-orders/{id}/quote` | `{"items":[{"description","quantity","unit_cents"}],"valid_days","note"}`; orçamento já enviado volta para `analyzing` |
+| `POST /service-orders/{id}/quote/send` | Envia ao cliente e passa a `quoted`; `{"notify":false}` só registra (sem conversa: `409 no_conversation`) |
+| `POST /service-orders/{id}/decision` | `{"decision":"approve"\|"decline"}` em nome do cliente; vencido: `409 quote_expired`; fora de `quoted`: `409 quote_not_pending` |
+
+Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"service_order","item":"…","problem":"…"}` abre ligada à conversa, e `{"action":"service_order","send_form":true}` manda ao cliente o link para ele preencher (conversa assumida). Estados: `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`, `delivered`, `cancelled`; cada ordem traz `next_statuses`. Valores em centavos e datas em milissegundos. Eventos: `os.opened`, `os.quoted`, `os.approved`, `os.declined` (com `by` e `via`), `os.status_changed` (`from`, `to`, `actor`), `os.delivered` (`warranty_until`) e `os.stale` (ordem parada), entregues aos webhooks com `conversations:read`.
 
 ### Cobrança
 
