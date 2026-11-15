@@ -38,13 +38,16 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Mensagem recebida: motor, "quero falar com um atendente" | alarme (parte do motor)  | 56    | 35     |
 | Conclusão do carrinho com Pix                            | Coordinator `/web-step`  | 94    | **57** |
 | Webhook do Mercado Pago: assinatura                      | Worker                   | 2     | 2      |
-| Webhook do Mercado Pago: consulta, estado, Pedido        | Coordinator              | 29    | 25     |
+| Webhook do Mercado Pago: consulta, estado, Pedido        | Coordinator              | 29    | 28²    |
 | Rodada periódica dos módulos (sem nada vencido)          | alarme (parte da rodada) | 26    | 22     |
 | Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 15     |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
+
+² 25 com o cache; mais 3 da entrega durável do gancho do módulo (fila de
+pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
 gravação do recibo de idempotência, auditoria e fechamento do recibo).

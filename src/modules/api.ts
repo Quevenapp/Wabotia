@@ -531,7 +531,8 @@ export function modulesApi(
 /**
  * Cobrança aberta pelo módulo (ctx.charge) mudou de estado: paid, expired,
  * cancelled ou refunded. Só depois do webhook assinado e da consulta ao
- * provedor; repetições do webhook não chamam de novo.
+ * provedor. Entrega durável (revisão A3): se o gancho lançar, a mudança fica
+ * pendente e é repetida até concluir; o gancho precisa ser idempotente.
  */
 export function onPaymentUpdated(
   moduleId: string,

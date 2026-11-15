@@ -582,14 +582,21 @@ async function transition(
 ) {
   const from = transitions[next];
   const at = now();
+  // O gancho do módulo entra na fila de pendentes no mesmo UPDATE (A3).
+  const pending = JSON.stringify({
+    id: uid(),
+    status: next,
+    previous: row.status,
+  });
   const result = await exec(
     env,
-    `UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(?,paid_at),updated=? WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
+    `UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(?,paid_at),updated=?,hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
     next,
     extra.provider_status ?? null,
     extra.provider_payment_id ?? null,
     next === "paid" ? (extra.paid_at ?? at) : null,
     at,
+    pending,
     row.id,
     ...from,
   );
@@ -638,11 +645,80 @@ async function transition(
         if (!(error instanceof ApiError)) throw error;
       }
   }
-  if (fresh.module_id) {
-    const hook = paymentHook(fresh.module_id);
-    if (hook) await hook(env, fresh.profile_id, paymentView(fresh), row.status);
-  }
+  if (fresh.module_id) await deliverPaymentHooks(env, fresh.id);
   return true;
+}
+
+/** Até 1 h entre tentativas; depois de HOOK_MAX_ATTEMPTS, só o reenvio do webhook. */
+const HOOK_MAX_ATTEMPTS = 30;
+const hookDelay = (attempts: number) =>
+  Math.min(60_000 * 2 ** attempts, 3_600_000);
+
+/**
+ * Roda, em ordem, os ganchos onPaymentUpdated pendentes da cobrança. Cada
+ * entrada sai da fila só depois de o gancho concluir (os ganchos são
+ * idempotentes por chave); a falha fica registrada e é repetida pelo alarme
+ * ou pelo reenvio do webhook. Devolve false se algum ficou pendente.
+ */
+export async function deliverPaymentHooks(env: Env, paymentId: string) {
+  for (let step = 0; step < 10; step++) {
+    const row = await one(env, "SELECT * FROM payments WHERE id=?", paymentId);
+    const queue: { id: string; status: string; previous: string }[] = json(
+      row?.hook_pending,
+      [],
+    );
+    if (!row || !queue.length) return true;
+    const entry = queue[0];
+    const hook = row.module_id ? paymentHook(row.module_id) : undefined;
+    try {
+      // O módulo vê o estado desta mudança, mesmo que outra já tenha vindo.
+      if (hook)
+        await hook(
+          env,
+          row.profile_id,
+          { ...paymentView(row), status: entry.status },
+          entry.previous,
+        );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message.slice(0, 300) : "falha";
+      await exec(
+        env,
+        "UPDATE payments SET hook_attempts=hook_attempts+1,hook_next_at=?,hook_error=? WHERE id=?",
+        now() + hookDelay(row.hook_attempts || 0),
+        message,
+        paymentId,
+      );
+      console.error(
+        JSON.stringify({
+          component: "payments",
+          payment: paymentId,
+          module: row.module_id,
+          error: "hook_failed",
+        }),
+      );
+      return false;
+    }
+    await exec(
+      env,
+      "UPDATE payments SET hook_pending=CASE WHEN json_array_length(hook_pending)<=1 THEN NULL ELSE json_remove(hook_pending,'$[0]') END,hook_attempts=0,hook_next_at=NULL,hook_error=NULL WHERE id=? AND json_extract(hook_pending,'$[0].id')=?",
+      paymentId,
+      entry.id,
+    );
+  }
+  return false;
+}
+
+/** Alarme da área: repete os ganchos de pagamento que ficaram pendentes. */
+export async function retryPaymentHooks(env: Env, profile: string) {
+  for (const row of await all(
+    env,
+    "SELECT id FROM payments WHERE profile_id=? AND hook_pending IS NOT NULL AND hook_attempts<? AND coalesce(hook_next_at,0)<=? ORDER BY updated LIMIT 10",
+    profile,
+    HOOK_MAX_ATTEMPTS,
+    now(),
+  ))
+    await deliverPaymentHooks(env, row.id);
 }
 
 /**
@@ -720,6 +796,9 @@ export async function refreshFromProvider(
     return { status: "refunded", changed };
   }
   const changed = await transition(env, row, next, extra);
+  // Reenvio do webhook sem mudança de estado: roda o gancho que ficou
+  // pendente numa tentativa anterior (A3).
+  if (!changed && row.hook_pending) await deliverPaymentHooks(env, row.id);
   return {
     status: changed ? next : row.status,
     changed,
