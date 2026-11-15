@@ -152,9 +152,14 @@
   align-items: center;
   gap: 3px;
 }
-@media (max-width: 559px) {
+/* Cartões estreitos (celular, e as duas colunas do tablet deitado). */
+.queue-desk,
+.queue-list {
+  container-type: inline-size;
+}
+@container (max-width: 459px) {
   /* Senha atual: o código grande em cima e os dados embaixo, em vez de
-     espremer os dados numa coluna de 70 px ao lado. */
+     espremer os dados numa coluna estreita ao lado. */
   .queue-current {
     flex-direction: column;
     align-items: flex-start;
@@ -163,6 +168,8 @@
   .queue-code.lg {
     min-width: 0;
   }
+}
+@container (max-width: 519px) {
   /* Aguardando: senha e dados numa linha, ações na seguinte. Antes as
      ações quebravam por cima do "esperando há…". */
   .queue-rows li {
