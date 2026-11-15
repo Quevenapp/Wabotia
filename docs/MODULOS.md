@@ -391,6 +391,10 @@ mensagem, passo web nem protocolo.
   visão devolvida (listas, detalhe e as leituras das ferramentas de bot).
 - **Notas internas** (observações da equipe, histórico com notas): aplicação
   só vê com `notes:read`; `ctx.redact(actor, row, {notes: [...]})`.
+- Para nenhuma rota ficar de fora, use `filteredHandlers(filtro)` no lugar de
+  `onRead`, `onCommand` e `onConversationAction`: toda resposta passa por
+  `filtro(ctx, actor, valor)`. A Agenda e a Reserva fazem assim:
+  `const { onRead, onCommand, onConversationAction } = filteredHandlers(visibleBookings);`
 - **Operações financeiras** (baixa manual, isenção, criar ou mudar plano,
   valor ou desconto, importar assinaturas): aplicação precisa de
   `billing:write` (`ctx.access(actor, "billing:write")`), além do papel que a
