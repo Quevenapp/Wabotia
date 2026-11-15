@@ -81,15 +81,18 @@ import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
 import {
   hiddenMenuTypes,
+  moduleById,
   moduleCommand,
   moduleForMenuType,
   moduleMenuTypes,
+  moduleStates,
   requireOperation,
   resolveStates,
   modules as registeredModules,
 } from "./modules/registry";
 import {
   conversationAction,
+  gateFailsClosed,
   handoffGatesList,
   moduleCommandHandler,
   settingsValidator,
@@ -114,6 +117,9 @@ export const scopes = [
   "contacts:read",
   "contacts:write",
   "notes:read",
+  // Operações financeiras dos módulos (baixa manual, isenção, planos, valores).
+  // Nunca vai para aparelhos pareados de mensagens (Vinki, Fagoo).
+  "billing:write",
   "tickets:read",
   "tickets:write",
   "knowledge:read",
@@ -164,6 +170,7 @@ export const eventTypes = [
   "payment.expired",
   "payment.cancelled",
   "payment.refunded",
+  "payment.duplicate",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(
@@ -713,8 +720,18 @@ export type HandoffSource =
   | "attachment"
   | "structured"
   | "system"
+  /** Linha em atendimento por pessoa (service.mode "human"), sem bot. */
+  | "line"
   | "staff"
   | "module";
+
+/** Algum módulo ligado na área tem gancho onHandoffRequest. */
+async function gatedArea(env: Env, profile: string) {
+  const gates = handoffGatesList();
+  if (!gates.length) return false;
+  const states = await moduleStates(env, profile);
+  return gates.some(([module]) => states[module]);
+}
 
 /**
  * Ganchos dos módulos ligados, na ordem de `modules`: o primeiro que segura
@@ -730,6 +747,7 @@ async function handoffHeld(
     department_id: string | null;
     summary: string | null;
     menu_item_id: string | null;
+    row_id: string | null;
   },
 ) {
   const gates = handoffGatesList();
@@ -747,6 +765,18 @@ async function handoffHeld(
           error: error instanceof ApiError ? error.code : String(error),
         }),
       );
+      // Módulo que vende acesso à equipe (failClosed): o erro segura a
+      // conversa e avisa a equipe numa nota interna (revisão B1).
+      if (gateFailsClosed(module)) {
+        await message(
+          env,
+          c,
+          "note",
+          "system",
+          `Passagem para a equipe segurada: o módulo ${moduleById(module)?.name || module} não conseguiu decidir (${error instanceof ApiError ? error.message : "erro interno"}). Confira a conversa e transfira se for o caso.`,
+        );
+        return module;
+      }
     }
   }
   return null;
@@ -778,6 +808,8 @@ export async function handoff(
     meta?: HandoffMeta | null;
     source?: HandoffSource;
     menuItemId?: string | null;
+    /** Mensagem da caixa de entrada (ou execução do bot) que pediu. */
+    rowId?: string | null;
   } = {},
 ) {
   const source = options.source || "system";
@@ -790,6 +822,7 @@ export async function handoff(
       department_id: departmentId,
       summary: request ?? null,
       menu_item_id: options.menuItemId ?? null,
+      row_id: options.rowId ?? null,
     });
     if (held) {
       await event(env, c.profile_id, "conversation.updated", c.id, {
@@ -1281,8 +1314,14 @@ export async function inbound(
   const line = await serviceForLine(env, connectionId);
   // Only the message that opens a session on a human line queues it; the
   // engine uses this to offer the main menu once (front door without a bot).
-  const queuedByLine =
+  const humanFrontDoor =
     line.mode === "human" && c.state === "ai" && !c.assigned_bot_id;
+  // Com um módulo que segura passagens (Suporte pago), a linha não põe na
+  // fila direto: o motor passa a mensagem pelo menu e pelos fluxos dos
+  // módulos e, se for para a equipe, pelo portão com a origem "line"
+  // (revisão M2).
+  const lineGate = humanFrontDoor && (await gatedArea(env, profile));
+  const queuedByLine = humanFrontDoor && !lineGate;
   if (queuedByLine) {
     await exec(
       env,
@@ -1330,6 +1369,7 @@ export async function inbound(
           epoch: c.epoch,
           session: c.session,
           ...(queuedByLine ? { queued_by_line: true } : {}),
+          ...(lineGate ? { line_gate: true } : {}),
           ...(resumed.length ? { resumed_tickets: resumed } : {}),
         }),
         now(),
@@ -1662,6 +1702,20 @@ export async function perform(
           data.scopes.every((s: string) => scopes.includes(s))),
       "Permissões inválidas.",
     );
+    if (
+      Array.isArray(data.scopes) &&
+      data.scopes.includes("billing:write") &&
+      (await one(
+        env,
+        "SELECT 1 FROM pairing_requests WHERE app_id=? AND client IN ('vinki','fagoo') LIMIT 1",
+        data.id,
+      ))
+    )
+      throw new ApiError(
+        409,
+        "scope_not_allowed",
+        "billing:write não pode ser concedida a aparelhos pareados do Vinki ou do Fagoo.",
+      );
     await exec(
       env,
       "UPDATE applications SET disabled=?,profiles=?,scopes=?,bots=? WHERE id=?",

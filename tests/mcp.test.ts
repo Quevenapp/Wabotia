@@ -342,9 +342,10 @@ describe("MCP tools", () => {
       profile: f.profiles[1],
     });
     expect(explicit.result.isError).toBeUndefined();
+    // Área fora da chave: recusada antes de montar a chamada (revisão A1).
     const foreign = await call(f.token, "list_bots", { profile: "outra" });
-    expect(foreign.result.isError).toBe(true);
-    expect(text(foreign)).toContain("404");
+    expect(foreign.error.code).toBe(-32602);
+    expect(foreign.error.message).toContain("profile inválido");
   });
   it("counts one request per tool call against the application rate", async () => {
     const f = await fixture();

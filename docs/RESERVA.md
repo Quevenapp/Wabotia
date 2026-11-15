@@ -67,6 +67,9 @@ confirma por último recebe outras datas.
 - **Detalhe**: pagamento do sinal, respostas do check-in, e os botões
   Confirmar sem sinal (pago por fora), Cobrar o sinal, Enviar check-in,
   Alterar e Cancelar. Devolução de sinal é feita no painel do Mercado Pago.
+  Sinal estornado ou contestado: reserva que ainda não começou é cancelada e
+  a unidade fica livre; com o hóspede já na casa (ou o check-in feito), vira
+  pendência para a equipe (nota interna e `needs_review` em `reserva.changed`).
 - Se o pagamento chegar depois de a reserva ter sido liberada e a unidade já
   estiver com outra pessoa, o evento `reserva.payment_late` avisa que é
   preciso remarcar ou devolver.

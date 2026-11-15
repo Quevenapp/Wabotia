@@ -118,6 +118,10 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 |---|---|
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
+| `mayRead(actor, "contacts"\|"notes")` | Dado sensível nas leituras, como no núcleo: pessoas da equipe sempre; aplicação só com `contacts:read` (dados pessoais) ou `notes:read` (notas internas). Veja "Dados pessoais, notas e cobrança" na seção 3 |
+| `redact(actor, row, {contacts?, notes?})` | Cópia do registro sem os campos que o ator não pode ver; os campos somem da resposta |
+| `verifiedPhone(c)` | Telefone autenticado pelo canal (só dígitos) ou null: grupo ou conversa de integração (`app:<id>`), cujo `external_id` é escolhido por quem chama. Compare ou vincule registros por telefone só com ele; nunca use `c.phone \|\| c.external_id` como identidade |
+| `note(c, text)` | Nota interna na conversa (só a equipe vê), por exemplo uma pendência depois de estorno |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
 | `activeTicket(c)` | Protocolo ativo da conversa (não resolvido nem fechado, o mais recente) ou null: `{id, number, status, title, created}`. Para regras como "vale até o protocolo fechar", sem ler a tabela `tickets` |
 | `conversationByPhone(phone, {open?, connection_id?})` | Conversa individual da área com o telefone (aceita com e sem o 9 do celular; sem DDI, no formato brasileiro, recebe 55), ou null. Com `open: true`, abre uma na linha oficial (Zernio) para o cliente que nunca escreveu: nasce sem janela de 24 h, então só sai notificação por modelo (`notification: true`, com o consentimento da finalidade) até ele responder, e a resposta cai na mesma conversa mesmo que o WhatsApp mande outro identificador. Publica `conversation.created` com `opened_by: "module:<id>"` |
@@ -151,7 +155,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
 | `onConversationTurn(module, handler)` (apelido `onInboundReply`) | Próxima mensagem do cliente numa conversa individual: `handler(ctx, c, {text, replyId, rowId})`; devolva `true` quando é do módulo. Veja "Conversa no chat" abaixo |
-| `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
+| `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`. Entrega durável: se o gancho lançar, a mudança fica pendente e o núcleo repete (reenvio do webhook e alarme, com intervalo de 1 min dobrando até 1 h) até concluir, em ordem e com o `status` daquela mudança. O gancho deve ser idempotente (use chaves de origem) |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 | `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
@@ -277,9 +281,20 @@ onPaymentUpdated("suporte", async (ctx, payment) => {
   (`"menu"`, com `menu_item_id`), palavra-chave como "atendente" (`"keyword"`),
   bot de IA ou especialista que transfere (`"bot"`), falha do bot
   (`"bot_error"`), anexo que o bot não lê (`"attachment"`), carrinho ou Flow
-  sem dono (`"structured"`).
+  sem dono (`"structured"`) e linha em atendimento por pessoa
+  (`service.mode: "human"`, `"line"`). Nesta última, com um módulo de gancho
+  ligado na área, a primeira mensagem da sessão não vai direto para a fila:
+  passa pelo menu e pelos fluxos dos módulos e, se for para a equipe, pelo
+  gancho. Sem módulo de gancho ligado, a linha põe na fila como antes.
 - **Não passam**: a transferência feita pela equipe, o atendente que assume a
   conversa e o próprio `ctx.handoff`.
+- **`request.row_id`**: a mensagem da caixa de entrada (ou a execução do bot)
+  que pediu a passagem. É a mesma quando a mensagem é reprocessada; use nas
+  chaves (`gate:${row_id}`) no lugar do relógio, para não abrir outra sessão.
+- **Erro no gancho**: por padrão libera a passagem (o cliente nunca fica
+  preso). Módulo que vende acesso à equipe declara
+  `onHandoffRequest(module, handler, {failClosed: true})`: o erro segura a
+  conversa e deixa uma nota interna para a equipe conferir.
 - **Segurar** (`"hold"`): o núcleo não muda a conversa nem avisa o cliente;
   publica `conversation.updated` com `handoff_held: {module, source, reason}`.
   O módulo conduz pelo `onConversationTurn` e chama `ctx.handoff` quando
@@ -377,8 +392,30 @@ mensagem, passo web nem protocolo.
   mensagem em português para quem usa. `requireValue(valor, mensagem)` gera
   `400 invalid_request`.
 - Permissões de aplicação: reutilize as existentes (`conversations:*`,
-  `contacts:*`, `tickets:*`). Uma permissão nova entra na lista de
-  `src/service.ts` e no OpenAPI; combine antes.
+  `contacts:*`, `tickets:*`, `billing:write`). Uma permissão nova entra na
+  lista de `src/service.ts` e no OpenAPI; combine antes.
+
+### Dados pessoais, notas e cobrança
+
+- **Dados pessoais** (telefone, e-mail, documento, endereço, respostas de
+  check-in): nas leituras do módulo, aplicação só vê com `contacts:read`.
+  Pessoas da equipe veem. Use `ctx.redact(actor, row, {contacts: [...]})` na
+  visão devolvida (listas, detalhe e as leituras das ferramentas de bot).
+- **Notas internas** (observações da equipe, histórico com notas): aplicação
+  só vê com `notes:read`; `ctx.redact(actor, row, {notes: [...]})`.
+- Para nenhuma rota ficar de fora, use `filteredHandlers(filtro)` no lugar de
+  `onRead`, `onCommand` e `onConversationAction`: toda resposta passa por
+  `filtro(ctx, actor, valor)`. A Agenda e a Reserva fazem assim:
+  `const { onRead, onCommand, onConversationAction } = filteredHandlers(visibleBookings);`
+- **Operações financeiras** (baixa manual, isenção, criar ou mudar plano,
+  valor ou desconto, importar assinaturas): aplicação precisa de
+  `billing:write` (`ctx.access(actor, "billing:write")`), além do papel que a
+  pessoa precisaria. `billing:write` não pode ser concedida a aparelhos
+  pareados do Vinki nem do Fagoo (`409 scope_not_allowed`); uma chave de
+  mensagens nunca vira chave financeira.
+- **Identidade por telefone**: compare, vincule ou revincule registros por
+  telefone só com `ctx.verifiedPhone(c)`. Em conversa de integração ele é
+  null, e o módulo não procura nem puxa registros de outro cliente.
 
 ## 4. Passo web
 

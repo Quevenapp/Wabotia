@@ -76,7 +76,8 @@ const CEILINGS: Record<string, number> = {
   // Pix no Mercado Pago na mesma invocação (docs/LIMITES.md).
   "conclusão do carrinho (Pix)": 59,
   "webhook do Mercado Pago: Worker": 2,
-  "webhook do Mercado Pago: Coordinator": 27,
+  // 28: inclui a fila durável do gancho do módulo (revisão A3).
+  "webhook do Mercado Pago: Coordinator": 30,
   "rodada periódica dos módulos": 24,
   "fila: emitir senha (comando no Coordinator)": 16,
   "fila: chamar a próxima (comando no Coordinator)": 18,

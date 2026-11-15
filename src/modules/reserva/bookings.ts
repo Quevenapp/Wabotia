@@ -7,6 +7,7 @@
 import { all, exec, one } from "../../db";
 import {
   ApiError,
+  type Actor,
   type Conversation,
   json,
   now as clock,
@@ -152,6 +153,34 @@ export function bookingView(row: any): Booking {
   };
 }
 
+const isBooking = (v: any) =>
+  v &&
+  typeof v === "object" &&
+  "checkin_status" in v &&
+  "customer_phone" in v &&
+  "unit_id" in v;
+/**
+ * Respostas da Reserva para o ator (revisão M6): aplicação sem contacts:read
+ * não vê o telefone nem as respostas do check-in (documentos); sem
+ * notes:read, não vê as observações. Pessoas da equipe veem tudo.
+ */
+export function visibleBookings(ctx: ModuleContext, actor: Actor, value: any) {
+  const contacts = ctx.mayRead(actor, "contacts"),
+    notes = ctx.mayRead(actor, "notes");
+  if (contacts && notes) return value;
+  const walk = (v: any): any => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    if (isBooking(v))
+      return ctx.redact(actor, v, {
+        contacts: ["customer_phone", "checkin_answers"],
+        notes: ["notes"],
+      });
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+  };
+  return walk(value);
+}
+
 export async function getBooking(ctx: ModuleContext, id: string) {
   const row = await one(
     ctx.env,
@@ -228,7 +257,8 @@ export async function upcomingFor(
   c: Conversation,
   at: number,
 ) {
-  const phone = (c.phone || "").replace(/\D/g, "");
+  // Só o telefone autenticado pelo canal (revisão M7).
+  const phone = (ctx.verifiedPhone(c) || "").replace(/\D/g, "");
   const rows = await all(
     ctx.env,
     `SELECT * FROM reserva_bookings WHERE profile_id=? AND status IN ${ACTIVE_SQL} AND departure_at>? AND (conversation_id=?${phone ? " OR customer_phone=?" : ""}) ORDER BY starts LIMIT 20`,

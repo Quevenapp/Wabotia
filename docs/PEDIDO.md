@@ -109,6 +109,9 @@ com só o telefone, marque `whatsapp_notices` quando o cliente aceitar
 receber os avisos: o Wabotia abre a conversa na linha oficial.
 
 Cancelar um pedido com o Pix ou o link ainda abertos cancela a cobrança. Se
-o cliente pagar mesmo assim, o pedido fica marcado para estorno. Com
+o cliente pagar mesmo assim, o pedido fica marcado para estorno. Pagamento
+estornado ou contestado no Mercado Pago: o pedido que ainda não foi para o
+preparo é cancelado; em preparo, pronto ou entregue, vira pendência para a
+equipe (nota interna na conversa e `needs_review` em `pedido.refunded`). Com
 "pagar antes do preparo", o aviso "Pedido nº X recebido" é o comprovante e o
 "Pagamento recebido" do núcleo não é enviado.

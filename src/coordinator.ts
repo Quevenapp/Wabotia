@@ -17,7 +17,11 @@ import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
 import { closeDay, overview as queueOverview } from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
-import { expirePayments, refreshFromProvider } from "./payments";
+import {
+  expirePayments,
+  refreshFromProvider,
+  retryPaymentHooks,
+} from "./payments";
 import "./modules/runtime";
 import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
 import {
@@ -379,6 +383,7 @@ export class Coordinator extends DurableObject<Env> {
       await closeDay(env, this.profile);
       await expireWebSteps(env, this.profile);
       await expirePayments(env, this.profile);
+      await retryPaymentHooks(env, this.profile);
       // Tarefas periódicas dos módulos (onSchedule): no máximo uma rodada por
       // minuto; o cron de 5 minutos garante a frequência mínima.
       const tick = now();

@@ -10,6 +10,7 @@ import type { ModuleContext } from "../api";
 import { fill, money, type ReservaConfig } from "./config";
 import { ACTIVE_SQL } from "./availability";
 import {
+  cancelBooking,
   describe,
   getBooking,
   notifyCustomer,
@@ -223,22 +224,43 @@ export async function paymentUpdated(
     return;
   }
   if (payment.status === "refunded") {
-    await exec(
+    const marked = await exec(
       ctx.env,
-      "UPDATE reserva_bookings SET payment_status='refunded',updated=? WHERE id=? AND profile_id=?",
+      "UPDATE reserva_bookings SET payment_status='refunded',updated=? WHERE id=? AND profile_id=? AND coalesce(payment_status,'')<>'refunded'",
       at,
       row.id,
       ctx.profile,
     );
-    await publish(
-      ctx,
-      "reserva.changed",
-      await getBooking(ctx, row.id),
-      "system",
-      {
-        payment_status: "refunded",
-      },
-    );
+    if (!marked.meta?.changes) return;
+    // Estorno ou contestação do sinal (revisão M8): reserva que ainda não
+    // começou é cancelada e a unidade volta a ficar livre; com o hóspede já
+    // na casa (ou o check-in feito), vira pendência para a equipe.
+    const b = await getBooking(ctx, row.id);
+    const notStarted =
+      ["pending_payment", "confirmed"].includes(b.status) &&
+      b.checkin_status !== "completed" &&
+      b.arrival_at > at;
+    if (notStarted) {
+      await cancelBooking(ctx, config, {
+        id: b.id,
+        actor: "system",
+        reason: "Sinal estornado pelo provedor de pagamento",
+      });
+      return;
+    }
+    await publish(ctx, "reserva.changed", b, "system", {
+      payment_status: "refunded",
+      needs_review: true,
+    });
+    if (b.conversation_id)
+      try {
+        await ctx.note(
+          await ctx.conversation(b.conversation_id),
+          `Sinal da reserva nº ${b.number} estornado ou contestado depois do início. Confira com o hóspede e com o Mercado Pago.`,
+        );
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+      }
   }
 }
 

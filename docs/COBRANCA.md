@@ -78,6 +78,15 @@ cancelado no Wabotia, a cobrança passa a `paid`. Cada mudança publica
 conversa e, ao pagar, envia "Pagamento recebido" ao cliente (pelo modelo de
 notificação se a janela de 24 horas estiver fechada).
 
+- **Estorno antes do primeiro aviso** (aprovado e estornado antes de o
+  webhook chegar): o "paga" fica registrado no histórico, sem comprovante ao
+  cliente; o módulo que abriu a cobrança vê só o estorno.
+- **Pagamento em duplicidade** (o link pago duas vezes, com outro id no
+  Mercado Pago): a cobrança continua `paid`, o segundo pagamento fica em
+  `duplicate_payments`, sai `payment.duplicate` (com
+  `duplicate_provider_payment_id` e `needs_refund: true`) e uma nota interna
+  pede para estornar o valor a mais. Cada pagamento duplicado avisa uma vez.
+
 ## Como a confirmação funciona
 
 1. O Mercado Pago chama `POST /webhooks/payments/mercadopago/{conta}` com

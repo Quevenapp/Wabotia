@@ -33,6 +33,8 @@ import {
   openOrdersFor,
   orderView,
   paymentUpdated,
+  visibleOrder,
+  visibleOrders,
 } from "./orders";
 import {
   board,
@@ -201,15 +203,15 @@ onConversationAction(
 
 onRead(MODULE, "pedido/board", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
-  return board(ctx, now());
+  return visibleOrders(ctx, actor, await board(ctx, now()));
 });
 onRead(MODULE, "pedido/orders", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listOrders(ctx, query);
+  return visibleOrders(ctx, actor, await listOrders(ctx, query));
 });
 onRead(MODULE, "pedido/orders/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
-  return orderDetail(ctx, params.id);
+  return visibleOrders(ctx, actor, await orderDetail(ctx, params.id));
 });
 // Comanda: dados do estabelecimento e do pedido, e o texto em colunas.
 onRead(
@@ -217,7 +219,7 @@ onRead(
   "pedido/orders/:id/ticket",
   async (ctx, actor, { params, query }) => {
     ctx.access(actor, "conversations:read");
-    return orderTicket(ctx, params.id, query);
+    return orderTicket(ctx, params.id, query, actor);
   },
 );
 
@@ -226,8 +228,11 @@ onRoute(MODULE, {
   path: "pedido/orders",
   op: "pedido.order.create",
 });
-onCommand(MODULE, "pedido.order.create", (ctx, actor, data, { requestId }) =>
-  createFromApi(ctx, actor, data, requestId),
+onCommand(
+  MODULE,
+  "pedido.order.create",
+  async (ctx, actor, data, { requestId }) =>
+    visibleOrders(ctx, actor, await createFromApi(ctx, actor, data, requestId)),
 );
 
 onRoute(MODULE, {
@@ -235,8 +240,8 @@ onRoute(MODULE, {
   path: "pedido/orders/:id",
   op: "pedido.order.update",
 });
-onCommand(MODULE, "pedido.order.update", (ctx, actor, data) =>
-  updateOrder(ctx, actor, data),
+onCommand(MODULE, "pedido.order.update", async (ctx, actor, data) =>
+  visibleOrders(ctx, actor, await updateOrder(ctx, actor, data)),
 );
 
 onRoute(MODULE, {
@@ -247,12 +252,16 @@ onRoute(MODULE, {
 onCommand(MODULE, "pedido.status", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(
-    await changeStatus(ctx, order, data.status, actor.id, {
-      note: data.note,
-      reason: data.reason,
-      notify: data.notify,
-    }),
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(
+      await changeStatus(ctx, order, data.status, actor.id, {
+        note: data.note,
+        reason: data.reason,
+        notify: data.notify,
+      }),
+    ),
   );
 });
 
@@ -261,8 +270,8 @@ onRoute(MODULE, {
   path: "pedido/orders/:id/paid",
   op: "pedido.payment.paid",
 });
-onCommand(MODULE, "pedido.payment.paid", (ctx, actor, data) =>
-  markPaid(ctx, actor, data),
+onCommand(MODULE, "pedido.payment.paid", async (ctx, actor, data) =>
+  visibleOrders(ctx, actor, await markPaid(ctx, actor, data)),
 );
 
 onRoute(MODULE, {
@@ -270,8 +279,8 @@ onRoute(MODULE, {
   path: "pedido/orders/:id/payment",
   op: "pedido.payment.method",
 });
-onCommand(MODULE, "pedido.payment.method", (ctx, actor, data) =>
-  setMethod(ctx, actor, data),
+onCommand(MODULE, "pedido.payment.method", async (ctx, actor, data) =>
+  visibleOrders(ctx, actor, await setMethod(ctx, actor, data)),
 );
 
 // Pedidos sem pagamento no prazo e pedidos parados (gancho periódico).
@@ -430,7 +439,11 @@ onMcpTool(MODULE, {
 onRead(MODULE, "pedido/conversations/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   const c = await ctx.conversation(params.id, actor);
-  return { data: (await openOrdersFor(ctx, c)).map((o) => orderView(o)) };
+  return {
+    data: (await openOrdersFor(ctx, c)).map((o) =>
+      visibleOrder(ctx, actor, orderView(o)),
+    ),
+  };
 });
 onMcpTool(MODULE, {
   name: "pedido_enviar_carrinho",

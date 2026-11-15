@@ -4,6 +4,7 @@
 import { all, batch, exec, one } from "../../db";
 import {
   ApiError,
+  type Actor,
   type Conversation,
   json,
   now,
@@ -178,6 +179,60 @@ export function orderView(row: any, history?: any[]) {
   };
 }
 export type OrderView = ReturnType<typeof orderView>;
+
+/**
+ * Visão para o ator (revisão M6): aplicação sem contacts:read não vê
+ * telefone nem endereço; sem notes:read, não vê as notas internas nem as
+ * notas do histórico. A observação do cliente (`note`, "sem cebola") fica.
+ * Pessoas da equipe veem tudo.
+ */
+export function visibleOrder(
+  ctx: ModuleContext,
+  actor: Actor,
+  view: OrderView,
+): OrderView {
+  const out: any = { ...view };
+  if (!ctx.mayRead(actor, "contacts")) {
+    const { phone: _phone, ...customer } = view.customer;
+    out.customer = customer;
+    delete out.address;
+    delete out.address_text;
+  }
+  if (!ctx.mayRead(actor, "notes")) {
+    delete out.notes;
+    if (out.history)
+      out.history = out.history.map(({ note: _note, ...h }: any) => h);
+  }
+  return out;
+}
+
+const isOrderView = (value: any) =>
+  value &&
+  typeof value === "object" &&
+  typeof value.number === "number" &&
+  value.customer &&
+  typeof value.customer === "object" &&
+  value.payment &&
+  Array.isArray(value.lines);
+/**
+ * Aplica visibleOrder a toda visão de pedido dentro da resposta (quadro,
+ * lista, detalhe, comanda e respostas dos comandos).
+ */
+export function visibleOrders<T>(
+  ctx: ModuleContext,
+  actor: Actor,
+  value: T,
+): T {
+  if (ctx.mayRead(actor, "contacts") && ctx.mayRead(actor, "notes"))
+    return value;
+  const walk = (v: any): any => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    if (isOrderView(v)) return visibleOrder(ctx, actor, v);
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+  };
+  return walk(value);
+}
 
 export async function loadOrder(ctx: ModuleContext, id: unknown) {
   if (typeof id !== "string") throw notFound();
@@ -384,8 +439,9 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
       "Pedidos só em conversas individuais.",
     );
   const contact = c ? await ctx.contact(c) : null;
+  // Da conversa, só o telefone autenticado pelo canal (revisão M7).
   const phone = phoneDigits(
-    input.phone || c?.phone || contact?.phone || c?.external_id || "",
+    input.phone || (c && ctx.verifiedPhone(c)) || contact?.phone || "",
   );
   const cfg = await config(ctx);
   const eta =
@@ -1117,6 +1173,12 @@ export async function paymentUpdated(
     );
     if (!claimed.meta.changes) return;
     await history(ctx, order, "payment", "provider", "Pagamento estornado.");
+    // Estorno ou contestação (revisão M8): pedido que ainda não foi para o
+    // preparo é cancelado; já em preparo ou entregue, vira pendência para a
+    // equipe (nota interna e needs_review no evento).
+    const fresh = await loadOrder(ctx, order.id);
+    const cancel = ["awaiting_payment", "received"].includes(fresh.status);
+    const review = !cancel && fresh.status !== "cancelled";
     await ctx.publish(
       "pedido.refunded",
       order.id,
@@ -1126,9 +1188,29 @@ export async function paymentUpdated(
         payment_id: payment.id,
         amount_cents: payment.amount_cents,
         conversation_id: order.conversation_id,
+        order_status: fresh.status,
+        needs_review: review,
       },
       { key: `refunded:${order.id}` },
     );
+    if (cancel)
+      await moveOrder(
+        ctx,
+        fresh,
+        "cancelled",
+        "provider",
+        "Pagamento estornado.",
+        { cancel_reason: "Pagamento estornado pelo provedor de pagamento." },
+      );
+    else if (review && fresh.conversation_id)
+      try {
+        await ctx.note(
+          await ctx.conversation(fresh.conversation_id),
+          `Pagamento do pedido nº ${fresh.number} estornado ou contestado com o pedido em "${STATUS_LABELS[fresh.status as OrderStatus] || fresh.status}". Confira com o cliente e com o Mercado Pago.`,
+        );
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+      }
   }
 }
 
@@ -1137,7 +1219,9 @@ export async function paymentUpdated(
 
 /** Pedidos em andamento do cliente (conversa ou telefone). */
 export async function openOrdersFor(ctx: ModuleContext, c: Conversation) {
-  const phone = phoneDigits(c.phone || c.external_id);
+  // Telefone só o autenticado pelo canal (revisão M7): em conversa de
+  // integração, só os pedidos desta conversa.
+  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
   return all(
     ctx.env,
     `SELECT * FROM pedido_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,

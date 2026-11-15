@@ -21,6 +21,7 @@ export const paymentsModule: ModuleDefinition = {
     "payment.expired",
     "payment.cancelled",
     "payment.refunded",
+    "payment.duplicate",
   ],
   settings: [],
   routes: ["payments"],

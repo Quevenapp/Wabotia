@@ -73,7 +73,7 @@ export async function structuredInbound(
       null,
       String(data.text || "").slice(0, 3800),
       true,
-      { source: "structured" },
+      { source: "structured", rowId: row.id },
     );
   return "team";
 }

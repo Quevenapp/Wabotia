@@ -30,6 +30,7 @@ import {
 } from "../types";
 import { access } from "../security";
 import { activeTicketSql } from "../protocols";
+import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
 import {
   conversation,
@@ -37,6 +38,7 @@ import {
   enqueue,
   handoff as coreHandoff,
   handoffToPerson,
+  message as coreMessage,
   settings,
   type HandoffMeta,
   type HandoffSource,
@@ -90,6 +92,11 @@ export type { Establishment } from "../establishment";
 export type { ConsentPurpose, ConsentRecord } from "../consents";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
+export type SensitiveKind = "contacts" | "notes";
+/** Pessoas da equipe sempre; aplicação só com `<kind>:read`. */
+export const mayRead = (actor: Actor, kind: SensitiveKind) =>
+  actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
+
 export interface OutgoingMessage {
   text: string;
   /** Conteúdo nativo (interactive, location, …), como em enqueue. */
@@ -108,6 +115,30 @@ export interface ModuleContext {
   requireEnabled(): Promise<void>;
   /** Mesma regra das rotas: área do ator e permissão de aplicação. */
   access(actor: Actor, scope: string): void;
+  /**
+   * Dado sensível nas leituras do módulo, como no núcleo: pessoas da equipe
+   * sempre veem; aplicações só com `contacts:read` (dados pessoais: telefone,
+   * e-mail, documento, endereço, respostas de check-in) ou `notes:read`
+   * (notas internas e observações da equipe).
+   */
+  mayRead(actor: Actor, kind: SensitiveKind): boolean;
+  /**
+   * Cópia do registro sem os campos que o ator não pode ver (`mayRead`). Os
+   * campos somem da resposta; o resto fica igual.
+   */
+  redact<T extends Record<string, any>>(
+    actor: Actor,
+    row: T,
+    fields: Partial<Record<SensitiveKind, string[]>>,
+  ): T;
+  /**
+   * Telefone autenticado pelo canal (só dígitos), ou null: conversa de grupo
+   * ou de integração (`app:<id>`), em que o `external_id` é escolhido por
+   * quem chama. Compare ou vincule registros por telefone só com ele.
+   */
+  verifiedPhone(c: Conversation): string | null;
+  /** Nota interna na conversa (só a equipe vê), por exemplo uma pendência. */
+  note(c: Conversation, text: string): Promise<void>;
   /** Configurações da área (itens de menu de módulos desligados ocultos). */
   settings(): Promise<any>;
   /**
@@ -302,6 +333,24 @@ export function modulesApi(
         throw moduleDisabledError(definition);
     },
     access: (actor, scope) => access(actor, profile, scope),
+    mayRead: (actor, kind) => mayRead(actor, kind),
+    redact(actor, row, fields) {
+      const copy: Record<string, any> = { ...row };
+      for (const kind of Object.keys(fields) as SensitiveKind[])
+        if (!mayRead(actor, kind))
+          for (const field of fields[kind] || []) delete copy[field];
+      return copy as typeof row;
+    },
+    verifiedPhone: (c) => verifiedPhone(c),
+    async note(c, text) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      const value = String(text ?? "").trim();
+      requireValue(
+        value && value.length <= 3000,
+        "Nota de 1 a 3000 caracteres.",
+      );
+      await coreMessage(env, c, "note", `module:${moduleId}`, value);
+    },
     settings: () => settings(env, profile),
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
@@ -531,7 +580,8 @@ export function modulesApi(
 /**
  * Cobrança aberta pelo módulo (ctx.charge) mudou de estado: paid, expired,
  * cancelled ou refunded. Só depois do webhook assinado e da consulta ao
- * provedor; repetições do webhook não chamam de novo.
+ * provedor. Entrega durável (revisão A3): se o gancho lançar, a mudança fica
+ * pendente e é repetida até concluir; o gancho precisa ser idempotente.
  */
 export function onPaymentUpdated(
   moduleId: string,
@@ -692,6 +742,33 @@ export function onRead(
 }
 
 /**
+ * onRead, onCommand e onConversationAction que passam toda resposta por
+ * `filter(ctx, actor, valor)`, por exemplo para tirar dados pessoais e notas
+ * de quem não tem contacts:read ou notes:read (ctx.redact). O módulo usa
+ * estas no lugar das originais e nenhuma rota fica de fora.
+ */
+export function filteredHandlers(
+  filter: (ctx: ModuleContext, actor: Actor, value: any) => any,
+) {
+  return {
+    onRead: (...[moduleId, path, handler]: Parameters<typeof onRead>) =>
+      onRead(moduleId, path, async (ctx, actor, request) =>
+        filter(ctx, actor, await handler(ctx, actor, request)),
+      ),
+    onCommand: (...[moduleId, op, handler]: Parameters<typeof onCommand>) =>
+      onCommand(moduleId, op, async (ctx, actor, data, request) =>
+        filter(ctx, actor, await handler(ctx, actor, data, request)),
+      ),
+    onConversationAction: (
+      ...[moduleId, action, handler]: Parameters<typeof onConversationAction>
+    ) =>
+      onConversationAction(moduleId, action, async (ctx, actor, c, data, r) =>
+        filter(ctx, actor, await handler(ctx, actor, c, data, r)),
+      ),
+  };
+}
+
+/**
  * Conteúdo estruturado recebido do WhatsApp antes do menu e do bot:
  * "order" (carrinho do catálogo, content.order) ou "flow_reply" (resposta de
  * Flow que não é de um passo web, content.flow_reply). Devolva true quando
@@ -769,7 +846,10 @@ export function onConversationTurn(
  * Não passam por aqui: a transferência feita pela equipe e o atendente que
  * assume a conversa. Com mais de um módulo, a ordem é a de `modules` em
  * src/modules/registry.ts; o primeiro "hold" encerra a consulta. Erro no
- * gancho libera a passagem (o cliente nunca fica preso) e vai para o log.
+ * gancho libera a passagem (o cliente nunca fica preso) e vai para o log,
+ * a menos que o módulo declare `{failClosed: true}` (quem vende acesso à
+ * equipe): aí o erro segura a conversa e deixa uma nota interna para a
+ * equipe conferir.
  */
 export function onHandoffRequest(
   moduleId: string,
@@ -778,14 +858,19 @@ export function onHandoffRequest(
     c: Conversation,
     request: HandoffGateRequest,
   ) => Promise<"allow" | "hold" | void>,
+  options: { failClosed?: boolean } = {},
 ) {
   if (!moduleById(moduleId))
     throw new Error(`Módulo não registrado: ${moduleId}`);
-  registerHandoffGate(moduleId, async (env, c, request) => {
-    const ctx = modulesApi(env, c.profile_id, moduleId);
-    if (!(await ctx.enabled())) return "allow";
-    return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
-  });
+  registerHandoffGate(
+    moduleId,
+    async (env, c, request) => {
+      const ctx = modulesApi(env, c.profile_id, moduleId);
+      if (!(await ctx.enabled())) return "allow";
+      return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
+    },
+    options,
+  );
 }
 export interface HandoffGateRequest {
   source: Exclude<HandoffSource, "staff" | "module">;
@@ -797,6 +882,12 @@ export interface HandoffGateRequest {
   summary: string | null;
   /** Item de menu escolhido (source "menu"). */
   menu_item_id: string | null;
+  /**
+   * Evento que pediu a passagem: a mensagem da caixa de entrada (ou a
+   * execução do bot). Estável quando a mesma mensagem é reprocessada; use
+   * nas chaves (`gate:${rowId}`) no lugar do relógio. Null fora de mensagem.
+   */
+  row_id: string | null;
 }
 
 /** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */
