@@ -5,6 +5,8 @@ import {
   ClipboardList,
   CreditCard,
   Bot,
+  CalendarClock,
+  CalendarDays,
   Cloud,
   Code2,
   FileText,
@@ -59,6 +61,8 @@ export const sections = [
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
   ["modules", "Módulos", Blocks],
+  ["agenda", "Agenda", CalendarDays],
+  ["agenda-settings", "Serviços e horários", CalendarClock],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -94,6 +98,12 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
+  {
+    id: "agenda",
+    label: "Agenda",
+    icon: CalendarDays,
+    pages: ["agenda", "agenda-settings"],
+  },
   {
     id: "automation",
     label: "Automação",
@@ -152,6 +162,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
   "modules",
+  "agenda-settings",
   "payments",
 ]);
 
@@ -163,6 +174,8 @@ export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
+  agenda: "agenda",
+  "agenda-settings": "agenda",
   payments: "payments",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
@@ -238,6 +251,10 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
+  agenda:
+    "Agenda do dia e da semana por profissional: marque, remarque, confirme e registre faltas.",
+  "agenda-settings":
+    "Serviços, profissionais, horários de trabalho, folgas e as regras do agendamento pelo WhatsApp.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
 };

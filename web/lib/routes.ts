@@ -53,6 +53,8 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   system: "sistema",
   modules: "modulos",
   forms: "formularios",
+  agenda: "agenda",
+  "agenda-settings": "servicos-e-horarios",
   payments: "cobranca",
 };
 /** Segmentos de Equipe aceitos no endereço. */

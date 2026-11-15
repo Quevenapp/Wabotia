@@ -3,4 +3,5 @@
 // pelo motor e pelo serviço: um módulo novo entra nesta lista e em
 // modules[] de src/modules/registry.ts.
 import "./forms/forms";
+import "./agenda/agenda";
 import "./payments/payments";
