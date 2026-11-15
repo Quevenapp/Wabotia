@@ -86,7 +86,11 @@ import {
   requireOperation,
   resolveStates,
 } from "./modules/registry";
-import { conversationAction, settingsValidator } from "./modules/hooks";
+import {
+  conversationAction,
+  moduleCommandHandler,
+  settingsValidator,
+} from "./modules/hooks";
 import { cancelWebStep } from "./web-steps";
 // Ganchos dos módulos embutidos (ações de conversa, chaves de configuração).
 import "./modules/runtime";
@@ -1152,6 +1156,9 @@ export async function perform(
 ): Promise<any> {
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
+  // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
+  const fromModule = moduleCommandHandler(op);
+  if (fromModule) return fromModule(env, actor, profile, data, requestId);
   if (op === "line.save") return saveLine(env, actor, profile, data);
   if (op === "service-template.apply")
     return applyServiceTemplate(env, actor, profile, data, requestId);

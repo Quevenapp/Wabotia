@@ -110,7 +110,8 @@ import {
   webStepView,
   whatsappReturnLink,
 } from "./web-steps";
-import { listForms } from "./modules/forms/forms";
+import { moduleRoutes } from "./modules/hooks";
+// Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import {
@@ -1166,6 +1167,29 @@ for (const [method, path, op] of commands)
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
     }),
   );
+// Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
+// escrita vira comando no Coordinator da área, como as rotas acima.
+for (const route of moduleRoutes().write)
+  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) =>
+    mutate(c, route.op, c.req.param("profile")!, {
+      ...(route.method === "DELETE"
+        ? {}
+        : await c.req.json().catch(() => ({}))),
+      ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
+    }),
+  );
+for (const route of moduleRoutes().read)
+  app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {
+    const profile = c.req.param("profile")!;
+    if (!canProfile(c.get("actor"), profile))
+      throw new ApiError(404, "not_found", "Perfil não encontrado.");
+    return c.json(
+      await route.handler(c.env, c.get("actor"), profile, {
+        params: c.req.param() as Record<string, string>,
+        query: c.req.query(),
+      }),
+    );
+  });
 // Uma fonte do Conhecimento com o texto completo, para edição no painel.
 app.get("/api/v1/profiles/:profile/knowledge/:id", async (c) => {
   const profile = c.req.param("profile");
@@ -1721,9 +1745,6 @@ app.get("/api/v1/profiles/:profile/web-steps/:id", async (c) =>
       c.req.param("id"),
     ),
   ),
-);
-app.get("/api/v1/profiles/:profile/forms", async (c) =>
-  c.json(await listForms(c.env, c.get("actor"), c.req.param("profile"))),
 );
 app.get("/api/v1/profiles/:profile/presence", async (c) => {
   access(c.get("actor"), c.req.param("profile"), "presence:read");

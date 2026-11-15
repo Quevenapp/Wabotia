@@ -85,6 +85,11 @@ export const moduleSchemas = {
     required: ["enabled"],
     properties: { enabled: { type: "boolean" } },
   },
+  FormSend: {
+    type: "object",
+    required: ["conversation_id"],
+    properties: { conversation_id: { type: "string" } },
+  },
   WebStep: {
     type: "object",
     description:
@@ -175,6 +180,13 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "Formulários ativos da área (módulo Formulários)",
     "conversations:read",
   ],
+  [
+    "post",
+    "/profiles/{profile}/forms/{id}/send",
+    "Enviar o link de um formulário numa conversa",
+    "conversations:write",
+    "FormSend",
+  ],
 ];
 
 export function describeModuleOperation(
@@ -198,6 +210,12 @@ export function describeModuleOperation(
           properties: { data: { type: "array", items: ref("WebStep") } },
         }
       : ref("WebStep");
+    return;
+  }
+  if (path.endsWith("/forms/{id}/send")) {
+    entry.description +=
+      " Mesmo envio da ação form da conversa, como recurso: exige conversa assumida pela credencial (ou administrador) e janela de 24 horas aberta nas linhas oficiais. Responde com o WebStep criado; repetir a Idempotency-Key devolve o mesmo passo. Com o módulo Formulários desligado, 409 module_disabled.";
+    success.content["application/json"].schema = ref("WebStep");
     return;
   }
   if (path.endsWith("/forms")) {

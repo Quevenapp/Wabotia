@@ -5,12 +5,10 @@ import {
   ApiError,
   type Actor,
   type Conversation,
-  type Env,
   requireValue,
 } from "../../types";
 import { validateFields, type WebField } from "../../web-steps";
 import {
-  modulesApi,
   onCommand,
   onConversationAction,
   onMenuChoice,
@@ -160,11 +158,6 @@ export async function sendForm(
 }
 
 /** GET /profiles/:profile/forms: formulários ativos, para apps e bots. */
-export async function listForms(env: Env, actor: Actor, profile: string) {
-  const ctx = modulesApi(env, profile, "forms");
-  await ctx.requireEnabled();
-  return formsView(ctx, actor);
-}
 async function formsView(ctx: ModuleContext, actor: Actor) {
   ctx.access(actor, "conversations:read");
   return {
