@@ -1,6 +1,6 @@
 // Pedido: estado da loja (aberta, pausada, fora do horário) e se a Cobrança
 // do núcleo está pronta para cobrar online (ctx.paymentsReady).
-import { exec, one } from "../../db";
+import { exec, one, cachedOne } from "../../db";
 import { type Actor, now, requireValue } from "../../types";
 import type { ModuleContext } from "../api";
 import {
@@ -21,7 +21,7 @@ export async function config(ctx: ModuleContext): Promise<PedidoConfig> {
 }
 
 export async function loadPause(ctx: ModuleContext) {
-  const row = await one(
+  const row = await cachedOne(
     ctx.env,
     "SELECT * FROM pedido_store WHERE profile_id=?",
     ctx.profile,

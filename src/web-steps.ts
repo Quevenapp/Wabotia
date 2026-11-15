@@ -5,7 +5,7 @@
 //
 // Escritas que tocam a conversa (conclusão, mensagem de retorno, protocolo)
 // rodam no Coordinator da área (POST /web-step), como o resto do atendimento.
-import { all, exec, one } from "./db";
+import { all, exec, one, cachedOne, withReadCache } from "./db";
 import {
   ApiError,
   type Actor,
@@ -322,7 +322,7 @@ export async function rememberOrigin(env: Env, url: string) {
 export async function publicOrigin(env: Env) {
   return (
     (
-      await one(
+      await cachedOne(
         env,
         "SELECT value FROM instance_settings WHERE key='public_origin'",
       )
@@ -394,7 +394,7 @@ export function webStepView(row: any) {
 async function lineKind(env: Env, c: Conversation) {
   return c.connection_id
     ? (
-        await one(
+        await cachedOne(
           env,
           "SELECT kind FROM connections WHERE id=?",
           c.connection_id,
@@ -769,6 +769,7 @@ export async function completeWebStep(
   id: string,
   input: Record<string, unknown>,
 ): Promise<CompleteResult> {
+  env = withReadCache(env);
   const row = await one(env, "SELECT * FROM web_steps WHERE id=?", id);
   if (!row) return { ok: false, reason: "not_found" };
   let c: Conversation | null = null;

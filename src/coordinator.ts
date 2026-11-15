@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
-import { one, all, exec } from "./db";
+import { one, all, exec, withReadCache } from "./db";
 import { sha, seal, unseal, canonical } from "./security";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
@@ -348,70 +348,73 @@ export class Coordinator extends DurableObject<Env> {
         await processCloudflareJob(this.env);
         return;
       }
+      // Uma invocação: leituras de configuração lembradas no alarme inteiro
+      // (as entregas releem a área a cada linha; docs/LIMITES.md).
+      const env = withReadCache(this.env);
       await exec(
-        this.env,
+        env,
         "UPDATE outbox SET status='unknown',error='Processo interrompido durante envio; reconcilie antes de repetir.' WHERE profile_id=? AND status='sending' AND updated<?",
         this.profile,
         now() - 120000,
       );
       await exec(
-        this.env,
+        env,
         "UPDATE inbox SET status='pending' WHERE profile_id=? AND status='processing'",
         this.profile,
       );
       for (const row of await all(
-        this.env,
+        env,
         "SELECT * FROM outbox WHERE profile_id=? AND status='sent' AND completion_handled=0 LIMIT 20",
         this.profile,
       ))
-        await finishDelivery(this.env, row, row.external_id || row.id);
+        await finishDelivery(env, row, row.external_id || row.id);
       await exec(
-        this.env,
+        env,
         "UPDATE group_operations SET status='unknown',error='Conector interrompido; confira o grupo antes de reconciliar.' WHERE profile_id=? AND status='sending' AND updated<?",
         this.profile,
         now() - 120000,
       );
-      await expireCalls(this.env, this.profile);
-      await expireUploads(this.env, this.profile);
-      await closeDay(this.env, this.profile);
-      await expireWebSteps(this.env, this.profile);
-      await expirePayments(this.env, this.profile);
+      await expireCalls(env, this.profile);
+      await expireUploads(env, this.profile);
+      await closeDay(env, this.profile);
+      await expireWebSteps(env, this.profile);
+      await expirePayments(env, this.profile);
       // Tarefas periódicas dos módulos (onSchedule): no máximo uma rodada por
       // minuto; o cron de 5 minutos garante a frequência mínima.
       const tick = now();
       const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
       if (tick - last >= SCHEDULE_INTERVAL_MS) {
         await this.ctx.storage.put("modules_tick", tick);
-        await runModuleSchedules(this.env, this.profile, tick);
+        await runModuleSchedules(env, this.profile, tick);
       }
-      await processInbox(this.env, this.profile);
+      await processInbox(env, this.profile);
       await this.broadcastQueue();
       for (const run of await all<Run>(
-        this.env,
+        env,
         "SELECT * FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)) ORDER BY created LIMIT 5",
         this.profile,
       ))
-        await processRun(this.env, run);
+        await processRun(env, run);
       for (const row of await all(
-        this.env,
+        env,
         "SELECT * FROM outbox o WHERE profile_id=? AND status='pending' AND NOT EXISTS (SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND (p.kind='team')=(o.kind='team') AND (p.created<o.created OR (p.created=o.created AND p.rowid<o.rowid)) AND p.status IN ('pending','sending','unknown')) ORDER BY created,rowid LIMIT 10",
         this.profile,
       ))
-        await deliver(this.env, row);
+        await deliver(env, row);
       for (const row of await all(
-        this.env,
+        env,
         "SELECT d.* FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending' AND d.next_at<=? LIMIT 10",
         this.profile,
         now(),
       ))
-        await deliverWebhook(this.env, row);
+        await deliverWebhook(env, row);
       const doc = await one(
-        this.env,
+        env,
         "SELECT * FROM documents WHERE profile_id=? AND status='pending' LIMIT 1",
         this.profile,
       );
-      if (doc) await importDocument(this.env, doc);
-      await processPush(this.env, this.profile);
+      if (doc) await importDocument(env, doc);
+      await processPush(env, this.profile);
     } catch (error) {
       console.error(
         JSON.stringify({

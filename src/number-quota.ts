@@ -1,4 +1,4 @@
-import { one, exec } from "./db";
+import { one, exec, cachedOne } from "./db";
 import { Env, now, json, requireValue } from "./types";
 import { billingPeriod } from "./number-usage";
 export { billingPeriod, numberUsage } from "./number-usage";
@@ -33,18 +33,20 @@ export async function queueWithNumberQuota(
   }
   const number =
     values[3] &&
-    (await one(
+    (await cachedOne(
       env,
       "SELECT a.timezone FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE n.connection_id=?",
       values[3],
     ));
-  await exec(
+  // Devolve o id quando a linha entrou; null quando a chave dedupe já existia.
+  const inserted = await exec(
     env,
     "INSERT OR IGNORE INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated,quota_month,quota_category) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ...values,
     number ? billingPeriod(now(), number.timezone) : null,
     number ? category : null,
   );
+  return inserted.meta?.changes ? (values[0] as string) : null;
 }
 
 export async function observeMetaUsage(env: Env, conn: any, data: any) {

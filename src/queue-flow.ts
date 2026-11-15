@@ -1,7 +1,7 @@
 // WhatsApp side of the ticket queue (docs/FILA-SENHAS.md, "WhatsApp").
 // Called from processInbox; every reply goes through enqueue with a key tied
 // to the inbox row, so a replayed row never repeats a message or a ticket.
-import { all, one, exec } from "./db";
+import { all, one, exec, cachedOne } from "./db";
 import { ApiError, type Conversation, type Env, json, now } from "./types";
 import { enqueue, settings } from "./service";
 import {
@@ -36,7 +36,7 @@ const normalize = (value: string) =>
 
 async function interactiveLine(env: Env, c: Conversation) {
   if (!c.connection_id || c.chat_type === "group") return false;
-  const line = await one(
+  const line = await cachedOne(
     env,
     "SELECT kind FROM connections WHERE id=?",
     c.connection_id,

@@ -1,4 +1,4 @@
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, cachedOne } from "./db";
 import {
   type Actor,
   type Env,
@@ -37,7 +37,11 @@ export function lineService(config: any) {
 }
 export async function serviceForLine(env: Env, connection: string | null) {
   const row = connection
-    ? await one(env, "SELECT config FROM connections WHERE id=?", connection)
+    ? await cachedOne(
+        env,
+        "SELECT config FROM connections WHERE id=?",
+        connection,
+      )
     : null;
   return lineService(json(row?.config));
 }
@@ -362,7 +366,7 @@ export function menuPayload(
  */
 export async function interactiveLine(env: Env, c: Conversation) {
   if (!c.connection_id || c.chat_type === "group") return false;
-  const line = await one(
+  const line = await cachedOne(
     env,
     "SELECT kind FROM connections WHERE id=?",
     c.connection_id,
@@ -526,7 +530,7 @@ export async function sendMenu(
   const service = await serviceForLine(env, c.connection_id);
   requireValue(service.menu_mode !== "off", "Menus desativados nesta linha.");
   if (c.connection_id) {
-    const line = await one(
+    const line = await cachedOne(
       env,
       "SELECT kind FROM connections WHERE id=?",
       c.connection_id,
@@ -562,7 +566,11 @@ export async function sendMenu(
   const token =
     c.session + "." + (await sha(`${c.id}:${c.session}:${key}`)).slice(0, 24);
   const connection = c.connection_id
-    ? await one(env, "SELECT kind FROM connections WHERE id=?", c.connection_id)
+    ? await cachedOne(
+        env,
+        "SELECT kind FROM connections WHERE id=?",
+        c.connection_id,
+      )
     : null;
   const payload = menuPayload(
     items,

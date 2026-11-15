@@ -1,4 +1,4 @@
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, cachedOne, withReadCache } from "./db";
 import {
   ApiError,
   type Env,
@@ -173,7 +173,7 @@ const text = (value: any, max = 3800) => {
   return value.trim();
 };
 async function profileWithModules(env: Env, profile: string) {
-  const row = await one(
+  const row = await cachedOne(
     env,
     "SELECT p.*,(SELECT json_group_object(m.module_id,m.enabled) FROM profile_modules m WHERE m.profile_id=p.id) module_states FROM profiles p WHERE p.id=?",
     profile,
@@ -341,7 +341,7 @@ export async function enqueue(
   const managed =
     kind !== "team" &&
     c.connection_id &&
-    (await one(
+    (await cachedOne(
       env,
       "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
       c.connection_id,
@@ -375,7 +375,7 @@ export async function enqueue(
             now() - c.last_customer >= 86400000)
         ? "template"
         : "service";
-  await queueWithNumberQuota(
+  const inserted = await queueWithNumberQuota(
     env,
     [
       id,
@@ -392,7 +392,11 @@ export async function enqueue(
     ],
     category,
   );
-  return (await one(env, "SELECT id FROM outbox WHERE dedupe=?", dedupe)).id;
+  // Repetição (mesma chave dedupe): devolve a linha que já estava na fila.
+  return (
+    inserted ??
+    (await one(env, "SELECT id FROM outbox WHERE dedupe=?", dedupe)).id
+  );
 }
 export async function message(
   env: Env,
@@ -622,7 +626,7 @@ export async function offerProtocolConsent(
     ))
   )
     return;
-  const line = await one(
+  const line = await cachedOne(
     env,
     "SELECT kind FROM connections WHERE id=?",
     c.connection_id,
@@ -1119,6 +1123,7 @@ export async function inbound(
   namespace: string,
   connectionId: string | null,
 ) {
+  env = withReadCache(env);
   requireValue(
     typeof data.external_id === "string" && data.external_id.length <= 200,
     "Informe o identificador externo.",
@@ -1447,6 +1452,7 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).

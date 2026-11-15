@@ -2,7 +2,7 @@
 // atendimento (tabela profile_modules, migração 0020). Contrato:
 // docs/MODULOS.md. Este arquivo só depende do banco: service.ts, index.ts e o
 // motor o importam sem ciclos.
-import { all, exec, one } from "../db";
+import { all, cachedAll, exec, one } from "../db";
 import { ApiError, type Actor, type Env, now, requireValue } from "../types";
 import { admin, canProfile } from "../security";
 import { event } from "../events";
@@ -128,7 +128,7 @@ export async function moduleStates(
   env: Env,
   profile: string,
 ): Promise<ModuleStates> {
-  const rows = await all(
+  const rows = await cachedAll(
     env,
     "SELECT module_id,enabled FROM profile_modules WHERE profile_id=?",
     profile,

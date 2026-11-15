@@ -29,7 +29,7 @@ import {
 } from "./ticket-flow";
 import { assertNumberDelivery, getNumberPolicy } from "./number-permissions";
 import { chunkWrites, searchKnowledge } from "./knowledge";
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, cachedOne, withReadCache } from "./db";
 import { consentFor } from "./consents";
 import {
   type Env,
@@ -89,6 +89,8 @@ const system: Actor = {
   runLimit: 100,
 };
 export async function processInbox(env: Env, profile: string) {
+  // Uma mensagem por chamada; leituras de configuração lembradas nela.
+  env = withReadCache(env);
   const p = await one(env, "SELECT enabled FROM profiles WHERE id=?", profile);
   const row = await one(
     env,
@@ -2068,7 +2070,7 @@ export async function deliver(env: Env, row: any) {
     return;
   const managed =
     ["meta", "zernio"].includes(connection.kind) &&
-    (await one(
+    (await cachedOne(
       env,
       "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
       connection.id,

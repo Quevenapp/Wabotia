@@ -1,4 +1,4 @@
-import { all, batch, one } from "./db";
+import { batch, cachedAll, one } from "./db";
 import { type Env, type Actor, uid, now, json } from "./types";
 export async function event(
   env: Env,
@@ -30,7 +30,7 @@ export async function event(
     now(),
     sourceKey,
   );
-  const subs = await all(
+  const subs = await cachedAll(
     env,
     "SELECT s.*,a.scopes FROM webhook_subscriptions s JOIN applications a ON a.id=s.app_id WHERE s.profile_id=? AND s.enabled=1 AND a.disabled=0",
     profile,

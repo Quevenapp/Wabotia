@@ -6,7 +6,7 @@
 // Estados: created → paid | expired | cancelled; paid → refunded. Dinheiro
 // confirmado vence: um pagamento aprovado depois de expirar ou de cancelado
 // localmente passa a paid. Nenhuma mensagem do cliente muda o estado.
-import { all, exec, one } from "./db";
+import { all, exec, one, cachedOne, withReadCache } from "./db";
 import {
   ApiError,
   type Actor,
@@ -77,7 +77,11 @@ export const webhookPath = (provider: string, accountId: string) =>
   `/webhooks/payments/${provider}/${accountId}`;
 
 async function accountRow(env: Env, profile: string) {
-  return one(env, "SELECT * FROM payment_accounts WHERE profile_id=?", profile);
+  return cachedOne(
+    env,
+    "SELECT * FROM payment_accounts WHERE profile_id=?",
+    profile,
+  );
 }
 export async function accountCredentials(
   env: Env,
@@ -650,6 +654,7 @@ export async function refreshFromProvider(
   accountId: string,
   providerPaymentId: string,
 ) {
+  env = withReadCache(env);
   const account = await one(
     env,
     "SELECT * FROM payment_accounts WHERE id=?",

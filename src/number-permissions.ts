@@ -1,4 +1,4 @@
-import { one } from "./db";
+import { cachedOne, one } from "./db";
 import { ApiError, type Env, json } from "./types";
 import {
   numberPolicy,
@@ -9,7 +9,11 @@ import {
 export async function getNumberPolicy(env: Env, connection: string | null) {
   const row =
     connection &&
-    (await one(env, "SELECT config FROM connections WHERE id=?", connection));
+    (await cachedOne(
+      env,
+      "SELECT config FROM connections WHERE id=?",
+      connection,
+    ));
   const config = row ? json(row.config) : {};
   const policy = numberPolicy(config);
   if (config.service?.menu_mode === "off") policy.menu = false;

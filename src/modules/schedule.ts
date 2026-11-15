@@ -2,6 +2,7 @@
 // alarme do Coordinator de cada área; o cron de 5 minutos do Worker acorda
 // todas as áreas, então cada módulo ligado roda ao menos a cada 5 minutos.
 import type { Env } from "../types";
+import { withReadCache } from "../db";
 import { scheduledModules } from "./hooks";
 import { moduleStates } from "./registry";
 
@@ -25,6 +26,7 @@ export async function runModuleSchedules(
 ): Promise<ScheduleOutcome[]> {
   const registered = scheduledModules();
   if (!registered.length) return [];
+  env = withReadCache(env);
   const states = await moduleStates(env, profile);
   const outcomes: ScheduleOutcome[] = [];
   for (const [module, handler] of registered) {

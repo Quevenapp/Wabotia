@@ -3,7 +3,7 @@
 // limites seguem os da página (src/web-cart.ts), então o cardápio salvo
 // sempre vira um catálogo válido. Lê a tabela de mídia do núcleo (fotos);
 // não grava em tabelas do núcleo.
-import { all, batch, exec, one } from "../../db";
+import { all, batch, exec, one, cachedAll } from "../../db";
 import {
   ApiError,
   type Actor,
@@ -121,7 +121,7 @@ export const groupView = (row: any) => ({
 });
 
 async function itemGroupIds(ctx: ModuleContext, itemIds?: string[]) {
-  const rows = await all(
+  const rows = await cachedAll(
     ctx.env,
     "SELECT item_id,group_id FROM pedido_item_groups WHERE profile_id=? ORDER BY position,rowid",
     ctx.profile,
@@ -137,17 +137,17 @@ async function itemGroupIds(ctx: ModuleContext, itemIds?: string[]) {
 /** GET pedido/menu: o cardápio inteiro, na ordem de exibição. */
 export async function loadMenu(ctx: ModuleContext) {
   const [categories, items, groups, images, links] = await Promise.all([
-    all(
+    cachedAll(
       ctx.env,
       "SELECT * FROM pedido_categories WHERE profile_id=? ORDER BY position,created,id",
       ctx.profile,
     ),
-    all(
+    cachedAll(
       ctx.env,
       "SELECT * FROM pedido_items WHERE profile_id=? ORDER BY position,created,id",
       ctx.profile,
     ),
-    all(
+    cachedAll(
       ctx.env,
       "SELECT * FROM pedido_groups WHERE profile_id=? ORDER BY name COLLATE NOCASE,created,id",
       ctx.profile,
@@ -170,7 +170,7 @@ export type Menu = Awaited<ReturnType<typeof loadMenu>>;
 
 export async function menuImages(ctx: ModuleContext) {
   return (
-    await all(
+    await cachedAll(
       ctx.env,
       "SELECT i.media_id,i.caption,i.position,m.name,m.type FROM pedido_menu_images i LEFT JOIN media m ON m.id=i.media_id AND m.profile_id=i.profile_id WHERE i.profile_id=? ORDER BY i.position,i.rowid",
       ctx.profile,

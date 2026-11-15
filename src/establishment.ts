@@ -3,7 +3,7 @@
 // editados em Gestão; módulos leem por ctx.establishment(), as páginas do
 // passo web mostram no cabeçalho e no rodapé, e os aplicativos leem em
 // GET /api/v1/profiles/:profile/establishment (cupom, comanda, recibo).
-import { one } from "./db";
+import { cachedOne } from "./db";
 import { ApiError, json, requireValue, type Env } from "./types";
 
 export interface EstablishmentSettings {
@@ -135,7 +135,7 @@ export async function establishment(
   env: Env,
   profile: string,
 ): Promise<Establishment> {
-  const row = await one(
+  const row = await cachedOne(
     env,
     "SELECT name,settings FROM profiles WHERE id=?",
     profile,
