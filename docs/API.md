@@ -137,7 +137,7 @@ Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profi
 |---|---|
 | `GET /mensalidade/plans` · `POST` · `PATCH /plans/{id}` · `DELETE /plans/{id}` | Planos: `name`, `amount_cents`, `period` (`monthly`, `quarterly`, `yearly`), `due_day` (1 a 31; no mês curto, o último dia), `active`. Excluir com assinaturas: `409 plan_in_use` |
 | `GET /mensalidade/subscriptions` | Filtros `status=active,paused,ended`, `plan_id`, `q`, `phone`, `conversation_id`, `limit`, `cursor`; traz `counts` e, por assinatura, `open_count`, `overdue_count`, `overdue_cents` |
-| `POST /mensalidade/subscriptions` | `plan_id` e `conversation_id` ou `phone` + `customer_name`; opcionais `amount_cents`, `discount_cents`, `due_day`, `start_date`, `end_date`, `notes` |
+| `POST /mensalidade/subscriptions` | `plan_id` e `conversation_id` ou `phone` + `customer_name`; opcionais `amount_cents`, `discount_cents`, `due_day`, `start_date`, `end_date`, `notes`, `payer_id`, `document`, `payer_name`. Outros campos são ignorados. `billing_consent: true` (aceite de cobrança declarado pela equipe) só por administrador e com `billing_consent_evidence` (onde o cliente aceitou; sem ela, `400 consent_evidence_required`); vale também na importação |
 | `POST /mensalidade/subscriptions/import` | `{"rows":[{"customer_name","phone","plan"\|"plan_id","discount_cents","due_day","start_date"}]}` (até 300); devolve `created`, `skipped` (já assinante do plano) e `errors` por linha |
 | `GET /mensalidade/subscriptions/{id}` · `PATCH` | Detalhe com `installments`; alteração vale para as próximas parcelas |
 | `POST /mensalidade/subscriptions/{id}/pause` · `/resume` · `/end` | Pausar e encerrar cancelam as parcelas abertas ainda não vencidas; retomar não cobra a pausa |

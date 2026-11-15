@@ -2,6 +2,7 @@
 // pagador é só de administrador (ou integração); atendente comum, não.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { one } from "../src/db";
 import { perform } from "../src/service";
 import { uid } from "../src/types";
 import { modulesApi } from "../src/modules/api";
@@ -154,5 +155,37 @@ describe("M5: telefone autorizado e documento do pagador", () => {
     expect(
       (await ok.json<any>()).phones.map((p: any) => p.created_by),
     ).toContain(f.admin.id);
+  });
+});
+
+describe("B8: só os campos do cadastro na criação de assinatura", () => {
+  it("sourceKey e opções internas vindas do corpo são ignoradas", async () => {
+    const { f, plan, admin } = await setup();
+    const body = {
+      plan_id: plan.id,
+      customer_name: "Pré-criada",
+      phone: "5511982000030",
+      sourceKey: "suporte:sessao-da-vitima",
+      source_key: "suporte:sessao-da-vitima",
+      paidContract: true,
+    };
+    const first = await (
+      await api(admin, `${root(f)}/subscriptions`, "POST", body)
+    ).json<any>();
+    const second = await (
+      await api(admin, `${root(f)}/subscriptions`, "POST", {
+        ...body,
+        phone: "5511982000031",
+      })
+    ).json<any>();
+    // Sem reaproveitar pela chave: duas assinaturas, nenhuma com a chave.
+    expect(second.id).not.toBe(first.id);
+    expect(
+      await one(
+        env,
+        "SELECT count(*) AS n FROM mensalidade_subscriptions WHERE source_key IS NOT NULL AND profile_id=?",
+        f.profile,
+      ),
+    ).toEqual({ n: 0 });
   });
 });

@@ -1,7 +1,7 @@
 // Mensalidade (módulo "mensalidade"): ganchos e rotas. Cadastros em
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
-import { now, requireValue } from "../../types";
+import { type Actor, now, requireValue } from "../../types";
 import {
   moduleError,
   onCommand,
@@ -75,6 +75,31 @@ import {
 } from "./store";
 
 onSettingsSave("mensalidade", "mensalidade", validateMensalidadeSettings);
+
+/**
+ * Aceite de cobrança declarado pela equipe (`billing_consent: true`): abre
+ * conversa na linha oficial e permite notificação paga em nome do cliente,
+ * então só administrador, e com a evidência (`billing_consent_evidence`:
+ * onde o cliente aceitou). Devolve a evidência, ou null sem aceite.
+ */
+function teamConsent(actor: Actor, data: any) {
+  if (data?.billing_consent !== true) return null;
+  manager(
+    actor,
+    "Somente administradores registram o aceite de cobrança do cliente.",
+  );
+  const evidence =
+    typeof data.billing_consent_evidence === "string"
+      ? data.billing_consent_evidence.trim()
+      : "";
+  if (Array.from(evidence).length < 5 || Array.from(evidence).length > 500)
+    throw moduleError(
+      400,
+      "consent_evidence_required",
+      "Informe onde o cliente aceitou receber cobranças pelo WhatsApp (billing_consent_evidence, de 5 a 500 caracteres).",
+    );
+  return evidence;
+}
 
 // Parcelas, vencidas e avisos (gancho periódico do núcleo).
 onSchedule("mensalidade", async (ctx, tick) => {
@@ -552,18 +577,37 @@ onCommand(
           );
       }
     }
+    const evidence = teamConsent(actor, data);
+    // Só os campos do cadastro: nada de chave de origem (sourceKey) ou
+    // opções internas vindas do corpo.
     const sub = await createSubscription(
       ctx,
-      { ...data, conversation: c },
+      {
+        conversation: c,
+        plan_id: data.plan_id,
+        customer_name: data.customer_name,
+        phone: data.phone,
+        amount_cents: data.amount_cents,
+        discount_cents: data.discount_cents,
+        due_day: data.due_day,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        notes: data.notes,
+        payer_id: data.payer_id,
+        document: data.document,
+        payer_name: data.payer_name,
+      },
       actor.id,
     );
-    // A equipe confirma que o cliente aceitou receber cobranças pelo WhatsApp.
-    if (data.billing_consent === true)
+    // Um administrador confirma, com a evidência, que o cliente aceitou
+    // receber cobranças pelo WhatsApp.
+    if (evidence)
       await consentFromTeam(
         ctx,
         sub,
         actor.kind === "app" ? "api" : "panel",
         actor.id,
+        evidence,
       );
     return subscriptionView(await loadSubscription(ctx, sub.id));
   },
@@ -580,8 +624,9 @@ onCommand(
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
+    const evidence = teamConsent(actor, data);
     const result = await importSubscriptions(ctx, data.rows, actor.id);
-    if (data.billing_consent === true)
+    if (evidence)
       for (const sub of result.created)
         await consentFromTeam(
           ctx,
@@ -592,6 +637,7 @@ onCommand(
           },
           actor.kind === "app" ? "api" : "panel",
           actor.id,
+          evidence,
         );
     return result;
   },

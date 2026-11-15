@@ -255,6 +255,7 @@ function SubscriptionForm({
     document: "",
     payer_name: "",
     billing_consent: false,
+    billing_consent_evidence: "",
   }));
   const set = (key: string) => (value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -296,7 +297,10 @@ function SubscriptionForm({
         if (!initial && draft.start_date) body.start_date = draft.start_date;
         if (!initial && draft.document) body.document = draft.document;
         if (!initial && draft.payer_name) body.payer_name = draft.payer_name;
-        if (!initial && draft.billing_consent) body.billing_consent = true;
+        if (!initial && draft.billing_consent) {
+          body.billing_consent = true;
+          body.billing_consent_evidence = draft.billing_consent_evidence;
+        }
         const saved = initial
           ? await write(`/subscriptions/${initial.id}`, "PATCH", body)
           : await write("/subscriptions", "POST", body);
@@ -409,37 +413,58 @@ function SubscriptionForm({
         maxLength={1000}
         placeholder="Ex.: aluno Pedro, turma de sábado"
       />
-      {!initial && (
+      {!initial && app.isAdmin && (
         <ConsentCheck
           checked={!!draft.billing_consent}
           onChange={(value) =>
             setDraft((current) => ({ ...current, billing_consent: value }))
           }
+          evidence={draft.billing_consent_evidence}
+          onEvidence={set("billing_consent_evidence")}
         />
       )}
     </FormDialog>
   );
 }
 
-/** Aceite de cobranças pelo WhatsApp, confirmado pela equipe. */
+/**
+ * Aceite de cobranças pelo WhatsApp, registrado por um administrador com a
+ * evidência (onde o cliente aceitou).
+ */
 function ConsentCheck({
   checked,
   onChange,
+  evidence,
+  onEvidence,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
+  evidence: string;
+  onEvidence: (value: string) => void;
 }) {
   return (
-    <label className="mensalidade-check">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />{" "}
-      O cliente aceitou receber as cobranças e avisos pelo WhatsApp (contrato,
-      ficha ou pedido dele). Sem esse aceite, os avisos fora da janela de 24
-      horas esperam o cliente escrever.
-    </label>
+    <>
+      <label className="mensalidade-check">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+        />{" "}
+        O cliente aceitou receber as cobranças e avisos pelo WhatsApp (contrato,
+        ficha ou pedido dele). Sem esse aceite, os avisos fora da janela de 24
+        horas esperam o cliente escrever.
+      </label>
+      {checked && (
+        <Field
+          label="Onde o cliente aceitou"
+          value={evidence}
+          onChange={onEvidence}
+          maxLength={500}
+          required
+          placeholder="Ex.: contrato de matrícula assinado em 10/11/2026, cláusula 7"
+        />
+      )}
+    </>
   );
 }
 
@@ -454,6 +479,7 @@ function ImportDialog({
   const [text, setText] = useState("");
   const [result, setResult] = useState<Row | null>(null);
   const [consent, setConsent] = useState(false);
+  const [evidence, setEvidence] = useState("");
   const parsed = parseImport(text);
   if (result)
     return (
@@ -490,7 +516,9 @@ function ImportDialog({
         setResult(
           await write("/subscriptions/import", "POST", {
             rows: parsed.rows,
-            ...(consent ? { billing_consent: true } : {}),
+            ...(consent
+              ? { billing_consent: true, billing_consent_evidence: evidence }
+              : {}),
           }),
         );
       }}
@@ -513,7 +541,12 @@ function ImportDialog({
         (Planos e regras). Telefone que já tem assinatura no mesmo plano é
         pulado, então dá para importar a mesma planilha de novo.
       </p>
-      <ConsentCheck checked={consent} onChange={setConsent} />
+      <ConsentCheck
+        checked={consent}
+        onChange={setConsent}
+        evidence={evidence}
+        onEvidence={setEvidence}
+      />
     </FormDialog>
   );
 }

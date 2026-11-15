@@ -143,9 +143,12 @@ funcionar a área precisa de:
 2. Notificações ligadas na área com o nome desse modelo.
 3. **Aceite de cobranças** (finalidade `billing`) registrado para o cliente:
    - automático quando ele contrata um plano pela conversa (módulo Suporte);
-   - pela equipe, marcando "O cliente aceitou receber as cobranças e avisos
-     pelo WhatsApp" ao criar a assinatura ou importar (use quando houver
-     contrato, ficha ou pedido do cliente).
+   - por um **administrador**, marcando "O cliente aceitou receber as
+     cobranças e avisos pelo WhatsApp" ao criar a assinatura ou importar e
+     dizendo onde ele aceitou (contrato, ficha ou pedido do cliente). Na API:
+     `billing_consent: true` com `billing_consent_evidence` (5 a 500
+     caracteres); sem a evidência, `400 consent_evidence_required`. A
+     evidência fica gravada no aceite.
    Sem o aceite, a mensagem fica na fila até o cliente escrever. REVOGAR na
    conversa revoga todas as finalidades.
 

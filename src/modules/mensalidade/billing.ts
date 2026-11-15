@@ -142,6 +142,7 @@ export async function consentFromTeam(
   sub: { id: string; phone: string; conversation_id: string | null },
   source: string,
   actor: string,
+  evidence: string,
 ) {
   const c = await conversationFor(ctx, sub);
   if (!c) return null;
@@ -149,7 +150,12 @@ export async function consentFromTeam(
     ctx,
     c,
     source,
-    { action: "subscription", subscription_id: sub.id, registered_by: actor },
+    {
+      action: "subscription",
+      subscription_id: sub.id,
+      registered_by: actor,
+      statement: evidence,
+    },
     `assinatura:${sub.id}`,
   );
 }
