@@ -730,6 +730,33 @@ export function onRead(
 }
 
 /**
+ * onRead, onCommand e onConversationAction que passam toda resposta por
+ * `filter(ctx, actor, valor)`, por exemplo para tirar dados pessoais e notas
+ * de quem não tem contacts:read ou notes:read (ctx.redact). O módulo usa
+ * estas no lugar das originais e nenhuma rota fica de fora.
+ */
+export function filteredHandlers(
+  filter: (ctx: ModuleContext, actor: Actor, value: any) => any,
+) {
+  return {
+    onRead: (...[moduleId, path, handler]: Parameters<typeof onRead>) =>
+      onRead(moduleId, path, async (ctx, actor, request) =>
+        filter(ctx, actor, await handler(ctx, actor, request)),
+      ),
+    onCommand: (...[moduleId, op, handler]: Parameters<typeof onCommand>) =>
+      onCommand(moduleId, op, async (ctx, actor, data, request) =>
+        filter(ctx, actor, await handler(ctx, actor, data, request)),
+      ),
+    onConversationAction: (
+      ...[moduleId, action, handler]: Parameters<typeof onConversationAction>
+    ) =>
+      onConversationAction(moduleId, action, async (ctx, actor, c, data, r) =>
+        filter(ctx, actor, await handler(ctx, actor, c, data, r)),
+      ),
+  };
+}
+
+/**
  * Conteúdo estruturado recebido do WhatsApp antes do menu e do bot:
  * "order" (carrinho do catálogo, content.order) ou "flow_reply" (resposta de
  * Flow que não é de um passo web, content.flow_reply). Devolva true quando

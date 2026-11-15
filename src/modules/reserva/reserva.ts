@@ -8,13 +8,11 @@ import {
   type Conversation,
 } from "../../types";
 import {
-  onCommand,
-  onConversationAction,
+  filteredHandlers,
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
-  onRead,
   onRoute,
   onSchedule,
   onSettingsSave,
@@ -51,6 +49,7 @@ import {
   getBooking,
   listBookings,
   upcomingFor,
+  visibleBookings,
 } from "./bookings";
 import {
   archiveUnit,
@@ -63,6 +62,9 @@ import {
 } from "./units";
 
 const MODULE = "reserva";
+// Toda resposta das rotas e comandos passa por visibleBookings (revisão M6).
+const { onRead, onCommand, onConversationAction } =
+  filteredHandlers(visibleBookings);
 
 export async function config(ctx: ModuleContext) {
   return reservaConfig((await ctx.settings())?.reserva);

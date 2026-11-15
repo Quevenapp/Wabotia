@@ -164,13 +164,44 @@ export async function listAppointments(
   return rows.map((row) => appointmentView(row, names));
 }
 
+const isAppointment = (v: any) =>
+  v &&
+  typeof v === "object" &&
+  "customer_phone" in v &&
+  "service_id" in v &&
+  "professional_id" in v;
+/**
+ * Respostas da Agenda para o ator (revisão M6): aplicação sem contacts:read
+ * não vê o telefone do cliente; sem notes:read, não vê as observações.
+ */
+export function visibleAppointments(
+  ctx: ModuleContext,
+  actor: Actor,
+  value: any,
+) {
+  if (ctx.mayRead(actor, "contacts") && ctx.mayRead(actor, "notes"))
+    return value;
+  const walk = (v: any): any => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (!v || typeof v !== "object") return v;
+    if (isAppointment(v))
+      return ctx.redact(actor, v, {
+        contacts: ["customer_phone"],
+        notes: ["notes"],
+      });
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+  };
+  return walk(value);
+}
+
 /** Próximos agendamentos ativos do cliente da conversa (ou do mesmo telefone). */
 export async function upcomingFor(
   ctx: ModuleContext,
   c: Conversation,
   at: number,
 ) {
-  const phone = (c.phone || "").replace(/\D/g, "");
+  // Só o telefone autenticado pelo canal (revisão M7).
+  const phone = (ctx.verifiedPhone(c) || "").replace(/\D/g, "");
   const [rows, names] = await Promise.all([
     all(
       ctx.env,

@@ -2,10 +2,10 @@
 // pedido) para os apps nativos imprimirem pelo ThermalPrinterKit e o texto
 // pronto em colunas fixas (32 na bobina de 58 mm, 48 na de 80 mm) para o
 // painel e impressoras simples. Observações internas não entram.
-import { requireValue } from "../../types";
+import { requireValue, type Actor } from "../../types";
 import type { Establishment, ModuleContext } from "../api";
 import { PAYMENT_LABELS, dateTimeOf, money, type PaymentMethod } from "./model";
-import { loadOrder, orderView, type OrderView } from "./orders";
+import { loadOrder, orderView, visibleOrder, type OrderView } from "./orders";
 
 export const TICKET_COLUMNS = [32, 42, 48] as const;
 
@@ -155,13 +155,15 @@ export async function orderTicket(
   ctx: ModuleContext,
   id: unknown,
   query: Record<string, string>,
+  actor: Actor,
 ) {
   const columns = query.columns ? Number(query.columns) : 32;
   requireValue(
     (TICKET_COLUMNS as readonly number[]).includes(columns),
     "columns: 32, 42 ou 48.",
   );
-  const order = orderView(await loadOrder(ctx, id));
+  // Comanda de aplicação sem contacts:read sai sem telefone e endereço.
+  const order = visibleOrder(ctx, actor, orderView(await loadOrder(ctx, id)));
   const establishment = await ctx.establishment();
   return {
     columns,

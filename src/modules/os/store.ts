@@ -4,6 +4,7 @@
 import { all, batch, exec, one } from "../../db";
 import {
   ApiError,
+  type Actor,
   type Conversation,
   json,
   now,
@@ -154,6 +155,30 @@ export function orderView(row: any, history?: any[]) {
         }
       : {}),
   };
+}
+
+type OrderView = ReturnType<typeof orderView>;
+/**
+ * Visão para o ator (revisão M6): aplicação sem contacts:read não vê o
+ * telefone do cliente; sem notes:read, não vê as observações internas nem as
+ * notas do histórico. Pessoas da equipe veem tudo.
+ */
+export function visibleOrder(
+  ctx: ModuleContext,
+  actor: Actor,
+  view: OrderView,
+): OrderView {
+  const out: any = { ...view };
+  if (!ctx.mayRead(actor, "contacts")) {
+    const { phone: _phone, ...customer } = view.customer;
+    out.customer = customer;
+  }
+  if (!ctx.mayRead(actor, "notes")) {
+    delete out.notes;
+    if (out.history)
+      out.history = out.history.map(({ note: _note, ...h }: any) => h);
+  }
+  return out;
 }
 
 export async function loadOrder(ctx: ModuleContext, id: unknown) {
@@ -904,7 +929,7 @@ export async function handleQuoteReply(
       : word![1].startsWith("aprov")
         ? "approve"
         : "decline";
-    const phone = phoneDigits(c.phone || c.external_id);
+    const phone = phoneDigits(ctx.verifiedPhone(c) || "");
     if (word?.[2]) {
       order = await one(
         ctx.env,
@@ -951,7 +976,7 @@ export async function handleQuoteReply(
       ctx,
       order,
       decision,
-      `customer:${phoneDigits(c.phone || c.external_id)}`,
+      `customer:${phoneDigits(ctx.verifiedPhone(c) || "") || c.id}`,
       "whatsapp",
     );
   } catch (error) {
@@ -980,7 +1005,7 @@ export async function ordersOfCustomer(
   c: Conversation,
   open = false,
 ) {
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
   const rows = await all(
     ctx.env,
     `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?))${open ? " AND status NOT IN ('delivered','cancelled')" : ""} ORDER BY number DESC LIMIT 20`,
@@ -992,7 +1017,7 @@ export async function ordersOfCustomer(
 }
 
 export async function trackText(ctx: ModuleContext, c: Conversation) {
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
   // Ordens abertas no balcão só com o telefone passam a ser desta conversa.
   if (phone.length >= 8)
     await exec(

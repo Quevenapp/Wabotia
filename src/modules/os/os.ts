@@ -31,6 +31,7 @@ import {
   loadOrder,
   orderHistory,
   orderView,
+  visibleOrder,
   ordersOfCustomer,
   saveQuote,
   sendQuote,
@@ -176,7 +177,7 @@ onConversationAction(
       sourceKey: `action:${actor.id}:${requestId}`,
       actor: actor.id,
     });
-    return orderView(order);
+    return visibleOrder(ctx, actor, orderView(order));
   },
 );
 
@@ -206,13 +207,21 @@ onSchedule("os", async (ctx, { now }) => {
 
 onRead("os", "service-orders", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listOrders(ctx, query);
+  const page = await listOrders(ctx, query);
+  return {
+    ...page,
+    data: page.data.map((view) => visibleOrder(ctx, actor, view)),
+  };
 });
 
 onRead("os", "service-orders/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   const order = await loadOrder(ctx, params.id);
-  return orderView(order, await orderHistory(ctx, order.id));
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(order, await orderHistory(ctx, order.id)),
+  );
 });
 
 onRoute("os", { method: "POST", path: "service-orders", op: "os.create" });
@@ -237,14 +246,18 @@ onCommand("os", "os.create", async (ctx, actor, data, { requestId }) => {
     sourceKey: `command:${actor.id}:${requestId}`,
     actor: actor.id,
   });
-  return orderView(order);
+  return visibleOrder(ctx, actor, orderView(order));
 });
 
 onRoute("os", { method: "PATCH", path: "service-orders/:id", op: "os.update" });
 onCommand("os", "os.update", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(await updateOrder(ctx, order, data, actor.id));
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(await updateOrder(ctx, order, data, actor.id)),
+  );
 });
 
 onRoute("os", {
@@ -255,8 +268,10 @@ onRoute("os", {
 onCommand("os", "os.status", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(
-    await changeStatus(ctx, order, data.status, actor.id, data.note),
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(await changeStatus(ctx, order, data.status, actor.id, data.note)),
   );
 });
 
@@ -268,7 +283,11 @@ onRoute("os", {
 onCommand("os", "os.quote.save", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(await saveQuote(ctx, order, data, actor.id));
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(await saveQuote(ctx, order, data, actor.id)),
+  );
 });
 
 onRoute("os", {
@@ -279,8 +298,12 @@ onRoute("os", {
 onCommand("os", "os.quote.send", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(
-    await sendQuote(ctx, order, actor.id, { notify: data.notify !== false }),
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(
+      await sendQuote(ctx, order, actor.id, { notify: data.notify !== false }),
+    ),
   );
 });
 
@@ -292,14 +315,18 @@ onRoute("os", {
 onCommand("os", "os.decide", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
-  return orderView(
-    await decide(
-      ctx,
-      order,
-      data.decision,
-      actor.id,
-      actor.kind === "user" ? "panel" : "api",
-      data.note,
+  return visibleOrder(
+    ctx,
+    actor,
+    orderView(
+      await decide(
+        ctx,
+        order,
+        data.decision,
+        actor.id,
+        actor.kind === "user" ? "panel" : "api",
+        data.note,
+      ),
     ),
   );
 });
@@ -330,6 +357,10 @@ onRead(
   async (ctx, actor, { params, query }) => {
     ctx.access(actor, "conversations:read");
     const c = await ctx.conversation(params.id, actor);
-    return { data: await ordersOfCustomer(ctx, c, query.open === "1") };
+    return {
+      data: (await ordersOfCustomer(ctx, c, query.open === "1")).map((view) =>
+        visibleOrder(ctx, actor, view),
+      ),
+    };
   },
 );

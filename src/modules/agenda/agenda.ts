@@ -8,12 +8,10 @@ import {
   requireValue,
 } from "../../types";
 import {
-  onCommand,
-  onConversationAction,
+  filteredHandlers,
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
-  onRead,
   onRoute,
   onSchedule,
   onSettingsSave,
@@ -35,6 +33,7 @@ import {
   move,
   noShow,
   upcomingFor,
+  visibleAppointments,
 } from "./appointments";
 import {
   archiveProfessional,
@@ -49,6 +48,9 @@ import {
 } from "./catalog";
 
 const MODULE = "agenda";
+// Toda resposta das rotas e comandos passa por visibleAppointments (M6).
+const { onRead, onCommand, onConversationAction } =
+  filteredHandlers(visibleAppointments);
 
 export async function config(ctx: ModuleContext) {
   return agendaConfig((await ctx.settings())?.agenda);
