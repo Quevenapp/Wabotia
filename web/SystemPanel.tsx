@@ -18,8 +18,14 @@ type Api = (
   body?: any,
   signal?: AbortSignal,
 ) => Promise<any>;
-type Data = { updates: any; cloudflare: any; deployments: any[] };
+type Data = {
+  updates: any;
+  cloudflare: any;
+  deployments: any[];
+  public_origin?: string | null;
+};
 const demoData: Data = {
+  public_origin: "https://atendimento.exemplo.com.br",
   updates: {
     installed: { version: "0.10.0", commit: "exemplo" },
     method: "direct",
@@ -755,8 +761,104 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           </form>
         )}
       </section>
+      <PublicOriginSection
+        api={api}
+        demo={demo}
+        current={data.public_origin || ""}
+        refresh={system.refresh}
+      />
       <PushSection api={api} demo={demo} />
     </div>
+  );
+}
+
+/**
+ * Endereço público: base dos links enviados aos clientes (passo web,
+ * carrinho, check-in) e do aviso de pagamento do Mercado Pago. Fica fixo;
+ * abrir o painel por outro nome não muda (POST v1/system/origin/configure).
+ */
+function PublicOriginSection({
+  api,
+  demo,
+  current,
+  refresh,
+}: {
+  api: Api;
+  demo: boolean;
+  current: string;
+  refresh: () => Promise<void>;
+}) {
+  const action = useAction(demo);
+  const [value, setValue] = useState(current);
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (!dirty.current) setValue(current);
+  }, [current]);
+  return (
+    <section className="card system-card">
+      <div className="section-heading">
+        <h2>
+          <ShieldCheck size={22} /> Endereço público
+        </h2>
+        <span className={"badge " + (current ? "active" : "paused")}>
+          {current ? "Definido" : "Ainda não definido"}
+        </span>
+      </div>
+      <p>
+        Base dos links que os clientes recebem (formulários, carrinho, check-in)
+        e do aviso de pagamento do Mercado Pago. Use o endereço pelo qual os
+        clientes acessam esta instalação. Ele não muda quando o painel é aberto
+        por outro nome.
+      </p>
+      <form
+        className="system-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void action.run("Salvando endereço público…", async () => {
+            const saved = await api(
+              "v1/system/origin/configure",
+              "POST",
+              { public_origin: value.trim() },
+              AbortSignal.timeout(45000),
+            );
+            dirty.current = false;
+            setValue(saved.public_origin);
+            await refresh();
+            action.setMessage(
+              "Endereço público salvo. Os próximos links usam este endereço.",
+            );
+          });
+        }}
+      >
+        <Input
+          label="Endereço HTTPS, sem caminho"
+          name="public_origin"
+          type="url"
+          inputMode="url"
+          autoComplete="off"
+          placeholder="https://atendimento.exemplo.com.br"
+          value={value}
+          disabled={!!action.busy}
+          onChange={(e) => {
+            dirty.current = true;
+            setValue(e.target.value);
+          }}
+          pattern="https://[^/\s]+/?"
+          required
+        />
+        <button
+          className="button"
+          disabled={!!action.busy || !dirty.current || !value.trim()}
+        >
+          Salvar endereço público
+        </button>
+      </form>
+      <Feedback {...action} />
+      <p className="muted">
+        Links já enviados continuam com o endereço antigo. Trocar o endereço não
+        muda o webhook das cobranças já criadas no Mercado Pago.
+      </p>
+    </section>
   );
 }
 
