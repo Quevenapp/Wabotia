@@ -527,7 +527,13 @@ final class ConversationViewModel: ObservableObject {
         guard let p = profileId, ModuleFeature.shared.isAvailable(ModuleId.suporte, p), conversation?.isGroup != true else { suporte = nil; return }
         do {
             suporte = try await SuporteClient(api: .current()).status(conversationId)
+            #if DEBUG
+            print("[Wabotia] suporte: \(suporte.map(SuporteRules.statusText) ?? "-"); passagem \(handoff?.module ?? "nenhuma")")
+            #endif
         } catch let e as QueueError {
+            #if DEBUG
+            print("[Wabotia] suporte: leitura falhou (\(e.status) \(e.code))")
+            #endif
             ModuleFailure.handler(ModuleId.suporte)(e)
             if e.moduleDisabled || e.status == 404 { suporte = nil }
         } catch {}

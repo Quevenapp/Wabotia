@@ -179,6 +179,8 @@ extension DemoMode {
             if kind == "pedido" { launch.route = .pedidoOrder(id: id) }
             if kind == "subscription" { launch.route = .subscription(id: id) }
             if kind == "installment" { launch.route = .installment(id: id) }
+            if kind == "conversation" { launch.tab = "conversations"; launch.route = .conversation(id: id) }
+            if kind == "conversation-info" { launch.tab = "conversations"; launch.route = .conversationInfo(id: id) }
             return launch
         }
         switch screen {
