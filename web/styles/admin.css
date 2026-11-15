@@ -868,6 +868,12 @@
 .form-field-actions .spacer {
   flex: 1;
 }
+/* Subir, descer e remover quebram de linha juntos, à direita. */
+.form-field-buttons {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
 .form-enabled {
   display: flex;
   align-items: center;

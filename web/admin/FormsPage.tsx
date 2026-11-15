@@ -161,33 +161,35 @@ function FieldEditor({
           </label>
         )}
         <span className="spacer" />
-        <button
-          type="button"
-          className="icon-button sm"
-          aria-label="Subir campo"
-          disabled={index === 0}
-          onClick={() => onMove(-1)}
-        >
-          <ArrowUp size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-button sm"
-          aria-label="Descer campo"
-          disabled={index === count - 1}
-          onClick={() => onMove(1)}
-        >
-          <ArrowDown size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-button sm"
-          aria-label="Remover campo"
-          disabled={count === 1}
-          onClick={onRemove}
-        >
-          <Trash2 size={16} />
-        </button>
+        <span className="form-field-buttons">
+          <button
+            type="button"
+            className="icon-button sm"
+            aria-label="Subir campo"
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+          >
+            <ArrowUp size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-button sm"
+            aria-label="Descer campo"
+            disabled={index === count - 1}
+            onClick={() => onMove(1)}
+          >
+            <ArrowDown size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-button sm"
+            aria-label="Remover campo"
+            disabled={count === 1}
+            onClick={onRemove}
+          >
+            <Trash2 size={16} />
+          </button>
+        </span>
       </div>
     </fieldset>
   );
