@@ -484,11 +484,15 @@ textarea:focus-visible {
 .switch:disabled {
   opacity: 0.6;
 }
+/* Quando as abas não cabem na largura (celular), quebram em mais de uma
+   linha em vez de esconder as últimas fora da tela. Com uma linha só, o
+   raio de 20 px ainda arredonda as pontas por inteiro. */
 .segmented {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
-  border-radius: var(--radius-pill);
+  border-radius: 20px;
   background: var(--field);
   width: max-content;
   max-width: 100%;
@@ -503,7 +507,7 @@ textarea:focus-visible {
   flex: 1 0 auto;
 }
 .segmented button {
-  flex: none;
+  flex: 1 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -587,6 +591,13 @@ textarea:focus-visible {
 }
 .search-clear:hover {
   background: var(--hover);
+}
+/* No celular a busca da barra de ferramentas ocupa a linha toda, como os
+   botões (legacy.css, .toolbar > .button). */
+@media (max-width: 540px) {
+  .toolbar > .search-box {
+    width: 100%;
+  }
 }
 .field {
   display: grid;
