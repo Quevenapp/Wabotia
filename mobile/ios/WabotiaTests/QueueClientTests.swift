@@ -165,6 +165,7 @@ final class QueueClientTests: XCTestCase {
 
     func testNormalizeBaseURL() {
         XCTAssertEqual(QueueHTTP.normalize(" wabotia.exemplo.example/ "), "https://wabotia.exemplo.example")
-        XCTAssertEqual(QueueHTTP.normalize("http://127.0.0.1:8787"), "http://127.0.0.1:8787")
+        XCTAssertEqual(QueueHTTP.normalize("http://127.0.0.1:8787", allowCleartext: true), "http://127.0.0.1:8787")
+        XCTAssertEqual(QueueHTTP.normalize("http://wabotia.local:8787", allowCleartext: false), "https://wabotia.local:8787", "build de loja: nunca sem TLS")
     }
 }

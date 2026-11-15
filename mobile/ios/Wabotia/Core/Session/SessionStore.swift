@@ -175,13 +175,25 @@ final class SessionStore {
         }
     }
 
-    /// Normaliza o que a pessoa digitou: aceita "wabotia.exemplo.com.br", "https://…/app" etc.
-    static func normalizeServer(_ input: String) -> URL? {
+    /// `http://` só no build de depuração (servidor local de desenvolvimento). No build de loja o app só fala com
+    /// servidores `https`, e o Info.plist não tem exceção do ATS: o token nunca anda sem TLS, nem na rede local.
+    static var allowsCleartext: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Normaliza o que a pessoa digitou: aceita "wabotia.exemplo.com.br", "https://…/app" etc. Sem `allowCleartext`,
+    /// `http://` vira `https://`.
+    static func normalizeServer(_ input: String, allowCleartext: Bool = allowsCleartext) -> URL? {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         if !text.contains("://") { text = "https://" + text }
         guard var components = URLComponents(string: text), let host = components.host, !host.isEmpty else { return nil }
-        let scheme = (components.scheme ?? "https").lowercased()
+        var scheme = (components.scheme ?? "https").lowercased()
+        if scheme == "http", !allowCleartext { scheme = "https" }
         guard scheme == "https" || scheme == "http" else { return nil }
         components.scheme = scheme
         components.path = ""

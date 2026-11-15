@@ -44,11 +44,13 @@ enum QueueHTTP {
         "Wabotia-iOS/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")"
     }
 
-    /// O endereço da instalação sem barra no fim; aceita "wabotia.minhaempresa.com.br" sem https.
-    static func normalize(_ base: String) -> String {
+    /// O endereço da instalação sem barra no fim; aceita "wabotia.minhaempresa.com.br" sem https. Fora do build de
+    /// depuração, `http://` vira `https://`: a credencial do aparelho nunca anda sem TLS.
+    static func normalize(_ base: String, allowCleartext: Bool = SessionStore.allowsCleartext) -> String {
         var text = base.trimmingCharacters(in: .whitespacesAndNewlines)
         while text.hasSuffix("/") { text.removeLast() }
-        if !text.hasPrefix("http://") && !text.hasPrefix("https://") { text = "https://" + text }
+        if text.lowercased().hasPrefix("http://"), !allowCleartext { text = "https://" + text.dropFirst("http://".count) }
+        if !text.lowercased().hasPrefix("http://") && !text.lowercased().hasPrefix("https://") { text = "https://" + text }
         return text
     }
 

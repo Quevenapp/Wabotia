@@ -66,6 +66,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File mobile\ios\build-on-mac.ps1 
 powershell -NoProfile -ExecutionPolicy Bypass -File mobile\ios\build-on-mac.ps1 -Destination device
 ```
 
+O app só fala com servidores `https`: o Info.plist não tem exceção do ATS, e no build de loja um `http://` digitado
+vira `https://` (`SessionStore.allowsCleartext`). `http://` para um servidor local de desenvolvimento só vale no
+build de depuração, onde o ATS deixar. A impressora Wi-Fi usa socket direto, que não passa pelo ATS.
+
 `-Test` roda o alvo `WabotiaTests` no simulador "Vinki v4 iPad" (cerca de 195 testes: clientes por stub de URL,
 regras das telas, demonstração, modo aparelho). `-Destination device` assina com a conta do Xcode do Mac.
 

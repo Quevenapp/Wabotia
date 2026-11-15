@@ -5,7 +5,8 @@ final class SessionStoreTests: XCTestCase {
     func testNormalizeServerAcceptsBareHost() {
         XCTAssertEqual(SessionStore.normalizeServer("wabotia.queven.com.br")?.absoluteString, "https://wabotia.queven.com.br")
         XCTAssertEqual(SessionStore.normalizeServer(" https://wabotia.fagoo.com.br/app ")?.absoluteString, "https://wabotia.fagoo.com.br")
-        XCTAssertEqual(SessionStore.normalizeServer("http://localhost:8787/")?.absoluteString, "http://localhost:8787")
+        XCTAssertEqual(SessionStore.normalizeServer("http://localhost:8787/", allowCleartext: true)?.absoluteString, "http://localhost:8787")
+        XCTAssertEqual(SessionStore.normalizeServer("http://wabotia.local/", allowCleartext: false)?.absoluteString, "https://wabotia.local", "build de loja: nunca sem TLS")
         XCTAssertNil(SessionStore.normalizeServer(""))
         XCTAssertNil(SessionStore.normalizeServer("ftp://x"))
     }

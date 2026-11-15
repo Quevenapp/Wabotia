@@ -61,8 +61,8 @@ targets:
         NSContactsUsageDescription: "Os contatos são usados apenas quando você escolhe compartilhar um cartão de contato ou salvar um contato recebido."
         NSBluetoothAlwaysUsageDescription: "O Bluetooth é usado para imprimir o cupom da senha numa impressora térmica, quando este aparelho é um totem."
         NSLocalNetworkUsageDescription: "A rede local é usada para encontrar e usar a impressora térmica Wi-Fi que imprime o cupom da senha no totem."
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+        # Sem exceção do ATS: o app só fala com servidores https. A impressora Wi-Fi usa socket direto (Network), que
+        # não passa pelo ATS; http:// para servidor local de desenvolvimento só no build de depuração.
         CFBundleURLTypes:
           - CFBundleURLName: br.com.queven.wabotia
             CFBundleURLSchemes: [wabotia]
