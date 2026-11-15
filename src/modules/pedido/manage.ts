@@ -119,7 +119,11 @@ export async function listOrders(
     where.push("number<?");
     args.push(before);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  // Inteiro (revisão B10: LIMIT não inteiro dava erro interno).
+  const limit = Math.min(
+    Math.max(Math.trunc(Number(query.limit)) || 50, 1),
+    200,
+  );
   const rows = await all(
     ctx.env,
     `SELECT * FROM pedido_orders WHERE ${where.join(" AND ")} ORDER BY number DESC LIMIT ?`,
@@ -465,6 +469,23 @@ export async function createFromApi(
   // whatsapp_notices (o cliente aceitou no balcão), abre uma na linha
   // oficial e registra o consentimento de avisos do pedido.
   const notices = data.whatsapp_notices === true;
+  // Aceite em nome do cliente abre conversa na linha oficial (custo de
+  // modelo) e grava consentimento: só administrador, com a evidência do
+  // aceite (revisão B9).
+  let evidence = "";
+  if (notices) {
+    if (!(actor.kind === "user" && actor.role === "admin"))
+      throw new ApiError(
+        403,
+        "admin_required",
+        "Registrar o aceite de avisos em nome do cliente é só para administradores.",
+      );
+    evidence = clipText(data.notices_evidence, 300, "Evidência do aceite");
+    requireValue(
+      evidence.length >= 3,
+      "Informe notices_evidence: como o cliente aceitou receber os avisos (ex.: ficha assinada no balcão).",
+    );
+  }
   if (!c && phoneDigits(phone).length >= 10)
     try {
       c = await ctx.conversationByPhone(phone, { open: notices });
@@ -475,7 +496,7 @@ export async function createFromApi(
     await ctx.recordConsent(c, {
       purpose: "order",
       source: "panel",
-      evidence: { actor: actor.id, via: "balcão" },
+      evidence: { actor: actor.id, via: "balcão", note: evidence },
       key: `counter:${actor.id}:${requestId}`,
     });
   requireValue(

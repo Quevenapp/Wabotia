@@ -145,6 +145,7 @@ export function admin(actor: Actor) {
 function userActor(row: any): Actor {
   return {
     id: row.id,
+    ...(row.session_expires ? { expiresAt: row.session_expires } : {}),
     kind: "user",
     name: row.name,
     role: row.role,
@@ -165,7 +166,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
     const hash = await sha(bearer);
     const row = await one(
       env,
-      "SELECT u.*,s.last_used session_last_used FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0",
+      "SELECT u.*,s.last_used session_last_used,s.expires session_expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0",
       hash,
       now(),
     );
@@ -187,7 +188,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
   if (bearer) {
     const row = await one(
       env,
-      "SELECT k.id key_id,a.* FROM api_keys k JOIN applications a ON a.id=k.app_id WHERE k.hash=? AND k.revoked=0 AND k.expires>? AND a.disabled=0",
+      "SELECT k.id key_id,k.expires key_expires,a.* FROM api_keys k JOIN applications a ON a.id=k.app_id WHERE k.hash=? AND k.revoked=0 AND k.expires>? AND a.disabled=0",
       await sha(bearer),
       now(),
     );
@@ -203,6 +204,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
       scopes: json(row.scopes, []),
       bots: json(row.bots, []),
       keyId: row.key_id,
+      expiresAt: row.key_expires,
       rate: row.rate,
       runLimit: row.run_limit,
     };
@@ -213,7 +215,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
   const row = token
     ? await one(
         env,
-        "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0",
+        "SELECT u.*,s.expires session_expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0",
         await sha(token),
         now(),
       )

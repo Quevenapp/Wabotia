@@ -156,10 +156,13 @@ onConversationAction(
   "os",
   "service_order",
   async (ctx, actor, c, data, { requestId }) => {
+    // Abrir a OS avisa o cliente: dono da conversa, administrador ou bot em
+    // atendimento, como para mandar o link (revisão B9).
+    const trigger = mayMessage(actor, c);
     if (data.send_form === true)
       return (
         await sendOpenForm(ctx, c, {
-          trigger: mayMessage(actor, c),
+          trigger,
           actor: actor.id,
           sourceKey: `action:${actor.id}:${requestId}`,
         })

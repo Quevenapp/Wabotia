@@ -587,6 +587,24 @@ describe("Cobrança: lacunas dos módulos (cancelCharge, paymentsReady, receipt)
     await expect(
       modulesApi(env, f.profile, "payments").cancelCharge(payment.id),
     ).rejects.toMatchObject({ status: 404 });
+    // Revisão B11: cobrar de novo com a mesma chave depois de cancelada abre
+    // cobrança nova (antes devolvia a cancelada, sem reenviar).
+    const again = await ctx.charge(c, {
+      method: "pix",
+      amount_cents: 5000,
+      description: "Sinal da reserva 12",
+      sourceKey: "sinal:12",
+    });
+    expect(again.id).not.toBe(payment.id);
+    expect(again.status).toBe("created");
+    // E a aberta é reaproveitada enquanto vale.
+    const same = await ctx.charge(c, {
+      method: "pix",
+      amount_cents: 5000,
+      description: "Sinal da reserva 12",
+      sourceKey: "sinal:12",
+    });
+    expect(same.id).toBe(again.id);
     // Paga não se cancela.
     const paid = await ctx.charge(c, {
       method: "pix",

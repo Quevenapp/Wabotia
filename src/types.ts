@@ -22,6 +22,8 @@ export interface Actor {
   scopes: string[];
   bots: string[];
   keyId?: string;
+  /** Validade da credencial (sessão ou chave), para fechar sockets abertos. */
+  expiresAt?: number;
   rate: number;
   runLimit: number;
 }

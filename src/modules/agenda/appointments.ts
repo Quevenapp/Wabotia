@@ -434,7 +434,8 @@ export async function book(
     ctx.env,
     `INSERT INTO agenda_appointments(id,profile_id,service_id,professional_id,starts,ends,status,conversation_id,contact_id,customer_name,customer_phone,notes,source,service_name,price_cents,booked_at,created_by,created,updated)
      SELECT ?,?,?,?,?,?,'booked',?,?,?,?,?,?,?,?,?,?,?,?
-     WHERE NOT EXISTS (SELECT 1 FROM agenda_appointments WHERE profile_id=? AND professional_id=? AND status IN ('booked','confirmed') AND starts<? AND ends>?)`,
+     WHERE NOT EXISTS (SELECT 1 FROM agenda_appointments WHERE profile_id=? AND professional_id=? AND status IN ('booked','confirmed') AND starts<? AND ends>?)
+       AND (?=1 OR NOT EXISTS (SELECT 1 FROM agenda_blocks b WHERE b.profile_id=? AND (b.professional_id IS NULL OR b.professional_id=?) AND b.starts<? AND b.ends>?))`,
     id,
     ctx.profile,
     slot.service.id,
@@ -457,6 +458,12 @@ export async function book(
     slot.professional.id,
     slot.ends,
     input.starts,
+    // Bloqueio criado entre a consulta e a reserva (revisão B7).
+    input.force ? 1 : 0,
+    ctx.profile,
+    slot.professional.id,
+    slot.ends,
+    input.starts,
   );
   if (!inserted.meta?.changes) throw slotTaken();
   const appointment = await getAppointment(ctx, id);
@@ -475,6 +482,19 @@ export async function book(
 }
 
 const ACTIVE = ["booked", "confirmed"];
+
+/**
+ * O agendamento mudou entre a leitura e a gravação (outra pessoa, o cliente
+ * ou a expiração): 409 com o motivo de agora (revisão B7).
+ */
+async function changedMeanwhile(ctx: ModuleContext, id: string) {
+  await activeRow(ctx, id);
+  return new ApiError(
+    409,
+    "appointment_changed",
+    "Este agendamento acabou de mudar. Atualize e tente de novo.",
+  );
+}
 
 async function activeRow(ctx: ModuleContext, id: string) {
   const a = await getAppointment(ctx, id);
@@ -567,7 +587,7 @@ export async function cancel(
   const reason = String(input.reason ?? "").trim();
   requireValue(Array.from(reason).length <= 300, "Motivo até 300 caracteres.");
   const at = clock();
-  await exec(
+  const done = await exec(
     ctx.env,
     "UPDATE agenda_appointments SET status='cancelled',cancelled_at=?,cancelled_by=?,cancel_reason=?,updated=? WHERE id=? AND status IN ('booked','confirmed')",
     at,
@@ -576,6 +596,8 @@ export async function cancel(
     at,
     before.id,
   );
+  // Corrida (revisão B7): sem linha mudada, nada de evento nem aviso.
+  if (!done.meta?.changes) throw await changedMeanwhile(ctx, before.id);
   const after = await getAppointment(ctx, before.id);
   await publish(ctx, "agenda.cancelled", after, input.actor, { reason });
   if (input.notify ?? true)
@@ -596,13 +618,17 @@ export async function confirm(
   const before = await activeRow(ctx, input.id);
   if (before.status === "confirmed") return before;
   const at = clock();
-  await exec(
+  // Só o horário que foi lido: remarcado no meio, não confirma o antigo.
+  const done = await exec(
     ctx.env,
-    "UPDATE agenda_appointments SET status='confirmed',confirmed_at=?,updated=? WHERE id=? AND status='booked'",
+    "UPDATE agenda_appointments SET status='confirmed',confirmed_at=?,updated=? WHERE id=? AND status='booked' AND starts=? AND professional_id=?",
     at,
     at,
     before.id,
+    before.starts,
+    before.professional_id,
   );
+  if (!done.meta?.changes) throw await changedMeanwhile(ctx, before.id);
   const after = await getAppointment(ctx, before.id);
   await publish(ctx, "agenda.confirmed", after, input.actor);
   return after;
@@ -618,13 +644,15 @@ export async function noShow(
     before.starts <= at,
     "Só dá para marcar ausência depois do início do horário.",
   );
-  await exec(
+  const done = await exec(
     ctx.env,
-    "UPDATE agenda_appointments SET status='no_show',no_show_at=?,updated=? WHERE id=? AND status IN ('booked','confirmed')",
+    "UPDATE agenda_appointments SET status='no_show',no_show_at=?,updated=? WHERE id=? AND status IN ('booked','confirmed') AND starts=?",
     at,
     at,
     before.id,
+    before.starts,
   );
+  if (!done.meta?.changes) throw await changedMeanwhile(ctx, before.id);
   const after = await getAppointment(ctx, before.id);
   await publish(ctx, "agenda.no_show", after, input.actor);
   return after;

@@ -575,7 +575,18 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
   );
   const rules = await config(ctx);
   const { booking, created } = await createBooking(ctx, rules, {
-    ...data,
+    // Só os campos da reserva: `at` (relógio), `id` e os de controle nunca
+    // vêm do corpo (revisão B8: reserva retroativa, prazo do sinal forjado).
+    unit_id: data.unit_id,
+    start_date: data.start_date,
+    end_date: data.end_date,
+    nights: data.nights,
+    starts: data.starts,
+    duration_minutes: data.duration_minutes,
+    guests: data.guests,
+    customer_name: data.customer_name,
+    customer_phone: data.customer_phone,
+    notes: data.notes,
     // requestId: único por credencial, área, operação e Idempotency-Key, só
     // hexadecimais (nunca a chave do cliente).
     id: `cmd-${requestId}`,
@@ -664,7 +675,18 @@ onRoute(MODULE, {
 onCommand(MODULE, "reserva.change", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   return changeBooking(ctx, await config(ctx), {
-    ...data,
+    // Só os campos da alteração; nada de `at` do corpo (revisão B8).
+    id: data.id,
+    unit_id: data.unit_id,
+    start_date: data.start_date,
+    end_date: data.end_date,
+    nights: data.nights,
+    starts: data.starts,
+    duration_minutes: data.duration_minutes,
+    guests: data.guests,
+    customer_name: data.customer_name,
+    customer_phone: data.customer_phone,
+    notes: data.notes,
     actor: actor.id,
     staff: true,
     force: bool(data.force, "force"),

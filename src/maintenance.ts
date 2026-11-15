@@ -11,6 +11,7 @@ import {
   startUpdate,
 } from "./updates";
 import { configurePush } from "./push";
+import { savePublicOrigin } from "./web-steps";
 export async function maintenanceCommand(
   env: Env,
   actor: Actor,
@@ -34,6 +35,8 @@ export async function maintenanceCommand(
       return resetUpdate(env, actor, data);
     case "system.push.configure":
       return configurePush(env, actor, data);
+    case "system.origin.save":
+      return savePublicOrigin(env, data);
     default:
       throw new ApiError(
         400,

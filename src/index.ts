@@ -104,6 +104,7 @@ import {
   formPage,
   getWebStep,
   listWebSteps,
+  publicOrigin,
   rememberOrigin,
   statePage,
   touchWebStep,
@@ -148,6 +149,7 @@ function queueSocket(
   profile: string,
   filter: string[],
   credential: string[],
+  expiresAt?: number,
 ) {
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
     throw new ApiError(426, "upgrade_required", "Use WebSocket nesta rota.");
@@ -156,6 +158,9 @@ function queueSocket(
   headers.set("X-Wabotia-Queues", JSON.stringify(filter));
   // Quem abriu: a revogação fecha o socket na hora (src/sockets.ts).
   headers.set("X-Wabotia-Credential", JSON.stringify(credential));
+  // Validade da credencial: o Coordinator fecha o socket quando vencer.
+  if (expiresAt) headers.set("X-Wabotia-Expires", String(expiresAt));
+  else headers.delete("X-Wabotia-Expires");
   return env.COORDINATOR.get(env.COORDINATOR.idFromName(profile)).fetch(
     new Request("https://coordinator/queue-ws", { method: "GET", headers }),
   );
@@ -345,7 +350,15 @@ app.get("/api/w/:code/img/:media", async (c) => {
   const row = await webStepByCode(c.env, c.req.param("code"));
   const spec = row ? json(row.spec) : null;
   const id = c.req.param("media");
-  if (!row || spec?.page !== "cart" || !catalogMedia(spec.cart).includes(id))
+  // Só com o link aberto e o módulo ligado (revisão B3).
+  if (
+    !row ||
+    spec?.page !== "cart" ||
+    !catalogMedia(spec.cart).includes(id) ||
+    !["sent", "opened"].includes(row.status) ||
+    row.expires_at <= Date.now() ||
+    !(await webStepAvailable(c.env, row))
+  )
     throw new ApiError(404, "not_found", "Imagem não encontrada.");
   const media = await one(
     c.env,
@@ -772,9 +785,29 @@ app.use("/api/v1/*", async (c, next) => {
 // Rotas de um módulo desligado na área (/profiles/:profile/<rota do módulo>)
 // respondem 409 module_disabled antes de qualquer outra regra.
 app.use("/api/v1/profiles/*", async (c, next) => {
-  const [, , , , profile, segment] = c.req.path.split("/");
+  const [, , , , raw, segment] = c.req.path.split("/");
   const owner = segment ? moduleForRoute(segment) : null;
-  if (owner) await requireModule(c.env, decodeURIComponent(profile), owner.id);
+  if (owner) {
+    // Área de fora da credencial: 404 genérico antes de dizer se o módulo
+    // está ligado; "%" malformado também é 404 (revisão B5).
+    let profile: string;
+    try {
+      profile = decodeURIComponent(raw);
+    } catch {
+      throw new ApiError(
+        404,
+        "not_found",
+        "Área de atendimento não encontrada.",
+      );
+    }
+    if (!canProfile(c.get("actor"), profile))
+      throw new ApiError(
+        404,
+        "not_found",
+        "Área de atendimento não encontrada.",
+      );
+    await requireModule(c.env, profile, owner.id);
+  }
   await next();
 });
 mountMcp(app);
@@ -1103,8 +1136,19 @@ async function revocationTargets(
   }
   if (op === "application.update") {
     const before = await appProfiles(env, id);
+    // Permissão retirada (revisão B4): fecha os sockets da aplicação em todas
+    // as áreas; o cliente reconecta com as permissões novas.
+    const app = await one(
+      env,
+      "SELECT scopes FROM applications WHERE id=?",
+      id,
+    );
+    const scopesBefore: string[] = json(app?.scopes, []);
+    const reduced =
+      Array.isArray(data?.scopes) &&
+      scopesBefore.some((scope) => !data.scopes.includes(scope));
     const removed =
-      data?.disabled === true
+      data?.disabled === true || reduced
         ? before
         : Array.isArray(data?.profiles)
           ? before.filter((p) => !data.profiles.includes(p))
@@ -1145,6 +1189,8 @@ app.get("/api/v1/system", async (c) => {
     updates: await updateStatus(c.env),
     cloudflare: await cloudflareSettings(c.env),
     deployments: await cloudflareJobs(c.env),
+    // Endereço dos links enviados aos clientes (src/web-steps.ts).
+    public_origin: await publicOrigin(c.env),
   });
 });
 app.get("/api/v1/system/updates/check", async (c) => {
@@ -1191,6 +1237,7 @@ for (const [path, operation] of [
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
+  ["origin/configure", "origin.save"],
 ])
   app.post("/api/v1/system/" + path, async (c) => {
     admin(c.get("actor"));
@@ -2043,6 +2090,7 @@ app.get("/api/v1/profiles/:profile/queue/ws", async (c) => {
     c.req.param("profile"),
     [],
     await credentialTags(c.req.raw, c.get("actor")),
+    c.get("actor").expiresAt,
   );
 });
 app.get("/api/v1/profiles/:profile/webhook-subscriptions", async (c) => {
@@ -2332,6 +2380,13 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
 // Webhook de pagamento (docs/COBRANCA.md). A assinatura é conferida aqui; o
 // estado só muda depois da consulta ao provedor, no Coordinator da área.
 app.post("/webhooks/payments/:provider/:account", async (c) => {
+  // Limite por IP antes de qualquer consulta (revisão B2).
+  await rate(
+    c.env,
+    "payment-webhook:" +
+      (await sha(c.req.header("CF-Connecting-IP") || "local")),
+    240,
+  );
   const url = new URL(c.req.url);
   const body = json(await c.req.text(), {});
   const { account, paymentId } = await verifyPaymentWebhook(
