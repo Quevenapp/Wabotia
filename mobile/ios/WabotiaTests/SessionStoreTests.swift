@@ -99,6 +99,30 @@ final class SessionStoreTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
+    func testPrivateFilesStayOutOfTheBackup() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wabotia-private-\(UUID().uuidString)", isDirectory: true)
+        let files = PrivateFileStore(directory: dir)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        XCTAssertTrue(files.isExcludedFromBackup, "a pasta das prévias não vai para o backup")
+        files.write(Data("nota interna".utf8), "cache.workspace.p1", protection: .complete)
+        files.write(Data("{}".utf8), "user", protection: .completeUntilFirstUserAuthentication)
+        XCTAssertEqual(files.read("cache.workspace.p1"), Data("nota interna".utf8))
+        XCTAssertEqual(files.url("cache/../x").lastPathComponent, "cache_.._x", "o nome nunca sai da pasta")
+        files.removeAll(prefix: "cache.")
+        XCTAssertNil(files.read("cache.workspace.p1"))
+        XCTAssertNotNil(files.read("user"))
+    }
+
+    func testRealSessionKeepsPreviewsOutOfThePreferences() {
+        // A sessão real não grava prévias nas preferências (que entram no backup).
+        let store = SessionStore()
+        store.setCachedData(Data("previa".utf8), "tests.backup")
+        XCTAssertNil(UserDefaults.standard.data(forKey: "cache.tests.backup"))
+        XCTAssertEqual(store.cachedData("tests.backup"), Data("previa".utf8))
+        store.setCachedData(nil, "tests.backup")
+        XCTAssertNil(store.cachedData("tests.backup"))
+    }
+
     func testJSONStringColumns() {
         XCTAssertEqual(JSONValue.parseStringList("[\"a\",\"b\"]"), ["a", "b"])
         XCTAssertEqual(JSONValue.parse("{\"reply_to\":\"m1\"}")["reply_to"]?.stringValue, "m1")
