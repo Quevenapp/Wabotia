@@ -200,6 +200,17 @@ export async function archiveUnit(
 ) {
   admin(actor);
   await getUnit(ctx, id);
+  const upcoming = await one(
+    ctx.env,
+    "SELECT count(*) AS n FROM reserva_bookings WHERE profile_id=? AND unit_id=? AND status IN ('pending_payment','confirmed') AND ends>?",
+    ctx.profile,
+    id,
+    now(),
+  );
+  requireValue(
+    !upcoming?.n,
+    "Esta unidade tem reservas futuras. Cancele ou mude as reservas antes de excluir, ou só desative a unidade.",
+  );
   await exec(
     ctx.env,
     "UPDATE reserva_units SET archived=1,active=0,updated=? WHERE id=? AND profile_id=?",
