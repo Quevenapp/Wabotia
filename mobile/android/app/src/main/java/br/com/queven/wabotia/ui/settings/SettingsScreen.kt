@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
@@ -197,6 +198,10 @@ fun SettingsScreen(
                     }
                     if (ModuleIds.RESERVA in modules) {
                         SettingsRow(Icons.Filled.Hotel, "Reservas", subtitle = "Ocupação das unidades, sinal e check-in", tint = c.brand, onClick = { openRoute(ModuleRoutes.RESERVA) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.MENSALIDADE in modules) {
+                        SettingsRow(Icons.Filled.Payments, "Mensalidades", subtitle = "Parcelas do mês, assinaturas e inadimplentes", tint = c.ok, onClick = { openRoute(ModuleRoutes.MENSALIDADE) })
                         RowDivider()
                     }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)

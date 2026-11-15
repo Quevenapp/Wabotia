@@ -892,3 +892,327 @@ internal class DemoReserva(t0: Long, private val customerOf: DemoCustomer, priva
         const val STEP = 60
     }
 }
+
+/**
+ * A Mensalidade da demonstração: uma escola de idiomas com três planos, oito assinaturas e sete pagadores (uma mãe
+ * paga a própria assinatura e a do filho; uma empresa paga a de um funcionário, com dois telefones autorizados).
+ * Parcelas do mês anterior e do atual (pagas, em aberto, vencidas, isenta, canceladas), uma assinatura pausada e uma
+ * encerrada, e as recusas do servidor (`no_conversation`, `installment_not_payable`, `invalid_transition`). Pagadores
+ * sem CPF nem CNPJ, para não usar o documento de ninguém.
+ */
+internal class DemoMensalidade(t0: Long) {
+    private class Plan(val id: String, val name: String, val amount: Long)
+    private class PayerRow(val id: String, val name: String, val phones: List<Pair<String, String>>)
+    private class S(val id: String, val plan: String, val payer: String, val name: String, val phone: String, val amount: Long, val discount: Long, val dueDay: Int, var status: String, val conversationId: String?) {
+        var pausedAt: Long? = null
+        var endedAt: Long? = null
+        var endDate: String? = null
+    }
+    private class I(val id: String, val sub: String, val period: String, val due: String, val amount: Long, var status: String) {
+        var paidAt: Long? = null
+        var paidVia: String? = null
+        var paidBy: String? = null
+        var note = ""
+        var waivedAt: Long? = null
+        var cancelledAt: Long? = null
+        var chargedAt: Long? = null
+        var paymentStatus: String? = null
+        var overdueNotices = 0
+        var updated = 0L
+    }
+
+    private class Refused(val reply: Reply) : Exception()
+
+    private val plans = listOf(Plan("pl-ingles", "Inglês", 32_000), Plan("pl-espanhol", "Espanhol", 28_000), Plan("pl-conversa", "Conversação", 18_000))
+    private val payers = listOf(
+        PayerRow("py-1", "Mariana Costa", listOf("5520908765432" to "")),
+        PayerRow("py-2", "Helena Prado", listOf("5520907742222" to "Helena", "5520907741111" to "Gabriel (filho)")),
+        PayerRow("py-3", "Patrícia Nunes", listOf("5520909887766" to "")),
+        PayerRow("py-4", "Lucas Martins", listOf("5520908876655" to "")),
+        PayerRow("py-5", "Construtora Exemplo", listOf("5520906543210" to "João Pedro", "5520907745555" to "Financeiro")),
+        PayerRow("py-6", "Sofia Ramos", listOf("5520907743333" to "")),
+        PayerRow("py-7", "Bruna Teles", listOf("5520907744444" to "")),
+    )
+    private val subs = listOf(
+        S("ms-1", "pl-ingles", "py-1", "Mariana Costa", "5520908765432", 32_000, 0, 10, "active", Ids.C_RICH),
+        S("ms-2", "pl-ingles", "py-2", "Gabriel Prado", "5520907741111", 32_000, 3_200, 10, "active", null),
+        S("ms-3", "pl-espanhol", "py-3", "Patrícia Nunes", "5520909887766", 28_000, 0, 5, "active", Ids.C_40MIN),
+        S("ms-4", "pl-conversa", "py-4", "Lucas Martins", "5520908876655", 18_000, 0, 15, "active", Ids.C_QUEUE2),
+        S("ms-5", "pl-espanhol", "py-2", "Helena Prado", "5520907742222", 28_000, 0, 10, "active", null),
+        S("ms-6", "pl-ingles", "py-5", "João Pedro Almeida", "5520906543210", 32_000, 0, 20, "active", Ids.C_5H),
+        S("ms-7", "pl-conversa", "py-6", "Sofia Ramos", "5520907743333", 18_000, 0, 10, "paused", null),
+        S("ms-8", "pl-espanhol", "py-7", "Bruna Teles", "5520907744444", 28_000, 0, 10, "ended", null),
+    )
+    private val items = mutableListOf<I>()
+    private val replays = DemoReplays()
+
+    init {
+        val today = BrasiliaTime.day(t0)
+        val month = today.take(7)
+        val previous = BrasiliaTime.addMonths(month, -1)
+        // (assinatura, estado no mês anterior, estado planejado no mês atual)
+        val plan = listOf(
+            "paid" to "paid", "paid" to "open", "overdue" to "overdue", "paid" to "open",
+            "paid" to "paid", "paid" to "overdue", "waived" to "cancelled", "paid" to "cancelled",
+        )
+        subs.forEachIndexed { index, s ->
+            listOf(previous to plan[index].first, month to plan[index].second).forEachIndexed { k, (period, planned) ->
+                val due = "$period-${s.dueDay.toString().padStart(2, '0')}"
+                // Em aberto ou vencida conforme o dia de hoje (o mês atual pode ainda não ter vencido).
+                val status = if (planned == "open" || planned == "overdue") (if (due < today) "overdue" else "open") else planned
+                val i = I("mi-${index * 2 + k + 1}", s.id, period, due, s.amount - s.discount, status)
+                val n = index * 2 + k + 1
+                when (status) {
+                    "paid" -> { i.paidAt = minOf(t0 - n * 7 * 3_600_000L, (BrasiliaTime.startOf(due) ?: t0) + 9 * 3_600_000L); i.paidVia = if (n % 3 == 0) "manual" else "pix"; i.paidBy = if (i.paidVia == "manual") Ids.ME else null; i.paymentStatus = if (i.paidVia == "pix") "paid" else null }
+                    "waived" -> { i.waivedAt = t0 - 20 * 86_400_000L; i.note = "Bolsa por desempenho." }
+                    "overdue" -> { i.overdueNotices = 2; i.chargedAt = t0 - 5 * 86_400_000L; i.paymentStatus = "created" }
+                    "open" -> { i.chargedAt = t0 - 86_400_000L; i.paymentStatus = "created" }
+                    "cancelled" -> i.cancelledAt = t0 - 10 * 86_400_000L
+                }
+                i.updated = t0
+                items += i
+            }
+        }
+        subs.first { it.id == "ms-7" }.pausedAt = t0 - 12 * 86_400_000L
+        subs.first { it.id == "ms-8" }.apply { endedAt = t0 - 10 * 86_400_000L; endDate = BrasiliaTime.day(t0 - 10 * 86_400_000L) }
+    }
+
+    private fun sub(id: String?) = subs.firstOrNull { it.id == id }
+
+    private fun invalid(message: String): Nothing = throw Refused(demoFail(400, "invalid_request", message))
+
+    fun handle(method: String, r: List<String>, body: JsonObject, query: (String) -> String?, key: String?, now: Long, emit: DemoEmit): Reply {
+        if (method == "GET") {
+            return try {
+                when {
+                    r == listOf("summary") -> summary(month(query("month") ?: BrasiliaTime.day(now).take(7)))
+                    r == listOf("plans") -> demoOk(j("data" to plans.map { p -> j("id" to p.id, "name" to p.name, "amount_cents" to p.amount, "period" to "monthly", "period_label" to "Mensal", "due_day" to 10, "active" to true, "sellable" to false, "description" to "", "subscriptions" to subs.count { it.plan == p.id && it.status != "ended" }) }))
+                    r == listOf("delinquents") -> delinquents()
+                    r == listOf("installments") -> installments(query, now)
+                    r.size == 2 && r[0] == "installments" -> items.firstOrNull { it.id == r[1] }?.let { demoOk(row(it)) } ?: demoFail(404, "not_found", "Parcela não encontrada.")
+                    r == listOf("subscriptions") -> subscriptions(query)
+                    r.size == 2 && r[0] == "subscriptions" -> sub(r[1])?.let { demoOk(subRow(it, withInstallments = true)) } ?: demoFail(404, "not_found", "Assinatura não encontrada.")
+                    r == listOf("payers") -> demoOk(j("data" to payers.filter { p -> query("q").isNullOrBlank() || p.name.lowercase().contains(query("q")!!.lowercase()) }.map { payerRow(it, now, false) }, "next_cursor" to null))
+                    r.size == 2 && r[0] == "payers" -> payers.firstOrNull { it.id == r[1] }?.let { demoOk(payerRow(it, now, true)) } ?: demoFail(404, "not_found", "Pagador não encontrado.")
+                    else -> demoFail(404, "not_found", "Recurso não encontrado.")
+                }
+            } catch (e: Refused) {
+                e.reply
+            }
+        }
+        if (method != "POST") return demoFail(405, "method_not_allowed", "Método não permitido.")
+        return replays.run(key, r, body) {
+            try {
+                write(r, body, now, emit)
+            } catch (e: Refused) {
+                e.reply
+            }
+        }
+    }
+
+    private fun month(value: String): String = value.takeIf { Regex("""\d{4}-(0[1-9]|1[0-2])""").matches(it) } ?: invalid("Mês no formato AAAA-MM.")
+
+    private fun write(r: List<String>, body: JsonObject, now: Long, emit: DemoEmit): Reply {
+        val today = BrasiliaTime.day(now)
+        if (r.size == 3 && r[0] == "installments") {
+            val i = items.firstOrNull { it.id == r[1] } ?: return demoFail(404, "not_found", "Parcela não encontrada.")
+            val s = sub(i.sub)!!
+            val label = statusLabel(i.status)
+            when (r[2]) {
+                "charge" -> {
+                    if (s.conversationId == null) return demoFail(409, "no_conversation", "Não há conversa no WhatsApp com o telefone desta assinatura. O cliente precisa escrever primeiro.")
+                    if (i.status !in PAYABLE) return demoFail(409, "installment_not_payable", "Esta parcela não está em aberto.")
+                    i.chargedAt = now
+                    i.paymentStatus = "created"
+                    emit("mensalidade.charged", i.id, j("installment_id" to i.id, "subscription_id" to s.id, "amount_cents" to i.amount, "module_id" to "mensalidade"))
+                }
+                "pay" -> {
+                    // Como o servidor: confere a observação e a data antes do estado da parcela.
+                    val note = body.str("note")?.trim().orEmpty()
+                    if (note.length > 300) invalid("Observação até 300 caracteres.")
+                    val paidAt = body.str("paid_at")?.takeIf { it.isNotEmpty() }?.let { day ->
+                        val start = BrasiliaTime.startOf(day) ?: invalid("Data do pagamento: AAAA-MM-DD ou milissegundos.")
+                        if (day > today) invalid("A data do pagamento não pode ser futura.")
+                        start + 12 * 3_600_000L
+                    } ?: now
+                    if (i.status !in PAYABLE) return demoFail(409, "installment_not_payable", "A parcela de ${i.period} está \"$label\" e não pode receber baixa.")
+                    i.status = "paid"; i.paidAt = paidAt; i.paidVia = "manual"; i.paidBy = Ids.ME; i.note = note; i.updated = now
+                    emit("mensalidade.paid", i.id, j("installment_id" to i.id, "subscription_id" to s.id, "amount_cents" to i.amount, "via" to "manual", "by" to Ids.ME, "paid_at" to paidAt, "note" to note, "module_id" to "mensalidade"))
+                }
+                "waive" -> {
+                    if (i.status !in PAYABLE + "cancelled") return demoFail(409, "installment_not_payable", "A parcela de ${i.period} está \"$label\" e não pode ser isentada.")
+                    val note = body.str("note")?.trim().orEmpty()
+                    if (note.length > 300) invalid("Motivo até 300 caracteres.")
+                    i.status = "waived"; i.waivedAt = now; i.note = note; i.updated = now
+                    emit("mensalidade.waived", i.id, j("installment_id" to i.id, "subscription_id" to s.id, "amount_cents" to i.amount, "by" to Ids.ME, "note" to note, "module_id" to "mensalidade"))
+                }
+                else -> return demoFail(404, "not_found", "Recurso não encontrado.")
+            }
+            return demoOk(row(i))
+        }
+        if (r.size == 3 && r[0] == "subscriptions") {
+            val s = sub(r[1]) ?: return demoFail(404, "not_found", "Assinatura não encontrada.")
+            val to = when (r[2]) {
+                "pause" -> "paused"
+                "resume" -> "active"
+                "end" -> "ended"
+                else -> return demoFail(404, "not_found", "Recurso não encontrado.")
+            }
+            val allowed = mapOf("paused" to listOf("active"), "active" to listOf("paused"), "ended" to listOf("active", "paused"))
+            if (s.status !in allowed.getValue(to)) {
+                return demoFail(409, "invalid_transition", "Não é possível passar a assinatura de \"${SUBSCRIPTION_LABELS[s.status]}\" para \"${SUBSCRIPTION_LABELS[to]}\".")
+            }
+            val from = s.status
+            s.status = to
+            var cancelled = 0
+            when (to) {
+                "paused" -> s.pausedAt = now
+                "active" -> s.pausedAt = null
+                "ended" -> { s.endedAt = now; if (s.endDate == null || s.endDate!! > today) s.endDate = today }
+            }
+            if (to != "active") items.filter { it.sub == s.id && it.status == "open" && it.due >= today }.forEach { it.status = "cancelled"; it.cancelledAt = now; it.updated = now; cancelled++ }
+            emit("mensalidade.subscription_changed", s.id, j("subscription_id" to s.id, "change" to if (to == "active") "resumed" else to, "from" to from, "status" to to, "cancelled_installments" to cancelled, "actor" to Ids.ME, "module_id" to "mensalidade"))
+            return demoOk(subRow(s, withInstallments = false))
+        }
+        return demoFail(404, "not_found", "Recurso não encontrado.")
+    }
+
+    private fun installments(query: (String) -> String?, now: Long): Reply {
+        val subscriptionId = query("subscription_id")?.takeIf { it.isNotEmpty() }
+        val competence = if (subscriptionId != null) query("month")?.let(::month) else month(query("month") ?: BrasiliaTime.day(now).take(7))
+        val scope = items.filter { (subscriptionId == null || it.sub == subscriptionId) && (competence == null || it.period == competence) }
+        val statuses = query("status")?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+        statuses.forEach { if (it !in STATUSES) invalid("Estado desconhecido: $it.") }
+        val q = query("q")?.trim()?.lowercase().orEmpty()
+        val digits = if (Regex("""[\d\s()+-]+""").matches(q)) q.filter(Char::isDigit) else ""
+        val list = scope.filter { i ->
+            val s = sub(i.sub)!!
+            (statuses.isEmpty() || i.status in statuses) && (q.isEmpty() || s.name.lowercase().contains(q) || (digits.length >= 4 && s.phone.contains(digits)))
+        }.sortedWith(compareBy({ it.due }, { it.id }))
+        val counts = scope.groupingBy { it.status }.eachCount()
+        return demoOk(j("month" to competence, "data" to list.map(::row), "next_cursor" to null, "counts" to j(*counts.map { it.key to it.value }.toTypedArray())))
+    }
+
+    private fun subscriptions(query: (String) -> String?): Reply {
+        val statuses = query("status")?.split(",")?.filter { it.isNotBlank() }.orEmpty()
+        statuses.forEach { if (it !in SUBSCRIPTION_LABELS) invalid("Estado desconhecido: $it.") }
+        val q = query("q")?.trim()?.lowercase().orEmpty()
+        val digits = if (Regex("""[\d\s()+-]+""").matches(q)) q.filter(Char::isDigit) else ""
+        val list = subs.filter { s ->
+            val payer = payers.first { it.id == s.payer }
+            (statuses.isEmpty() || s.status in statuses) &&
+                (q.isEmpty() || s.name.lowercase().contains(q) || payer.name.lowercase().contains(q) || (digits.length >= 4 && s.phone.contains(digits)))
+        }
+        val counts = subs.groupingBy { it.status }.eachCount()
+        return demoOk(j("data" to list.map { subRow(it, withInstallments = false) }, "next_cursor" to null, "counts" to j(*counts.map { it.key to it.value }.toTypedArray())))
+    }
+
+    private fun summary(competence: String): Reply {
+        val month = items.filter { it.period == competence }
+        fun sum(vararg statuses: String) = month.filter { it.status in statuses }.sumOf { it.amount }
+        val start = BrasiliaTime.startOf("$competence-01") ?: 0L
+        val end = BrasiliaTime.startOf(BrasiliaTime.addMonths(competence, 1) + "-01") ?: Long.MAX_VALUE
+        val inMonth = items.filter { it.status == "paid" && (it.paidAt ?: 0) in start until end }
+        val overdue = items.filter { it.status == "overdue" }
+        return demoOk(
+            j(
+                "month" to competence, "expected_cents" to sum("open", "paid", "overdue"), "received_cents" to sum("paid"),
+                "overdue_cents" to sum("overdue"), "open_cents" to sum("open"), "waived_cents" to sum("waived"),
+                "counts" to j(*STATUSES.map { s -> s to month.count { it.status == s } }.toTypedArray()),
+                "received_in_month" to j("count" to inMonth.size, "cents" to inMonth.sumOf { it.amount }),
+                "overdue_total" to j("count" to overdue.size, "cents" to overdue.sumOf { it.amount }, "subscriptions" to overdue.map { it.sub }.distinct().size),
+                "payments_ready" to true,
+            ),
+        )
+    }
+
+    private fun delinquents(): Reply {
+        val rows = items.filter { it.status == "overdue" }.groupBy { it.sub }.mapNotNull { (id, list) ->
+            val s = sub(id) ?: return@mapNotNull null
+            j(
+                "subscription_id" to id, "customer" to j("name" to s.name, "phone" to s.phone, "conversation_id" to s.conversationId),
+                "plan_name" to plans.firstOrNull { it.id == s.plan }?.name, "subscription_status" to s.status, "overdue_count" to list.size,
+                "overdue_cents" to list.sumOf { it.amount }, "oldest_due_date" to list.minOf { it.due }, "notices_sent" to list.maxOf { it.overdueNotices },
+            )
+        }.sortedWith(compareBy({ it.str("oldest_due_date") }, { it.str("subscription_id") }))
+        return demoOk(j("data" to rows))
+    }
+
+    private fun statusLabel(status: String) = when (status) {
+        "open" -> "Aberta"
+        "paid" -> "Paga"
+        "overdue" -> "Vencida"
+        "cancelled" -> "Cancelada"
+        "waived" -> "Isenta"
+        else -> status
+    }
+
+    private fun periodLabel(period: String): String {
+        val (y, m) = period.split("-")
+        val names = listOf("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez")
+        return "${names[(m.toIntOrNull() ?: 1) - 1]}/$y"
+    }
+
+    private fun row(i: I): JsonObject {
+        val s = sub(i.sub)!!
+        return j(
+            "id" to i.id, "subscription_id" to i.sub, "period_key" to i.period, "period_label" to periodLabel(i.period), "due_date" to i.due,
+            "upfront" to false, "amount_cents" to i.amount, "status" to i.status, "status_label" to statusLabel(i.status),
+            "customer" to j("name" to s.name, "phone" to s.phone), "plan_name" to plans.firstOrNull { it.id == s.plan }?.name,
+            "payment" to i.chargedAt?.let { at ->
+                j("id" to "pay-${i.id}", "status" to (i.paymentStatus ?: "created"), "expires_at" to (BrasiliaTime.startOf(i.due) ?: at) + 8 * 86_400_000L, "pix_code" to "00020126-PIX-DEMONSTRACAO-${i.id}", "url" to "https://pagamento.example/${i.id}", "charged_at" to at)
+            },
+            "notices" to j("before_at" to i.chargedAt, "due_at" to null, "overdue" to i.overdueNotices, "overdue_at" to if (i.overdueNotices > 0) i.chargedAt?.plus(3 * 86_400_000L) else null, "error" to if (s.conversationId == null && i.status in PAYABLE) "Sem conversa no WhatsApp com este telefone: o aviso não saiu." else null),
+            "paid_at" to i.paidAt, "paid_via" to i.paidVia, "paid_by" to i.paidBy, "paid_note" to i.note,
+            "waived_at" to i.waivedAt, "waived_by" to i.waivedAt?.let { Ids.ME }, "cancelled_at" to i.cancelledAt, "created" to 0, "updated" to i.updated,
+        )
+    }
+
+    private fun subRow(s: S, withInstallments: Boolean): JsonObject {
+        val mine = items.filter { it.sub == s.id }
+        val payer = payers.first { it.id == s.payer }
+        val fields = mutableListOf<Pair<String, Any?>>(
+            "id" to s.id, "plan_id" to s.plan, "plan_name" to plans.firstOrNull { it.id == s.plan }?.name,
+            "customer" to j("name" to s.name, "phone" to s.phone, "contact_id" to null, "conversation_id" to s.conversationId),
+            "payer" to j("id" to payer.id, "name" to payer.name, "document_display" to null),
+            "period" to "monthly", "period_label" to "Mensal", "amount_cents" to s.amount, "discount_cents" to s.discount, "charge_cents" to s.amount - s.discount,
+            "due_day" to s.dueDay, "start_date" to "2026-02-01", "end_date" to s.endDate, "status" to s.status, "status_label" to SUBSCRIPTION_LABELS[s.status],
+            "notes" to "", "paused_at" to s.pausedAt, "ended_at" to s.endedAt,
+            "open_count" to mine.count { it.status == "open" }, "overdue_count" to mine.count { it.status == "overdue" },
+            "overdue_cents" to mine.filter { it.status == "overdue" }.sumOf { it.amount }, "created_by" to Ids.ME, "created" to 0, "updated" to 0,
+        )
+        if (withInstallments) fields += "installments" to mine.sortedByDescending { it.due }.map(::row)
+        return j(*fields.toTypedArray())
+    }
+
+    private fun payerRow(p: PayerRow, now: Long, detail: Boolean): JsonObject {
+        val mine = subs.filter { it.payer == p.id }
+        val fields = mutableListOf<Pair<String, Any?>>(
+            "id" to p.id, "name" to p.name, "document" to null, "document_type" to null, "document_display" to null, "email" to "", "notes" to "",
+            "phones" to p.phones.map { (phone, label) -> j("phone" to phone, "label" to label, "created_by" to Ids.ME, "created" to 0) },
+            "created_by" to Ids.ME, "created" to 0, "updated" to 0,
+        )
+        if (detail) {
+            val active = mine.filter { it.status == "active" }
+            val today = BrasiliaTime.day(now)
+            val late = items.filter { i -> active.any { it.id == i.sub } && i.status in PAYABLE && i.due < today }.minByOrNull { it.due }
+            fields += "subscriptions" to mine.map { subRow(it, withInstallments = false) }
+            fields += "situation" to j(
+                "status" to when {
+                    active.isEmpty() -> "sem_assinatura"
+                    late != null -> "em_atraso"
+                    else -> "em_dia"
+                },
+                "open_installment" to late?.let(::row),
+                "grace_days" to 0,
+            )
+        }
+        return j(*fields.toTypedArray())
+    }
+
+    private companion object {
+        val STATUSES = listOf("open", "paid", "overdue", "cancelled", "waived")
+        val PAYABLE = setOf("open", "overdue")
+        val SUBSCRIPTION_LABELS = mapOf("active" to "Ativa", "paused" to "Pausada", "ended" to "Encerrada")
+    }
+}

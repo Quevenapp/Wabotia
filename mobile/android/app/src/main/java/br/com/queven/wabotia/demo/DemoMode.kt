@@ -176,6 +176,12 @@ object DemoMode {
             "reserva-new" -> DemoDestination(route = "reserva/new")
             // A reserva aguardando o sinal (rs-2); `--es arg checkin` abre a de check-in feito (rs-1).
             "reserva-booking" -> DemoDestination(route = "reserva/booking/" + if (option == "checkin") "rs-1" else "rs-2")
+            "mensalidade" -> DemoDestination(route = "mensalidade")
+            "mensalidade-subscriptions" -> DemoDestination(route = "mensalidade?mode=subscriptions")
+            "mensalidade-delinquents" -> DemoDestination(route = "mensalidade?mode=delinquents")
+            // A parcela vencida do mês anterior (mi-5); a assinatura de quem tem dois telefones no pagador (ms-2).
+            "mensalidade-installment" -> DemoDestination(route = "mensalidade/installment/mi-5")
+            "mensalidade-subscription" -> DemoDestination(route = "mensalidade/subscription/ms-2")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-start" -> DemoDestination(route = "preview/start")

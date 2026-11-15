@@ -16,6 +16,10 @@ import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.agenda.AgendaScreen
 import br.com.queven.wabotia.modules.agenda.AppointmentScreen
 import br.com.queven.wabotia.modules.agenda.BookingScreen
+import br.com.queven.wabotia.modules.mensalidade.InstallmentScreen
+import br.com.queven.wabotia.modules.mensalidade.MensalidadeScreen
+import br.com.queven.wabotia.modules.mensalidade.MensalidadeViewModel
+import br.com.queven.wabotia.modules.mensalidade.SubscriptionScreen
 import br.com.queven.wabotia.modules.os.NewServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrdersScreen
@@ -40,6 +44,16 @@ object ModuleRoutes {
     const val RESERVA_BOOKING = "reserva/booking/{id}"
     const val RESERVA_NEW = "reserva/new?conversationId={conversationId}&customer={customer}&unitId={unitId}&date={date}"
     const val RESERVA_EDIT = "reserva/edit/{id}"
+
+    /** Entrada da Mensalidade (o mês); `mensalidade?mode=subscriptions|delinquents` abre as outras abas. */
+    const val MENSALIDADE = "mensalidade"
+    const val MENSALIDADE_HOME = "mensalidade?mode={mode}"
+    const val MENSALIDADE_INSTALLMENT = "mensalidade/installment/{id}"
+    const val MENSALIDADE_SUBSCRIPTION = "mensalidade/subscription/{id}"
+
+    fun installment(id: String) = "mensalidade/installment/${Uri.encode(id)}"
+
+    fun subscription(id: String) = "mensalidade/subscription/${Uri.encode(id)}"
 
     fun reservaBooking(id: String) = "reserva/booking/${Uri.encode(id)}"
 
@@ -108,6 +122,27 @@ fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostControlle
             onBack = { nav.popBackStack() },
             onCreated = { order -> nav.popBackStack(); nav.navigate(ModuleRoutes.serviceOrder(order.id)) },
         )
+    }
+    composable(ModuleRoutes.MENSALIDADE_HOME, arguments = listOf(optional("mode"))) { entry ->
+        MensalidadeScreen(
+            container,
+            onBack = { nav.popBackStack() },
+            openInstallment = { nav.navigate(ModuleRoutes.installment(it)) },
+            openSubscription = { nav.navigate(ModuleRoutes.subscription(it)) },
+            initialMode = when (entry.arguments?.getString("mode")) {
+                "subscriptions" -> MensalidadeViewModel.Mode.SUBSCRIPTIONS
+                "delinquents" -> MensalidadeViewModel.Mode.DELINQUENTS
+                else -> MensalidadeViewModel.Mode.MONTH
+            },
+        )
+    }
+    composable(ModuleRoutes.MENSALIDADE_INSTALLMENT, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+        InstallmentScreen(container, id, onBack = { nav.popBackStack() }, openSubscription = { nav.navigate(ModuleRoutes.subscription(it)) }, openConversation = openConversation)
+    }
+    composable(ModuleRoutes.MENSALIDADE_SUBSCRIPTION, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+        SubscriptionScreen(container, id, onBack = { nav.popBackStack() }, openInstallment = { nav.navigate(ModuleRoutes.installment(it)) }, openConversation = openConversation)
     }
     composable(ModuleRoutes.RESERVA_HOME, arguments = listOf(optional("mode"))) { entry ->
         ReservaScreen(
