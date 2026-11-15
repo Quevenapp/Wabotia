@@ -666,6 +666,50 @@ export async function cancelWebStep(
   return webStepView(await one(env, "SELECT * FROM web_steps WHERE id=?", id));
 }
 
+/**
+ * Cancela links abertos do próprio módulo (ctx.cancelWebStep e
+ * ctx.cancelWebSteps): um id, ou todos os abertos com o `kind` e o `ref`
+ * dados (loja pausada). Quem abrir o link vê "Link indisponível". Devolve os
+ * ids cancelados agora; os já fechados ficam como estão.
+ */
+export async function cancelModuleWebSteps(
+  env: Env,
+  profile: string,
+  module: string,
+  filter: { id?: string; kind?: string; ref?: string | null },
+) {
+  const where = ["profile_id=?", "module_id=?", "status IN ('sent','opened')"];
+  const args: unknown[] = [profile, module];
+  if (filter.id !== undefined) {
+    where.push("id=?");
+    args.push(filter.id);
+  }
+  if (filter.kind !== undefined) {
+    where.push("kind=?");
+    args.push(filter.kind);
+  }
+  if (filter.ref !== undefined) {
+    where.push(filter.ref === null ? "ref_id IS NULL" : "ref_id=?");
+    if (filter.ref !== null) args.push(filter.ref);
+  }
+  const rows = await all(
+    env,
+    `UPDATE web_steps SET status='cancelled',updated=? WHERE ${where.join(" AND ")} RETURNING *`,
+    now(),
+    ...args,
+  );
+  for (const row of rows)
+    await event(env, profile, "web_step.cancelled", row.id, {
+      id: row.id,
+      conversation_id: row.conversation_id,
+      module_id: row.module_id,
+      kind: row.kind,
+      ref_id: row.ref_id,
+      actor: `module:${module}`,
+    });
+  return rows.map((row) => row.id as string);
+}
+
 // ---------------------------------------------------------------------------
 // Concluir
 

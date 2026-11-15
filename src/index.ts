@@ -356,7 +356,20 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
       row.expires_at <= Date.now() ||
       !(await webStepAvailable(c.env, row))
     )
-      return webStepHtml(c, statePage("expired", brand), 410);
+      return webStepHtml(
+        c,
+        statePage(
+          "expired",
+          brand,
+          row.status === "cancelled"
+            ? {
+                title: "Link indisponível",
+                text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
+              }
+            : {},
+        ),
+        410,
+      );
     if (fields.step?.[0] === "edit")
       return webStepHtml(c, formPage(row, brand, fields));
     if (fields.step?.[0]?.startsWith("add:"))
@@ -432,7 +445,16 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
           ? "not_found"
           : "expired",
       brand,
-      { whatsapp: result.whatsapp },
+      {
+        whatsapp: result.whatsapp,
+        // Cancelado pela equipe ou pelo módulo: o mesmo aviso da abertura.
+        ...(row.status === "cancelled"
+          ? {
+              title: "Link indisponível",
+              text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
+            }
+          : {}),
+      },
     ),
     result.reason === "not_found" ? 404 : 410,
   );

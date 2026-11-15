@@ -154,5 +154,8 @@ export async function setPause(ctx: ModuleContext, actor: Actor, data: any) {
       message: data.paused ? message : "",
       actor: actor.id,
     });
+  // Pausou: os carrinhos abertos deixam de valer (quem abrir vê "Link
+  // indisponível" e pede um novo quando a loja voltar).
+  if (data.paused && !before.paused) await ctx.cancelWebSteps({ kind: "cart" });
   return (await overview(ctx, now())).store;
 }

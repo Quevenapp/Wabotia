@@ -337,8 +337,15 @@ describe("pedido no WhatsApp: cardápio e carrinho", () => {
       id: menu.suco.id,
       available: true,
     });
+    // A loja fecha enquanto o cliente monta (simula o fim do horário sem
+    // pausar pelo painel): a página recusa com o motivo.
     const second = await openCart(f, "5511970000008");
-    await run(f, f.member, "pedido.store.pause", { paused: true });
+    await exec(
+      env,
+      "INSERT INTO pedido_store(profile_id,paused,message,updated,updated_by) VALUES(?,1,'',?,'teste') ON CONFLICT(profile_id) DO UPDATE SET paused=1",
+      f.profile,
+      now(),
+    );
     const closed = await submitCart(second.code, {
       ...cartFields(menu),
       confirm: "1",
@@ -354,6 +361,26 @@ describe("pedido no WhatsApp: cardápio e carrinho", () => {
       ["unavailable", "page"],
       ["closed", "page"],
     ]);
+  });
+
+  it("pausar a loja pelo painel cancela os carrinhos abertos (ctx.cancelWebSteps)", async () => {
+    const { f, menu } = await setup({ payments: { cash: true, card: false } });
+    const open = await openCart(f, "5511970000018");
+    await run(f, f.member, "pedido.store.pause", { paused: true });
+    const late = await submitCart(open.code, {
+      ...cartFields(menu),
+      confirm: "1",
+    });
+    expect(late.status).toBe(410);
+    expect(await late.text()).toContain("Link indisponível");
+    expect(await orders(f)).toHaveLength(0);
+    const cancelled = await events(f, "web_step.cancelled");
+    expect(cancelled).toEqual([
+      expect.objectContaining({ kind: "cart", actor: "module:pedido" }),
+    ]);
+    // Pausar de novo não cancela nada a mais.
+    await run(f, f.member, "pedido.store.pause", { paused: true });
+    expect(await events(f, "web_step.cancelled")).toHaveLength(1);
   });
 
   it("numeração sequencial com pedidos simultâneos, separada por área", async () => {

@@ -61,10 +61,11 @@ import {
 } from "../line-service";
 import type { InteractiveSpec } from "../whatsapp-interactive";
 import {
+  cancelModuleWebSteps,
   openWebStep,
+  webStepView,
   type Answers,
   type OpenWebStepInput,
-  type webStepView,
 } from "../web-steps";
 import {
   moduleById,
@@ -162,6 +163,20 @@ export interface ModuleContext {
   recordConsent(c: Conversation, record: ConsentRecord): Promise<any>;
   /** Último consentimento que vale para a finalidade, ou null. */
   consent(c: Conversation, purpose: ConsentPurpose): Promise<any>;
+  /**
+   * Cancela um link aberto do próprio módulo: quem abrir vê "Link
+   * indisponível" e não conclui. Já fechado (concluído, vencido, cancelado):
+   * devolve como está. De outro módulo ou de outra área: 404.
+   */
+  cancelWebStep(id: string): Promise<WebStep>;
+  /**
+   * Cancela todos os links abertos do módulo com o `kind` (e o `ref`) dados,
+   * por exemplo os carrinhos quando a loja pausa. Devolve os ids cancelados.
+   */
+  cancelWebSteps(filter: {
+    kind?: string;
+    ref?: string | null;
+  }): Promise<string[]>;
   /** Abre um passo web em nome do módulo (web_steps.module_id). */
   openWebStep(
     c: Conversation,
@@ -347,6 +362,26 @@ export function modulesApi(
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       return consentFor(env, c.id, purpose);
     },
+    async cancelWebStep(id) {
+      const row = await one(
+        env,
+        "SELECT id FROM web_steps WHERE id=? AND profile_id=? AND module_id=?",
+        id,
+        profile,
+        moduleId,
+      );
+      if (!row)
+        throw new ApiError(404, "not_found", "Passo web não encontrado.");
+      await cancelModuleWebSteps(env, profile, moduleId, { id });
+      return webStepView(
+        await one(env, "SELECT * FROM web_steps WHERE id=?", id),
+      )!;
+    },
+    cancelWebSteps: (filter) =>
+      cancelModuleWebSteps(env, profile, moduleId, {
+        ...(filter.kind !== undefined ? { kind: filter.kind } : {}),
+        ...(filter.ref !== undefined ? { ref: filter.ref } : {}),
+      }),
     openWebStep(c, request) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       return openWebStep(env, {
