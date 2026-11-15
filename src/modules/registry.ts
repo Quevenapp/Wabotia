@@ -10,6 +10,7 @@ import type { ModuleDefinition } from "./types";
 import { queueModule } from "./queue";
 import { formsModule } from "./forms/definition";
 import { paymentsModule } from "./payments/definition";
+import { reservaModule } from "./reserva/definition";
 
 export type { ModuleDefinition } from "./types";
 
@@ -18,6 +19,7 @@ export const modules: readonly ModuleDefinition[] = [
   queueModule,
   formsModule,
   paymentsModule,
+  reservaModule,
 ];
 
 export const moduleById = (id: unknown) =>
