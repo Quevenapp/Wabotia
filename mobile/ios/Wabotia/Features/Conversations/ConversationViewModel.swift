@@ -629,10 +629,16 @@ final class ConversationViewModel: ObservableObject {
         return true
     }
 
+    /// A última falha de `openTicket` foi uma recusa definitiva (4xx de validação ou permissão, ou chave já usada com
+    /// outro conteúdo): só aí a próxima tentativa é um pedido novo, com chave nova. Rede, 408, 429, 5xx e
+    /// `operation_unknown` deixam o resultado incerto, e repetir com a mesma chave é o que evita dois protocolos.
+    private(set) var ticketKeySpent = false
+
     /// Abre um protocolo para esta conversa (`POST /tickets`). Devolve o protocolo ou nil (erro em `actionError`).
     func openTicket(title: String, category: String? = nil, key: String) async -> Ticket? {
         guard let p = profileId else { return nil }
         actionError = nil
+        ticketKeySpent = false
         do {
             let ticket = try await container.api.createTicket(p, TicketCreate(conversation_id: conversationId, title: title, category: category), key: key)
             workspace.addLocalEvent("ticket", "Protocolo \(ticket.number) aberto", to: conversationId)
@@ -641,6 +647,7 @@ final class ConversationViewModel: ObservableObject {
             await workspace.refreshTicketCounts()
             return ticket
         } catch {
+            if let e = error as? APIError { ticketKeySpent = e.isDefinitiveWriteRejection || e.isIdempotencyConflict }
             handleActionError(error)
             return nil
         }

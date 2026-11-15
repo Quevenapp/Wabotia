@@ -102,8 +102,8 @@ final class TicketViewModel: ObservableObject {
             return true
         } catch {
             guard let message = TicketsSupport.failure(error) else { return false }
-            if let apiError = error as? APIError {
-                // O servidor respondeu: não há o que repetir com a mesma chave.
+            if let apiError = error as? APIError, apiError.isDefinitiveWriteRejection || apiError.isIdempotencyConflict {
+                // O servidor recusou de vez: não há o que repetir com a mesma chave.
                 pending = nil
                 if apiError.isIdempotencyConflict {
                     failure = Failure(message: "Este pedido já foi enviado com outro conteúdo. Confira o protocolo e tente de novo.", retryable: false)
@@ -112,7 +112,8 @@ final class TicketViewModel: ObservableObject {
                 }
                 await load(quiet: true)
             } else {
-                // Falha de rede: o pedido pode ter sido aceito; repetir com a mesma chave é seguro.
+                // Falha de rede, 408, 429, 5xx ou `operation_unknown`: o pedido pode ter sido aceito; repetir com a
+                // mesma chave é seguro.
                 pending = request
                 failure = Failure(message: message, retryable: true)
             }

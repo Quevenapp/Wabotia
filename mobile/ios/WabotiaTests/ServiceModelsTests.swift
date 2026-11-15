@@ -8,6 +8,11 @@ final class ServiceModelsTests: XCTestCase {
         XCTAssertFalse(APIError(status: 409, code: "operation_unknown", message: "Sem confirmação").isDefinitiveWriteRejection)
         XCTAssertFalse(APIError(status: 409, code: "idempotency_conflict", message: "Conflito").isDefinitiveWriteRejection)
         XCTAssertFalse(APIError(status: 429, code: "rate_limited", message: "Aguarde").isDefinitiveWriteRejection)
+        // Resultado incerto: protocolo, atualização e bot repetem com a mesma chave (IOS-8).
+        XCTAssertFalse(APIError(status: 502, code: "http_502", message: "Bad gateway").isDefinitiveWriteRejection)
+        XCTAssertFalse(APIError(status: 524, code: "http_524", message: "Tempo esgotado").isDefinitiveWriteRejection)
+        XCTAssertFalse(APIError(status: 408, code: "http_408", message: "Tempo esgotado").isDefinitiveWriteRejection)
+        XCTAssertFalse(APIError(status: 0, code: "no_response", message: "Sem resposta").isDefinitiveWriteRejection)
     }
     func testReadsInternalHistoryWithUnavailablePeer() throws {
         let data = Data(#"{"id":"chat1","peer":{"id":"bot:b1","kind":"bot","name":"Contato indisponível","online":false},"messages":[{"id":"m1","author":"u1","text":"Consulta interna","created":1794146400000,"status":"sent","run_id":null}]}"#.utf8)
