@@ -15,6 +15,12 @@
   flex: 1 1 auto;
   flex-wrap: wrap;
 }
+/* Mínimo fixo no lugar do min(220px, 100%) da .toolbar: com a porcentagem,
+   a quebra de linha da barra era calculada menor que o desenho e, no
+   tablet em pé, a seta da próxima semana ficava fora da tela. */
+.reserva-toolbar .reserva-nav .field {
+  min-width: 150px;
+}
 .reserva-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
