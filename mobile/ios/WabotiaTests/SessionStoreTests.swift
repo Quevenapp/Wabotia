@@ -50,6 +50,54 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(store.serverURL)
     }
 
+    func testTokenIsBoundToTheServerThatIssuedIt() {
+        let store = SessionStore(isolatedSuite: "br.com.queven.wabotia.tests.origin")
+        store.serverURL = URL(string: "https://wabotia.empresa.example")
+        store.token = "wabu_teste"
+        XCTAssertEqual(store.token, "wabu_teste")
+        XCTAssertEqual(store.token(for: URL(string: "https://WABOTIA.empresa.example")!), "wabu_teste")
+        XCTAssertNil(store.token(for: URL(string: "https://wabotia.outra.example")!), "outro servidor não recebe o token")
+        XCTAssertNil(store.token(for: URL(string: "http://wabotia.empresa.example")!), "nem a mesma máquina sem TLS")
+        XCTAssertNil(store.token(for: URL(string: "https://wabotia.empresa.example:8443")!))
+        store.serverURL = URL(string: "https://wabotia.outra.example")
+        XCTAssertNil(store.token, "trocar o servidor não leva o token junto")
+        store.serverURL = nil
+        XCTAssertNil(store.token, "sem servidor (app reinstalado) não há token")
+    }
+
+    func testPublicRoutesNeverCarryTheToken() {
+        let client = APIClient(baseURL: URL(string: "https://wabotia.empresa.example")!) { "wabu_teste" }
+        XCTAssertNil(client.buildRequest(.get, "api/health", authorized: false).value(forHTTPHeaderField: "Authorization"))
+        XCTAssertEqual(client.buildRequest(.get, "api/v1/me").value(forHTTPHeaderField: "Authorization"), "Bearer wabu_teste")
+    }
+
+    func testKeychainIsClearedOnTheFirstLaunchOfANewInstall() {
+        let suiteName = "br.com.queven.wabotia.tests.install"
+        let service = "br.com.queven.wabotia.tests.install-keychain"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        Keychain.write("wab_antigo", service: service, account: "config")
+        Keychain.write("1234", service: service, account: "pin")
+
+        // Atualização: as preferências já existem, nada é apagado.
+        defaults.set("https://wabotia.empresa.example", forKey: "server")
+        SessionStore.resetKeychainAfterReinstall(defaults: defaults, domain: suiteName, services: [service])
+        XCTAssertEqual(Keychain.read(service: service, account: "config"), "wab_antigo")
+
+        // Instalação nova: preferências vazias (o iOS apagou), o Keychain que sobrou é apagado.
+        defaults.removePersistentDomain(forName: suiteName)
+        SessionStore.resetKeychainAfterReinstall(defaults: defaults, domain: suiteName, services: [service])
+        XCTAssertNil(Keychain.read(service: service, account: "config"))
+        XCTAssertNil(Keychain.read(service: service, account: "pin"))
+
+        // Depois da marca, aberturas seguintes não apagam o que for gravado.
+        Keychain.write("wab_novo", service: service, account: "config")
+        SessionStore.resetKeychainAfterReinstall(defaults: defaults, domain: suiteName, services: [service])
+        XCTAssertEqual(Keychain.read(service: service, account: "config"), "wab_novo")
+        Keychain.deleteAll(service: service)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
     func testJSONStringColumns() {
         XCTAssertEqual(JSONValue.parseStringList("[\"a\",\"b\"]"), ["a", "b"])
         XCTAssertEqual(JSONValue.parse("{\"reply_to\":\"m1\"}")["reply_to"]?.stringValue, "m1")

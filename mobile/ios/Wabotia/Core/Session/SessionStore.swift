@@ -4,7 +4,7 @@ import Security
 /// Servidor, token (Keychain), usuário e preferências locais.
 final class SessionStore {
     private let defaults: UserDefaults
-    private let keychainService = "br.com.queven.wabotia.session"
+    private let keychainService = SessionStore.sessionService
     /// Sessão isolada: nada vai para o Keychain nem para as preferências reais do aparelho.
     private let isolated: Bool
 
@@ -33,14 +33,65 @@ final class SessionStore {
         set { defaults.set(newValue?.absoluteString, forKey: Keys.server) }
     }
 
+    /// Token da pessoa para o servidor configurado. Fica preso à origem (esquema, host e porta) do servidor em que a
+    /// pessoa entrou: com outro `serverURL`, ou sem nenhum, não há token, e nada vai para um endereço novo.
+    /// Gravar usa a origem do `serverURL` atual, então o servidor é gravado antes do token.
     var token: String? {
-        get { isolated ? defaults.string(forKey: "isolated_token") : Keychain.read(service: keychainService, account: "token") }
+        get { serverURL.flatMap { token(for: $0) } }
         set {
-            if isolated { defaults.set(newValue, forKey: "isolated_token"); return }
-            if let newValue { Keychain.write(newValue, service: keychainService, account: "token") }
-            else { Keychain.delete(service: keychainService, account: "token") }
+            let origin = newValue == nil ? nil : serverURL.map(Self.origin)
+            if isolated {
+                defaults.set(newValue, forKey: "isolated_token")
+                defaults.set(origin, forKey: "isolated_token_origin")
+                return
+            }
+            if let newValue, let origin {
+                Keychain.write(newValue, service: keychainService, account: "token")
+                Keychain.write(origin, service: keychainService, account: "origin")
+            } else {
+                Keychain.delete(service: keychainService, account: "token")
+                Keychain.delete(service: keychainService, account: "origin")
+            }
         }
     }
+
+    /// O token só sai para a origem que o emitiu.
+    func token(for url: URL) -> String? {
+        let stored = isolated ? defaults.string(forKey: "isolated_token") : Keychain.read(service: keychainService, account: "token")
+        let origin = isolated ? defaults.string(forKey: "isolated_token_origin") : Keychain.read(service: keychainService, account: "origin")
+        guard let stored, let origin, origin == Self.origin(url) else { return nil }
+        return stored
+    }
+
+    /// `https://host[:porta]`, em minúsculas, sem caminho.
+    static func origin(_ url: URL) -> String {
+        let scheme = (url.scheme ?? "https").lowercased()
+        let host = (url.host ?? "").lowercased()
+        let port = url.port.map { ":\($0)" } ?? ""
+        return "\(scheme)://\(host)\(port)"
+    }
+
+    /// O iOS não apaga o Keychain quando o app é desinstalado, mas apaga as preferências. Na primeira abertura depois
+    /// de instalar (preferências do app vazias, sem a marca), apaga os serviços do Keychain do app (`services`): o token
+    /// de uma conta antiga não vai para o próximo servidor digitado e um totem "desativado" apagando o app não volta
+    /// pareado. Numa atualização (preferências já existem), só grava a marca e a origem do token que veio de versões
+    /// que não a guardavam.
+    static func resetKeychainAfterReinstall(defaults: UserDefaults = .standard, domain: String? = Bundle.main.bundleIdentifier,
+                                            services: [String] = [sessionService, KeychainDeviceConfigStore.productionService]) {
+        guard !defaults.bool(forKey: Keys.installMarker) else { return }
+        let existing = domain.flatMap { defaults.persistentDomain(forName: $0) } ?? [:]
+        if existing.isEmpty {
+            services.forEach(Keychain.deleteAll(service:))
+        } else if services.contains(sessionService),
+                  Keychain.read(service: sessionService, account: "token") != nil,
+                  Keychain.read(service: sessionService, account: "origin") == nil,
+                  let server = defaults.string(forKey: Keys.server).flatMap(URL.init(string:)) {
+            Keychain.write(origin(server), service: sessionService, account: "origin")
+        }
+        defaults.set(true, forKey: Keys.installMarker)
+    }
+
+    static let sessionService = "br.com.queven.wabotia.session"
 
     var tokenExpires: Date? {
         get { defaults.object(forKey: Keys.tokenExpires) as? Date }
@@ -152,6 +203,7 @@ final class SessionStore {
         static let pushRegistered = "push_registered"
         static let notifications = "notifications"
         static let eventCursor = "event_cursor"
+        static let installMarker = "install_marker"
     }
 }
 
@@ -186,6 +238,15 @@ enum Keychain {
             attributes.forEach { insert[$0.key] = $0.value }
             SecItemAdd(insert as CFDictionary, nil)
         }
+    }
+
+    /// Todos os itens de um serviço, qualquer que seja a conta.
+    static func deleteAll(service: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     static func delete(service: String, account: String) {

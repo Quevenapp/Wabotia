@@ -51,8 +51,8 @@ final class APIClient {
     enum Method: String { case get = "GET", post = "POST", put = "PUT", patch = "PATCH", delete = "DELETE" }
 
     /// Requisição JSON genérica. `key` é a Idempotency-Key (obrigatória nas escritas, exceto PUT /devices).
-    func request<T: Decodable>(_ method: Method, _ path: String, query: [String: String?] = [:], body: (any Encodable)? = nil, key: String? = nil, as type: T.Type = T.self) async throws -> T {
-        let data = try await raw(method, path, query: query, body: body.map { try JSONEncoder.wabotia.encode(AnyEncodable($0)) }, contentType: "application/json", key: key)
+    func request<T: Decodable>(_ method: Method, _ path: String, query: [String: String?] = [:], body: (any Encodable)? = nil, key: String? = nil, authorized: Bool = true, as type: T.Type = T.self) async throws -> T {
+        let data = try await raw(method, path, query: query, body: body.map { try JSONEncoder.wabotia.encode(AnyEncodable($0)) }, contentType: "application/json", key: key, authorized: authorized)
         if T.self == OK.self, data.isEmpty { return OK() as! T }
         do { return try JSONDecoder.wabotia.decode(T.self, from: data) }
         catch { throw APIError(status: 200, code: "invalid_response", message: "Resposta inesperada do servidor.") }
@@ -60,16 +60,8 @@ final class APIClient {
 
     /// Requisição com corpo binário (partes de upload) ou sem decodificação.
     @discardableResult
-    func raw(_ method: Method, _ path: String, query: [String: String?] = [:], body: Data? = nil, contentType: String? = nil, key: String? = nil) async throws -> Data {
-        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
-        let items = query.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
-        if !items.isEmpty { components.queryItems = items }
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = method.rawValue
-        if let token = tokenProvider(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        if let key { request.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
-        if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
-        request.httpBody = body
+    func raw(_ method: Method, _ path: String, query: [String: String?] = [:], body: Data? = nil, contentType: String? = nil, key: String? = nil, authorized: Bool = true) async throws -> Data {
+        let request = buildRequest(method, path, query: query, body: body, contentType: contentType, key: key, authorized: authorized)
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError(status: 0, code: "no_response", message: "Sem resposta do servidor.") }
         guard (200..<300).contains(http.statusCode) else {
@@ -85,6 +77,20 @@ final class APIClient {
             throw APIError(status: http.statusCode, code: parsed?.code ?? "http_\(http.statusCode)", message: parsed?.message ?? fallback, requestId: parsed?.request_id)
         }
         return data
+    }
+
+    /// A requisição como vai para a rede. `authorized: false` (health, status, login) nunca leva o token.
+    func buildRequest(_ method: Method, _ path: String, query: [String: String?] = [:], body: Data? = nil, contentType: String? = nil, key: String? = nil, authorized: Bool = true) -> URLRequest {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        let items = query.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
+        if !items.isEmpty { components.queryItems = items }
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = method.rawValue
+        if authorized, let token = tokenProvider(), !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let key { request.setValue(key, forHTTPHeaderField: "Idempotency-Key") }
+        if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        request.httpBody = body
+        return request
     }
 
     /// URL absoluta de um anexo privado (exige Authorization; use `authorizedRequest`).

@@ -30,6 +30,8 @@ final class AppContainer: ObservableObject {
     private var client: APIClient?
 
     private init() {
+        // Antes de ler qualquer credencial: o Keychain de uma instalação anterior não vale para esta.
+        SessionStore.resetKeychainAfterReinstall()
         #if DEBUG
         // Demonstração aberta por WABOTIA_DEMO=<tela>: sessão isolada, em nada parecida com a real.
         if DemoMode.launchScreen != nil {
@@ -116,7 +118,8 @@ final class AppContainer: ObservableObject {
 
     func client(for url: URL) -> APIClient {
         if let c = client, c.baseURL == url { return c }
-        let c = APIClient(baseURL: url) { [weak self] in self?.session.token }
+        // O token só vai para a origem que o emitiu: a tela Servidor testa um endereço novo sem levar o de outro.
+        let c = APIClient(baseURL: url) { [weak self] in self?.session.token(for: url) }
         client = c
         return c
     }

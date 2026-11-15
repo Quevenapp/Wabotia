@@ -4,9 +4,10 @@ import Foundation
 /// Escritas exigem Idempotency-Key: gere uma chave por intenção e reutilize a mesma ao repetir após falha de rede.
 extension APIClient {
     // MARK: Descoberta e autenticação
-    func health() async throws -> HealthInfo { try await request(.get, "api/health") }
-    func authStatus() async throws -> AuthStatus { try await request(.get, "api/auth/status") }
-    func mobileLogin(_ body: MobileLoginRequest) async throws -> MobileSession { try await request(.post, "api/auth/mobile/login", body: body) }
+    // Rotas públicas: nunca levam o token, mesmo que haja um guardado.
+    func health() async throws -> HealthInfo { try await request(.get, "api/health", authorized: false) }
+    func authStatus() async throws -> AuthStatus { try await request(.get, "api/auth/status", authorized: false) }
+    func mobileLogin(_ body: MobileLoginRequest) async throws -> MobileSession { try await request(.post, "api/auth/mobile/login", body: body, authorized: false) }
     func refresh(key: String = APIClient.newIdempotencyKey()) async throws -> MobileSession { try await request(.post, "api/v1/auth/mobile/refresh", body: [String: String](), key: key) }
     func logout(key: String = APIClient.newIdempotencyKey()) async throws -> OK { try await request(.post, "api/v1/logout", body: [String: String](), key: key) }
     func me() async throws -> Me { try await request(.get, "api/v1/me") }

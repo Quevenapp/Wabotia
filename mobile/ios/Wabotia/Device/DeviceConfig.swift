@@ -75,8 +75,9 @@ final class MemoryDeviceConfigStore: DeviceConfigStore {
 
 /// A credencial do aparelho no Keychain, num serviço próprio (`br.com.queven.wabotia.device`), longe do token da
 /// pessoa (`br.com.queven.wabotia.session`): sair da conta apaga só a sessão. Acessível depois do primeiro desbloqueio
-/// e só neste aparelho (um totem que reinicia volta sozinho, e o vínculo não vai para backup). Desinstalar o app ou
-/// desfazer o pareamento apaga; o administrador revoga em Integrações.
+/// e só neste aparelho (um totem que reinicia volta sozinho, e o vínculo não vai para backup). Desfazer o pareamento
+/// apaga. O iOS mantém o Keychain depois de desinstalar o app, então a primeira abertura de uma instalação nova o apaga
+/// (`SessionStore.resetKeychainAfterReinstall`). O administrador revoga em Integrações.
 final class KeychainDeviceConfigStore: DeviceConfigStore {
     static let productionService = "br.com.queven.wabotia.device"
     let service: String
