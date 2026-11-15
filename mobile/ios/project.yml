@@ -21,6 +21,10 @@ packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: "11.6.0"
+  # Impressão térmica do cupom do totem (modo aparelho), por caminho local: o kit fica na pasta vizinha do
+  # repositório (D:\Code\ThermalPrinterKit no Dell). build-on-mac.ps1 reproduz o mesmo layout no Mac.
+  ThermalPrinterKit:
+    path: ../../../../ThermalPrinterKit/ios
 targets:
   Wabotia:
     type: application
@@ -44,7 +48,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
-        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # O app de atendimento fica em retrato no iPhone (AppDelegate.supportedInterfaceOrientationsFor); a paisagem
+        # declarada aqui só vale no modo aparelho (totem, painel de chamadas e híbrido). No iPad, todas as orientações.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIBackgroundModes: [remote-notification]
         NSMicrophoneUsageDescription: "O microfone é usado para gravar mensagens de voz."
         NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente."
@@ -52,6 +59,8 @@ targets:
         NSPhotoLibraryAddUsageDescription: "A galeria é usada para salvar fotos e vídeos recebidos quando você escolhe salvar."
         NSLocationWhenInUseUsageDescription: "A localização é usada apenas quando você escolhe compartilhá-la com o cliente."
         NSContactsUsageDescription: "Os contatos são usados apenas quando você escolhe compartilhar um cartão de contato ou salvar um contato recebido."
+        NSBluetoothAlwaysUsageDescription: "O Bluetooth é usado para imprimir o cupom da senha numa impressora térmica, quando este aparelho é um totem."
+        NSLocalNetworkUsageDescription: "A rede local é usada para encontrar e usar a impressora térmica Wi-Fi que imprime o cupom da senha no totem."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:
@@ -68,7 +77,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: br.com.queven.wabotia
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
-        TARGETED_DEVICE_FAMILY: "1"
+        # iPhone e iPad: o iPad serve de totem e de painel de chamadas (modo aparelho).
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         OTHER_LDFLAGS: ["-ObjC"]
       configs:
@@ -79,12 +89,19 @@ targets:
     dependencies:
       - package: Firebase
         product: FirebaseMessaging
+      - package: ThermalPrinterKit
+        product: ThermalPrinterKit
+      - package: ThermalPrinterKit
+        product: Printher
       - sdk: AVFoundation.framework
   WabotiaTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: WabotiaTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Wabotia
 schemes:
