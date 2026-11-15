@@ -14,6 +14,14 @@ export type InstallmentPaid = {
   paid_via: string;
   paid_by: string;
   paid_at: number;
+  /**
+   * Conversa em que a cobrança paga foi feita (null na baixa manual). Quem
+   * libera algo pela parcela confere que é a mesma conversa (ou um telefone
+   * autorizado do pagador).
+   */
+  conversation_id: string | null;
+  /** Contratação pelo WhatsApp que gerou a parcela, se foi o caso. */
+  contract_id: string | null;
 };
 
 type Listener = (
@@ -30,7 +38,12 @@ export function onInstallmentPaid(module: string, listener: Listener) {
 }
 
 /** Relê a parcela paga (com o pagador) e avisa os ouvintes. */
-export async function announcePaid(env: Env, profile: string, id: string) {
+export async function announcePaid(
+  env: Env,
+  profile: string,
+  id: string,
+  origin: { conversation_id?: string | null; contract_id?: string | null } = {},
+) {
   const row = await one(
     env,
     "SELECT i.*,s.payer_id FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id WHERE i.id=? AND i.profile_id=? AND i.status='paid'",
@@ -47,6 +60,8 @@ export async function announcePaid(env: Env, profile: string, id: string) {
     paid_via: row.paid_via,
     paid_by: row.paid_by,
     paid_at: row.paid_at,
+    conversation_id: origin.conversation_id ?? null,
+    contract_id: origin.contract_id ?? null,
   });
 }
 

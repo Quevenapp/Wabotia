@@ -153,7 +153,7 @@ Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profi
 | `POST /mensalidade/payers/{id}/phones` · `/phones/remove` | Autoriza ou retira um telefone `{"phone","label"}` |
 | `GET /mensalidade/situation?phone=…` ou `?document=…` | `status` `em_dia`, `em_atraso` (com `open_installment`) ou `sem_assinatura`, com a carência (`grace_days`) das regras; `phone_linked` diz se o telefone é autorizado. Sem pagador: `404 payer_not_found` |
 
-Assinaturas aceitam `payer_id` ou `document` (+ `payer_name`) para ligar ao pagador; sem eles, cada assinatura cria um pagador com o próprio telefone. Planos têm `sellable` (contratação pelo WhatsApp) e `description`; as regras têm `grace_days`.
+Assinaturas aceitam `payer_id` ou `document` (+ `payer_name`) para ligar ao pagador; sem eles, cada assinatura cria um pagador com o próprio telefone. Planos têm `sellable` (contratação pelo WhatsApp) e `description`; as regras têm `grace_days`. A contratação pelo WhatsApp é um contrato pendente (`mensalidade.contract_created`): pagador, assinatura e primeira parcela (já paga) só nascem com o pagamento confirmado.
 
 A parcela vira `paid` só pelo webhook assinado do provedor (cobrança do módulo `payments`) ou pela baixa manual; nunca por mensagem do cliente. Eventos (webhooks com `conversations:read`): `mensalidade.subscription_created`, `mensalidade.subscription_changed` (`change`: `updated`, `paused`, `resumed`, `ended`), `mensalidade.installment_created`, `mensalidade.charged`, `mensalidade.notice_sent` (`kind`: `before`, `due`, `overdue`), `mensalidade.overdue`, `mensalidade.paid` (`via`, `by`; `duplicate: true` quando entra um segundo pagamento), `mensalidade.waived`, `mensalidade.refunded`, `mensalidade.notice_failed` (`reason`: `no_conversation`…), `mensalidade.setup_needed` (Cobrança não configurada, no máximo uma vez por dia), `mensalidade.payer_created` e `mensalidade.payer_changed` (`change`: `updated`, `phone_added`, `phone_removed`).
 
@@ -178,13 +178,16 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 | `GET /suporte/releases` | Liberações: `kind` (`subscription`, `installment`, `package`, `courtesy`, `team`), `status`, `conversation_id`, `payer_id`, `from`/`to` (ms), `q`, `cursor`; traz `counts` por forma |
 | `GET /suporte/purchases` | Compras de suporte avulso: `status` (`pending`, `paid`, `expired`, `cancelled`, `refunded`), `conversation_id`, `q`; traz `counts` e `paid_cents` |
 | `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
-| `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release`, `session`, `awaiting_team`, `unlinked_phone` e compras |
+| `GET /suporte/pending` | Aguardando confirmação (últimos 7 dias): quem digitou o CPF/CNPJ de um cadastro por um telefone não autorizado |
+| `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release` (com `ticket_id` e `expires_at`), `session`, `awaiting_team`, `unlinked_phone` e compras |
 | `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ |
-| `POST /suporte/conversations/{id}/confirm` | Modo só telefone vinculado: equipe confirma `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
+| `POST /suporte/conversations/{id}/confirm` | A equipe confirma a identidade de quem aguarda confirmação `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
 | `POST /suporte/releases/{id}/end` | Encerra uma liberação (administrador) |
 
-Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (`any` ou `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
+A liberação fica presa ao protocolo e à sessão da conversa: protocolo fechado, conversa resolvida, prazo máximo (7 dias até o protocolo, 30 dias as demais, 4 horas com telefone não vinculado), assinatura fora do dia ou estorno a encerram (`suporte.release_ended` com `reason`). CPF/CNPJ de um cadastro vindo de telefone que ele não autorizou não libera nem mostra nada: a sessão fica aguardando confirmação.
+
+Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (só `linked_only`; o antigo `any` é aceito e vale como `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
 
 ### Pedido (módulo `pedido`)
 

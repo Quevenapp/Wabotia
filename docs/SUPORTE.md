@@ -28,24 +28,35 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 1. **Identificação.** Pelo telefone da conversa, entre os telefones
    autorizados dos pagadores (Mensalidades → Pagadores). Se não achar, pede o
    CPF ou CNPJ de quem paga, com os dígitos conferidos (aceita o CNPJ com
-   letras), em até 3 tentativas (configurável).
-2. **CPF/CNPJ vindo de telefone não vinculado.** Por padrão libera e a
-   conversa chega ao atendente com o aviso "telefone não vinculado ao pagador
-   X"; em **Dados da conversa → Suporte pago**, **Vincular ao pagador**
-   autoriza o número com um toque. No modo **só telefone vinculado**, a
-   conversa vai para a equipe confirmar antes (**Confirmar e liberar**).
-3. **Situação** (Mensalidade, com a carência das regras):
+   letras), em até 3 tentativas por vez (configurável). Por telefone e por
+   dia: no máximo 3 documentos diferentes e 10 tentativas.
+2. **CPF/CNPJ de um cadastro, vindo de telefone que ele não autorizou.**
+   Documento não é prova de identidade (CNPJ é público, CPF vaza). O cliente
+   recebe sempre a mesma resposta ("vamos confirmar com a nossa equipe"), sem
+   nada do cadastro (plano, valor, vencimento, cobrança), e a conversa **não**
+   vai para a fila: fica **aguardando confirmação** (evento
+   `suporte.awaiting_team`, aba **Aguardando confirmação** do Suporte pago).
+   O atendente confere com o cliente e, em **Dados da conversa → Suporte
+   pago**, usa **Confirmar identidade e liberar** (vincula o telefone e libera
+   se o pagador está em dia) ou **Vincular ao pagador**. Nada pelo WhatsApp
+   vincula telefone nem contrata em nome de um cadastro que já existe.
+3. **Situação** (Mensalidade, com a carência das regras), só para o pagador
+   que autorizou o telefone:
    - **em dia**: liberado;
    - **em atraso**: o cliente paga a parcela em aberto (Pix ou link) e é
      liberado quando o pagamento é confirmado;
    - **sem assinatura**: escolhe **Suporte avulso** (pacotes) ou **Plano
-     mensal** (planos vendáveis). Sem cadastro, informa CPF/CNPJ e nome; o
-     plano cria o pagador e a assinatura e cobra a primeira parcela na hora.
+     mensal** (planos vendáveis). Sem cadastro, informa CPF/CNPJ (ainda não
+     cadastrado) e nome. O plano cobra a primeira mensalidade na hora; o
+     pagador (com este telefone), a assinatura e a parcela paga só nascem
+     quando o Mercado Pago confirma o pagamento.
 4. **Pagamento** pela Cobrança: Pix copia e cola na conversa ou link de
    pagamento (cartão e outros meios). "Já paguei" ou um comprovante enviado
    pelo cliente **não libera**: só o webhook do Mercado Pago, depois da
    consulta do pagamento. Enquanto espera, o cliente responde 1 para receber o
-   código de novo ou 2 para trocar a forma.
+   código de novo ou 2 para trocar a forma. A mensalidade paga libera só a
+   conversa em que a cobrança foi feita, ou (baixa manual, pagamento por outro
+   caminho) um telefone autorizado do pagador que pediu atendimento há pouco.
 5. **Liberação.** Fica gravado quem foi liberado, como (assinatura em dia,
    mensalidade paga, avulso, cortesia, confirmado pela equipe), por qual
    pagador e até quando, e a conversa vai para o setor configurado com um

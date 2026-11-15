@@ -21,6 +21,8 @@ import {
 } from "./model";
 import { loadInstallment, paymentsReady } from "./installments";
 import { announcePaid, notifyInstallmentRefunded } from "./listeners";
+import { contractPaymentUpdated } from "./contracts";
+import { cancelOpenCharge } from "./store";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -206,6 +208,9 @@ export async function ensureCharge(
     (!inst.payment_method || inst.payment_method === method)
   )
     return { payment: null, created: false, inst };
+  // Outra forma ou vencendo: a cobrança aberta é cancelada antes, para não
+  // haver duas valendo ao mesmo tempo.
+  await cancelOpenCharge(ctx, inst);
   const seq = inst.charge_seq + 1;
   // Vale até 7 dias depois do vencimento (ou de hoje, se já venceu).
   const base = inst.due_date > today(at) ? inst.due_date : today(at);
@@ -599,13 +604,24 @@ export async function paymentUpdated(
   previous: string,
 ) {
   if (!payment.ref_id) return;
-  const inst = await one(
+  let inst = await one(
     ctx.env,
     "SELECT * FROM mensalidade_installments WHERE id=? AND profile_id=?",
     payment.ref_id,
     ctx.profile,
   );
-  if (!inst) return;
+  if (!inst) {
+    // Contratação pelo WhatsApp: a parcela só nasce com o pagamento.
+    const contract = await one(
+      ctx.env,
+      "SELECT * FROM mensalidade_contracts WHERE id=? AND profile_id=?",
+      payment.ref_id,
+      ctx.profile,
+    );
+    if (!contract) return;
+    inst = await contractPaymentUpdated(ctx, contract, payment);
+    if (!inst) return;
+  }
   const at = now();
   if (payment.status === "paid") {
     const result = await exec(
@@ -653,8 +669,22 @@ export async function paymentUpdated(
       },
       { key: `${inst.id}:paid:${payment.id}` },
     );
-    await sendReceipt(ctx, inst.id);
-    await announcePaid(ctx.env, ctx.profile, inst.id);
+    // O aviso aos módulos antes do comprovante: uma falha no envio (linha sem
+    // modelo, por exemplo) não impede a liberação de quem pagou.
+    await announcePaid(ctx.env, ctx.profile, inst.id, {
+      conversation_id: payment.conversation_id ?? null,
+    });
+    try {
+      await sendReceipt(ctx, inst.id);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "mensalidade-receipt",
+          installment: inst.id,
+          error: String((error as Error)?.message || error),
+        }),
+      );
+    }
     return;
   }
   if (payment.status === "refunded") {

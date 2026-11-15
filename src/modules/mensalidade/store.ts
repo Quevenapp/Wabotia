@@ -449,6 +449,11 @@ export interface SubscriptionInput {
   payer_name?: unknown;
   /** Repetir a chave devolve a mesma assinatura (contratação pelo WhatsApp). */
   sourceKey?: string;
+  /**
+   * Interno (nunca do corpo da requisição): contrato já pago pelo WhatsApp;
+   * a assinatura nasce mesmo que o plano tenha sido desativado depois.
+   */
+  paidContract?: boolean;
 }
 
 /** Valida e monta a linha da assinatura (sem gravar). */
@@ -458,7 +463,10 @@ async function subscriptionRow(
   at: number,
 ) {
   const plan = await loadPlan(ctx, input.plan_id);
-  requireValue(plan.active, `O plano "${plan.name}" está desativado.`);
+  requireValue(
+    plan.active || input.paidContract === true,
+    `O plano "${plan.name}" está desativado.`,
+  );
   const c = input.conversation || null;
   if (c)
     requireValue(

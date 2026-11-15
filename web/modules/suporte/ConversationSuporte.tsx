@@ -48,7 +48,7 @@ export function ConversationSuporte({
           <small className="muted">
             {data.release.valid_until
               ? `Até ${stampLabel(data.release.valid_until)}`
-              : "Até o protocolo fechar"}
+              : `Até o protocolo fechar (no máximo ${stampLabel(data.release.expires_at)})`}
             {data.release.reason ? ` · ${data.release.reason}` : ""}
           </small>
         </p>
@@ -59,11 +59,20 @@ export function ConversationSuporte({
           </Pill>
         </p>
       )}
-      {data.unlinked_phone && (
+      {data.awaiting_team ? (
         <Notice tone="warn">
-          Telefone não vinculado ao pagador {data.unlinked_phone.payer_name}.
-          Confira com o cliente.
+          O cliente digitou o CPF/CNPJ de{" "}
+          {data.unlinked_phone?.payer_name || "um cadastro"}, mas este telefone
+          não é autorizado por ele. Nada foi liberado nem mostrado. Confirme a
+          identidade antes de liberar.
         </Notice>
+      ) : (
+        data.unlinked_phone && (
+          <Notice tone="warn">
+            Telefone não vinculado ao pagador {data.unlinked_phone.payer_name}.
+            Confira com o cliente.
+          </Notice>
+        )
       )}
       <div className="card-actions">
         {data.unlinked_phone && (
@@ -89,7 +98,7 @@ export function ConversationSuporte({
               })
             }
           >
-            Confirmar e liberar
+            Confirmar identidade e liberar
           </Button>
         )}
         {!data.release && (

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { all, one } from "../src/db";
 import { conversation } from "../src/service";
 import { now, uid } from "../src/types";
-import { startFlow } from "../src/modules/suporte/flow";
+import { startFlow, UNLINKED_REPLY } from "../src/modules/suporte/flow";
 import { handoffGate } from "../src/modules/suporte/handoff";
 import { situationByPhone } from "../src/modules/mensalidade/public";
 import {
@@ -154,7 +154,7 @@ describe("suporte: identificação pelo CPF ou CNPJ", () => {
     expect(await releases(c.id)).toHaveLength(0);
   });
 
-  it("CPF válido de telefone não vinculado: libera com aviso e o atendente vincula com um toque", async () => {
+  it("CPF de cadastro vindo de telefone não vinculado: resposta única, nada liberado; o atendente vincula com um toque", async () => {
     const s = await setupSuporte();
     const { f } = s;
     await payerEmDia(s, "5511970000004");
@@ -162,18 +162,19 @@ describe("suporte: identificação pelo CPF ou CNPJ", () => {
     let c = await talk(f, "oi", phone);
     await startFlow(s.sctx, c, uid());
     c = await talk(f, "529.982.247-25", phone);
-    const [row] = await releases(c.id);
-    expect(row).toMatchObject({ kind: "subscription", phone_linked: 0 });
-    expect(row.summary).toContain(
-      "Atenção: telefone não vinculado ao pagador Empresa Alfa.",
-    );
+    expect(await releases(c.id)).toHaveLength(0);
+    expect(c.state).not.toBe("waiting");
+    expect(await lastText(c.id)).toBe(UNLINKED_REPLY);
+    expect(await eventsOf(f, "suporte.awaiting_team")).toHaveLength(1);
+    await claim(f, f.member, c.id);
     const token = await bearer(f.member);
     const status = await (
       await api(token, `/profiles/${f.profile}/suporte/conversations/${c.id}`)
     ).json<any>();
     expect(status).toMatchObject({
-      allowed: true,
-      release: { kind: "subscription", phone_linked: false },
+      allowed: false,
+      awaiting_team: true,
+      release: null,
       unlinked_phone: { payer_name: "Empresa Alfa" },
     });
     expect(await situationByPhone(env, f.profile, phone)).toBeNull();
@@ -212,8 +213,9 @@ describe("suporte: identificação pelo CPF ou CNPJ", () => {
     ).toBe(409);
   });
 
-  it("modo só telefone vinculado: vai para a equipe confirmar antes de liberar", async () => {
-    const s = await setupSuporte({ identify: "linked_only" });
+  it("aguardando confirmação: a conversa não entra na fila; a equipe confirma, vincula e libera", async () => {
+    // "any" (regras antigas) vale como linked_only.
+    const s = await setupSuporte({ identify: "any" });
     const { f } = s;
     await payerEmDia(s, "5511970000006", CNPJ);
     const phone = "5511970000007";
@@ -221,10 +223,12 @@ describe("suporte: identificação pelo CPF ou CNPJ", () => {
     await startFlow(s.sctx, c, uid());
     c = await talk(f, "11222333000181", phone);
     expect(await releases(c.id)).toHaveLength(0);
-    expect(c.state).toBe("waiting");
-    expect((await texts(c.id)).map((m) => m.text).join("\n")).toContain(
-      "Este número ainda não está autorizado para este CPF/CNPJ.",
-    );
+    expect(c.state).not.toBe("waiting");
+    const said = (await texts(c.id)).map((m) => m.text).join("\n");
+    expect(said).toContain(UNLINKED_REPLY);
+    // Nada do cadastro de outra pessoa aparece para quem digitou.
+    expect(said).not.toContain("Empresa Alfa");
+    expect(said).not.toContain("Suporte Mensal");
     expect(await eventsOf(f, "suporte.awaiting_team")).toHaveLength(1);
     const status = await (
       await api(

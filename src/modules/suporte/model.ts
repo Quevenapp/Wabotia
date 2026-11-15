@@ -16,10 +16,11 @@ export interface SuporteSettings {
   /** Setor que recebe a conversa liberada (null: equipe geral). */
   department_id: string | null;
   /**
-   * any: CPF/CNPJ vindo de telefone não vinculado libera, com aviso ao
-   * atendente. linked_only: esse caso vai para a equipe confirmar antes.
+   * linked_only (único modo): CPF/CNPJ de um pagador cadastrado vindo de
+   * telefone não vinculado fica "aguardando confirmação" até a equipe
+   * confirmar. O antigo "any" (liberava direto) é lido como linked_only.
    */
-  identify: "any" | "linked_only";
+  identify: "linked_only";
   /** Tentativas de digitar o CPF/CNPJ (1 a 5). */
   max_attempts: number;
   packages: SupportPackage[];
@@ -39,7 +40,7 @@ export interface SuporteSettings {
 
 export const SUPORTE_DEFAULTS: SuporteSettings = {
   department_id: null,
-  identify: "any",
+  identify: "linked_only",
   max_attempts: 3,
   packages: [],
   offer_plans: true,
@@ -58,9 +59,15 @@ export function suporteSettings(cfg: any): SuporteSettings {
   return {
     ...SUPORTE_DEFAULTS,
     ...raw,
+    identify: "linked_only",
     texts: { ...SUPORTE_DEFAULTS.texts, ...(raw.texts || {}) },
   };
 }
+
+/** CPF/CNPJ diferentes que um telefone consulta por dia. */
+export const DOCUMENTS_PER_DAY = 3;
+/** Tentativas (válidas ou não) de um telefone por dia. */
+export const LOOKUPS_PER_DAY = 10;
 
 const intIn = (value: unknown, min: number, max: number, what: string) => {
   requireValue(
@@ -165,11 +172,12 @@ export function validateSuporteSettings(
         ? null
         : text(raw.department_id, 100, "o setor");
   if (raw.identify !== undefined) {
+    // "any" ainda é aceito (regras salvas antes) e vale como linked_only.
     requireValue(
       raw.identify === "any" || raw.identify === "linked_only",
-      "Suporte: identificação any ou linked_only.",
+      "Suporte: identificação linked_only.",
     );
-    out.identify = raw.identify;
+    out.identify = "linked_only";
   }
   if (raw.max_attempts !== undefined)
     out.max_attempts = intIn(raw.max_attempts, 1, 5, "tentativas de CPF/CNPJ");

@@ -2019,6 +2019,12 @@ function suporteOperations(): [string, string, string, string?, string?][] {
     ],
     [
       "get",
+      `${base}/pending`,
+      "Suporte pago: aguardando a equipe confirmar a identidade",
+      "conversations:read",
+    ],
+    [
+      "get",
       `${base}/conversations/{id}`,
       "Suporte pago: situação de uma conversa",
       "conversations:read",
@@ -2083,7 +2089,17 @@ function suporteSchemas() {
         valid_until: { type: ["integer", "null"] },
         until_ticket: {
           type: "boolean",
-          description: "Vale até o protocolo fechar.",
+          description:
+            "Vale até o protocolo amarrado (ticket_id) fechar ou a conversa ser resolvida.",
+        },
+        ticket_id: {
+          type: ["string", "null"],
+          description: "Protocolo da conversa na hora da liberação.",
+        },
+        expires_at: {
+          type: "integer",
+          description:
+            "Prazo máximo absoluto (7 dias até o protocolo, 30 dias as demais, 4 horas com telefone não vinculado).",
         },
         reason: { type: "string" },
         summary: {
@@ -2238,6 +2254,30 @@ function describeSuporteOperation(
         next_cursor: { type: ["string", "null"] },
         counts: { type: "object", additionalProperties: { type: "integer" } },
         paid_cents: { type: "integer" },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/pending")) {
+    entry.description +=
+      " Sessões dos últimos 7 dias em que o cliente digitou o CPF/CNPJ de um cadastro por um telefone que ele não autorizou; nada foi liberado nem mostrado ao cliente. A equipe confirma em conversations/{id}/confirm.";
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              session_id: { type: "string" },
+              conversation_id: { type: "string" },
+              phone: { type: "string" },
+              payer_id: { type: "string" },
+              payer_name: { type: "string" },
+              created: { type: "integer" },
+            },
+          },
+        },
       },
     };
     return;

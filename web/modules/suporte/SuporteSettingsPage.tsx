@@ -13,7 +13,6 @@ import "../mensalidade/mensalidade.css";
 
 const defaults: Row = {
   department_id: null,
-  identify: "any",
   max_attempts: 3,
   packages: [],
   offer_plans: true,
@@ -133,7 +132,6 @@ export function SuporteSettingsPage() {
               await app.api(app.root + "/settings", "PUT", {
                 suporte: {
                   department_id: draft.department_id || null,
-                  identify: draft.identify,
                   max_attempts: Number(draft.max_attempts),
                   packages: pkgs,
                   offer_plans: !!draft.offer_plans,
@@ -164,22 +162,6 @@ export function SuporteSettingsPage() {
               onChange={set("department_id")}
               options={departments.map((d) => ({ id: d.id, name: d.name }))}
               emptyOption="Equipe geral"
-            />
-            <Field
-              label="Identificação"
-              value={draft.identify}
-              onChange={set("identify")}
-              emptyOption={null}
-              options={[
-                {
-                  id: "any",
-                  name: "CPF/CNPJ libera, com aviso se o telefone não for vinculado",
-                },
-                {
-                  id: "linked_only",
-                  name: "Só telefone vinculado (os demais a equipe confirma)",
-                },
-              ]}
             />
             <Field
               label="Tentativas de CPF/CNPJ"

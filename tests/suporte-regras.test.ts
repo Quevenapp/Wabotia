@@ -82,7 +82,7 @@ describe("suporte: regras", () => {
       ...routes.write.map((r) => [r.method, r.path] as const),
       ...routes.read.map((r) => ["GET", r.path] as const),
     ].filter(([, path]) => path.startsWith("suporte/"));
-    expect(own.length).toBe(8);
+    expect(own.length).toBe(9);
     for (const [method, path] of own)
       expect(
         spec.paths[

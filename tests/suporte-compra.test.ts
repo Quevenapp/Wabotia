@@ -256,13 +256,25 @@ describe("suporte: sem cadastro, plano mensal", () => {
       offer_kind: "plan",
       step: "awaiting_payment",
     });
-    expect((await situationByPhone(env, f.profile, phone))?.status).toBe(
-      "em_atraso",
-    );
+    // Até o pagamento nada nasce no cadastro: nem pagador, nem assinatura.
+    expect(session.contract_id).toBeTruthy();
+    expect(await situationByPhone(env, f.profile, phone)).toBeNull();
+    expect(
+      await one(
+        env,
+        "SELECT count(*) AS n FROM mensalidade_subscriptions WHERE profile_id=?",
+        f.profile,
+      ),
+    ).toEqual({ n: 0 });
     expect(await eventsOf(f, "suporte.plan_contracted")).toHaveLength(1);
-    const payment = await paymentFor(session.installment_id);
+    const payment = await paymentFor(session.contract_id);
+    expect(payment).toMatchObject({
+      module_id: "mensalidade",
+      amount_cents: 9900,
+    });
     await approve(account.id, payment.id, 2);
     expect((await releases(c.id)).map((r) => r.kind)).toEqual(["subscription"]);
+    expect((await releases(c.id))[0].phone_linked).toBe(1);
     const situation = await situationByPhone(env, f.profile, phone);
     expect(situation).toMatchObject({ status: "em_dia", phone_linked: true });
     expect(situation?.payer).toMatchObject({

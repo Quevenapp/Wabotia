@@ -451,6 +451,8 @@ const spRelease = (
   phone_linked: true,
   valid_until: null,
   until_ticket: true,
+  ticket_id: "ticket-demo-" + n,
+  expires_at: t(age) + 7 * 24 * H,
   reason: "",
   summary: "",
   actor: kind === "courtesy" ? "demo-user" : kind === "subscription" ? "system" : "provider",
@@ -942,6 +944,19 @@ function read(path: string, query: URLSearchParams): any {
   }
   if (rest === "suporte/offers")
     return { payments_ready: true, mensalidade: true, methods: ["pix", "link"], packages: spPackages, plans: [] };
+  if (rest === "suporte/pending")
+    return {
+      data: [
+        {
+          session_id: "sp-pend-1",
+          conversation_id: "conv-demo-sp-9",
+          phone: "5511988009009",
+          payer_id: "payer-demo-sp-1",
+          payer_name: "Escritório Contábil Beta",
+          created: Date.now() - 25 * 60_000,
+        },
+      ],
+    };
   if (rest.startsWith("suporte/conversations/"))
     return {
       conversation_id: rest.split("/")[2],

@@ -98,7 +98,7 @@ function ReleasesTab() {
                 (row) =>
                   row.valid_until
                     ? stampLabel(row.valid_until)
-                    : "protocolo fechar",
+                    : `protocolo fechar (máx. ${stampLabel(row.expires_at)})`,
               ],
               [
                 "actor",
@@ -237,6 +237,42 @@ function PurchasesTab() {
   );
 }
 
+function PendingTab() {
+  const app = useApp();
+  const list = useList(`${app.root}/suporte/pending`);
+  return (
+    <>
+      <Notice>
+        Pediram atendimento com o CPF/CNPJ de um cadastro por um telefone que
+        ele não autorizou. Nada do cadastro foi mostrado ao cliente. Abra a
+        conversa, confirme a identidade e use Dados da conversa → Suporte pago →
+        Confirmar identidade e liberar.
+      </Notice>
+      <section className="card">
+        {!list.loaded && !list.error ? (
+          <SkeletonRows rows={3} avatar={false} />
+        ) : (
+          <Table
+            rows={list.rows}
+            columns={[
+              ["created", "Quando", (row) => stampLabel(row.created)],
+              ["phone", "Telefone", (row) => phoneLabel(row.phone)],
+              ["payer_name", "Diz falar por", (row) => row.payer_name || "—"],
+            ]}
+            empty={
+              <Empty
+                compact
+                icon={<LifeBuoy size={28} />}
+                title="Ninguém aguardando confirmação"
+              />
+            }
+          />
+        )}
+      </section>
+    </>
+  );
+}
+
 function PayersTab() {
   const app = useApp();
   const [search, setSearch] = useState("");
@@ -296,9 +332,9 @@ function PayersTab() {
 }
 
 export function SuportePage() {
-  const [tab, setTab] = useState<"releases" | "purchases" | "payers">(
-    "releases",
-  );
+  const [tab, setTab] = useState<
+    "releases" | "pending" | "purchases" | "payers"
+  >("releases");
   return (
     <>
       <Segmented
@@ -307,11 +343,13 @@ export function SuportePage() {
         onChange={setTab}
         options={[
           { value: "releases", label: "Liberações" },
+          { value: "pending", label: "Aguardando confirmação" },
           { value: "purchases", label: "Compras avulsas" },
           { value: "payers", label: "Pagadores" },
         ]}
       />
       {tab === "releases" && <ReleasesTab />}
+      {tab === "pending" && <PendingTab />}
       {tab === "purchases" && <PurchasesTab />}
       {tab === "payers" && <PayersTab />}
     </>

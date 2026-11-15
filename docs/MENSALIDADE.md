@@ -87,8 +87,24 @@ funcionários pedem suporte; uma mãe paga as aulas de dois filhos.
   telefones autorizados (com quem é cada um) e a situação.
 - **Situação**: em dia, em atraso ou sem assinatura. A **carência** (Planos e
   regras) é quantos dias depois do vencimento o pagador ainda conta como em
-  dia. A primeira parcela de um plano contratado pelo WhatsApp só conta
-  depois de paga.
+  dia.
+
+### Contratar pelo WhatsApp
+
+Um plano vendável contratado pela conversa (pelo Suporte pago) vira primeiro
+um **contrato pendente** (`mensalidade_contracts`, evento
+`mensalidade.contract_created`) com o plano, quem paga e a cobrança da
+primeira mensalidade. Nada muda no cadastro até o Mercado Pago confirmar o
+pagamento; aí nascem o pagador (com o documento, o nome e o telefone da
+conversa), a assinatura e a primeira parcela, já paga.
+
+- Só contrata em nome de um pagador existente o **telefone que ele
+  autorizou**. Um CPF/CNPJ digitado que já tem cadastro é recusado
+  (`payer_exists`): a equipe confirma o telefone antes.
+- Se, entre a cobrança e o pagamento, o documento passar a ser de outro
+  pagador, a assinatura fica com ele, mas o telefone **não** é vinculado.
+- Trocar a forma de pagamento cancela a cobrança aberta antes de criar outra
+  (vale também para as parcelas).
 
 ## Para outros módulos (`src/modules/mensalidade/public.ts`)
 
@@ -103,11 +119,13 @@ Mensalidade (o Suporte pago) importa direto deste arquivo e confere antes
 | `situationByDocument(env, p, doc, {phone})` | Situação pelo CPF/CNPJ (400 inválido, `null` sem pagador); `phone_linked` diz se o telefone é autorizado |
 | `validDocument(valor)` | Confere o documento sem consultar nada |
 | `sellablePlans(env, p)` | Planos ativos marcados "Vender pelo WhatsApp" |
-| `contractPlan(env, p, {conversation, plan_id, document?, payer_id?, name?, method?, sourceKey, actor})` | Acha ou cria o pagador (autorizando o telefone da conversa), cria a assinatura e cobra a primeira parcela na hora; mesma `sourceKey` não duplica |
-| `chargeInstallment(env, p, {conversation, installment_id, method?, key})` | Cobra de novo a parcela em aberto (reaproveita o código que vale ou cria outra cobrança) |
-| `linkPhone(env, p, payer_id, phone, actor)` | Autoriza um telefone ("vincular com um toque") |
+| `contractPlan(env, p, {conversation, plan_id, payer_id?, document?, name?, method?, sourceKey, actor})` | Contrato pendente e cobrança da primeira mensalidade (`{contract, installment}`); `payer_id` só do pagador que autorizou o telefone (`403 phone_not_linked`), `document` só ainda não cadastrado (`409 payer_exists`); quem já assina o plano recebe a cobrança da parcela em aberto; mesma `sourceKey` não duplica |
+| `chargeContractAgain(env, p, {conversation, contract_id, method?, key})` | Reenvia o código que vale ou troca a forma (cancela a cobrança aberta) |
+| `chargeInstallment(env, p, {conversation, installment_id, method?, key})` | Cobra de novo a parcela em aberto (reaproveita o código que vale ou cria outra cobrança, cancelando a aberta) |
+| `linkPhone(env, p, payer_id, phone, actor)` | Autoriza um telefone ("vincular com um toque"); só depois de a equipe confirmar a identidade |
 | `findPayers(env, p, query)` | Busca de pagadores para o painel |
-| `onInstallmentPaid(módulo, ouvinte)` | Avisa quando uma parcela é paga pelo provedor ou por baixa manual |
+| `onInstallmentPaid(módulo, ouvinte)` | Avisa quando uma parcela é paga pelo provedor ou por baixa manual, com `conversation_id` da cobrança paga (null na baixa manual) e `contract_id` |
+| `onInstallmentRefunded(módulo, ouvinte)` | Avisa quando o pagamento de uma parcela é estornado |
 
 ## Fora da janela de 24 horas (linha oficial)
 

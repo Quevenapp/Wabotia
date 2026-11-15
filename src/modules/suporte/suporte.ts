@@ -2,7 +2,7 @@
 // ./flow.ts; banco em ./store.ts; passagem para humano em ./handoff.ts.
 // Depende da Mensalidade por src/modules/mensalidade/public.ts (até o núcleo
 // formalizar `requires`). Uso: docs/SUPORTE.md.
-import { one } from "../../db";
+import { all, one } from "../../db";
 import { ApiError, type Actor, now } from "../../types";
 import {
   moduleError,
@@ -167,6 +167,28 @@ async function conversationStatus(
 onRead("suporte", "suporte/releases", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
   return listReleases(ctx, query);
+});
+
+// Quem digitou o CPF/CNPJ de um cadastro por um telefone que ele não
+// autorizou e espera a equipe confirmar (últimos 7 dias).
+onRead("suporte", "suporte/pending", async (ctx, actor) => {
+  ctx.access(actor, "conversations:read");
+  const rows = await all(
+    ctx.env,
+    "SELECT * FROM suporte_sessions WHERE profile_id=? AND status='awaiting_team' AND updated>? ORDER BY updated DESC LIMIT 100",
+    ctx.profile,
+    now() - 7 * 86_400_000,
+  );
+  return {
+    data: rows.map((row) => ({
+      session_id: row.id,
+      conversation_id: row.conversation_id,
+      phone: row.phone,
+      payer_id: row.payer_id,
+      payer_name: row.name || "",
+      created: row.updated,
+    })),
+  };
 });
 
 onRead("suporte", "suporte/purchases", async (ctx, actor, { query }) => {
