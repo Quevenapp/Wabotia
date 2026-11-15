@@ -34,6 +34,29 @@ Respostas de erro usam `{"error":{"code":"...","message":"...","request_id":"...
 
 Listas de conversas e recursos da área de atendimento usam `{data, next_cursor}`. Passe o cursor inalterado na consulta seguinte. Eventos usam `after` numérico e devolvem `cursor`, inclusive quando eventos não autorizados são omitidos. Áreas de atendimento e presença são listas diretas. Relatórios permitem `section`, `start`, `end` (YYYY-MM-DD, São Paulo), `cursor` e `limit`; `format=jsonl` exporta por streaming.
 
+## Módulos e capacidades
+
+Funções como a fila presencial são **módulos** que o administrador liga e desliga por área de atendimento (contrato em [MODULOS.md](MODULOS.md)). Antes de mostrar a tela de um módulo, consulte `GET /api/v1/capabilities`. A rota aceita qualquer credencial válida: cookie do painel, token `wabu_` de pessoa ou chave de aplicação, inclusive a de um aparelho pareado; não exige permissão específica. A resposta traz `capabilities_version` (hoje `1`), `server.version` (versão do servidor), `features` (recursos do núcleo, como `modules`), o `actor` autenticado e `profiles`: só as áreas que a credencial alcança, cada uma com `modules`, a lista dos módulos **ligados** com `id`, `name` e `version`. `?profile=ID` restringe a uma área e responde `404` se a credencial não a alcançar. Um módulo ausente da lista está desligado ou não existe nesta versão do servidor: esconda a tela.
+
+```json
+{
+  "capabilities_version": 1,
+  "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
+  "features": ["modules"],
+  "actor": { "id": "app:...", "kind": "app", "role": "service" },
+  "profiles": [
+    {
+      "id": "...",
+      "name": "Atendimento",
+      "enabled": true,
+      "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }]
+    }
+  ]
+}
+```
+
+`GET /profiles/{perfil}/modules` lista todos os módulos da versão instalada com `enabled`, `default_enabled`, a navegação do painel, os tipos de item de menu, os eventos e as chaves de configuração. `PUT /profiles/{perfil}/modules/{id}` com `{"enabled":false}` e `Idempotency-Key` liga ou desliga (somente administrador) e publica o evento `module.changed`. Com o módulo desligado, suas rotas e operações respondem `409 module_disabled` e seus itens de menu somem do WhatsApp e do editor de menus, sem serem apagados: voltam ao religar.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:

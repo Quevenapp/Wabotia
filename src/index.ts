@@ -91,6 +91,7 @@ import {
 } from "./pairing";
 import { installStep, webInstallerEnabled } from "./web-install";
 import { listModules } from "./modules/registry";
+import { capabilities as serverCapabilities } from "./modules/capabilities";
 import {
   queueRead,
   overview as queueOverview,
@@ -501,6 +502,17 @@ const mobileToken = (c: any) => {
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
 };
 app.get("/api/v1/me", (c) => c.json(c.get("actor")));
+// Versão do servidor e módulos ligados por área (docs/MODULOS.md). Vale para
+// pessoas e para chaves de aplicação, inclusive aparelhos pareados.
+app.get("/api/v1/capabilities", async (c) =>
+  c.json(
+    await serverCapabilities(
+      c.env,
+      c.get("actor"),
+      c.req.query("profile") || null,
+    ),
+  ),
+);
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
   if (c.get("actor").kind !== "user")

@@ -10,6 +10,11 @@ import {
   serviceSchemas,
   describeServiceOperation,
 } from "./service-openapi";
+import {
+  moduleOperations,
+  moduleSchemas,
+  describeModuleOperation,
+} from "./modules/openapi";
 const contactProperties = {
   name: { type: "string", minLength: 1, maxLength: 120 },
   phone: {
@@ -30,6 +35,7 @@ const schemas = {
   ...routerSchemas,
   ...integrationSchemas,
   ...serviceSchemas,
+  ...moduleSchemas,
   ConnectionInput: {
     type: "object",
     required: ["name", "kind", "config"],
@@ -1278,6 +1284,7 @@ export function openapi(origin: string) {
     ...mobileOperations,
     ...serviceOperations,
     ...integrationOperations,
+    ...moduleOperations,
   ]) {
     const mobile = isMobilePath(path);
     const successCode =
@@ -1853,6 +1860,7 @@ export function openapi(origin: string) {
     }
     describeServiceOperation(path, method, entry, success);
     describeIntegrationOperation(path, entry, origin);
+    describeModuleOperation(path, method, entry, success);
     (paths[path] ??= {})[method] = entry;
   }
   for (const path of [
