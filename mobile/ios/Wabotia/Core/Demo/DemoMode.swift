@@ -131,6 +131,9 @@ extension DemoMode {
     /// `WABOTIA_ACTION=charge` (sessão de verdade, `WABOTIA_OPEN=installment:<id>`): reenvia a cobrança da parcela e
     /// registra o resultado no console.
     static let moduleAction: String? = env("WABOTIA_ACTION")
+    /// `WABOTIA_CONVERSA=<passos>` (sessão de verdade, `WABOTIA_OPEN=conversation:<id>`): `claim`, `forms`,
+    /// `form:<id>`, `charge:<pix|link>:<centavos>:<descrição>`, `resolve`, um a cada 5 s, com o resultado no console.
+    static let conversationScript: String? = env("WABOTIA_CONVERSA")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen ?? openScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).

@@ -33,6 +33,7 @@ struct ConversationView: View {
     @State private var showCourtesy = false
     @State private var showForms = false
     @State private var showCharge = false
+    @State private var ranScript = false
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -101,7 +102,13 @@ struct ConversationView: View {
             Button("Confirmar e liberar") { Task { await vm.suporteAction("confirm") } }
             Button("Cancelar", role: .cancel) {}
         } message: { Text("Você confirmou que este telefone é do pagador: ele é vinculado e o cliente é liberado.") }
-        .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
+        .task(id: vm.conversation?.id) {
+            guard vm.conversation != nil else { return }
+            await vm.loadSuporte()
+            #if DEBUG
+            if !container.isDemo, let script = DemoMode.conversationScript, !ranScript { ranScript = true; await runScript(script) }
+            #endif
+        }
         .confirmationDialog("Concluir este atendimento?", isPresented: $confirmResolve, titleVisibility: .visible) {
             Button("Concluir", role: .destructive) { Task { if await vm.resolve() { dismiss() } } }
             Button("Cancelar", role: .cancel) {}
@@ -406,6 +413,33 @@ struct ConversationView: View {
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
+
+    #if DEBUG
+    /// `WABOTIA_CONVERSA` (só depuração, sessão de verdade): os passos com o resultado no console.
+    private func runScript(_ script: String) async {
+        for step in script.split(separator: ",").map(String.init) {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            let parts = step.split(separator: ":", maxSplits: 3).map(String.init)
+            var result = ""
+            switch parts.first ?? "" {
+            case "claim": await vm.claim()
+            case "forms":
+                await vm.loadForms()
+                result = vm.formsError ?? "\(vm.forms?.count ?? 0) formulário(s): \((vm.forms ?? []).map(\.displayName).joined(separator: ", "))"
+            case "form":
+                if parts.count > 1, let form = vm.forms?.first(where: { $0.id == parts[1] }) { _ = await vm.sendForm(form) } else { result = "formulário \(parts.dropFirst().first ?? "") não está na lista" }
+            case "charge" where parts.count == 4:
+                _ = await vm.charge(method: parts[1], amountCents: Int(parts[2]) ?? 0, description: parts[3])
+            case "resolve": _ = await vm.resolve()
+            // A folha aberta mostra o mesmo aviso que a ação deixou (para a captura).
+            case "sheet": if parts.count > 1 { if parts[1] == "charge" { showCharge = true } else { showForms = true } }
+            case "close": showCharge = false; showForms = false
+            default: result = "passo desconhecido"
+            }
+            print("[Wabotia] conversa: \(step) → \(result.isEmpty ? (vm.actionError ?? "ok") : result); estado \(vm.conversation?.state ?? "?"), cobranças \(vm.payments.count), links \(vm.webSteps.count)")
+        }
+    }
+    #endif
 
     private func demoSheets() {
         #if DEBUG
