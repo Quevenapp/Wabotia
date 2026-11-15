@@ -350,11 +350,26 @@ export async function cancelModulePayment(
 export async function createPayment(env: Env, input: ChargeInput) {
   const c = input.conversation;
   await requirePayments(env, c.profile_id);
-  const old = await one(
+  // Mesma chave: reaproveita a cobrança aberta e válida, ou a já paga (nunca
+  // cobra duas vezes). Vencida ou cancelada vira cobrança nova, com chave
+  // derivada (revisão B11: devolvia a cobrança velha sem reenviar).
+  let sourceKey = input.sourceKey;
+  let old = await one(
     env,
     "SELECT * FROM payments WHERE source_key=?",
-    input.sourceKey,
+    sourceKey,
   );
+  for (let step = 0; old?.provider_ref && step < 20; step++) {
+    const open = old.status === "created" && old.expires_at > now();
+    if (open || old.status === "paid" || old.status === "refunded")
+      return { payment: paymentView(old)!, created: false };
+    sourceKey = `${input.sourceKey}#${old.id}`;
+    old = await one(
+      env,
+      "SELECT * FROM payments WHERE source_key=?",
+      sourceKey,
+    );
+  }
   if (old?.provider_ref) return { payment: paymentView(old)!, created: false };
   requireValue(
     c.chat_type !== "group",
@@ -428,7 +443,7 @@ export async function createPayment(env: Env, input: ChargeInput) {
       input.amount_cents,
       input.trigger,
       input.actor,
-      input.sourceKey,
+      sourceKey,
       at + ttl * 60000,
       input.receipt === false ? 0 : 1,
       at,
