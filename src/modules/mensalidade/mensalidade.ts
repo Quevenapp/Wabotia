@@ -15,7 +15,11 @@ import {
   onSchedule,
   onSettingsSave,
 } from "../api";
-import { validateMensalidadeSettings } from "./model";
+import {
+  parseDocument,
+  phoneDigits,
+  validateMensalidadeSettings,
+} from "./model";
 import { runDue } from "./due";
 import { handleTurn, menuCopy, menuStatement, openInstallments } from "./chat";
 import {
@@ -23,6 +27,7 @@ import {
   createPayer,
   listPayers,
   loadPayer,
+  payerByDocument,
   payerPhones,
   payerView,
   removePayerPhone,
@@ -56,6 +61,7 @@ import {
   createSubscription,
   deletePlan,
   importSubscriptions,
+  isManager,
   listPlans,
   listSubscriptions,
   loadSubscription,
@@ -243,6 +249,8 @@ onCommand(
   "mensalidade.payer.update",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Trocar o documento muda quem o cliente prova ser: só administrador.
+    if (Object.hasOwn(data || {}, "document")) manager(actor);
     const payer = await updatePayer(
       ctx,
       await loadPayer(ctx, data.id),
@@ -263,6 +271,8 @@ onCommand(
   "mensalidade.payer.phone_add",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Telefone autorizado fala (e é atendido) em nome do pagador.
+    manager(actor);
     const payer = await loadPayer(ctx, data.id);
     await addPayerPhone(ctx, payer, data.phone, data.label, actor.id);
     return payerView(payer, await payerPhones(ctx, payer.id));
@@ -519,6 +529,29 @@ onCommand(
       data.conversation_id !== undefined && data.conversation_id !== null
         ? await ctx.conversation(String(data.conversation_id), actor)
         : null;
+    // Valor e desconto diferentes do plano: só administrador (como a isenção).
+    if (
+      (data.amount_cents !== undefined && data.amount_cents !== null) ||
+      (data.discount_cents !== undefined &&
+        data.discount_cents !== null &&
+        data.discount_cents !== 0)
+    )
+      manager(actor, "Somente administradores definem valor ou desconto.");
+    // Documento de um pagador existente autoriza o telefone da assinatura
+    // nele (vincular telefone): só administrador, se ainda não autorizado.
+    if (!isManager(actor) && typeof data.document === "string") {
+      const doc = parseDocument(data.document);
+      const existing = doc ? await payerByDocument(ctx, doc.document) : null;
+      if (existing) {
+        const phone = phoneDigits(data.phone || c?.phone || "");
+        const phones = await payerPhones(ctx, existing.id);
+        if (!phone || !phones.some((p) => p.phone === phone))
+          manager(
+            actor,
+            "Este CPF/CNPJ já tem pagador: somente administradores autorizam um telefone novo nele.",
+          );
+      }
+    }
     const sub = await createSubscription(
       ctx,
       { ...data, conversation: c },
@@ -574,6 +607,16 @@ onCommand(
   "mensalidade.subscription.update",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Valor, desconto e plano mudam quanto se cobra: só administrador.
+    if (
+      ["amount_cents", "discount_cents", "plan_id"].some((key) =>
+        Object.hasOwn(data || {}, key),
+      )
+    )
+      manager(
+        actor,
+        "Somente administradores mudam valor, desconto ou plano da assinatura.",
+      );
     const sub = await loadSubscription(ctx, data.id);
     return subscriptionView(await updateSubscription(ctx, sub, data, actor.id));
   },

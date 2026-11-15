@@ -194,6 +194,14 @@ function PayerDetail({
           columns={[
             ["phone", "Telefone", (row) => phoneLabel(row.phone)],
             ["label", "Quem", (row) => row.label || "—"],
+            [
+              "created_by",
+              "Vinculado por",
+              (row) =>
+                String(row.created_by || "").startsWith("customer")
+                  ? "Contratação pelo WhatsApp"
+                  : app.names[row.created_by] || row.created_by || "—",
+            ],
           ]}
           action={(row) => (
             <Button
@@ -228,8 +236,15 @@ function PayerDetail({
             />
           }
         />
+        {!app.isAdmin && (
+          <p className="muted">
+            Autorizar um telefone libera o atendimento em nome do pagador:
+            somente administradores fazem isso.
+          </p>
+        )}
         <form
           className="form-field-grid"
+          hidden={!app.isAdmin}
           onSubmit={(event) => {
             event.preventDefault();
             void run(

@@ -131,7 +131,7 @@ Pix e link de pagamento pelo Mercado Pago (módulo `payments`, passo a passo em 
 
 ### Mensalidade (módulo `mensalidade`)
 
-Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profiles/{perfil}/mensalidade`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta sem repetir cobrança nem mensagem). Planos, importação, pausar/retomar/encerrar, baixa, isenção e gerar exigem administrador (pessoas) ou aplicação com `conversations:write`. Com o módulo desligado, todas respondem `409 module_disabled`. Valores em centavos inteiros; vencimentos `AAAA-MM-DD` no horário de Brasília; competência `AAAA-MM`.
+Desligado por padrão; uso em [MENSALIDADE.md](MENSALIDADE.md). Rotas em `/profiles/{perfil}/mensalidade`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta sem repetir cobrança nem mensagem). Planos, importação, pausar/retomar/encerrar, baixa, isenção e gerar exigem administrador (pessoas) ou aplicação com `conversations:write`; o mesmo vale para valor, desconto e plano de uma assinatura (no cadastro ou no `PATCH`), para autorizar telefone num pagador (`/phones`, ou assinatura com o `document` de um pagador existente e um telefone que ele ainda não autorizou) e para trocar o documento do pagador (`403 admin_required`). Com o módulo desligado, todas respondem `409 module_disabled`. Valores em centavos inteiros; vencimentos `AAAA-MM-DD` no horário de Brasília; competência `AAAA-MM`.
 
 | Método e caminho | O quê |
 |---|---|
@@ -181,7 +181,7 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 | `GET /suporte/pending` | Aguardando confirmação (últimos 7 dias): quem digitou o CPF/CNPJ de um cadastro por um telefone não autorizado |
 | `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release` (com `ticket_id` e `expires_at`), `session`, `awaiting_team`, `unlinked_phone` e compras |
 | `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
-| `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ |
+| `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/confirm` | A equipe confirma a identidade de quem aguarda confirmação `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
 | `POST /suporte/releases/{id}/end` | Encerra uma liberação (administrador) |
 

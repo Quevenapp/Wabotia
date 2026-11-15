@@ -141,7 +141,7 @@ describe("mensalidade: pagadores", () => {
       ).status,
     ).toBe(400);
     const linked = await (
-      await api(member, `${root(f)}/payers/${payer.id}/phones`, "POST", {
+      await api(admin, `${root(f)}/payers/${payer.id}/phones`, "POST", {
         phone: "11981000003",
         label: "Estagiário",
       })
@@ -173,7 +173,7 @@ describe("mensalidade: pagadores", () => {
   });
 
   it("assinatura com documento acha ou cria o pagador; telefone de dois funcionários", async () => {
-    const { f, ctx, plan, member } = await setup();
+    const { f, ctx, plan, member, admin } = await setup();
     const first = await (
       await api(member, root(f) + "/subscriptions", "POST", {
         plan_id: plan.id,
@@ -186,8 +186,9 @@ describe("mensalidade: pagadores", () => {
       name: "Empresa XPTO",
       document_display: "12.ABC.345/01DE-35",
     });
+    // Telefone novo num documento existente: administrador (M5).
     const second = await (
-      await api(member, root(f) + "/subscriptions", "POST", {
+      await api(admin, root(f) + "/subscriptions", "POST", {
         plan_id: plan.id,
         customer_name: "Filial",
         phone: "11981000011",

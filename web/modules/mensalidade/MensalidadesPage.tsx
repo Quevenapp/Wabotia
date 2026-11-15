@@ -240,6 +240,7 @@ function SubscriptionForm({
   onClose: () => void;
   onSaved: (sub: Row) => void;
 }) {
+  const app = useApp();
   const write = useWrite();
   const [draft, setDraft] = useState<Row>(() => ({
     customer_name: initial?.customer?.name || "",
@@ -271,20 +272,26 @@ function SubscriptionForm({
         const body: Row = {
           customer_name: draft.customer_name,
           phone: draft.phone,
-          plan_id: draft.plan_id,
           notes: draft.notes,
           end_date: draft.end_date || null,
         };
-        if (draft.amount) {
-          const value = cents(draft.amount);
-          if (value === null)
-            throw new Error("Valor inválido. Use, por exemplo, 180,00.");
+        // Plano, valor e desconto só vão quando mudam (só administrador muda).
+        if (!initial || draft.plan_id !== initial.plan_id)
+          body.plan_id = draft.plan_id;
+        const value = draft.amount
+          ? cents(draft.amount)
+          : initial
+            ? (plan?.amount_cents ?? null)
+            : null;
+        if (draft.amount && value === null)
+          throw new Error("Valor inválido. Use, por exemplo, 180,00.");
+        if (initial ? value !== initial.amount_cents : value !== null)
           body.amount_cents = value;
-        } else if (initial) body.amount_cents = plan?.amount_cents;
         const discount = draft.discount ? cents(draft.discount) : 0;
         if (discount === null)
           throw new Error("Desconto inválido. Use, por exemplo, 20,00.");
-        body.discount_cents = discount;
+        if (initial ? discount !== initial.discount_cents : discount > 0)
+          body.discount_cents = discount;
         if (draft.due_day) body.due_day = Number(draft.due_day);
         if (!initial && draft.start_date) body.start_date = draft.start_date;
         if (!initial && draft.document) body.document = draft.document;
@@ -342,6 +349,7 @@ function SubscriptionForm({
             id: p.id,
             name: `${p.name} · ${money(p.amount_cents)} · ${periodLabels[p.period]}`,
           }))}
+        disabled={!!initial && !app.isAdmin}
         required
       />
       <div className="form-field-grid">
@@ -350,13 +358,19 @@ function SubscriptionForm({
           value={draft.amount}
           onChange={set("amount")}
           placeholder={plan ? centsInput(plan.amount_cents) : "0,00"}
-          help="Em branco, o valor do plano."
+          help={
+            app.isAdmin
+              ? "Em branco, o valor do plano."
+              : "Valor e desconto: somente administradores."
+          }
+          disabled={!app.isAdmin}
         />
         <Field
           label="Desconto (R$)"
           value={draft.discount}
           onChange={set("discount")}
           placeholder="0,00"
+          disabled={!app.isAdmin}
         />
         <Field
           label="Dia de vencimento"

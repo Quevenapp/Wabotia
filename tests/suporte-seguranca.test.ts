@@ -409,3 +409,26 @@ describe("A4/M1: documento digitado não identifica nem vincula", () => {
     expect(await lastText(c.id)).not.toContain("hoje");
   });
 });
+
+describe("M5: vincular pelo Suporte exige quem está atendendo", () => {
+  it("atendente que não assumiu a conversa não vincula o telefone", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    await payerEmDia(s, "5511983000001");
+    const phone = "5511983000009";
+    let c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    c = await talk(f, CPF_EM_DIA, phone);
+    const path = `/profiles/${f.profile}/suporte/conversations/${c.id}/link-phone`;
+    const denied = await api(await bearer(f.member), path, "POST", {});
+    expect(denied.status).toBe(403);
+    expect(await situationByPhone(env, f.profile, phone)).toBeNull();
+    await claim(f, f.member, c.id);
+    expect((await api(await bearer(f.member), path, "POST", {})).status).toBe(
+      200,
+    );
+    expect((await situationByPhone(env, f.profile, phone))?.status).toBe(
+      "em_dia",
+    );
+  });
+});

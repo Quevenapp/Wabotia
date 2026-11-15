@@ -63,13 +63,15 @@ export async function cancelOpenCharge(
 }
 
 /** Administrador (pessoa) ou integração com a permissão de escrita. */
-export function manager(actor: Actor) {
-  if (actor.kind === "app") return;
-  if (actor.kind !== "user" || actor.role !== "admin")
+export const isManager = (actor: Actor) =>
+  actor.kind === "app" || (actor.kind === "user" && actor.role === "admin");
+
+export function manager(actor: Actor, message?: string) {
+  if (!isManager(actor))
     throw new ApiError(
       403,
       "admin_required",
-      "Somente administradores podem fazer isto.",
+      message || "Somente administradores podem fazer isto.",
     );
 }
 

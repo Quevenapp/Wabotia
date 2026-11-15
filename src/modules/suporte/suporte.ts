@@ -99,15 +99,15 @@ onPaymentUpdated("suporte", (ctx, payment) =>
 onInstallmentPaid("suporte", installmentPaid);
 
 /** Atendente da conversa, administrador ou integração. */
-function mayAct(actor: Actor, c: { owner: string | null }) {
+function mayAct(
+  actor: Actor,
+  c: { owner: string | null },
+  message = "Assuma a conversa antes de liberar o suporte.",
+) {
   if (actor.kind === "app") return;
   if (actor.kind === "user" && (actor.role === "admin" || c.owner === actor.id))
     return;
-  throw new ApiError(
-    403,
-    "forbidden",
-    "Assuma a conversa antes de liberar o suporte.",
-  );
+  throw new ApiError(403, "forbidden", message);
 }
 
 const text = (value: unknown, max: number, what: string) => {
@@ -289,6 +289,9 @@ onRoute("suporte", {
 onCommand("suporte", "suporte.link_phone", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const c = await ctx.conversation(data.id, actor);
+  // Só quem está atendendo (ou administrador): vincular torna permanente a
+  // identidade que o cliente alegou.
+  mayAct(actor, c, "Assuma a conversa antes de vincular o telefone.");
   const status = await conversationStatus(ctx, c.id, actor);
   if (!status.unlinked_phone)
     throw moduleError(
