@@ -108,6 +108,8 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private var audio: PanelCallAudio = PanelCallAudio.None
     private val announcer = PanelCallAnnouncer()
     private val pinAttempts = PanelPinAttempts()
+    /** O pedido de senha sem resposta definitiva, para o próximo toque repetir a mesma chave. */
+    private val issueKeys = TotemIssueKeys()
 
     init {
         mutable.value.config?.let(::connect)
@@ -384,7 +386,8 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     fun issue(preferential: Boolean) {
         val queue = mutable.value.choosing ?: return
         val c = client ?: return
-        val key = QueueClient.newKey()
+        // A mesma chave do toque anterior quando ele ficou sem resposta na mesma fila e no mesmo tipo (AMB-1).
+        val key = issueKeys.key(queue.id, preferential)
         mutable.update { it.copy(choosing = null, busy = true, notice = null) }
         viewModelScope.launch {
             val ticket = try {
@@ -392,9 +395,11 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: QueueException) {
+                issueKeys.settle(e)
                 mutable.update { it.copy(busy = false, notice = e.message, offline = e.status == 0) }
                 return@launch
             }
+            issueKeys.settle(null)
             mutable.update { it.copy(busy = false, issued = ticket, print = TicketPrint.Printing) }
             printIssued()
             scheduleIssuedDismiss()

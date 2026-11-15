@@ -56,7 +56,8 @@ fun QueueOverview.toRuntime(displayName: String?): StationRuntime {
 
 /**
  * Emite a senha do totem. Uma queda de rede (ou erro 5xx) repete uma vez com a **mesma** `Idempotency-Key`: o Wabotia
- * devolve a mesma senha em vez de emitir outra. Recusa do contrato (`kiosk_rate`, `queue_closed`…) não repete.
+ * devolve a mesma senha em vez de emitir outra. Recusa do contrato (`kiosk_rate`, `queue_closed`…) não repete. Se as
+ * duas falharem, [TotemIssueKeys] guarda a chave para o próximo toque.
  */
 suspend fun issueOnce(
     client: QueueClient,
@@ -72,6 +73,46 @@ suspend fun issueOnce(
         delay(pauseMs)
         client.issue(queueId, preferential, key)
     }
+
+/** O pedido de senha que ficou sem resposta definitiva: fila, tipo, a `Idempotency-Key` usada e quando foi feito. */
+data class PendingIssue(val queueId: String, val preferential: Boolean, val key: String, val at: Long)
+
+/**
+ * A chave da emissão do totem, guardada entre toques. Se a emissão falha por rede (ou 5xx) mesmo depois da repetição
+ * de [issueOnce], o servidor pode ter gravado a senha: um toque novo com outra chave emitiria uma segunda, e a primeira
+ * ficaria na fila sem dono (o painel chamaria uma senha que ninguém tem). Por isso o pedido incerto fica guardado, e o
+ * próximo toque na mesma fila e no mesmo tipo, dentro de [windowMs], repete a mesma chave: o Wabotia devolve a senha
+ * que já gravou. Sucesso ou recusa do contrato (`queue_closed`, `kiosk_rate`…) liberam a chave.
+ */
+class TotemIssueKeys(
+    private val windowMs: Long = WINDOW_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val newKey: () -> String = { QueueClient.newKey() },
+) {
+    var pending: PendingIssue? = null
+        private set
+
+    /** A chave deste toque: a do pedido incerto, quando é a mesma fila e o mesmo tipo e ainda está no prazo. */
+    fun key(queueId: String, preferential: Boolean): String {
+        val now = clock()
+        pending?.let { p ->
+            if (p.queueId == queueId && p.preferential == preferential && now - p.at in 0..windowMs) return p.key
+        }
+        return newKey().also { pending = PendingIssue(queueId, preferential, it, now) }
+    }
+
+    /** Depois da resposta: só uma falha incerta (rede, 5xx, `operation_unknown`) guarda o pedido. */
+    fun settle(error: Throwable?) {
+        if (error is QueueException && error.retryable) return
+        if (error != null && error !is QueueException) return
+        pending = null
+    }
+
+    companion object {
+        /** Alguns minutos: quem tocou e não recebeu a senha costuma tentar de novo logo. */
+        const val WINDOW_MS = 5 * 60_000L
+    }
+}
 
 /** O tempo que o cartão da senha fica no totem: menos com o cupom na mão, mais sem papel (para fotografar). */
 fun issuedCardMillis(printed: Boolean): Long = if (printed) 20_000 else 60_000

@@ -17,6 +17,8 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +59,54 @@ class TotemLogicTest {
         val error = runCatching { issueOnce(client, "q1", false, "k", pauseMs = 0) }.exceptionOrNull() as QueueException
         assertEquals("queue_closed", error.code)
         assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `depois de duas falhas o toque seguinte repete a mesma chave e nao emite senha fantasma`() = runTest {
+        val keys = TotemIssueKeys()
+        server.enqueue(MockResponse().setResponseCode(503).setBody("{}"))
+        server.enqueue(MockResponse().setResponseCode(503).setBody("{}"))
+        val first = keys.key("q1", false)
+        val error = runCatching { issueOnce(client, "q1", false, first, pauseMs = 0) }.exceptionOrNull() as QueueException
+        keys.settle(error)
+        assertEquals(first, keys.pending?.key)
+        // O servidor gravou a primeira: com a mesma chave, devolve a mesma senha.
+        server.enqueue(MockResponse().setBody(ticket))
+        val again = keys.key("q1", false)
+        assertEquals(first, again)
+        assertEquals("N007", issueOnce(client, "q1", false, again, pauseMs = 0).code)
+        keys.settle(null)
+        assertNull(keys.pending)
+        assertEquals(List(3) { first }, List(3) { server.takeRequest().getHeader("Idempotency-Key") })
+        assertNotEquals(first, keys.key("q1", false))
+    }
+
+    @Test
+    fun `pedido incerto so vale para a mesma fila e o mesmo tipo dentro do prazo`() {
+        var now = 1_000L
+        var n = 0
+        val keys = TotemIssueKeys(windowMs = 60_000, clock = { now }, newKey = { "k${++n}" })
+        val network = QueueException(0, QueueException.NETWORK, "Sem conexão")
+        assertEquals("k1", keys.key("q1", false))
+        keys.settle(network)
+        assertEquals(PendingIssue("q1", false, "k1", 1_000L), keys.pending)
+        now = 30_000L
+        assertEquals("k1", keys.key("q1", false))
+        keys.settle(network)
+        // Outro tipo ou outra fila: outra chave, e o pedido guardado passa a ser o novo.
+        assertEquals("k2", keys.key("q1", true))
+        keys.settle(network)
+        assertEquals("k3", keys.key("q2", true))
+        keys.settle(network)
+        // Passado o prazo (contado do primeiro toque), a chave não volta.
+        now = 30_000L + 60_001L
+        assertEquals("k4", keys.key("q2", true))
+        // Recusa do contrato é resposta definitiva: libera.
+        keys.settle(QueueException(409, "queue_closed", "Fila fechada."))
+        assertNull(keys.pending)
+        assertEquals("k5", keys.key("q2", true))
+        keys.settle(QueueException(503, "unavailable", "Fora do ar"))
+        assertEquals("k5", keys.key("q2", true))
     }
 
     @Test
