@@ -38,7 +38,12 @@ import {
   type HandoffMeta,
   type HandoffSource,
 } from "../service";
-import { createPayment, type Payment } from "../payments";
+import {
+  cancelModulePayment,
+  createPayment,
+  paymentsReady,
+  type Payment,
+} from "../payments";
 import { establishment, type Establishment } from "../establishment";
 import {
   interactiveLine,
@@ -145,6 +150,18 @@ export interface ModuleContext {
    */
   charge(c: Conversation, request: ChargeRequest): Promise<Payment>;
   /**
+   * Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes
+   * do sinal). Já cancelada ou expirada: devolve como está; paga ou
+   * estornada: 409 payment_closed. Cobrança de outro módulo: 404.
+   */
+  cancelCharge(payment: Payment | string): Promise<Payment>;
+  /**
+   * Se a área pode cobrar agora (módulo Cobrança ligado e conta ativa), para
+   * avisar o administrador antes de oferecer pagamento:
+   * `{ready, reason: "payments_disabled"|"payments_not_configured"|null, message, methods}`.
+   */
+  paymentsReady(): ReturnType<typeof paymentsReady>;
+  /**
    * Passa a conversa para atendimento humano: um setor, a fila geral da
    * equipe ou uma pessoa. O resumo e os marcadores ("telefone não vinculado")
    * ficam numa nota interna e em `handoff` no detalhe da conversa. Não passa
@@ -180,6 +197,11 @@ export interface ChargeRequest {
   actor?: string;
   /** Janela de 24 h fechada: envia pelo modelo de notificação. */
   notification?: boolean;
+  /**
+   * false: o núcleo não manda o "Pagamento recebido"; o módulo envia o
+   * próprio comprovante no onPaymentUpdated. Padrão true.
+   */
+  receipt?: boolean;
 }
 
 export function modulesApi(
@@ -280,9 +302,18 @@ export function modulesApi(
           sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
           expiresMinutes: request.expiresMinutes,
           notification: request.notification,
+          receipt: request.receipt,
         })
       ).payment;
     },
+    cancelCharge: (payment) =>
+      cancelModulePayment(
+        env,
+        profile,
+        moduleId,
+        typeof payment === "string" ? payment : payment.id,
+      ),
+    paymentsReady: () => paymentsReady(env, profile),
     async handoff(c, request = {}) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       const summary = String(request.summary ?? "").trim();

@@ -547,3 +547,89 @@ describe("Cobrança: expiração, cancelamento e módulos", () => {
     expect(json(sent.payload).text).toContain(late.url);
   });
 });
+
+describe("Cobrança: lacunas dos módulos (cancelCharge, paymentsReady, receipt)", () => {
+  it("paymentsReady diz se a área pode cobrar, sem ler tabelas do núcleo no módulo", async () => {
+    const f = await fixture();
+    const ctx = modulesApi(env, f.profile, "forms");
+    expect(await ctx.paymentsReady()).toMatchObject({
+      ready: false,
+      reason: "payments_not_configured",
+    });
+    await run(f, f.admin, "module.set", { id: "payments", enabled: false });
+    expect((await ctx.paymentsReady()).reason).toBe("payments_disabled");
+    const { f: g } = await setup();
+    expect(await modulesApi(env, g.profile, "forms").paymentsReady()).toEqual({
+      ready: true,
+      reason: null,
+      message: null,
+      methods: ["pix", "link"],
+    });
+  });
+
+  it("cancelCharge cancela a cobrança aberta do próprio módulo, uma vez", async () => {
+    const { f, account } = await setup();
+    const c = await claimed(f, "5511970000031");
+    const ctx = modulesApi(env, f.profile, "forms");
+    const payment = await ctx.charge(c, {
+      method: "pix",
+      amount_cents: 5000,
+      description: "Sinal da reserva 12",
+      sourceKey: "sinal:12",
+    });
+    const cancelled = await ctx.cancelCharge(payment);
+    expect(cancelled.status).toBe("cancelled");
+    // De novo: devolve como está, sem outro evento.
+    expect((await ctx.cancelCharge(payment.id)).status).toBe("cancelled");
+    expect(await events(f, "payment.cancelled")).toHaveLength(1);
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
+    // Outro módulo não cancela a cobrança.
+    await expect(
+      modulesApi(env, f.profile, "payments").cancelCharge(payment.id),
+    ).rejects.toMatchObject({ status: 404 });
+    // Paga não se cancela.
+    const paid = await ctx.charge(c, {
+      method: "pix",
+      amount_cents: 5000,
+      description: "Sinal da reserva 13",
+      sourceKey: "sinal:13",
+    });
+    const providerId = (await row(paid.id)).provider_ref;
+    remote.get(providerId)!.status = "approved";
+    await webhook(account.id, providerId);
+    await expect(ctx.cancelCharge(paid)).rejects.toMatchObject({
+      status: 409,
+      code: "payment_closed",
+    });
+  });
+
+  it("receipt: false não manda o 'Pagamento recebido' do núcleo", async () => {
+    const { f, account } = await setup();
+    const c = await claimed(f, "5511970000032");
+    const ctx = modulesApi(env, f.profile, "forms");
+    const own = await ctx.charge(c, {
+      method: "pix",
+      amount_cents: 4990,
+      description: "Suporte avulso",
+      sourceKey: "suporte:avulso:1",
+      receipt: false,
+    });
+    const providerId = (await row(own.id)).provider_ref;
+    remote.get(providerId)!.status = "approved";
+    await webhook(account.id, providerId);
+    expect((await row(own.id)).status).toBe("paid");
+    const sent = (await outbox(c.id)).map((p: any) => p.text);
+    expect(sent.some((t: string) => /Pagamento recebido/.test(t))).toBe(false);
+    // A nota interna continua.
+    const notes = await all(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note'",
+      c.id,
+    );
+    expect(notes.map((n) => n.text)).toContainEqual(
+      expect.stringMatching(
+        /Pagamento confirmado pelo provedor: Suporte avulso/,
+      ),
+    );
+  });
+});

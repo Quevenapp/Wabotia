@@ -120,10 +120,12 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `conversation(id, actor?)` | Conversa da área, respeitando a visibilidade do ator |
 | `contact(c)` | Contato vinculado à conversa (`id, name, phone, email, company, notes`) ou `null` |
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |
-| `openWebStep(c, request)` | Abre um passo web do módulo (seção 4) |
+| `openWebStep(c, request)` | Abre um passo web do módulo (seção 4). Linha oficial com a janela de 24 h fechada: `409 window_closed` (fora do menu); troque por um convite com `sendMessage(…, {notification: true})` |
 | `publish(kind, id, payload, {key?})` | Evento declarado em `events`; o núcleo acrescenta `module_id`. Com `key`, publicar de novo a mesma chave não duplica (use algo como `${id}:${updated}`) |
 | `sendInteractive(c, spec, {key, actor?, notification?})` | Botões, lista, Flow, produto… (`spec` de `src/whatsapp-interactive.ts`): nativo na linha oficial, texto numerado com links no QR; `notification: true` fora da janela manda o texto pelo modelo de notificação |
-| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar") |
+| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?, receipt?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar"). `receipt: false`: o núcleo não manda o "Pagamento recebido" (o módulo manda o próprio comprovante no `onPaymentUpdated`) |
+| `cancelCharge(payment \| id)` | Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes do sinal), no provedor também. Já cancelada ou expirada: devolve como está; paga ou estornada: `409 payment_closed`; de outro módulo: 404 |
+| `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
