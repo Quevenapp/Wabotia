@@ -882,20 +882,28 @@ export async function applyMethod(
     }
     return next;
   }
-  // Online: só com conversa (o cliente recebe a cobrança no WhatsApp).
-  if (!c)
-    throw new ApiError(
-      409,
-      "no_conversation",
-      "Pagamento online precisa de uma conversa do WhatsApp para enviar a cobrança.",
-    );
-  if (!(await paymentsReady(ctx)))
+  // Online: Cobrança pronta (o que a equipe resolve no painel) antes da
+  // conversa, que é onde o cliente recebe a cobrança.
+  if (!(await paymentsReady(ctx))) {
+    if (!c)
+      throw new ApiError(
+        409,
+        "payments_not_configured",
+        "Configure a conta de pagamento em Gestão → Cobrança para cobrar Pix ou link.",
+      );
     return paymentFailed(
       ctx,
       order,
       c,
       method,
       "A Cobrança não está configurada nesta área.",
+    );
+  }
+  if (!c)
+    throw new ApiError(
+      409,
+      "no_conversation",
+      "Pagamento online precisa de uma conversa do WhatsApp para enviar a cobrança.",
     );
   const due = now() + cfg.payment_minutes * 60_000;
   const result = await exec(

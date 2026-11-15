@@ -32,6 +32,7 @@ import {
   situationByPhone,
 } from "./public";
 import {
+  assertChargeable,
   consentFromTeam,
   conversationFor,
   paymentUpdated,
@@ -135,6 +136,9 @@ onCommand(
   async (ctx, actor, data, { requestId }) => {
     ctx.access(actor, "conversations:write");
     const inst = await loadInstallment(ctx, data.id);
+    // Cobrança antes da conversa: o aviso "sem linha oficial" só vale com a
+    // Cobrança pronta.
+    await assertChargeable(ctx, inst);
     const c = await conversationFor(ctx, {
       id: inst.subscription_id,
       phone: inst.phone,

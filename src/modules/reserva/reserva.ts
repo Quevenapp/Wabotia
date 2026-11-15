@@ -521,6 +521,9 @@ onCommand(MODULE, "reserva.deposit", async (ctx, actor, data) => {
     booking.status === "pending_payment" && booking.deposit_cents > 0,
     "Só reservas aguardando o sinal podem ser cobradas.",
   );
+  // Cobrança antes da conversa: é o que a equipe resolve no painel.
+  const ready = await ctx.paymentsReady();
+  if (!ready.ready) throw new ApiError(409, ready.reason!, ready.message!);
   requireValue(
     booking.conversation_id,
     "Esta reserva não está ligada a uma conversa do WhatsApp.",

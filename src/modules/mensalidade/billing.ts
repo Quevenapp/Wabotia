@@ -287,13 +287,22 @@ export async function sendNotice(
   key: string,
 ) {
   const cfg = mensalidadeSettings(await ctx.settings());
-  const c = await conversationFor(ctx, {
-    id: inst.subscription_id,
-    phone: inst.phone,
-    conversation_id: inst.conversation_id,
-  });
+  // Sem linha oficial para abrir a conversa, o aviso falha com o motivo, sem
+  // derrubar a rodada periódica das outras parcelas.
+  let c: Conversation | null = null;
+  let reason = "Sem conversa no WhatsApp com o telefone desta assinatura.";
+  try {
+    c = await conversationFor(ctx, {
+      id: inst.subscription_id,
+      phone: inst.phone,
+      conversation_id: inst.conversation_id,
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    reason = error.message;
+  }
   if (!c) {
-    const message = "Sem conversa no WhatsApp com o telefone desta assinatura.";
+    const message = reason;
     await exec(
       ctx.env,
       "UPDATE mensalidade_installments SET notice_error=?,updated=? WHERE id=?",
@@ -473,14 +482,11 @@ export async function runNotices(ctx: ModuleContext, at: number) {
  * mensagem do módulo, ou uma cobrança nova (o núcleo entrega). `key` deve vir
  * do pedido (requestId ou rowId do menu).
  */
-export async function resendCharge(
-  ctx: ModuleContext,
-  inst: any,
-  c: Conversation,
-  key: string,
-  at = now(),
-  method?: "pix" | "link",
-) {
+/**
+ * Antes de procurar ou abrir a conversa: parcela em aberto e Cobrança pronta.
+ * O que a equipe resolve no painel (Cobrança) vem antes do aviso da linha.
+ */
+export async function assertChargeable(ctx: ModuleContext, inst: any) {
   if (!["open", "overdue"].includes(inst.status))
     throw new ApiError(
       409,
@@ -493,6 +499,17 @@ export async function resendCharge(
       "payments_not_configured",
       "Configure a conta de pagamento em Gestão → Cobrança para enviar Pix ou link. Sem ela, registre o pagamento com a baixa manual.",
     );
+}
+
+export async function resendCharge(
+  ctx: ModuleContext,
+  inst: any,
+  c: Conversation,
+  key: string,
+  at = now(),
+  method?: "pix" | "link",
+) {
+  await assertChargeable(ctx, inst);
   const cfg = mensalidadeSettings(await ctx.settings());
   const kind: NoticeKind = inst.status === "overdue" ? "overdue" : "before";
   const result = await ensureCharge(

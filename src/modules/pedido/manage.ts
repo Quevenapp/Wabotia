@@ -487,8 +487,12 @@ export async function createFromApi(
     method === null || (PAYMENT_METHODS as readonly string[]).includes(method),
     "payment_method: pix, link, cash ou card.",
   );
-  if (isOnline(method))
+  if (isOnline(method)) {
+    // Cobrança antes da conversa: é o que a equipe resolve no painel.
+    const ready = await ctx.paymentsReady();
+    if (!ready.ready) throw new ApiError(409, ready.reason!, ready.message!);
     requireValue(c, "Pagamento online precisa da conversa (conversation_id).");
+  }
   const order = checked.order;
   const { order: created, created: fresh } = await createOrder(ctx, {
     conversation: c,

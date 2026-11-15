@@ -451,6 +451,59 @@ describe("mensalidade: atraso e janela de 24 horas", () => {
   });
 });
 
+describe("mensalidade: ordem dos avisos ao reenviar", () => {
+  it("sem Cobrança e sem linha oficial: acusa primeiro a Cobrança; com ela, a linha", async () => {
+    const { f, ctx, plan } = await setup({ payments: false });
+    // Cliente que nunca escreveu e nenhuma linha oficial ativa na área.
+    const sub = await createSubscription(
+      ctx,
+      {
+        plan_id: plan.id,
+        customer_name: "Bruno Lima",
+        phone: "5511977001122",
+        start_date: today(now()),
+        due_day: Number(addDays(today(now()), 3).slice(8)),
+      },
+      f.admin.id,
+    );
+    await exec(
+      env,
+      "UPDATE connections SET status='disabled' WHERE profile_id=? AND kind='zernio'",
+      f.profile,
+    );
+    // A rodada periódica não quebra: o aviso falha com o motivo.
+    await runDue(ctx, at(0));
+    const inst = await installment(sub.id);
+    expect(inst.notice_error).toMatch(/linha oficial/);
+    const admin = await bearer(f.admin);
+    const path = `/profiles/${f.profile}/mensalidade/installments/${inst.id}/charge`;
+    const first = await api(admin, path, "POST", {});
+    expect(first.status).toBe(409);
+    expect((await first.json<any>()).error.code).toBe(
+      "payments_not_configured",
+    );
+    // Com a Cobrança pronta, vale o aviso da linha.
+    await perform(
+      env,
+      f.admin,
+      f.profile,
+      "payment.account.save",
+      {
+        provider: "mercadopago",
+        access_token: TOKEN,
+        webhook_secret: SECRET,
+        payer_email: "financeiro@escola.example.com",
+      },
+      uid(),
+    );
+    const second = await api(admin, path, "POST", {});
+    expect(second.status).toBe(400);
+    expect((await second.json<any>()).error.message).toMatch(
+      /Nenhuma linha oficial ativa/,
+    );
+  });
+});
+
 describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
   it("avisa com as instruções, alerta o administrador uma vez por dia e aceita baixa manual", async () => {
     const { f, ctx, c, sub } = await setup({
