@@ -96,7 +96,8 @@ final class DeviceViewModelTests: XCTestCase {
 
     func testPanelAnnouncesANewCallOnceWithChimeAndTwoReadings() async {
         var reads = 0
-        let vm = model(role: .panel) { _ in
+        let vm = model(role: .panel) { seen in
+            if seen.url.path.hasSuffix("/establishment") { return .json(404, "{}") }
             reads += 1
             return .json(200, reads < 3 ? self.overview(calls: [("t1", "N001", 1)]) : self.overview(calls: [("t2", "N002", 2), ("t1", "N001", 1)]))
         }
@@ -109,7 +110,8 @@ final class DeviceViewModelTests: XCTestCase {
 
     func testSilencedPanelDoesNotSpeakButHighlights() async {
         var reads = 0
-        let vm = model(role: .panel) { _ in
+        let vm = model(role: .panel) { seen in
+            if seen.url.path.hasSuffix("/establishment") { return .json(404, "{}") }
             reads += 1
             return .json(200, reads < 2 ? self.overview(calls: []) : self.overview(calls: [("t9", "N009", 9)]))
         }

@@ -124,6 +124,34 @@ final class ServiceOrderViewModel: ObservableObject {
         events = ModuleEvents(prefix: "os.") { [weak self] in await self?.load() }
     }
 
+    /// Pessoas da área, para o responsável (lidas uma vez; servidor antigo sem `GET /people` deixa a lista vazia).
+    @Published private(set) var people: [AreaPerson] = []
+    private var establishmentCache: Establishment?
+
+    func loadPeople() async {
+        guard people.isEmpty, let list = try? await client.api.people() else { return }
+        people = list
+    }
+
+    /// Nome do responsável da ordem pela lista de pessoas (o `id` quando a pessoa saiu da área).
+    var assigneeName: String? {
+        guard let id = order?.assignee, !id.isEmpty else { return nil }
+        return people.first { $0.id == id }?.displayName ?? id
+    }
+
+    func assign(_ personId: String?) {
+        run("assign:\(personId ?? "-")", success: personId == nil ? "Responsável retirado" : "Responsável alterado") { [client, id] key in
+            try await client.assign(id, assignee: personId, key: key)
+        }
+    }
+
+    /// O cabeçalho do comprovante: o estabelecimento da área (`nil` em servidor antigo, e o comprovante usa o nome).
+    func establishment() async -> Establishment? {
+        if let establishmentCache { return establishmentCache }
+        establishmentCache = try? await client.api.establishment()
+        return establishmentCache
+    }
+
     func load() async {
         if order == nil { loading = true }
         do {
@@ -215,6 +243,14 @@ final class NewServiceOrderViewModel: ObservableObject {
     @Published var notes = ""
     @Published var hasDue = false
     @Published var due = Date().addingTimeInterval(3 * 86_400)
+    /// Responsável (`id` de `GET /people`); `nil`: sem responsável.
+    @Published var assignee: String?
+    @Published private(set) var people: [AreaPerson] = []
+
+    func loadPeople() async {
+        guard people.isEmpty, let list = try? await client.api.people() else { return }
+        people = list
+    }
     @Published private(set) var busy = false
     @Published var notice: String?
     @Published private(set) var result: ServiceOrder?
@@ -251,7 +287,7 @@ final class NewServiceOrderViewModel: ObservableObject {
                 item: item, problem: problem, conversationId: conversationId, phone: conversationId == nil ? digits : nil,
                 customerName: customerName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : customerName.trimmingCharacters(in: .whitespaces),
                 notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines),
-                dueAt: hasDue ? BrasiliaTime.millis(due) : nil, key: key)
+                dueAt: hasDue ? BrasiliaTime.millis(due) : nil, assignee: assignee, key: key)
             keys.settle(nil)
         } catch {
             keys.settle(error)

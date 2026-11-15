@@ -20,10 +20,16 @@ struct ServiceOrderReceiptData: Equatable {
     var warrantyUntil: Int64?
     var termsAcceptedAt: Int64?
     var printedAt: Int64
+    /// Documento, endereço e telefone do estabelecimento, abaixo do nome.
+    var headerLines: [String] = []
+    /// Rodapé do estabelecimento (ex.: garantia), no fim do papel.
+    var footerLines: [String] = []
 
-    static func of(_ order: ServiceOrder, header: String, now: Date = Date()) -> ServiceOrderReceiptData {
-        ServiceOrderReceiptData(
-            header: header.isEmpty ? "Wabotia" : header,
+    /// Com o estabelecimento lido do servidor, o nome dele (o nome da área quando não há cadastro) vira o cabeçalho.
+    static func of(_ order: ServiceOrder, header: String, establishment: Establishment? = nil, now: Date = Date()) -> ServiceOrderReceiptData {
+        let name = establishment?.displayName ?? header
+        return ServiceOrderReceiptData(
+            header: name.isEmpty ? "Wabotia" : name,
             number: order.number.map(String.init) ?? "—",
             created: order.created,
             customer: order.customerName,
@@ -38,7 +44,9 @@ struct ServiceOrderReceiptData: Equatable {
             decision: order.decision?.decision,
             warrantyUntil: order.warrantyUntil,
             termsAcceptedAt: order.terms?.acceptedAt,
-            printedAt: BrasiliaTime.millis(now)
+            printedAt: BrasiliaTime.millis(now),
+            headerLines: establishment?.headerLines ?? [],
+            footerLines: establishment?.footerLines ?? []
         )
     }
 }
@@ -87,6 +95,7 @@ final class ServiceOrderReceipt: ThermalReceiptPayload {
         let center: UInt8 = 1, left: UInt8 = 0
         var out = Data()
         out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
+        for line in d.headerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center)) }
         out.append(layout.text("ORDEM DE SERVIÇO\n", alignment: center, bold: true, size: .normal))
         out.append(layout.text(layout.wrap("Nº \(d.number)", size: big) + "\n", alignment: center, bold: true, size: big))
         out.append(layout.text(String(repeating: "-", count: layout.columns) + "\n", alignment: left))
@@ -107,6 +116,7 @@ final class ServiceOrderReceipt: ThermalReceiptPayload {
         for line in ServiceOrderReceiptText.footer(d) {
             out.append(layout.text(layout.wrap(line) + "\n", alignment: center))
         }
+        for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center)) }
         out.append(layout.finish())
         return out
     }

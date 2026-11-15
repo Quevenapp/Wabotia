@@ -137,6 +137,9 @@ final class QueueClient {
 
     func ticket(_ id: String) async throws -> QueueTicket { try await get("/queue/tickets/\(id)") }
 
+    /// Cabeçalho e rodapé do cupom (`GET /establishment`, aceita o aparelho pareado).
+    func establishment() async throws -> Establishment { try await get("/establishment") }
+
     /// Emite uma senha (totem: `source` omitido vira `kiosk` no servidor pareado; a equipe manda `staff`).
     func issue(queueId: String, preferential: Bool, key: String = QueueClient.newKey(), source: String? = nil) async throws -> QueueTicket {
         try await post("/queue/tickets", [("queue_id", queueId), ("preferential", preferential), ("source", source)], key: key)

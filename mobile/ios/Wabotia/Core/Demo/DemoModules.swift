@@ -27,6 +27,31 @@ private func nul(_ value: Any?) -> Any { value ?? NSNull() }
 
 typealias DemoEmit = (_ kind: String, _ payload: [String: Any]) -> Void
 
+/// Estabelecimento e pessoas da área da demonstração (`GET /establishment`, `GET /people`). Endereço e telefone
+/// inventados (DDD 20 não existe); sem documento, para não usar o CNPJ de ninguém.
+enum DemoArea {
+    static let people: [[String: Any]] = [
+        ["id": "u_ana", "name": "Ana Souza", "role": "operator"],
+        ["id": "u_carlos", "name": "Carlos Pereira", "role": "operator"],
+        ["id": DemoMode.meId, "name": DemoMode.meName, "role": "admin"],
+        ["id": "u_marina", "name": "Marina Lima", "role": "operator"],
+    ]
+
+    static func route(method: String, parts: [String]) -> DemoServer.Reply? {
+        guard method == "GET", parts.count == 5, Array(parts.prefix(3)) == ["api", "v1", "profiles"] else { return nil }
+        switch parts[4] {
+        case "establishment":
+            return demoOk(["name": DemoMode.profileName, "document": "", "document_type": NSNull(), "document_display": "",
+                           "address": "Rua Exemplo, 100 — Centro\nCidade Exemplo/SP", "phone": "(20) 3000-0000",
+                           "footer": "Demonstração: dados fictícios.", "configured": true])
+        case "people":
+            return demoOk(["data": people])
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Agenda (barbearia)
 
 /// A Agenda da demonstração: uma barbearia com dois profissionais, aberta todos os dias (para a revisão das lojas ver
@@ -280,6 +305,7 @@ final class DemoServiceOrders {
         var item: String, problem: String, notes: String
         let source: String
         var dueAt: Int64?
+        var assignee: String?
         var termsAt: Int64?
         var quote: [QuoteItem]?
         var quoteNote = "", quoteDays = 7, quoteVersion = 0
@@ -337,6 +363,8 @@ final class DemoServiceOrders {
         quote(ready, [QuoteItem(description: "Placa de áudio (reparo)", quantity: 1, unitCents: 14_000)], sentAgo: 6 * day)
         ready.decision = "approve"; ready.decidedAt = t0 - 6 * day + 3_600_000; ready.decidedVia = "whatsapp"; ready.readyAt = t0 - 2 * day
         progress.dueAt = t0 + 3 * day
+        progress.assignee = "u_ana"
+        orders[6].assignee = "u_carlos"
         quote(approved, [QuoteItem(description: "Conector de carga", quantity: 1, unitCents: 6_500), QuoteItem(description: "Mão de obra", quantity: 1, unitCents: 8_000)], sentAgo: 3 * day)
         approved.decision = "approve"; approved.decidedAt = t0 - 2 * day; approved.decidedVia = "whatsapp"
         quote(quoted, [QuoteItem(description: "Bateria", quantity: 1, unitCents: 28_900), QuoteItem(description: "Mão de obra", quantity: 1, unitCents: 8_000)], sentAgo: day)
@@ -398,6 +426,7 @@ final class DemoServiceOrders {
             let o = O(id: "os_\(number)", number: number, status: "received", customer: name, phone: phone.count == 10 || phone.count == 11 ? "55" + phone : phone,
                       conversation: conversation, item: item, problem: problem, notes: body["notes"] as? String ?? "", source: "panel", created: now)
             o.dueAt = (body["due_at"] as? NSNumber)?.int64Value
+            o.assignee = body["assignee"] as? String
             o.history.append(history(o, kind: "opened", from: nil, to: "received", actor: DemoMode.meId, at: now))
             orders.append(o)
             emit("os.opened", ["order": view(o, now, withHistory: false), "conversation_id": nul(conversation), "module_id": "os"])
@@ -406,6 +435,14 @@ final class DemoServiceOrders {
         guard let o = orders.first(where: { $0.id == r.first }) else { return demoFail(404, "not_found", "Ordem de serviço não encontrada.") }
         let tail = Array(r.dropFirst())
         switch (method, tail) {
+        case ("PATCH", []):
+            if body.keys.contains("assignee") {
+                let person = body["assignee"] as? String
+                guard person == nil || DemoArea.people.contains(where: { $0["id"] as? String == person }) else { return demoFail(400, "invalid_request", "Responsável não encontrado na área.") }
+                o.assignee = person
+            }
+            o.updated = now
+            o.history.append(history(o, kind: "edit", from: o.status, to: o.status, actor: DemoMode.meId, at: now))
         case ("POST", ["status"]):
             guard let to = body["status"] as? String else { return demoFail(400, "invalid_request", "Informe o estado.") }
             guard (Self.manual[o.status] ?? []).contains(to) else { return demoFail(409, "invalid_transition", "Mudança de estado não permitida.") }
@@ -481,7 +518,7 @@ final class DemoServiceOrders {
         var row: Row = [
             "id": o.id, "number": o.number, "status": o.status, "status_label": ServiceOrderRules.statusLabel(o.status),
             "customer": ["name": o.customerName, "phone": o.phone, "contact_id": NSNull(), "conversation_id": nul(o.conversationId)],
-            "item": o.item, "problem": o.problem, "notes": o.notes, "assignee": NSNull(), "due_at": nul(o.dueAt), "source": o.source,
+            "item": o.item, "problem": o.problem, "notes": o.notes, "assignee": nul(o.assignee), "due_at": nul(o.dueAt), "source": o.source,
             "terms": nul(o.termsAt.map { ["text": "Autorizo a análise do item informado.", "accepted_at": $0] as Row }),
             "quote": nul(o.quote.map { items -> Row in
                 ["items": items.map { $0.json }, "total_cents": total ?? 0, "note": o.quoteNote, "valid_days": o.quoteDays, "valid_until": nul(o.quoteValidUntil),

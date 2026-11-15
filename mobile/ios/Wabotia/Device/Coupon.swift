@@ -16,17 +16,25 @@ struct CouponData: Equatable {
     var waitMinutes: Int?
     /// `https://wa.me/...?text=SENHA N023 AB12CD`; liga a senha ao WhatsApp do cliente.
     var whatsappLink: String?
+    /// Documento, endereço e telefone do estabelecimento, abaixo do nome.
+    var headerLines: [String] = []
+    /// Rodapé do estabelecimento, no fim do cupom.
+    var footerLines: [String] = []
 
-    static func of(_ ticket: QueueTicket, header: String) -> CouponData {
+    /// `header` é o nome do aparelho; com o estabelecimento lido do servidor, vale o nome dele (o nome da área quando
+    /// não há cadastro) e entram documento, endereço, telefone e rodapé.
+    static func of(_ ticket: QueueTicket, header: String, establishment: Establishment? = nil) -> CouponData {
         CouponData(
-            header: header,
+            header: establishment?.displayName ?? header,
             queueName: ticket.queueName ?? "",
             code: ticket.code ?? "",
             preferential: ticket.isPreferential,
             issuedAt: ticket.createdAt ?? Int64(Date().timeIntervalSince1970 * 1000),
             ahead: ticket.ahead ?? 0,
             waitMinutes: ticket.waitMinutes,
-            whatsappLink: ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil }
+            whatsappLink: ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil },
+            headerLines: establishment?.headerLines ?? [],
+            footerLines: establishment?.footerLines ?? []
         )
     }
 }
@@ -71,6 +79,7 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
         let center: UInt8 = 1
         var out = Data()
         out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
+        for line in d.headerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
         if !d.queueName.trimmingCharacters(in: .whitespaces).isEmpty {
             out.append(layout.text(layout.wrap(d.queueName) + "\n", alignment: center, bold: false, size: .normal))
         }
@@ -84,6 +93,7 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
             out.append(qr)
             out.append(layout.text(layout.wrap(CouponText.whatsapp) + "\n", alignment: center, bold: false, size: .normal))
         }
+        for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
         out.append(layout.finish())
         return out
     }

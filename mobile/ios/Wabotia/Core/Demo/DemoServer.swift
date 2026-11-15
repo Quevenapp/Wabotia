@@ -476,6 +476,7 @@ final class DemoServer {
         // Fila de senhas (guichê e modo aparelho), pareamento do aparelho e capacidades.
         if let reply = fila.route(method: method, parts: parts, body: body, key: key, now: now) { return reply }
         // Módulos da onda 3 (eventos `agenda.*` e `os.*` em GET /events).
+        if let reply = DemoArea.route(method: method, parts: parts) { return reply }
         let emitter: DemoEmit = { [unowned self] kind, payload in self.emit(kind, payload) }
         if let reply = agenda.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }

@@ -161,6 +161,7 @@ struct ServiceOrderDetailView: View {
         .task {
             vm.observeEvents()
             await vm.load()
+            await vm.loadPeople()
             #if DEBUG
             // WABOTIA_DEMO_ACTION=quote (só depuração): abre o editor de orçamento, para conferir por print.
             if AppContainer.shared.isDemo, DemoMode.action == "quote" { editingQuote = true }
@@ -294,8 +295,20 @@ struct ServiceOrderDetailView: View {
         return parts.joined(separator: " · ")
     }
 
+    private func assigneeRow(_ o: ServiceOrder) -> some View {
+        Menu {
+            Button("Sem responsável") { vm.assign(nil) }
+            ForEach(vm.people) { p in Button(p.displayName) { vm.assign(p.id) } }
+        } label: {
+            CardRow(icon: "person.crop.circle.badge.checkmark", iconColor: Theme.bot, title: "Responsável", value: vm.assigneeName ?? "Ninguém", chevron: !vm.people.isEmpty)
+        }
+        .disabled(vm.people.isEmpty || vm.busy != nil || ServiceOrderRules.closed.contains(o.state))
+        .accessibilityIdentifier("os.assignee")
+    }
+
     private func customerSection(_ o: ServiceOrder) -> some View {
         SectionCard(title: "Cliente") {
+            assigneeRow(o)
             CardRow(icon: "person.fill", iconColor: Theme.brand, title: o.customerName, subtitle: PhoneText.display(o.customer?.phone))
             if let conversation = o.customer?.conversationId {
                 Button { push(.conversation(id: conversation)) } label: {
@@ -367,7 +380,8 @@ struct ServiceOrderDetailView: View {
         let header = Workspace.shared.profileName
         printState = .printing
         Task {
-            printState = await WabotiaPrinting.shared.print(ServiceOrderReceiptData.of(o, header: header))
+            let establishment = await vm.establishment()
+            printState = await WabotiaPrinting.shared.print(ServiceOrderReceiptData.of(o, header: header, establishment: establishment))
         }
     }
 
@@ -476,6 +490,20 @@ struct NewServiceOrderView: View {
                 AuthField(label: "Item") { TextField("Ex.: celular, notebook, bicicleta", text: $vm.item).accessibilityIdentifier("os.new.item") }
                 AuthField(label: "Problema") { TextField("O que o cliente relatou", text: $vm.problem).accessibilityIdentifier("os.new.problem") }
                 AuthField(label: "Observação interna (opcional)") { TextField("Não vai para o cliente", text: $vm.notes) }
+                if !vm.people.isEmpty {
+                    HStack {
+                        Text("Responsável").font(Theme.font(15))
+                        Spacer()
+                        Menu {
+                            Button("Sem responsável") { vm.assignee = nil }
+                            ForEach(vm.people) { p in Button(p.displayName) { vm.assignee = p.id } }
+                        } label: {
+                            Text(vm.people.first { $0.id == vm.assignee }?.displayName ?? "Sem responsável").font(Theme.font(15, .semibold)).foregroundStyle(Theme.brand)
+                        }
+                        .accessibilityIdentifier("os.new.assignee")
+                    }
+                    .frame(minHeight: Theme.touch)
+                }
                 Toggle("Prazo previsto", isOn: $vm.hasDue).font(Theme.font(15))
                 if vm.hasDue {
                     DatePicker("Previsão", selection: $vm.due, in: Date()..., displayedComponents: .date)
@@ -490,6 +518,7 @@ struct NewServiceOrderView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.background.ignoresSafeArea())
+        .task { await vm.loadPeople() }
         .navigationTitle("Nova ordem de serviço")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBarHidden(false)

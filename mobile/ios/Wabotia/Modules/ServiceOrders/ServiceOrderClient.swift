@@ -97,7 +97,7 @@ struct ServiceOrderPage: Decodable, Equatable {
     /// Quantas ordens há em cada estado (a área inteira).
     var counts: [String: Int]?
 
-    /// O decodificador converte as chaves para camelCase, inclusive as deste mapa (`in_progress` → `inProgress`).
+    /// Chave ausente vale 0. O cliente relê o mapa com as chaves exatas; a forma camelCase fica como reserva.
     func count(_ status: String) -> Int {
         counts?[status] ?? counts?[ServiceOrderRules.camel(status)] ?? 0
     }
@@ -111,20 +111,31 @@ final class ServiceOrderClient {
 
     /// Lista por número decrescente. `open`: sem entregues e canceladas.
     func list(statuses: [String] = [], open: Bool = false, query: String? = nil, conversationId: String? = nil, cursor: String? = nil, limit: Int = 50) async throws -> ServiceOrderPage {
-        try await api.get("service-orders", query: [
+        let data = try await api.getData("service-orders", query: [
             "status": statuses.isEmpty ? nil : statuses.joined(separator: ","), "open": open && statuses.isEmpty ? "1" : nil,
             "q": query?.trimmingCharacters(in: .whitespaces).isEmpty == false ? query : nil, "conversation_id": conversationId,
             "cursor": cursor, "limit": String(limit),
         ])
+        var page = try QueueHTTP.decode(ServiceOrderPage.self, data)
+        // `counts` tem os códigos de estado como chaves (docs/ORDEM-DE-SERVICO.md): lidas sem a conversão de snake_case.
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let raw = object["counts"] as? [String: Any] {
+            page.counts = raw.compactMapValues { ($0 as? NSNumber)?.intValue }
+        }
+        return page
+    }
+
+    /// Troca o responsável (`assignee`, o `id` de `GET /people`; `nil` tira).
+    func assign(_ id: String, assignee: String?, key: String) async throws -> ServiceOrder {
+        try await api.send("PATCH", "service-orders/\(id)", ["assignee": assignee ?? NSNull()], key: key)
     }
 
     func order(_ id: String) async throws -> ServiceOrder { try await api.get("service-orders/\(id)") }
 
     /// Abre a ordem: ligada à conversa (o cliente é avisado) ou pelo telefone, no balcão.
-    func create(item: String, problem: String, conversationId: String?, phone: String?, customerName: String?, notes: String?, dueAt: Int64?, key: String) async throws -> ServiceOrder {
+    func create(item: String, problem: String, conversationId: String?, phone: String?, customerName: String?, notes: String?, dueAt: Int64?, assignee: String? = nil, key: String) async throws -> ServiceOrder {
         try await api.send("POST", "service-orders", [
             "item": item, "problem": problem, "conversation_id": conversationId, "phone": phone,
-            "customer_name": customerName, "notes": notes, "due_at": dueAt,
+            "customer_name": customerName, "notes": notes, "due_at": dueAt, "assignee": assignee,
         ], key: key)
     }
 

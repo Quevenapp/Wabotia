@@ -24,8 +24,19 @@ final class ProfileAPI {
     }
 
     func get<T: Decodable>(_ path: String, query: [String: String?] = [:]) async throws -> T {
-        try QueueHTTP.decode(T.self, try await QueueHTTP.send(session, QueueHTTP.request(try url(path, query), method: "GET", token: token())))
+        try QueueHTTP.decode(T.self, try await getData(path, query: query))
     }
+
+    /// A resposta crua, para quem precisa ler um mapa com as chaves exatas (o decodificador converte snake_case).
+    func getData(_ path: String, query: [String: String?] = [:]) async throws -> Data {
+        try await QueueHTTP.send(session, QueueHTTP.request(try url(path, query), method: "GET", token: token()))
+    }
+
+    /// Dados do estabelecimento da área (`GET /establishment`): cabeçalho e rodapé dos cupons.
+    func establishment() async throws -> Establishment { try await get("establishment") }
+
+    /// Pessoas da área (`GET /people`), para escolher o responsável de um registro de módulo.
+    func people() async throws -> [AreaPerson] { (try await get("people") as DataList<AreaPerson>).data ?? [] }
 
     /// Escrita com `Idempotency-Key`; `body` é um objeto JSON (chaves nulas omitidas).
     func send<T: Decodable>(_ method: String, _ path: String, _ body: [String: Any?] = [:], key: String) async throws -> T {
@@ -50,6 +61,47 @@ final class ProfileAPI {
 /// `{data: [...]}`.
 struct DataList<T: Decodable>: Decodable {
     var data: [T]?
+}
+
+/// Nome fantasia, documento, endereço, telefone e rodapé da área (Gestão → Estabelecimento). Sem cadastro,
+/// `configured` é falso e `name` é o nome da área.
+struct Establishment: Codable, Equatable {
+    var name: String?
+    var document: String?
+    var documentType: String?
+    var documentDisplay: String?
+    var address: String?
+    var phone: String?
+    var footer: String?
+    var configured: Bool?
+
+    /// As linhas do cabeçalho do cupom, depois do nome: documento, endereço (pode ter quebras) e telefone.
+    var headerLines: [String] {
+        var out: [String] = []
+        if let doc = documentDisplay?.trimmingCharacters(in: .whitespaces), !doc.isEmpty {
+            out.append((documentType == "cpf" ? "CPF " : "CNPJ ") + doc)
+        }
+        for line in (address ?? "").split(whereSeparator: \.isNewline) {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { out.append(text) }
+        }
+        if let phone = phone?.trimmingCharacters(in: .whitespaces), !phone.isEmpty { out.append(phone) }
+        return out
+    }
+
+    var footerLines: [String] {
+        (footer ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    var displayName: String? { name?.trimmingCharacters(in: .whitespaces).isEmpty == false ? name : nil }
+}
+
+/// Pessoa da área (`GET /people`): `id` é o valor de `assignee`.
+struct AreaPerson: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String?
+    var role: String?
+    var displayName: String { name?.isEmpty == false ? name! : "Pessoa" }
 }
 
 /// Uma `Idempotency-Key` por intenção (mobile/README.md): sem resposta (rede, 5xx), a mesma intenção repete com a mesma

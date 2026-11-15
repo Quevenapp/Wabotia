@@ -75,6 +75,9 @@ final class DeviceViewModel: ObservableObject {
     /// O pareamento terminou (desfeito ou saída da demonstração): a tela do modo aparelho fecha.
     @Published private(set) var finished = false
 
+    /// Nome, documento, endereço, telefone e rodapé do cupom, lidos do servidor ao conectar.
+    @Published private(set) var establishment: Establishment?
+
     private let services: DeviceServices
     private var feed: QueueLiveFeed?
     private var client: QueueClient?
@@ -184,6 +187,10 @@ final class DeviceViewModel: ObservableObject {
         feed.onEvent = { [weak self] event in self?.handle(event) }
         self.feed = feed
         feed.start()
+        // Cabeçalho do cupom: o estabelecimento da área (servidor antigo sem a rota: fica o nome do aparelho).
+        Task { [weak self] in
+            if let found = try? await client.establishment() { self?.establishment = found }
+        }
     }
 
     private func loadLocalSettings(_ config: DeviceConfig) {
@@ -297,7 +304,7 @@ final class DeviceViewModel: ObservableObject {
     private func printIssued() async {
         guard let issued else { return }
         let header = config?.name.isEmpty == false ? config!.name : "Wabotia"
-        couponPrint = await services.printer.print(CouponData.of(issued, header: header))
+        couponPrint = await services.printer.print(CouponData.of(issued, header: header, establishment: establishment))
     }
 
     /// Segunda via: quando a primeira ficou incerta, só com confirmação de quem está no totem.
