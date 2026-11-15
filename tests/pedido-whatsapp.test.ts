@@ -432,6 +432,31 @@ describe("pedido no WhatsApp: pagamento", () => {
     expect((await latest(c.id)).text).toContain("Cardápio");
   });
 
+  it("forma e troco escolhidos na página: sem pergunta no WhatsApp", async () => {
+    const { f, menu } = await setup({ payments: { cash: true, card: true } });
+    const { c, code } = await openCart(f, "5511970000017");
+    const page = await (await SELF.fetch(`https://test/api/w/${code}`)).text();
+    expect(page).toContain("Como você quer pagar?");
+    expect(page).toContain('value="cash"');
+    expect(page).toContain('name="change_for"');
+    await submitCart(code, {
+      ...cartFields(menu),
+      payment: "cash",
+      change_for: "150",
+      confirm: "1",
+    });
+    const [order] = await orders(f);
+    expect(order).toMatchObject({
+      status: "received",
+      payment_method: "cash",
+      payment_status: "pending",
+      change_for_cents: 15000,
+    });
+    const sent = await texts(c.id);
+    expect(sent.some((t) => t.includes("Como você quer pagar"))).toBe(false);
+    expect(sent.some((t) => t.includes("Vai precisar de troco?"))).toBe(false);
+  });
+
   it("várias formas: pergunta no WhatsApp, toque na linha oficial e número no QR", async () => {
     const { f, menu } = await setup({ payments: { cash: true, card: true } });
     const { c, code } = await openCart(f, "5511970000011");

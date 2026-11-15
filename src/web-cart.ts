@@ -49,6 +49,19 @@ export interface CartCatalog {
   };
   /** Observação geral do pedido (padrão: sim). */
   allow_note: boolean;
+  /**
+   * Formas de pagamento que o cliente escolhe na própria página (o módulo
+   * declara as que aceita agora). `change: true` (dinheiro) pede "troco
+   * para". Sem isso, a página não pergunta e `CartOrder.payment` é null.
+   */
+  payment?: {
+    methods: { id: string; label: string; change?: boolean }[];
+    /**
+     * Padrão true: o cliente precisa escolher. false: pode deixar em branco
+     * (`payment: null`) e o módulo pergunta depois.
+     */
+    required?: boolean;
+  };
 }
 
 export interface CartLine {
@@ -90,6 +103,15 @@ export interface CartOrder {
     reference: string;
   } | null;
   note: string;
+  /**
+   * Forma escolhida na página (com `catalog.payment`); null sem a pergunta.
+   * `change_for_cents`: "troco para" (só formas com `change`), null sem troco.
+   */
+  payment: {
+    method: string;
+    label: string;
+    change_for_cents: number | null;
+  } | null;
 }
 
 const ID = /^[A-Za-z0-9_-]{1,60}$/;
@@ -234,12 +256,48 @@ export function validateCatalog(value: any): CartCatalog {
   if (eta) fulfillment.eta = eta;
   const pickup = str(f.pickup_address, 200, "o endereço de retirada", false);
   if (pickup) fulfillment.pickup_address = pickup;
-  return {
+  const out: CartCatalog = {
     currency: "BRL",
     categories,
     fulfillment,
     allow_note: value.allow_note !== false,
   };
+  if (value.payment !== undefined && value.payment !== null) {
+    const methods = value.payment?.methods;
+    requireValue(
+      Array.isArray(methods) && methods.length >= 1 && methods.length <= 6,
+      "Carrinho: de 1 a 6 formas de pagamento.",
+    );
+    const seen = new Set<string>();
+    out.payment = {
+      methods: methods.map((m: any) => {
+        requireValue(
+          typeof m?.id === "string" && ID.test(m.id) && !seen.has(m.id),
+          "Carrinho: id de forma de pagamento inválido ou repetido.",
+        );
+        seen.add(m.id);
+        return {
+          id: m.id,
+          label: str(m.label, 40, "o nome da forma de pagamento"),
+          ...(m.change === true ? { change: true } : {}),
+        };
+      }),
+      ...(value.payment.required === false ? { required: false } : {}),
+    };
+  }
+  return out;
+}
+
+/** "50", "50,00", "R$ 1.250,50" → centavos; null se vazio; NaN se inválido. */
+function parseMoney(value: string) {
+  const text = value.replace(/R\$|\s/g, "");
+  if (!text) return null;
+  if (!/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+([,.]\d{1,2})?$/.test(text))
+    return NaN;
+  const normalized = text.includes(",")
+    ? text.replace(/\./g, "").replace(",", ".")
+    : text;
+  return Math.round(Number(normalized) * 100);
 }
 
 // ---------------------------------------------------------------------------
@@ -450,20 +508,57 @@ function finishOrder(
   if (lines.length && subtotal < f.minimum_cents)
     errors.cart = `Pedido mínimo de ${money(f.minimum_cents)} (sem a entrega).`;
   const fee = mode === "delivery" ? f.delivery_fee_cents : 0;
+  const total = subtotal + fee;
+  // Forma de pagamento escolhida na página (quando o módulo pergunta).
+  let payment: CartOrder["payment"] = null;
+  if (catalog.payment) {
+    const chosen = catalog.payment.methods.find(
+      (m) => m.id === first(input, "payment"),
+    );
+    if (!chosen) {
+      if (catalog.payment.required !== false || first(input, "payment"))
+        errors.payment = "Escolha como vai pagar.";
+    } else {
+      let change: number | null = null;
+      if (chosen.change) {
+        const value = parseMoney(first(input, "change_for"));
+        if (value !== null && !Number.isInteger(value))
+          errors.change_for =
+            "Troco: informe um valor, por exemplo 50 ou 50,00.";
+        else if (value !== null && value < total)
+          errors.change_for = `Troco: informe um valor a partir do total (${money(total)}).`;
+        else change = value;
+      }
+      payment = {
+        method: chosen.id,
+        label: chosen.label,
+        change_for_cents: change,
+      };
+    }
+  }
   const order: CartOrder = {
     type: "cart",
     lines,
     item_count: lines.reduce((sum, line) => sum + line.quantity, 0),
     subtotal_cents: subtotal,
     delivery_fee_cents: fee,
-    total_cents: subtotal + fee,
+    total_cents: total,
     currency: "BRL",
     fulfillment: (mode || "pickup") as CartOrder["fulfillment"],
     customer_name: customerName,
     address,
     note,
+    payment,
   };
   return { ok: !Object.keys(errors).length, order, errors };
+}
+
+/** "Dinheiro (troco para R$ 50,00)" para resumo, revisão e nota. */
+export function paymentText(payment: CartOrder["payment"]) {
+  if (!payment) return "";
+  return payment.change_for_cents
+    ? `${payment.label} (troco para ${money(payment.change_for_cents)})`
+    : payment.label;
 }
 
 /** Pedido em texto, para a nota interna, o protocolo e o retorno. */
@@ -486,6 +581,7 @@ export function cartSummary(order: CartOrder) {
       ? `Entrega: ${order.address.street}, ${order.address.district}${order.address.complement ? `, ${order.address.complement}` : ""}${order.address.reference ? ` (${order.address.reference})` : ""}`
       : "Retirada no local",
     `Cliente: ${order.customer_name}`,
+    ...(order.payment ? [`Pagamento: ${paymentText(order.payment)}`] : []),
     ...(order.note ? [`Observação: ${order.note}`] : []),
   ].join("\n");
 }
@@ -574,13 +670,33 @@ export function cartPage(
       ? `<label class="option"><input type="radio" name="fulfillment" value="delivery"${value("fulfillment") === "delivery" || (!f.pickup && !value("fulfillment")) ? " checked" : ""}><span>Entrega${f.delivery_fee_cents ? ` <small>taxa de ${money(f.delivery_fee_cents)}</small>` : " <small>sem taxa</small>"}</span></label>`
       : "",
   ].join("");
+  // Forma de pagamento (quando o módulo pergunta na página); "troco para" só
+  // para as formas com change (dinheiro), sem script: sempre visível abaixo.
+  const pay = catalog.payment;
+  const paymentBlock = pay
+    ? `<h2 class="cat">Como você quer pagar?</h2><fieldset${errors.payment ? ' class="invalid"' : ""}>${pay.methods
+        .map(
+          (m) =>
+            `<label class="option"><input type="radio" name="payment" value="${escape(m.id)}"${value("payment") === m.id || (pay.methods.length === 1 && !value("payment")) ? " checked" : ""}><span>${escape(m.label)}</span></label>`,
+        )
+        .join("")}${err(errors, "payment")}</fieldset>${
+        pay.methods.some((m) => m.change)
+          ? `<label${errors.change_for ? ' class="invalid"' : ""}><span class="label">Troco para quanto? (opcional)</span><input type="text" name="change_for" inputmode="decimal" maxlength="12" placeholder="Ex.: 100" value="${escape(value("change_for"))}"><small>Só para pagamento em ${escape(
+              pay.methods
+                .filter((m) => m.change)
+                .map((m) => m.label.toLowerCase())
+                .join(" ou "),
+            )}.</small>${err(errors, "change_for")}</label>`
+          : ""
+      }`
+    : "";
   const field = (name: string, label: string, help = "") =>
     `<label${errors[name] ? ' class="invalid"' : ""}><span class="label">${label}</span><input type="text" name="${name}" maxlength="120" value="${escape(value(name))}">${help ? `<small>${help}</small>` : ""}${err(errors, name)}</label>`;
   const body = `<div class="card"><h1>${escape(meta.title)}</h1>${meta.intro ? `<p class="intro">${escape(meta.intro)}</p>` : ""}${f.eta ? `<small>${escape(f.eta)}</small>` : ""}${f.minimum_cents ? `<small>Pedido mínimo: ${money(f.minimum_cents)}</small>` : ""}${
     Object.keys(errors).length
       ? `<div class="alert" role="alert">${escape(errors.cart || "Confira os itens e os campos destacados.")}</div>`
       : ""
-  }<form method="post" novalidate><button type="submit" name="step" value="review" class="default" tabindex="-1" aria-hidden="true">Revisar</button>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
+  }<form method="post" novalidate><button type="submit" name="step" value="review" class="default" tabindex="-1" aria-hidden="true">Revisar</button>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}${paymentBlock}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
   return page(meta.title, body, appName, CART_CSS);
 }
 
@@ -611,6 +727,6 @@ export function cartReviewPage(
     order.fulfillment === "delivery" && order.address
       ? `Entrega em ${escape(order.address.street)}, ${escape(order.address.district)}${order.address.complement ? `, ${escape(order.address.complement)}` : ""}`
       : "Retirada no local";
-  const body = `<div class="card"><h1>Confira seu pedido</h1><table class="lines">${rows}<tr><td>Subtotal</td><td>${money(order.subtotal_cents)}</td></tr>${order.fulfillment === "delivery" ? `<tr><td>Entrega</td><td>${money(order.delivery_fee_cents)}</td></tr>` : ""}<tr class="total"><td>Total</td><td>${money(order.total_cents)}</td></tr></table><p>${where}<br>${escape(order.customer_name)}${order.note ? `<br><small>${escape(order.note)}</small>` : ""}</p><form method="post">${hidden}<button type="submit" name="confirm" value="1">Confirmar pedido</button><button type="submit" name="step" value="edit" class="button secondary">Voltar e alterar</button></form></div>`;
+  const body = `<div class="card"><h1>Confira seu pedido</h1><table class="lines">${rows}<tr><td>Subtotal</td><td>${money(order.subtotal_cents)}</td></tr>${order.fulfillment === "delivery" ? `<tr><td>Entrega</td><td>${money(order.delivery_fee_cents)}</td></tr>` : ""}<tr class="total"><td>Total</td><td>${money(order.total_cents)}</td></tr></table><p>${where}<br>${escape(order.customer_name)}${order.payment ? `<br>Pagamento: ${escape(paymentText(order.payment))}` : ""}${order.note ? `<br><small>${escape(order.note)}</small>` : ""}</p><form method="post">${hidden}<button type="submit" name="confirm" value="1">Confirmar pedido</button><button type="submit" name="step" value="edit" class="button secondary">Voltar e alterar</button></form></div>`;
   return page(meta.title, body, appName, CART_CSS);
 }

@@ -703,13 +703,25 @@ export async function startPayment(
   ctx: ModuleContext,
   order: any,
   c: Conversation | null,
-  options: { actor: string; method?: PaymentMethod | null } = {
+  options: {
+    actor: string;
+    method?: PaymentMethod | null;
+    /** Troco já informado na página (null = sem troco); ausente: pergunta. */
+    change?: number | null;
+  } = {
     actor: "system",
   },
 ) {
   const cfg = await config(ctx);
   if (options.method)
-    return applyMethod(ctx, order, c, options.method, options.actor);
+    return applyMethod(
+      ctx,
+      order,
+      c,
+      options.method,
+      options.actor,
+      options.change,
+    );
   if (!c) return order;
   const methods = await offeredMethods(ctx, cfg);
   if (methods.length === 1)
@@ -805,6 +817,8 @@ export async function applyMethod(
   c: Conversation | null,
   method: PaymentMethod,
   actor: string,
+  /** Troco informado na página do carrinho; undefined pergunta no chat. */
+  change?: number | null,
 ) {
   const order = await loadOrder(ctx, input.id);
   // Pedido em andamento esperando a escolha, ou com a cobrança online não
@@ -845,7 +859,19 @@ export async function applyMethod(
         actor,
         `Pagamento na ${order.fulfillment === "delivery" ? "entrega" : "retirada"}.`,
       );
-    if (method === "cash" && c) {
+    if (method === "cash" && change !== undefined) {
+      // Já respondido na página do carrinho.
+      if (change)
+        await exec(
+          ctx.env,
+          "UPDATE pedido_orders SET change_for_cents=?,updated=? WHERE id=? AND profile_id=?",
+          change,
+          now(),
+          order.id,
+          ctx.profile,
+        );
+      next = await loadOrder(ctx, order.id);
+    } else if (method === "cash" && c) {
       await saveChat(ctx, c, "change", order.id, {}, 30);
       await say(
         ctx,

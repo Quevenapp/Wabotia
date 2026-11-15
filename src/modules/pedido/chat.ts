@@ -7,6 +7,7 @@ import type { ModuleContext, WebStep } from "../api";
 import type { CartOrder } from "../../web-cart";
 import { numberedReply } from "../../whatsapp-interactive";
 import {
+  PAYMENT_LABELS,
   PAYMENT_METHODS,
   clockOf,
   etaText,
@@ -136,6 +137,7 @@ export async function sendCart(
   }
   const title = await storeName(ctx, cfg);
   const pickup = await pickupAddress(ctx, cfg);
+  const methods = await offeredMethods(ctx, cfg);
   const intro = [
     store.closes_at ? `Aberto até ${clockOf(store.closes_at)}.` : "",
     cfg.minimum_cents ? `Pedido mínimo: ${money(cfg.minimum_cents)}.` : "",
@@ -174,6 +176,20 @@ export async function sendCart(
             : {}),
         },
         allow_note: true,
+        // O cliente escolhe como pagar na própria página (e o troco).
+        ...(methods.length
+          ? {
+              payment: {
+                // Em branco: pergunta no WhatsApp depois, como antes.
+                required: false,
+                methods: methods.map((method) => ({
+                  id: method,
+                  label: PAYMENT_LABELS[method],
+                  ...(method === "cash" ? { change: true } : {}),
+                })),
+              },
+            }
+          : {}),
       },
     },
   });
@@ -313,7 +329,17 @@ export async function cartCompleted(
   });
   if (!created) return;
   await sendSummary(ctx, c, order);
-  await startPayment(ctx, order, c, { actor: "customer" });
+  // Forma escolhida na página: aplica direto (sem perguntar de novo no chat),
+  // se ainda for oferecida; senão, pergunta como antes.
+  const chosen = cart.payment?.method as PaymentMethod | undefined;
+  const still =
+    !!chosen && (await offeredMethods(ctx, await config(ctx))).includes(chosen);
+  await startPayment(ctx, order, c, {
+    actor: "customer",
+    ...(still
+      ? { method: chosen, change: cart.payment!.change_for_cents }
+      : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------

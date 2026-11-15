@@ -92,8 +92,8 @@ Os apps leem o quadro em `GET /profiles/{p}/pedido/board` e a comanda em
 ## Limites desta versão
 
 - Nota fiscal fica fora.
-- A forma de pagamento é escolhida no WhatsApp depois do carrinho (a página
-  do carrinho ainda não tem esse campo).
+- A forma de pagamento (e o troco, no dinheiro) é escolhida na página do
+  carrinho; se o cliente deixar em branco, o WhatsApp pergunta depois.
 
 ## Avisos fora da janela de 24 horas
 

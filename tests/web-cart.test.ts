@@ -231,6 +231,68 @@ describe("carrinho: catálogo e cálculo no servidor", () => {
     );
   });
 
+  it("forma de pagamento e troco escolhidos na página", () => {
+    const cart = validateCatalog({
+      ...catalog,
+      payment: {
+        methods: [
+          { id: "pix", label: "Pix" },
+          { id: "cash", label: "Dinheiro", change: true },
+        ],
+      },
+    });
+    const check = (fields: any) =>
+      validateCartOrder(cart, order({ ...good, ...fields }));
+    // Obrigatória por padrão.
+    expect(check({}).errors.payment).toMatch(/Escolha como vai pagar/);
+    expect(check({ payment: "boleto" }).errors.payment).toBeTruthy();
+    expect(check({ payment: "pix" }).order.payment).toEqual({
+      method: "pix",
+      label: "Pix",
+      change_for_cents: null,
+    });
+    // Troco: total de R$ 81,00.
+    const cash = check({ payment: "cash", change_for: "R$ 100,00" });
+    expect(cash.ok).toBe(true);
+    expect(cash.order.payment).toEqual({
+      method: "cash",
+      label: "Dinheiro",
+      change_for_cents: 10000,
+    });
+    expect(cartSummary(cash.order)).toMatch(
+      /Pagamento: Dinheiro \(troco para R\$\s100,00\)/,
+    );
+    expect(
+      check({ payment: "cash", change_for: "50" }).errors.change_for,
+    ).toMatch(/a partir do total/);
+    expect(
+      check({ payment: "cash", change_for: "cem" }).errors.change_for,
+    ).toMatch(/informe um valor/);
+    expect(
+      check({ payment: "cash" }).order.payment!.change_for_cents,
+    ).toBeNull();
+    // Troco só vale para a forma com change.
+    expect(
+      check({ payment: "pix", change_for: "100" }).order.payment!
+        .change_for_cents,
+    ).toBeNull();
+    // Opcional: em branco passa com payment null.
+    const optional = validateCatalog({
+      ...catalog,
+      payment: { required: false, methods: [{ id: "pix", label: "Pix" }] },
+    });
+    const blank = validateCartOrder(optional, order(good));
+    expect(blank.ok).toBe(true);
+    expect(blank.order.payment).toBeNull();
+    // Sem payment no catálogo: nada muda.
+    expect(
+      validateCartOrder(validateCatalog(catalog), order(good)).order.payment,
+    ).toBeNull();
+    expect(() =>
+      validateCatalog({ ...catalog, payment: { methods: [] } }),
+    ).toThrow(/1 a 6 formas/);
+  });
+
   it("aceita montagens diferentes do mesmo item, cada uma numa linha", () => {
     const cart = validateCatalog(catalog);
     const two = {

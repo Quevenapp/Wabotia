@@ -493,7 +493,8 @@ onWebStepCompleted("pedido", async (ctx, step, order) => {
   // order: CartOrder (src/web-cart.ts), já validado e recalculado:
   // { lines: [{item_id, slot, name, quantity, unit_cents, options:[{group_id, group, id, name, price_cents}], note, total_cents}],
   //   item_count, subtotal_cents, delivery_fee_cents, total_cents, currency: "BRL",
-  //   fulfillment: "pickup" | "delivery", customer_name, address: {street, district, complement, reference} | null, note }
+  //   fulfillment: "pickup" | "delivery", customer_name, address: {street, district, complement, reference} | null, note,
+  //   payment: {method, label, change_for_cents} | null }
   const c = await ctx.conversation(step.conversation_id);
   const pedido = await criarPedido(ctx, step, order);
   await ctx.charge(c, { method: "pix", amount_cents: order.total_cents, description: `Pedido ${pedido.numero}`, ref: pedido.id, sourceKey: `pedido:${pedido.id}` });
@@ -520,6 +521,13 @@ onWebStepCompleted("pedido", async (ctx, step, order) => {
   por item, 30 opções por grupo; ids com letras, números, `-` e `_`;
   preços em centavos inteiros. O catálogo é uma cópia: mudar o cardápio
   depois não altera links já enviados.
+- **Forma de pagamento e troco na página.** Com `cart.payment: {methods:
+  [{id, label, change?}], required?}`, a página pergunta "Como você quer
+  pagar?" (antes do nome) e, para as formas com `change: true` (dinheiro),
+  "Troco para quanto?". O pedido traz `payment: {method, label,
+  change_for_cents}`; o troco precisa ser ao menos o total e só vale para a
+  forma com `change`. `required: false` deixa em branco (`payment: null`) e o
+  módulo pergunta depois. Sem `cart.payment`, nada muda (`payment: null`).
 - **Várias montagens do mesmo item.** Cada item tem o botão "+ Outra montagem
   deste item" (até 10 por item): dois X-Burger, um sem cebola e outro com
   bacon, viram **duas linhas** em `lines`, com o mesmo `item_id` e `slot` 0 e
