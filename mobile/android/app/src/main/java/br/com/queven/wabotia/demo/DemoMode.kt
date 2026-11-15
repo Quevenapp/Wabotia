@@ -168,6 +168,9 @@ object DemoMode {
             "counter" -> DemoDestination(route = "counter")
             "agenda" -> DemoDestination(route = "agenda")
             "agenda-new" -> DemoDestination(route = "agenda/book")
+            "os" -> DemoDestination(route = "os")
+            "os-quote" -> DemoDestination(route = "os/order/os-5")
+            "os-new" -> DemoDestination(route = "os/new")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-start" -> DemoDestination(route = "preview/start")

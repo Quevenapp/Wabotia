@@ -276,3 +276,204 @@ internal class DemoAgenda(t0: Long, private val customerOf: DemoCustomer) {
         )
     }
 }
+
+/**
+ * A Ordem de Serviço da demonstração: uma assistência técnica com oito ordens em estados diferentes (uma com orçamento
+ * esperando resposta, uma pronta para retirada), as transições do contrato (`next_statuses`, `409 invalid_transition`),
+ * orçamento com validade, resposta do cliente, entrega com garantia e o histórico de cada ordem.
+ */
+internal class DemoServiceOrders(private val t0: Long, private val customerOf: DemoCustomer) {
+    private class Order(
+        val id: String,
+        val number: Int,
+        var status: String,
+        val customerName: String,
+        val phone: String,
+        val conversationId: String?,
+        val item: String,
+        val problem: String,
+        var notes: String,
+        var assignee: String?,
+        var dueAt: Long?,
+        val created: Long,
+    ) {
+        var quoteItems: List<JsonObject> = emptyList()
+        var quoteNote = ""
+        var quoteDays = 7
+        var quoteVersion = 0
+        var sentAt: Long? = null
+        var decision: String? = null
+        var decisionAt: Long? = null
+        var readyAt: Long? = null
+        var deliveredAt: Long? = null
+        var warrantyUntil: Long? = null
+        var updated = created
+        val history = mutableListOf<JsonObject>()
+    }
+
+    private val orders = mutableListOf<Order>()
+    private val replays = DemoReplays()
+    private var historySeq = 0
+
+    init {
+        val day = 86_400_000L
+        data class Seed(val status: String, val name: String, val phone: String, val conversation: String?, val item: String, val problem: String, val ageDays: Int, val quote: List<Pair<String, Long>> = emptyList())
+        listOf(
+            Seed("delivered", "Tiago Melo", "5520907776789", null, "Notebook Exemplo 14", "Não liga.", 20, listOf("Troca da fonte" to 18000L)),
+            Seed("ready", "Aline Barbosa", "5520904445566", Ids.C_DONE, "Celular Exemplo A5", "Tela quebrada.", 9, listOf("Tela nova" to 32000L, "Película" to 3000L)),
+            Seed("in_progress", "Eduardo Santos", "5520903334455", null, "Tablet Exemplo 10", "Bateria não segura carga.", 6, listOf("Bateria" to 21000L)),
+            Seed("approved", "Patrícia Nunes", "5520909887766", Ids.C_40MIN, "Fone Exemplo BT", "Lado esquerdo sem som.", 5, listOf("Reparo do alto-falante" to 9000L)),
+            Seed("quoted", "Mariana Costa", "5520908765432", Ids.C_RICH, "Impressora Exemplo 2000", "Puxa duas folhas.", 3, listOf("Rolete de tração" to 8500L, "Mão de obra" to 6000L)),
+            Seed("analyzing", "João Pedro Almeida", "5520906543210", Ids.C_5H, "Console Exemplo", "Desliga sozinho.", 2),
+            Seed("received", "Gustavo Lima", "5520907771234", null, "Relógio Exemplo", "Não carrega.", 1),
+            Seed("cancelled", "Otávio Reis", "5520907779012", null, "Caixa de som Exemplo", "Chiado no volume.", 12),
+        ).forEachIndexed { i, s ->
+            val created = t0 - s.ageDays * day
+            val o = Order("os-${i + 1}", i + 1, s.status, s.name, s.phone, s.conversation, s.item, s.problem, "", if (i % 2 == 0) Ids.ANA else null, created + 7 * day, created)
+            o.history += history("opened", null, "received", Ids.ME, created)
+            if (s.quote.isNotEmpty()) {
+                o.quoteItems = s.quote.map { (d, v) -> j("description" to d, "quantity" to 1, "unit_cents" to v) }
+                o.quoteVersion = 1
+                o.sentAt = created + day / 2
+                o.history += history("status", "analyzing", "quoted", Ids.ME, o.sentAt!!)
+            }
+            when (s.status) {
+                "approved", "in_progress", "ready", "delivered" -> { o.decision = "approve"; o.decisionAt = created + day; o.history += history("status", "quoted", "approved", "customer", created + day) }
+            }
+            if (s.status in setOf("in_progress", "ready", "delivered")) o.history += history("status", "approved", "in_progress", Ids.ME, created + day + 3_600_000)
+            if (s.status in setOf("ready", "delivered")) { o.readyAt = created + 2 * day; o.history += history("status", "in_progress", "ready", Ids.ME, o.readyAt!!) }
+            if (s.status == "delivered") { o.deliveredAt = created + 3 * day; o.warrantyUntil = o.deliveredAt!! + 90 * day; o.history += history("status", "ready", "delivered", Ids.ME, o.deliveredAt!!) }
+            if (s.status == "cancelled") o.history += history("status", "received", "cancelled", Ids.ME, created + day)
+            orders += o
+        }
+    }
+
+    private fun history(kind: String, from: String?, to: String?, actor: String, at: Long, note: String = "") =
+        j("id" to "h-${++historySeq}", "kind" to kind, "from_status" to from, "to_status" to to, "actor" to actor, "note" to note, "created" to at)
+
+    private fun next(o: Order): List<String> = when (o.status) {
+        "received" -> listOfNotNull("analyzing", "quoted".takeIf { o.quoteItems.isNotEmpty() }, "in_progress", "cancelled")
+        "analyzing" -> listOfNotNull("quoted".takeIf { o.quoteItems.isNotEmpty() }, "in_progress", "cancelled")
+        "quoted" -> listOf("approved", "declined", "analyzing", "cancelled")
+        "approved" -> listOf("in_progress", "cancelled")
+        "declined" -> listOf("quoted", "ready", "cancelled")
+        "in_progress" -> listOf("ready", "cancelled")
+        "ready" -> listOf("delivered", "in_progress")
+        else -> emptyList()
+    }
+
+    private fun expired(o: Order, now: Long) = o.sentAt?.let { now > it + o.quoteDays * 86_400_000L } ?: false
+
+    private fun row(o: Order, now: Long, withHistory: Boolean): JsonObject {
+        val total = o.quoteItems.sumOf { (it.long("quantity")) * it.long("unit_cents") }
+        val quote = if (o.quoteItems.isEmpty()) null else j(
+            "items" to o.quoteItems, "total_cents" to total, "note" to o.quoteNote, "valid_days" to o.quoteDays,
+            "valid_until" to o.sentAt?.let { it + o.quoteDays * 86_400_000L }, "sent_at" to o.sentAt, "version" to o.quoteVersion, "expired" to (o.status == "quoted" && expired(o, now)),
+        )
+        val fields = mutableListOf<Pair<String, Any?>>(
+            "id" to o.id, "number" to o.number, "status" to o.status, "status_label" to null,
+            "customer" to j("name" to o.customerName, "phone" to o.phone, "contact_id" to null, "conversation_id" to o.conversationId),
+            "item" to o.item, "problem" to o.problem, "notes" to o.notes, "assignee" to o.assignee, "due_at" to o.dueAt, "source" to "panel",
+            "terms" to null, "quote" to quote, "decision" to o.decision?.let { j("decision" to it, "at" to o.decisionAt, "by" to "customer", "via" to "whatsapp") },
+            "ready_at" to o.readyAt, "delivered_at" to o.deliveredAt, "warranty_until" to o.warrantyUntil, "next_statuses" to next(o),
+            "created" to o.created, "updated" to o.updated,
+        )
+        if (withHistory) fields += "history" to o.history
+        return j(*fields.toTypedArray())
+    }
+
+    fun handle(method: String, r: List<String>, body: JsonObject, query: (String) -> String?, key: String?, now: Long, emit: DemoEmit): Reply {
+        if (method == "GET") {
+            if (r.isEmpty()) {
+                val statuses = query("status")?.split(",")?.filter { it.isNotBlank() }?.toSet().orEmpty()
+                val q = query("q")?.trim()?.lowercase().orEmpty()
+                val list = orders.filter { o ->
+                    (statuses.isEmpty() || o.status in statuses) &&
+                        (query("open") != "1" || o.status !in setOf("delivered", "cancelled")) &&
+                        (query("conversation_id").isNullOrEmpty() || o.conversationId == query("conversation_id")) &&
+                        (q.isEmpty() || listOf(o.item, o.customerName, o.problem, o.number.toString()).any { it.lowercase().contains(q) } || (q.length >= 4 && o.phone.contains(q.filter(Char::isDigit).ifEmpty { "-" })))
+                }.sortedByDescending { it.number }
+                val counts = orders.groupingBy { it.status }.eachCount()
+                return demoOk(j("data" to list.map { row(it, now, false) }, "next_cursor" to null, "counts" to j(*counts.map { it.key to it.value }.toTypedArray())))
+            }
+            val o = orders.firstOrNull { it.id == r[0] } ?: return demoFail(404, "not_found", "Ordem não encontrada.")
+            return demoOk(row(o, now, true))
+        }
+        return replays.run(key, r, body) { write(method, r, body, now, emit) }
+    }
+
+    private fun write(method: String, r: List<String>, body: JsonObject, now: Long, emit: DemoEmit): Reply {
+        if (r.isEmpty() && method == "POST") {
+            val item = body.str("item")?.trim().orEmpty()
+            val problem = body.str("problem")?.trim().orEmpty()
+            if (item.isEmpty() || problem.isEmpty()) return demoFail(400, "invalid_request", "Informe o item e o problema.")
+            val conversation = body.str("conversation_id")
+            val customer = conversation?.let(customerOf)
+            val phone = customer?.second ?: body.str("phone")?.filter(Char::isDigit)?.let { if (it.length <= 11) "55$it" else it }
+            if (phone.isNullOrEmpty()) return demoFail(400, "invalid_request", "Informe conversation_id ou phone.")
+            val number = (orders.maxOfOrNull { it.number } ?: 0) + 1
+            val o = Order("os-$number", number, "received", customer?.first ?: body.str("customer_name") ?: "Cliente", phone, conversation, item, problem, body.str("notes").orEmpty(), body.str("assignee"), body.longValue("due_at"), now)
+            o.history += history("opened", null, "received", Ids.ME, now)
+            orders += o
+            emit("os.opened", o.id, j("order" to row(o, now, false), "conversation_id" to nul(o.conversationId), "actor" to Ids.ME, "module_id" to "os"))
+            return demoOk(row(o, now, true), 201)
+        }
+        val o = orders.firstOrNull { it.id == r.getOrNull(0) } ?: return demoFail(404, "not_found", "Ordem não encontrada.")
+        val action = r.drop(1).joinToString("/")
+        fun change(to: String, actor: String = Ids.ME, note: String = "") {
+            val from = o.status
+            o.status = to
+            o.updated = now
+            o.history += history("status", from, to, actor, now, note)
+            when (to) {
+                "ready" -> o.readyAt = now
+                "delivered" -> { o.deliveredAt = now; o.warrantyUntil = now + 90 * 86_400_000L }
+            }
+            emit(if (to == "delivered") "os.delivered" else "os.status_changed", o.id, j("order" to row(o, now, false), "from" to from, "to" to to, "actor" to actor, "module_id" to "os"))
+        }
+        when {
+            method == "PATCH" && action.isEmpty() -> {
+                if (body.containsKey("assignee")) o.assignee = body.str("assignee")
+                body.str("notes")?.let { o.notes = it }
+                o.updated = now
+                o.history += history("edit", null, null, Ids.ME, now)
+            }
+            action == "status" -> {
+                val to = body.str("status") ?: return demoFail(400, "invalid_request", "Informe o estado.")
+                if (to !in next(o) || to in setOf("quoted", "approved", "declined")) return demoFail(409, "invalid_transition", "Esta mudança não vale para a ordem agora.")
+                change(to, note = body.str("note").orEmpty())
+            }
+            action == "quote" && method == "PUT" -> {
+                if (o.status !in setOf("received", "analyzing", "quoted", "declined")) return demoFail(409, "invalid_transition", "O orçamento não pode mais ser alterado.")
+                val items = (body["items"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+                if (items.isEmpty()) return demoFail(400, "invalid_request", "Inclua pelo menos um item.")
+                o.quoteItems = items
+                o.quoteDays = body.longValue("valid_days")?.toInt() ?: 7
+                o.quoteNote = body.str("note").orEmpty()
+                o.quoteVersion += 1
+                o.decision = null
+                o.history += history("quote", null, null, Ids.ME, now)
+                if (o.status == "quoted" || o.status == "declined") change("analyzing") else o.updated = now
+            }
+            action == "quote/send" -> {
+                if (o.quoteItems.isEmpty()) return demoFail(409, "invalid_transition", "Monte o orçamento antes de enviar.")
+                if (body["notify"]?.let { (it as? JsonPrimitive)?.content } != "false" && o.conversationId == null) return demoFail(409, "no_conversation", "Esta ordem não está ligada a uma conversa.")
+                o.sentAt = now
+                o.decision = null
+                change("quoted")
+                emit("os.quoted", o.id, j("order" to row(o, now, false), "actor" to Ids.ME, "module_id" to "os"))
+            }
+            action == "decision" -> {
+                if (o.status != "quoted") return demoFail(409, "quote_not_pending", "O orçamento não está esperando resposta.")
+                if (expired(o, now)) return demoFail(409, "quote_expired", "O orçamento venceu.")
+                val approve = body.str("decision") == "approve"
+                o.decision = if (approve) "approve" else "decline"
+                o.decisionAt = now
+                change(if (approve) "approved" else "declined", actor = Ids.ME)
+                emit(if (approve) "os.approved" else "os.declined", o.id, j("order" to row(o, now, false), "by" to Ids.ME, "via" to "app", "module_id" to "os"))
+            }
+            else -> return demoFail(404, "not_found", "Recurso não encontrado.")
+        }
+        return demoOk(row(o, now, true))
+    }
+}

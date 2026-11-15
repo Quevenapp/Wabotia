@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Print
@@ -187,6 +188,10 @@ fun SettingsScreen(
                     }
                     if (ModuleIds.AGENDA in modules) {
                         SettingsRow(Icons.Filled.CalendarMonth, "Agenda", subtitle = "Agendamentos do dia e da semana por profissional", tint = c.ok, onClick = { openRoute(ModuleRoutes.AGENDA) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.SERVICE_ORDERS in modules) {
+                        SettingsRow(Icons.Filled.Build, "Ordens de serviço", subtitle = "Recebidas, orçamentos, execução e entrega", tint = c.warn, onClick = { openRoute(ModuleRoutes.SERVICE_ORDERS) })
                         RowDivider()
                     }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)

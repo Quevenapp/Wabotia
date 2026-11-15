@@ -102,6 +102,11 @@ internal object DemoServer {
 
     private fun agendaOf(s: DemoState): DemoAgenda = agenda ?: DemoAgenda(s.t0) { id -> customerOf(s, id) }.also { agenda = it }
 
+    private var serviceOrders: DemoServiceOrders? = null
+
+    private fun serviceOrdersOf(s: DemoState): DemoServiceOrders =
+        serviceOrders ?: DemoServiceOrders(s.t0) { id -> customerOf(s, id) }.also { serviceOrders = it }
+
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
         s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
 
@@ -110,6 +115,7 @@ internal object DemoServer {
         val modules = listOf(
             j("id" to "queue", "name" to "Fila presencial", "version" to "1.0.0"),
             j("id" to "agenda", "name" to "Agenda", "version" to "1.0.0"),
+            j("id" to "os", "name" to "Ordem de Serviço", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -134,6 +140,7 @@ internal object DemoServer {
         state = fresh
         queue = DemoQueue(fresh.t0)
         agenda = null
+        serviceOrders = null
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -306,6 +313,7 @@ internal object DemoServer {
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
             "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
             "capabilities" -> capabilities()
+            "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())

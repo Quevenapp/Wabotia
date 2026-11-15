@@ -165,7 +165,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openRoute = { nav.navigate(it) },
             )
         }
-        moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) })
+        moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) }, openPrinter = { nav.navigate(Routes.PRINTER) })
         composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.COUNTER) {
             CounterScreen(container, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
