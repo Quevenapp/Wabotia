@@ -1322,6 +1322,78 @@ td.table-actions > .card-actions {
   justify-content: flex-end;
   flex-wrap: nowrap;
 }
+/*
+ * Tabela em espaço estreito (celular, tablet em pé): cada linha vira um bloco
+ * com o rótulo da coluna ao lado do valor e as ações embaixo, sem rolagem
+ * lateral e sem rolagem dentro da rolagem (Table, web/ui/misc.tsx).
+ */
+.table-stack {
+  container-type: inline-size;
+}
+@container (max-width: 559px) {
+  .table-stack .table-scroll {
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .table-stack table,
+  .table-stack tbody,
+  .table-stack tr {
+    display: block;
+  }
+  .table-stack thead {
+    display: none;
+  }
+  .table-stack tbody tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .table-stack tbody tr:first-child {
+    padding-top: 0;
+  }
+  .table-stack tbody tr:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .table-stack tbody tr:hover td {
+    background: none;
+  }
+  .table-stack td {
+    display: grid;
+    grid-template-columns: minmax(0, 36%) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 12px;
+    height: auto;
+    padding: 3px 0;
+    border: 0;
+    overflow-wrap: break-word;
+  }
+  .table-stack td::before {
+    content: attr(data-label);
+    color: var(--text-2);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .table-stack td:has(> .cell:empty),
+  .table-stack td.table-actions:empty {
+    display: none;
+  }
+  .table-stack td.table-actions {
+    display: block;
+    padding-top: 8px;
+    text-align: left;
+    white-space: normal;
+  }
+  .table-stack td.table-actions::before {
+    content: none;
+  }
+  .table-stack td.table-actions > .card-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
 .page-header {
   display: flex;
   align-items: flex-start;
