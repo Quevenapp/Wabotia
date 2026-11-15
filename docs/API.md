@@ -79,6 +79,10 @@ Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de 
 
 Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document_type` é `null` e `configured` é `false`. `footer` e `address` podem ter quebras de linha. O administrador grava com `PUT /profiles/{perfil}/settings` e `{"establishment":{"name","document","address","phone","footer"}}` (substitui o bloco inteiro; o documento vai com ou sem pontuação, e CPF e CNPJ, inclusive o alfanumérico, têm os dígitos verificadores conferidos).
 
+### Pessoas da área
+
+Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+
 ### Passo web e formulários
 
 O que não cabe no chat sai por um **passo web**: um link curto e de uso único (`/api/w/{código}`, 16 caracteres) amarrado à conversa, que abre uma página leve no celular. O código vale até a validade definida (padrão 24 horas) e só o hash fica guardado; a API nunca devolve o código. Ao concluir, o Wabotia publica `web_step.completed` com as respostas, registra uma nota interna na conversa, anexa as respostas ao protocolo ativo (ou abre um, conforme o formulário) e envia a mensagem de retorno no WhatsApp. Se a janela de 24 horas da linha oficial estiver fechada, o retorno sai pelo modelo de notificação configurado em `notifications`, como as chamadas da fila. A página mostra **Voltar ao WhatsApp** (`wa.me` da linha). Abrir de novo um link concluído, expirado ou cancelado mostra o aviso correspondente e não aceita outra resposta.
@@ -104,7 +108,7 @@ Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas 
 |---|---|
 | `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts` por estado |
 | `GET /service-orders/{id}` | Ordem com `history` (quem mudou e quando) |
-| `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área), `due_at` (ms), `notify` |
+| `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área, de `GET /people`), `due_at` (ms), `notify` |
 | `PATCH /service-orders/{id}` | Dados da ordem; encerrada, só `notes` |
 | `POST /service-orders/{id}/status` | `{"status":"…","note":"…"}`; transição inválida: `409 invalid_transition` |
 | `PUT /service-orders/{id}/quote` | `{"items":[{"description","quantity","unit_cents"}],"valid_days","note"}`; orçamento já enviado volta para `analyzing` |

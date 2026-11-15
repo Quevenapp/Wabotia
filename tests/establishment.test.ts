@@ -150,6 +150,30 @@ describe("dados do estabelecimento", () => {
     expect(html).toContain("Garantia de 90 dias.");
   });
 
+  it("pessoas da área: id, nome e papel, para escolher responsável", async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const path = `/profiles/${f.profile}/people`;
+    const list = await get(await bearer(f.member), path);
+    expect(list.status).toBe(200);
+    const ids = list.body.data.map((p: any) => p.id);
+    expect(ids).toContain(f.member.id);
+    expect(ids).toContain(f.admin.id);
+    expect(ids).not.toContain(other.member.id);
+    for (const person of list.body.data) {
+      expect(Object.keys(person).sort()).toEqual(["id", "name", "role"]);
+      expect(["admin", "operator"]).toContain(person.role);
+    }
+    // Chave de aplicação: só com conversations:read.
+    const reader = await application(f, ["conversations:read"]);
+    expect((await get(reader.token, path)).status).toBe(200);
+    const queueOnly = await application(f, ["queue:read"]);
+    expect((await get(queueOnly.token, path)).status).toBe(403);
+    expect(
+      (await get(reader.token, `/profiles/${other.profile}/people`)).status,
+    ).toBe(404);
+  });
+
   it("aparece em features das capacidades", async () => {
     const f = await fixture();
     const caps = (await get(await bearer(f.member), "/capabilities")).body;

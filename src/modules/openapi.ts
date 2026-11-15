@@ -419,6 +419,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/people",
+    "Pessoas da área (id, nome, papel) para escolher responsável",
+    "conversations:read",
+  ],
+  [
+    "get",
     "/profiles/{profile}/modules",
     "Módulos da área e estado ligado/desligado",
     "",
@@ -886,6 +892,28 @@ export function describeModuleOperation(
   }
   if (path.startsWith("/profiles/{profile}/agenda")) {
     describeAgendaOperation(path, method, entry, success, ref);
+    return;
+  }
+  if (path === "/profiles/{profile}/people") {
+    entry.description =
+      "Pessoas ativas com acesso à área (administradores incluídos), em ordem de nome, para escolher o responsável de uma ordem de serviço ou de outro registro de módulo. Sem bots e sem e-mail. Aceita sessão de pessoa da área e chave de aplicação com conversations:read; 404 se a credencial não alcançar a área.";
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id", "name", "role"],
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              role: { type: "string", enum: ["admin", "operator"] },
+            },
+          },
+        },
+      },
+    };
     return;
   }
   if (path === "/profiles/{profile}/establishment") {
