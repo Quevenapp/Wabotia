@@ -46,6 +46,7 @@ export const pedidoModule: ModuleDefinition = {
     "pedido.refunded",
     "pedido.stale",
     "pedido.menu_changed",
+    "pedido.store_changed",
   ],
   settings: [
     {

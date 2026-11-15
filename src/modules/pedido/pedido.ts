@@ -1,6 +1,10 @@
 // Pedido (módulo "pedido"): registra rotas, comandos e ganchos no núcleo
-// (src/modules/api.ts). Cardápio em ./menu.ts. Uso: docs/PEDIDO.md.
-import { onCommand, onRead, onRoute } from "../api";
+// (src/modules/api.ts). Cardápio em ./menu.ts; regras da loja em ./model.ts
+// e ./store.ts. Uso: docs/PEDIDO.md.
+import { now } from "../../types";
+import { onCommand, onRead, onRoute, onSettingsSave } from "../api";
+import { validatePedidoConfig } from "./model";
+import { overview, setPause } from "./store";
 import {
   deleteCategory,
   deleteGroup,
@@ -16,6 +20,27 @@ import {
 } from "./menu";
 
 const MODULE = "pedido";
+
+// ---------------------------------------------------------------------------
+// Regras da loja: chave "pedido" de PUT /settings (administrador) e a pausa
+// manual, que qualquer pessoa da equipe aciona.
+
+onSettingsSave(MODULE, "pedido", validatePedidoConfig);
+
+// GET /profiles/:profile/pedido: regras, loja aberta ou fechada, pagamentos.
+onRead(MODULE, "pedido", async (ctx, actor) => {
+  ctx.access(actor, "conversations:read");
+  return overview(ctx, now());
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/store/pause",
+  op: "pedido.store.pause",
+});
+onCommand(MODULE, "pedido.store.pause", (ctx, actor, data) =>
+  setPause(ctx, actor, data),
+);
 
 // ---------------------------------------------------------------------------
 // Cardápio: leitura para a equipe e as integrações; cadastro pelo
