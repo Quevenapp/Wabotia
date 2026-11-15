@@ -230,6 +230,72 @@ describe("carrinho: catálogo e cálculo no servidor", () => {
       /ao menos um item/,
     );
   });
+
+  it("aceita montagens diferentes do mesmo item, cada uma numa linha", () => {
+    const cart = validateCatalog(catalog);
+    const two = {
+      slots_xburger: "2",
+      q_xburger: "1",
+      o_xburger_ponto: "bem",
+      n_xburger: "sem cebola",
+      "q_xburger.1": "1",
+      "o_xburger.1_ponto": "mal",
+      "o_xburger.1_adicionais": ["bacon"],
+      fulfillment: "pickup",
+      name: "Ana",
+    };
+    const v = validateCartOrder(cart, order(two));
+    expect(v.errors).toEqual({});
+    expect(v.order.lines).toEqual([
+      expect.objectContaining({
+        item_id: "xburger",
+        slot: 0,
+        quantity: 1,
+        unit_cents: 2500,
+        note: "sem cebola",
+        options: [expect.objectContaining({ id: "bem" })],
+      }),
+      expect.objectContaining({
+        item_id: "xburger",
+        slot: 1,
+        quantity: 1,
+        unit_cents: 3000,
+        note: "",
+        options: [
+          expect.objectContaining({ id: "mal" }),
+          expect.objectContaining({ id: "bacon", price_cents: 500 }),
+        ],
+      }),
+    ]);
+    expect(v.order).toMatchObject({ item_count: 2, subtotal_cents: 5500 });
+    expect(cartSummary(v.order)).toMatch(
+      /1x X-Burger \(Bem passada\) — sem cebola: R\$\s25,00\n1x X-Burger \(Mal passada, Bacon\): R\$\s30,00/,
+    );
+    // Erro fica na montagem certa.
+    expect(
+      validateCartOrder(cart, order({ ...two, "o_xburger.1_ponto": [] }))
+        .errors,
+    ).toEqual({
+      "item:xburger.1": expect.stringMatching(/Escolha 1 em Ponto/),
+    });
+    // Campo de montagem além de slots_ é ignorado.
+    expect(
+      validateCartOrder(cart, order({ ...two, slots_xburger: "1" })).order
+        .lines,
+    ).toHaveLength(1);
+    // O limite do item vale somando as montagens.
+    const juices = {
+      slots_suco: "2",
+      q_suco: "3",
+      "q_suco.1": "3",
+      n_suco: "sem gelo",
+      fulfillment: "pickup",
+      name: "Ana",
+    };
+    expect(
+      validateCartOrder(cart, order(juices)).errors["item:suco.1"],
+    ).toMatch(/Até 5 por pedido, somando/);
+  });
 });
 
 describe("carrinho: página pública e conclusão", () => {
@@ -351,6 +417,37 @@ describe("carrinho: página pública e conclusão", () => {
         f.profile,
       ),
     ).toHaveLength(1);
+  });
+
+  it("'+ Outra montagem' acrescenta um bloco do item e mantém o que já foi escolhido", async () => {
+    const { url } = await setup();
+    const first = await (await SELF.fetch(url)).text();
+    expect(first).toContain('name="slots_xburger" value="1"');
+    expect(first).toContain('value="add:xburger"');
+    // O botão padrão (Enter) é revisar, não acrescentar montagem.
+    expect(first.indexOf('value="review"')).toBeLessThan(
+      first.indexOf('value="add:xburger"'),
+    );
+    const added = await post(url, { ...good, step: "add:xburger" });
+    expect(added.status).toBe(200);
+    const html = await added.text();
+    expect(html).toContain('name="slots_xburger" value="2"');
+    expect(html).toContain('name="q_xburger.1"');
+    expect(html).toContain('name="o_xburger.1_ponto"');
+    expect(html).toContain("Montagem 2");
+    expect(html).toContain('value="sem cebola"');
+    expect(html).not.toContain('class="error"');
+    // Revisar com as duas montagens: duas linhas do X-Burger.
+    const review = await post(url, {
+      ...good,
+      slots_xburger: "2",
+      "q_xburger.1": "1",
+      "o_xburger.1_ponto": "mal",
+    });
+    const reviewHtml = await review.text();
+    expect(review.status).toBe(200);
+    expect(reviewHtml.match(/X-Burger/g)).toHaveLength(2);
+    expect(reviewHtml).toMatch(/Total<\/td><td>R\$\s106,00/);
   });
 
   it("link vencido não revisa nem conclui", async () => {

@@ -409,7 +409,7 @@ const { url } = await ctx.openWebStep(c, {
 onWebStepCompleted("pedido", async (ctx, step, order) => {
   if (step.page !== "cart") return;
   // order: CartOrder (src/web-cart.ts), já validado e recalculado:
-  // { lines: [{item_id, name, quantity, unit_cents, options:[{group_id, id, name, price_cents}], note, total_cents}],
+  // { lines: [{item_id, slot, name, quantity, unit_cents, options:[{group_id, group, id, name, price_cents}], note, total_cents}],
   //   item_count, subtotal_cents, delivery_fee_cents, total_cents, currency: "BRL",
   //   fulfillment: "pickup" | "delivery", customer_name, address: {street, district, complement, reference} | null, note }
   const c = await ctx.conversation(step.conversation_id);
@@ -438,9 +438,18 @@ onWebStepCompleted("pedido", async (ctx, step, order) => {
   por item, 30 opções por grupo; ids com letras, números, `-` e `_`;
   preços em centavos inteiros. O catálogo é uma cópia: mudar o cardápio
   depois não altera links já enviados.
-- Um mesmo item com duas montagens diferentes (um X-Burger mal passado e
-  outro bem passado) não cabe nesta versão: cada item tem uma montagem por
-  pedido. Use a observação do item ou dois itens no catálogo.
+- **Várias montagens do mesmo item.** Cada item tem o botão "+ Outra montagem
+  deste item" (até 10 por item): dois X-Burger, um sem cebola e outro com
+  bacon, viram **duas linhas** em `lines`, com o mesmo `item_id` e `slot` 0 e
+  1, cada uma com quantidade, adicionais, observação e total próprios. Quem lê
+  o pedido não deve supor um `item_id` por linha nem agrupar linhas pelo
+  `item_id`. `max_quantity` vale para a soma das montagens. Formato do pedido:
+  igual ao anterior, mais o campo `slot` em cada linha (aditivo).
+- Campos da página (só interessam a quem testa com POST direto): a primeira
+  montagem usa `q_<item>`, `o_<item>_<grupo>` e `n_<item>`; a montagem `k`
+  usa `q_<item>.<k>`, `o_<item>.<k>_<grupo>` e `n_<item>.<k>`; `slots_<item>`
+  diz quantas montagens o formulário traz. Erros vêm em `item:<item>` ou
+  `item:<item>.<k>`.
 
 ## 4b. Cobrar (Pix e link de pagamento)
 

@@ -112,7 +112,12 @@ import {
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
-import { cartInput, cartReviewPage, validateCartOrder } from "./web-cart";
+import {
+  addCartSlot,
+  cartInput,
+  cartReviewPage,
+  validateCartOrder,
+} from "./web-cart";
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
@@ -336,6 +341,15 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
       return webStepHtml(c, statePage("expired", appName(c.env)), 410);
     if (fields.step?.[0] === "edit")
       return webStepHtml(c, formPage(row, appName(c.env), fields));
+    if (fields.step?.[0]?.startsWith("add:"))
+      return webStepHtml(
+        c,
+        formPage(
+          row,
+          appName(c.env),
+          addCartSlot(spec.cart, fields, fields.step[0].slice(4)),
+        ),
+      );
     const checked = validateCartOrder(spec.cart, fields);
     return checked.ok
       ? webStepHtml(
