@@ -314,6 +314,7 @@ final class ConversationViewModel: ObservableObject {
         let id = conversationId
         let relevant = events.contains { e in
             (e.isConversationRelated && e.conversationId == id) || (e.isCallRelated && e.conversationId == id)
+                || (e.isLinkOrPayment && e.conversationId == id)
         }
         if relevant, visible { Task { await self.load(silent: true) } }
         if visible, events.contains(where: { $0.kind.hasPrefix("ticket.") && $0.payload?["conversation_id"]?.stringValue == id }) {
@@ -430,13 +431,15 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Ações da conversa
 
     @discardableResult
-    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil, departmentId: String? = nil, number: String? = nil) async -> Bool {
+    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil, departmentId: String? = nil, number: String? = nil,
+             formId: String? = nil, method: String? = nil, amountCents: Int? = nil, description: String? = nil) async -> Bool {
         guard let p = profileId, !busy else { return false }
         busy = true
         busyAction = action
         actionError = nil
         defer { busy = false; busyAction = nil }
-        let body = ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags, menu_id: menuId, department_id: departmentId, number: number)
+        let body = ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags, menu_id: menuId, department_id: departmentId, number: number,
+                                 form_id: formId, method: method, amount_cents: amountCents, description: description)
         let actionKey = pendingAction?.body == body ? pendingAction!.key : APIClient.newIdempotencyKey()
         pendingAction = (body, actionKey)
         do {
@@ -509,6 +512,42 @@ final class ConversationViewModel: ObservableObject {
         guard await act("protocols", number: number) else { return false }
         workspace.addLocalEvent("protocols", "Consulta de protocolos enviada ao cliente", to: conversationId)
         workspace.show("Consulta de protocolos enviada", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
+    // MARK: Formulários e Cobrança
+
+    /// Links de passo web e cobranças desta conversa, do mais novo para o mais antigo.
+    var webSteps: [WebStep] { detail?.web_steps ?? [] }
+    var payments: [ConversationPayment] { detail?.payments ?? [] }
+
+    /// Formulários ativos da área (`GET /forms`), para "Enviar formulário".
+    @Published private(set) var forms: [FormSummary]?
+    @Published private(set) var formsError: String?
+
+    func loadForms() async {
+        formsError = nil
+        do { forms = try await FormsClient(api: .current()).forms() } catch {
+            if let e = error as? QueueError { ModuleFailure.handler(ModuleId.forms)(e) }
+            formsError = ConversationItemsRules.explain(error)
+        }
+    }
+
+    /// Envia o formulário como link de uso único (a conversa precisa estar assumida).
+    func sendForm(_ form: FormSummary) async -> Bool {
+        guard await act("form", formId: form.id) else { return false }
+        workspace.addLocalEvent("form", "Formulário \"\(form.displayName)\" enviado ao cliente", to: conversationId)
+        workspace.show("Formulário enviado", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
+    /// Cobra pelo Pix ou link; a cobrança aparece como "Aguardando pagamento" até o provedor confirmar.
+    func charge(method: String, amountCents: Int, description: String) async -> Bool {
+        guard await act("charge", method: method, amountCents: amountCents, description: description) else { return false }
+        workspace.addLocalEvent("payment", "Cobrança de \(Money.format(amountCents)) enviada", to: conversationId)
+        workspace.show("Cobrança enviada", style: .success)
         forceScrollToken += 1
         return true
     }
@@ -870,6 +909,10 @@ final class ConversationViewModel: ObservableObject {
             }
             if e.code == "unsupported_capability" {
                 actionError = "O canal desta conversa não oferece este recurso. " + e.message
+                return
+            }
+            if e.code == "payments_not_configured" || e.code == "module_disabled" {
+                actionError = ConversationItemsRules.explain(error)
                 return
             }
         }

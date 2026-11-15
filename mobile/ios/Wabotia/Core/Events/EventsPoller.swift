@@ -74,4 +74,6 @@ extension Event {
     }
     var isConversationRelated: Bool { kind.hasPrefix("message.") || kind.hasPrefix("conversation.") }
     var isCallRelated: Bool { kind.hasPrefix("call.") }
+    /// Links de passo web (formulário, check-in, carrinho) e cobranças: o estado na conversa muda com eles.
+    var isLinkOrPayment: Bool { kind.hasPrefix("web_step.") || kind.hasPrefix("form.") || kind.hasPrefix("payment.") }
 }

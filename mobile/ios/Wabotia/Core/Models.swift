@@ -180,6 +180,9 @@ struct ConversationDetail: Codable {
     var server_now: Int64?
     /// Passagem feita por um módulo (ex.: Suporte pago): resumo e marcadores para o atendente; `nil` sem passagem.
     var handoff: ModuleHandoff?
+    /// Últimas cobranças e links de passo web da conversa (servidor com Cobrança e Formulários).
+    var payments: [ConversationPayment]?
+    var web_steps: [WebStep]?
     func can(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? false }
     /// Recurso de mídia básico: só some quando a linha diz explicitamente que não oferece.
     func allows(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? true }
@@ -199,6 +202,12 @@ struct ActionRequest: Codable, Equatable {
     var department_id: String? = nil
     /// `protocols`: número `WA-…` para consultar um protocolo específico (opcional).
     var number: String? = nil
+    /// `form` (módulo Formulários): o formulário enviado como passo web.
+    var form_id: String? = nil
+    /// `charge` (Cobrança): `pix` ou `link`, valor em centavos e descrição (até 120 caracteres).
+    var method: String? = nil
+    var amount_cents: Int? = nil
+    var description: String? = nil
 }
 struct MessageActionRequest: Codable { var action: String; var message_id: String; var emoji: String?; var text: String? }
 struct UploadInit: Codable { var name: String; var type: String; var size: Int64 }

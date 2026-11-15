@@ -21,6 +21,9 @@ struct ConversationInfoView: View {
     @State private var confirmLink = false
     @State private var confirmRelease = false
     @State private var showCourtesy = false
+    @State private var showForms = false
+    @State private var showCharge = false
+    @ObservedObject private var modules = ModuleFeature.shared
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -45,6 +48,7 @@ struct ConversationInfoView: View {
                                                     onLink: { confirmLink = true }, onConfirm: { confirmRelease = true }, onCourtesy: { showCourtesy = true })
                                         .id("handoff")
                                 }
+                                itemsCard(c)
                                 tagsCard
                             }
                             .padding(.horizontal, 16)
@@ -77,6 +81,8 @@ struct ConversationInfoView: View {
         .onDisappear { vm.disappear() }
         .task { await vm.loadTickets() }
         .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
+        .sheet(isPresented: $showForms, onDismiss: { vm.actionError = nil }) { FormPickerSheet(vm: vm) }
+        .sheet(isPresented: $showCharge, onDismiss: { vm.actionError = nil }) { ChargeSheet(vm: vm) }
         .sheet(isPresented: $showCourtesy) {
             CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
         }
@@ -105,6 +111,21 @@ struct ConversationInfoView: View {
             Button("Enviar pesquisa") { Task { await vm.sendSurvey() } }
             Button("Cancelar", role: .cancel) {}
         } message: { Text("O cliente recebe a pergunta e responde com uma nota de 1 a 5.") }
+    }
+
+    // MARK: Formulários e cobranças
+
+    /// Aparece com Formulários ou Cobrança ligados, ou quando a conversa já tem links ou cobranças.
+    @ViewBuilder
+    private func itemsCard(_ c: Conversation) -> some View {
+        let canAct = !c.isGroup && (vm.isOwned || vm.isAdmin) && c.state != "closed"
+        let canForm = canAct && modules.isAvailable(ModuleId.forms, container.profileId)
+        let canCharge = canAct && modules.isAvailable(ModuleId.payments, container.profileId)
+        if canForm || canCharge || !vm.webSteps.isEmpty || !vm.payments.isEmpty {
+            ConversationItemsCard(steps: vm.webSteps, payments: vm.payments, canForm: canForm, canCharge: canCharge,
+                                  onForm: { vm.actionError = nil; showForms = true }, onCharge: { vm.actionError = nil; showCharge = true })
+                .id("items")
+        }
     }
 
     // MARK: Contato

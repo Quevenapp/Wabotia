@@ -31,6 +31,8 @@ struct ConversationView: View {
     @State private var confirmLink = false
     @State private var confirmRelease = false
     @State private var showCourtesy = false
+    @State private var showForms = false
+    @State private var showCharge = false
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -47,6 +49,10 @@ struct ConversationView: View {
             }
             if let handoff = vm.handoff, vm.conversation?.state != "closed" {
                 HandoffBanner(handoff: handoff) { push(.conversationInfo(id: conversationId)) }
+            }
+            let items = ConversationItemsRules.recent(steps: vm.webSteps, payments: vm.payments, now: workspace.nowMillis)
+            if !items.steps.isEmpty || !items.payments.isEmpty {
+                ConversationItemsBar(steps: items.steps, payments: items.payments) { push(.conversationInfo(id: conversationId)) }
             }
             messagesArea
             if vm.conversation != nil { footer }
@@ -85,6 +91,8 @@ struct ConversationView: View {
         .sheet(isPresented: $showCourtesy) {
             CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
         }
+        .sheet(isPresented: $showForms, onDismiss: { vm.actionError = nil }) { FormPickerSheet(vm: vm) }
+        .sheet(isPresented: $showCharge, onDismiss: { vm.actionError = nil }) { ChargeSheet(vm: vm) }
         .confirmationDialog(SuporteRules.linkTitle(vm.suporte) + "?", isPresented: $confirmLink, titleVisibility: .visible) {
             Button("Vincular") { Task { await vm.suporteAction("link") } }
             Button("Cancelar", role: .cancel) {}
@@ -199,6 +207,15 @@ struct ConversationView: View {
             }
             if !c.isGroup, vm.isOwned, modules.isAvailable(ModuleId.pedido, container.profileId) {
                 Button { Task { await vm.sendPedidoLink() } } label: { Label("Montar pedido para este cliente", systemImage: "takeoutbag.and.cup.and.straw") }
+            }
+            // Formulário e Cobrança: com o módulo ligado e a conversa assumida (ou administrador), como o servidor exige.
+            if !c.isGroup, vm.isOwned || vm.isAdmin, c.state != "closed" {
+                if modules.isAvailable(ModuleId.forms, container.profileId) {
+                    Button { vm.actionError = nil; showForms = true } label: { Label("Enviar formulário", systemImage: "doc.text") }
+                }
+                if modules.isAvailable(ModuleId.payments, container.profileId) {
+                    Button { vm.actionError = nil; showCharge = true } label: { Label("Cobrar", systemImage: "creditcard") }
+                }
             }
             // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
             if !c.isGroup, vm.isOwned || vm.isAdmin, let s = vm.suporte {
