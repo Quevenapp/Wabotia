@@ -4,6 +4,7 @@ import { all, exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { json, now, uid } from "../src/types";
 import { modulesApi } from "../src/modules/api";
+import { openapi } from "../src/openapi";
 import { createOrder, quoteReplies } from "../src/modules/os/store";
 import {
   endOfDayAfter,
@@ -508,6 +509,25 @@ describe("ordem de serviço: regras puras", () => {
     expect(() => validateOsSettings({ texts: { nada: "x" } })).toThrow(
       /desconhecida/,
     );
+  });
+
+  it("rotas documentadas no OpenAPI", () => {
+    const spec = openapi("https://test");
+    const base = "/profiles/{profile}/service-orders";
+    expect(spec.paths[base].get.tags).toEqual(["Módulos"]);
+    expect(spec.paths[base].post.requestBody).toBeTruthy();
+    for (const [path, method] of [
+      [`${base}/{id}`, "get"],
+      [`${base}/{id}`, "patch"],
+      [`${base}/{id}/status`, "post"],
+      [`${base}/{id}/quote`, "put"],
+      [`${base}/{id}/quote/send`, "post"],
+      [`${base}/{id}/decision`, "post"],
+    ])
+      expect(spec.paths[path]?.[method], `${method} ${path}`).toBeTruthy();
+    expect(
+      spec.components.schemas.ServiceOrder.properties.status.enum,
+    ).toContain("in_progress");
   });
 
   it("configuração salva em PUT /settings com validação estrita", async () => {

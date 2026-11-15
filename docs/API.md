@@ -66,6 +66,23 @@ O que não cabe no chat sai por um **passo web**: um link curto e de uso único 
 
 O primeiro uso é o módulo **Formulários**: o administrador cadastra `forms` em `PUT /profiles/{perfil}/settings` (campos `text`, `choice`, `date` e `accept`) e o cliente recebe o link por um item de menu `{"type":"form","form_id":"..."}`, pela equipe ou por uma integração (`POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"form","form_id":"..."}`, ou `POST /profiles/{perfil}/forms/{id}/send` com `{"conversation_id":"..."}`; conversa assumida) ou por um bot (ferramenta MCP `send_form`). Consulte `GET /profiles/{perfil}/forms`, `GET /profiles/{perfil}/conversations/{id}/web-steps` e `GET /profiles/{perfil}/web-steps/{id}`; cancele um link aberto com `POST /profiles/{perfil}/web-steps/{id}/cancel`. O detalhe da conversa traz `web_steps` e o detalhe do contato traz as respostas das conversas vinculadas. Eventos: `web_step.sent`, `web_step.opened`, `web_step.completed`, `web_step.expired`, `web_step.cancelled` e `form.submitted` (com `form_id` e `answers`). O contrato para módulos está em [MODULOS.md](MODULOS.md).
 
+### Ordem de serviço (módulo `os`)
+
+Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas em `/profiles/{perfil}/service-orders`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta, sem abrir outra ordem nem reenviar mensagem). Com o módulo desligado, todas respondem `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts` por estado |
+| `GET /service-orders/{id}` | Ordem com `history` (quem mudou e quando) |
+| `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área), `due_at` (ms), `notify` |
+| `PATCH /service-orders/{id}` | Dados da ordem; encerrada, só `notes` |
+| `POST /service-orders/{id}/status` | `{"status":"…","note":"…"}`; transição inválida: `409 invalid_transition` |
+| `PUT /service-orders/{id}/quote` | `{"items":[{"description","quantity","unit_cents"}],"valid_days","note"}`; orçamento já enviado volta para `analyzing` |
+| `POST /service-orders/{id}/quote/send` | Envia ao cliente e passa a `quoted`; `{"notify":false}` só registra (sem conversa: `409 no_conversation`) |
+| `POST /service-orders/{id}/decision` | `{"decision":"approve"\|"decline"}` em nome do cliente; vencido: `409 quote_expired`; fora de `quoted`: `409 quote_not_pending` |
+
+Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"service_order","item":"…","problem":"…"}` abre ligada à conversa, e `{"action":"service_order","send_form":true}` manda ao cliente o link para ele preencher (conversa assumida). Estados: `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`, `delivered`, `cancelled`; cada ordem traz `next_statuses`. Valores em centavos e datas em milissegundos. Eventos: `os.opened`, `os.quoted`, `os.approved`, `os.declined` (com `by` e `via`), `os.status_changed` (`from`, `to`, `actor`), `os.delivered` (`warranty_until`) e `os.stale` (ordem parada), entregues aos webhooks com `conversations:read`.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:
