@@ -91,6 +91,7 @@ O que o núcleo faz com cada campo:
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |
 | `openWebStep(c, request)` | Abre um passo web do módulo (seção 4) |
 | `publish(kind, id, payload)` | Evento declarado em `events`; o núcleo acrescenta `module_id` |
+| `sendInteractive(c, spec, {key, actor?, notification?})` | Botões, lista, Flow, produto… (`spec` de `src/whatsapp-interactive.ts`): nativo na linha oficial, texto numerado com links no QR; `notification: true` fora da janela manda o texto pelo modelo de notificação |
 | `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar") |
 
 Ganchos registrados no carregamento do arquivo do módulo:
@@ -104,6 +105,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
+| `onConversationTurn(module, handler)` (apelido `onInboundReply`) | Próxima mensagem do cliente numa conversa individual: `handler(ctx, c, {text, replyId, rowId})`; devolva `true` quando é do módulo. Veja "Conversa no chat" abaixo |
 | `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
@@ -150,6 +152,47 @@ comando é gravada no recibo e devolvida igual ao repetir a mesma
 
 Documente as rotas novas em `src/modules/openapi.ts` (lista
 `moduleOperations` e `describeModuleOperation`) e em `docs/API.md`.
+
+### Conversa no chat (`onConversationTurn` + `ctx.sendInteractive`)
+
+Para fluxos que seguem no WhatsApp (serviço → profissional → horário;
+orçamento com Aprovar/Recusar; botões do lembrete):
+
+```ts
+import { onConversationTurn } from "../api";
+
+await ctx.sendInteractive(c, {
+  type: "list",
+  body: "Orçamento #12: R$ 150,00",
+  button: "Responder",
+  sections: [{ rows: [
+    { id: "os:aprovar:12", title: "Aprovar" },
+    { id: "os:recusar:12", title: "Recusar" },
+  ] }],
+}, { key: `orcamento:12` });
+
+onConversationTurn("os", async (ctx, c, { text, replyId, rowId }) => {
+  if (replyId?.startsWith("os:")) return handleQuoteReply(ctx, c, replyId, rowId);
+  if (!(await temOrcamentoPendente(ctx, c))) return false;  // texto alheio segue
+  return handleQuoteText(ctx, c, text, rowId);              // "1" / "2" no QR
+});
+```
+
+- Ordem no `processInbox`: consentimento, avaliação, Flow/carrinho, fila de
+  senhas, **módulos (na ordem de `runtime.ts`)**, porta de entrada,
+  protocolos, menu e bot. As regras de automação, número e sessão do resto
+  valem aqui também (área pausada ou mensagem de sessão antiga não chegam).
+- Só conversas individuais, só com o módulo ligado. `replyId` só vem quando
+  o toque chegou pelo próprio canal da conversa; caso contrário é `null`.
+- Devolva `true` só para o que é seu: replyId com o prefixo do módulo
+  (`agenda:`, `os:`) ou texto quando há estado aberto **na sua tabela**, com
+  validade. Um replyId com o seu prefixo nunca chega ao menu, então não
+  aparece "Esta opção não está mais disponível".
+- MENU/VOLTAR: limpe o estado e devolva `false`, para o menu responder.
+- Use `rowId` nas chaves de envio (`key: "turno:" + rowId`): um reprocessamento
+  da mesma mensagem não repete a resposta.
+- Os ids de opção: até 200 caracteres; títulos de lista até 24. A validação é
+  a mesma em todas as linhas (`src/whatsapp-interactive.ts`).
 
 ### Tarefas periódicas (`onSchedule`)
 
