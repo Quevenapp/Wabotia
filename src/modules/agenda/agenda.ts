@@ -9,6 +9,17 @@ import {
   type ModuleContext,
 } from "../api";
 import { agendaConfig, clockOf, DAY_MS, validateAgendaConfig } from "./config";
+import { availability } from "./availability";
+import {
+  book,
+  cancel,
+  confirm,
+  datesOf,
+  getAppointment,
+  listAppointments,
+  move,
+  noShow,
+} from "./appointments";
 import {
   archiveProfessional,
   archiveService,
@@ -130,3 +141,159 @@ onCommand(MODULE, "agenda.block.save", (ctx, actor, data) =>
 onCommand(MODULE, "agenda.block.delete", (ctx, actor, data) =>
   deleteBlock(ctx, actor, data.id),
 );
+
+// ---------------------------------------------------------------------------
+// Disponibilidade e agendamentos
+
+// GET /agenda/availability?service_id=&professional_id=&date= (ou
+// from_date/to_date): horários livres por dia. staff=1 ignora a antecedência.
+onRead(MODULE, "agenda/availability", async (ctx, actor, { query }) => {
+  read(ctx, actor);
+  const found = await availability(ctx, await config(ctx), {
+    serviceId: query.service_id,
+    professionalId: query.professional_id || null,
+    dates: datesOf(query),
+    now: Date.now(),
+    rules: { staff: query.staff === "1" || query.staff === "true" },
+  });
+  requireValue(found.service, "Serviço não encontrado.");
+  return {
+    service_id: found.service.id,
+    professional_id: query.professional_id || null,
+    days: found.days.map((day) => ({
+      date: day.date,
+      slots: day.slots.map((slot) => ({
+        starts: slot.starts,
+        ends: slot.ends,
+        time: clockOf(slot.starts),
+        professional_ids: slot.professional_ids,
+      })),
+    })),
+  };
+});
+
+onRead(MODULE, "agenda/appointments", async (ctx, actor, { query }) => {
+  read(ctx, actor);
+  const { from, to } = range(query, Date.now());
+  return {
+    data: await listAppointments(ctx, {
+      from,
+      to,
+      professional_id: query.professional_id,
+      status: query.status,
+      conversation_id: query.conversation_id,
+    }),
+  };
+});
+onRead(MODULE, "agenda/appointments/:id", async (ctx, actor, { params }) => {
+  read(ctx, actor);
+  return getAppointment(ctx, params.id);
+});
+
+/** Conversa opcional do agendamento feito pela equipe ou por integração. */
+async function linkedConversation(
+  ctx: ModuleContext,
+  actor: Actor,
+  id: unknown,
+) {
+  if (id === undefined || id === null || id === "") return null;
+  requireValue(typeof id === "string", "conversation_id inválido.");
+  return ctx.conversation(id, actor);
+}
+const sourceOf = (actor: Actor): "panel" | "api" =>
+  actor.kind === "user" ? "panel" : "api";
+const staffFlag = (value: unknown) => {
+  requireValue(
+    value === undefined || typeof value === "boolean",
+    "force: verdadeiro ou falso.",
+  );
+  return value === true;
+};
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "agenda/appointments",
+  op: "agenda.book",
+});
+onCommand(MODULE, "agenda.book", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  const conversation = await linkedConversation(
+    ctx,
+    actor,
+    data.conversation_id,
+  );
+  requireValue(
+    conversation ||
+      (typeof data.customer_name === "string" && data.customer_name.trim()),
+    "Informe conversation_id ou customer_name.",
+  );
+  return (
+    await book(ctx, await config(ctx), {
+      service_id: data.service_id,
+      professional_id: data.professional_id ?? null,
+      starts: data.starts,
+      conversation,
+      customer_name: data.customer_name,
+      customer_phone: data.customer_phone,
+      notes: data.notes,
+      source: sourceOf(actor),
+      actor: actor.id,
+      rules: { staff: true },
+      force: staffFlag(data.force),
+      notify: data.notify === false ? false : undefined,
+    })
+  ).appointment;
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "agenda/appointments/:id/move",
+  op: "agenda.move",
+});
+onCommand(MODULE, "agenda.move", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  return move(ctx, await config(ctx), {
+    id: data.id,
+    starts: data.starts,
+    professional_id: data.professional_id,
+    actor: actor.id,
+    rules: { staff: true },
+    force: staffFlag(data.force),
+    notify: data.notify === false ? false : undefined,
+  });
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "agenda/appointments/:id/cancel",
+  op: "agenda.cancel",
+});
+onCommand(MODULE, "agenda.cancel", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  return cancel(ctx, await config(ctx), {
+    id: data.id,
+    actor: actor.id,
+    reason: data.reason,
+    notify: data.notify === false ? false : undefined,
+  });
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "agenda/appointments/:id/confirm",
+  op: "agenda.confirm",
+});
+onCommand(MODULE, "agenda.confirm", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  return confirm(ctx, { id: data.id, actor: actor.id });
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "agenda/appointments/:id/no-show",
+  op: "agenda.no_show",
+});
+onCommand(MODULE, "agenda.no_show", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  return noShow(ctx, { id: data.id, actor: actor.id });
+});
