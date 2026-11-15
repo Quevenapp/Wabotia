@@ -94,3 +94,53 @@ final class InstallmentViewModelTests: XCTestCase {
         XCTAssertTrue(vm.notice?.contains("não tem conversa") == true)
     }
 }
+
+final class MensalidadePayerTests: XCTestCase {
+    private func client(_ handler: @escaping (StubURLProtocol.Seen) -> StubURLProtocol.Answer) -> MensalidadeClient {
+        StubURLProtocol.reset(handler)
+        return MensalidadeClient(api: ProfileAPI(baseURL: "https://w.example", profileId: "p1", session: StubURLProtocol.session()) { "wabu_x" })
+    }
+
+    static let subscriptionJSON = #"{"id":"s1","plan_name":"Suporte","customer":{"name":"Loja do Zé","phone":"5520900001111"},"payer":{"id":"y1","name":"Zé Comércio LTDA","document_display":"12.345.678/0001-95"},"status":"active"}"#
+    static let payerJSON = #"{"id":"y1","name":"Zé Comércio LTDA","document":"12345678000195","document_type":"cnpj","document_display":"12.345.678/0001-95","phones":[{"phone":"5520900001111","label":"Cadastro"},{"phone":"5520900002222","label":"Vinculado pelo atendimento"},{"phone":"5520900001111","label":"repetido"}]}"#
+
+    func testSubscriptionAndPayerDecode() async throws {
+        let c = client { seen in .json(200, seen.url.path.contains("/payers/") ? Self.payerJSON : Self.subscriptionJSON) }
+        let s = try await c.subscription("s1")
+        XCTAssertEqual(s.payer?.id, "y1")
+        XCTAssertEqual(s.payer?.documentDisplay, "12.345.678/0001-95")
+        let payer = try await c.payer("y1")
+        XCTAssertEqual(payer.documentType, "cnpj")
+        XCTAssertTrue(StubURLProtocol.seen.last!.url.path.hasSuffix("/mensalidade/payers/y1"))
+        let phones = MensalidadeRules.payerPhones(payer)
+        XCTAssertEqual(phones.map(\.phone), ["(20) 90000-1111", "(20) 90000-2222"], "sem repetir")
+        XCTAssertEqual(phones.last?.label, "Vinculado pelo atendimento")
+    }
+
+    func testDocumentText() {
+        XCTAssertEqual(MensalidadeRules.documentText("123.456.789-09"), "CPF 123.456.789-09")
+        XCTAssertEqual(MensalidadeRules.documentText("12.345.678/0001-95"), "CNPJ 12.345.678/0001-95")
+        XCTAssertEqual(MensalidadeRules.documentText("12.ABC.345/01DE-35", type: "cnpj"), "CNPJ 12.ABC.345/01DE-35")
+        XCTAssertNil(MensalidadeRules.documentText(" "))
+    }
+
+    @MainActor
+    func testDelinquentRowResolvesPayerOnce() async {
+        StubURLProtocol.reset { seen in .json(200, seen.url.path.contains("/payers/") ? Self.payerJSON : Self.subscriptionJSON) }
+        let vm = MensalidadeViewModel(client: MensalidadeClient(api: ProfileAPI(baseURL: "https://w.example", profileId: "p1", session: StubURLProtocol.session()) { "x" }), onFailure: { _ in })
+        await vm.loadPayer(subscriptionId: "s1")
+        await vm.loadPayer(subscriptionId: "s1")
+        XCTAssertEqual(StubURLProtocol.seen.count, 2, "assinatura + pagador, uma vez só")
+        guard case let payer?? = vm.payers["s1"] else { return XCTFail("sem pagador") }
+        XCTAssertEqual(payer.phones?.count, 3)
+    }
+
+    @MainActor
+    func testOldServerWithoutPayerLeavesRowAlone() async {
+        StubURLProtocol.reset { _ in .json(200, #"{"id":"s1","customer":{"name":"Bia"}}"#) }
+        let vm = MensalidadeViewModel(client: MensalidadeClient(api: ProfileAPI(baseURL: "https://w.example", profileId: "p1", session: StubURLProtocol.session()) { "x" }), onFailure: { _ in })
+        await vm.loadPayer(subscriptionId: "s1")
+        XCTAssertEqual(StubURLProtocol.seen.count, 1)
+        if case .some(.some) = vm.payers["s1"] { XCTFail("não devia ter pagador") }
+    }
+}

@@ -181,6 +181,7 @@ struct MensalidadeView: View {
                     Text([d.planName, "\(d.overdueCount ?? 0) parcela(s)", "desde \(MensalidadeRules.dueText(d.oldestDueDate))"].compactMap { $0 }.joined(separator: " · "))
                         .font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
                     if let notices = d.noticesSent, notices > 0 { Text("\(notices) aviso(s) de atraso enviado(s)").font(Theme.font(12)).foregroundStyle(Theme.textSecondary) }
+                    if case let payer?? = vm.payers[d.subscriptionId] { PayerSummary(payer: payer) }
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -188,7 +189,29 @@ struct MensalidadeView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .task { await vm.loadPayer(subscriptionId: d.subscriptionId) }
+            .accessibilityIdentifier("mensalidade.delinquent.\(d.subscriptionId)")
         }
+    }
+}
+
+/// O pagador na linha do inadimplente: nome e documento, e os telefones autorizados.
+private struct PayerSummary: View {
+    let payer: Payer
+
+    var body: some View {
+        let phones = MensalidadeRules.payerPhones(payer).map(\.phone)
+        VStack(alignment: .leading, spacing: 2) {
+            Label([payer.name, MensalidadeRules.documentText(payer.documentDisplay, type: payer.documentType)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                  systemImage: "person.text.rectangle")
+                .font(Theme.font(12, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+            if !phones.isEmpty {
+                Label(phones.joined(separator: ", "), systemImage: "phone").font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
+            }
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Pagador \(payer.name ?? ""). Telefones: \(phones.joined(separator: ", "))")
     }
 }
 
@@ -379,6 +402,7 @@ struct SubscriptionDetailView: View {
                         if MensalidadeRules.canResume(s) { action("Retomar", "resume", Theme.ok) }
                         if MensalidadeRules.canEnd(s) { action("Encerrar", "end", Theme.danger) }
                     }
+                    if let payer = vm.payer { payerSection(payer) }
                     SectionCard(title: "Cliente") {
                         ForEach(s.customer?.phoneList ?? [], id: \.self) { phone in CardRow(icon: "phone.fill", iconColor: Theme.brand, title: phone) }
                         if let conversation = s.customer?.conversationId {
@@ -416,6 +440,19 @@ struct SubscriptionDetailView: View {
         } message: {
             Text(confirming == "resume" ? "As próximas parcelas voltam a ser geradas; a pausa não é cobrada." : "As parcelas em aberto ainda não vencidas são canceladas.")
         }
+    }
+
+    /// Quem paga: nome, CPF/CNPJ e os telefones autorizados a falar por ele (vários por pagador).
+    private func payerSection(_ payer: Payer) -> some View {
+        let phones = MensalidadeRules.payerPhones(payer)
+        return SectionCard(title: "Pagador", footer: phones.isEmpty ? nil : "Telefones autorizados para este pagador.") {
+            CardRow(icon: "person.text.rectangle", iconColor: Theme.bot, title: payer.name?.isEmpty == false ? payer.name! : "Pagador",
+                    subtitle: MensalidadeRules.documentText(payer.documentDisplay, type: payer.documentType), divider: !phones.isEmpty)
+            ForEach(Array(phones.enumerated()), id: \.offset) { index, p in
+                CardRow(icon: "phone.fill", iconColor: Theme.brand, title: p.phone, subtitle: p.label, divider: index < phones.count - 1)
+            }
+        }
+        .accessibilityIdentifier("mensalidade.payer")
     }
 
     private var confirmTitle: String {

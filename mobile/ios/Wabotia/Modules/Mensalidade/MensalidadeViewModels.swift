@@ -82,6 +82,23 @@ final class MensalidadeViewModel: ObservableObject {
         loading = false
     }
 
+    /// Pagador de cada assinatura (inadimplentes): `GET /delinquents` não traz o pagador, então a linha o busca pela
+    /// assinatura quando aparece na tela, uma vez. `nil` guardado: sem pagador (servidor antigo).
+    @Published private(set) var payers: [String: Payer?] = [:]
+    private var payerLoading: Set<String> = []
+
+    func loadPayer(subscriptionId: String) async {
+        guard payers[subscriptionId] == nil, !payerLoading.contains(subscriptionId) else { return }
+        payerLoading.insert(subscriptionId)
+        defer { payerLoading.remove(subscriptionId) }
+        guard let ref = try? await client.subscription(subscriptionId).payer, let id = ref.id else {
+            payers[subscriptionId] = .some(nil)
+            return
+        }
+        let full = try? await client.payer(id)
+        payers[subscriptionId] = .some(full ?? Payer(id: id, name: ref.name, documentDisplay: ref.documentDisplay))
+    }
+
     func setMode(_ mode: Mode) { guard self.mode != mode else { return }; self.mode = mode; Task { await load() } }
     func shiftMonth(_ n: Int) { month = MensalidadeRules.shiftMonth(month, n); Task { await load() } }
     func setFilter(_ id: String) { guard filter != id else { return }; filter = id; installments = []; Task { await load() } }
@@ -187,10 +204,16 @@ final class SubscriptionViewModel: ObservableObject {
         self.init(id: id, client: MensalidadeClient(api: .current()), onFailure: ModuleFailure.handler(ModuleId.mensalidade))
     }
 
+    /// O pagador com os telefones autorizados (`GET /payers/{id}`); sem a rota, fica o nome e o documento da assinatura.
+    @Published private(set) var payer: Payer?
+
     func load() async {
         do { subscription = try await client.subscription(id) } catch {
             if let e = error as? QueueError { onFailure(e) }
             if subscription == nil { notice = ModuleFailure.message(error) }
+        }
+        if let ref = subscription?.payer, let payerId = ref.id {
+            payer = (try? await client.payer(payerId)) ?? Payer(id: payerId, name: ref.name, documentDisplay: ref.documentDisplay)
         }
     }
 

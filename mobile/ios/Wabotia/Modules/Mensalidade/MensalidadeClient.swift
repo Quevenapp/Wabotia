@@ -28,6 +28,31 @@ struct MensalidadeCustomer: Codable, Equatable {
     }
 }
 
+/// Quem paga a assinatura (`payer`): nome e CPF/CNPJ já formatado. Assinaturas do mesmo documento têm o mesmo pagador.
+struct PayerRef: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var documentDisplay: String?
+}
+
+/// Telefone autorizado do pagador (`label`: de onde veio, ex.: "Vinculado pelo atendimento").
+struct PayerPhone: Codable, Equatable {
+    var phone: String?
+    var label: String?
+    var created: Int64?
+}
+
+/// `GET /mensalidade/payers/{id}`: o pagador com todos os telefones autorizados.
+struct Payer: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String?
+    var document: String?
+    var documentType: String?
+    var documentDisplay: String?
+    var email: String?
+    var phones: [PayerPhone]?
+}
+
 struct MensalidadePayment: Codable, Equatable {
     var id: String?
     var status: String?
@@ -76,6 +101,8 @@ struct Subscription: Codable, Equatable, Identifiable {
     var planId: String?
     var planName: String?
     var customer: MensalidadeCustomer?
+    /// Pagador (versões com CPF/CNPJ); servidor antigo não manda.
+    var payer: PayerRef?
     var period: String?
     var periodLabel: String?
     var amountCents: Int?
@@ -169,6 +196,8 @@ final class MensalidadeClient {
 
     func delinquents() async throws -> [Delinquent] { (try await api.get("mensalidade/delinquents") as DataList<Delinquent>).data ?? [] }
 
+    func payer(_ id: String) async throws -> Payer { try await api.get("mensalidade/payers/\(id)") }
+
     /// Reenvia o Pix/link que vale ou cria outra cobrança.
     func charge(_ id: String, key: String) async throws -> Installment { try await api.send("POST", "mensalidade/installments/\(id)/charge", [:], key: key) }
 
@@ -257,6 +286,24 @@ enum MensalidadeRules {
         case "payments_not_configured": return "A Cobrança (Pix e link) não está configurada nesta área. Um administrador configura no painel."
         case "installment_not_payable": return "Esta parcela não pode mais ser cobrada (já foi paga, isenta ou cancelada)."
         default: return ModuleFailure.message(error)
+        }
+    }
+
+    /// "CPF 123.456.789-09" / "CNPJ 12.345.678/0001-95"; sem o tipo, a barra do CNPJ decide.
+    static func documentText(_ display: String?, type: String? = nil) -> String? {
+        guard let d = display?.trimmingCharacters(in: .whitespaces), !d.isEmpty else { return nil }
+        let kind = type.map { $0.lowercased() == "cpf" ? "CPF" : "CNPJ" } ?? (d.contains("/") ? "CNPJ" : "CPF")
+        return "\(kind) \(d)"
+    }
+
+    /// Telefones do pagador formatados, sem repetir, com a origem quando houver.
+    static func payerPhones(_ payer: Payer?) -> [(phone: String, label: String?)] {
+        var seen = Set<String>()
+        return (payer?.phones ?? []).compactMap { p in
+            let digits = (p.phone ?? "").filter(\.isNumber)
+            guard !digits.isEmpty, seen.insert(digits).inserted, let shown = PhoneText.display(digits) else { return nil }
+            let label = p.label?.trimmingCharacters(in: .whitespaces)
+            return (shown, label?.isEmpty == false ? label : nil)
         }
     }
 
