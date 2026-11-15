@@ -4,6 +4,7 @@ import {
   ApiError,
   type Actor,
   type Conversation,
+  now,
   requireValue,
 } from "../../types";
 import {
@@ -33,6 +34,7 @@ import {
   listAppointments,
   move,
   noShow,
+  upcomingFor,
 } from "./appointments";
 import {
   archiveProfessional,
@@ -184,6 +186,54 @@ onConversationAction(
     return { sent: !!opened, web_step: opened?.step || null };
   },
 );
+
+// Bot e atendente sobre os agendamentos do cliente da conversa: só os dele
+// (mesma conversa ou mesmo telefone); id de outro cliente dá 404.
+async function customerAppointment(
+  ctx: ModuleContext,
+  c: Conversation,
+  id: unknown,
+) {
+  requireValue(typeof id === "string" && id, "Informe appointment_id.");
+  const mine = await upcomingFor(ctx, c, now());
+  if (!mine.some((a) => a.id === id))
+    throw new ApiError(
+      404,
+      "not_found",
+      "Agendamento não encontrado entre os do cliente desta conversa.",
+    );
+  return id as string;
+}
+
+// "Remarcar" e "Cancelar" pela conversa (ferramentas do bot).
+onConversationAction(MODULE, "agenda_move", async (ctx, actor, c, data) => {
+  const bot = mayActOn(actor, c);
+  const id = await customerAppointment(ctx, c, data.appointment_id);
+  return move(ctx, await config(ctx), {
+    id,
+    starts: data.starts,
+    professional_id: data.professional_id,
+    actor: actor.id,
+    // Bot age pelo cliente: valem a antecedência e o prazo das regras.
+    rules: { staff: !bot && actor.kind === "user" },
+  });
+});
+onConversationAction(MODULE, "agenda_cancel", async (ctx, actor, c, data) => {
+  mayActOn(actor, c);
+  const id = await customerAppointment(ctx, c, data.appointment_id);
+  return cancel(ctx, await config(ctx), {
+    id,
+    actor: actor.id,
+    reason: typeof data.reason === "string" ? data.reason : "",
+  });
+});
+
+// Agendamentos do cliente de uma conversa (bot: agenda_meus_agendamentos).
+onRead(MODULE, "agenda/conversations/:id", async (ctx, actor, { params }) => {
+  read(ctx, actor);
+  const c = await ctx.conversation(params.id, actor);
+  return { data: await upcomingFor(ctx, c, now()) };
+});
 
 onWebStepCompleted(MODULE, async (ctx, step, answers) => {
   await webStepDone(ctx, step, answers);
@@ -489,6 +539,62 @@ onMcpTool("agenda", {
       service_id: a.service_id,
       starts: a.starts,
       ...(a.professional_id ? { professional_id: a.professional_id } : {}),
+    },
+  }),
+});
+// As ferramentas abaixo só recebem conversation_id: o cliente é sempre o da
+// conversa, nunca um telefone ou nome citado no texto.
+onMcpTool("agenda", {
+  name: "agenda_meus_agendamentos",
+  description:
+    "Próximos agendamentos do cliente da conversa (desta conversa ou do mesmo telefone), com id, serviço, profissional, data e hora. Requer conversations:read.",
+  input: { conversation_id: { type: "string" } },
+  required: ["conversation_id"],
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/agenda/conversations/${a.conversation_id}`,
+  }),
+});
+onMcpTool("agenda", {
+  name: "agenda_remarcar",
+  description:
+    "Remarca um agendamento do cliente da conversa (appointment_id de agenda_meus_agendamentos) para um horário livre (starts de agenda_horarios_livres). Agendamento de outro cliente: 404. Exige a conversa assumida pelo bot. Requer conversations:write.",
+  input: {
+    conversation_id: { type: "string" },
+    appointment_id: { type: "string" },
+    starts: { type: "integer", description: "Novo início em ms (Unix)." },
+    professional_id: { type: "string" },
+  },
+  required: ["conversation_id", "appointment_id", "starts"],
+  write: true,
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: {
+      action: "agenda_move",
+      appointment_id: a.appointment_id,
+      starts: a.starts,
+      ...(a.professional_id ? { professional_id: a.professional_id } : {}),
+    },
+  }),
+});
+onMcpTool("agenda", {
+  name: "agenda_cancelar",
+  description:
+    "Cancela um agendamento do cliente da conversa (appointment_id de agenda_meus_agendamentos); o cliente recebe o aviso. Agendamento de outro cliente: 404. Exige a conversa assumida pelo bot. Requer conversations:write.",
+  input: {
+    conversation_id: { type: "string" },
+    appointment_id: { type: "string" },
+    reason: { type: "string" },
+  },
+  required: ["conversation_id", "appointment_id"],
+  write: true,
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: {
+      action: "agenda_cancel",
+      appointment_id: a.appointment_id,
+      ...(a.reason ? { reason: a.reason } : {}),
     },
   }),
 });

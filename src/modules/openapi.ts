@@ -617,6 +617,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/agenda/conversations/{id}",
+    "Agenda: próximos agendamentos do cliente de uma conversa (bot)",
+    "conversations:read",
+  ],
+  [
+    "get",
     "/profiles/{profile}/agenda/appointments/{id}",
     "Agenda: consultar agendamento",
     "conversations:read",
@@ -658,6 +664,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "get",
     "/profiles/{profile}/service-orders",
     "Ordens de serviço: lista com filtro por estado e busca",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/service-orders/conversation/{id}",
+    "Ordens de serviço do cliente de uma conversa (bot)",
     "conversations:read",
   ],
   [
@@ -1277,6 +1289,12 @@ function mensalidadeOperations(): [string, string, string, string?, string?][] {
   const base = "/profiles/{profile}/mensalidade";
   return [
     ["get", `${base}/plans`, "Mensalidade: planos", "conversations:read"],
+    [
+      "get",
+      `${base}/conversations/{id}`,
+      "Mensalidade: situação e parcelas em aberto do pagador de uma conversa (bot)",
+      "conversations:read",
+    ],
     [
       "post",
       `${base}/plans`,

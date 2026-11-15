@@ -176,6 +176,12 @@ export const reservaOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/reserva/conversations/{id}",
+    "Próximas reservas do cliente de uma conversa (bot)",
+    "conversations:read",
+  ],
+  [
+    "get",
     "/profiles/{profile}/reserva/units",
     "Unidades reserváveis",
     "conversations:read",

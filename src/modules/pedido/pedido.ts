@@ -27,7 +27,13 @@ import {
 import type { CartOrder } from "../../web-cart";
 import { validatePedidoConfig } from "./model";
 import { overview, setPause } from "./store";
-import { changeStatus, loadOrder, orderView, paymentUpdated } from "./orders";
+import {
+  changeStatus,
+  loadOrder,
+  openOrdersFor,
+  orderView,
+  paymentUpdated,
+} from "./orders";
 import {
   board,
   createFromApi,
@@ -409,25 +415,22 @@ onMcpTool(MODULE, {
   input: {},
   call: (_a, profile) => ({ path: `/profiles/${profile}/pedido/menu` }),
 });
+// Só o cliente da conversa: o bot não consulta por outro telefone, número de
+// pedido ou nome citado no texto (a equipe usa a API e o painel para isso).
 onMcpTool(MODULE, {
   name: "pedido_consultar",
   description:
-    "Pedidos da área por conversa (conversation_id), telefone (phone) ou busca (q, número do pedido). open=true só os em andamento. Traz estado, itens, total e pagamento. Requer conversations:read.",
-  input: {
-    conversation_id: { type: "string" },
-    phone: { type: "string" },
-    q: { type: "string" },
-    open: { type: "boolean" },
-  },
+    "Pedidos em andamento do cliente da conversa (desta conversa ou do mesmo telefone): número, estado, itens, total e pagamento. Requer conversations:read.",
+  input: { conversation_id: { type: "string" } },
+  required: ["conversation_id"],
   call: (a, profile) => ({
-    path: `/profiles/${profile}/pedido/orders`,
-    query: {
-      conversation_id: a.conversation_id,
-      phone: a.phone,
-      q: a.q,
-      open: a.open ? "1" : undefined,
-    },
+    path: `/profiles/${profile}/pedido/conversations/${a.conversation_id}`,
   }),
+});
+onRead(MODULE, "pedido/conversations/:id", async (ctx, actor, { params }) => {
+  ctx.access(actor, "conversations:read");
+  const c = await ctx.conversation(params.id, actor);
+  return { data: (await openOrdersFor(ctx, c)).map((o) => orderView(o)) };
 });
 onMcpTool(MODULE, {
   name: "pedido_enviar_carrinho",

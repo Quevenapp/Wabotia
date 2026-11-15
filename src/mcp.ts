@@ -3,7 +3,9 @@
 // chamada interna à API v1 desta mesma instalação, com a chave de aplicação do
 // cliente: permissões, namespaces, idempotência e limites continuam os da API.
 import type { Hono } from "hono";
-import { type Actor, type Bindings, ApiError } from "./types";
+import { type Actor, type Bindings, type Env, ApiError } from "./types";
+import { all } from "./db";
+import { resolveStates } from "./modules/registry";
 import { authenticate } from "./security";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
@@ -800,20 +802,51 @@ export const tools: Tool[] = [
  * Ferramentas do núcleo e as declaradas pelos módulos (src/modules/api.ts,
  * onMcpTool). Chamadas a módulo desligado recebem o 409 da própria rota.
  */
-const allTools = (): Tool[] => [
+const allTools = (enabled?: Set<string>): Tool[] => [
   ...tools,
-  ...moduleMcpTools().map((t): Tool => ({
-    ...t,
-    input: {
-      profile,
-      ...t.input,
-      ...(t.write ? { idempotency_key: idempotency } : {}),
-    },
-  })),
+  ...moduleMcpTools()
+    // Módulo desligado em todas as áreas da credencial: a ferramenta some.
+    .filter((t) => !enabled || enabled.has(t.module))
+    .map((t): Tool => ({
+      ...t,
+      input: {
+        profile,
+        ...t.input,
+        ...(t.write ? { idempotency_key: idempotency } : {}),
+      },
+    })),
 ];
 const findTool = (name: string) => allTools().find((t) => t.name === name);
-export const toolList = () =>
-  allTools().map((t) => ({
+
+/** Módulos ligados em ao menos uma área que a credencial alcança. */
+async function enabledModules(env: Env, actor: Actor) {
+  const areas =
+    actor.role === "admin"
+      ? (await all(env, "SELECT id FROM profiles")).map((p) => p.id as string)
+      : actor.profiles;
+  const enabled = new Set<string>();
+  const rows = areas.length
+    ? await all(
+        env,
+        "SELECT profile_id,module_id,enabled FROM profile_modules WHERE profile_id IN (SELECT value FROM json_each(?))",
+        JSON.stringify(areas),
+      )
+    : [];
+  for (const area of areas) {
+    const states = resolveStates(
+      Object.fromEntries(
+        rows
+          .filter((r) => r.profile_id === area)
+          .map((r) => [r.module_id, r.enabled]),
+      ),
+    );
+    for (const [id, on] of Object.entries(states)) if (on) enabled.add(id);
+  }
+  return enabled;
+}
+
+export const toolList = (enabled?: Set<string>) =>
+  allTools(enabled).map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: {
@@ -992,7 +1025,10 @@ export function mountMcp(app: Hono<Bindings>) {
         });
       }
       if (method === "ping") return reply({});
-      if (method === "tools/list") return reply({ tools: toolList() });
+      if (method === "tools/list")
+        return reply({
+          tools: toolList(await enabledModules(c.env, actor)),
+        });
       if (method === "tools/call")
         return reply(await callTool(c, actor, params));
       if (method.startsWith("notifications/")) return null;

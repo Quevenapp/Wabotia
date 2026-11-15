@@ -187,15 +187,34 @@ describe("contrato dos módulos", () => {
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       }).then((r) => r.json<any>());
+    const c = await say(f, "oi", "5511973330001");
+    // Agenda e Ordem de Serviço vêm desligadas: as ferramentas não aparecem,
+    // e a chamada pelo nome recebe o 409 da rota.
+    const names = (list: any) => list.result.tools.map((t: any) => t.name);
+    const off = names(await rpc("tools/list"));
+    expect(off.some((n: string) => /^(agenda|os)_/.test(n))).toBe(false);
+    const call = await rpc("tools/call", {
+      name: "os_situacao",
+      arguments: { conversation_id: c.id, open: true },
+    });
+    expect(call.result.isError).toBe(true);
+    expect(JSON.stringify(call.result)).toContain("module_disabled");
+    for (const id of ["os", "agenda"])
+      await perform(
+        env,
+        f.admin,
+        f.profile,
+        "module.set",
+        { id, enabled: true },
+        uid(),
+      );
     const list = await rpc("tools/list");
-    const names = list.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
+    expect(names(list)).toEqual(
       expect.arrayContaining([
         "agenda_servicos",
         "agenda_horarios_livres",
         "agenda_agendar",
-        "os_consultar",
-        "os_detalhe",
+        "os_situacao",
       ]),
     );
     const book = list.result.tools.find(
@@ -204,24 +223,9 @@ describe("contrato dos módulos", () => {
     expect(Object.keys(book.inputSchema.properties)).toEqual(
       expect.arrayContaining(["profile", "idempotency_key", "starts"]),
     );
-    // Ordem de Serviço vem desligada: a chamada recebe o 409 da rota.
-    const call = await rpc("tools/call", {
-      name: "os_consultar",
-      arguments: { open: true },
-    });
-    expect(call.result.isError).toBe(true);
-    expect(JSON.stringify(call.result)).toContain("module_disabled");
-    await perform(
-      env,
-      f.admin,
-      f.profile,
-      "module.set",
-      { id: "os", enabled: true },
-      uid(),
-    );
     const ok = await rpc("tools/call", {
-      name: "os_consultar",
-      arguments: { open: true },
+      name: "os_situacao",
+      arguments: { conversation_id: c.id, open: true },
     });
     expect(ok.result.isError).toBeFalsy();
     expect(ok.result.structuredContent.data).toEqual([]);

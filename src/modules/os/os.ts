@@ -31,6 +31,7 @@ import {
   loadOrder,
   orderHistory,
   orderView,
+  ordersOfCustomer,
   saveQuote,
   sendQuote,
   trackText,
@@ -306,33 +307,29 @@ onCommand("os", "os.decide", async (ctx, actor, data) => {
 // ---------------------------------------------------------------------------
 // Ferramentas MCP para bots (núcleo: onMcpTool).
 
+// Só o cliente da conversa: o bot não consulta por outro telefone, número de
+// ordem ou nome citado no texto (a equipe usa a API e o painel para isso).
 onMcpTool("os", {
-  name: "os_consultar",
+  name: "os_situacao",
   description:
-    "Ordens de serviço da área: por conversa (conversation_id), telefone (phone) ou busca (q, número da ordem). open=true só as abertas. Traz estado, orçamento e próximos passos. Requer conversations:read.",
+    "Situação das ordens de serviço do cliente da conversa (desta conversa ou do mesmo telefone): número, item, estado, orçamento e próximos passos. open=true só as abertas. Requer conversations:read.",
   input: {
     conversation_id: { type: "string" },
-    phone: { type: "string" },
-    q: { type: "string" },
     open: { type: "boolean" },
   },
+  required: ["conversation_id"],
   call: (a, profile) => ({
-    path: `/profiles/${profile}/service-orders`,
-    query: {
-      conversation_id: a.conversation_id,
-      phone: a.phone,
-      q: a.q,
-      open: a.open ? "1" : undefined,
-    },
+    path: `/profiles/${profile}/service-orders/conversation/${a.conversation_id}`,
+    query: { open: a.open ? "1" : undefined },
   }),
 });
-onMcpTool("os", {
-  name: "os_detalhe",
-  description:
-    "Uma ordem de serviço com o histórico (quem mudou e quando). Requer conversations:read.",
-  input: { order_id: { type: "string" } },
-  required: ["order_id"],
-  call: (a, profile) => ({
-    path: `/profiles/${profile}/service-orders/${a.order_id}`,
-  }),
-});
+
+onRead(
+  "os",
+  "service-orders/conversation/:id",
+  async (ctx, actor, { params, query }) => {
+    ctx.access(actor, "conversations:read");
+    const c = await ctx.conversation(params.id, actor);
+    return { data: await ordersOfCustomer(ctx, c, query.open === "1") };
+  },
+);

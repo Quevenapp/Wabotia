@@ -310,9 +310,28 @@ onMcpTool("agenda", {
   autenticação, permissões, idempotência e `409 module_disabled` das rotas.
 - `profile` entra sozinho nos parâmetros; com `write: true`, também
   `idempotency_key`. Escritas usam `method` e `body`.
-- Aparecem em `tools/list` para todos os clientes MCP; a descrição deve dizer
-  a permissão necessária. Módulos de hoje: `agenda_servicos`,
-  `agenda_horarios_livres`, `agenda_agendar`, `os_consultar` e `os_detalhe`.
+- Aparecem em `tools/list` só quando o módulo está ligado em alguma área que
+  a chave alcança (desligado, a ferramenta some; chamada pelo nome recebe o
+  409 da rota). A descrição deve dizer a permissão necessária.
+- **Só o cliente da conversa.** Ferramenta que lê ou mexe em dados de um
+  cliente recebe apenas `conversation_id`: o servidor identifica o cliente
+  pela conversa (a própria conversa ou o mesmo telefone). Nunca aceite
+  telefone, CPF/CNPJ, nome ou número de registro como critério de busca: o
+  bot não pode consultar outro cliente citado no texto. Ids de registro
+  (agendamento, mensalidade) só valem se forem do cliente da conversa; de
+  outro cliente, 404. Escritas passam por ações de conversa
+  (`onConversationAction`), com a mesma idempotência e a regra de conversa
+  assumida.
+- Ferramentas de hoje:
+  - Agenda: `agenda_servicos`, `agenda_horarios_livres`, `agenda_agendar`,
+    `agenda_meus_agendamentos`, `agenda_remarcar`, `agenda_cancelar`.
+  - Reserva: `reserva_disponibilidade`, `reserva_reservar`, `reserva_minhas`.
+  - Ordem de Serviço: `os_situacao`.
+  - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`.
+  - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
+- Limite conhecido: a chave do bot (Hermes) não fica presa a uma conversa; o
+  bot recebe o `conversation_id` na execução e o passa à ferramenta. A
+  garantia é que nada além desse id escolhe o cliente.
 
 ### Tarefas periódicas (`onSchedule`)
 

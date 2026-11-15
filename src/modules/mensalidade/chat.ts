@@ -48,7 +48,8 @@ async function customerScope(ctx: ModuleContext, c: Conversation) {
 const SELECT =
   "SELECT i.*,p.name AS plan_name,s.customer_name FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE i.profile_id=? AND (s.conversation_id=? OR (s.phone<>'' AND s.phone=?))";
 
-async function openInstallments(ctx: ModuleContext, c: Conversation) {
+/** Parcelas em aberto do cliente da conversa (desta conversa ou do telefone). */
+export async function openInstallments(ctx: ModuleContext, c: Conversation) {
   const { phone } = await customerScope(ctx, c);
   return all(
     ctx.env,

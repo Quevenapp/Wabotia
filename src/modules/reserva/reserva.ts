@@ -11,6 +11,7 @@ import {
   onCommand,
   onConversationAction,
   onConversationTurn,
+  onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
   onRead,
@@ -49,6 +50,7 @@ import {
   createBooking,
   getBooking,
   listBookings,
+  upcomingFor,
 } from "./bookings";
 import {
   archiveUnit,
@@ -156,6 +158,121 @@ onConversationAction(
     return { status: sent.status, booking: sent.booking };
   },
 );
+
+// Reservar para o cliente da conversa (ferramenta do bot reserva_reservar):
+// regras do cliente (antecedência, estadia), sinal pela Cobrança como no
+// WhatsApp. POST /conversations/:id/actions {action:"reserva_book", …}.
+onConversationAction(
+  MODULE,
+  "reserva_book",
+  async (ctx, actor, c, data, { requestId }) => {
+    const bot = actor.id.startsWith("bot:");
+    requireValue(
+      c.owner === actor.id ||
+        (actor.kind === "user" && actor.role === "admin") ||
+        (bot && c.state === "ai"),
+      "Assuma a conversa antes de reservar para o cliente.",
+    );
+    requireValue(
+      c.chat_type !== "group",
+      "Reserve pela conversa direta do cliente.",
+    );
+    const rules = await config(ctx);
+    const { booking, created } = await createBooking(ctx, rules, {
+      id: `act-${requestId}`,
+      unit_id: data.unit_id,
+      start_date: data.start_date,
+      end_date: data.end_date,
+      nights: data.nights,
+      starts: data.starts,
+      duration_minutes: data.duration_minutes,
+      guests: data.guests,
+      conversation: c,
+      source: "whatsapp",
+      actor: actor.id,
+      notify: true,
+    });
+    if (created && booking.status === "pending_payment")
+      return (
+        await requestDeposit(ctx, rules, booking, c, {
+          actor: actor.id,
+          notification: true,
+        })
+      ).booking;
+    return booking;
+  },
+);
+
+// Reservas do cliente de uma conversa (bot: reserva_minhas).
+onRead(MODULE, "reserva/conversations/:id", async (ctx, actor, { params }) => {
+  ctx.access(actor, "conversations:read");
+  const c = await ctx.conversation(params.id, actor);
+  return { data: await upcomingFor(ctx, c, Date.now()) };
+});
+
+// Ferramentas MCP para o bot de IA (núcleo: onMcpTool). As que tocam no
+// cliente só recebem conversation_id: nunca outro telefone ou documento.
+onMcpTool(MODULE, {
+  name: "reserva_disponibilidade",
+  description:
+    "Unidades livres. Diárias: start_date (AAAA-MM-DD) e end_date ou nights, opcional guests e unit_id. Por hora: date (AAAA-MM-DD) e duration_minutes. Use os valores devolvidos em reserva_reservar. Requer conversations:read.",
+  input: {
+    start_date: { type: "string" },
+    end_date: { type: "string" },
+    nights: { type: "integer" },
+    guests: { type: "integer" },
+    unit_id: { type: "string" },
+    date: { type: "string" },
+    duration_minutes: { type: "integer" },
+  },
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/reserva/availability`,
+    query: {
+      start_date: a.start_date,
+      end_date: a.end_date,
+      nights: a.nights,
+      guests: a.guests,
+      unit_id: a.unit_id,
+      date: a.date,
+      duration_minutes: a.duration_minutes,
+    },
+  }),
+});
+onMcpTool(MODULE, {
+  name: "reserva_reservar",
+  description:
+    "Reserva uma unidade para o cliente da conversa, com as regras do cliente. Diárias: unit_id, start_date e end_date ou nights; por hora: unit_id, starts (ms) e duration_minutes; opcional guests. Com sinal, o cliente recebe a cobrança. Exige a conversa assumida pelo bot. Requer conversations:write; 409 unit_unavailable se o período acabou de ser ocupado.",
+  input: {
+    conversation_id: { type: "string" },
+    unit_id: { type: "string" },
+    start_date: { type: "string" },
+    end_date: { type: "string" },
+    nights: { type: "integer" },
+    starts: { type: "integer" },
+    duration_minutes: { type: "integer" },
+    guests: { type: "integer" },
+  },
+  required: ["conversation_id", "unit_id"],
+  write: true,
+  call: (a, profile) => {
+    const { conversation_id, idempotency_key: _key, profile: _p, ...rest } = a;
+    return {
+      method: "POST",
+      path: `/profiles/${profile}/conversations/${conversation_id}/actions`,
+      body: { action: "reserva_book", ...rest },
+    };
+  },
+});
+onMcpTool(MODULE, {
+  name: "reserva_minhas",
+  description:
+    "Próximas reservas do cliente da conversa (desta conversa ou do mesmo telefone): número, unidade, entrada, saída, estado e sinal. Requer conversations:read.",
+  input: { conversation_id: { type: "string" } },
+  required: ["conversation_id"],
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/reserva/conversations/${a.conversation_id}`,
+  }),
+});
 
 // Item de menu "Fazer reserva".
 onMenuChoice("reserva", async (ctx, c, _item, { rowId }) => {

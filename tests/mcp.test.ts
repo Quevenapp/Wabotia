@@ -174,9 +174,11 @@ describe("MCP transport", () => {
     expect(names).toContain("list_profiles");
     expect(names).toContain("reply_conversation");
     expect(names).toContain("send_router_message");
-    // Núcleo + ferramentas declaradas pelos módulos (onMcpTool), sem repetir.
+    // Núcleo + ferramentas dos módulos ligados (onMcpTool), sem repetir. Os
+    // módulos com ferramentas vêm desligados nesta área: só o núcleo
+    // (bot-tools-*.test.ts e module-contract cobrem os módulos ligados).
     expect(new Set(names).size).toBe(names.length);
-    expect(names.length).toBeGreaterThan(tools.length);
+    expect(names.length).toBeGreaterThanOrEqual(tools.length);
     for (const t of list.result.tools) {
       expect(t.inputSchema.type).toBe("object");
       expect(t.description.length).toBeGreaterThan(20);

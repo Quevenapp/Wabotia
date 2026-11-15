@@ -109,11 +109,21 @@ describe("pedido: contrato da API", () => {
     expect(
       menu.result.structuredContent.categories.map((c: any) => c.name),
     ).toEqual(["Lanches", "Bebidas"]);
+    // Pedidos só do cliente da conversa: o telefone de outro cliente
+    // (parâmetro inexistente na ferramenta) não muda nada.
+    const c = await say(f, "oi", "5511973000009");
     const orders = await rpc("tools/call", {
       name: "pedido_consultar",
-      arguments: { open: true },
+      arguments: { conversation_id: c.id, phone: "5511973000001" },
     });
+    expect(orders.result.isError).toBeFalsy();
     expect(orders.result.structuredContent.data).toEqual([]);
+    // Sem conversa, a ferramenta recusa.
+    const bare = await rpc("tools/call", {
+      name: "pedido_consultar",
+      arguments: { phone: "5511973000001" },
+    });
+    expect(bare.error.message).toMatch(/conversation_id/);
   });
 
   it("estorno confirmado pelo provedor fica registrado (pedido.refunded)", async () => {

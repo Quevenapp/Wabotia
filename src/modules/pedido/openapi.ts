@@ -584,6 +584,12 @@ const base = "/profiles/{profile}/pedido";
 export const pedidoOperations: [string, string, string, string?, string?][] = [
   ["get", base, "Pedido: regras da loja, situação e pagamentos", read],
   [
+    "get",
+    `${base}/conversations/{id}`,
+    "Pedido: pedidos em andamento do cliente de uma conversa (bot)",
+    read,
+  ],
+  [
     "post",
     `${base}/store/pause`,
     "Pedido: pausar a loja ou voltar a receber pedidos",

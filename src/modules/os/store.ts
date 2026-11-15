@@ -970,6 +970,27 @@ export async function handleQuoteReply(
 }
 
 /** Item de menu "Acompanhar ordem de serviço". */
+/**
+ * Ordens do cliente da conversa (desta conversa ou do mesmo telefone), como
+ * o "Acompanhar" do cliente: para o bot (os_situacao), sem busca por outro
+ * telefone ou número. `open` deixa de fora entregues e canceladas.
+ */
+export async function ordersOfCustomer(
+  ctx: ModuleContext,
+  c: Conversation,
+  open = false,
+) {
+  const phone = phoneDigits(c.phone || c.external_id);
+  const rows = await all(
+    ctx.env,
+    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?))${open ? " AND status NOT IN ('delivered','cancelled')" : ""} ORDER BY number DESC LIMIT 20`,
+    ctx.profile,
+    c.id,
+    phone,
+  );
+  return rows.map((row) => orderView(row));
+}
+
 export async function trackText(ctx: ModuleContext, c: Conversation) {
   const phone = phoneDigits(c.phone || c.external_id);
   // Ordens abertas no balcão só com o telefone passam a ser desta conversa.

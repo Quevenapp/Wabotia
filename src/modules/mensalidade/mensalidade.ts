@@ -1,11 +1,13 @@
 // Mensalidade (módulo "mensalidade"): ganchos e rotas. Cadastros em
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
-import { now } from "../../types";
+import { now, requireValue } from "../../types";
 import {
   moduleError,
   onCommand,
+  onConversationAction,
   onConversationTurn,
+  onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
   onRead,
@@ -15,7 +17,7 @@ import {
 } from "../api";
 import { validateMensalidadeSettings } from "./model";
 import { runDue } from "./due";
-import { handleTurn, menuCopy, menuStatement } from "./chat";
+import { handleTurn, menuCopy, menuStatement, openInstallments } from "./chat";
 import {
   addPayerPhone,
   createPayer,
@@ -291,6 +293,104 @@ onMenuChoice("mensalidade_copy", (ctx, c, _item, { rowId }) =>
   menuCopy(ctx, c, rowId),
 );
 onConversationTurn("mensalidade", (ctx, c, turn) => handleTurn(ctx, c, turn));
+
+// ---------------------------------------------------------------------------
+// Bot de IA: só o pagador da conversa (desta conversa ou do mesmo telefone),
+// nunca outro telefone ou CPF/CNPJ citado no texto.
+
+onRead(
+  "mensalidade",
+  "mensalidade/conversations/:id",
+  async (ctx, actor, { params }) => {
+    ctx.access(actor, "conversations:read");
+    const c = await ctx.conversation(params.id, actor);
+    const phone = c.phone || c.external_id;
+    return {
+      situation: phone
+        ? await situationByPhone(ctx.env, ctx.profile, phone)
+        : null,
+      open: (await openInstallments(ctx, c)).map((inst) => ({
+        id: inst.id,
+        plan_name: inst.plan_name,
+        period_key: inst.period_key,
+        amount_cents: inst.amount_cents,
+        due_date: inst.due_date,
+        status: inst.status,
+      })),
+    };
+  },
+);
+
+// Segunda via pela conversa: POST /conversations/:id/actions
+// {action:"mensalidade_copy", installment_id?}.
+onConversationAction(
+  "mensalidade",
+  "mensalidade_copy",
+  async (ctx, actor, c, data, { requestId }) => {
+    requireValue(
+      c.owner === actor.id ||
+        (actor.kind === "user" && actor.role === "admin") ||
+        (actor.id.startsWith("bot:") && c.state === "ai"),
+      "Assuma a conversa antes de enviar a segunda via.",
+    );
+    const open = await openInstallments(ctx, c);
+    const wanted =
+      typeof data.installment_id === "string" ? data.installment_id : null;
+    const target = wanted
+      ? open.find((inst) => inst.id === wanted)
+      : open.length === 1
+        ? open[0]
+        : null;
+    if (wanted && !target)
+      throw moduleError(
+        404,
+        "not_found",
+        "Mensalidade em aberto não encontrada para o cliente desta conversa.",
+      );
+    if (!target)
+      throw moduleError(
+        409,
+        open.length ? "installment_required" : "nothing_open",
+        open.length
+          ? "O cliente tem mais de uma mensalidade em aberto: informe installment_id (de mensalidade_situacao)."
+          : "O cliente desta conversa não tem mensalidade em aberto.",
+      );
+    const inst = await loadInstallment(ctx, target.id);
+    return installmentView(
+      await resendCharge(ctx, inst, c, `segunda-via:${actor.id}:${requestId}`),
+    );
+  },
+);
+
+onMcpTool("mensalidade", {
+  name: "mensalidade_situacao",
+  description:
+    "Situação do pagador da conversa (pelo telefone da conversa): em_dia, em_atraso ou sem_assinatura, com as mensalidades em aberto (id, plano, competência, valor, vencimento). Requer conversations:read.",
+  input: { conversation_id: { type: "string" } },
+  required: ["conversation_id"],
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/mensalidade/conversations/${a.conversation_id}`,
+  }),
+});
+onMcpTool("mensalidade", {
+  name: "mensalidade_segunda_via",
+  description:
+    "Envia ao cliente da conversa a segunda via (Pix copia e cola ou link) de uma mensalidade em aberto dele. Com mais de uma em aberto, informe installment_id de mensalidade_situacao. Mensalidade de outro cliente: 404. Exige a conversa assumida pelo bot. Requer conversations:write.",
+  input: {
+    conversation_id: { type: "string" },
+    installment_id: { type: "string" },
+  },
+  required: ["conversation_id"],
+  write: true,
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: {
+      action: "mensalidade_copy",
+      ...(a.installment_id ? { installment_id: a.installment_id } : {}),
+    },
+  }),
+});
 
 // Confirmação do provedor (webhook assinado + consulta) e comprovante.
 onPaymentUpdated("mensalidade", (ctx, payment, { previous }) =>
