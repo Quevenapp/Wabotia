@@ -280,7 +280,11 @@ onPaymentUpdated("suporte", async (ctx, payment) => {
   (`"menu"`, com `menu_item_id`), palavra-chave como "atendente" (`"keyword"`),
   bot de IA ou especialista que transfere (`"bot"`), falha do bot
   (`"bot_error"`), anexo que o bot não lê (`"attachment"`), carrinho ou Flow
-  sem dono (`"structured"`).
+  sem dono (`"structured"`) e linha em atendimento por pessoa
+  (`service.mode: "human"`, `"line"`). Nesta última, com um módulo de gancho
+  ligado na área, a primeira mensagem da sessão não vai direto para a fila:
+  passa pelo menu e pelos fluxos dos módulos e, se for para a equipe, pelo
+  gancho. Sem módulo de gancho ligado, a linha põe na fila como antes.
 - **Não passam**: a transferência feita pela equipe, o atendente que assume a
   conversa e o próprio `ctx.handoff`.
 - **Segurar** (`"hold"`): o núcleo não muda a conversa nem avisa o cliente;

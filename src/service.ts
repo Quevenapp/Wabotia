@@ -84,6 +84,7 @@ import {
   moduleCommand,
   moduleForMenuType,
   moduleMenuTypes,
+  moduleStates,
   requireOperation,
   resolveStates,
   modules as registeredModules,
@@ -716,8 +717,18 @@ export type HandoffSource =
   | "attachment"
   | "structured"
   | "system"
+  /** Linha em atendimento por pessoa (service.mode "human"), sem bot. */
+  | "line"
   | "staff"
   | "module";
+
+/** Algum módulo ligado na área tem gancho onHandoffRequest. */
+async function gatedArea(env: Env, profile: string) {
+  const gates = handoffGatesList();
+  if (!gates.length) return false;
+  const states = await moduleStates(env, profile);
+  return gates.some(([module]) => states[module]);
+}
 
 /**
  * Ganchos dos módulos ligados, na ordem de `modules`: o primeiro que segura
@@ -1284,8 +1295,14 @@ export async function inbound(
   const line = await serviceForLine(env, connectionId);
   // Only the message that opens a session on a human line queues it; the
   // engine uses this to offer the main menu once (front door without a bot).
-  const queuedByLine =
+  const humanFrontDoor =
     line.mode === "human" && c.state === "ai" && !c.assigned_bot_id;
+  // Com um módulo que segura passagens (Suporte pago), a linha não põe na
+  // fila direto: o motor passa a mensagem pelo menu e pelos fluxos dos
+  // módulos e, se for para a equipe, pelo portão com a origem "line"
+  // (revisão M2).
+  const lineGate = humanFrontDoor && (await gatedArea(env, profile));
+  const queuedByLine = humanFrontDoor && !lineGate;
   if (queuedByLine) {
     await exec(
       env,
@@ -1333,6 +1350,7 @@ export async function inbound(
           epoch: c.epoch,
           session: c.session,
           ...(queuedByLine ? { queued_by_line: true } : {}),
+          ...(lineGate ? { line_gate: true } : {}),
           ...(resumed.length ? { resumed_tickets: resumed } : {}),
         }),
         now(),

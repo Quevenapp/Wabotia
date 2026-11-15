@@ -931,7 +931,21 @@ export async function processInbox(env: Env, profile: string) {
         ),
       };
     }
-    if (line.mode === "human" && !c.assigned_bot_id) return;
+    if (line.mode === "human" && !c.assigned_bot_id) {
+      // Linha por pessoa numa área com módulo que segura passagens (Suporte
+      // pago): a ida para a equipe passa pelo portão (revisão M2).
+      if (data.line_gate && c.state === "ai")
+        await handoff(
+          env,
+          c,
+          "Linha de atendimento por pessoa.",
+          null,
+          undefined,
+          true,
+          { source: "line" },
+        );
+      return;
+    }
     if (!policy.bots) return;
     if (
       !cfg.attendant_bot ||
