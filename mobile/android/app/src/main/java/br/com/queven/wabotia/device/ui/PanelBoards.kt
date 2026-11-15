@@ -973,7 +973,7 @@ private fun QueueButtons(
 @Composable
 private fun QueueButton(option: StationOption, index: Int, busy: Boolean, compact: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val s = LocalPanelStyle.current
-    val letter = option.name.firstOrNull()?.uppercaseChar()
+    val letter = option.letter ?: option.name.firstOrNull()?.uppercaseChar()
     BoxWithConstraints(
         modifier
             .panelCard(s, s.surface, s.radius)

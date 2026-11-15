@@ -17,6 +17,8 @@ data class StationOption(
     val waitingCount: Int,
     /** A estimativa de espera desta opção, em minutos; `null` sem histórico. */
     val estimatedWaitMinutes: Int? = null,
+    /** A letra das senhas desta fila (o prefixo normal no Wabotia); sem ela, a inicial do nome. */
+    val letter: Char? = null,
 )
 
 data class StationCall(

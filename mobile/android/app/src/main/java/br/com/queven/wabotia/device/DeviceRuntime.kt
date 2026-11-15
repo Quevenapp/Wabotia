@@ -44,6 +44,8 @@ fun QueueOverview.toRuntime(displayName: String?): StationRuntime {
                 available = true,
                 waitingCount = q.waiting?.total ?: 0,
                 estimatedWaitMinutes = q.waitMinutes?.normal,
+                // A letra e a cor do quadrado são as das senhas que a fila emite (N001 → N), como no painel.
+                letter = q.prefixNormal?.firstOrNull { it.isLetter() }?.uppercaseChar(),
             )
         },
         calls = recentCalls.orEmpty().mapIndexed { i, call -> call.toStationCall(i) },

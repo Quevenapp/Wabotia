@@ -7,6 +7,8 @@ import br.com.queven.wabotia.queue.CallFrame
 import br.com.queven.wabotia.queue.DeviceScopes
 import br.com.queven.wabotia.queue.QueueClient
 import br.com.queven.wabotia.queue.QueueException
+import br.com.queven.wabotia.queue.QueueInfo
+import br.com.queven.wabotia.queue.QueueOverview
 import br.com.queven.wabotia.queue.QueueTicket
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -93,6 +95,21 @@ class TotemLogicTest {
         assertTrue(base.copy(scopes = DeviceScopes.requested).canIssue())
         assertFalse(base.toString().contains("wab_x"))
         assertEquals(listOf("queue:read", "queue:issue"), DeviceScopes.requested)
+    }
+
+    @Test
+    fun `quadrado da fila no totem usa a letra das senhas`() {
+        val overview = QueueOverview(
+            queues = listOf(
+                QueueInfo(id = "q1", name = "Atendimento geral", prefixNormal = "N", prefixPreferential = "P", channels = listOf("kiosk")),
+                QueueInfo(id = "q2", name = "Retirada", channels = listOf("kiosk", "whatsapp")),
+                QueueInfo(id = "q3", name = "Interna", prefixNormal = "I", channels = listOf("whatsapp")),
+            ),
+        )
+        val options = overview.toRuntime("Totem").options
+        assertEquals(listOf("q1", "q2"), options.map { it.queueId })
+        assertEquals('N', options[0].letter)
+        assertEquals(null, options[1].letter)
     }
 
     @Test
