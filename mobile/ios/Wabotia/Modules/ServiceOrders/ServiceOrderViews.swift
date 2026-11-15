@@ -127,6 +127,9 @@ struct ServiceOrderDetailView: View {
     @State private var confirming: (status: String, title: String)?
     @State private var note = ""
     @State private var quoteNotify = true
+    @State private var printState: TicketPrint?
+    @State private var showPrinter = false
+    @State private var confirmReprint = false
 
     init(id: String, vm: ServiceOrderViewModel? = nil) {
         _vm = StateObject(wrappedValue: vm ?? ServiceOrderViewModel(id: id))
@@ -313,10 +316,52 @@ struct ServiceOrderDetailView: View {
         }
     }
 
-    /// O que não é passo do fluxo: comprovante (entrega 3).
+    /// O comprovante impresso na impressora escolhida no app (a mesma do totem).
     @ViewBuilder
     private func extraActions(_ o: ServiceOrder) -> some View {
-        EmptyView()
+        VStack(alignment: .leading, spacing: 8) {
+            SecondaryButton(title: "Imprimir comprovante", icon: "printer.fill", busy: printState == .printing) {
+                print(o, confirmed: false)
+            }
+            .accessibilityIdentifier("os.print")
+            if let text = printMessage {
+                Text(text).font(Theme.font(13)).foregroundStyle(printState?.isFailure == true ? Theme.danger : Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if printState == .noPrinter {
+                Button("Escolher impressora") { showPrinter = true }.font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand)
+            }
+        }
+        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
+        .confirmationDialog("O comprovante saiu?", isPresented: $confirmReprint, titleVisibility: .visible) {
+            Button("Nada saiu, imprimir") { print(o, confirmed: true) }
+            Button("Saiu, cancelar", role: .cancel) {}
+        } message: {
+            Text("A impressora pode ter impresso sem confirmar. Imprima de novo só se nada saiu.")
+        }
+    }
+
+    private var printMessage: String? {
+        switch printState {
+        case .printing?: return "Imprimindo…"
+        case .printed?: return "Enviado à impressora. Confira o papel."
+        case .noPrinter?: return "Nenhuma impressora escolhida neste aparelho."
+        case let .failed(message, _)?: return "O comprovante não saiu: \(message)"
+        case nil: return nil
+        }
+    }
+
+    private func print(_ o: ServiceOrder, confirmed: Bool) {
+        // Resultado incerto da vez anterior: a segunda via só com confirmação, para não sair papel duplicado.
+        if case let .failed(_, needsConfirmation)? = printState, needsConfirmation, !confirmed {
+            confirmReprint = true
+            return
+        }
+        let header = Workspace.shared.profileName
+        printState = .printing
+        Task {
+            printState = await WabotiaPrinting.shared.print(ServiceOrderReceiptData.of(o, header: header))
+        }
     }
 
     private func actorLabel(_ actor: String?) -> String? {
