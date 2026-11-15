@@ -61,6 +61,12 @@ mensagem só pelo modelo de notificação: link e, no Pix, o código.
 Validade: de 30 minutos a 30 dias, padrão 24 horas. Vencida, a cobrança
 expira no Wabotia e é cancelada no provedor.
 
+Cancelar pelo painel ou pela API (`POST …/payments/{id}/cancel`): quem vê a
+conversa cancela as cobranças avulsas. As abertas por um módulo (sinal da
+Reserva, Pix do Pedido, compra do Suporte) só o administrador, quem atende a
+conversa ou uma integração com `billing:write`; o normal é o próprio módulo
+cancelar no fluxo dele.
+
 ## Estados
 
 | Estado | Quando |

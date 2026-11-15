@@ -915,7 +915,21 @@ export async function cancelPayment(
     profile,
   );
   if (!row) throw new ApiError(404, "not_found", "Cobrança não encontrada.");
-  await conversation(env, row.conversation_id, profile, actor);
+  const c = await conversation(env, row.conversation_id, profile, actor);
+  // Cobrança aberta por um módulo (sinal da Reserva, Pix do Pedido, compra do
+  // Suporte): cancelar fora do fluxo do módulo só o administrador, quem
+  // atende a conversa ou aplicação com billing:write (revisão B6).
+  if (
+    row.module_id &&
+    !(actor.kind === "user" && actor.role === "admin") &&
+    !(actor.kind === "user" && c.owner === actor.id) &&
+    !(actor.kind === "app" && actor.scopes.includes("billing:write"))
+  )
+    throw new ApiError(
+      403,
+      "forbidden",
+      "Esta cobrança foi aberta por um módulo: só o administrador, quem atende a conversa ou uma integração com billing:write pode cancelar.",
+    );
   if (!(await transition(env, row, "cancelled")))
     throw new ApiError(
       409,
