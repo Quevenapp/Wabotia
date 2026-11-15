@@ -118,6 +118,10 @@ dependencies {
     // Impressora térmica do totem (cupom da senha) e a superfície de configuração do kit.
     implementation(libs.thermalprinterkit)
     implementation(libs.thermalprinterkit.printher)
+    // QR do cupom na tela do totem (o kit usa o zxing por dentro, sem exportá-lo).
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -8,6 +8,8 @@ import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
 import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.DeviceConfigStore
+import br.com.queven.wabotia.device.KeystoreDeviceConfigStore
 import br.com.queven.wabotia.printing.createWabotiaThermalPrinter
 import br.com.thermalprinterkit.ThermalPrinter
 import kotlinx.coroutines.CancellationException
@@ -48,6 +50,9 @@ class AppContainer(context: Context) {
 
     /** Consulta única de eventos em primeiro plano, compartilhada por todas as telas. */
     val events = EventHub(this)
+
+    /** A credencial do modo aparelho (totem/painel), cifrada e separada da sessão de pessoa. */
+    val deviceStore: DeviceConfigStore by lazy { KeystoreDeviceConfigStore(appContext) }
 
     /** A impressora térmica deste aparelho (cupom do totem); criada só quando alguém precisa dela. */
     val thermalPrinter: ThermalPrinter by lazy { createWabotiaThermalPrinter(appContext) }

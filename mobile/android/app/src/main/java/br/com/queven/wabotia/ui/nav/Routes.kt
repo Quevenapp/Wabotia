@@ -6,6 +6,8 @@ import br.com.queven.wabotia.BuildConfig
 /** Rotas do NavHost. Mantenha sincronizado com AppNavHost e com os deep links wabotia://open/{type}. */
 object Routes {
     const val SERVER = "server"
+    /** Depois do servidor: "Entrar" ou "Usar este aparelho como painel ou totem". */
+    const val START = "start"
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
     const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), ajustes

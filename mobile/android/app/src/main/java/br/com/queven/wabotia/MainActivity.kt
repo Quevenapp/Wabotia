@@ -30,6 +30,7 @@ import androidx.navigation.compose.rememberNavController
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.DeviceActivity
 import br.com.queven.wabotia.ui.components.DemoBanner
 import br.com.queven.wabotia.ui.nav.AppNavHost
 import br.com.queven.wabotia.ui.nav.DeepLink
@@ -49,6 +50,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as WabotiaApp).container
+        // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
+        if (savedInstanceState == null && intent?.getStringExtra("demo") == null && DeviceActivity.isPaired(container.deviceStore)) {
+            startActivity(DeviceActivity.intent(this))
+            finish()
+            return
+        }
         // URI (notificação montada pelo app), extras do `data` (notificação exibida pelo Firebase em segundo plano)
         // ou, só no build de depuração, o atalho `--es demo <tela>`.
         if (savedInstanceState == null) pendingLink = accept(DeepLink.from(intent))

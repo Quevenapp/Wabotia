@@ -1,0 +1,647 @@
+package br.com.queven.wabotia.device.ui
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LinkOff
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.automirrored.filled.ViewQuilt
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.device.DeviceRole
+import br.com.queven.wabotia.device.DeviceState
+import br.com.queven.wabotia.device.DeviceViewModel
+import br.com.queven.wabotia.device.toRuntime
+import br.com.queven.wabotia.printing.CouponData
+import br.com.queven.wabotia.printing.CouponText
+import br.com.queven.wabotia.printing.TicketPrint
+import br.com.queven.wabotia.queue.QueueTicket
+import br.com.queven.wabotia.ui.auth.AuthFieldShape
+import br.com.queven.wabotia.ui.auth.AuthHelp
+import br.com.queven.wabotia.ui.auth.AuthScaffold
+import br.com.queven.wabotia.ui.auth.authFieldColors
+import br.com.queven.wabotia.ui.components.DetailTopBar
+import br.com.queven.wabotia.ui.components.InlineNotice
+import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.RowDivider
+import br.com.queven.wabotia.ui.components.SecondaryButton
+import br.com.queven.wabotia.ui.components.SectionLabel
+import br.com.queven.wabotia.ui.components.SettingsRow
+import br.com.queven.wabotia.ui.components.WbCard
+import br.com.queven.wabotia.ui.printing.PrinterScreen
+import br.com.queven.wabotia.ui.theme.Wb
+import kotlinx.coroutines.delay
+
+/**
+ * O modo aparelho tem quatro lugares: parear com o Wabotia, escolher o papel (e os ajustes), a tela do papel (totem,
+ * painel de chamadas ou híbrido) e a impressora. Ajustes e saída ficam atrás da engrenagem e do PIN.
+ */
+@Composable
+fun DeviceApp(container: AppContainer, vm: DeviceViewModel, onFinish: () -> Unit) {
+    val state by vm.state.collectAsStateWithLifecycle()
+    var printer by rememberSaveable { mutableStateOf(false) }
+    var settings by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.finished) { if (state.finished) onFinish() }
+    val config = state.config
+    when {
+        state.finished -> Box(Modifier.fillMaxSize().background(Wb.colors.background))
+        config == null -> PairingScreen(state, vm, onBack = onFinish)
+        printer -> {
+            BackHandler { printer = false }
+            PrinterScreen(container, onBack = { printer = false })
+        }
+        config.role == null || settings ->
+            DeviceSettingsScreen(
+                state = state,
+                vm = vm,
+                onPrinter = { printer = true },
+                onDone = if (config.role != null) ({ settings = false }) else null,
+            )
+        else -> PanelScreen(state, vm, onSettings = { settings = true })
+    }
+}
+
+// --- parear ---------------------------------------------------------------------
+
+@Composable
+private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () -> Unit) {
+    val c = Wb.colors
+    var url by rememberSaveable { mutableStateOf(state.serverUrl?.removePrefix("https://").orEmpty()) }
+    var name by rememberSaveable { mutableStateOf("") }
+    val code = state.pairing.userCode
+    BackHandler { if (code != null) vm.cancelPairing() else onBack() }
+    AuthScaffold(
+        title = if (code == null) "Painel ou totem" else "Aprove no Wabotia",
+        subtitle = if (code == null) "Este aparelho vira um totem de senhas, um painel de chamadas ou os dois." else "Digite este código no painel do Wabotia.",
+        markSize = 64.dp,
+        topSpace = 24.dp,
+    ) {
+        if (state.demo) {
+            InlineNotice("Demonstração: o código é aprovado sozinho em alguns segundos e nada sai do aparelho.", color = c.warn)
+            Spacer(Modifier.height(12.dp))
+        }
+        if (code == null) {
+            WbCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("Servidor") },
+                        prefix = { Text("https://", color = c.textSecondary) },
+                        singleLine = true,
+                        enabled = !state.pairing.busy && !state.demo,
+                        shape = AuthFieldShape,
+                        colors = authFieldColors(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                        modifier = Modifier.fillMaxWidth().testTag("device.url"),
+                    )
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it.take(80) },
+                        label = { Text("Nome deste aparelho") },
+                        placeholder = { Text("Totem da entrada") },
+                        singleLine = true,
+                        enabled = !state.pairing.busy,
+                        shape = AuthFieldShape,
+                        colors = authFieldColors(),
+                        modifier = Modifier.fillMaxWidth().testTag("device.name"),
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            PrimaryButton(
+                "Gerar código",
+                onClick = { vm.startPairing(if (state.demo) state.serverUrl.orEmpty() else url, name) },
+                loading = state.pairing.busy,
+                enabled = url.isNotBlank() && name.isNotBlank(),
+                modifier = Modifier.testTag("device.start"),
+            )
+            Spacer(Modifier.height(16.dp))
+            AuthHelp("O aparelho recebe uma credencial própria, separada de qualquer conta de pessoa. Ele só lê a fila e emite senhas; chamar senhas fica no guichê, dentro do app.")
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = onBack) { Text("Voltar", color = c.brand, fontWeight = FontWeight.SemiBold) }
+        } else {
+            WbCard {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        code,
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        color = c.textPrimary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag("device.code"),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = c.brand)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Esperando a aprovação…", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            AuthHelp("No painel do Wabotia, um administrador abre Integrações → Parear Senhapp, digita o código e aprova só “Ler a fila” e “Emitir senhas (totem)”. O código vale 10 minutos.")
+            Spacer(Modifier.height(16.dp))
+            SecondaryButton("Cancelar", onClick = vm::cancelPairing)
+        }
+        state.pairing.error?.let {
+            Spacer(Modifier.height(12.dp))
+            InlineNotice(it, Modifier.testTag("device.error"))
+        }
+    }
+}
+
+// --- papel e ajustes ---------------------------------------------------------------
+
+@Composable
+private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, onPrinter: () -> Unit, onDone: (() -> Unit)?) {
+    val config = state.config ?: return
+    val c = Wb.colors
+    var pinDialog by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    onDone?.let { BackHandler(onBack = it) }
+    Scaffold(
+        containerColor = c.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            if (onDone != null) DetailTopBar("Ajustes deste aparelho", onBack = onDone, subtitle = config.name)
+            else DetailTopBar("O que este aparelho faz?", onBack = { confirmLeave = true }, subtitle = config.name)
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().widthIn(max = 720.dp).align(Alignment.CenterHorizontally)) {
+                state.notice?.let { InlineNotice(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = c.warn) }
+                SectionLabel("Papel")
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    DeviceRole.entries.forEach { role ->
+                        RoleCard(role, selected = config.role == role, enabled = !role.totem || config.canIssue()) { vm.chooseRole(role) }
+                    }
+                }
+                if (config.role?.panel == true || config.role?.totem == true) {
+                    SectionLabel("Visual da tela")
+                    Box(Modifier.padding(horizontal = 16.dp)) { TemplatePicker(state.template, vm::setTemplate) }
+                }
+                SectionLabel("Aparelho")
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    if (config.role?.panel == true) {
+                        SettingsRow(
+                            Icons.Filled.RecordVoiceOver,
+                            "Voz das chamadas",
+                            subtitle = "Gongo e a senha falada duas vezes, no volume do alarme",
+                            trailing = {
+                                Switch(
+                                    checked = state.soundEnabled,
+                                    onCheckedChange = vm::setSound,
+                                    colors = SwitchDefaults.colors(checkedTrackColor = c.brand, checkedThumbColor = c.onBrand),
+                                )
+                            },
+                        )
+                        RowDivider()
+                        SettingsRow(Icons.AutoMirrored.Filled.VolumeUp, "Testar som", subtitle = "“Senha N 1. Guichê 1.”", tint = c.ticket, onClick = vm::testSound)
+                        RowDivider()
+                    }
+                    if (config.role?.totem == true) {
+                        SettingsRow(Icons.Filled.Print, "Impressora do cupom", subtitle = "Bluetooth, USB ou Wi-Fi", tint = c.textSecondary, onClick = onPrinter)
+                        RowDivider()
+                    }
+                    SettingsRow(
+                        if (state.pinSet) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        if (state.pinSet) "Trocar o PIN de saída" else "Criar PIN de saída",
+                        subtitle = "Sem o PIN, ninguém abre estes ajustes nem sai da tela do aparelho",
+                        tint = if (state.pinSet) c.ok else c.warn,
+                        onClick = { pinDialog = true },
+                    )
+                    if (state.pinSet) {
+                        RowDivider()
+                        SettingsRow(Icons.Filled.LockOpen, "Remover o PIN", tint = c.muted, onClick = vm::removePin)
+                    }
+                }
+                SectionLabel("Conexão")
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.Info,
+                        config.baseUrl.removePrefix("https://"),
+                        subtitle = when {
+                            state.demo -> "Demonstração: dados fictícios, nada sai do aparelho"
+                            state.revoked -> "Credencial revogada no servidor"
+                            state.offline -> "Sem conexão agora"
+                            state.live -> "Ao vivo (WebSocket)"
+                            else -> "Conectado (consulta a cada 5 s)"
+                        },
+                        tint = if (state.revoked || state.offline) c.danger else c.ok,
+                    )
+                    RowDivider()
+                    SettingsRow(
+                        Icons.Filled.LinkOff,
+                        if (state.demo) "Sair da demonstração" else "Desfazer pareamento",
+                        subtitle = if (state.demo) null else "O aparelho esquece a credencial e avisa o Wabotia",
+                        tint = c.danger,
+                        titleColor = c.danger,
+                        onClick = { confirmLeave = true },
+                    )
+                }
+                onDone?.let {
+                    Spacer(Modifier.height(20.dp))
+                    PrimaryButton("Voltar à tela", onClick = it, modifier = Modifier.padding(horizontal = 16.dp))
+                }
+            }
+        }
+    }
+    if (pinDialog) PinCreateDialog(onCreate = vm::createPin, onClose = { pinDialog = false })
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text(if (state.demo) "Sair da demonstração?" else "Desfazer pareamento?") },
+            text = {
+                Text(
+                    if (state.demo) "O aparelho volta à tela inicial do Wabotia."
+                    else "O aparelho esquece o vínculo e avisa o Wabotia. Para voltar a ser painel ou totem, pareie de novo.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmLeave = false; vm.unpair() }) { Text(if (state.demo) "Sair" else "Desfazer", color = Wb.colors.danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancelar") } },
+        )
+    }
+}
+
+@Composable
+private fun RoleCard(role: DeviceRole, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val c = Wb.colors
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) c.soft(c.brand, 0.14f) else c.surface)
+            .border(if (selected) 2.dp else 1.dp, if (selected) c.brand else c.hairline, shape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(16.dp)
+            .testTag("role.${role.name.lowercase()}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            when (role) {
+                DeviceRole.TOTEM -> Icons.Filled.ConfirmationNumber
+                DeviceRole.PANEL -> Icons.Filled.Tv
+                DeviceRole.HYBRID -> Icons.AutoMirrored.Filled.ViewQuilt
+            },
+            contentDescription = null,
+            tint = if (enabled) c.brand else c.muted,
+            modifier = Modifier.size(28.dp),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(role.label, style = MaterialTheme.typography.titleMedium, color = if (enabled) c.textPrimary else c.muted)
+            Text(
+                if (enabled) role.detail else "Sem permissão de emitir senhas neste pareamento",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary,
+            )
+        }
+        if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = "Escolhido", tint = c.brand)
+    }
+}
+
+@Composable
+private fun PinCreateDialog(onCreate: (String, String) -> String?, onClose: () -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("PIN de saída") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Quem passa na frente do totem ou da TV não abre os ajustes nem sai da tela sem o PIN.")
+                PinInput("PIN (4 números)", pin) { pin = it }
+                PinInput("Repita o PIN", again) { again = it }
+                error?.let { Text(it, color = Wb.colors.danger) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                error = onCreate(pin, again)
+                if (error == null) onClose()
+            }) { Text("Salvar") }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+private fun PinInput(label: String, value: String, onChange: (String) -> Unit) =
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onChange(it.filter(Char::isDigit).take(4)) },
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+    )
+
+@Composable
+private fun UnlockDialog(error: String?, onUnlock: (String) -> Unit, onDismiss: () -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Digite o PIN") },
+        text = {
+            Column {
+                PinInput("PIN", pin) { pin = it }
+                error?.let { Text(it, color = Wb.colors.danger) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onUnlock(pin) }) { Text("Entrar") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+// --- painel, totem e híbrido -------------------------------------------------------
+
+@Composable
+private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () -> Unit) {
+    val config = state.config ?: return
+    val role = config.role ?: return
+    KeepScreenOnEffect()
+    ImmersiveEffect()
+    if (role.panel) PanelVolumeKeysEffect()
+    var unlocking by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun guarded(action: () -> Unit) {
+        if (state.pinSet) {
+            vm.clearPinError()
+            unlocking = action
+        } else {
+            action()
+        }
+    }
+    // Voltar (gesto ou botão) também passa pelo PIN: ninguém sai da tela do totem sem ele.
+    BackHandler { guarded(onSettings) }
+    val runtime = state.overview?.toRuntime(config.name)
+    PanelTheme(state.template) {
+        val s = LocalPanelStyle.current
+        Box(Modifier.fillMaxSize().background(s.bg).testTag("device.panel")) {
+            BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                val base = (minOf(maxWidth, maxHeight) * 0.023f).coerceIn(11.dp, 30.dp)
+                val landscape = maxWidth > maxHeight
+                val compact = maxWidth < 600.dp
+                CompositionLocalProvider(LocalPanelBase provides base) {
+                    Column(Modifier.fillMaxSize()) {
+                        PanelHeaderBar(
+                            name = config.name,
+                            role = if (state.demo) "Wabotia · demonstração" else "Wabotia",
+                            title = if (role.panel) "Chamadas" else "Retire sua senha",
+                            onBack = null,
+                            compact = compact,
+                        ) {
+                            Text(
+                                when {
+                                    state.revoked -> "● desconectado"
+                                    state.offline -> "● sem conexão"
+                                    state.live || state.demo -> "● ao vivo"
+                                    else -> "● conectando"
+                                },
+                                color = if (state.offline || state.revoked) MaterialTheme.colorScheme.error else s.headerFg,
+                                modifier = Modifier.testTag("device.connection"),
+                            )
+                            IconButton(onClick = { guarded(onSettings) }, modifier = Modifier.testTag("device.settings")) {
+                                Icon(Icons.Outlined.Settings, contentDescription = "Ajustes deste aparelho")
+                            }
+                        }
+                        Column(Modifier.fillMaxSize().padding(base * 0.9f), verticalArrangement = Arrangement.spacedBy(base * 0.7f)) {
+                            if ((state.offline || state.revoked) && role.totem) {
+                                OfflineNotice(
+                                    if (state.revoked) "Este aparelho foi desconectado do Wabotia. Dirija-se ao balcão."
+                                    else "Sem conexão com o Wabotia: o totem não emite senhas agora. Dirija-se ao balcão.",
+                                )
+                            } else {
+                                state.notice?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("device.notice")) }
+                            }
+                            val body = Modifier.fillMaxWidth().weight(1f)
+                            val issued = state.issued
+                            val issuedCard: @Composable () -> Unit = {
+                                if (issued != null) IssuedTicketCard(issued, state.print, config.name, vm::reprint, vm::clearIssued)
+                            }
+                            val blocked = state.busy || state.offline || state.revoked
+                            when {
+                                runtime == null ->
+                                    Box(body, contentAlignment = Alignment.Center) { Text("Lendo a fila…", color = s.muted) }
+                                issued != null && role.totem && !(role.panel && landscape) ->
+                                    Column(body.verticalScroll(rememberScrollState())) { issuedCard() }
+                                role == DeviceRole.HYBRID ->
+                                    HybridBoard(runtime, blocked, { queueId, _ -> vm.chooseQueue(queueId) }, null, null, if (issued != null) issuedCard else null, body)
+                                role == DeviceRole.TOTEM ->
+                                    TotemBoard(runtime, blocked, { queueId, _ -> vm.chooseQueue(queueId) }, null, null, body)
+                                else -> CallBoard(runtime.calls, null, null, body)
+                            }
+                        }
+                    }
+                }
+            }
+            if (role.panel) state.spotlight?.let { CallSpotlight(it) }
+        }
+    }
+    state.choosing?.let { queue ->
+        TypeChoiceDialog(
+            queueName = queue.name,
+            notice = queue.preferentialNotice,
+            waitNormal = queue.waitMinutes?.normal,
+            waitPreferential = queue.waitMinutes?.preferential,
+            onChoose = vm::issue,
+            onCancel = vm::cancelChoice,
+        )
+    }
+    unlocking?.let { action ->
+        UnlockDialog(
+            error = state.pinError,
+            onUnlock = { pin ->
+                if (vm.unlock(pin)) {
+                    unlocking = null
+                    action()
+                }
+            },
+            onDismiss = { unlocking = null },
+        )
+    }
+}
+
+@Composable
+private fun OfflineNotice(text: String) {
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(12.dp).testTag("device.offline"),
+    )
+}
+
+/** Normal ou Preferencial, com o aviso legal; some sozinho em 30 s. */
+@Composable
+private fun TypeChoiceDialog(
+    queueName: String,
+    notice: String?,
+    waitNormal: Int?,
+    waitPreferential: Int?,
+    onChoose: (Boolean) -> Unit,
+    onCancel: () -> Unit,
+) {
+    LaunchedEffect(queueName) {
+        delay(30_000)
+        onCancel()
+    }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("$queueName · qual senha?", fontSize = 26.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(onClick = { onChoose(false) }, modifier = Modifier.fillMaxWidth().height(96.dp).testTag("choice.normal")) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Normal", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        waitNormal?.let { Text("cerca de $it min") }
+                    }
+                }
+                OutlinedButton(onClick = { onChoose(true) }, modifier = Modifier.fillMaxWidth().height(96.dp).testTag("choice.preferential")) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Preferencial", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        waitPreferential?.let { Text("cerca de $it min") }
+                    }
+                }
+                if (!notice.isNullOrBlank()) Text(notice, style = MaterialTheme.typography.bodyMedium)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onCancel) { Text("Voltar") } },
+    )
+}
+
+/** A senha recém-emitida: número grande, posição, situação do cupom e o QR do WhatsApp. */
+@Composable
+private fun IssuedTicketCard(
+    ticket: QueueTicket,
+    print: TicketPrint?,
+    header: String,
+    onReprint: (Boolean) -> Unit,
+    onDone: () -> Unit,
+) {
+    val s = LocalPanelStyle.current
+    val data = CouponData.of(ticket, header)
+    var confirmReprint by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().padding(8.dp).testTag("device.issued"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("Sua senha · ${CouponText.type(data)}", color = s.muted, fontSize = 22.sp)
+        Text(ticket.code, fontFamily = s.display, fontWeight = s.displayWeight, fontSize = 96.sp, color = s.fg, modifier = Modifier.testTag("device.issued.code"))
+        Text(ticket.queueName.orEmpty(), color = s.fg, fontSize = 22.sp)
+        Text(CouponText.position(data), color = s.fg, fontSize = 20.sp)
+        Text(
+            when (print) {
+                TicketPrint.Printing -> "Imprimindo o cupom…"
+                TicketPrint.Printed -> "Retire o cupom na impressora."
+                TicketPrint.NoPrinter -> "Sem impressora: anote ou fotografe a senha."
+                is TicketPrint.Failed -> "O cupom não saiu: ${print.message}"
+                null -> ""
+            },
+            color = if (print is TicketPrint.Failed) MaterialTheme.colorScheme.error else s.muted,
+            modifier = Modifier.testTag("device.issued.print"),
+        )
+        data.whatsappLink?.let { link ->
+            QrMatrixImage(link, "QR para acompanhar a senha no WhatsApp", size = 180.dp)
+            Text(CouponText.WHATSAPP, color = s.muted, textAlign = TextAlign.Center)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (print is TicketPrint.Failed) {
+                OutlinedButton(onClick = { if (print.reprintNeedsConfirmation) confirmReprint = true else onReprint(false) }) { Text("Imprimir de novo") }
+            }
+            Button(onClick = onDone, modifier = Modifier.testTag("device.issued.done")) { Text("Pronto") }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+    if (confirmReprint) {
+        AlertDialog(
+            onDismissRequest = { confirmReprint = false },
+            title = { Text("O cupom saiu?") },
+            text = { Text("A impressora pode ter impresso sem confirmar. Imprima de novo só se nada saiu, para não haver dois papéis com a mesma senha.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReprint = false
+                    onReprint(true)
+                }) { Text("Nada saiu, imprimir") }
+            },
+            dismissButton = { TextButton(onClick = { confirmReprint = false }) { Text("Saiu, cancelar") } },
+        )
+    }
+}

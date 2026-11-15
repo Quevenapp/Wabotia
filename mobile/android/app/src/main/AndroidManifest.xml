@@ -29,6 +29,13 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
+    <queries>
+        <!-- Os motores de voz: o painel de chamadas escolhe o do Google quando existe. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <!-- Sem cópia de segurança: nem na nuvem nem na transferência entre aparelhos (dados de clientes e sessão). -->
     <application
         android:name=".WabotiaApp"
@@ -62,6 +69,15 @@
                 <data android:scheme="wabotia" android:host="open" />
             </intent-filter>
         </activity>
+
+        <!-- Modo aparelho (totem, painel de chamadas, híbrido): fora do login, tela cheia, paisagem e sempre ligada. -->
+        <activity
+            android:name=".device.DeviceActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Wabotia" />
 
         <service
             android:name=".core.push.WabotiaMessagingService"

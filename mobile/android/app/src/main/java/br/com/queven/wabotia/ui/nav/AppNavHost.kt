@@ -24,6 +24,7 @@ import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.ui.auth.LoginScreen
 import br.com.queven.wabotia.ui.auth.ProfilePickerScreen
 import br.com.queven.wabotia.ui.auth.ServerScreen
+import br.com.queven.wabotia.ui.auth.StartScreen
 import br.com.queven.wabotia.ui.bots.BotChatScreen
 import br.com.queven.wabotia.ui.bots.BotRunsScreen
 import br.com.queven.wabotia.ui.conversations.ConversationInfoScreen
@@ -43,7 +44,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
     val auth by container.auth.collectAsState()
     val start = when {
         !auth.isLoggedIn && auth.serverUrl == null -> Routes.SERVER
-        !auth.isLoggedIn -> Routes.LOGIN
+        !auth.isLoggedIn -> Routes.START
         auth.profileId == null -> Routes.PROFILE_PICKER
         else -> Routes.HOME
     }
@@ -54,12 +55,12 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
     // Sessão encerrada (logout/401): volta para o login limpando a pilha.
     LaunchedEffect(auth.isLoggedIn, auth.profileId) {
         val current = nav.currentDestination?.route
-        if (!auth.isLoggedIn && current != Routes.SERVER && current != Routes.LOGIN) {
+        if (!auth.isLoggedIn && current != Routes.SERVER && current != Routes.LOGIN && current != Routes.START) {
             homeTab = HomeTab.Conversations
             nav.navigate(if (auth.serverUrl == null) Routes.SERVER else Routes.LOGIN) { popUpTo(0) { inclusive = true } }
         } else if (auth.isLoggedIn && auth.profileId == null && current != Routes.PROFILE_PICKER) {
             nav.navigate(Routes.PROFILE_PICKER) { popUpTo(0) { inclusive = true } }
-        } else if (auth.isLoggedIn && auth.profileId != null && (current == Routes.LOGIN || current == Routes.PROFILE_PICKER || current == Routes.SERVER)) {
+        } else if (auth.isLoggedIn && auth.profileId != null && (current == Routes.LOGIN || current == Routes.PROFILE_PICKER || current == Routes.SERVER || current == Routes.START)) {
             nav.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
         }
     }
@@ -117,7 +118,14 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         popEnterTransition = { fadeIn(tween(180)) },
         popExitTransition = { slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(160)) },
     ) {
-        composable(Routes.SERVER) { ServerScreen(container) { nav.navigate(Routes.LOGIN) } }
+        composable(Routes.SERVER) { ServerScreen(container) { nav.navigate(Routes.START) } }
+        composable(Routes.START) {
+            StartScreen(
+                container,
+                onLogin = { nav.navigate(Routes.LOGIN) },
+                onChangeServer = { container.onLoggedOut(keepServer = false); nav.navigate(Routes.SERVER) { popUpTo(0) { inclusive = true } } },
+            )
+        }
         composable(Routes.LOGIN) {
             LoginScreen(
                 container,
