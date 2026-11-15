@@ -29,6 +29,8 @@ import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
+import { AgendaPage } from "../modules/agenda/AgendaPage";
+import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -132,6 +134,10 @@ function Page({ page }: { page: PageId }) {
       return <ModulesPage />;
     case "forms":
       return <FormsPage />;
+    case "agenda":
+      return <AgendaPage />;
+    case "agenda-settings":
+      return <AgendaSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

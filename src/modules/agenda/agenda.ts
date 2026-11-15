@@ -9,6 +9,7 @@ import {
 import * as moduleApi from "../api";
 import {
   onCommand,
+  onConversationAction,
   onMenuChoice,
   onRead,
   onRoute,
@@ -135,6 +136,71 @@ onMenuChoice("agenda_mine", async (ctx, c, _item, { rowId }) => {
     await unavailable(ctx, c, error, rowId);
   }
 });
+
+/** Quem age na conversa: o responsável, um administrador ou o bot que atende. */
+function mayActOn(actor: Actor, c: Conversation) {
+  const bot = actor.id.startsWith("bot:");
+  requireValue(
+    c.owner === actor.id ||
+      (actor.kind === "user" && actor.role === "admin") ||
+      (bot && c.state === "ai"),
+    "Assuma a conversa antes de agendar para o cliente.",
+  );
+  return bot;
+}
+
+// Ação do atendente: "Agendar para este cliente"
+// (POST /conversations/:id/actions {action:"agenda", service_id, starts, …}).
+onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
+  mayActOn(actor, c);
+  requireValue(
+    c.chat_type !== "group",
+    "Agende pela conversa direta do cliente.",
+  );
+  return (
+    await book(ctx, await config(ctx), {
+      service_id: data.service_id,
+      professional_id: data.professional_id ?? null,
+      starts: data.starts,
+      conversation: c,
+      notes: data.notes,
+      source: sourceOf(actor),
+      actor: actor.id,
+      rules: { staff: true },
+      force: staffFlag(data.force),
+      notify: data.notify === false ? false : undefined,
+    })
+  ).appointment;
+});
+
+// "Enviar link para agendar": o cliente escolhe sozinho (passo web ou chat).
+onConversationAction(
+  MODULE,
+  "agenda_link",
+  async (ctx, actor, c, data, request) => {
+    const bot = mayActOn(actor, c);
+    requireValue(
+      c.chat_type !== "group",
+      "Envie pela conversa direta do cliente.",
+    );
+    const serviceId =
+      typeof data.service_id === "string" ? data.service_id : null;
+    if (chatTurns) {
+      await startBooking(ctx, c, {
+        key: `action:${request.requestId}`,
+        serviceId,
+      });
+      return { sent: true, web_step: null };
+    }
+    const opened = await sendBookingStep(ctx, c, {
+      sourceKey: `action:${actor.id}:${request.requestId}`,
+      trigger: bot ? "module" : "agent",
+      actor: actor.id,
+      serviceId,
+    });
+    return { sent: !!opened, web_step: opened?.step || null };
+  },
+);
 
 onWebStepCompleted(MODULE, async (ctx, step, answers) => {
   await webStepDone(ctx, step, answers);

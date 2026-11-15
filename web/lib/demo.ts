@@ -2,6 +2,7 @@
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
+import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -350,6 +351,7 @@ const demoModules: Row[] = [
     navigation: [{ id: "forms", label: "Formulários", place: "admin", admin: true }],
     menu_item_types: [{ type: "form", label: "Responder formulário" }],
   },
+  agendaDemoModule,
 ];
 
 function read(path: string, query: URLSearchParams): any {
@@ -480,6 +482,7 @@ function read(path: string, query: URLSearchParams): any {
     return { id: "demo-chat", peer: team[1], messages: internalMessages };
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
+  if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
   if (rest === "lines") return { data: [] };
   if (rest === "calls")
     return page([

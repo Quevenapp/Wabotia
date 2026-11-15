@@ -12,7 +12,8 @@ export const agendaModule: ModuleDefinition = {
   builtin: true,
   default_enabled: false,
   navigation: [
-    { id: "agenda", label: "Agenda", place: "rail", admin: false },
+    // No trilho quando o núcleo aceitar áreas de módulo; por ora em Gestão.
+    { id: "agenda", label: "Agenda", place: "admin", admin: false },
     {
       id: "agenda-settings",
       label: "Serviços e horários",
