@@ -16,6 +16,7 @@ import br.com.queven.wabotia.device.core.MemoryPanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.ui.AndroidPanelCallAudio
 import br.com.queven.wabotia.device.ui.DeviceApp
+import br.com.queven.wabotia.device.ui.DeviceLock
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinAttemptStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelSoundStore
@@ -27,8 +28,9 @@ import br.com.queven.wabotia.ui.theme.WabotiaTheme
 
 /**
  * Modo aparelho: o celular ou tablet vira totem, painel de chamadas ou os dois, fora do login de pessoa. Tela cheia,
- * paisagem (manifesto) e sempre ligada; a saída passa pelo PIN dos ajustes. Com um aparelho pareado, o app abre direto
- * aqui ([MainActivity] redireciona).
+ * paisagem (manifesto) e sempre ligada. A tela do papel pede a fixação de tela (ou entra no modo quiosque, quando o app
+ * é o administrador do aparelho; ver [br.com.queven.wabotia.device.ui.DeviceLock]); ajustes e saída passam pelo PIN.
+ * Com um aparelho pareado, o app abre direto aqui ([MainActivity] redireciona).
  */
 class DeviceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,7 +49,7 @@ class DeviceActivity : ComponentActivity() {
             printer = SenhaPrinter(container.thermalPrinter, ready = { container.printerReady() }),
             sound = SharedPreferencesPanelSoundStore(this),
             // Na demonstração o PIN vive só na memória, como o aparelho fictício: quem sai pelo botão Início e volta
-            // não encontra um PIN esquecido de outra vez (sem ele não se sai da tela).
+            // não encontra um PIN esquecido de outra vez (sem ele não se abrem os ajustes nem se sai da demonstração).
             pins = if (demo) MemoryPanelPinStore() else SharedPreferencesPanelPinStore(this),
             // Os erros do PIN ficam no disco: matar o app e reabrir não zera a contagem (na demonstração, na memória).
             pinAttempts = if (demo) MemoryPanelPinAttemptStore() else SharedPreferencesPanelPinAttemptStore(this),
@@ -82,8 +84,12 @@ class DeviceActivity : ComponentActivity() {
         vm?.debugDropConnection()
     }
 
-    /** Desfeito o pareamento (ou saindo da demonstração), volta à tela inicial do app. */
+    /**
+     * Desfeito o pareamento (ou saindo da demonstração), volta à tela inicial do app. As duas saídas passaram pelo PIN:
+     * a tela é solta antes, senão o app inteiro continuaria fixado.
+     */
     private fun backToApp() {
+        DeviceLock.exit(this)
         startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         finish()
     }

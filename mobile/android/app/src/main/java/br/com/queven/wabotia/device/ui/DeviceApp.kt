@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -309,6 +310,16 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
     val needsPin = state.pinRequired && !state.pinSet
     val done: (() -> Unit)? = onDone?.let { back -> { if (needsPin) pinDialog = true else back() } }
     done?.let { BackHandler(onBack = it) }
+    // O Android não avisa quando a fixação muda (pergunta aceita, gesto do sistema): lê de novo a cada segundo.
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    var lockState by remember { mutableStateOf(DeviceLock.state(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            lockState = DeviceLock.state(context)
+            delay(1000)
+        }
+    }
     Scaffold(
         containerColor = c.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -371,7 +382,13 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                     SettingsRow(
                         if (state.pinSet) Icons.Filled.Lock else Icons.Filled.LockOpen,
                         if (state.pinSet) "Trocar o PIN de saída" else "Criar PIN de saída",
-                        subtitle = "Sem o PIN, ninguém abre estes ajustes nem sai da tela do aparelho",
+                        // A promessa depende da trava: o PIN guarda os botões do app; sair da tela depende da fixação.
+                        subtitle = when {
+                            state.demo -> "Sem o PIN, ninguém abre estes ajustes nem sai da demonstração pelo app"
+                            lockState == DeviceLockState.LOCKED -> "Sem o PIN, ninguém abre estes ajustes nem sai da tela do aparelho"
+                            lockState == DeviceLockState.PINNED -> "Sem o PIN, ninguém abre estes ajustes; a tela fixada só sai pelo gesto do sistema"
+                            else -> "Sem o PIN, ninguém abre estes ajustes. Fixe a tela (abaixo) para ninguém sair dela"
+                        },
                         tint = if (state.pinSet) c.ok else c.warn,
                         onClick = { pinDialog = true },
                     )
@@ -380,6 +397,15 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                         RowDivider()
                         SettingsRow(Icons.Filled.LockOpen, "Remover o PIN", tint = c.muted, onClick = vm::removePin)
                     }
+                }
+                if (!state.demo) {
+                    SectionLabel("Trava da tela")
+                    LockCard(
+                        lockState,
+                        canPin = config.role != null,
+                        onPin = { activity?.let(DeviceLock::enter) },
+                        onRelease = { activity?.let(DeviceLock::exit) },
+                    )
                 }
                 SectionLabel("Conexão")
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
@@ -482,6 +508,61 @@ private fun RoleCard(role: DeviceRole, selected: Boolean, enabled: Boolean, onCl
     }
 }
 
+/**
+ * Como a tela está presa ao app, o que isso garante e, sem trava, como ligar a fixação de apps. Sem *device owner*, o
+ * Android pede a confirmação de quem está diante do aparelho, e a fixação sai pelo gesto do sistema.
+ */
+@Composable
+private fun LockCard(lock: DeviceLockState, canPin: Boolean, onPin: () -> Unit, onRelease: () -> Unit) {
+    val c = Wb.colors
+    WbCard(Modifier.padding(horizontal = 16.dp).testTag("device.lock")) {
+        when (lock) {
+            DeviceLockState.LOCKED -> {
+                SettingsRow(
+                    Icons.Filled.Lock,
+                    "Modo quiosque ligado",
+                    subtitle = "O Wabotia é o administrador deste aparelho: Início, Recentes e a barra do sistema não saem do app, e só o PIN de saída solta a tela.",
+                    tint = c.ok,
+                )
+                RowDivider()
+                SettingsRow(Icons.Filled.LockOpen, "Soltar a tela", subtitle = "Até voltar à tela do papel, que prende de novo", tint = c.muted, onClick = onRelease)
+            }
+            DeviceLockState.PINNED -> {
+                SettingsRow(
+                    Icons.Filled.Lock,
+                    "Tela fixada",
+                    subtitle = "Início e Recentes não saem do app. O Android ainda desafixa pelo gesto do sistema (tocar e segurar Voltar e Visão geral, ou deslizar de baixo para cima e segurar): ligue “Pedir PIN antes de liberar” na fixação de apps para esse gesto pedir o bloqueio de tela do aparelho.",
+                    tint = c.ok,
+                )
+                RowDivider()
+                SettingsRow(Icons.Filled.LockOpen, "Desafixar a tela", subtitle = "Até voltar à tela do papel, que pede para fixar de novo", tint = c.muted, onClick = onRelease)
+            }
+            DeviceLockState.NONE -> {
+                SettingsRow(
+                    Icons.Filled.LockOpen,
+                    "Tela não fixada",
+                    subtitle = "Quem está diante do aparelho sai pelo gesto de Início ou de Recentes, sem o PIN. Ao voltar à tela do papel, o Wabotia pede para fixar: toque em Fixar na pergunta do Android.",
+                    tint = c.warn,
+                )
+                Text(
+                    "Se o Android não perguntar, ligue a fixação de apps:\n" +
+                        "• Samsung: Configurações → Segurança e privacidade → Mais configurações de segurança → Fixar apps (em versões antigas, Biometria e segurança → Outras configurações de segurança → Fixar janelas).\n" +
+                        "• Outros Android: Configurações → Segurança (ou Segurança e privacidade) → Mais configurações de segurança → Fixação de app.\n" +
+                        "Ligue também “Pedir PIN antes de liberar” (o aparelho precisa ter bloqueio de tela): sem ele, o gesto do sistema desafixa sem pedir nada.\n" +
+                        "Modo quiosque, sem pergunta nem gesto: o Wabotia precisa ser o administrador do aparelho, uma configuração feita pelo suporte num aparelho zerado.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                if (canPin) {
+                    RowDivider()
+                    SettingsRow(Icons.Filled.Lock, "Fixar agora", tint = c.brand, onClick = onPin)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PinCreateDialog(required: Boolean, onCreate: (String, String) -> String?, onClose: () -> Unit) {
     var pin by remember { mutableStateOf("") }
@@ -546,6 +627,19 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
     KeepScreenOnEffect()
     ImmersiveEffect()
     if (role.panel) PanelVolumeKeysEffect()
+    // A tela do papel prende o aparelho no app (AND-1): modo quiosque quando o app é o administrador do aparelho, sem
+    // perguntar, a cada volta ao primeiro plano; senão, o pedido de fixação do Android, uma vez por entrada nesta tela
+    // (quem recusou não é perguntado de novo a cada segundo). A demonstração não fixa: quem experimenta sai livre.
+    val activity = LocalContext.current.findActivity()
+    var lockRequested by remember { mutableStateOf(false) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val a = activity ?: return@LifecycleEventEffect
+        if (state.demo) return@LifecycleEventEffect
+        if (!lockRequested || DeviceLock.isDeviceOwner(a)) {
+            lockRequested = true
+            DeviceLock.enter(a)
+        }
+    }
     var unlocking by remember { mutableStateOf<(() -> Unit)?>(null) }
     fun guarded(action: () -> Unit) {
         if (state.pinSet) {
@@ -555,7 +649,7 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
             action()
         }
     }
-    // Voltar (gesto ou botão) também passa pelo PIN: ninguém sai da tela do totem sem ele.
+    // Voltar (gesto ou botão) também passa pelo PIN; Início e Recentes ficam por conta da fixação de tela.
     BackHandler { guarded(onSettings) }
     val runtime = state.overview?.toRuntime(config.name)
     PanelTheme(state.template) {

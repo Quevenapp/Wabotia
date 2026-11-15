@@ -7,4 +7,5 @@
     <string name="channel_queue_desc">Novos atendimentos aguardando e transferências</string>
     <string name="channel_tickets">Protocolos</string>
     <string name="channel_tickets_desc">Protocolos abertos, vencendo ou atrasados</string>
+    <string name="device_admin_description">Modo quiosque do totem e do painel de chamadas: prende a tela no Wabotia até o PIN de saída.</string>
 </resources>
