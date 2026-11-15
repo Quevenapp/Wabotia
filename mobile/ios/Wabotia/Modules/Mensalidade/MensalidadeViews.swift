@@ -204,7 +204,7 @@ private struct PayerSummary: View {
         VStack(alignment: .leading, spacing: 2) {
             Label([payer.name, MensalidadeRules.documentText(payer.documentDisplay, type: payer.documentType)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
                   systemImage: "person.text.rectangle")
-                .font(Theme.font(12, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                .font(Theme.font(12, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             if !phones.isEmpty {
                 Label(phones.joined(separator: ", "), systemImage: "phone").font(Theme.font(12)).foregroundStyle(Theme.textSecondary).lineLimit(2)
             }

@@ -16,7 +16,8 @@ struct HandoffBanner: View {
                     if let summary = handoff.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
                         Text(summary).font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
                     }
-                    if !handoff.visibleFlags.isEmpty { HandoffFlags(flags: handoff.visibleFlags) }
+                    // Na faixa, um aviso por linha (o texto inteiro fica nos dados da conversa).
+                    if !handoff.visibleFlags.isEmpty { HandoffFlags(flags: handoff.visibleFlags, lineLimit: 1) }
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted).padding(.top, 2)
@@ -36,11 +37,13 @@ struct HandoffBanner: View {
 /// Os marcadores ("telefone não vinculado ao pagador X", "suporte avulso pago") como avisos.
 struct HandoffFlags: View {
     let flags: [String]
+    var lineLimit: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(flags, id: \.self) { flag in
                 Label(flag, systemImage: "exclamationmark.triangle.fill")
+                    .lineLimit(lineLimit)
                     .font(Theme.font(12, .semibold)).foregroundStyle(Theme.warn)
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(Capsule().fill(Theme.warn.opacity(0.12)))
