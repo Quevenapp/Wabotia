@@ -5,6 +5,7 @@ import { now } from "../src/types";
 import { api, bearer, drain, latest, receive } from "./service-center-fixture";
 import { agendaSetup, at, future } from "./agenda-fixture";
 import { agendaDemo } from "../web/modules/agenda/demo";
+import { openapi } from "../src/openapi";
 
 describe("agenda: ações do atendente na conversa", () => {
   it("Agendar para este cliente e Enviar link para agendar", async () => {
@@ -80,6 +81,32 @@ describe("agenda: ações do atendente na conversa", () => {
         c.id,
       ),
     ).toMatchObject({ n: 1 });
+  });
+
+  it("rotas documentadas no OpenAPI", () => {
+    const spec = openapi("https://test");
+    const ops = [
+      ["get", "/profiles/{profile}/agenda"],
+      ["post", "/profiles/{profile}/agenda/services"],
+      ["put", "/profiles/{profile}/agenda/professionals/{id}"],
+      ["post", "/profiles/{profile}/agenda/blocks"],
+      ["get", "/profiles/{profile}/agenda/availability"],
+      ["get", "/profiles/{profile}/agenda/appointments"],
+      ["post", "/profiles/{profile}/agenda/appointments"],
+      ["post", "/profiles/{profile}/agenda/appointments/{id}/move"],
+      ["post", "/profiles/{profile}/agenda/appointments/{id}/no-show"],
+    ];
+    for (const [method, path] of ops) {
+      const entry = spec.paths[path]?.[method];
+      expect(entry, `${method} ${path}`).toBeTruthy();
+      expect(entry.tags).toEqual(["Agenda"]);
+    }
+    expect(
+      spec.paths["/profiles/{profile}/agenda/availability"].get.parameters.map(
+        (p: any) => p.name,
+      ),
+    ).toContain("service_id");
+    expect(spec.components.schemas.AgendaAppointment).toBeTruthy();
   });
 
   it("dados de demonstração respondem às leituras do painel", () => {

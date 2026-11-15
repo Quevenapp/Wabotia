@@ -134,6 +134,182 @@ export const moduleSchemas = {
       updated: { type: "integer" },
     },
   },
+  // Agenda (módulo "agenda", docs/AGENDA.md).
+  AgendaService: {
+    type: "object",
+    required: ["name", "duration_minutes"],
+    properties: {
+      id: { type: "string", readOnly: true },
+      name: { type: "string", maxLength: 80 },
+      description: { type: "string", maxLength: 300 },
+      duration_minutes: {
+        type: "integer",
+        minimum: 5,
+        maximum: 720,
+        multipleOf: 5,
+      },
+      price_cents: {
+        type: ["integer", "null"],
+        minimum: 0,
+        description: "Preço em centavos; null não mostra preço.",
+      },
+      active: { type: "boolean" },
+      position: { type: "integer", minimum: 0, maximum: 9999 },
+    },
+  },
+  AgendaProfessional: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      id: { type: "string", readOnly: true },
+      name: { type: "string", maxLength: 80 },
+      user_id: {
+        type: ["string", "null"],
+        description: "Pessoa da equipe com acesso à área.",
+      },
+      active: { type: "boolean" },
+      position: { type: "integer" },
+      service_ids: { type: "array", items: { type: "string" } },
+      hours: {
+        type: "array",
+        maxItems: 28,
+        description:
+          "Intervalos de trabalho no horário de Brasília, sem sobreposição no mesmo dia. Enviado, substitui todos.",
+        items: {
+          type: "object",
+          required: ["weekday", "start", "end"],
+          properties: {
+            weekday: {
+              type: "integer",
+              minimum: 0,
+              maximum: 6,
+              description: "0 = domingo.",
+            },
+            start: { type: "string", example: "09:00" },
+            end: {
+              type: "string",
+              example: "18:00",
+              description: "Até 24:00.",
+            },
+          },
+        },
+      },
+    },
+  },
+  AgendaBlock: {
+    type: "object",
+    description:
+      "Folga ou bloqueio: {starts, ends} em ms, ou {date, until?} para dias inteiros de Brasília, ou {date, start, end} para um horário do dia.",
+    properties: {
+      id: { type: "string", readOnly: true },
+      professional_id: {
+        type: ["string", "null"],
+        description: "null: vale para todos.",
+      },
+      starts: { type: "integer" },
+      ends: { type: "integer" },
+      date: { type: "string", format: "date", writeOnly: true },
+      until: { type: "string", format: "date", writeOnly: true },
+      start: { type: "string", example: "12:00", writeOnly: true },
+      end: { type: "string", example: "13:00", writeOnly: true },
+      reason: { type: "string", maxLength: 120 },
+    },
+  },
+  AgendaAppointment: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      service_id: { type: "string" },
+      service_name: { type: "string" },
+      professional_id: { type: "string" },
+      professional_name: { type: "string" },
+      starts: { type: "integer" },
+      ends: { type: "integer" },
+      date: { type: "string", format: "date", description: "Dia de Brasília." },
+      time: {
+        type: "string",
+        example: "09:30",
+        description: "Hora de Brasília.",
+      },
+      status: { enum: ["booked", "confirmed", "cancelled", "no_show"] },
+      conversation_id: { type: ["string", "null"] },
+      contact_id: { type: ["string", "null"] },
+      customer_name: { type: "string" },
+      customer_phone: { type: "string" },
+      notes: { type: "string" },
+      source: { enum: ["whatsapp", "panel", "api"] },
+      price_cents: { type: ["integer", "null"] },
+      booked_at: { type: "integer" },
+      reminded_at: { type: ["integer", "null"] },
+      confirmed_at: { type: ["integer", "null"] },
+      cancelled_at: { type: ["integer", "null"] },
+      cancelled_by: { type: ["string", "null"] },
+      cancel_reason: { type: "string" },
+      no_show_at: { type: ["integer", "null"] },
+      moves: { type: "integer" },
+      created_by: { type: "string" },
+      created: { type: "integer" },
+      updated: { type: "integer" },
+    },
+  },
+  AgendaBook: {
+    type: "object",
+    required: ["service_id", "starts"],
+    properties: {
+      service_id: { type: "string" },
+      professional_id: {
+        type: ["string", "null"],
+        description:
+          "null ou any: qualquer profissional livre (o de menos agendamentos no dia).",
+      },
+      starts: {
+        type: "integer",
+        description:
+          "Início em ms; um dos slots de /agenda/availability, salvo com force.",
+      },
+      conversation_id: {
+        type: "string",
+        description:
+          "Liga o cliente da conversa (nome, telefone, contato, confirmação e lembrete).",
+      },
+      customer_name: {
+        type: "string",
+        maxLength: 120,
+        description: "Obrigatório sem conversation_id.",
+      },
+      customer_phone: { type: "string" },
+      notes: { type: "string", maxLength: 1000 },
+      force: {
+        type: "boolean",
+        description:
+          "Encaixe fora do horário de trabalho ou sobre bloqueio; exige professional_id e nunca sobrepõe outro agendamento.",
+      },
+      notify: {
+        type: "boolean",
+        description: "false não avisa o cliente da conversa.",
+      },
+    },
+  },
+  AgendaMove: {
+    type: "object",
+    required: ["starts"],
+    properties: {
+      starts: { type: "integer" },
+      professional_id: {
+        type: ["string", "null"],
+        description: "Ausente: o mesmo; null: qualquer um livre.",
+      },
+      force: { type: "boolean" },
+      notify: { type: "boolean" },
+    },
+  },
+  AgendaCancel: {
+    type: "object",
+    properties: {
+      reason: { type: "string", maxLength: 300 },
+      notify: { type: "boolean" },
+    },
+  },
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -193,7 +369,278 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "conversations:write",
     "FormSend",
   ],
+  // Agenda (módulo "agenda").
+  [
+    "get",
+    "/profiles/{profile}/agenda",
+    "Agenda: configuração, serviços e profissionais",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/services",
+    "Agenda: serviços",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/services",
+    "Agenda: criar serviço",
+    "",
+    "AgendaService",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/agenda/services/{id}",
+    "Agenda: alterar serviço",
+    "",
+    "AgendaService",
+  ],
+  [
+    "delete",
+    "/profiles/{profile}/agenda/services/{id}",
+    "Agenda: excluir serviço",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/professionals",
+    "Agenda: profissionais com serviços e horário",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/professionals",
+    "Agenda: criar profissional",
+    "",
+    "AgendaProfessional",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/agenda/professionals/{id}",
+    "Agenda: alterar profissional",
+    "",
+    "AgendaProfessional",
+  ],
+  [
+    "delete",
+    "/profiles/{profile}/agenda/professionals/{id}",
+    "Agenda: excluir profissional",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/blocks",
+    "Agenda: folgas e bloqueios no período",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/blocks",
+    "Agenda: criar folga ou bloqueio",
+    "",
+    "AgendaBlock",
+  ],
+  [
+    "delete",
+    "/profiles/{profile}/agenda/blocks/{id}",
+    "Agenda: remover folga ou bloqueio",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/availability",
+    "Agenda: horários livres por dia",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/appointments",
+    "Agenda: agendamentos no período",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/agenda/appointments/{id}",
+    "Agenda: consultar agendamento",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/appointments",
+    "Agenda: agendar",
+    "conversations:write",
+    "AgendaBook",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/appointments/{id}/move",
+    "Agenda: remarcar",
+    "conversations:write",
+    "AgendaMove",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/appointments/{id}/cancel",
+    "Agenda: cancelar",
+    "conversations:write",
+    "AgendaCancel",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/appointments/{id}/confirm",
+    "Agenda: confirmar presença",
+    "conversations:write",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/agenda/appointments/{id}/no-show",
+    "Agenda: marcar ausência",
+    "conversations:write",
+  ],
 ];
+
+/** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
+function describeAgendaOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+  ref: (name: string) => any,
+) {
+  entry.tags = ["Agenda"];
+  entry.description +=
+    " Com o módulo Agenda desligado na área, responde 409 module_disabled. Horários em ms Unix; dias e horas de trabalho no horário de Brasília.";
+  const list = (name: string) => ({
+    type: "object",
+    properties: { data: { type: "array", items: ref(name) } },
+  });
+  const query = (name: string, description: string, type = "string") =>
+    entry.parameters.push({ in: "query", name, schema: { type }, description });
+  const schema = (value: any) =>
+    (success.content["application/json"].schema = value);
+  if (
+    /\/(services|professionals|blocks)(\/\{id\})?$/.test(path) &&
+    method !== "get"
+  )
+    entry.description +=
+      " Somente administradores (sessão de pessoa). Excluir serviço ou profissional arquiva: some das listas e continua nos agendamentos antigos.";
+  if (path.endsWith("/agenda")) {
+    schema({
+      type: "object",
+      properties: {
+        config: {
+          type: "object",
+          description:
+            "Chave agenda de PUT /settings, já com os padrões: min_notice_minutes, max_days_ahead, slot_step_minutes, reminder_hours, customer_change_hours, close_on_holidays, intro_text, booked_text, reminder_text, cancelled_text.",
+        },
+        services: { type: "array", items: ref("AgendaService") },
+        professionals: { type: "array", items: ref("AgendaProfessional") },
+      },
+    });
+    return;
+  }
+  if (path.endsWith("/services"))
+    return void (method === "get"
+      ? schema(list("AgendaService"))
+      : schema(ref("AgendaService")));
+  if (path.endsWith("/professionals"))
+    return void (method === "get"
+      ? schema(list("AgendaProfessional"))
+      : schema(ref("AgendaProfessional")));
+  if (path.endsWith("/services/{id}") && method === "put")
+    return void schema(ref("AgendaService"));
+  if (path.endsWith("/professionals/{id}") && method === "put")
+    return void schema(ref("AgendaProfessional"));
+  if (path.endsWith("/blocks")) {
+    if (method === "get") {
+      query("from", "Início do período em ms (padrão: 24 h atrás).", "integer");
+      query(
+        "to",
+        "Fim do período em ms (até 62 dias depois de from).",
+        "integer",
+      );
+      schema(list("AgendaBlock"));
+    } else schema(ref("AgendaBlock"));
+    return;
+  }
+  if (path.endsWith("/availability")) {
+    query("service_id", "Serviço (obrigatório).");
+    query(
+      "professional_id",
+      "Só este profissional; ausente, qualquer um que atenda o serviço.",
+    );
+    query("date", "Dia AAAA-MM-DD; ou from_date e to_date (até 31 dias).");
+    query("from_date", "Primeiro dia AAAA-MM-DD.");
+    query("to_date", "Último dia AAAA-MM-DD.");
+    query("staff", "1 ignora a antecedência mínima e máxima (equipe).");
+    entry.description +=
+      " Cada slot traz starts, ends, time e os profissionais livres naquele início (professional_ids). Considera horário de trabalho, duração, intervalo entre horários, antecedência, folgas, bloqueios, feriados da área e agendamentos ativos.";
+    schema({
+      type: "object",
+      properties: {
+        service_id: { type: "string" },
+        professional_id: { type: ["string", "null"] },
+        days: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              date: { type: "string", format: "date" },
+              slots: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    starts: { type: "integer" },
+                    ends: { type: "integer" },
+                    time: { type: "string" },
+                    professional_ids: {
+                      type: "array",
+                      items: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    return;
+  }
+  if (path.endsWith("/appointments") && method === "get") {
+    query("from", "Início do período em ms (padrão: 24 h atrás).", "integer");
+    query(
+      "to",
+      "Fim do período em ms (até 62 dias depois de from).",
+      "integer",
+    );
+    query("professional_id", "Só deste profissional.");
+    query(
+      "status",
+      "booked, confirmed, cancelled, no_show (separados por vírgula).",
+    );
+    query("conversation_id", "Só da conversa.");
+    schema(list("AgendaAppointment"));
+    return;
+  }
+  if (path.endsWith("/appointments") && method === "post")
+    entry.description +=
+      " A reserva é atômica: dois pedidos para o mesmo horário do mesmo profissional nunca ficam os dois (409 slot_taken ou slot_unavailable). Com conversation_id, o cliente recebe a mensagem de agendamento (modelo de notificação fora da janela de 24 h). Publica agenda.booked. Pela conversa, o mesmo agendamento é POST /conversations/{id}/actions com action agenda; action agenda_link envia ao cliente o link (ou a conversa) para ele mesmo escolher.";
+  if (path.endsWith("/move"))
+    entry.description +=
+      " Remarcar volta o status para booked, zera o lembrete e a confirmação e avisa o cliente. Publica agenda.rescheduled.";
+  if (path.endsWith("/cancel"))
+    entry.description +=
+      " Avisa o cliente da conversa. Publica agenda.cancelled.";
+  if (path.endsWith("/confirm"))
+    entry.description += " Publica agenda.confirmed.";
+  if (path.endsWith("/no-show"))
+    entry.description +=
+      " Só depois do início do horário. Publica agenda.no_show.";
+  if (path.includes("/appointments")) schema(ref("AgendaAppointment"));
+}
 
 export function describeModuleOperation(
   path: string,
@@ -227,6 +674,10 @@ export function describeModuleOperation(
   if (path.endsWith("/forms")) {
     entry.description +=
       ' Lista os formulários ativos com ID, título e campos (sem textos internos). Envie com POST /conversations/{id}/actions e {"action":"form","form_id":"..."}. Com o módulo Formulários desligado, responde 409 module_disabled.';
+    return;
+  }
+  if (path.startsWith("/profiles/{profile}/agenda")) {
+    describeAgendaOperation(path, method, entry, success, ref);
     return;
   }
   if (path === "/profiles/{profile}/capabilities") {
