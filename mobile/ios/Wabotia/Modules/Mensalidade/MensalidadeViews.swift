@@ -299,7 +299,19 @@ struct InstallmentDetailView: View {
         .navigationTitle("Parcela")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBarHidden(false)
-        .task { await vm.load() }
+        .task {
+            await vm.load()
+            #if DEBUG
+            // WABOTIA_ACTION=charge (só depuração, sessão de verdade): reenvia a cobrança e registra o resultado.
+            if !AppContainer.shared.isDemo, DemoMode.moduleAction == "charge" {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                vm.charge()
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                for _ in 0..<80 where vm.busy != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+                print("[Wabotia] mensalidade: charge → \(vm.notice ?? vm.done ?? "-"); parcela \(vm.installment?.label ?? "?")")
+            }
+            #endif
+        }
         .refreshable { await vm.load() }
         .onChange(of: vm.done) { text in if let text { Workspace.shared.show(text, style: .success) } }
         .sheet(isPresented: Binding(get: { sheet != nil }, set: { if !$0 { sheet = nil } })) {

@@ -128,6 +128,9 @@ extension DemoMode {
     /// No pedido (`WABOTIA_OPEN=pedido:<id>`): `status:<estado>` (também um que não vale, para ver a recusa), `paid`,
     /// `method:cash|card`, `print`.
     static let pedidoScript: String? = env("WABOTIA_PEDIDO")
+    /// `WABOTIA_ACTION=charge` (sessão de verdade, `WABOTIA_OPEN=installment:<id>`): reenvia a cobrança da parcela e
+    /// registra o resultado no console.
+    static let moduleAction: String? = env("WABOTIA_ACTION")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen ?? openScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).
@@ -175,6 +178,7 @@ extension DemoMode {
             if kind == "appointment" { launch.route = .appointment(id: id) }
             if kind == "pedido" { launch.route = .pedidoOrder(id: id) }
             if kind == "subscription" { launch.route = .subscription(id: id) }
+            if kind == "installment" { launch.route = .installment(id: id) }
             return launch
         }
         switch screen {
