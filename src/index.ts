@@ -148,6 +148,7 @@ function queueSocket(
   profile: string,
   filter: string[],
   credential: string[],
+  expiresAt?: number,
 ) {
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
     throw new ApiError(426, "upgrade_required", "Use WebSocket nesta rota.");
@@ -156,6 +157,9 @@ function queueSocket(
   headers.set("X-Wabotia-Queues", JSON.stringify(filter));
   // Quem abriu: a revogação fecha o socket na hora (src/sockets.ts).
   headers.set("X-Wabotia-Credential", JSON.stringify(credential));
+  // Validade da credencial: o Coordinator fecha o socket quando vencer.
+  if (expiresAt) headers.set("X-Wabotia-Expires", String(expiresAt));
+  else headers.delete("X-Wabotia-Expires");
   return env.COORDINATOR.get(env.COORDINATOR.idFromName(profile)).fetch(
     new Request("https://coordinator/queue-ws", { method: "GET", headers }),
   );
@@ -1111,8 +1115,19 @@ async function revocationTargets(
   }
   if (op === "application.update") {
     const before = await appProfiles(env, id);
+    // Permissão retirada (revisão B4): fecha os sockets da aplicação em todas
+    // as áreas; o cliente reconecta com as permissões novas.
+    const app = await one(
+      env,
+      "SELECT scopes FROM applications WHERE id=?",
+      id,
+    );
+    const scopesBefore: string[] = json(app?.scopes, []);
+    const reduced =
+      Array.isArray(data?.scopes) &&
+      scopesBefore.some((scope) => !data.scopes.includes(scope));
     const removed =
-      data?.disabled === true
+      data?.disabled === true || reduced
         ? before
         : Array.isArray(data?.profiles)
           ? before.filter((p) => !data.profiles.includes(p))
@@ -2051,6 +2066,7 @@ app.get("/api/v1/profiles/:profile/queue/ws", async (c) => {
     c.req.param("profile"),
     [],
     await credentialTags(c.req.raw, c.get("actor")),
+    c.get("actor").expiresAt,
   );
 });
 app.get("/api/v1/profiles/:profile/webhook-subscriptions", async (c) => {

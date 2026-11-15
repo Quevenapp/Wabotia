@@ -265,7 +265,9 @@ export class Coordinator extends DurableObject<Env> {
       .filter((t): t is string => typeof t === "string" && t.length <= 200)
       .slice(0, 8);
     this.ctx.acceptWebSocket(server, ["queue", ...credential]);
-    server.serializeAttachment({ filter });
+    // Validade da credencial (revisão B4): o socket fecha quando ela vencer.
+    const expires = Number(request.headers.get("X-Wabotia-Expires")) || null;
+    server.serializeAttachment({ filter, expires });
     server.send(
       JSON.stringify({
         type: "snapshot",
@@ -285,9 +287,23 @@ export class Coordinator extends DurableObject<Env> {
         : {},
     });
   }
+  /** Fecha os sockets cuja credencial venceu (sessão ou chave). */
+  private closeExpiredSockets() {
+    const at = now();
+    return this.ctx.getWebSockets("queue").filter((ws) => {
+      const expires = ws.deserializeAttachment()?.expires;
+      if (!expires || expires > at) return true;
+      try {
+        ws.close(REVOKED_CLOSE.code, REVOKED_CLOSE.reason);
+      } catch {
+        // Já fechado.
+      }
+      return false;
+    });
+  }
   /** Sends new calls and a fresh snapshot to every connected panel. */
   private async broadcastQueue() {
-    const sockets = this.ctx.getWebSockets("queue");
+    const sockets = this.closeExpiredSockets();
     if (!sockets.length || !this.profile) return;
     const cursor = (await this.ctx.storage.get<number>("queue_cursor")) || 0;
     const rows = await all(

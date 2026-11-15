@@ -1,4 +1,4 @@
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
 import { now, uid } from "../src/types";
@@ -107,6 +107,45 @@ describe("WebSocket da fila fecha quando a credencial é revogada", () => {
     );
     expect(revoke.status).toBe(200);
     expect((await ws2.done).code).toBe(4401);
+  });
+
+  it("permissão retirada da aplicação fecha os sockets dela (revisão B4)", async () => {
+    const f = await fixture();
+    const app = await application(f, ["queue:read", "conversations:read"]);
+    const ws = await queueWs(f, app.token);
+    const changed = await api(
+      await bearer(f.admin),
+      `/applications/${app.id}`,
+      "PATCH",
+      { scopes: ["conversations:read"] },
+    );
+    expect(changed.status).toBe(200);
+    expect((await ws.done).code).toBe(4401);
+  });
+
+  it("credencial que vence com o socket aberto: o alarme fecha (revisão B4)", async () => {
+    const f = await fixture();
+    const app = await application(f, ["queue:read"]);
+    await exec(
+      env,
+      "UPDATE api_keys SET expires=? WHERE app_id=?",
+      now() + 1500,
+      app.id,
+    );
+    const ws = await queueWs(f, app.token);
+    const keep = await application(f, ["queue:read"]);
+    const other = await queueWs(f, keep.token);
+    await new Promise((r) => setTimeout(r, 1700));
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile));
+    await stub.fetch("https://coordinator/wake", {
+      method: "POST",
+      body: JSON.stringify({ profile: f.profile }),
+    });
+    await runDurableObjectAlarm(stub);
+    expect((await ws.done).code).toBe(4401);
+    await settle();
+    expect(other.state()).toBeNull();
+    other.ws.close();
   });
 
   it("painel de TV revogado e pessoa que sai (só a sessão dela)", async () => {
