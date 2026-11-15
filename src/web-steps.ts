@@ -26,7 +26,7 @@ import {
   settings,
 } from "./service";
 import { activeTicketSql } from "./protocols";
-import { webStepHook } from "./modules/hooks";
+import { webStepHook, webStepValidator } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
 import { flowToken } from "./whatsapp-interactive";
@@ -692,6 +692,13 @@ export type CompleteResult =
       reason: "invalid" | "used" | "expired" | "not_found";
       errors?: Record<string, string>;
       whatsapp?: string | null;
+    }
+  | {
+      ok: false;
+      /** O módulo recusou ao concluir (onWebStepValidate); o link segue aberto. */
+      reason: "rejected";
+      message: string;
+      whatsapp?: string | null;
     };
 
 /**
@@ -728,6 +735,33 @@ export async function completeWebStep(
         })()
       : validateAnswers(spec.fields || [], input);
   if (!ok) return { ok: false, reason: "invalid", errors, whatsapp };
+  // O módulo dono pode recusar agora (loja fechou, item esgotou depois de
+  // abrir o link): a página mostra o motivo e o link continua aberto. Erro
+  // no gancho também recusa, para não aceitar o que o módulo não conferiu.
+  const validator = webStepValidator(row.module_id);
+  if (validator) {
+    let refusal: string | null | void;
+    try {
+      refusal = await validator(env, row.profile_id, webStepView(row), answers);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "web-step",
+          step: row.id,
+          error: "validator_failed",
+          detail: String((error as Error)?.message || error).slice(0, 300),
+        }),
+      );
+      refusal = "Não foi possível concluir agora. Tente de novo em instantes.";
+    }
+    if (typeof refusal === "string" && refusal.trim())
+      return {
+        ok: false,
+        reason: "rejected",
+        message: refusal.trim().slice(0, 500),
+        whatsapp,
+      };
+  }
   const at = now();
   const claimed = await exec(
     env,
@@ -761,10 +795,23 @@ export async function completeWebStep(
   if (c && !moduleReturn)
     await sendReturn(env, c, row, spec, after?.ticket, answers);
   // O módulo dono reage (src/modules/api.ts, onWebStepCompleted).
+  // O passo já está concluído: erro no gancho vai para o log e não muda a
+  // página do cliente.
   const hook = webStepHook(row.module_id);
-  const reply = hook
-    ? await hook(env, row.profile_id, done, answers)
-    : undefined;
+  let reply: void | string | false = undefined;
+  if (hook)
+    try {
+      reply = await hook(env, row.profile_id, done, answers);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "web-step",
+          step: id,
+          error: "hook_failed",
+          detail: String((error as Error)?.message || error).slice(0, 300),
+        }),
+      );
+    }
   if (c && moduleReturn && typeof reply === "string" && reply.trim())
     await sendReturn(env, c, row, spec, after?.ticket, answers, reply.trim());
   return { ok: true, step: done, whatsapp };
@@ -1026,7 +1073,7 @@ export function formPage(
     return cartPage(spec.cart!, spec, appName, values as CartInput, errors);
   const body = `<div class="card"><h1>${escape(spec.title)}</h1>${spec.intro ? `<p class="intro">${escape(spec.intro)}</p>` : ""}${
     Object.keys(errors).length
-      ? `<div class="error" role="alert">Confira os campos destacados.</div>`
+      ? `<div class="error" role="alert">${escape(errors._form || "Confira os campos destacados.")}</div>`
       : ""
   }<form method="post" novalidate>${(spec.fields || [])
     .map((field) => fieldHtml(field, values[field.id], errors[field.id]))

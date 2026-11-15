@@ -51,9 +51,11 @@ export async function structuredInbound(
           c,
           result.reason === "invalid"
             ? "Algumas respostas obrigatórias não chegaram. Abra o formulário de novo pelo mesmo botão e envie outra vez."
-            : result.reason === "used"
-              ? "Já recebemos as respostas deste formulário. Obrigado!"
-              : "Este formulário expirou. Envie MENU para ver as opções.",
+            : result.reason === "rejected"
+              ? result.message
+              : result.reason === "used"
+                ? "Já recebemos as respostas deste formulário. Obrigado!"
+                : "Este formulário expirou. Envie MENU para ver as opções.",
           `flow-reply:${row.id}`,
         );
       return "web_step";

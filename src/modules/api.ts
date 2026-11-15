@@ -16,6 +16,7 @@ import {
   type ModuleMcpTool,
   registerSettingsValidator,
   registerWebStepHook,
+  registerWebStepValidator,
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
@@ -504,6 +505,26 @@ export function onWebStepCompleted(
 ) {
   registerWebStepHook(moduleId, (env, profile, step, answers) =>
     hook(modulesApi(env, profile, moduleId), step, answers),
+  );
+}
+
+/**
+ * Última conferência antes de concluir um passo web do módulo (depois da
+ * validação dos campos e do recálculo do carrinho). Devolva um texto para
+ * recusar: a página mostra o motivo no lugar de "Pedido enviado!" e o link
+ * continua aberto para o cliente ajustar. Nada devolvido conclui. Erro no
+ * gancho também recusa (com um aviso genérico) e vai para o log.
+ */
+export function onWebStepValidate(
+  moduleId: string,
+  validator: (
+    ctx: ModuleContext,
+    step: WebStep,
+    answers: Answers,
+  ) => Promise<string | null | void>,
+) {
+  registerWebStepValidator(moduleId, (env, profile, step, answers) =>
+    validator(modulesApi(env, profile, moduleId), step, answers),
   );
 }
 

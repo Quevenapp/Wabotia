@@ -413,6 +413,16 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
       formPage(row, brand, input, result.errors || {}),
       422,
     );
+  // O módulo recusou agora (loja fechou, item esgotou): a mesma página com o
+  // motivo, e o link continua aberto.
+  if (result.reason === "rejected")
+    return webStepHtml(
+      c,
+      formPage(row, brand, input, {
+        [cart ? "cart" : "_form"]: result.message,
+      }),
+      409,
+    );
   return webStepHtml(
     c,
     statePage(

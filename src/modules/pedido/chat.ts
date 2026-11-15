@@ -228,11 +228,58 @@ async function reject(
   );
 }
 
+/** Loja fechada ou item esgotado desde que o link foi aberto. */
+async function cartRefusal(ctx: ModuleContext, cart: CartOrder) {
+  const cfg = await config(ctx);
+  const store = await storeSituation(ctx, cfg, now());
+  if (!store.open)
+    return {
+      reason: "closed" as const,
+      text: `Não conseguimos registrar o seu pedido: ${store.message.charAt(0).toLowerCase()}${store.message.slice(1)}`,
+      detail: {},
+    };
+  const missing = unavailableNow(await loadMenu(ctx), cart.lines);
+  if (missing.length)
+    return {
+      reason: "unavailable" as const,
+      text: `Não conseguimos registrar o seu pedido: ${missing.join(", ")} ${missing.length === 1 ? "esgotou" : "esgotaram"} enquanto você montava. Tire ${missing.length === 1 ? "o item" : "os itens"} do carrinho e confira de novo.`,
+      detail: { items: missing },
+    };
+  return null;
+}
+
+/**
+ * onWebStepValidate da página de carrinho: recusa na própria página, antes
+ * de concluir, com o motivo; o link segue aberto para o cliente ajustar.
+ */
+export async function cartValidate(
+  ctx: ModuleContext,
+  step: WebStep,
+  cart: CartOrder,
+) {
+  const refusal = await cartRefusal(ctx, cart);
+  if (!refusal) return null;
+  await ctx.publish(
+    "pedido.rejected",
+    step.id,
+    {
+      web_step_id: step.id,
+      reason: refusal.reason,
+      conversation_id: step.conversation_id,
+      via: "page",
+      ...refusal.detail,
+    },
+    { key: `rejected:${step.id}:${refusal.reason}` },
+  );
+  return refusal.text;
+}
+
 /**
  * onWebStepCompleted da página de carrinho: o núcleo já validou e
- * recalculou os valores a partir do catálogo guardado no passo. Confere se a
- * loja continua aberta e os itens disponíveis, cria o pedido com o número,
- * manda o resumo e segue para o pagamento.
+ * recalculou os valores a partir do catálogo guardado no passo, e
+ * cartValidate já conferiu loja e itens. Confere de novo (corrida rara entre
+ * a conferência e a conclusão), cria o pedido com o número, manda o resumo e
+ * segue para o pagamento.
  */
 export async function cartCompleted(
   ctx: ModuleContext,
@@ -245,26 +292,9 @@ export async function cartCompleted(
   } catch {
     return;
   }
-  const cfg = await config(ctx);
-  const store = await storeSituation(ctx, cfg, now());
-  if (!store.open)
-    return reject(
-      ctx,
-      c,
-      step,
-      "closed",
-      `Não conseguimos registrar o seu pedido: ${store.message.charAt(0).toLowerCase()}${store.message.slice(1)}`,
-    );
-  const missing = unavailableNow(await loadMenu(ctx), cart.lines);
-  if (missing.length)
-    return reject(
-      ctx,
-      c,
-      step,
-      "unavailable",
-      `Não conseguimos registrar o seu pedido: ${missing.join(", ")} ${missing.length === 1 ? "esgotou" : "esgotaram"} enquanto você montava. Toque em Cardápio no menu para montar de novo.`,
-      { items: missing },
-    );
+  const refusal = await cartRefusal(ctx, cart);
+  if (refusal)
+    return reject(ctx, c, step, refusal.reason, refusal.text, refusal.detail);
   const { order, created } = await createOrder(ctx, {
     conversation: c,
     customer_name: cart.customer_name,

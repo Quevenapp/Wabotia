@@ -24,6 +24,25 @@ export function registerWebStepHook(
 }
 export const webStepHook = (module: string) => webStepHooks.get(module);
 
+/**
+ * Antes de concluir um passo web do módulo: (env, profile, step, answers) →
+ * texto do motivo para recusar (loja fechou, item esgotou) ou nada.
+ */
+const webStepValidators = new Map<string, Hook>();
+export function registerWebStepValidator(
+  module: string,
+  validator: (
+    env: any,
+    profile: string,
+    step: any,
+    answers: Answers,
+  ) => Promise<string | null | void>,
+) {
+  webStepValidators.set(module, validator);
+}
+export const webStepValidator = (module: string) =>
+  webStepValidators.get(module);
+
 /** Item de menu do WhatsApp escolhido: (env, conversation, item, rowId). */
 export function registerMenuHandler(
   type: string,

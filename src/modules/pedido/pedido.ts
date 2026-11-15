@@ -21,6 +21,7 @@ import {
   onSchedule,
   onSettingsSave,
   onWebStepCompleted,
+  onWebStepValidate,
   type ModuleContext,
 } from "../api";
 import type { CartOrder } from "../../web-cart";
@@ -40,6 +41,7 @@ import { runDue } from "./schedule";
 import { orderTicket } from "./ticket";
 import {
   cartCompleted,
+  cartValidate,
   catalogOrder,
   pedidoTurn,
   sendCart,
@@ -109,6 +111,13 @@ onConversationTurn(MODULE, (ctx, c, turn) => pedidoTurn(ctx, c, turn));
 // Carrinho do catálogo da Meta (content.order) com retailer_id cadastrado.
 onInboundContent(MODULE, "order", (ctx, c, content, { rowId }) =>
   catalogOrder(ctx, c, content, rowId),
+);
+
+// Antes de concluir: loja fechada ou item esgotado recusa na própria página.
+onWebStepValidate(MODULE, async (ctx, step, answers) =>
+  step.page === "cart" && step.kind === "cart"
+    ? cartValidate(ctx, step, answers as CartOrder)
+    : null,
 );
 
 // Página de carrinho concluída: o pedido validado vira pedido numerado. O

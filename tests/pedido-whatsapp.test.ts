@@ -308,35 +308,51 @@ describe("pedido no WhatsApp: cardápio e carrinho", () => {
     ]);
   });
 
-  it("item esgotado ou loja pausada depois de abrir o link: recusa sem criar pedido", async () => {
+  it("item esgotado ou loja pausada depois de abrir o link: a página recusa com o motivo e o link segue aberto", async () => {
     const { f, menu } = await setup({ payments: { cash: true, card: false } });
     const first = await openCart(f, "5511970000007");
     await run(f, f.member, "pedido.item.availability", {
       id: menu.suco.id,
       available: false,
     });
-    expect(
-      (await submitCart(first.code, { ...cartFields(menu), confirm: "1" }))
-        .status,
-    ).toBe(200);
+    const refused = await submitCart(first.code, {
+      ...cartFields(menu),
+      confirm: "1",
+    });
+    expect(refused.status).toBe(409);
+    const page = await refused.text();
+    expect(page).toContain("Suco de laranja esgotou enquanto você montava");
+    expect(page).not.toContain("Pedido enviado!");
     expect(await orders(f)).toHaveLength(0);
-    expect((await latest(first.c.id)).text).toBe(
-      "Não conseguimos registrar o seu pedido: Suco de laranja esgotou enquanto você montava. Toque em Cardápio no menu para montar de novo.",
-    );
+    // Sem o suco, o mesmo link conclui.
+    const { [`q_${menu.suco.id}`]: _suco, ...withoutJuice } = cartFields(menu);
+    const done = await submitCart(first.code, {
+      ...withoutJuice,
+      confirm: "1",
+    });
+    expect(await done.text()).toContain("Pedido enviado!");
+    expect(await orders(f)).toHaveLength(1);
+
     await run(f, f.member, "pedido.item.availability", {
       id: menu.suco.id,
       available: true,
     });
     const second = await openCart(f, "5511970000008");
     await run(f, f.member, "pedido.store.pause", { paused: true });
-    await submitCart(second.code, { ...cartFields(menu), confirm: "1" });
-    expect(await orders(f)).toHaveLength(0);
-    expect((await latest(second.c.id)).text).toContain(
+    const closed = await submitCart(second.code, {
+      ...cartFields(menu),
+      confirm: "1",
+    });
+    expect(closed.status).toBe(409);
+    expect(await closed.text()).toContain(
       "Não conseguimos registrar o seu pedido: no momento não estamos recebendo pedidos",
     );
-    expect((await events(f, "pedido.rejected")).map((e) => e.reason)).toEqual([
-      "unavailable",
-      "closed",
+    expect(await orders(f)).toHaveLength(1);
+    expect(
+      (await events(f, "pedido.rejected")).map((e) => [e.reason, e.via]),
+    ).toEqual([
+      ["unavailable", "page"],
+      ["closed", "page"],
     ]);
   });
 
