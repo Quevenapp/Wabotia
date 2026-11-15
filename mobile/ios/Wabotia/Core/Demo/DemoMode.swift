@@ -185,6 +185,13 @@ extension DemoMode {
         case "settings": launch.tab = "settings"
         case "lines": launch.tab = "settings"; launch.route = .lines
         case "counter": launch.tab = "settings"; launch.route = .counter
+        // Agenda e Ordem de Serviço (WABOTIA_DEMO_ACTION=week abre a agenda na semana).
+        case "agenda": launch.tab = "settings"; launch.route = .agenda
+        case "appointment": launch.tab = "settings"; launch.route = .appointment(id: "ag_3")
+        case "booking": launch.route = .newAppointment(conversationId: "c_rich", customer: "Mariana Costa")
+        case "os": launch.tab = "settings"; launch.route = .serviceOrders
+        case "os-detail": launch.tab = "settings"; launch.route = .serviceOrder(id: "os_6")
+        case "os-new": launch.route = .newServiceOrder(conversationId: "c_rich", customer: "Mariana Costa")
         case "menus": launch.tab = "settings"; launch.route = .menus
         default: break
         }

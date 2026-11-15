@@ -201,7 +201,11 @@ final class DemoQueue {
 
     /// A rota de capacidades com a fila ligada (o formato de docs/MODULOS.md, seção 6).
     private func capabilities(perArea: Bool) -> Reply {
-        let modules: [Row] = [["id": "queue", "name": "Fila presencial", "version": "1.0.0"]]
+        let modules: [Row] = [
+            ["id": "queue", "name": "Fila presencial", "version": "1.0.0"],
+            ["id": "agenda", "name": "Agenda", "version": "1.0.0"],
+            ["id": "os", "name": "Ordem de Serviço", "version": "1.0.0"],
+        ]
         var answer: Row = [
             "capabilities_version": 1,
             "server": ["service": "wabotia", "version": "demonstração", "commit": ""],

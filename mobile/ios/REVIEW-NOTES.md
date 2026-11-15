@@ -10,6 +10,13 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Atendimento → Guichê da fila de senhas**, o atendente escolhe um guichê, abre, chama a próxima senha, rechama,
 > conclui e transfere.
 >
+> Também em **Ajustes → Atendimento**: **Agenda** (uma barbearia de exemplo: agenda do dia por profissional e da
+> semana; toque num horário para confirmar, remarcar, marcar ausência ou cancelar; o **+** agenda um cliente num dos
+> horários livres) e **Ordens de serviço** (uma assistência técnica de exemplo: lista por estado, busca, detalhe com
+> histórico, orçamento, mudança de estado, registro de entrega e comprovante impresso). Na conversa de um cliente, o
+> menu **⋯** traz **Agendar para este cliente** e **Abrir ordem de serviço**. Na demonstração, um cliente fictício marca
+> um horário depois de 40 segundos e outro aprova um orçamento depois de um minuto, e as telas abertas se atualizam.
+>
 > O mesmo app também transforma um iPad ou iPhone da recepção em totem de senhas ou painel de chamadas. Para ver: na
 > primeira tela, toque em **Ver o modo painel ou totem (demonstração)** → **Gerar código** (o código de exemplo é
 > aprovado sozinho em 2 segundos) → escolha **Totem**, **Painel de chamadas** ou **Painel híbrido**. O totem emite a
@@ -25,6 +32,13 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > (demonstração)** on the first screen: it opens a fictitious installation with no account, and nothing is sent. Under
 > **Ajustes → Atendimento → Guichê da fila de senhas** the agent picks a service desk, opens it, calls the next ticket,
 > recalls, finishes and transfers it.
+>
+> Also under **Ajustes → Atendimento**: **Agenda** (a sample barbershop: the day per professional and the week; tap an
+> appointment to confirm, reschedule, mark a no-show or cancel; **+** books a customer into one of the free slots) and
+> **Ordens de serviço** (a sample repair shop: list by status, search, detail with history, quote, status changes,
+> delivery and a printed receipt). In a customer's conversation, the **⋯** menu offers **Agendar para este cliente**
+> (book for this customer) and **Abrir ordem de serviço** (open a service order). In the demo, a fictitious customer
+> books a slot after 40 seconds and another approves a quote after one minute, and the open screens update themselves.
 >
 > The same app also turns a front-desk iPad or iPhone into a ticket kiosk or a call display. To see it: on the first
 > screen tap **Ver o modo painel ou totem (demonstração)** → **Gerar código** (the sample code is approved by itself

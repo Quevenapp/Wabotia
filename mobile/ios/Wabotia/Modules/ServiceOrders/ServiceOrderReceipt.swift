@@ -45,12 +45,7 @@ struct ServiceOrderReceiptData: Equatable {
 
 /// As linhas do comprovante, em texto: o que o teste confere e o que o cupom imprime.
 enum ServiceOrderReceiptText {
-    static func phone(_ digits: String?) -> String? {
-        guard let d = digits?.filter(\.isNumber), !d.isEmpty else { return nil }
-        guard d.hasPrefix("55"), d.count >= 12 else { return "+" + d }
-        let local = d.dropFirst(2), ddd = local.prefix(2), rest = local.dropFirst(2)
-        return "(\(ddd)) \(rest.prefix(rest.count - 4))-\(rest.suffix(4))"
-    }
+    static func phone(_ digits: String?) -> String? { PhoneText.display(digits) }
 
     /// Pares rótulo/valor do corpo, na ordem do papel.
     static func fields(_ d: ServiceOrderReceiptData) -> [(String, String)] {

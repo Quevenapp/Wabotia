@@ -107,6 +107,9 @@ final class DemoServer {
 
     /// Fila de senhas, pareamento do modo aparelho e capacidades (`DemoQueue`).
     private(set) lazy var fila = DemoQueue(t0: start)
+    /// Agenda (barbearia) e Ordem de Serviço (assistência técnica), em `DemoModules.swift`.
+    private(set) lazy var agenda = DemoAgenda(t0: start)
+    private(set) lazy var ordens = DemoServiceOrders(t0: start)
 
     private init() { buildFixtures() }
 
@@ -472,6 +475,10 @@ final class DemoServer {
 
         // Fila de senhas (guichê e modo aparelho), pareamento do aparelho e capacidades.
         if let reply = fila.route(method: method, parts: parts, body: body, key: key, now: now) { return reply }
+        // Módulos da onda 3 (eventos `agenda.*` e `os.*` em GET /events).
+        let emitter: DemoEmit = { [unowned self] kind, payload in self.emit(kind, payload) }
+        if let reply = agenda.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }

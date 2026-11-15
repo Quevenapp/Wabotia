@@ -57,7 +57,13 @@ struct AgendaView: View {
                     .accessibilityIdentifier("agenda.new")
             }
         }
-        .task { vm.observeEvents(); await vm.load() }
+        .task {
+            vm.observeEvents()
+            #if DEBUG
+            if AppContainer.shared.isDemo, DemoMode.action == "week" { vm.setMode(.week); return }
+            #endif
+            await vm.load()
+        }
         .refreshable { await vm.load() }
     }
 
@@ -104,7 +110,10 @@ struct AgendaView: View {
             EmptyStateView(title: "Nenhum agendamento", systemImage: "calendar",
                            message: "Toque em + para agendar um cliente.")
         } else if sizeClass == .regular && columns.count > 1 {
-            // iPad: uma coluna por profissional, como no painel.
+            // iPad: uma coluna por profissional, como no painel; as colunas dividem a largura e só rolam de lado
+            // quando não cabem com pelo menos 260 pontos cada.
+            GeometryReader { geo in
+            let width = max(260, (geo.size.width - 32 - CGFloat(columns.count - 1) * 12) / CGFloat(columns.count))
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(columns, id: \.professional.id) { column in
@@ -117,10 +126,11 @@ struct AgendaView: View {
                                 }
                             }
                         }
-                        .frame(width: 280)
+                        .frame(width: width)
                     }
                 }
                 .padding(16)
+            }
             }
         } else {
             ScrollView {
@@ -315,7 +325,7 @@ struct AppointmentDetailView: View {
 
     private func details(_ a: Appointment) -> some View {
         SectionCard(title: "Detalhes") {
-            if let phone = a.customerPhone, !phone.isEmpty { CardRow(icon: "phone.fill", iconColor: Theme.brand, title: "Telefone", value: phone) }
+            if let phone = PhoneText.display(a.customerPhone) { CardRow(icon: "phone.fill", iconColor: Theme.brand, title: "Telefone", value: phone) }
             if let conversation = a.conversationId {
                 Button { push(.conversation(id: conversation)) } label: {
                     CardRow(icon: "bubble.left.and.bubble.right.fill", iconColor: Theme.ok, title: "Abrir conversa", chevron: true)

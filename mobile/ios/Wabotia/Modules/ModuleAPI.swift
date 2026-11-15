@@ -150,6 +150,16 @@ enum BrasiliaTime {
     static func compact(_ day: String) -> String { start(of: day).map { compactFormatter.string(from: $0) } ?? day }
 }
 
+/// Telefone para mostrar: "5520906543210" → "(20) 90654-3210"; fora do Brasil, "+" e os dígitos.
+enum PhoneText {
+    static func display(_ value: String?) -> String? {
+        guard let d = value?.filter(\.isNumber), !d.isEmpty else { return nil }
+        guard d.hasPrefix("55"), d.count >= 12 else { return "+" + d }
+        let local = d.dropFirst(2), ddd = local.prefix(2), rest = local.dropFirst(2)
+        return "(\(ddd)) \(rest.prefix(rest.count - 4))-\(rest.suffix(4))"
+    }
+}
+
 /// Dinheiro em centavos.
 enum Money {
     /// "R$ 1.234,56".

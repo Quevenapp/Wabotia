@@ -98,7 +98,7 @@ private struct ServiceOrderRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(order.numberText).font(.system(size: 15, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ticket)
+                Text(order.numberText).font(.system(size: 15, weight: .bold, design: .rounded)).foregroundStyle(Theme.ticket)
                 Spacer()
                 Pill(text: order.label, color: order.statusColor)
             }
@@ -175,7 +175,7 @@ struct ServiceOrderDetailView: View {
     private func header(_ o: ServiceOrder) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(o.numberText).font(.system(size: 22, weight: .bold, design: .monospaced)).foregroundStyle(Theme.ticket)
+                Text(o.numberText).font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(Theme.ticket)
                 Spacer()
                 Pill(text: o.label, color: o.statusColor, filled: true)
             }
@@ -289,7 +289,7 @@ struct ServiceOrderDetailView: View {
 
     private func customerSection(_ o: ServiceOrder) -> some View {
         SectionCard(title: "Cliente") {
-            CardRow(icon: "person.fill", iconColor: Theme.brand, title: o.customerName, subtitle: o.customer?.phone)
+            CardRow(icon: "person.fill", iconColor: Theme.brand, title: o.customerName, subtitle: PhoneText.display(o.customer?.phone))
             if let conversation = o.customer?.conversationId {
                 Button { push(.conversation(id: conversation)) } label: {
                     CardRow(icon: "bubble.left.and.bubble.right.fill", iconColor: Theme.ok, title: "Abrir conversa", chevron: true)
