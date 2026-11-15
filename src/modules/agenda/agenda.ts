@@ -1,13 +1,23 @@
 // Agenda (módulo "agenda"): registra rotas, comandos e ganchos no núcleo
 // (src/modules/api.ts). Regras em catalog.ts (cadastros). Uso: docs/AGENDA.md.
-import { type Actor, requireValue } from "../../types";
+import {
+  ApiError,
+  type Actor,
+  type Conversation,
+  requireValue,
+} from "../../types";
+import * as moduleApi from "../api";
 import {
   onCommand,
+  onMenuChoice,
   onRead,
   onRoute,
   onSettingsSave,
+  onWebStepCompleted,
   type ModuleContext,
 } from "../api";
+import { agendaTurn, startBooking, startMine, type Turn } from "./chat";
+import { sendBookingStep, sendMineStep, webStepDone } from "./webflow";
 import { agendaConfig, clockOf, DAY_MS, validateAgendaConfig } from "./config";
 import { availability } from "./availability";
 import {
@@ -52,6 +62,81 @@ export function range(query: Record<string, string>, at: number) {
 
 const read = (ctx: ModuleContext, actor: Actor) =>
   ctx.access(actor, "conversations:read");
+
+// ---------------------------------------------------------------------------
+// WhatsApp
+
+/**
+ * Gancho do núcleo para a próxima mensagem do cliente, pedido à sessão A
+ * (onConversationTurn(module, (ctx, c, {text, replyId, rowId}) => boolean)).
+ * Com ele, o agendamento acontece todo no chat (chat.ts); sem ele, pelo passo
+ * web (webflow.ts).
+ */
+type TurnHook = (
+  module: string,
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    turn: Turn,
+  ) => Promise<boolean>,
+) => void;
+const onConversationTurn = (moduleApi as any).onConversationTurn as
+  TurnHook | undefined;
+export const chatTurns = typeof onConversationTurn === "function";
+if (onConversationTurn)
+  onConversationTurn(MODULE, (ctx, c, turn) => agendaTurn(ctx, c, turn));
+
+async function unavailable(
+  ctx: ModuleContext,
+  c: Conversation,
+  error: unknown,
+  key: string,
+) {
+  if (!(error instanceof ApiError)) throw error;
+  await ctx.sendMessage(
+    c,
+    {
+      text: "O agendamento não está disponível agora. Envie MENU para ver as opções.",
+    },
+    { key: `menu-unavailable:${key}` },
+  );
+}
+
+// Item de menu "Agendar horário" (service_id opcional fixa o serviço).
+onMenuChoice("agenda", async (ctx, c, item, { rowId }) => {
+  const serviceId =
+    typeof item.service_id === "string" ? item.service_id : null;
+  try {
+    if (chatTurns)
+      await startBooking(ctx, c, { key: `menu:${rowId}`, serviceId });
+    else
+      await sendBookingStep(ctx, c, {
+        sourceKey: `menu:${rowId}`,
+        trigger: "menu",
+        serviceId,
+      });
+  } catch (error) {
+    await unavailable(ctx, c, error, rowId);
+  }
+});
+
+// Item de menu "Meus agendamentos".
+onMenuChoice("agenda_mine", async (ctx, c, _item, { rowId }) => {
+  try {
+    if (chatTurns) await startMine(ctx, c, { key: `menu:${rowId}` });
+    else
+      await sendMineStep(ctx, c, {
+        sourceKey: `menu:${rowId}`,
+        trigger: "menu",
+      });
+  } catch (error) {
+    await unavailable(ctx, c, error, rowId);
+  }
+});
+
+onWebStepCompleted(MODULE, async (ctx, step, answers) => {
+  await webStepDone(ctx, step, answers);
+});
 
 // ---------------------------------------------------------------------------
 // Configuração e cadastros
