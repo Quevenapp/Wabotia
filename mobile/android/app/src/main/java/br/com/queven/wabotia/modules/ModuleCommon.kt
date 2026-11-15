@@ -133,17 +133,37 @@ data class Establishment(
     val footer: String? = null,
     val configured: Boolean? = null,
 ) {
-    /** As linhas do cabeçalho do comprovante, depois do nome: documento, endereço (pode ter quebras) e telefone. */
+    /**
+     * As linhas do cabeçalho do comprovante, depois do nome: documento, endereço (pode ter quebras) e telefone. O
+     * cupom do totem vai para desconhecidos: o CPF (MEI ou autônomo que cadastrou o próprio) sai mascarado; o CNPJ,
+     * que é público, sai inteiro.
+     */
     val headerLines: List<String>
         get() = buildList {
-            documentDisplay?.trim()?.takeIf { it.isNotEmpty() }?.let { add((if (documentType == "cpf") "CPF " else "CNPJ ") + it) }
+            documentLine?.let(::add)
             address.orEmpty().lines().map { it.trim() }.filter { it.isNotEmpty() }.forEach(::add)
             phone?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+        }
+
+    /** "CNPJ 11.222.333/0001-81" ou "CPF ***.456.789-**"; um CPF que não dá para mascarar fica de fora. */
+    private val documentLine: String?
+        get() {
+            val shown = documentDisplay?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val digits = shown.filter(Char::isDigit).ifEmpty { document.orEmpty().filter(Char::isDigit) }
+            val isCpf = documentType == "cpf" || (documentType != "cnpj" && digits.length == 11)
+            if (!isCpf) return "CNPJ $shown"
+            return maskCpf(digits)?.let { "CPF $it" }
         }
 
     val footerLines: List<String> get() = footer.orEmpty().lines().map { it.trim() }.filter { it.isNotEmpty() }
 
     val displayName: String? get() = name?.trim()?.takeIf { it.isNotEmpty() }
+
+    companion object {
+        /** "12345678909" → "***.456.789-**": só os seis dígitos do meio, como na divulgação de dados pessoais. */
+        fun maskCpf(digits: String): String? =
+            digits.takeIf { it.length == 11 && it.all(Char::isDigit) }?.let { "***.${it.substring(3, 6)}.${it.substring(6, 9)}-**" }
+    }
 }
 
 /** Pessoa da área (`GET /people`): `id` é o valor de `assignee`. */

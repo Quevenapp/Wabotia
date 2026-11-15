@@ -36,7 +36,7 @@ class ModuleCommonTest {
         )
         assertEquals(listOf("CNPJ 11.222.333/0001-81", "Rua das Flores, 120", "Centro", "(20) 3333-4444"), e.headerLines)
         assertEquals(listOf("Garantia de 90 dias.", "Volte sempre"), e.footerLines)
-        assertEquals(listOf("CPF 123.456.789-09"), Establishment(documentType = "cpf", documentDisplay = "123.456.789-09").headerLines)
+        assertEquals(listOf("CPF ***.456.789-**"), Establishment(documentType = "cpf", documentDisplay = "123.456.789-09").headerLines)
 
         val ticket = QueueTicket(id = "t1", code = "N007", ahead = 1)
         val coupon = CouponData.of(ticket, "Totem", e)
@@ -44,6 +44,22 @@ class ModuleCommonTest {
         assertEquals(e.headerLines, coupon.headerLines)
         assertEquals("Totem", CouponData.of(ticket, "Totem", null).header)
         assertEquals("Totem", CouponData.of(ticket, "Totem", Establishment(name = " ")).header)
+    }
+
+    @Test fun cpfDoEstabelecimentoSaiMascaradoNoComprovante() {
+        val cpf = Establishment(name = "Ana Manicure", document = "12345678909", documentType = "cpf", documentDisplay = "123.456.789-09", phone = "(20) 90000-1111")
+        assertEquals(listOf("CPF ***.456.789-**", "(20) 90000-1111"), cpf.headerLines)
+        assertTrue(cpf.headerLines.none { it.contains("123") || it.contains("09") })
+        // Sem o tipo, 11 dígitos são CPF; o CNPJ continua inteiro.
+        assertEquals(listOf("CPF ***.456.789-**"), Establishment(documentDisplay = "123.456.789-09").headerLines)
+        assertEquals(listOf("CNPJ 11.222.333/0001-81"), Establishment(documentDisplay = "11.222.333/0001-81").headerLines)
+        // Um CPF que não dá para mascarar não vai para o papel.
+        assertEquals(emptyList<String>(), Establishment(documentType = "cpf", documentDisplay = "123.456").headerLines)
+        // O cupom do totem e o comprovante da OS usam as mesmas linhas.
+        val ticket = QueueTicket(id = "t1", code = "N007", ahead = 1)
+        assertEquals(listOf("CPF ***.456.789-**", "(20) 90000-1111"), CouponData.of(ticket, "Totem", cpf).headerLines)
+        assertEquals("***.456.789-**", Establishment.maskCpf("12345678909"))
+        assertNull(Establishment.maskCpf("1234567890"))
     }
 
     @Test fun mesmaIntencaoRepeteAChaveSoDepoisDeQuedaDeRede() {
