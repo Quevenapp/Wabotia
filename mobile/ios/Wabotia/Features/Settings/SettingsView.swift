@@ -138,6 +138,10 @@ struct SettingsView: View {
                 navRow("Reservas", "bed.double.fill", Theme.ticket) { push(.reserva) }
                     .accessibilityIdentifier("settings.reserva")
             }
+            if moduleFeature.isAvailable(ModuleId.mensalidade, container.profileId) {
+                navRow("Mensalidades", "creditcard.fill", Theme.bot) { push(.mensalidade) }
+                    .accessibilityIdentifier("settings.mensalidade")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }

@@ -25,6 +25,10 @@ enum Route: Hashable {
     case reserva
     case booking(id: String)
     case bookingForm(conversationId: String?, customer: String?, unitId: String?, date: String?)
+    /// Mensalidade (módulo `mensalidade`).
+    case mensalidade
+    case installment(id: String)
+    case subscription(id: String)
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -158,6 +162,9 @@ struct RouteDestination: View {
             case .reserva: ReservaView()
             case .booking(let id): BookingDetailView(id: id)
             case let .bookingForm(conversation, customer, unit, date): BookingFormView(purpose: .new(conversationId: conversation, customer: customer, unitId: unit, date: date))
+            case .mensalidade: MensalidadeView()
+            case .installment(let id): InstallmentDetailView(id: id)
+            case .subscription(let id): SubscriptionDetailView(id: id)
             }
         }
         .id(route)
