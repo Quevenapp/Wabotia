@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps"],
+  "features": ["modules", "web_steps", "establishment"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -59,6 +59,25 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 ```
 
 `GET /profiles/{perfil}/modules` lista todos os módulos da versão instalada com `enabled`, `default_enabled`, a navegação do painel, os tipos de item de menu, os eventos e as chaves de configuração. `PUT /profiles/{perfil}/modules/{id}` com `{"enabled":false}` e `Idempotency-Key` liga ou desliga (somente administrador) e publica o evento `module.changed`. Com o módulo desligado, suas rotas e operações respondem `409 module_disabled` e seus itens de menu somem do WhatsApp e do editor de menus, sem serem apagados: voltam ao religar.
+
+### Dados do estabelecimento
+
+Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de rodapé (Gestão → Estabelecimento), para cupom do totem, comanda, recibo da ordem de serviço e cabeçalho e rodapé das páginas do passo web. Leia em `GET /profiles/{perfil}/establishment`: aceita a pessoa da área e chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio (`404` se a credencial não alcançar a área). O recurso `establishment` em `features` de `/capabilities` indica que a rota existe.
+
+```json
+{
+  "name": "Assistência Exemplo",
+  "document": "11222333000181",
+  "document_type": "cnpj",
+  "document_display": "11.222.333/0001-81",
+  "address": "Rua das Flores, 120 — Centro, Campinas/SP",
+  "phone": "(19) 3333-4444",
+  "footer": "Garantia de 90 dias nos serviços.",
+  "configured": true
+}
+```
+
+Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document_type` é `null` e `configured` é `false`. `footer` e `address` podem ter quebras de linha. O administrador grava com `PUT /profiles/{perfil}/settings` e `{"establishment":{"name","document","address","phone","footer"}}` (substitui o bloco inteiro; o documento vai com ou sem pontuação, e CPF e CNPJ, inclusive o alfanumérico, têm os dígitos verificadores conferidos).
 
 ### Passo web e formulários
 

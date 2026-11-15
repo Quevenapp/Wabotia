@@ -5,7 +5,7 @@
 // recalcula tudo a partir do catálogo guardado; nenhum preço, subtotal ou
 // total vem da página.
 import { requireValue } from "./types";
-import { escape, page } from "./web-steps";
+import { escape, page, type PageBrand } from "./web-steps";
 
 export interface CartOption {
   id: string;
@@ -502,7 +502,7 @@ const err = (errors: Record<string, string>, key: string) =>
 export function cartPage(
   catalog: CartCatalog,
   meta: { title: string; intro?: string; submit_label?: string },
-  appName: string,
+  appName: PageBrand,
   input: CartInput = {},
   errors: Record<string, string> = {},
 ) {
@@ -588,7 +588,7 @@ export function cartPage(
 export function cartReviewPage(
   order: CartOrder,
   meta: { title: string },
-  appName: string,
+  appName: PageBrand,
   input: CartInput,
 ) {
   // Os campos voltam escondidos: a confirmação recalcula tudo de novo.

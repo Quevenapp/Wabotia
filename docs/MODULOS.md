@@ -86,6 +86,7 @@ O que o núcleo faz com cada campo:
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
+| `establishment()` | Dados do estabelecimento para cupom, comanda, recibo e mensagens: `{name, document, document_type: "cpf"\|"cnpj"\|null, document_display, address, phone, footer, configured}`. Sem cadastro, `name` é o nome da área e `configured` é falso. Os aplicativos leem o mesmo em `GET /profiles/{p}/establishment`; as páginas do passo web já mostram nome no cabeçalho e o resto no rodapé |
 | `conversation(id, actor?)` | Conversa da área, respeitando a visibilidade do ator |
 | `contact(c)` | Contato vinculado à conversa (`id, name, phone, email, company, notes`) ou `null` |
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |

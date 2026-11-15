@@ -27,6 +27,7 @@ import {
 } from "./service";
 import { activeTicketSql } from "./protocols";
 import { webStepHook } from "./modules/hooks";
+import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
 import { flowToken } from "./whatsapp-interactive";
 import {
@@ -939,13 +940,48 @@ export const escape = (value: unknown) =>
 
 export const STYLE = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#111b21}main{max-width:560px;margin:0 auto;padding:20px 16px 40px}.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(11,20,26,.08)}h1{font-size:22px;line-height:1.25;margin:0 0 8px}p{margin:0 0 14px;white-space:pre-line}.intro{color:#54656f}label,fieldset{display:block;margin:18px 0 0;border:0;padding:0}.label,legend{font-weight:600;display:block;margin-bottom:6px;padding:0}small{display:block;color:#667781;margin-top:4px}input[type=text],input[type=date],textarea{width:100%;font:inherit;padding:12px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}textarea{min-height:110px;resize:vertical}.option{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e9edef;border-radius:10px;margin-top:8px;font-weight:400}.option input{margin-top:4px;width:18px;height:18px}.error{color:#c62828;font-size:14px;margin-top:6px}.invalid input,.invalid textarea{border-color:#c62828}button,.button{display:block;width:100%;margin-top:24px;padding:14px;border:0;border-radius:24px;background:#008069;color:#fff;font:600 16px system-ui,sans-serif;text-align:center;text-decoration:none;cursor:pointer}.button.secondary{background:#fff;color:#008069;border:1px solid #008069}.state{text-align:center}.state .icon{font-size:44px;margin-bottom:8px}footer{margin-top:20px;text-align:center;color:#8696a0;font-size:13px}@media (prefers-color-scheme:dark){body{background:#0b141a;color:#e9edef}.card{background:#111b21}.intro,small{color:#8696a0}input[type=text],input[type=date],textarea{background:#202c33;border-color:#3b4a54}.option{border-color:#2a3942}.button.secondary{background:transparent;color:#00a884;border-color:#00a884}button,.button{background:#00a884;color:#111b21}}`;
 
+/**
+ * Quem assina a página: o nome do aplicativo e, quando a área cadastrou, os
+ * dados do estabelecimento (cabeçalho com o nome fantasia; rodapé com
+ * documento, endereço, telefone e o texto livre).
+ */
+export type PageBrand =
+  string | { app: string; establishment?: Establishment | null };
+
+const BRAND_CSS = `.brand{text-align:center;font-weight:600;color:#54656f;margin:0 0 12px}footer p{margin:0 0 4px;white-space:pre-line}footer .app{margin-top:10px;font-size:12px}`;
+
 export function page(
   title: string,
   body: string,
-  appName: string,
+  brand: PageBrand,
   extraCss = "",
 ) {
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${extraCss}</style></head><body><main>${body}<footer>${escape(appName)}</footer></main></body></html>`;
+  const app = typeof brand === "string" ? brand : brand.app;
+  const est =
+    typeof brand === "string" || !brand.establishment?.configured
+      ? null
+      : brand.establishment;
+  const header = est
+    ? `<header class="brand">${escape(est.name)}</header>`
+    : "";
+  const footer = est
+    ? `${[
+        [
+          est.name,
+          est.document_display &&
+            `${est.document_type === "cpf" ? "CPF" : "CNPJ"} ${est.document_display}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        est.address,
+        est.phone,
+        est.footer,
+      ]
+        .filter(Boolean)
+        .map((line) => `<p>${escape(line)}</p>`)
+        .join("")}<div class="app">${escape(app)}</div>`
+    : escape(app);
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${BRAND_CSS}${extraCss}</style></head><body><main>${header}${body}<footer>${footer}</footer></main></body></html>`;
 }
 
 function fieldHtml(field: WebField, value: unknown, error: string | undefined) {
@@ -974,7 +1010,7 @@ function fieldHtml(field: WebField, value: unknown, error: string | undefined) {
 
 export function formPage(
   row: any,
-  appName: string,
+  appName: PageBrand,
   values: Record<string, unknown> = {},
   errors: Record<string, string> = {},
 ) {
@@ -995,7 +1031,7 @@ export function formPage(
 
 export function statePage(
   kind: "done" | "used" | "expired" | "not_found",
-  appName: string,
+  appName: PageBrand,
   options: { title?: string; text?: string; whatsapp?: string | null } = {},
 ) {
   const content = {

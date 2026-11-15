@@ -355,6 +355,47 @@ export const moduleSchemas = {
       notify: { type: "boolean" },
     },
   },
+  Establishment: {
+    type: "object",
+    required: [
+      "name",
+      "document",
+      "document_type",
+      "document_display",
+      "address",
+      "phone",
+      "footer",
+      "configured",
+    ],
+    properties: {
+      name: {
+        type: "string",
+        maxLength: 100,
+        description: "Nome fantasia; sem cadastro, o nome da área.",
+      },
+      document: {
+        type: "string",
+        description:
+          "CPF (11 dígitos) ou CNPJ (14 caracteres, alfanumérico desde 2026), sem pontuação; vazio se não informado.",
+      },
+      document_type: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
+      document_display: {
+        type: "string",
+        description: "Documento com pontuação, pronto para imprimir.",
+      },
+      address: { type: "string", maxLength: 300 },
+      phone: { type: "string", maxLength: 40 },
+      footer: {
+        type: "string",
+        maxLength: 500,
+        description: "Texto livre do rodapé (pode ter quebras de linha).",
+      },
+      configured: {
+        type: "boolean",
+        description: "Falso enquanto nenhum campo foi preenchido.",
+      },
+    },
+  },
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -368,6 +409,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "get",
     "/profiles/{profile}/capabilities",
     "Capacidades de uma área (mesma resposta, com modules no topo)",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/establishment",
+    "Dados do estabelecimento da área (cupom, comanda, recibo)",
     "",
   ],
   [
@@ -839,6 +886,12 @@ export function describeModuleOperation(
   }
   if (path.startsWith("/profiles/{profile}/agenda")) {
     describeAgendaOperation(path, method, entry, success, ref);
+    return;
+  }
+  if (path === "/profiles/{profile}/establishment") {
+    entry.description =
+      'Nome fantasia, CPF ou CNPJ, endereço, telefone e rodapé, editados em Gestão → Estabelecimento (PUT /settings com {"establishment": {...}}). Aceita sessão de pessoa da área e chave de aplicação, inclusive aparelho pareado, sem escopo próprio; 404 se a credencial não alcançar a área. Sem cadastro, name é o nome da área e configured é false.';
+    success.content["application/json"].schema = ref("Establishment");
     return;
   }
   if (path === "/profiles/{profile}/capabilities") {

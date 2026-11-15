@@ -22,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Star,
+  Store,
   Ticket,
   Users,
   Wrench,
@@ -66,6 +67,7 @@ export const sections = [
   ["agenda-settings", "Serviços e horários", CalendarClock],
   ["service-orders", "Ordens de serviço", Wrench],
   ["service-orders-settings", "Ordem de serviço", Wrench],
+  ["establishment", "Estabelecimento", Store],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -150,7 +152,7 @@ export const workspaceGroups = [
     id: "system",
     label: "Sistema",
     icon: Cloud,
-    pages: ["modules", "system"],
+    pages: ["establishment", "modules", "system"],
   },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
@@ -174,6 +176,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "agenda-settings",
   "service-orders-settings",
   "payments",
+  "establishment",
 ]);
 
 /**
@@ -287,4 +290,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
+  establishment:
+    "Nome fantasia, CPF ou CNPJ, endereço e telefone para cupons, comandas, recibos e páginas do cliente.",
 };

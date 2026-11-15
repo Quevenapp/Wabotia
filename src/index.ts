@@ -121,6 +121,7 @@ import {
 // Carrega os módulos embutidos antes de montar as rotas que eles declaram.
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
+import { establishment } from "./establishment";
 import {
   queueRead,
   overview as queueOverview,
@@ -272,6 +273,11 @@ const webStepHeaders = {
 const webStepHtml = (c: any, body: string, status = 200) =>
   c.html(body, status, webStepHeaders);
 const appName = (env: Env) => env.APP_NAME || "Wabotia";
+// Páginas do passo web assinadas com os dados do estabelecimento da área.
+const pageBrand = async (env: Env, profile: string) => ({
+  app: appName(env),
+  establishment: await establishment(env, profile).catch(() => null),
+});
 async function webStepRate(c: any) {
   await rate(
     c.env,
@@ -288,6 +294,7 @@ app.get("/api/w/:code", async (c) => {
   await webStepRate(c);
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  const brand = await pageBrand(c.env, row.profile_id);
   const current = await touchWebStep(c.env, row);
   const conv = await one(
     c.env,
@@ -296,14 +303,14 @@ app.get("/api/w/:code", async (c) => {
   );
   const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
   if (current.status === "completed")
-    return webStepHtml(c, statePage("used", appName(c.env), { whatsapp }));
+    return webStepHtml(c, statePage("used", brand, { whatsapp }));
   if (
     !["sent", "opened"].includes(current.status) ||
     !(await webStepAvailable(c.env, row))
   )
     return webStepHtml(
       c,
-      statePage("expired", appName(c.env), {
+      statePage("expired", brand, {
         whatsapp,
         ...(current.status === "cancelled" ||
         ["sent", "opened"].includes(current.status)
@@ -315,7 +322,7 @@ app.get("/api/w/:code", async (c) => {
       }),
       410,
     );
-  return webStepHtml(c, formPage(current, appName(c.env)));
+  return webStepHtml(c, formPage(current, brand));
 });
 app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   await webStepRate(c);
@@ -324,6 +331,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
   const row = await webStepByCode(c.env, c.req.param("code"));
   if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  const brand = await pageBrand(c.env, row.profile_id);
   const spec = json(row.spec);
   const form = await c.req.raw.formData().catch(() => new URLSearchParams());
   const cart = spec.page === "cart";
@@ -332,40 +340,33 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   if (cart && (input as Record<string, string[]>).confirm?.[0] !== "1") {
     const fields = input as Record<string, string[]>;
     if (row.status === "completed")
-      return webStepHtml(c, statePage("used", appName(c.env)), 410);
+      return webStepHtml(c, statePage("used", brand), 410);
     if (
       !["sent", "opened"].includes(row.status) ||
       row.expires_at <= Date.now() ||
       !(await webStepAvailable(c.env, row))
     )
-      return webStepHtml(c, statePage("expired", appName(c.env)), 410);
+      return webStepHtml(c, statePage("expired", brand), 410);
     if (fields.step?.[0] === "edit")
-      return webStepHtml(c, formPage(row, appName(c.env), fields));
+      return webStepHtml(c, formPage(row, brand, fields));
     if (fields.step?.[0]?.startsWith("add:"))
       return webStepHtml(
         c,
         formPage(
           row,
-          appName(c.env),
+          brand,
           addCartSlot(spec.cart, fields, fields.step[0].slice(4)),
         ),
       );
     const checked = validateCartOrder(spec.cart, fields);
     return checked.ok
-      ? webStepHtml(
-          c,
-          cartReviewPage(checked.order, spec, appName(c.env), fields),
-        )
-      : webStepHtml(
-          c,
-          formPage(row, appName(c.env), fields, checked.errors),
-          422,
-        );
+      ? webStepHtml(c, cartReviewPage(checked.order, spec, brand, fields))
+      : webStepHtml(c, formPage(row, brand, fields, checked.errors), 422);
   }
   if (!(await webStepAvailable(c.env, row)))
     return webStepHtml(
       c,
-      statePage("expired", appName(c.env), {
+      statePage("expired", brand, {
         title: "Link indisponível",
         text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
       }),
@@ -385,7 +386,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   if (result.ok) {
     return webStepHtml(
       c,
-      statePage("done", appName(c.env), {
+      statePage("done", brand, {
         title: spec.title,
         text:
           spec.done_text ||
@@ -399,7 +400,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   if (result.reason === "invalid")
     return webStepHtml(
       c,
-      formPage(row, appName(c.env), input, result.errors || {}),
+      formPage(row, brand, input, result.errors || {}),
       422,
     );
   return webStepHtml(
@@ -410,7 +411,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
         : result.reason === "not_found"
           ? "not_found"
           : "expired",
-      appName(c.env),
+      brand,
       { whatsapp: result.whatsapp },
     ),
     result.reason === "not_found" ? 404 : 410,
@@ -728,6 +729,14 @@ app.get("/api/v1/profiles/:profile/capabilities", async (c) => {
     c.req.param("profile"),
   );
   return c.json({ ...result, modules: result.profiles[0].modules });
+});
+// Dados do estabelecimento (cupom, comanda, recibo): pessoa com acesso à área
+// ou chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio.
+app.get("/api/v1/profiles/:profile/establishment", async (c) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return c.json(await establishment(c.env, profile));
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {

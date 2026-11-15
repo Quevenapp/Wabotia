@@ -614,6 +614,17 @@ function read(path: string, query: URLSearchParams): any {
     const order = osOrders.find((item) => item.id === osMatch[1]) || osOrders[0];
     return { ...order, history: osHistory(order) };
   }
+  if (rest === "establishment")
+    return {
+      name: "Assistência Exemplo",
+      document: "11222333000181",
+      document_type: "cnpj",
+      document_display: "11.222.333/0001-81",
+      address: "Rua das Flores, 120 — Centro, Campinas/SP",
+      phone: "(19) 3333-4444",
+      footer: "Garantia de 90 dias nos serviços. Obrigado pela preferência!",
+      configured: true,
+    };
   if (rest === "payments/account")
     return {
       configured: true,
