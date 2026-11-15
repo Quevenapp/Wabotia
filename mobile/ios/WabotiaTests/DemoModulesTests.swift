@@ -15,7 +15,7 @@ final class DemoModulesTests: XCTestCase {
 
     func testCapabilitiesListBothModules() async {
         let ids = await ModulesProbe(baseURL: base, profileId: DemoMode.profileId, token: { "wabu_demo" }, session: QueueHTTP.makeSession()).check()
-        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "suporte"])
+        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "suporte", "forms", "payments"])
     }
 
     func testReservaDemo() async throws {
@@ -232,5 +232,36 @@ final class DemoPedidoSuporteTests: XCTestCase {
         XCTAssertEqual(MensalidadeRules.documentText(s.payer?.documentDisplay), "CNPJ 12.345.678/0001-95")
         let payer = try await ms.payer(try XCTUnwrap(s.payer?.id))
         XCTAssertEqual(MensalidadeRules.payerPhones(payer).count, 2)
+    }
+}
+
+/// Formulário e Cobrança na demonstração: o envio cria o link e a cobrança no detalhe da conversa.
+final class DemoFormsPaymentsTests: XCTestCase {
+    private let base = DemoMode.serverURL.absoluteString
+
+    override func setUp() {
+        super.setUp()
+        DemoServer.reset()
+    }
+
+    private func call(_ method: String, _ path: String, _ body: [String: Any] = [:]) -> DemoServer.Reply {
+        let url = URL(string: base + "/api/v1/profiles/\(DemoMode.profileId)/" + path)!
+        return DemoServer.shared.handle(method: method, url: url, body: (try? JSONSerialization.data(withJSONObject: body)) ?? Data(), key: UUID().uuidString)
+    }
+
+    func testFormAndChargeShowInDetail() throws {
+        let forms = try JSONDecoder.wabotia.decode(DataList<FormSummary>.self, from: call("GET", "forms").data)
+        XCTAssertEqual(forms.data?.first?.displayName, "Dados para a coleta")
+        var detail = try JSONDecoder.wabotia.decode(ConversationDetail.self, from: call("GET", "conversations/c_rich").data)
+        XCTAssertEqual(detail.payments?.first?.status, "created", "Pix do frete aguardando")
+        XCTAssertEqual(detail.web_steps?.first?.status, "completed")
+        XCTAssertEqual(call("POST", "conversations/c_rich/actions", ["action": "form", "form_id": "satisfacao"]).status, 200)
+        XCTAssertEqual(call("POST", "conversations/c_rich/actions", ["action": "charge", "method": "link", "amount_cents": 4990, "description": "Consulta"]).status, 200)
+        XCTAssertEqual(call("POST", "conversations/c_rich/actions", ["action": "charge", "method": "pix", "amount_cents": 0, "description": "x"]).status, 400)
+        detail = try JSONDecoder.wabotia.decode(ConversationDetail.self, from: call("GET", "conversations/c_rich").data)
+        XCTAssertEqual(detail.web_steps?.first?.title, "Avaliação do atendimento")
+        XCTAssertEqual(detail.web_steps?.first?.status, "sent")
+        XCTAssertEqual(detail.payments?.first?.amount_cents, 4990)
+        XCTAssertEqual(detail.payments?.first?.method, "link")
     }
 }

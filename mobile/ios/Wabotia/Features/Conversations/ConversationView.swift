@@ -409,8 +409,11 @@ struct ConversationView: View {
 
     private func demoSheets() {
         #if DEBUG
-        switch DemoMode.takeSheet("transfer", "transfer-bots", "transfer-departments", "transfer-menu", "transfer-ticket", "transfer-confirm", "actions", "window", "tags", "reply", "push-info", "do-claim", "do-send", "do-transfer") {
+        switch DemoMode.takeSheet("transfer", "transfer-bots", "transfer-departments", "transfer-menu", "transfer-ticket", "transfer-confirm", "actions", "window", "tags", "reply", "push-info", "do-claim", "do-send", "do-transfer",
+                                   "charge", "forms") {
         case "push-info": push(.conversationInfo(id: conversationId))
+        case "charge": showCharge = true
+        case "forms": showForms = true
         case "do-claim": Task { await vm.claim() }
         case "do-send":
             vm.draft = "Mariana, a coleta está confirmada para amanhã cedo."

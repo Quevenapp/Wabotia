@@ -209,6 +209,8 @@ final class DemoQueue {
             ["id": "mensalidade", "name": "Mensalidade", "version": "1.0.0"],
             ["id": "pedido", "name": "Pedido", "version": "1.0.0"],
             ["id": "suporte", "name": "Suporte pago", "version": "1.0.0"],
+            ["id": "forms", "name": "Formulários", "version": "1.0.0"],
+            ["id": "payments", "name": "Cobrança", "version": "1.0.0"],
         ]
         var answer: Row = [
             "capabilities_version": 1,
