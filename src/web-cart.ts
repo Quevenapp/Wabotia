@@ -5,7 +5,7 @@
 // recalcula tudo a partir do catálogo guardado; nenhum preço, subtotal ou
 // total vem da página.
 import { requireValue } from "./types";
-import { escape, page } from "./web-steps";
+import { escape, page, type PageBrand } from "./web-steps";
 
 export interface CartOption {
   id: string;
@@ -53,6 +53,11 @@ export interface CartCatalog {
 
 export interface CartLine {
   item_id: string;
+  /**
+   * Montagem do item no carrinho (0, 1, 2…). O mesmo item_id pode aparecer
+   * em mais de uma linha, cada uma com adicionais e observação próprios.
+   */
+  slot: number;
   name: string;
   quantity: number;
   /** Preço do item + adicionais, por unidade. */
@@ -268,72 +273,138 @@ export function validateCartOrder(catalog: CartCatalog, input: CartInput) {
   const lines: CartLine[] = [];
   for (const category of catalog.categories)
     for (const item of category.items) {
-      const raw = first(input, `q_${item.id}`);
-      const quantity = raw === "" ? 0 : Number(raw);
-      if (!Number.isInteger(quantity) || quantity < 0) {
-        errors[`item:${item.id}`] = "Quantidade inválida.";
-        continue;
+      // Cada montagem (slot) do item vira uma linha; a soma das quantidades
+      // respeita max_quantity.
+      const slots = slotsOf(input, item);
+      let itemQuantity = 0;
+      for (let slot = 0; slot < slots; slot++) {
+        const key = slotKey(item.id, slot);
+        const line = validateSlot(item, slot, input, errors);
+        if (!line) continue;
+        itemQuantity += line.quantity;
+        lines.push(line);
+        if (itemQuantity > item.max_quantity && !errors[`item:${key}`])
+          errors[`item:${key}`] =
+            `Até ${item.max_quantity} por pedido, somando as montagens.`;
       }
-      if (!quantity) continue;
-      if (!item.available) {
-        errors[`item:${item.id}`] = "Item indisponível no momento.";
-        continue;
-      }
-      if (quantity > item.max_quantity) {
-        errors[`item:${item.id}`] = `Até ${item.max_quantity} por pedido.`;
-        continue;
-      }
-      const options: CartLine["options"] = [];
-      for (const group of item.option_groups) {
-        const chosen = [...new Set(input[`o_${item.id}_${group.id}`] || [])];
-        const picked = chosen.map((value) =>
-          group.options.find((o) => o.id === value),
-        );
-        if (picked.some((o) => !o)) {
-          errors[`item:${item.id}`] = `Opção inválida em ${group.name}.`;
-          break;
-        }
-        if (picked.some((o) => !o!.available)) {
-          errors[`item:${item.id}`] =
-            `Uma opção de ${group.name} está indisponível.`;
-          break;
-        }
-        if (picked.length < group.min || picked.length > group.max) {
-          errors[`item:${item.id}`] =
-            group.min === group.max
-              ? `Escolha ${group.min} em ${group.name}.`
-              : group.min
-                ? `Escolha de ${group.min} a ${group.max} em ${group.name}.`
-                : `Escolha até ${group.max} em ${group.name}.`;
-          break;
-        }
-        for (const option of picked as CartOption[])
-          options.push({
-            group_id: group.id,
-            group: group.name,
-            id: option.id,
-            name: option.name,
-            price_cents: option.price_cents,
-          });
-      }
-      if (errors[`item:${item.id}`]) continue;
-      const note = first(input, `n_${item.id}`);
-      if (Array.from(note).length > 140) {
-        errors[`item:${item.id}`] = "Observação do item: até 140 caracteres.";
-        continue;
-      }
-      const unit =
-        item.price_cents + options.reduce((sum, o) => sum + o.price_cents, 0);
-      lines.push({
-        item_id: item.id,
-        name: item.name,
-        quantity,
-        unit_cents: unit,
-        options,
-        note,
-        total_cents: unit * quantity,
-      });
     }
+  return finishOrder(catalog, input, lines, errors);
+}
+
+/** Uma montagem do item: quantidade, adicionais e observação próprios. */
+function validateSlot(
+  item: CartItem,
+  slot: number,
+  input: CartInput,
+  errors: Record<string, string>,
+): CartLine | null {
+  const key = slotKey(item.id, slot);
+  const raw = first(input, `q_${key}`);
+  const quantity = raw === "" ? 0 : Number(raw);
+  if (!Number.isInteger(quantity) || quantity < 0) {
+    errors[`item:${key}`] = "Quantidade inválida.";
+    return null;
+  }
+  if (!quantity) return null;
+  if (!item.available) {
+    errors[`item:${key}`] = "Item indisponível no momento.";
+    return null;
+  }
+  if (quantity > item.max_quantity) {
+    errors[`item:${key}`] = `Até ${item.max_quantity} por pedido.`;
+    return null;
+  }
+  const options: CartLine["options"] = [];
+  for (const group of item.option_groups) {
+    const chosen = [...new Set(input[`o_${key}_${group.id}`] || [])];
+    const picked = chosen.map((value) =>
+      group.options.find((o) => o.id === value),
+    );
+    if (picked.some((o) => !o)) {
+      errors[`item:${key}`] = `Opção inválida em ${group.name}.`;
+      break;
+    }
+    if (picked.some((o) => !o!.available)) {
+      errors[`item:${key}`] = `Uma opção de ${group.name} está indisponível.`;
+      break;
+    }
+    if (picked.length < group.min || picked.length > group.max) {
+      errors[`item:${key}`] =
+        group.min === group.max
+          ? `Escolha ${group.min} em ${group.name}.`
+          : group.min
+            ? `Escolha de ${group.min} a ${group.max} em ${group.name}.`
+            : `Escolha até ${group.max} em ${group.name}.`;
+      break;
+    }
+    for (const option of picked as CartOption[])
+      options.push({
+        group_id: group.id,
+        group: group.name,
+        id: option.id,
+        name: option.name,
+        price_cents: option.price_cents,
+      });
+  }
+  if (errors[`item:${key}`]) return null;
+  const note = first(input, `n_${key}`);
+  if (Array.from(note).length > 140) {
+    errors[`item:${key}`] = "Observação do item: até 140 caracteres.";
+    return null;
+  }
+  const unit =
+    item.price_cents + options.reduce((sum, o) => sum + o.price_cents, 0);
+  return {
+    item_id: item.id,
+    slot,
+    name: item.name,
+    quantity,
+    unit_cents: unit,
+    options,
+    note,
+    total_cents: unit * quantity,
+  };
+}
+
+/** Máximo de montagens de um mesmo item num pedido. */
+export const MAX_CART_SLOTS = 10;
+
+/** Chave de campo da montagem: a primeira mantém os nomes antigos. */
+export const slotKey = (itemId: string, slot: number) =>
+  slot ? `${itemId}.${slot}` : itemId;
+
+/** Quantas montagens do item o formulário traz (campo escondido slots_<id>). */
+export function slotsOf(input: CartInput, item: CartItem) {
+  const n = Number(first(input, `slots_${item.id}`));
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_CART_SLOTS) : 1;
+}
+
+/** "+ Outra montagem": mais um bloco do item, sem validar o resto. */
+export function addCartSlot(
+  catalog: CartCatalog,
+  input: CartInput,
+  itemId: string,
+): CartInput {
+  const item = catalog.categories
+    .flatMap((category) => category.items)
+    .find((i) => i.id === itemId && i.available);
+  if (!item) return input;
+  const slots = slotsOf(input, item);
+  const next = {
+    ...input,
+    [`slots_${item.id}`]: [String(Math.min(slots + 1, MAX_CART_SLOTS))],
+  };
+  // A montagem nova já começa com 1 unidade, se a anterior estiver vazia ou não.
+  if (slots < MAX_CART_SLOTS) next[`q_${slotKey(item.id, slots)}`] = ["1"];
+  return next;
+}
+
+function finishOrder(
+  catalog: CartCatalog,
+  input: CartInput,
+  lines: CartLine[],
+  errors: Record<string, string>,
+) {
   if (!lines.length && !Object.keys(errors).length)
     errors.cart = "Escolha ao menos um item.";
   const subtotal = lines.reduce((sum, line) => sum + line.total_cents, 0);
@@ -422,7 +493,7 @@ export function cartSummary(order: CartOrder) {
 // ---------------------------------------------------------------------------
 // Páginas
 
-const CART_CSS = `.cat{margin:24px 0 8px;font-size:18px}.item{display:flex;gap:12px;padding:14px 0;border-top:1px solid #e9edef}.item:first-of-type{border-top:0}.item img{width:72px;height:72px;object-fit:cover;border-radius:10px;flex:none}.item .info{flex:1;min-width:0}.item .name{font-weight:600}.item .price{font-weight:600;color:#008069;white-space:nowrap}.item.off{opacity:.55}.qty{display:flex;align-items:center;gap:8px;margin-top:8px}.qty select{font:inherit;padding:8px 10px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}.group{margin:10px 0 0;padding:10px 12px;border:1px dashed #d1d7db;border-radius:10px}.group legend{font-size:14px}.group .option{margin-top:6px;padding:8px 10px}.mini{width:100%;font:inherit;font-size:14px;padding:8px 10px;margin-top:8px;border:1px solid #d1d7db;border-radius:10px}.lines{width:100%;border-collapse:collapse;margin:8px 0}.lines td{padding:8px 0;border-top:1px solid #e9edef;vertical-align:top}.lines td:last-child{text-align:right;white-space:nowrap;padding-left:12px}.lines small{margin:2px 0 0}.total td{font-weight:700;border-top:2px solid #d1d7db}.alert{background:#fdecea;color:#c62828;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}@media (prefers-color-scheme:dark){.item,.lines td{border-color:#2a3942}.qty select,.mini{background:#202c33;border-color:#3b4a54}.group{border-color:#3b4a54}.alert{background:#3b1f1f;color:#ff8a80}}`;
+const CART_CSS = `.cat{margin:24px 0 8px;font-size:18px}.item{display:flex;gap:12px;padding:14px 0;border-top:1px solid #e9edef}.item:first-of-type{border-top:0}.item img{width:72px;height:72px;object-fit:cover;border-radius:10px;flex:none}.item .info{flex:1;min-width:0}.item .name{font-weight:600}.item .price{font-weight:600;color:#008069;white-space:nowrap}.item.off{opacity:.55}.qty{display:flex;align-items:center;gap:8px;margin-top:8px}.qty select{font:inherit;padding:8px 10px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}.group{margin:10px 0 0;padding:10px 12px;border:1px dashed #d1d7db;border-radius:10px}.group legend{font-size:14px}.group .option{margin-top:6px;padding:8px 10px}.mini{width:100%;font:inherit;font-size:14px;padding:8px 10px;margin-top:8px;border:1px solid #d1d7db;border-radius:10px}.lines{width:100%;border-collapse:collapse;margin:8px 0}.lines td{padding:8px 0;border-top:1px solid #e9edef;vertical-align:top}.lines td:last-child{text-align:right;white-space:nowrap;padding-left:12px}.lines small{margin:2px 0 0}.total td{font-weight:700;border-top:2px solid #d1d7db}.alert{background:#fdecea;color:#c62828;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}.slot{margin-top:12px;padding-top:10px;border-top:1px dashed #d1d7db}.more{display:inline-block;width:auto;margin:10px 0 0;padding:8px 12px;font-size:14px;background:none;color:#008069;border:1px solid #008069;border-radius:10px}.default{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}@media (prefers-color-scheme:dark){.item,.lines td{border-color:#2a3942}.slot{border-color:#3b4a54}.more{color:#25d366;border-color:#25d366}.qty select,.mini{background:#202c33;border-color:#3b4a54}.group{border-color:#3b4a54}.alert{background:#3b1f1f;color:#ff8a80}}`;
 
 const err = (errors: Record<string, string>, key: string) =>
   errors[key] ? `<div class="error">${escape(errors[key])}</div>` : "";
@@ -431,7 +502,7 @@ const err = (errors: Record<string, string>, key: string) =>
 export function cartPage(
   catalog: CartCatalog,
   meta: { title: string; intro?: string; submit_label?: string },
-  appName: string,
+  appName: PageBrand,
   input: CartInput = {},
   errors: Record<string, string> = {},
 ) {
@@ -444,30 +515,53 @@ export function cartPage(
       (category) =>
         `<h2 class="cat">${escape(category.name)}</h2>${category.items
           .map((item) => {
-            const qty = Number(value(`q_${item.id}`)) || 0;
-            const groups = item.option_groups
-              .map((group) => {
-                const radio = group.max === 1 && group.min === 1;
-                const rule =
-                  group.min === group.max
-                    ? `escolha ${group.min}`
-                    : group.min
-                      ? `escolha de ${group.min} a ${group.max}`
-                      : `até ${group.max}`;
-                return `<fieldset class="group"><legend>${escape(group.name)} <small>(${rule}, se pedir este item)</small></legend>${group.options
-                  .map((option) => {
-                    const name = `o_${item.id}_${group.id}`;
-                    return `<label class="option"><input type="${radio ? "radio" : "checkbox"}" name="${name}" value="${escape(option.id)}"${selected(name, option.id) ? " checked" : ""}${option.available && item.available ? "" : " disabled"}><span>${escape(option.name)}${option.price_cents ? ` <small>+ ${money(option.price_cents)}</small>` : ""}${option.available ? "" : " <small>indisponível</small>"}</span></label>`;
-                  })
-                  .join("")}</fieldset>`;
-              })
-              .join("");
-            const options = Array.from(
-              { length: item.max_quantity + 1 },
-              (_, n) =>
-                `<option value="${n}"${n === qty ? " selected" : ""}>${n}</option>`,
+            const slots = item.available ? slotsOf(input, item) : 1;
+            const block = (slot: number) => {
+              const key = slotKey(item.id, slot);
+              const qty = Number(value(`q_${key}`)) || 0;
+              const groups = item.option_groups
+                .map((group) => {
+                  const radio = group.max === 1 && group.min === 1;
+                  const rule =
+                    group.min === group.max
+                      ? `escolha ${group.min}`
+                      : group.min
+                        ? `escolha de ${group.min} a ${group.max}`
+                        : `até ${group.max}`;
+                  return `<fieldset class="group"><legend>${escape(group.name)} <small>(${rule}, se pedir este item)</small></legend>${group.options
+                    .map((option) => {
+                      const name = `o_${key}_${group.id}`;
+                      return `<label class="option"><input type="${radio ? "radio" : "checkbox"}" name="${name}" value="${escape(option.id)}"${selected(name, option.id) ? " checked" : ""}${option.available && item.available ? "" : " disabled"}><span>${escape(option.name)}${option.price_cents ? ` <small>+ ${money(option.price_cents)}</small>` : ""}${option.available ? "" : " <small>indisponível</small>"}</span></label>`;
+                    })
+                    .join("")}</fieldset>`;
+                })
+                .join("");
+              const options = Array.from(
+                { length: item.max_quantity + 1 },
+                (_, n) =>
+                  `<option value="${n}"${n === qty ? " selected" : ""}>${n}</option>`,
+              ).join("");
+              const label = slots > 1 ? `Montagem ${slot + 1}: ` : "";
+              const qtyBox = item.available
+                ? `<label style="margin:0"><span class="label" style="display:inline;margin-right:6px">${label}Qtd.</span><select name="q_${escape(key)}" aria-label="${escape(label)}Quantidade de ${escape(item.name)}">${options}</select></label>`
+                : "<small>Indisponível</small>";
+              const extras = item.available
+                ? `${groups}<input class="mini" type="text" name="n_${escape(key)}" maxlength="140" placeholder="Observação (opcional)" value="${escape(value(`n_${key}`))}">`
+                : "";
+              return slot
+                ? `<div class="slot"><div class="qty">${qtyBox}</div>${extras}${err(errors, `item:${key}`)}</div>`
+                : `<div class="qty"><span class="price">${money(item.price_cents)}</span>${qtyBox}</div>${extras}${err(errors, `item:${key}`)}`;
+            };
+            const blocks = Array.from({ length: slots }, (_, n) =>
+              block(n),
             ).join("");
-            return `<div class="item${item.available ? "" : " off"}">${item.image_url ? `<img src="${escape(item.image_url)}" alt="" loading="lazy">` : ""}<div class="info"><div class="name">${escape(item.name)}</div>${item.description ? `<small>${escape(item.description)}</small>` : ""}<div class="qty"><span class="price">${money(item.price_cents)}</span>${item.available ? `<label style="margin:0"><span class="label" style="display:inline;margin-right:6px">Qtd.</span><select name="q_${escape(item.id)}" aria-label="Quantidade de ${escape(item.name)}">${options}</select></label>` : "<small>Indisponível</small>"}</div>${item.available ? `${groups}<input class="mini" type="text" name="n_${escape(item.id)}" maxlength="140" placeholder="Observação (opcional)" value="${escape(value(`n_${item.id}`))}">` : ""}${err(errors, `item:${item.id}`)}</div></div>`;
+            const more =
+              item.available && slots < MAX_CART_SLOTS
+                ? `<input type="hidden" name="slots_${escape(item.id)}" value="${slots}"><button type="submit" class="more" name="step" value="add:${escape(item.id)}" formaction="#i-${escape(item.id)}">+ Outra montagem deste item</button>`
+                : item.available
+                  ? `<input type="hidden" name="slots_${escape(item.id)}" value="${slots}">`
+                  : "";
+            return `<div class="item${item.available ? "" : " off"}" id="i-${escape(item.id)}">${item.image_url ? `<img src="${escape(item.image_url)}" alt="" loading="lazy">` : ""}<div class="info"><div class="name">${escape(item.name)}</div>${item.description ? `<small>${escape(item.description)}</small>` : ""}${blocks}${more}</div></div>`;
           })
           .join("")}`,
     )
@@ -486,7 +580,7 @@ export function cartPage(
     Object.keys(errors).length
       ? `<div class="alert" role="alert">${escape(errors.cart || "Confira os itens e os campos destacados.")}</div>`
       : ""
-  }<form method="post" novalidate>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
+  }<form method="post" novalidate><button type="submit" name="step" value="review" class="default" tabindex="-1" aria-hidden="true">Revisar</button>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
   return page(meta.title, body, appName, CART_CSS);
 }
 
@@ -494,7 +588,7 @@ export function cartPage(
 export function cartReviewPage(
   order: CartOrder,
   meta: { title: string },
-  appName: string,
+  appName: PageBrand,
   input: CartInput,
 ) {
   // Os campos voltam escondidos: a confirmação recalcula tudo de novo.

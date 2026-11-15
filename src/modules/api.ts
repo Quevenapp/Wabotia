@@ -30,6 +30,7 @@ import { access } from "../security";
 import { event } from "../events";
 import { conversation, enqueue, settings } from "../service";
 import { createPayment, type Payment } from "../payments";
+import { establishment, type Establishment } from "../establishment";
 import {
   interactiveLine,
   interactivePayload,
@@ -60,6 +61,7 @@ export interface ContactSummary {
 }
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
 export type { InteractiveSpec } from "../whatsapp-interactive";
+export type { Establishment } from "../establishment";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export interface OutgoingMessage {
@@ -82,6 +84,12 @@ export interface ModuleContext {
   access(actor: Actor, scope: string): void;
   /** Configurações da área (itens de menu de módulos desligados ocultos). */
   settings(): Promise<any>;
+  /**
+   * Dados do estabelecimento (nome fantasia, CPF/CNPJ, endereço, telefone,
+   * rodapé) para cupom, comanda, recibo e mensagens. Sem cadastro, `name` é o
+   * nome da área e `configured` é falso.
+   */
+  establishment(): Promise<Establishment>;
   conversation(id: string, actor?: Actor): Promise<Conversation>;
   /** Contato vinculado à conversa, ou null. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
@@ -163,6 +171,7 @@ export function modulesApi(
     },
     access: (actor, scope) => access(actor, profile, scope),
     settings: () => settings(env, profile),
+    establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
     async contact(c) {
       const id = typeof c === "string" ? c : c.id;

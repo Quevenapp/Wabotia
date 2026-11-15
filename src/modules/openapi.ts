@@ -355,6 +355,47 @@ export const moduleSchemas = {
       notify: { type: "boolean" },
     },
   },
+  Establishment: {
+    type: "object",
+    required: [
+      "name",
+      "document",
+      "document_type",
+      "document_display",
+      "address",
+      "phone",
+      "footer",
+      "configured",
+    ],
+    properties: {
+      name: {
+        type: "string",
+        maxLength: 100,
+        description: "Nome fantasia; sem cadastro, o nome da área.",
+      },
+      document: {
+        type: "string",
+        description:
+          "CPF (11 dígitos) ou CNPJ (14 caracteres, alfanumérico desde 2026), sem pontuação; vazio se não informado.",
+      },
+      document_type: { type: "string", enum: ["cpf", "cnpj"], nullable: true },
+      document_display: {
+        type: "string",
+        description: "Documento com pontuação, pronto para imprimir.",
+      },
+      address: { type: "string", maxLength: 300 },
+      phone: { type: "string", maxLength: 40 },
+      footer: {
+        type: "string",
+        maxLength: 500,
+        description: "Texto livre do rodapé (pode ter quebras de linha).",
+      },
+      configured: {
+        type: "boolean",
+        description: "Falso enquanto nenhum campo foi preenchido.",
+      },
+    },
+  },
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -369,6 +410,18 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "/profiles/{profile}/capabilities",
     "Capacidades de uma área (mesma resposta, com modules no topo)",
     "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/establishment",
+    "Dados do estabelecimento da área (cupom, comanda, recibo)",
+    "",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/people",
+    "Pessoas da área (id, nome, papel) para escolher responsável",
+    "conversations:read",
   ],
   [
     "get",
@@ -841,6 +894,34 @@ export function describeModuleOperation(
     describeAgendaOperation(path, method, entry, success, ref);
     return;
   }
+  if (path === "/profiles/{profile}/people") {
+    entry.description =
+      "Pessoas ativas com acesso à área (administradores incluídos), em ordem de nome, para escolher o responsável de uma ordem de serviço ou de outro registro de módulo. Sem bots e sem e-mail. Aceita sessão de pessoa da área e chave de aplicação com conversations:read; 404 se a credencial não alcançar a área.";
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id", "name", "role"],
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              role: { type: "string", enum: ["admin", "operator"] },
+            },
+          },
+        },
+      },
+    };
+    return;
+  }
+  if (path === "/profiles/{profile}/establishment") {
+    entry.description =
+      'Nome fantasia, CPF ou CNPJ, endereço, telefone e rodapé, editados em Gestão → Estabelecimento (PUT /settings com {"establishment": {...}}). Aceita sessão de pessoa da área e chave de aplicação, inclusive aparelho pareado, sem escopo próprio; 404 se a credencial não alcançar a área. Sem cadastro, name é o nome da área e configured é false.';
+    success.content["application/json"].schema = ref("Establishment");
+    return;
+  }
   if (path === "/profiles/{profile}/capabilities") {
     entry.description =
       "Igual a GET /capabilities?profile={profile}, com a lista de módulos ligados repetida em modules no topo da resposta. Aceita sessão de pessoa e chave de aplicação (aparelho pareado); 404 se a credencial não alcançar a área.";
@@ -1117,7 +1198,25 @@ function describeServiceOrderOperation(
       properties: {
         data: { type: "array", items: ref },
         next_cursor: { type: ["string", "null"] },
-        counts: { type: "object", additionalProperties: { type: "integer" } },
+        counts: {
+          type: "object",
+          description:
+            "Ordens da área por estado, sem os filtros da consulta. Chaves = códigos de status (received, analyzing, quoted, approved, declined, in_progress, ready, delivered, cancelled); estado sem ordens fica ausente (vale 0).",
+          properties: Object.fromEntries(
+            [
+              "received",
+              "analyzing",
+              "quoted",
+              "approved",
+              "declined",
+              "in_progress",
+              "ready",
+              "delivered",
+              "cancelled",
+            ].map((s) => [s, { type: "integer" }]),
+          ),
+          additionalProperties: false,
+        },
       },
     };
     return;

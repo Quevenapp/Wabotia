@@ -78,6 +78,7 @@ import {
 } from "./protocols";
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
+import { validateEstablishment } from "./establishment";
 import {
   hiddenMenuTypes,
   moduleCommand,
@@ -1539,6 +1540,8 @@ export async function perform(
         ...(old.queue || {}),
         ...data.queue,
       });
+    if (data.establishment !== undefined)
+      next.establishment = validateEstablishment(data.establishment);
     // Chaves declaradas pelos módulos (src/modules, onSettingsSave).
     for (const key of Object.keys(data)) {
       const validate = settingsValidator(key);

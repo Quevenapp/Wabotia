@@ -151,6 +151,18 @@ export const serviceSchemas = {
       },
       surveys_enabled: { type: "boolean" },
       jev_enabled: { type: "boolean" },
+      establishment: {
+        type: "object",
+        description:
+          "Dados do estabelecimento (Gestão → Estabelecimento): name (até 100), document (CPF ou CNPJ, com ou sem pontuação; confere os dígitos verificadores), address (até 300), phone (até 40) e footer (até 500). Lidos por módulos e aplicativos em GET /profiles/{profile}/establishment.",
+        properties: {
+          name: { type: "string", maxLength: 100 },
+          document: { type: "string" },
+          address: { type: "string", maxLength: 300 },
+          phone: { type: "string", maxLength: 40 },
+          footer: { type: "string", maxLength: 500 },
+        },
+      },
     },
   },
   BusinessHours: {

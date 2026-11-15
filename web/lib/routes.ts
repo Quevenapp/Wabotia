@@ -58,6 +58,7 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   "service-orders": "ordens-de-servico",
   "service-orders-settings": "ordem-de-servico",
   payments: "cobranca",
+  establishment: "estabelecimento",
 };
 /** Segmentos de Equipe aceitos no endereço. */
 export const teamSegments = ["conversas", "pessoas", "bots", "setores"] as const;
