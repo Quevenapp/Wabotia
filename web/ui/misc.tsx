@@ -131,6 +131,8 @@ const dateKeys = ["created", "updated", "expires", "response_due_at", "last_seen
 /**
  * Tabela de Gestão: cabeçalho fixo, linhas de 44 px, ações à direita.
  * `columns` é uma lista de [chave, rótulo] ou [chave, rótulo, render].
+ * Em espaço estreito (celular, tablet em pé) cada linha vira um bloco com o
+ * rótulo da coluna ao lado do valor (.table-stack em styles/base.css).
  */
 export function Table({
   rows,
@@ -156,43 +158,47 @@ export function Table({
       </>
     );
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            {columns.map(([key, label]) => (
-              <th key={key} scope="col">
-                {label}
-              </th>
-            ))}
-            {action && (
-              <th className="table-actions" scope="col">
-                <span className="sr-only">Ações</span>
-              </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={row.id || index}>
-              {columns.map(([key, , render]) => (
-                <td key={key}>
-                  {render ? (
-                    render(row)
-                  ) : key === "status" ? (
-                    <Badge value={row[key]} />
-                  ) : dateKeys.includes(key) ? (
-                    date(row[key])
-                  ) : (
-                    String(row[key] ?? "—")
-                  )}
-                </td>
+    <div className="table-stack">
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              {columns.map(([key, label]) => (
+                <th key={key} scope="col">
+                  {label}
+                </th>
               ))}
-              {action && <td className="table-actions">{action(row)}</td>}
+              {action && (
+                <th className="table-actions" scope="col">
+                  <span className="sr-only">Ações</span>
+                </th>
+              )}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.id || index}>
+                {columns.map(([key, label, render]) => (
+                  <td key={key} data-label={label}>
+                    <div className="cell">
+                      {render ? (
+                        render(row)
+                      ) : key === "status" ? (
+                        <Badge value={row[key]} />
+                      ) : dateKeys.includes(key) ? (
+                        date(row[key])
+                      ) : (
+                        String(row[key] ?? "—")
+                      )}
+                    </div>
+                  </td>
+                ))}
+                {action && <td className="table-actions">{action(row)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -460,54 +460,73 @@ export function ReservaPage() {
               description="Nada neste filtro."
             />
           ) : (
-            <div className="table-scroll">
-              <table className="reserva-list">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Cliente</th>
-                    <th>Unidade</th>
-                    <th>Período</th>
-                    <th>Estado</th>
-                    <th>Sinal</th>
-                    <th>Check-in</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.data.data.map((b: Row) => (
-                    <tr
-                      key={b.id}
-                      className="reserva-row"
-                      onClick={() => setOpen(b)}
-                    >
-                      <td>{b.number}</td>
-                      <td>
-                        {b.customer_name || "Sem nome"}
-                        {b.customer_phone && (
-                          <small className="muted"> {b.customer_phone}</small>
-                        )}
-                      </td>
-                      <td>{b.unit_name}</td>
-                      <td>{stayLabel(b)}</td>
-                      <td>
-                        <StatusPill b={b} />
-                      </td>
-                      <td>
-                        {b.deposit_cents
-                          ? `${money(b.deposit_cents)} · ${b.payment_status ? paymentInfo[b.payment_status] : "não cobrado"}`
-                          : "—"}
-                      </td>
-                      <td>
-                        {b.checkin_status === "completed"
-                          ? "Feito"
-                          : b.checkin_status === "none"
-                            ? "—"
-                            : "Enviado"}
-                      </td>
+            <div className="table-stack">
+              <div className="table-scroll">
+                <table className="reserva-list">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Cliente</th>
+                      <th>Unidade</th>
+                      <th>Período</th>
+                      <th>Estado</th>
+                      <th>Sinal</th>
+                      <th>Check-in</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {list.data.data.map((b: Row) => (
+                      <tr
+                        key={b.id}
+                        className="reserva-row"
+                        onClick={() => setOpen(b)}
+                      >
+                        <td data-label="#">
+                          <div className="cell">{b.number}</div>
+                        </td>
+                        <td data-label="Cliente">
+                          <div className="cell">
+                            {b.customer_name || "Sem nome"}
+                            {b.customer_phone && (
+                              <small className="muted">
+                                {" "}
+                                {b.customer_phone}
+                              </small>
+                            )}
+                          </div>
+                        </td>
+                        <td data-label="Unidade">
+                          <div className="cell">{b.unit_name}</div>
+                        </td>
+                        <td data-label="Período">
+                          <div className="cell">{stayLabel(b)}</div>
+                        </td>
+                        <td data-label="Estado">
+                          <div className="cell">
+                            <StatusPill b={b} />
+                          </div>
+                        </td>
+                        <td data-label="Sinal">
+                          <div className="cell">
+                            {b.deposit_cents
+                              ? `${money(b.deposit_cents)} · ${b.payment_status ? paymentInfo[b.payment_status] : "não cobrado"}`
+                              : "—"}
+                          </div>
+                        </td>
+                        <td data-label="Check-in">
+                          <div className="cell">
+                            {b.checkin_status === "completed"
+                              ? "Feito"
+                              : b.checkin_status === "none"
+                                ? "—"
+                                : "Enviado"}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>

@@ -39,7 +39,7 @@ export function ConversationAgenda({
     return null;
   return (
     <section className="info-section agenda-conversation">
-      <h3>Agenda</h3>
+      <h4>Agenda</h4>
       {upcoming.length ? (
         <ul>
           {upcoming.map((a) => (

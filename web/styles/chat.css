@@ -1618,6 +1618,21 @@
   border-radius: 12px;
   background: var(--surface);
 }
+/* Ordens de serviço e pedidos da conversa usam o mesmo cartão num botão:
+   sem a borda e o alinhamento padrão do navegador. */
+button.info-web-step {
+  width: 100%;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+button.info-web-step:hover {
+  background: var(--field);
+}
+.info-web-steps + .card-actions {
+  margin-top: 10px;
+}
 .info-web-step summary {
   display: grid;
   gap: 3px;

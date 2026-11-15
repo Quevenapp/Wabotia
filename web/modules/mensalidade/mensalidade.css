@@ -47,6 +47,12 @@
 .mensalidade-link:hover {
   text-decoration: underline;
 }
+/* Nome do cliente que abre a assinatura: altura para o dedo. */
+@media (pointer: coarse) {
+  .mensalidade-link {
+    min-height: 36px;
+  }
+}
 .mensalidade-check {
   display: flex;
   align-items: center;

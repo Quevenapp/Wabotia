@@ -15,6 +15,12 @@
   flex: 1 1 auto;
   flex-wrap: wrap;
 }
+/* Mínimo fixo no lugar do min(220px, 100%) da .toolbar: com a porcentagem,
+   a quebra de linha da barra era calculada menor que o desenho e, no
+   tablet em pé, a seta da próxima semana ficava fora da tela. */
+.reserva-toolbar .reserva-nav .field {
+  min-width: 150px;
+}
 .reserva-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -180,4 +186,47 @@
 }
 .reserva-list {
   min-width: 760px;
+}
+/* Lista em espaço estreito: linhas empilhadas (.table-stack, base.css). */
+@container (max-width: 559px) {
+  .reserva-list {
+    min-width: 0;
+  }
+}
+/* Ocupação: a coluna da unidade fica parada enquanto os dias rolam de lado.
+   A sombra sólida cobre a margem de 20 px da .table-scroll, por onde os
+   dias passariam à esquerda dela (com bordas colapsadas o Chrome não pinta
+   sombra em célula, por isso a grade usa bordas separadas). */
+.reserva-grid-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.reserva-grid-table thead th:first-child,
+.reserva-grid-table .reserva-unit {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg);
+  box-shadow:
+    -20px 0 0 var(--bg),
+    1px 0 0 var(--divider);
+}
+.reserva-grid-table thead th:first-child {
+  z-index: 2;
+}
+[data-theme="dark"] .reserva-grid-table thead th:first-child,
+[data-theme="dark"] .reserva-grid-table .reserva-unit {
+  background: var(--surface);
+  box-shadow:
+    -20px 0 0 var(--surface),
+    1px 0 0 var(--divider);
+}
+@media (max-width: 540px) {
+  .reserva-unit {
+    min-width: 112px;
+  }
+  .reserva-filters,
+  .reserva-filters .field {
+    width: 100%;
+  }
 }

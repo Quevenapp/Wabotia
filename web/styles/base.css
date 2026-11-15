@@ -484,11 +484,15 @@ textarea:focus-visible {
 .switch:disabled {
   opacity: 0.6;
 }
+/* Quando as abas não cabem na largura (celular), quebram em mais de uma
+   linha em vez de esconder as últimas fora da tela. Com uma linha só, o
+   raio de 20 px ainda arredonda as pontas por inteiro. */
 .segmented {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
-  border-radius: var(--radius-pill);
+  border-radius: 20px;
   background: var(--field);
   width: max-content;
   max-width: 100%;
@@ -503,7 +507,7 @@ textarea:focus-visible {
   flex: 1 0 auto;
 }
 .segmented button {
-  flex: none;
+  flex: 1 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -587,6 +591,13 @@ textarea:focus-visible {
 }
 .search-clear:hover {
   background: var(--hover);
+}
+/* No celular a busca da barra de ferramentas ocupa a linha toda, como os
+   botões (legacy.css, .toolbar > .button). */
+@media (max-width: 540px) {
+  .toolbar > .search-box {
+    width: 100%;
+  }
 }
 .field {
   display: grid;
@@ -1322,6 +1333,78 @@ td.table-actions > .card-actions {
   justify-content: flex-end;
   flex-wrap: nowrap;
 }
+/*
+ * Tabela em espaço estreito (celular, tablet em pé): cada linha vira um bloco
+ * com o rótulo da coluna ao lado do valor e as ações embaixo, sem rolagem
+ * lateral e sem rolagem dentro da rolagem (Table, web/ui/misc.tsx).
+ */
+.table-stack {
+  container-type: inline-size;
+}
+@container (max-width: 559px) {
+  .table-stack .table-scroll {
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .table-stack table,
+  .table-stack tbody,
+  .table-stack tr {
+    display: block;
+  }
+  .table-stack thead {
+    display: none;
+  }
+  .table-stack tbody tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+  }
+  .table-stack tbody tr:first-child {
+    padding-top: 0;
+  }
+  .table-stack tbody tr:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .table-stack tbody tr:hover td {
+    background: none;
+  }
+  .table-stack td {
+    display: grid;
+    grid-template-columns: minmax(0, 36%) minmax(0, 1fr);
+    align-items: baseline;
+    gap: 12px;
+    height: auto;
+    padding: 3px 0;
+    border: 0;
+    overflow-wrap: break-word;
+  }
+  .table-stack td::before {
+    content: attr(data-label);
+    color: var(--text-2);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .table-stack td:has(> .cell:empty),
+  .table-stack td.table-actions:empty {
+    display: none;
+  }
+  .table-stack td.table-actions {
+    display: block;
+    padding-top: 8px;
+    text-align: left;
+    white-space: normal;
+  }
+  .table-stack td.table-actions::before {
+    content: none;
+  }
+  .table-stack td.table-actions > .card-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
 .page-header {
   display: flex;
   align-items: flex-start;
@@ -1441,6 +1524,55 @@ td.table-actions > .card-actions {
 }
 .logo.light {
   color: var(--on-avatar);
+}
+
+/*
+ * Telas de toque (celular e tablet): os controles compactos do computador
+ * ficam com 36 a 40 px de altura para o dedo. Com mouse nada muda.
+ */
+@media (pointer: coarse) {
+  .icon-button.sm {
+    width: 40px;
+    height: 40px;
+  }
+  .button.sm,
+  .button.small {
+    min-height: 38px;
+  }
+  .segmented button {
+    min-height: 36px;
+  }
+  .chip {
+    height: 36px;
+  }
+  .search-clear {
+    right: 2px;
+    width: 34px;
+    height: 34px;
+  }
+  button.text-link {
+    min-height: 36px;
+  }
+  /* Interruptor de 26 px: a área de toque passa de 44 x 26 para 52 x 44. */
+  .switch::before {
+    content: "";
+    position: absolute;
+    inset: -9px -4px;
+  }
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 36px;
+  }
+  summary {
+    padding-block: 8px;
+  }
+  /* Campos com menos de 16 px fazem o Safari do iPhone ampliar a página a
+     cada toque, e a pessoa precisa reduzir de volta para ver o formulário. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

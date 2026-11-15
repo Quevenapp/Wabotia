@@ -596,67 +596,79 @@ export function ReservaSettingsPage() {
             description="Cadastre quartos, chalés, quadras ou salões. Depois, ponha Fazer reserva e Minhas reservas no menu do WhatsApp (Menus e ações)."
           />
         ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Unidade</th>
-                  <th>Modo</th>
-                  <th>Capacidade</th>
-                  <th>Preço</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {data.units.map((u) => (
-                  <tr key={u.id}>
-                    <td>
-                      <strong>{u.name}</strong>{" "}
-                      <small className="muted">{kindLabel(u.kind)}</small>
-                      {!u.active && <Pill tone="muted">Inativa</Pill>}
-                    </td>
-                    <td>{u.mode === "daily" ? "Diária" : "Por hora"}</td>
-                    <td>{u.capacity}</td>
-                    <td>
-                      {money(u.price_cents)}{" "}
-                      {u.mode === "daily" ? "/ diária" : "/ hora"}
-                    </td>
-                    <td className="table-actions">
-                      <div className="card-actions">
-                        <IconButton
-                          size="sm"
-                          label="Editar"
-                          onClick={() => setUnit(u)}
-                        >
-                          <Pencil size={16} />
-                        </IconButton>
-                        <IconButton
-                          size="sm"
-                          label="Excluir"
-                          tone="danger"
-                          disabled={busy}
-                          onClick={() =>
-                            run(
-                              async () => {
-                                await write(
-                                  `${app.root}/reserva/units/${u.id}`,
-                                  "DELETE",
-                                  {},
-                                );
-                                await overview.reload();
-                              },
-                              { success: "Unidade excluída." },
-                            )
-                          }
-                        >
-                          <Trash2 size={16} />
-                        </IconButton>
-                      </div>
-                    </td>
+          <div className="table-stack">
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Unidade</th>
+                    <th>Modo</th>
+                    <th>Capacidade</th>
+                    <th>Preço</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.units.map((u) => (
+                    <tr key={u.id}>
+                      <td data-label="Unidade">
+                        <div className="cell">
+                          <strong>{u.name}</strong>{" "}
+                          <small className="muted">{kindLabel(u.kind)}</small>
+                          {!u.active && <Pill tone="muted">Inativa</Pill>}
+                        </div>
+                      </td>
+                      <td data-label="Modo">
+                        <div className="cell">
+                          {u.mode === "daily" ? "Diária" : "Por hora"}
+                        </div>
+                      </td>
+                      <td data-label="Capacidade">
+                        <div className="cell">{u.capacity}</div>
+                      </td>
+                      <td data-label="Preço">
+                        <div className="cell">
+                          {money(u.price_cents)}{" "}
+                          {u.mode === "daily" ? "/ diária" : "/ hora"}
+                        </div>
+                      </td>
+                      <td className="table-actions">
+                        <div className="card-actions">
+                          <IconButton
+                            size="sm"
+                            label="Editar"
+                            onClick={() => setUnit(u)}
+                          >
+                            <Pencil size={16} />
+                          </IconButton>
+                          <IconButton
+                            size="sm"
+                            label="Excluir"
+                            tone="danger"
+                            disabled={busy}
+                            onClick={() =>
+                              run(
+                                async () => {
+                                  await write(
+                                    `${app.root}/reserva/units/${u.id}`,
+                                    "DELETE",
+                                    {},
+                                  );
+                                  await overview.reload();
+                                },
+                                { success: "Unidade excluída." },
+                              )
+                            }
+                          >
+                            <Trash2 size={16} />
+                          </IconButton>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>

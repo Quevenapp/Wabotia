@@ -230,9 +230,32 @@
   place-items: center;
   color: var(--text-2);
 }
+/* Item do cardápio em cartão estreito (celular, tablet em pé): foto e nome
+   numa linha; preço, disponível e os botões na seguinte, sem passar da
+   borda do cartão. */
+.pedido-menu-items {
+  container-type: inline-size;
+}
+@container (max-width: 519px) {
+  .pedido-menu-item:has(> img, > .no-photo) {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .pedido-menu-item:has(> img, > .no-photo) > .info {
+    flex: 1 1 calc(100% - 62px);
+  }
+  .pedido-menu-item:has(> img, > .no-photo) > .price {
+    margin-right: auto;
+  }
+}
 @media (max-width: 759px) {
+  /* Quadro no celular: uma coluna por vez, encaixando ao deslizar. */
   .pedido-board {
     grid-template-columns: repeat(5, minmax(240px, 82vw));
+    scroll-snap-type: x proximity;
+  }
+  .pedido-column {
+    scroll-snap-align: start;
   }
   .pedido-facts {
     grid-template-columns: 1fr;
@@ -241,7 +264,19 @@
   .pedido-facts dd {
     margin-bottom: 8px;
   }
+  /* Cada faixa de horário: Dia e o botão de remover numa linha, Abre e
+     Fecha na seguinte, com divisória entre as faixas. */
   .pedido-hours-row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 0 8px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .pedido-hours-row > :first-child {
+    grid-column: 1 / 3;
+  }
+  .pedido-hours-row > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+    margin-bottom: 16px;
   }
 }
