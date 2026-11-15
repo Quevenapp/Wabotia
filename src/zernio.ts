@@ -1,4 +1,5 @@
 import { one, exec } from "./db";
+import { consentFor, payloadPurpose } from "./consents";
 import { ApiError, Env, json, now, requireValue } from "./types";
 import { equal, hmac, publicUrl, secret, sha } from "./security";
 import { approvedTemplate, storeRemoteMedia } from "./integrations";
@@ -265,10 +266,11 @@ export async function zernioTemplatePayload(
   payload: any,
   cfg: any,
 ) {
-  const consent = await one(
+  // Finalidade da notificação (módulo) ou o consentimento de protocolo.
+  const consent = await consentFor(
     env,
-    "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
     conversation.id,
+    payloadPurpose(payload),
   );
   // A queue call is a notice the customer asked for when taking the ticket.
   const queueTicket = payload.queue_ticket_id

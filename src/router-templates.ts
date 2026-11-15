@@ -1,6 +1,7 @@
 import { Env, Actor, ApiError, requireValue, json, now } from "./types";
 import { access } from "./security";
 import { one } from "./db";
+import { consentFor } from "./consents";
 import { zernioTemplates, zernioUpload } from "./zernio";
 import { zernioPresignType } from "./zernio-media";
 import { authorizedMedia } from "./media";
@@ -387,11 +388,7 @@ export async function assertPaidConsent(
     payload.paid_authorization?.actor,
     "Autorização de cobrança ausente.",
   );
-  const consent = await one(
-    env,
-    "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC,rowid DESC LIMIT 1",
-    conversation.id,
-  );
+  const consent = await consentFor(env, conversation.id, "protocol");
   if (consent?.status !== "granted")
     throw new ApiError(
       400,

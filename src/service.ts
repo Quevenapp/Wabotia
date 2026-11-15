@@ -614,9 +614,10 @@ export async function offerProtocolConsent(
     !cfg.notifications?.enabled ||
     c.chat_type === "group" ||
     !c.connection_id ||
+    // Só a pergunta de protocolo: consentimentos de módulos não contam.
     (await one(
       env,
-      "SELECT id FROM consents WHERE conversation_id=? LIMIT 1",
+      "SELECT id FROM consents WHERE conversation_id=? AND purpose IN ('protocol','*') LIMIT 1",
       c.id,
     ))
   )

@@ -1,4 +1,5 @@
 import { all, one, exec, batch } from "./db";
+import { consentFor, payloadPurpose } from "./consents";
 import { type Env, ApiError, requireValue, now, json } from "./types";
 import { conversation, message, settings } from "./service";
 import { finishDelivery } from "./delivery";
@@ -110,10 +111,11 @@ export async function transport(
       now() - row.last_customer >= 86400000
     ) {
       const opts = (await settings(env, conn.profile_id)).notifications,
-        consent = await one(
+        // Finalidade da notificação (módulo) ou o consentimento de protocolo.
+        consent = await consentFor(
           env,
-          "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
           row.conversation_id,
+          payloadPurpose(payload),
         ),
         t = cfg.approved_template;
       if (
