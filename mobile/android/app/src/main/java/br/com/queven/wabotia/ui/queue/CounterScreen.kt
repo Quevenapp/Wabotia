@@ -54,6 +54,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -364,17 +366,22 @@ private fun QueueWaitingRow(q: QueueInfo) {
                 color = c.textSecondary,
             )
         }
-        CountTag("N", q.waiting?.normal ?: 0, c.brand)
+        // A letra é a das senhas da fila (R e S na Retirada), como no painel; sem prefixo, N e P.
+        CountTag(q.prefixNormal?.trim()?.ifEmpty { null } ?: "N", q.waiting?.normal ?: 0, c.brand, "normais")
         Spacer(Modifier.width(6.dp))
-        CountTag("P", q.waiting?.preferential ?: 0, c.bot)
+        CountTag(q.prefixPreferential?.trim()?.ifEmpty { null } ?: "P", q.waiting?.preferential ?: 0, c.bot, "preferenciais")
     }
 }
 
 @Composable
-private fun CountTag(label: String, count: Int, color: Color) {
+private fun CountTag(label: String, count: Int, color: Color, kind: String) {
     val c = Wb.colors
     Row(
-        Modifier.clip(RoundedCornerShape(10.dp)).background(c.soft(color, 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(c.soft(color, 0.14f))
+            .clearAndSetSemantics { contentDescription = "$count $kind aguardando" }
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = color, fontWeight = FontWeight.Bold, fontSize = 12.sp)
