@@ -168,6 +168,33 @@ describe("processInbox: flow_reply e order antes do menu e do bot", () => {
     ).toHaveLength(0);
   });
 
+  it("flow_reply de passo de módulo desligado não conclui (revisão B3)", async () => {
+    const f = await setup();
+    const phone = "5511960000009";
+    await say(f, "oi", phone);
+    let c = await say(f, "1", phone);
+    const row = await step(c.id);
+    await perform(
+      env,
+      f.admin,
+      f.profile,
+      "module.set",
+      { id: "forms", enabled: false },
+      uid(),
+    );
+    c = await say(f, "Formulário enviado.", phone, {
+      type: "flow_reply",
+      flow_reply: {
+        name: "flow",
+        flow_token: row.flow_token,
+        flow_id: FLOW,
+        data: { nome: "Maria", plano: "Anual", termos: true },
+      },
+    });
+    expect((await step(c.id)).status).not.toBe("completed");
+    expect((await latest(c.id)).text).toContain("Este formulário expirou");
+  });
+
   it("flow_reply incompleto pede reenvio; repetido diz que já recebeu", async () => {
     const f = await setup();
     const phone = "5511960000004";

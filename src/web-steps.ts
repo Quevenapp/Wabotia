@@ -6,6 +6,7 @@
 // Escritas que tocam a conversa (conclusão, mensagem de retorno, protocolo)
 // rodam no Coordinator da área (POST /web-step), como o resto do atendimento.
 import { all, exec, one, cachedOne, withReadCache } from "./db";
+import { moduleById, moduleEnabled } from "./modules/registry";
 import {
   ApiError,
   type Actor,
@@ -895,6 +896,17 @@ export async function completeWebStepByFlow(
     c.id,
   );
   if (!row) return null;
+  // Passo de módulo desligado não conclui pelo Flow, como pela página
+  // (revisão B3).
+  if (
+    row.module_id &&
+    moduleById(row.module_id) &&
+    !(await moduleEnabled(env, row.profile_id, row.module_id))
+  )
+    return {
+      step: row,
+      result: { ok: false, reason: "expired" } as CompleteResult,
+    };
   const input: Record<string, unknown> = {};
   for (const field of (json(row.spec).fields || []) as WebField[]) {
     const value = reply.data?.[field.id];

@@ -345,7 +345,15 @@ app.get("/api/w/:code/img/:media", async (c) => {
   const row = await webStepByCode(c.env, c.req.param("code"));
   const spec = row ? json(row.spec) : null;
   const id = c.req.param("media");
-  if (!row || spec?.page !== "cart" || !catalogMedia(spec.cart).includes(id))
+  // Só com o link aberto e o módulo ligado (revisão B3).
+  if (
+    !row ||
+    spec?.page !== "cart" ||
+    !catalogMedia(spec.cart).includes(id) ||
+    !["sent", "opened"].includes(row.status) ||
+    row.expires_at <= Date.now() ||
+    !(await webStepAvailable(c.env, row))
+  )
     throw new ApiError(404, "not_found", "Imagem não encontrada.");
   const media = await one(
     c.env,
