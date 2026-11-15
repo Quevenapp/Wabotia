@@ -119,7 +119,8 @@ struct CounterView: View {
         return Button { vm.setStatus(status) } label: {
             HStack(spacing: 6) {
                 if vm.isBusy("state:\(counter.id):\(status)") { ProgressView().scaleEffect(0.7) } else { Image(systemName: icon).font(.system(size: 12, weight: .bold)) }
-                Text(title).font(Theme.font(14, .semibold))
+                // O estado atual aparece como estado ("Aberto"), não como a ação que já foi feita ("Abrir").
+                Text(selected ? CounterViewModel.statusLabel(status) : title).font(Theme.font(14, .semibold))
             }
             .frame(maxWidth: .infinity, minHeight: 40)
             .foregroundStyle(selected ? Theme.onBrand : statusColor(status))
