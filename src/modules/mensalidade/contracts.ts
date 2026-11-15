@@ -4,7 +4,7 @@
 // primeira parcela só nascem com o pagamento confirmado pelo provedor, e
 // nenhum telefone é vinculado a um pagador que já existia a partir de um
 // documento digitado.
-import { exec, one } from "../../db";
+import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, now, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
@@ -109,7 +109,31 @@ export async function createContract(
     "SELECT * FROM mensalidade_contracts WHERE source_key=?",
     input.sourceKey,
   );
-  if (row.id === id)
+  if (row.id === id) {
+    // Outra contratação aberta nesta conversa (outra sessão ou plano): a
+    // cobrança dela é cancelada, para o cliente não pagar as duas.
+    const others = await all(
+      ctx.env,
+      "SELECT * FROM mensalidade_contracts WHERE conversation_id=? AND profile_id=? AND status='pending' AND id<>?",
+      input.c.id,
+      ctx.profile,
+      id,
+    );
+    for (const other of others) {
+      if (other.payment_id && other.payment_status === "created")
+        try {
+          await ctx.cancelCharge(other.payment_id);
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          if (error.code === "payment_closed") continue;
+        }
+      await exec(
+        ctx.env,
+        "UPDATE mensalidade_contracts SET status='cancelled',updated=? WHERE id=? AND status='pending'",
+        at,
+        other.id,
+      );
+    }
     await ctx.publish(
       "mensalidade.contract_created",
       id,
@@ -124,6 +148,7 @@ export async function createContract(
       },
       { key: id },
     );
+  }
   return row;
 }
 

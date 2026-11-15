@@ -7,7 +7,7 @@ import { startFlow } from "../src/modules/suporte/flow";
 import { expirePayments } from "../src/payments";
 import { situationByPhone } from "../src/modules/mensalidade/public";
 import { api, bearer } from "./service-center-fixture";
-import { approve, mp, useMercadoPago } from "./mensalidade-mp";
+import { approve, mp, remoteStatus, useMercadoPago } from "./mensalidade-mp";
 import {
   CPF_EM_DIA,
   CPF_NOVO,
@@ -194,33 +194,92 @@ describe("suporte: sem assinatura, suporte avulso", () => {
     ).toEqual({ status: "expired" });
     expect(await eventsOf(f, "suporte.purchase_expired")).toHaveLength(1);
     expect(await releases(c.id)).toHaveLength(0);
-    // "1": código novo (outra compra), depois pago.
+    // "1": código novo na mesma compra (uma por sessão e pacote), depois pago.
     c = await talk(f, "1", phone);
     const purchases = await all(
       env,
       "SELECT * FROM suporte_purchases WHERE conversation_id=? ORDER BY created",
       c.id,
     );
-    expect(purchases).toHaveLength(2);
-    expect(purchases[1].status).toBe("pending");
-    await approve(account.id, purchases[1].payment_id);
+    expect(purchases).toHaveLength(1);
+    expect(purchases[0]).toMatchObject({ status: "pending", charge_seq: 2 });
+    expect(purchases[0].payment_id).not.toBe(first.payment_id);
+    await approve(account.id, purchases[0].payment_id);
     expect((await releases(c.id)).map((r) => [r.kind, r.until_ticket])).toEqual(
       [["package", 1]],
     );
-    // Pagar depois a cobrança vencida também vale (dinheiro confirmado vence):
-    // a compra vira paga e fica registrada como outra liberação.
+    // Pagar depois a cobrança vencida: dinheiro em dobro. Não libera de novo;
+    // fica a pendência para a equipe estornar.
     await approve(account.id, first.payment_id);
     expect(
       await one(
         env,
-        "SELECT status FROM suporte_purchases WHERE id=?",
+        "SELECT status,attention FROM suporte_purchases WHERE id=?",
         first.id,
       ),
-    ).toEqual({ status: "paid" });
-    expect(await releases(c.id)).toHaveLength(2);
-    expect((await releases(c.id)).every((r) => r.kind === "package")).toBe(
-      true,
+    ).toEqual({ status: "paid", attention: "duplicate_payment" });
+    expect(await releases(c.id)).toHaveLength(1);
+    expect(await eventsOf(f, "suporte.purchase_attention")).toEqual([
+      expect.objectContaining({
+        reason: "duplicate_payment",
+        payment_id: first.payment_id,
+      }),
+    ]);
+  });
+
+  it("M8: trocar a forma cancela a cobrança aberta; estorno vira pendência", async () => {
+    const s = await setupSuporte();
+    const { f, account } = s;
+    const phone = "5511971000013";
+    await payerSemAssinatura(s, phone);
+    let c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    await tap(f, phone, "suporte:pkg:avulso", "Atendimento avulso");
+    c = await tap(f, phone, "suporte:method:link", "Cartão ou link");
+    const pix = await one(
+      env,
+      "SELECT * FROM suporte_purchases WHERE conversation_id=?",
+      c.id,
     );
+    // "2": trocar a forma; escolhe Pix.
+    await talk(f, "2", phone);
+    c = await tap(f, phone, "suporte:method:pix", "Pix");
+    const after = await all(
+      env,
+      "SELECT * FROM suporte_purchases WHERE conversation_id=?",
+      c.id,
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ method: "pix", status: "pending" });
+    expect(after[0].payment_id).not.toBe(pix.payment_id);
+    expect(
+      await one(env, "SELECT status FROM payments WHERE id=?", pix.payment_id),
+    ).toEqual({ status: "cancelled" });
+    // Paga pelo Pix; depois o pagamento é estornado.
+    await approve(account.id, after[0].payment_id);
+    expect((await releases(c.id))[0].status).toBe("active");
+    await remoteStatus(account.id, after[0].payment_id, "refunded");
+    expect(
+      await one(
+        env,
+        "SELECT status,attention FROM suporte_purchases WHERE id=?",
+        pix.id,
+      ),
+    ).toEqual({ status: "refunded", attention: "refunded" });
+    expect((await releases(c.id))[0].status).toBe("ended");
+    // Outra sessão com outro pacote cancela a compra aberta da anterior.
+    await startFlow(s.sctx, c, uid());
+    await tap(f, phone, "suporte:pkg:dia", "Suporte 24 horas");
+    await tap(f, phone, "suporte:method:pix", "Pix");
+    await startFlow(s.sctx, c, uid());
+    await tap(f, phone, "suporte:pkg:avulso", "Atendimento avulso");
+    await tap(f, phone, "suporte:method:pix", "Pix");
+    const open = await all(
+      env,
+      "SELECT package_id,status FROM suporte_purchases WHERE conversation_id=? AND status='pending'",
+      c.id,
+    );
+    expect(open).toEqual([{ package_id: "avulso", status: "pending" }]);
   });
 });
 

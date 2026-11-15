@@ -16,6 +16,7 @@ import {
 } from "../../ui";
 import { Pager, useList } from "../../admin/shared";
 import {
+  attentionLabels,
   kindLabels,
   money,
   phoneLabel,
@@ -211,9 +212,19 @@ function PurchasesTab() {
                 "status",
                 "Estado",
                 (row) => (
-                  <Pill tone={purchaseTones[row.status] || "muted"}>
-                    {purchaseLabels[row.status] || row.status}
-                  </Pill>
+                  <>
+                    <Pill tone={purchaseTones[row.status] || "muted"}>
+                      {purchaseLabels[row.status] || row.status}
+                    </Pill>
+                    {row.attention && (
+                      <>
+                        {" "}
+                        <Pill tone="danger">
+                          {attentionLabels[row.attention] || row.attention}
+                        </Pill>
+                      </>
+                    )}
+                  </>
                 ),
               ],
             ]}

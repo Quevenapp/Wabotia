@@ -176,7 +176,7 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 | Método e caminho | O quê |
 |---|---|
 | `GET /suporte/releases` | Liberações: `kind` (`subscription`, `installment`, `package`, `courtesy`, `team`), `status`, `conversation_id`, `payer_id`, `from`/`to` (ms), `q`, `cursor`; traz `counts` por forma |
-| `GET /suporte/purchases` | Compras de suporte avulso: `status` (`pending`, `paid`, `expired`, `cancelled`, `refunded`), `conversation_id`, `q`; traz `counts` e `paid_cents` |
+| `GET /suporte/purchases` | Compras de suporte avulso: `status` (`pending`, `paid`, `expired`, `cancelled`, `refunded`), `conversation_id`, `q`; traz `counts` e `paid_cents`; `attention` (`duplicate_payment`, `paid_after_cancel`, `refunded`) marca o que a equipe precisa conferir |
 | `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
 | `GET /suporte/pending` | Aguardando confirmação (últimos 7 dias): quem digitou o CPF/CNPJ de um cadastro por um telefone não autorizado |
 | `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release` (com `ticket_id` e `expires_at`), `session`, `awaiting_team`, `unlinked_phone` e compras |
@@ -187,7 +187,7 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 
 A liberação fica presa ao protocolo e à sessão da conversa: protocolo fechado, conversa resolvida, prazo máximo (7 dias até o protocolo, 30 dias as demais, 4 horas com telefone não vinculado), assinatura fora do dia ou estorno a encerram (`suporte.release_ended` com `reason`). CPF/CNPJ de um cadastro vindo de telefone que ele não autorizou não libera nem mostra nada: a sessão fica aguardando confirmação.
 
-Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (só `linked_only`; o antigo `any` é aceito e vale como `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
+Regras na chave `suporte` de `PUT /profiles/{perfil}/settings`: `department_id`, `identify` (só `linked_only`; o antigo `any` é aceito e vale como `linked_only`), `max_attempts`, `packages` (`[{id,name,price_cents,mode:"ticket"|"hours",hours?,active}]`), `offer_plans`, `plan_ids`, `methods` (`pix`, `link`) e `texts` (`offer`, `released`). Item de menu `{"type":"suporte_humano"}`. Eventos: `suporte.identified`, `suporte.identification_failed`, `suporte.released`, `suporte.awaiting_team`, `suporte.purchase_created`, `suporte.purchase_paid`, `suporte.purchase_expired`, `suporte.purchase_attention` (`reason`: `duplicate_payment`, `paid_after_cancel`, `refunded`), `suporte.plan_contracted`, `suporte.phone_linked` e `suporte.release_ended`.
 
 ### Pedido (módulo `pedido`)
 

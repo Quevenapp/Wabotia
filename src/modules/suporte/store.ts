@@ -466,6 +466,8 @@ export function purchaseView(row: any) {
       : null,
     status: row.status,
     status_label: PURCHASE_LABELS[row.status] || row.status,
+    /** duplicate_payment | paid_after_cancel | refunded: a equipe confere. */
+    attention: row.attention ?? null,
     paid_at: row.paid_at,
     created: row.created,
     updated: row.updated,
@@ -527,10 +529,56 @@ export async function listPurchases(
   };
 }
 
+/** Pendência para a equipe numa compra (dinheiro em dobro, estorno). */
+async function purchaseAttention(
+  ctx: ModuleContext,
+  purchase: any,
+  reason: "duplicate_payment" | "paid_after_cancel" | "refunded",
+  payment: Payment,
+) {
+  await exec(
+    ctx.env,
+    "UPDATE suporte_purchases SET attention=?,updated=? WHERE id=?",
+    reason,
+    now(),
+    purchase.id,
+  );
+  await ctx.publish(
+    "suporte.purchase_attention",
+    purchase.id,
+    {
+      purchase_id: purchase.id,
+      conversation_id: purchase.conversation_id,
+      reason,
+      payment_id: payment.id,
+      amount_cents: payment.amount_cents,
+    },
+    { key: `${purchase.id}:${reason}:${payment.id}` },
+  );
+}
+
 /**
- * Compra um pacote avulso: grava a compra e cobra pela Cobrança do núcleo
- * (Pix ou link na conversa). A liberação vem só com o pagamento confirmado
- * pelo provedor (onPaymentUpdated).
+ * Cancela a cobrança aberta de uma compra. Já paga no provedor: devolve false
+ * (a confirmação conclui a compra); vencida ou cancelada: segue.
+ */
+async function cancelPurchaseCharge(ctx: ModuleContext, purchase: any) {
+  if (!purchase.payment_id || purchase.status !== "pending") return true;
+  try {
+    await ctx.cancelCharge(purchase.payment_id);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.code === "payment_closed") return false;
+  }
+  return true;
+}
+
+/**
+ * Compra um pacote avulso: uma compra por sessão e pacote (`sourceKey`), com
+ * uma cobrança valendo por vez. Mesma forma e ainda válida: devolve a mesma.
+ * Outra forma, ou vencida: cancela a aberta e cobra de novo. Compras abertas
+ * de outra sessão ou pacote na conversa são canceladas, para o cliente não
+ * pagar duas. A liberação vem só com o pagamento confirmado pelo provedor
+ * (onPaymentUpdated).
  */
 export async function buyPackage(
   ctx: ModuleContext,
@@ -550,9 +598,37 @@ export async function buyPackage(
     "SELECT * FROM suporte_purchases WHERE source_key=?",
     input.sourceKey,
   );
-  if (existing?.payment_id) return existing;
   const at = now();
+  if (existing?.status === "paid") return existing;
+  if (
+    existing?.payment_id &&
+    existing.status === "pending" &&
+    existing.method === input.method &&
+    (existing.payment_expires_at || 0) > at + 60_000
+  )
+    return existing;
   const id = existing?.id || uid();
+  const others = await all(
+    ctx.env,
+    "SELECT * FROM suporte_purchases WHERE conversation_id=? AND profile_id=? AND status='pending' AND id<>?",
+    input.c.id,
+    ctx.profile,
+    id,
+  );
+  for (const other of others)
+    if (await cancelPurchaseCharge(ctx, other))
+      await exec(
+        ctx.env,
+        "UPDATE suporte_purchases SET status='cancelled',updated=? WHERE id=? AND status='pending'",
+        at,
+        other.id,
+      );
+  if (existing && !(await cancelPurchaseCharge(ctx, existing)))
+    throw new ApiError(
+      409,
+      "payment_closed",
+      "O pagamento anterior já foi concluído; aguarde a confirmação.",
+    );
   if (!existing)
     await exec(
       ctx.env,
@@ -587,22 +663,26 @@ export async function buyPackage(
     },
     key: `compra:${id}`,
   });
+  const seq = (existing?.charge_seq ?? 0) + 1;
   const payment = await ctx.charge(input.c, {
     method: input.method,
     amount_cents: input.pkg.price_cents,
     description: `Suporte avulso: ${input.pkg.name}`,
     ref: id,
-    sourceKey: `compra:${id}`,
+    // A primeira mantém a chave antiga (compras de antes desta versão).
+    sourceKey: seq === 1 ? `compra:${id}` : `compra:${id}:${seq}`,
     expiresMinutes: 24 * 60,
     notification: true,
   });
   await exec(
     ctx.env,
-    "UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,updated=? WHERE id=?",
+    "UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=?",
     payment.id,
     payment.pix_code,
     payment.url,
     payment.expires_at,
+    payment.method,
+    seq,
     now(),
     id,
   );
@@ -655,7 +735,17 @@ export async function purchasePaymentUpdated(
       at,
       purchase.id,
     );
-    if (!changed.meta.changes) return;
+    if (!changed.meta.changes) {
+      // Outro pagamento da mesma compra (cobrança antiga paga junto com a
+      // nova, link pago duas vezes): dinheiro em dobro para a equipe estornar.
+      if (purchase.payment_id !== payment.id)
+        await purchaseAttention(ctx, purchase, "duplicate_payment", payment);
+      return;
+    }
+    // Paga depois de cancelada (o cliente trocou de pacote ou de sessão):
+    // libera, mas a equipe confere se não pagou a outra também.
+    if (purchase.status === "cancelled")
+      await purchaseAttention(ctx, purchase, "paid_after_cancel", payment);
     await ctx.publish(
       "suporte.purchase_paid",
       purchase.id,
@@ -694,26 +784,33 @@ export async function purchasePaymentUpdated(
     return;
   }
   if (payment.status === "refunded") {
-    await exec(
+    // Estorno (ou chargeback) do pagamento que valeu: a compra volta e a
+    // liberação acaba; a equipe fica sabendo para conferir o atendimento.
+    if (purchase.payment_id !== payment.id) return;
+    const changed = await exec(
       ctx.env,
-      "UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=?",
+      "UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=? AND status<>'refunded'",
       at,
       purchase.id,
     );
+    if (!changed.meta.changes) return;
     const rel = await one(
       ctx.env,
       "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'",
       `compra:${purchase.id}`,
     );
     if (rel) await endRelease(ctx, rel.id, "provider", "Pagamento estornado.");
+    await purchaseAttention(ctx, purchase, "refunded", payment);
     return;
   }
+  // Vencida ou cancelada: só a cobrança que vale agora muda a compra.
   const changed = await exec(
     ctx.env,
-    "UPDATE suporte_purchases SET status=?,updated=? WHERE id=? AND status='pending'",
+    "UPDATE suporte_purchases SET status=?,updated=? WHERE id=? AND status='pending' AND payment_id=?",
     payment.status === "cancelled" ? "cancelled" : "expired",
     at,
     purchase.id,
+    payment.id,
   );
   if (changed.meta.changes)
     await ctx.publish(

@@ -2137,6 +2137,11 @@ function suporteSchemas() {
           enum: ["pending", "paid", "expired", "cancelled", "refunded"],
         },
         status_label: { type: "string" },
+        attention: {
+          enum: ["duplicate_payment", "paid_after_cancel", "refunded", null],
+          description:
+            "Pendência para a equipe: dinheiro em dobro, paga depois de cancelada ou estornada depois de liberar.",
+        },
         paid_at: { type: ["integer", "null"] },
         created: { type: "integer" },
       },

@@ -443,7 +443,9 @@ async function charge(
         payer_id: session.payer_id,
         document: session.document,
         name: session.name,
-        sourceKey: `compra:${c.id}:${rowId}`,
+        // Uma compra por sessão e pacote: trocar a forma ou pedir de novo
+        // reaproveita a compra e cancela a cobrança aberta.
+        sourceKey: `compra:${session.id}:${pkg.id}`,
       });
       await updateSession(ctx, session, { purchase_id: purchase.id });
     } else if (session.offer_kind === "plan" && session.contract_id) {

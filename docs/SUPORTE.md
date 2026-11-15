@@ -90,6 +90,22 @@ pago: …") na hora de liberar.
 O encerramento acontece no próximo pedido de humano e na rotina periódica do
 módulo (evento `suporte.release_ended`, com o motivo).
 
+## Compras e estornos
+
+- Uma compra por sessão e pacote, com **uma cobrança valendo por vez**:
+  trocar a forma de pagamento ou pedir o código depois de vencido cancela a
+  cobrança aberta antes de criar outra. Abrir outra compra (outro pacote,
+  outra sessão) cancela a que estava aberta na conversa. O mesmo vale para a
+  contratação de plano.
+- **Pagamento em dobro** (a cobrança antiga paga junto com a nova, link pago
+  duas vezes): não libera de novo; a compra fica com a pendência **Pago em
+  dobro: estornar** e sai o evento `suporte.purchase_attention`.
+- **Paga depois de cancelada:** libera (o cliente pagou), com a pendência
+  "conferir" para a equipe ver se ele não pagou a outra também.
+- **Estorno ou chargeback:** a compra fica estornada, a liberação acaba e a
+  pendência **Estornada depois de liberar** avisa a equipe. Estorno de
+  mensalidade encerra a liberação que ela deu.
+
 ## Nenhum caminho contorna o pagamento
 
 Com o Suporte ligado, **toda passagem automática para humano** passa pela

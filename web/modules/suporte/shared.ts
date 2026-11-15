@@ -25,6 +25,13 @@ export const purchaseTones: Record<string, "ok" | "warn" | "danger" | "muted"> =
     refunded: "danger",
   };
 
+/** Pendência da compra para a equipe. */
+export const attentionLabels: Record<string, string> = {
+  duplicate_payment: "Pago em dobro: estornar",
+  paid_after_cancel: "Paga depois de cancelada: conferir",
+  refunded: "Estornada depois de liberar",
+};
+
 export const money = (cents: number | null | undefined) =>
   typeof cents === "number"
     ? (cents / 100).toLocaleString("pt-BR", {

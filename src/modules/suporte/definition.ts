@@ -39,6 +39,7 @@ export const suporteModule: ModuleDefinition = {
     "suporte.purchase_created",
     "suporte.purchase_paid",
     "suporte.purchase_expired",
+    "suporte.purchase_attention",
     "suporte.plan_contracted",
     "suporte.phone_linked",
     "suporte.release_ended",
