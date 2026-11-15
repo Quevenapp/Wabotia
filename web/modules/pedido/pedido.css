@@ -230,9 +230,13 @@
   place-items: center;
   color: var(--text-2);
 }
-@media (max-width: 559px) {
-  /* Item do cardápio no celular: foto e nome numa linha; preço, disponível e
-     os botões na seguinte, sem passar da borda do cartão. */
+/* Item do cardápio em cartão estreito (celular, tablet em pé): foto e nome
+   numa linha; preço, disponível e os botões na seguinte, sem passar da
+   borda do cartão. */
+.pedido-menu-items {
+  container-type: inline-size;
+}
+@container (max-width: 519px) {
   .pedido-menu-item:has(> img, > .no-photo) {
     flex-wrap: wrap;
     gap: 8px 10px;
