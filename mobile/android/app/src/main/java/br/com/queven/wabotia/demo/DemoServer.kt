@@ -107,6 +107,11 @@ internal object DemoServer {
     private fun serviceOrdersOf(s: DemoState): DemoServiceOrders =
         serviceOrders ?: DemoServiceOrders(s.t0) { id -> customerOf(s, id) }.also { serviceOrders = it }
 
+    private var reserva: DemoReserva? = null
+
+    private fun reservaOf(s: DemoState): DemoReserva =
+        reserva ?: DemoReserva(s.t0, { id -> customerOf(s, id) }, { id -> s.conversations[id]?.str("chat_type") == "group" }).also { reserva = it }
+
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
         s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
 
@@ -116,6 +121,7 @@ internal object DemoServer {
             j("id" to "queue", "name" to "Fila presencial", "version" to "1.0.0"),
             j("id" to "agenda", "name" to "Agenda", "version" to "1.0.0"),
             j("id" to "os", "name" to "Ordem de Serviço", "version" to "1.0.0"),
+            j("id" to "reserva", "name" to "Reserva e check-in", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -141,6 +147,7 @@ internal object DemoServer {
         queue = DemoQueue(fresh.t0)
         agenda = null
         serviceOrders = null
+        reserva = null
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -315,6 +322,7 @@ internal object DemoServer {
             "capabilities" -> capabilities()
             "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())
             "people" -> ok(j("data" to s.users.map { (id, name) -> j("id" to id, "name" to name, "role" to if (id == Ids.ME) "admin" else "operator") }.sortedBy { it.str("name") }))

@@ -171,6 +171,11 @@ object DemoMode {
             "os" -> DemoDestination(route = "os")
             "os-quote" -> DemoDestination(route = "os/order/os-5")
             "os-new" -> DemoDestination(route = "os/new")
+            "reserva" -> DemoDestination(route = "reserva")
+            "reserva-list" -> DemoDestination(route = "reserva?mode=list")
+            "reserva-new" -> DemoDestination(route = "reserva/new")
+            // A reserva aguardando o sinal (rs-2); `--es arg checkin` abre a de check-in feito (rs-1).
+            "reserva-booking" -> DemoDestination(route = "reserva/booking/" + if (option == "checkin") "rs-1" else "rs-2")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-start" -> DemoDestination(route = "preview/start")

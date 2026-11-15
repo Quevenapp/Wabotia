@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.EventAvailable
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -18,6 +19,10 @@ import br.com.queven.wabotia.modules.agenda.BookingScreen
 import br.com.queven.wabotia.modules.os.NewServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrderScreen
 import br.com.queven.wabotia.modules.os.ServiceOrdersScreen
+import br.com.queven.wabotia.modules.reserva.ReservaBookingScreen
+import br.com.queven.wabotia.modules.reserva.ReservaFormScreen
+import br.com.queven.wabotia.modules.reserva.ReservaScreen
+import br.com.queven.wabotia.modules.reserva.ReservaViewModel
 
 /** Rotas das telas das verticais. Cada uma só tem entrada quando o módulo está ligado ([ModuleFeature]). */
 object ModuleRoutes {
@@ -28,6 +33,27 @@ object ModuleRoutes {
     const val SERVICE_ORDERS = "os"
     const val SERVICE_ORDER = "os/order/{id}"
     const val NEW_SERVICE_ORDER = "os/new?conversationId={conversationId}&customer={customer}"
+
+    /** Entrada da Reserva (ocupação); `reserva?mode=list` abre a lista. */
+    const val RESERVA = "reserva"
+    const val RESERVA_HOME = "reserva?mode={mode}"
+    const val RESERVA_BOOKING = "reserva/booking/{id}"
+    const val RESERVA_NEW = "reserva/new?conversationId={conversationId}&customer={customer}&unitId={unitId}&date={date}"
+    const val RESERVA_EDIT = "reserva/edit/{id}"
+
+    fun reservaBooking(id: String) = "reserva/booking/${Uri.encode(id)}"
+
+    fun reservaEdit(id: String) = "reserva/edit/${Uri.encode(id)}"
+
+    fun newReserva(conversationId: String? = null, customer: String? = null, unitId: String? = null, date: String? = null): String {
+        val query = listOfNotNull(
+            conversationId?.let { "conversationId=${Uri.encode(it)}" },
+            customer?.let { "customer=${Uri.encode(it)}" },
+            unitId?.let { "unitId=${Uri.encode(it)}" },
+            date?.let { "date=${Uri.encode(it)}" },
+        ).joinToString("&")
+        return "reserva/new" + if (query.isEmpty()) "" else "?$query"
+    }
 
     fun serviceOrder(id: String) = "os/order/${Uri.encode(id)}"
 
@@ -51,6 +77,7 @@ object ModuleRoutes {
     fun conversationShortcuts(modules: Set<String>, conversationId: String, customer: String): List<ModuleShortcut> = buildList {
         if (ModuleIds.AGENDA in modules) add(ModuleShortcut("Agendar para este cliente", Icons.Filled.EventAvailable, booking(conversationId, customer)))
         if (ModuleIds.SERVICE_ORDERS in modules) add(ModuleShortcut("Abrir ordem de serviço", Icons.Filled.Build, newServiceOrder(conversationId, customer)))
+        if (ModuleIds.RESERVA in modules) add(ModuleShortcut("Reservar para este cliente", Icons.Filled.Hotel, newReserva(conversationId, customer)))
     }
 }
 
@@ -81,6 +108,37 @@ fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostControlle
             onBack = { nav.popBackStack() },
             onCreated = { order -> nav.popBackStack(); nav.navigate(ModuleRoutes.serviceOrder(order.id)) },
         )
+    }
+    composable(ModuleRoutes.RESERVA_HOME, arguments = listOf(optional("mode"))) { entry ->
+        ReservaScreen(
+            container,
+            onBack = { nav.popBackStack() },
+            openBooking = { nav.navigate(ModuleRoutes.reservaBooking(it)) },
+            newBooking = { unitId, date -> nav.navigate(ModuleRoutes.newReserva(unitId = unitId, date = date)) },
+            initialMode = if (entry.arguments?.getString("mode") == "list") ReservaViewModel.Mode.LIST else ReservaViewModel.Mode.OCCUPANCY,
+        )
+    }
+    composable(ModuleRoutes.RESERVA_BOOKING, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+        ReservaBookingScreen(container, id, onBack = { nav.popBackStack() }, edit = { nav.navigate(ModuleRoutes.reservaEdit(it)) }, openConversation = openConversation)
+    }
+    composable(ModuleRoutes.RESERVA_NEW, arguments = listOf(optional("conversationId"), optional("customer"), optional("unitId"), optional("date"))) { entry ->
+        val args = entry.arguments
+        ReservaFormScreen(
+            container,
+            editingId = null,
+            conversationId = args?.getString("conversationId")?.let(Uri::decode),
+            customer = args?.getString("customer")?.let(Uri::decode),
+            unitId = args?.getString("unitId")?.let(Uri::decode),
+            date = args?.getString("date")?.let(Uri::decode),
+            onBack = { nav.popBackStack() },
+            onDone = { booking -> nav.popBackStack(); nav.navigate(ModuleRoutes.reservaBooking(booking.id)) },
+        )
+    }
+    composable(ModuleRoutes.RESERVA_EDIT, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+        // Alterar volta ao detalhe, que relê a reserva ao reaparecer.
+        ReservaFormScreen(container, editingId = id, conversationId = null, customer = null, unitId = null, date = null, onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() })
     }
     composable(ModuleRoutes.AGENDA) {
         AgendaScreen(
