@@ -124,6 +124,12 @@ import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import {
+  appProfiles,
+  closeSockets,
+  credentialTags,
+  userProfiles,
+} from "./sockets";
+import {
   queueRead,
   overview as queueOverview,
   listTickets as listQueueTickets,
@@ -140,12 +146,15 @@ function queueSocket(
   request: Request,
   profile: string,
   filter: string[],
+  credential: string[],
 ) {
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
     throw new ApiError(426, "upgrade_required", "Use WebSocket nesta rota.");
   const headers = new Headers(request.headers);
   headers.set("X-Wabotia-Profile", profile);
   headers.set("X-Wabotia-Queues", JSON.stringify(filter));
+  // Quem abriu: a revogação fecha o socket na hora (src/sockets.ts).
+  headers.set("X-Wabotia-Credential", JSON.stringify(credential));
   return env.COORDINATOR.get(env.COORDINATOR.idFromName(profile)).fetch(
     new Request("https://coordinator/queue-ws", { method: "GET", headers }),
   );
@@ -440,7 +449,9 @@ app.get("/api/public/queue-display/ws", async (c) => {
   if (!display)
     throw new ApiError(401, "invalid_token", "Painel inválido ou revogado.");
   await requireModule(c.env, display.profile, "queue");
-  return queueSocket(c.env, c.req.raw, display.profile, display.queue_ids);
+  return queueSocket(c.env, c.req.raw, display.profile, display.queue_ids, [
+    `display:${display.id}`,
+  ]);
 });
 app.get("/api/install/status", (c) =>
   c.json({ enabled: webInstallerEnabled(c.env) }),
@@ -757,9 +768,17 @@ app.post("/api/v1/installation/area/bootstrap", async (c) =>
 app.get("/api/v1/pairings", async (c) =>
   c.json(await pairingList(c.env, c.get("actor"))),
 );
-app.post("/api/v1/pairings/disconnect", async (c) =>
-  c.json(await pairingDisconnect(c.env, c.get("actor"))),
-);
+app.post("/api/v1/pairings/disconnect", async (c) => {
+  const actor = c.get("actor");
+  const result = await pairingDisconnect(c.env, actor);
+  // O próprio aparelho desfez o pareamento: os sockets dele fecham já.
+  await closeSockets(
+    c.env,
+    actor.profiles,
+    await credentialTags(c.req.raw, actor),
+  );
+  return c.json(result);
+});
 app.post("/api/v1/pairings/lookup", async (c) =>
   c.json(
     await pairingLookup(c.env, c.get("actor"), (await c.req.json()).user_code),
@@ -778,9 +797,19 @@ app.post("/api/v1/pairings/:id/approve", async (c) =>
 app.post("/api/v1/pairings/:id/deny", async (c) =>
   c.json(await pairingDeny(c.env, c.get("actor"), c.req.param("id"))),
 );
-app.delete("/api/v1/pairings/:id", async (c) =>
-  c.json(await pairingRevoke(c.env, c.get("actor"), c.req.param("id"))),
-);
+app.delete("/api/v1/pairings/:id", async (c) => {
+  const pairing = await one(
+    c.env,
+    "SELECT app_id FROM pairing_requests WHERE id=?",
+    c.req.param("id"),
+  );
+  const result = await pairingRevoke(c.env, c.get("actor"), c.req.param("id"));
+  if (pairing?.app_id)
+    await closeSockets(c.env, await appProfiles(c.env, pairing.app_id), [
+      `app:${pairing.app_id}`,
+    ]);
+  return c.json(result);
+});
 app.post("/api/v1/auth/mobile/refresh", async (c) => {
   const token = mobileToken(c);
   if (!token || c.get("actor").kind !== "user")
@@ -809,6 +838,16 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
   return c.json({ ...session, user: mobileUser(user) });
 });
 app.post("/api/v1/logout", async (c) => {
+  // Sockets desta sessão (não os de outros aparelhos da mesma pessoa).
+  const actor = c.get("actor");
+  if (actor.kind === "user")
+    await closeSockets(
+      c.env,
+      await userProfiles(c.env, actor.id),
+      (await credentialTags(c.req.raw, actor)).filter((t) =>
+        t.startsWith("session:"),
+      ),
+    );
   const cookie = c.req.header("Cookie")?.match(/wabotia=([^;]+)/)?.[1];
   if (cookie)
     await exec(c.env, "DELETE FROM sessions WHERE hash=?", await sha(cookie));
@@ -982,6 +1021,39 @@ app.get("/api/v1/applications", async (c) => {
     event_types: eventTypes,
   });
 });
+/**
+ * Credencial que uma operação de administração derruba: chave revogada,
+ * aplicação desativada ou retirada de áreas, pessoa alterada (as sessões dela
+ * são apagadas). Os sockets dela fecham depois do sucesso.
+ */
+async function revocationTargets(
+  env: Env,
+  op: string,
+  id: string | undefined,
+  data: any,
+): Promise<{ profiles: string[]; tags: string[] } | null> {
+  if (!id) return null;
+  if (op === "key.revoke") {
+    const key = await one(env, "SELECT app_id FROM api_keys WHERE id=?", id);
+    return key
+      ? { profiles: await appProfiles(env, key.app_id), tags: [`key:${id}`] }
+      : null;
+  }
+  if (op === "application.update") {
+    const before = await appProfiles(env, id);
+    const removed =
+      data?.disabled === true
+        ? before
+        : Array.isArray(data?.profiles)
+          ? before.filter((p) => !data.profiles.includes(p))
+          : [];
+    return removed.length ? { profiles: removed, tags: [`app:${id}`] } : null;
+  }
+  if (op === "user.update")
+    return { profiles: await userProfiles(env, id), tags: [`user:${id}`] };
+  return null;
+}
+
 async function mutate(c: any, op: string, profile: string, data: any) {
   const key = c.req.header("Idempotency-Key");
   requireValue(
@@ -1074,11 +1146,17 @@ for (const [method, path, op] of [
   app.on(method.toUpperCase(), `/api/v1/${path}`, async (c) => {
     admin(c.get("actor"));
     const data = method === "delete" ? {} : await c.req.json();
-    return mutate(c, op, "_admin", {
+    const id = c.req.param("id");
+    // Antes de mudar: onde estão os sockets que a revogação vai fechar.
+    const revoked = await revocationTargets(c.env, op, id, data);
+    const response = await mutate(c, op, "_admin", {
       ...data,
-      id: c.req.param("id"),
-      ...(op === "key.create" ? { app_id: c.req.param("id") } : {}),
+      id,
+      ...(op === "key.create" ? { app_id: id } : {}),
     });
+    if (response.ok && revoked)
+      await closeSockets(c.env, revoked.profiles, revoked.tags);
+    return response;
   });
 }
 // Modelos da conta de um provedor de IA, para o formulário da conexão. Fica
@@ -1222,14 +1300,19 @@ const commands = [
   ["POST", "web-steps/:id/cancel", "web_step.cancel"],
 ];
 for (const [method, path, op] of commands)
-  app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) =>
-    mutate(c, op, c.req.param("profile")!, {
+  app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) => {
+    const profile = c.req.param("profile")!;
+    const response = await mutate(c, op, profile, {
       ...(method === "DELETE" && op !== "contact.unlink"
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    }),
-  );
+    });
+    // Painel de TV revogado: a tela cai na hora.
+    if (op === "queue.display.revoke" && response.ok)
+      await closeSockets(c.env, [profile], [`display:${c.req.param("id")}`]);
+    return response;
+  });
 // Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
 // escrita vira comando no Coordinator da área, como as rotas acima.
 for (const route of moduleRoutes().write)
@@ -1892,7 +1975,13 @@ app.get("/api/v1/profiles/:profile/queue/displays", async (c) =>
 );
 app.get("/api/v1/profiles/:profile/queue/ws", async (c) => {
   queueRead(c.get("actor"), c.req.param("profile"));
-  return queueSocket(c.env, c.req.raw, c.req.param("profile"), []);
+  return queueSocket(
+    c.env,
+    c.req.raw,
+    c.req.param("profile"),
+    [],
+    await credentialTags(c.req.raw, c.get("actor")),
+  );
 });
 app.get("/api/v1/profiles/:profile/webhook-subscriptions", async (c) => {
   access(c.get("actor"), c.req.param("profile"), "webhooks:manage");

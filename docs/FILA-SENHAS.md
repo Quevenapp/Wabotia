@@ -189,6 +189,14 @@ Configuração geral fica em `PUT /settings` na chave `queue`:
 - TV no navegador: `GET /api/public/queue-display/ws` com
   `Sec-WebSocket-Protocol: wabotia-display, <token>`.
 
+Credencial revogada fecha o socket na hora com o código **4401**
+("Credencial revogada"): chave revogada, aplicação desativada ou retirada da
+área, pareamento revogado no painel ou desfeito pelo próprio aparelho
+(`POST /api/v1/pairings/disconnect`), painel de TV revogado, saída da
+sessão (`POST /api/v1/logout`, só a sessão que saiu) e pessoa alterada ou
+desativada pelo administrador. Com 4401, não reconecte: volte para o
+pareamento ou o login.
+
 Frames do servidor (JSON):
 
 ```json

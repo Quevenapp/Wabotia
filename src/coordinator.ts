@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
 import { one, all, exec } from "./db";
 import { sha, seal, unseal, canonical } from "./security";
+import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
 import { finishDelivery } from "./delivery";
 import { channelEvent } from "./whatsapp";
@@ -38,6 +39,19 @@ export class Coordinator extends DurableObject<Env> {
       return this.link.handle(linkPath, request);
     if (linkPath === "/queue-ws") return this.acceptQueueSocket(request);
     const body = await request.json<any>();
+    // Credencial revogada: fecha os sockets dela nesta área (src/sockets.ts).
+    if (linkPath === "/close-sockets") {
+      let closed = 0;
+      for (const tag of Array.isArray(body.tags) ? body.tags : [])
+        for (const ws of this.ctx.getWebSockets(String(tag)))
+          try {
+            ws.close(REVOKED_CLOSE.code, REVOKED_CLOSE.reason);
+            closed++;
+          } catch {
+            // Já fechado.
+          }
+      return Response.json({ closed });
+    }
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
     if (new URL(request.url).pathname === "/router-link")
@@ -239,7 +253,14 @@ export class Coordinator extends DurableObject<Env> {
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    this.ctx.acceptWebSocket(server, ["queue"]);
+    // Tags da credencial (pessoa, sessão, aplicação, chave ou painel de TV)
+    // para fechar o socket quando ela for revogada.
+    const credential = (
+      json(request.headers.get("X-Wabotia-Credential"), []) as unknown[]
+    )
+      .filter((t): t is string => typeof t === "string" && t.length <= 200)
+      .slice(0, 8);
+    this.ctx.acceptWebSocket(server, ["queue", ...credential]);
     server.serializeAttachment({ filter });
     server.send(
       JSON.stringify({
