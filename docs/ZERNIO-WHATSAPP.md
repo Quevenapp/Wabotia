@@ -70,6 +70,10 @@ Os limites do WhatsApp são conferidos antes do envio, em todas as linhas, para 
 
 Toques em botões e listas continuam funcionando como antes.
 
+O atendimento trata o formulário e o carrinho antes do menu e do bot: a resposta de um formulário enviado pelo Wabotia (passo web entregue como Flow) é casada pelo token e conclui o formulário; um carrinho, ou um formulário sem envio correspondente, vai para o módulo que o trata ou, sem módulo, para a equipe com o resumo. O resumo nunca abre o menu. Detalhes em [MODULOS.md](MODULOS.md), seção "Passo web".
+
+> **Teste numa linha Zernio real antes de publicar:** listas e demais interativos (exceto botões de resposta) passaram a sair só com o `interactive`, sem o texto numerado junto. Isso vale para os menus e a fila já publicados. Os testes locais conferem o pedido montado, não a exibição no WhatsApp.
+
 ### Para módulos (código)
 
 - `sendInteractive(env, actor, conversa, spec, chave, automacao?)` em `src/line-service.ts` enfileira a mensagem com a queda automática para texto. `interactiveChoice(spec, texto, interactive_reply_id?)` devolve a opção escolhida, por toque ou por número.

@@ -49,6 +49,20 @@ export function registerConversationAction(
 export const conversationAction = (action: string) =>
   conversationActions.get(action);
 
+/**
+ * Conteúdo estruturado recebido do WhatsApp ("order", "flow_reply"):
+ * (env, conversation, content, rowId) → true quando o módulo tratou.
+ */
+const inboundHandlers = new Map<string, Hook[]>();
+export function registerInboundHandler(
+  type: string,
+  handler: (env: any, c: any, content: any, rowId: string) => Promise<boolean>,
+) {
+  inboundHandlers.set(type, [...(inboundHandlers.get(type) || []), handler]);
+}
+export const inboundHandlersFor = (type: string) =>
+  inboundHandlers.get(type) || [];
+
 /** Comando de escrita (Coordinator): (env, actor, profile, data, requestId). */
 const commands = new Map<string, Hook>();
 export function registerCommand(

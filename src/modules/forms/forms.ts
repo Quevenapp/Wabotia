@@ -41,6 +41,14 @@ export interface FormDefinition {
   /** Validade do link, em horas (1 a 168). */
   expires_hours: number;
   enabled: boolean;
+  /**
+   * Flow publicado na conta WhatsApp Business (src/whatsapp-flows.ts) com os
+   * mesmos campos: nas linhas oficiais, o formulário abre dentro do WhatsApp.
+   * Os nomes dos campos do Flow são os ids dos campos daqui.
+   */
+  flow_id?: string;
+  flow_cta?: string;
+  flow_screen?: string;
 }
 
 const text = (
@@ -102,6 +110,9 @@ export function validateForms(value: unknown): FormDefinition[] {
       ["return_text", 900, "a mensagem de retorno"],
       ["message", 900, "a mensagem com o link"],
       ["button", 20, "o rótulo do botão do WhatsApp"],
+      ["flow_id", 100, "o Flow publicado"],
+      ["flow_cta", 30, "o botão do Flow"],
+      ["flow_screen", 100, "a tela inicial do Flow"],
     ] as const) {
       const value = text(raw[key], max, what);
       if (value) form[key] = value;
@@ -144,6 +155,13 @@ export async function sendForm(
     ttlMinutes: form.expires_hours * 60,
     text: form.message,
     button: form.button || "Abrir formulário",
+    flow: form.flow_id
+      ? {
+          flow_id: form.flow_id,
+          flow_cta: form.flow_cta || form.button || "Abrir formulário",
+          screen: form.flow_screen,
+        }
+      : null,
     spec: {
       title: form.title,
       intro: form.intro,

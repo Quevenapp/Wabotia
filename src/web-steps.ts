@@ -27,6 +27,8 @@ import {
 } from "./service";
 import { activeTicketSql } from "./protocols";
 import { webStepHook } from "./modules/hooks";
+import { interactiveLine, sendInteractive } from "./line-service";
+import { flowToken } from "./whatsapp-interactive";
 
 export const WEB_STEP_PATH = "/api/w/";
 export const webStepStatuses = [
@@ -304,6 +306,11 @@ export interface OpenWebStepInput {
   text?: string;
   /** Rótulo do botão com URL nas linhas oficiais (até 20 caracteres). */
   button?: string;
+  /**
+   * Flow publicado que faz o mesmo que a página, para linhas oficiais. Os
+   * nomes dos campos do Flow precisam ser os ids dos campos de `spec`.
+   */
+  flow?: { flow_id: string; flow_cta?: string; screen?: string } | null;
 }
 
 export function webStepView(row: any) {
@@ -324,6 +331,8 @@ export function webStepView(row: any) {
     ticket_id: row.ticket_id,
     contact_id: row.contact_id,
     answers: row.result ? json(row.result, null) : null,
+    /** flow: entregue como Flow nativo; link: botão com URL ou texto. */
+    delivery: row.flow_token ? "flow" : "link",
     fields: (json(row.spec).fields || []).map((f: WebField) => ({
       id: f.id,
       type: f.type,
@@ -416,34 +425,36 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
     900,
   );
   const button = clip(input.button?.trim() || "Abrir", 20);
-  await enqueue(
+  // Linha oficial com Flow publicado: o formulário abre dentro do WhatsApp e a
+  // resposta (content.type "flow_reply") volta casada pelo flow_token. Sem
+  // Flow, botão com URL; em linha QR, o texto com o link (sendInteractive).
+  const flow = input.flow?.flow_id && (await interactiveLine(env, c));
+  const token = flow ? flowToken(input.flow!.flow_id, id) : null;
+  if (token)
+    await exec(env, "UPDATE web_steps SET flow_token=? WHERE id=?", token, id);
+  await sendInteractive(
     env,
-    c,
     input.actor,
-    "text",
-    {
-      text: `${body}\n${url}`,
-      automation: "web_step",
-      web_step_id: id,
-      // Linhas oficiais: botão com URL. O conector Zernio repassa o
-      // interactive; linhas QR recebem o texto com o link.
-      ...(kind === "zernio"
-        ? {
-            content: {
-              type: "interactive",
-              interactive: {
-                type: "cta_url",
-                body: { text: body },
-                action: {
-                  name: "cta_url",
-                  parameters: { display_text: button, url },
-                },
-              },
-            },
-          }
-        : {}),
-    },
+    c,
+    token
+      ? {
+          type: "flow",
+          body,
+          flow_id: input.flow!.flow_id,
+          flow_cta: clip(input.flow!.flow_cta?.trim() || button, 30),
+          flow_token: token,
+          ...(input.flow!.screen
+            ? {
+                flow_action: "navigate" as const,
+                flow_action_payload: { screen: input.flow!.screen },
+              }
+            : {}),
+          fallback: { url },
+        }
+      : { type: "cta_url", body, display_text: button, url },
+    // O id do passo é único no sistema todo, como a chave do outbox exige.
     `web-step:${id}`,
+    "web_step",
   );
   const row = await one(env, "SELECT * FROM web_steps WHERE id=?", id);
   await event(env, c.profile_id, "web_step.sent", id, {
@@ -682,6 +693,41 @@ export async function completeWebStep(
   const hook = webStepHook(row.module_id);
   if (hook) await hook(env, row.profile_id, done, answers);
   return { ok: true, step: done, whatsapp };
+}
+
+/**
+ * Resposta de Flow (content.flow_reply) de um passo entregue como Flow: casa
+ * pelo flow_token na mesma conversa e conclui com os campos de mesmo id.
+ * null quando o token não é de um passo web desta conversa.
+ */
+export async function completeWebStepByFlow(
+  env: Env,
+  c: Conversation,
+  reply: { flow_token?: string | null; data?: Record<string, unknown> },
+) {
+  if (!reply?.flow_token) return null;
+  const row = await one(
+    env,
+    "SELECT * FROM web_steps WHERE flow_token=? AND conversation_id=?",
+    reply.flow_token,
+    c.id,
+  );
+  if (!row) return null;
+  const input: Record<string, unknown> = {};
+  for (const field of (json(row.spec).fields || []) as WebField[]) {
+    const value = reply.data?.[field.id];
+    if (value === undefined || value === null) continue;
+    input[field.id] =
+      field.type === "accept"
+        ? value === true ||
+          ["true", "on", "1", "sim"].includes(String(value).toLowerCase())
+        : field.type === "date" && typeof value === "number"
+          ? new Date(value).toISOString().slice(0, 10)
+          : Array.isArray(value)
+            ? value.join(", ")
+            : String(value);
+  }
+  return { step: row, result: await completeWebStep(env, row.id, input) };
 }
 
 async function afterCompletion(

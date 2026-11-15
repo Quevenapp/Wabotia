@@ -68,6 +68,7 @@ import { visibleEvent } from "./visibility";
 import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
 import { moduleEnabled } from "./modules/registry";
 import { menuHandler } from "./modules/hooks";
+import { isStructured, structuredInbound } from "./structured-inbound";
 import "./modules/runtime";
 import {
   activeBlock,
@@ -136,6 +137,18 @@ export async function processInbox(env: Env, profile: string) {
           !/^\/bot(?:\s|$)/i.test(data.text)))
     )
       return;
+    // Resposta de Flow e carrinho do catálogo: tratados antes do menu e do
+    // bot (src/structured-inbound.ts); o resumo em texto não abre o menu.
+    if (c.chat_type !== "group" && isStructured(data.content)) {
+      await structuredInbound(
+        env,
+        c,
+        row,
+        data,
+        !!p?.enabled && policy.service && (policy.menu || policy.bots),
+      );
+      return;
+    }
     const value = data.text.trim(),
       normalized = value
         .toLowerCase()

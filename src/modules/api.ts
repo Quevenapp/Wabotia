@@ -5,6 +5,7 @@
 import {
   registerCommand,
   registerConversationAction,
+  registerInboundHandler,
   registerMenuHandler,
   registerReadRoute,
   registerSettingsValidator,
@@ -139,7 +140,8 @@ export function modulesApi(
             ? { attachments: outgoing.attachments }
             : {}),
         },
-        `module:${moduleId}:${options.key}`,
+        // A chave do outbox vale para o sistema todo: leva a conversa.
+        `module:${moduleId}:${c.id}:${options.key}`,
       );
     },
     openWebStep(c, request) {
@@ -148,7 +150,7 @@ export function modulesApi(
         ...request,
         conversation: c,
         module: moduleId,
-        sourceKey: `module:${moduleId}:${request.sourceKey}`,
+        sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
       });
     },
     async publish(kind, resourceId, payload) {
@@ -277,6 +279,29 @@ export function onRead(
       await ctx.requireEnabled();
       return handler(ctx, actor, request);
     },
+  });
+}
+
+/**
+ * Conteúdo estruturado recebido do WhatsApp antes do menu e do bot:
+ * "order" (carrinho do catálogo, content.order) ou "flow_reply" (resposta de
+ * Flow que não é de um passo web, content.flow_reply). Devolva true quando
+ * tratou; o núcleo para ali. Só roda com o módulo ligado.
+ */
+export function onInboundContent(
+  moduleId: string,
+  type: "order" | "flow_reply",
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    content: any,
+    turn: { rowId: string },
+  ) => Promise<boolean>,
+) {
+  registerInboundHandler(type, async (env, c, content, rowId) => {
+    const ctx = modulesApi(env, c.profile_id, moduleId);
+    if (!(await ctx.enabled())) return false;
+    return handler(ctx, c, content, { rowId });
   });
 }
 

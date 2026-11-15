@@ -103,6 +103,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
+| `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 
 Exemplo mínimo (do módulo Formulários):
 
@@ -214,8 +215,30 @@ const { step, url, created } = await ctx.openWebStep(c, {
 - Fora da janela de 24 h numa linha oficial, só o gatilho `menu` envia o link
   (o cliente acabou de escrever); os demais recebem `400` pedindo que o
   cliente escreva antes.
-- O endereço do link é a origem pública vista nas requisições ao painel e à
-  API (`instance_settings.public_origin`). Sem ela, `409 origin_unknown`.
+- O endereço do link é a origem pública vista nas requisições ao painel e
+  aos apps de pessoas (`instance_settings.public_origin`). Sem ela,
+  `409 origin_unknown`.
+- **Entrega.** Numa linha oficial com `flow: {flow_id, flow_cta?, screen?}`
+  (Flow publicado na conta, `src/whatsapp-flows.ts`), o passo sai como Flow
+  nativo com `flow_token = "<flow_id>:<id do passo>"`, guardado em
+  `web_steps.flow_token`; sem Flow, botão com URL (`cta_url`); em linha QR, o
+  texto com o link. As três formas saem por `sendInteractive`
+  (`src/line-service.ts`) e o texto guardado sempre leva o link da página.
+  Os nomes dos campos do Flow precisam ser os `id` dos campos de `spec`.
+  O módulo Formulários usa `flow_id`, `flow_cta` e `flow_screen` do formulário.
+- **Resposta por Flow.** O recebimento normaliza a resposta em
+  `content.type: "flow_reply"` (`src/whatsapp-inbound.ts`). O `processInbox`
+  trata isso antes do menu e do bot (`src/structured-inbound.ts`): o
+  `flow_token` de um passo desta conversa conclui o passo com as mesmas regras
+  da página (validade, uso único, protocolo, nota e retorno no WhatsApp). Um
+  Flow incompleto pede reenvio; repetido, avisa que já recebeu. Booleanos
+  valem para `accept`; data em milissegundos vira AAAA-MM-DD.
+- **Carrinho e Flow sem dono.** `"order"` e `"flow_reply"` sem passo web vão
+  primeiro aos módulos (`onInboundContent`); sem dono, a conversa com o bot
+  vai para a equipe com o resumo como pedido, e uma conversa com atendente só
+  guarda a mensagem. O resumo em texto nunca abre o menu.
+- Flows com endpoint próprio (`data_exchange`) não são hospedados pelo
+  Wabotia; use Flows de navegação.
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
 

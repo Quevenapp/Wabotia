@@ -79,6 +79,9 @@ function cleanForm(form: Row): Row {
     "done_text",
     "return_text",
     "title",
+    "flow_id",
+    "flow_cta",
+    "flow_screen",
   ])
     if (!String(out[key] || "").trim()) delete out[key];
   return out;
@@ -320,6 +323,31 @@ function FormEditor({
         placeholder={`Recebemos suas respostas de "${form.title || form.name || "título"}". Obrigado!`}
         help="Se a janela de 24 horas estiver fechada, o retorno sai pelo modelo de notificação configurado em Regras de atendimento."
       />
+      <h3 className="form-editor-heading">Flow do WhatsApp (opcional)</h3>
+      <Field
+        label="ID do Flow publicado"
+        value={form.flow_id || ""}
+        onChange={set("flow_id")}
+        maxLength={100}
+        help="Nas linhas oficiais, o formulário abre dentro do WhatsApp. Os campos do Flow precisam ter os mesmos identificadores dos campos acima. Em branco, o cliente recebe o botão com o link."
+      />
+      {form.flow_id && (
+        <div className="form-field-grid">
+          <Field
+            label="Botão do Flow"
+            value={form.flow_cta || ""}
+            onChange={set("flow_cta")}
+            maxLength={30}
+            placeholder={form.button || "Abrir formulário"}
+          />
+          <Field
+            label="Tela inicial (opcional)"
+            value={form.flow_screen || ""}
+            onChange={set("flow_screen")}
+            maxLength={100}
+          />
+        </div>
+      )}
       <h3 className="form-editor-heading">Respostas e validade</h3>
       <Field
         label="Protocolo"
