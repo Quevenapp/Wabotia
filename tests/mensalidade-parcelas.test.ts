@@ -29,6 +29,8 @@ const events = (f: Fixture, kind: string) =>
     f.profile,
     kind,
   ).then((rows) => rows.map((r) => json(r.payload)));
+// Só parcelas e vencidas; os avisos têm testes próprios (mensalidade-cobranca).
+const generate = (ctx: any, at: number) => runDue(ctx, at, { notices: false });
 const installments = (subscription: string) =>
   all(
     env,
@@ -74,19 +76,22 @@ describe("mensalidade: geração de parcelas", () => {
       discount_cents: 2500,
     });
     const jan = brasilia(2027, 1, 1, 8);
-    expect(await runDue(ctx, jan)).toEqual({ created: 1, overdue: 0 });
-    expect(await runDue(ctx, jan)).toEqual({ created: 0, overdue: 0 });
+    expect(await generate(ctx, jan)).toEqual({ created: 1, overdue: 0 });
+    expect(await generate(ctx, jan)).toEqual({ created: 0, overdue: 0 });
     const feb = brasilia(2027, 2, 1, 9);
-    expect(await runDue(ctx, feb)).toEqual({ created: 1, overdue: 1 });
-    expect(await runDue(ctx, feb + 60_000)).toEqual({ created: 0, overdue: 0 });
+    expect(await generate(ctx, feb)).toEqual({ created: 1, overdue: 1 });
+    expect(await generate(ctx, feb + 60_000)).toEqual({
+      created: 0,
+      overdue: 0,
+    });
     // O gancho do núcleo roda a mesma função e também não repete.
     expect(
       await runModuleSchedules(env, f.profile, feb + 120_000),
     ).toContainEqual({ module: "mensalidade", ok: true });
-    expect(await runDue(ctx, brasilia(2027, 3, 5))).toMatchObject({
+    expect(await generate(ctx, brasilia(2027, 3, 5))).toMatchObject({
       created: 1,
     });
-    expect(await runDue(ctx, brasilia(2027, 4, 2))).toMatchObject({
+    expect(await generate(ctx, brasilia(2027, 4, 2))).toMatchObject({
       created: 1,
     });
     const rows = await installments(sub.id);
@@ -106,7 +111,7 @@ describe("mensalidade: geração de parcelas", () => {
   it("pausada não gera e cancela as não vencidas; retomar pula a pausa; encerrada para", async () => {
     const { f, ctx, subscribe } = await setup();
     const sub = await subscribe({ start_date: "2027-01-01" });
-    await runDue(ctx, brasilia(2027, 1, 1));
+    await generate(ctx, brasilia(2027, 1, 1));
     await setSubscriptionStatus(
       ctx,
       await loadSubscription(ctx, sub.id),
@@ -118,7 +123,7 @@ describe("mensalidade: geração de parcelas", () => {
       "cancelled",
     ]);
     // Pausada: nada novo, e a cancelada não vira vencida.
-    expect(await runDue(ctx, brasilia(2027, 2, 15))).toEqual({
+    expect(await generate(ctx, brasilia(2027, 2, 15))).toEqual({
       created: 0,
       overdue: 0,
     });
@@ -129,7 +134,7 @@ describe("mensalidade: geração de parcelas", () => {
       f.admin.id,
       brasilia(2027, 3, 20),
     );
-    expect(await runDue(ctx, brasilia(2027, 3, 20))).toMatchObject({
+    expect(await generate(ctx, brasilia(2027, 3, 20))).toMatchObject({
       created: 1,
     });
     expect(
@@ -139,8 +144,8 @@ describe("mensalidade: geração de parcelas", () => {
       ["2027-04-10", "open"],
     ]);
     // Uma parcela vencida continua devida depois de encerrar.
-    await runDue(ctx, brasilia(2027, 4, 11));
-    await runDue(ctx, brasilia(2027, 4, 20));
+    await generate(ctx, brasilia(2027, 4, 11));
+    await generate(ctx, brasilia(2027, 4, 20));
     await setSubscriptionStatus(
       ctx,
       await loadSubscription(ctx, sub.id),
@@ -157,7 +162,7 @@ describe("mensalidade: geração de parcelas", () => {
       ["2027-04-10", "overdue"],
       ["2027-05-10", "cancelled"],
     ]);
-    expect(await runDue(ctx, brasilia(2027, 8, 1))).toEqual({
+    expect(await generate(ctx, brasilia(2027, 8, 1))).toEqual({
       created: 0,
       overdue: 0,
     });
@@ -167,7 +172,7 @@ describe("mensalidade: geração de parcelas", () => {
   it("início no passado gera as parcelas atrasadas marcadas como retroativas", async () => {
     const { ctx, subscribe } = await setup({ period: "quarterly" });
     const sub = await subscribe({ start_date: "2026-01-01", due_day: 5 });
-    expect(await runDue(ctx, brasilia(2026, 7, 20))).toEqual({
+    expect(await generate(ctx, brasilia(2026, 7, 20))).toEqual({
       created: 3,
       overdue: 0,
     });
@@ -195,7 +200,7 @@ describe("mensalidade: baixa manual, isenção e resumo", () => {
       phone: "11987650099",
       discount_cents: 5000,
     });
-    await runDue(ctx, brasilia(2026, 11, 4, 10));
+    await generate(ctx, brasilia(2026, 11, 4, 10));
     const [oct, nov, dec] = await installments(sub.id);
     expect([oct.status, nov.status, dec.status]).toEqual([
       "overdue",
@@ -307,7 +312,7 @@ describe("mensalidade: baixa manual, isenção e resumo", () => {
     ).json<any>();
     expect(late.data).toEqual([]);
     // Dezembro vence e entra na lista de inadimplentes.
-    await runDue(ctx, brasilia(2026, 12, 6));
+    await generate(ctx, brasilia(2026, 12, 6));
     const after = await (
       await api(member, `${root(f)}/delinquents`)
     ).json<any>();

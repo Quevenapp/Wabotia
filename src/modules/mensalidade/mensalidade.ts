@@ -2,9 +2,23 @@
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
 import { now } from "../../types";
-import { onCommand, onRead, onRoute, onSchedule, onSettingsSave } from "../api";
+import {
+  moduleError,
+  onCommand,
+  onPaymentUpdated,
+  onRead,
+  onRoute,
+  onSchedule,
+  onSettingsSave,
+} from "../api";
 import { validateMensalidadeSettings } from "./model";
 import { runDue } from "./due";
+import {
+  conversationFor,
+  paymentUpdated,
+  resendCharge,
+  sendReceipt,
+} from "./billing";
 import {
   delinquents,
   generateInstallments,
@@ -83,8 +97,45 @@ onCommand(
     ctx.access(actor, "conversations:write");
     manager(actor);
     const inst = await loadInstallment(ctx, data.id);
-    return installmentView(await payManually(ctx, inst, actor.id, data));
+    const paid = await payManually(ctx, inst, actor.id, data);
+    // Comprovante ao cliente, a menos que notify=false.
+    if (data.notify !== false) await sendReceipt(ctx, paid.id);
+    return installmentView(paid);
   },
+);
+
+// Reenviar cobrança: o Pix/link que ainda vale ou uma cobrança nova.
+onRoute("mensalidade", {
+  method: "POST",
+  path: "mensalidade/installments/:id/charge",
+  op: "mensalidade.installment.charge",
+});
+onCommand(
+  "mensalidade",
+  "mensalidade.installment.charge",
+  async (ctx, actor, data, { requestId }) => {
+    ctx.access(actor, "conversations:write");
+    const inst = await loadInstallment(ctx, data.id);
+    const c = await conversationFor(ctx, {
+      id: inst.subscription_id,
+      phone: inst.phone,
+      conversation_id: inst.conversation_id,
+    });
+    if (!c)
+      throw moduleError(
+        409,
+        "no_conversation",
+        "Não há conversa no WhatsApp com o telefone desta assinatura. O cliente precisa escrever primeiro.",
+      );
+    return installmentView(
+      await resendCharge(ctx, inst, c, `reenvio:${actor.id}:${requestId}`),
+    );
+  },
+);
+
+// Confirmação do provedor (webhook assinado + consulta) e comprovante.
+onPaymentUpdated("mensalidade", (ctx, payment, { previous }) =>
+  paymentUpdated(ctx, payment, previous),
 );
 
 onRoute("mensalidade", {
