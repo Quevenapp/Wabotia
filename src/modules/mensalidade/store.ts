@@ -26,6 +26,8 @@ import {
   type InstallmentStatus,
   type Period,
   type SubscriptionStatus,
+  csv,
+  pageLimit,
 } from "./model";
 import { ensurePayer, loadPayer } from "./payers";
 import { formatDocument } from "../../establishment";
@@ -62,15 +64,29 @@ export async function cancelOpenCharge(
   }
 }
 
-/** Administrador (pessoa) ou integração com a permissão de escrita. */
-export function manager(actor: Actor) {
-  if (actor.kind === "app") return;
-  if (actor.kind !== "user" || actor.role !== "admin")
+/**
+ * Operações financeiras: administrador (pessoa) ou aplicação com
+ * `billing:write` (uma chave só de mensagens, `conversations:write`, não
+ * basta; aparelhos pareados do Vinki e do Fagoo nunca a recebem).
+ */
+export const isManager = (actor: Actor) =>
+  actor.kind === "app"
+    ? actor.scopes.includes("billing:write")
+    : actor.kind === "user" && actor.role === "admin";
+
+export function manager(actor: Actor, message?: string) {
+  if (isManager(actor)) return;
+  if (actor.kind === "app")
     throw new ApiError(
       403,
-      "admin_required",
-      "Somente administradores podem fazer isto.",
+      "missing_scope",
+      "Permissão necessária: billing:write",
     );
+  throw new ApiError(
+    403,
+    "admin_required",
+    message || "Somente administradores podem fazer isto.",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +366,7 @@ export async function listSubscriptions(
 ) {
   const where = ["s.profile_id=?"],
     args: any[] = [ctx.profile];
-  const statuses = (query.status || "").split(",").filter(Boolean);
+  const statuses = csv(query.status);
   for (const s of statuses)
     requireValue(
       ["active", "paused", "ended"].includes(s),
@@ -393,7 +409,7 @@ export async function listSubscriptions(
     where.push("s.id>?");
     args.push(query.cursor);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const limit = pageLimit(query.limit, 50, 200);
   const rows = await all(
     ctx.env,
     `SELECT s.*,p.name AS plan_name,${PAYER_COLUMNS},${subscriptionCounts} FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id LEFT JOIN mensalidade_payers y ON y.id=s.payer_id WHERE ${where.join(" AND ")} ORDER BY s.id LIMIT ?`,
@@ -449,6 +465,11 @@ export interface SubscriptionInput {
   payer_name?: unknown;
   /** Repetir a chave devolve a mesma assinatura (contratação pelo WhatsApp). */
   sourceKey?: string;
+  /**
+   * Interno (nunca do corpo da requisição): contrato já pago pelo WhatsApp;
+   * a assinatura nasce mesmo que o plano tenha sido desativado depois.
+   */
+  paidContract?: boolean;
 }
 
 /** Valida e monta a linha da assinatura (sem gravar). */
@@ -458,7 +479,10 @@ async function subscriptionRow(
   at: number,
 ) {
   const plan = await loadPlan(ctx, input.plan_id);
-  requireValue(plan.active, `O plano "${plan.name}" está desativado.`);
+  requireValue(
+    plan.active || input.paidContract === true,
+    `O plano "${plan.name}" está desativado.`,
+  );
   const c = input.conversation || null;
   if (c)
     requireValue(

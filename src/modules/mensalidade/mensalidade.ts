@@ -1,21 +1,47 @@
 // Mensalidade (módulo "mensalidade"): ganchos e rotas. Cadastros em
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
-import { now, requireValue } from "../../types";
+import { type Actor, now, requireValue } from "../../types";
 import {
+  filteredHandlers,
   moduleError,
-  onCommand,
-  onConversationAction,
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
-  onRead,
   onRoute,
   onSchedule,
   onSettingsSave,
+  type ModuleContext,
 } from "../api";
-import { validateMensalidadeSettings } from "./model";
+import {
+  maskDocument,
+  parseDocument,
+  phoneDigits,
+  validateMensalidadeSettings,
+  withoutKeys,
+} from "./model";
+
+// Dados pessoais (documento, e-mail, telefones) só para aplicação com
+// contacts:read, e observações só com notes:read, como no núcleo; pessoas da
+// equipe veem. Toda rota de leitura e de escrita passa por este filtro.
+const CONTACT_FIELDS = new Set([
+  "document",
+  "document_display",
+  "payer_document",
+  "email",
+  "phones",
+  "phone",
+]);
+const NOTE_FIELDS = new Set(["notes", "paid_note"]);
+function visible(ctx: ModuleContext, actor: Actor, value: any) {
+  if (actor.kind !== "app") return value;
+  let out = value;
+  if (!ctx.mayRead(actor, "contacts")) out = withoutKeys(out, CONTACT_FIELDS);
+  if (!ctx.mayRead(actor, "notes")) out = withoutKeys(out, NOTE_FIELDS);
+  return out;
+}
+const { onRead, onCommand, onConversationAction } = filteredHandlers(visible);
 import { runDue } from "./due";
 import { handleTurn, menuCopy, menuStatement, openInstallments } from "./chat";
 import {
@@ -23,6 +49,7 @@ import {
   createPayer,
   listPayers,
   loadPayer,
+  payerByDocument,
   payerPhones,
   payerView,
   removePayerPhone,
@@ -56,6 +83,7 @@ import {
   createSubscription,
   deletePlan,
   importSubscriptions,
+  isManager,
   listPlans,
   listSubscriptions,
   loadSubscription,
@@ -69,6 +97,31 @@ import {
 } from "./store";
 
 onSettingsSave("mensalidade", "mensalidade", validateMensalidadeSettings);
+
+/**
+ * Aceite de cobrança declarado pela equipe (`billing_consent: true`): abre
+ * conversa na linha oficial e permite notificação paga em nome do cliente,
+ * então só administrador, e com a evidência (`billing_consent_evidence`:
+ * onde o cliente aceitou). Devolve a evidência, ou null sem aceite.
+ */
+function teamConsent(actor: Actor, data: any) {
+  if (data?.billing_consent !== true) return null;
+  manager(
+    actor,
+    "Somente administradores registram o aceite de cobrança do cliente.",
+  );
+  const evidence =
+    typeof data.billing_consent_evidence === "string"
+      ? data.billing_consent_evidence.trim()
+      : "";
+  if (Array.from(evidence).length < 5 || Array.from(evidence).length > 500)
+    throw moduleError(
+      400,
+      "consent_evidence_required",
+      "Informe onde o cliente aceitou receber cobranças pelo WhatsApp (billing_consent_evidence, de 5 a 500 caracteres).",
+    );
+  return evidence;
+}
 
 // Parcelas, vencidas e avisos (gancho periódico do núcleo).
 onSchedule("mensalidade", async (ctx, tick) => {
@@ -163,7 +216,23 @@ onCommand(
 
 onRead("mensalidade", "mensalidade/payers", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listPayers(ctx, query);
+  // Lista de pagadores é cadastro de pessoas: aplicação precisa de
+  // contacts:read (a busca por documento ou telefone também revelaria quem é
+  // cliente).
+  ctx.access(actor, "contacts:read");
+  const list = await listPayers(ctx, query);
+  // Na listagem, atendente vê o documento mascarado; completo no detalhe e
+  // para administrador.
+  if (actor.kind === "user" && actor.role !== "admin")
+    return {
+      ...list,
+      data: list.data.map((payer: any) => ({
+        ...payer,
+        document: null,
+        document_display: maskDocument(payer.document_display),
+      })),
+    };
+  return list;
 });
 
 onRead(
@@ -171,6 +240,7 @@ onRead(
   "mensalidade/payers/:id",
   async (ctx, actor, { params }) => {
     ctx.access(actor, "conversations:read");
+    ctx.access(actor, "contacts:read");
     const payer = await loadPayer(ctx, params.id);
     const subs = await listSubscriptions(ctx, {
       payer_id: payer.id,
@@ -195,6 +265,9 @@ onRead(
   "mensalidade/situation",
   async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
+    // Documento → pagador é consulta de dado pessoal: aplicação precisa de
+    // contacts:read.
+    if (query.document || query.phone) ctx.access(actor, "contacts:read");
     const found = query.document
       ? await situationByDocument(ctx.env, ctx.profile, query.document, {
           phone: query.phone || null,
@@ -243,6 +316,8 @@ onCommand(
   "mensalidade.payer.update",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Trocar o documento muda quem o cliente prova ser: só administrador.
+    if (Object.hasOwn(data || {}, "document")) manager(actor);
     const payer = await updatePayer(
       ctx,
       await loadPayer(ctx, data.id),
@@ -263,6 +338,8 @@ onCommand(
   "mensalidade.payer.phone_add",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Telefone autorizado fala (e é atendido) em nome do pagador.
+    manager(actor);
     const payer = await loadPayer(ctx, data.id);
     await addPayerPhone(ctx, payer, data.phone, data.label, actor.id);
     return payerView(payer, await payerPhones(ctx, payer.id));
@@ -304,7 +381,7 @@ onRead(
   async (ctx, actor, { params }) => {
     ctx.access(actor, "conversations:read");
     const c = await ctx.conversation(params.id, actor);
-    const phone = c.phone || c.external_id;
+    const phone = ctx.verifiedPhone(c);
     return {
       situation: phone
         ? await situationByPhone(ctx.env, ctx.profile, phone)
@@ -519,18 +596,60 @@ onCommand(
       data.conversation_id !== undefined && data.conversation_id !== null
         ? await ctx.conversation(String(data.conversation_id), actor)
         : null;
+    // Valor e desconto diferentes do plano: só administrador (como a isenção).
+    if (
+      (data.amount_cents !== undefined && data.amount_cents !== null) ||
+      (data.discount_cents !== undefined &&
+        data.discount_cents !== null &&
+        data.discount_cents !== 0)
+    )
+      manager(actor, "Somente administradores definem valor ou desconto.");
+    // Documento de um pagador existente autoriza o telefone da assinatura
+    // nele (vincular telefone): só administrador, se ainda não autorizado.
+    if (!isManager(actor) && typeof data.document === "string") {
+      const doc = parseDocument(data.document);
+      const existing = doc ? await payerByDocument(ctx, doc.document) : null;
+      if (existing) {
+        const phone = phoneDigits(data.phone || c?.phone || "");
+        const phones = await payerPhones(ctx, existing.id);
+        if (!phone || !phones.some((p) => p.phone === phone))
+          manager(
+            actor,
+            "Este CPF/CNPJ já tem pagador: somente administradores autorizam um telefone novo nele.",
+          );
+      }
+    }
+    const evidence = teamConsent(actor, data);
+    // Só os campos do cadastro: nada de chave de origem (sourceKey) ou
+    // opções internas vindas do corpo.
     const sub = await createSubscription(
       ctx,
-      { ...data, conversation: c },
+      {
+        conversation: c,
+        plan_id: data.plan_id,
+        customer_name: data.customer_name,
+        phone: data.phone,
+        amount_cents: data.amount_cents,
+        discount_cents: data.discount_cents,
+        due_day: data.due_day,
+        start_date: data.start_date,
+        end_date: data.end_date,
+        notes: data.notes,
+        payer_id: data.payer_id,
+        document: data.document,
+        payer_name: data.payer_name,
+      },
       actor.id,
     );
-    // A equipe confirma que o cliente aceitou receber cobranças pelo WhatsApp.
-    if (data.billing_consent === true)
+    // Um administrador confirma, com a evidência, que o cliente aceitou
+    // receber cobranças pelo WhatsApp.
+    if (evidence)
       await consentFromTeam(
         ctx,
         sub,
         actor.kind === "app" ? "api" : "panel",
         actor.id,
+        evidence,
       );
     return subscriptionView(await loadSubscription(ctx, sub.id));
   },
@@ -547,8 +666,9 @@ onCommand(
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
+    const evidence = teamConsent(actor, data);
     const result = await importSubscriptions(ctx, data.rows, actor.id);
-    if (data.billing_consent === true)
+    if (evidence)
       for (const sub of result.created)
         await consentFromTeam(
           ctx,
@@ -559,6 +679,7 @@ onCommand(
           },
           actor.kind === "app" ? "api" : "panel",
           actor.id,
+          evidence,
         );
     return result;
   },
@@ -574,6 +695,16 @@ onCommand(
   "mensalidade.subscription.update",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Valor, desconto e plano mudam quanto se cobra: só administrador.
+    if (
+      ["amount_cents", "discount_cents", "plan_id"].some((key) =>
+        Object.hasOwn(data || {}, key),
+      )
+    )
+      manager(
+        actor,
+        "Somente administradores mudam valor, desconto ou plano da assinatura.",
+      );
     const sub = await loadSubscription(ctx, data.id);
     return subscriptionView(await updateSubscription(ctx, sub, data, actor.id));
   },

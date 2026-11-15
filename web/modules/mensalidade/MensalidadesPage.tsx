@@ -240,6 +240,7 @@ function SubscriptionForm({
   onClose: () => void;
   onSaved: (sub: Row) => void;
 }) {
+  const app = useApp();
   const write = useWrite();
   const [draft, setDraft] = useState<Row>(() => ({
     customer_name: initial?.customer?.name || "",
@@ -254,6 +255,7 @@ function SubscriptionForm({
     document: "",
     payer_name: "",
     billing_consent: false,
+    billing_consent_evidence: "",
   }));
   const set = (key: string) => (value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -271,25 +273,34 @@ function SubscriptionForm({
         const body: Row = {
           customer_name: draft.customer_name,
           phone: draft.phone,
-          plan_id: draft.plan_id,
           notes: draft.notes,
           end_date: draft.end_date || null,
         };
-        if (draft.amount) {
-          const value = cents(draft.amount);
-          if (value === null)
-            throw new Error("Valor inválido. Use, por exemplo, 180,00.");
+        // Plano, valor e desconto só vão quando mudam (só administrador muda).
+        if (!initial || draft.plan_id !== initial.plan_id)
+          body.plan_id = draft.plan_id;
+        const value = draft.amount
+          ? cents(draft.amount)
+          : initial
+            ? (plan?.amount_cents ?? null)
+            : null;
+        if (draft.amount && value === null)
+          throw new Error("Valor inválido. Use, por exemplo, 180,00.");
+        if (initial ? value !== initial.amount_cents : value !== null)
           body.amount_cents = value;
-        } else if (initial) body.amount_cents = plan?.amount_cents;
         const discount = draft.discount ? cents(draft.discount) : 0;
         if (discount === null)
           throw new Error("Desconto inválido. Use, por exemplo, 20,00.");
-        body.discount_cents = discount;
+        if (initial ? discount !== initial.discount_cents : discount > 0)
+          body.discount_cents = discount;
         if (draft.due_day) body.due_day = Number(draft.due_day);
         if (!initial && draft.start_date) body.start_date = draft.start_date;
         if (!initial && draft.document) body.document = draft.document;
         if (!initial && draft.payer_name) body.payer_name = draft.payer_name;
-        if (!initial && draft.billing_consent) body.billing_consent = true;
+        if (!initial && draft.billing_consent) {
+          body.billing_consent = true;
+          body.billing_consent_evidence = draft.billing_consent_evidence;
+        }
         const saved = initial
           ? await write(`/subscriptions/${initial.id}`, "PATCH", body)
           : await write("/subscriptions", "POST", body);
@@ -342,6 +353,7 @@ function SubscriptionForm({
             id: p.id,
             name: `${p.name} · ${money(p.amount_cents)} · ${periodLabels[p.period]}`,
           }))}
+        disabled={!!initial && !app.isAdmin}
         required
       />
       <div className="form-field-grid">
@@ -350,13 +362,19 @@ function SubscriptionForm({
           value={draft.amount}
           onChange={set("amount")}
           placeholder={plan ? centsInput(plan.amount_cents) : "0,00"}
-          help="Em branco, o valor do plano."
+          help={
+            app.isAdmin
+              ? "Em branco, o valor do plano."
+              : "Valor e desconto: somente administradores."
+          }
+          disabled={!app.isAdmin}
         />
         <Field
           label="Desconto (R$)"
           value={draft.discount}
           onChange={set("discount")}
           placeholder="0,00"
+          disabled={!app.isAdmin}
         />
         <Field
           label="Dia de vencimento"
@@ -395,37 +413,58 @@ function SubscriptionForm({
         maxLength={1000}
         placeholder="Ex.: aluno Pedro, turma de sábado"
       />
-      {!initial && (
+      {!initial && app.isAdmin && (
         <ConsentCheck
           checked={!!draft.billing_consent}
           onChange={(value) =>
             setDraft((current) => ({ ...current, billing_consent: value }))
           }
+          evidence={draft.billing_consent_evidence}
+          onEvidence={set("billing_consent_evidence")}
         />
       )}
     </FormDialog>
   );
 }
 
-/** Aceite de cobranças pelo WhatsApp, confirmado pela equipe. */
+/**
+ * Aceite de cobranças pelo WhatsApp, registrado por um administrador com a
+ * evidência (onde o cliente aceitou).
+ */
 function ConsentCheck({
   checked,
   onChange,
+  evidence,
+  onEvidence,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
+  evidence: string;
+  onEvidence: (value: string) => void;
 }) {
   return (
-    <label className="mensalidade-check">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />{" "}
-      O cliente aceitou receber as cobranças e avisos pelo WhatsApp (contrato,
-      ficha ou pedido dele). Sem esse aceite, os avisos fora da janela de 24
-      horas esperam o cliente escrever.
-    </label>
+    <>
+      <label className="mensalidade-check">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+        />{" "}
+        O cliente aceitou receber as cobranças e avisos pelo WhatsApp (contrato,
+        ficha ou pedido dele). Sem esse aceite, os avisos fora da janela de 24
+        horas esperam o cliente escrever.
+      </label>
+      {checked && (
+        <Field
+          label="Onde o cliente aceitou"
+          value={evidence}
+          onChange={onEvidence}
+          maxLength={500}
+          required
+          placeholder="Ex.: contrato de matrícula assinado em 10/11/2026, cláusula 7"
+        />
+      )}
+    </>
   );
 }
 
@@ -440,6 +479,7 @@ function ImportDialog({
   const [text, setText] = useState("");
   const [result, setResult] = useState<Row | null>(null);
   const [consent, setConsent] = useState(false);
+  const [evidence, setEvidence] = useState("");
   const parsed = parseImport(text);
   if (result)
     return (
@@ -476,7 +516,9 @@ function ImportDialog({
         setResult(
           await write("/subscriptions/import", "POST", {
             rows: parsed.rows,
-            ...(consent ? { billing_consent: true } : {}),
+            ...(consent
+              ? { billing_consent: true, billing_consent_evidence: evidence }
+              : {}),
           }),
         );
       }}
@@ -499,7 +541,12 @@ function ImportDialog({
         (Planos e regras). Telefone que já tem assinatura no mesmo plano é
         pulado, então dá para importar a mesma planilha de novo.
       </p>
-      <ConsentCheck checked={consent} onChange={setConsent} />
+      <ConsentCheck
+        checked={consent}
+        onChange={setConsent}
+        evidence={evidence}
+        onEvidence={setEvidence}
+      />
     </FormDialog>
   );
 }

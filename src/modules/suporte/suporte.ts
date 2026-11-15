@@ -2,16 +2,16 @@
 // ./flow.ts; banco em ./store.ts; passagem para humano em ./handoff.ts.
 // Depende da Mensalidade por src/modules/mensalidade/public.ts (até o núcleo
 // formalizar `requires`). Uso: docs/SUPORTE.md.
-import { one } from "../../db";
-import { ApiError, type Actor, now } from "../../types";
+import { all, one } from "../../db";
+import { ApiError, type Actor, type Conversation, now } from "../../types";
 import {
+  filteredHandlers,
   moduleError,
-  onCommand,
+  modulesApi,
   onConversationTurn,
   onHandoffRequest,
   onMenuChoice,
   onPaymentUpdated,
-  onRead,
   onRoute,
   onSettingsSave,
   type ModuleContext,
@@ -21,9 +21,11 @@ import {
   linkPhone,
   mensalidadeAvailable,
   onInstallmentPaid,
+  onInstallmentRefunded,
   sellablePlans,
 } from "../mensalidade/public";
 import {
+  withoutKeys,
   packageValidity,
   phoneDigits,
   suporteSettings,
@@ -36,17 +38,33 @@ import {
   recentSessions,
   startFlow,
 } from "./flow";
-import { activeRelease, handoffGate } from "./handoff";
+import { activeRelease, handoffGate, settleByRef } from "./handoff";
 import {
   endRelease,
   listPurchases,
   listReleases,
+  openSession,
   purchasePaymentUpdated,
   purchaseView,
   release,
   releaseView,
   sessionView,
+  updateSession,
 } from "./store";
+
+// Dados pessoais (documento, telefone) só para aplicação com contacts:read,
+// e o resumo e o motivo dados à equipe só com notes:read; pessoas da equipe
+// veem. Toda rota passa por este filtro.
+const CONTACT_FIELDS = new Set(["document", "phone"]);
+const NOTE_FIELDS = new Set(["summary", "reason"]);
+function visible(ctx: ModuleContext, actor: Actor, value: any) {
+  if (actor.kind !== "app") return value;
+  let out = value;
+  if (!ctx.mayRead(actor, "contacts")) out = withoutKeys(out, CONTACT_FIELDS);
+  if (!ctx.mayRead(actor, "notes")) out = withoutKeys(out, NOTE_FIELDS);
+  return out;
+}
+const { onRead, onCommand } = filteredHandlers(visible);
 
 onSettingsSave("suporte", "suporte", validateSuporteSettings);
 
@@ -57,13 +75,41 @@ onMenuChoice("suporte_humano", (ctx, c, _item, { rowId }) =>
 
 // Toda passagem automática para humano (item "humano" do menu, palavra-chave,
 // bot de IA que transfere, falha do bot, anexo) só segue com liberação ativa
-// ou pagador em dia; senão o Suporte segura e conduz a liberação.
-onHandoffRequest("suporte", async (ctx, c, request) => {
-  if (c.chat_type === "group") return "allow";
-  const at = now();
-  if ((await handoffGate(ctx, c, at)).allowed) return "allow";
-  await startFlow(ctx, c, `gate:${request.source}:${at}`, at);
-  return "hold";
+// ou pagador em dia; senão o Suporte segura e conduz a liberação. Erro aqui
+// (banco, envio recusado) segura a conversa e deixa nota para a equipe
+// (failClosed): quem vende acesso não libera de graça por falha.
+onHandoffRequest(
+  "suporte",
+  async (ctx, c, request) => {
+    const at = now();
+    // Grupo: ninguém se identifica nem paga por todos ali. Passa só com uma
+    // liberação dada ao grupo pela equipe (cortesia); senão segura, avisa uma
+    // vez no grupo e deixa o pedido para a equipe (aba Aguardando confirmação).
+    if (c.chat_type === "group") {
+      if (await activeRelease(ctx, c, at, { settle: true })) return "allow";
+      await holdGroup(ctx, c, request.source, at);
+      return "hold";
+    }
+    if ((await handoffGate(ctx, c, at, { settle: true })).allowed)
+      return "allow";
+    // A mensagem que pediu a passagem (estável no reprocessamento) na chave:
+    // reprocessar não repete as perguntas.
+    await startFlow(
+      ctx,
+      c,
+      `gate:${request.source}:${request.row_id ?? at}`,
+      at,
+    );
+    return "hold";
+  },
+  { failClosed: true },
+);
+
+// Estorno da parcela que liberou o atendimento: a liberação acaba.
+onInstallmentRefunded("suporte", async (env, profile, inst) => {
+  const ctx = modulesApi(env, profile, "suporte");
+  if (!(await ctx.enabled())) return;
+  await settleByRef(ctx, inst.id, "Pagamento da mensalidade estornado.");
 });
 
 // Respostas do cliente durante a liberação (documento, nome, opção, pagamento).
@@ -77,16 +123,73 @@ onPaymentUpdated("suporte", (ctx, payment) =>
 // Mensalidade paga (plano contratado ou parcela em atraso): libera quem esperava.
 onInstallmentPaid("suporte", installmentPaid);
 
-/** Atendente da conversa, administrador ou integração. */
-function mayAct(actor: Actor, c: { owner: string | null }) {
-  if (actor.kind === "app") return;
+export const GROUP_REPLY =
+  "O atendimento humano neste grupo é liberado pela nossa equipe. Já avisamos e um atendente responde por aqui assim que liberar.";
+
+/** Pedido de humano num grupo sem liberação: um aviso por sessão do grupo. */
+async function holdGroup(
+  ctx: ModuleContext,
+  c: Conversation,
+  source: string,
+  at: number,
+) {
+  const pending = await one(
+    ctx.env,
+    "SELECT id FROM suporte_sessions WHERE conversation_id=? AND profile_id=? AND status='awaiting_team' AND step='group' AND updated>?",
+    c.id,
+    ctx.profile,
+    at - 86_400_000,
+  );
+  if (pending) return;
+  const session = await openSession(ctx, c, "group", at);
+  await updateSession(ctx, session, { status: "awaiting_team" });
+  await ctx.publish(
+    "suporte.group_held",
+    session.id,
+    { session_id: session.id, conversation_id: c.id, source },
+    { key: `${session.id}:group` },
+  );
+  await ctx.sendMessage(
+    c,
+    { text: GROUP_REPLY },
+    { key: `grupo:${c.id}:${c.session}` },
+  );
+}
+
+/** Telefone autenticado pelo canal, para vincular; sem ele, 409. */
+function verifiedOrFail(ctx: ModuleContext, c: Conversation) {
+  const phone = ctx.verifiedPhone(c);
+  if (!phone)
+    throw moduleError(
+      409,
+      "phone_not_verified",
+      "Esta conversa não tem telefone verificado pelo canal (grupo ou integração): vincule pelo cadastro do pagador.",
+    );
+  return phoneDigits(phone);
+}
+
+/**
+ * Atendente da conversa, administrador ou integração com `billing:write`:
+ * liberar ou vincular dá atendimento pago sem pagamento, então uma chave só
+ * de mensagens não basta.
+ */
+function mayAct(
+  actor: Actor,
+  c: { owner: string | null },
+  message = "Assuma a conversa antes de liberar o suporte.",
+) {
+  if (actor.kind === "app") {
+    if (!actor.scopes.includes("billing:write"))
+      throw new ApiError(
+        403,
+        "missing_scope",
+        "Permissão necessária: billing:write",
+      );
+    return;
+  }
   if (actor.kind === "user" && (actor.role === "admin" || c.owner === actor.id))
     return;
-  throw new ApiError(
-    403,
-    "forbidden",
-    "Assuma a conversa antes de liberar o suporte.",
-  );
+  throw new ApiError(403, "forbidden", message);
 }
 
 const text = (value: unknown, max: number, what: string) => {
@@ -129,12 +232,18 @@ async function conversationStatus(
   });
   return {
     conversation_id: c.id,
-    phone: phoneDigits(c.phone || c.external_id),
+    phone: phoneDigits(ctx.verifiedPhone(c) ?? ""),
     allowed: gate.allowed,
     reason: gate.reason,
     release: rel ? releaseView(rel) : null,
     session: sessionView(current),
-    awaiting_team: current?.status === "awaiting_team",
+    awaiting_team: current?.status === "awaiting_team" && !!current.payer_id,
+    // Pedido de humano num grupo, segurado: a equipe libera como cortesia.
+    group_held:
+      c.chat_type === "group" &&
+      !rel &&
+      current?.status === "awaiting_team" &&
+      current.step === "group",
     unlinked_phone: unlinked,
     purchases: purchases.data,
   };
@@ -146,6 +255,30 @@ async function conversationStatus(
 onRead("suporte", "suporte/releases", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
   return listReleases(ctx, query);
+});
+
+// Quem digitou o CPF/CNPJ de um cadastro por um telefone que ele não
+// autorizou e espera a equipe confirmar (últimos 7 dias).
+onRead("suporte", "suporte/pending", async (ctx, actor) => {
+  ctx.access(actor, "conversations:read");
+  const rows = await all(
+    ctx.env,
+    "SELECT * FROM suporte_sessions WHERE profile_id=? AND status='awaiting_team' AND updated>? ORDER BY updated DESC LIMIT 100",
+    ctx.profile,
+    now() - 7 * 86_400_000,
+  );
+  return {
+    data: rows.map((row) => ({
+      session_id: row.id,
+      conversation_id: row.conversation_id,
+      phone: row.phone,
+      payer_id: row.payer_id,
+      payer_name: row.name || "",
+      // Pedido de humano num grupo (libera com cortesia).
+      group: row.step === "group",
+      created: row.updated,
+    })),
+  };
 });
 
 onRead("suporte", "suporte/purchases", async (ctx, actor, { query }) => {
@@ -229,7 +362,6 @@ onCommand(
         : null,
       phone_linked: session ? session.phone_linked !== 0 : true,
       valid_until: hours ? now() + hours * 3_600_000 : null,
-      until_ticket: !hours,
       reason,
       actor: actor.id,
       sourceKey: `cortesia:${actor.id}:${requestId}`,
@@ -247,6 +379,9 @@ onRoute("suporte", {
 onCommand("suporte", "suporte.link_phone", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const c = await ctx.conversation(data.id, actor);
+  // Só quem está atendendo (ou administrador): vincular torna permanente a
+  // identidade que o cliente alegou.
+  mayAct(actor, c, "Assuma a conversa antes de vincular o telefone.");
   const status = await conversationStatus(ctx, c.id, actor);
   if (!status.unlinked_phone)
     throw moduleError(
@@ -254,7 +389,7 @@ onCommand("suporte", "suporte.link_phone", async (ctx, actor, data) => {
       "nothing_to_link",
       "Não há pagador aguardando vínculo nesta conversa.",
     );
-  const phone = phoneDigits(c.phone || c.external_id);
+  const phone = verifiedOrFail(ctx, c);
   await linkPhone(
     ctx.env,
     ctx.profile,
@@ -322,7 +457,8 @@ onRoute("suporte", {
 });
 onCommand("suporte", "suporte.release_end", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
-  if (actor.kind === "user" && actor.role !== "admin")
+  if (actor.kind === "app") ctx.access(actor, "billing:write");
+  else if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(
       403,
       "admin_required",

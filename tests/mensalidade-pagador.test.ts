@@ -12,6 +12,7 @@ import {
   today,
 } from "../src/modules/mensalidade/model";
 import {
+  chargeContractAgain,
   chargeInstallment,
   contractPlan,
   onInstallmentPaid,
@@ -140,7 +141,7 @@ describe("mensalidade: pagadores", () => {
       ).status,
     ).toBe(400);
     const linked = await (
-      await api(member, `${root(f)}/payers/${payer.id}/phones`, "POST", {
+      await api(admin, `${root(f)}/payers/${payer.id}/phones`, "POST", {
         phone: "11981000003",
         label: "Estagiário",
       })
@@ -172,7 +173,7 @@ describe("mensalidade: pagadores", () => {
   });
 
   it("assinatura com documento acha ou cria o pagador; telefone de dois funcionários", async () => {
-    const { f, ctx, plan, member } = await setup();
+    const { f, ctx, plan, member, admin } = await setup();
     const first = await (
       await api(member, root(f) + "/subscriptions", "POST", {
         plan_id: plan.id,
@@ -185,8 +186,9 @@ describe("mensalidade: pagadores", () => {
       name: "Empresa XPTO",
       document_display: "12.ABC.345/01DE-35",
     });
+    // Telefone novo num documento existente: administrador (M5).
     const second = await (
-      await api(member, root(f) + "/subscriptions", "POST", {
+      await api(admin, root(f) + "/subscriptions", "POST", {
         plan_id: plan.id,
         customer_name: "Filial",
         phone: "11981000011",
@@ -332,7 +334,7 @@ describe("mensalidade: situação com carência", () => {
 });
 
 describe("mensalidade: contratar pelo WhatsApp", () => {
-  it("cria pagador e assinatura, cobra a primeira parcela e fica em dia só depois do webhook", async () => {
+  it("contrato pendente: pagador, assinatura e primeira parcela só nascem com o pagamento confirmado", async () => {
     const { f, ctx, plan } = await setup();
     const account = await configurePayments(f);
     const hidden = await createPlan(
@@ -343,7 +345,8 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
     expect((await sellablePlans(env, f.profile)).map((p) => p.id)).toEqual([
       plan.id,
     ]);
-    const c = await receive(f, f.line, "quero suporte", "5511981000030");
+    const phone = "5511981000030";
+    const c = await receive(f, f.line, "quero suporte", phone);
     await drain(f);
     const convo = await conversation(env, c.id, f.profile);
     await expect(
@@ -357,40 +360,33 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
       }),
     ).rejects.toMatchObject({ code: "plan_not_sellable" });
     const key = "contrato-" + uid();
-    const contract = await contractPlan(env, f.profile, {
+    const { contract } = await contractPlan(env, f.profile, {
       conversation: convo,
       plan_id: plan.id,
       document: CPF,
       name: "Carla Dias",
       method: "pix",
       sourceKey: key,
-      actor: "customer",
+      actor: "customer:" + phone,
     });
-    expect(contract.payer).toMatchObject({
+    expect(contract).toMatchObject({
+      plan_id: plan.id,
+      status: "pending",
+      amount_cents: 9900,
       name: "Carla Dias",
-      document: "52998224725",
+      document_display: "529.982.247-25",
+      payer_id: null,
     });
-    expect(contract.payer.phones.map((p: any) => p.phone)).toEqual([
-      "5511981000030",
-    ]);
+    expect(contract!.payment).toMatchObject({ status: "created" });
+    expect(contract!.payment!.pix_code).toMatch(/^00020126PIX/);
     // Contratar pela conversa registra o aceite de cobranças pelo WhatsApp.
     expect(await ctx.consent(convo, "billing")).toMatchObject({
       status: "granted",
     });
-    expect(contract.subscription).toMatchObject({
-      plan_id: plan.id,
-      status: "active",
-      start_date: today(now()),
-    });
-    expect(contract.installment).toMatchObject({
-      upfront: true,
-      amount_cents: 9900,
-      due_date: today(now()),
-      status: "open",
-    });
-    expect(contract.installment.payment).toMatchObject({ status: "created" });
-    expect(contract.installment.payment.pix_code).toMatch(/^00020126PIX/);
-    // Repetir a mesma chave: nada novo.
+    // Nada no cadastro antes do pagamento.
+    expect(await situationByPhone(env, f.profile, phone)).toBeNull();
+    expect(await situationByDocument(env, f.profile, CPF)).toBeNull();
+    // Repetir a mesma chave: o mesmo contrato, sem outra cobrança.
     const again = await contractPlan(env, f.profile, {
       conversation: convo,
       plan_id: plan.id,
@@ -398,41 +394,64 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
       name: "Carla Dias",
       method: "pix",
       sourceKey: key,
-      actor: "customer",
+      actor: "customer:" + phone,
     });
-    expect(again.subscription.id).toBe(contract.subscription.id);
+    expect(again.contract!.id).toBe(contract!.id);
     expect(mp.created).toBe(1);
-    // Até pagar: em atraso (primeira parcela) e o gerador não cria as seguintes.
-    expect(
-      (await situationByPhone(env, f.profile, "5511981000030"))?.status,
-    ).toBe("em_atraso");
-    await runDue(ctx, now() + 40 * 86_400_000, { notices: false });
-    expect(
-      await all(
-        env,
-        "SELECT id FROM mensalidade_installments WHERE subscription_id=?",
-        contract.subscription.id,
-      ),
-    ).toHaveLength(1);
-    // Webhook aprovado (repetido): paga, avisa o ouvinte uma vez, em dia.
+    // Webhook aprovado (repetido): nasce tudo uma vez, avisa o ouvinte uma vez.
     paidHeard.length = 0;
-    await approve(account.id, contract.installment.payment.id, 2);
-    expect(paidHeard.map((p) => [p.id, p.payer_id, p.paid_via])).toEqual([
-      [contract.installment.id, contract.payer.id, "pix"],
-    ]);
+    await approve(account.id, contract!.payment!.id, 2);
+    const situation = await situationByPhone(env, f.profile, phone);
+    expect(situation).toMatchObject({ status: "em_dia", phone_linked: true });
+    expect(situation!.payer).toMatchObject({
+      name: "Carla Dias",
+      document: "52998224725",
+    });
+    const sub = situation!.subscriptions[0];
+    const inst = await one(
+      env,
+      "SELECT * FROM mensalidade_installments WHERE subscription_id=?",
+      sub.id,
+    );
+    expect(inst).toMatchObject({
+      status: "paid",
+      upfront: 1,
+      paid_via: "pix",
+      paid_by: "provider",
+      amount_cents: 9900,
+      payment_id: contract!.payment!.id,
+    });
     expect(
-      (await situationByPhone(env, f.profile, "5511981000030"))?.status,
-    ).toBe("em_dia");
-    // Já em dia no mesmo plano: nada a pagar.
+      paidHeard.map((p) => [
+        p.id,
+        p.payer_id,
+        p.paid_via,
+        p.conversation_id,
+        p.contract_id,
+      ]),
+    ).toEqual([[inst.id, situation!.payer.id, "pix", convo.id, contract!.id]]);
+    // Já em dia no mesmo plano (pagador do telefone): nada a pagar.
     await expect(
       contractPlan(env, f.profile, {
         conversation: convo,
         plan_id: plan.id,
-        document: CPF,
+        payer_id: situation!.payer.id,
         sourceKey: uid(),
         actor: "customer",
       }),
     ).rejects.toMatchObject({ code: "nothing_to_pay" });
+    // O gerador não duplica a parcela do mês.
+    await runDue(ctx, now() + 86_400_000, { notices: false });
+    expect(
+      (
+        await all(
+          env,
+          "SELECT id FROM mensalidade_installments WHERE subscription_id=? AND period_key=?",
+          sub.id,
+          inst.period_key,
+        )
+      ).length,
+    ).toBe(1);
     const events = await all(
       env,
       "SELECT payload FROM events WHERE profile_id=? AND kind='mensalidade.installment_created'",
@@ -441,13 +460,75 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
     expect(events.map((e) => json(e.payload).upfront)).toContain(true);
   });
 
-  it("cobrar de novo reaproveita o Pix que vale e troca de forma quando pedem link", async () => {
+  it("documento já cadastrado não contrata pelo WhatsApp; pagador só pelo telefone autorizado", async () => {
+    const { f, admin, plan } = await setup();
+    await configurePayments(f);
+    const created = await api(admin, `${root(f)}/payers`, "POST", {
+      name: "Empresa Alfa",
+      document: CNPJ,
+      phones: ["5511981000050"],
+    });
+    expect(created.status).toBe(200);
+    const payer = await created.json<any>();
+    const stranger = await receive(f, f.line, "oi", "5511981000059");
+    await drain(f);
+    const convo = await conversation(env, stranger.id, f.profile);
+    // Documento de outra pessoa: recusado, e nada muda no cadastro dela.
+    await expect(
+      contractPlan(env, f.profile, {
+        conversation: convo,
+        plan_id: plan.id,
+        document: CNPJ,
+        name: "Atacante",
+        sourceKey: uid(),
+        actor: "customer",
+      }),
+    ).rejects.toMatchObject({ code: "payer_exists" });
+    // Pagador de outro telefone: recusado.
+    await expect(
+      contractPlan(env, f.profile, {
+        conversation: convo,
+        plan_id: plan.id,
+        payer_id: payer.id,
+        sourceKey: uid(),
+        actor: "customer",
+      }),
+    ).rejects.toMatchObject({ code: "phone_not_linked" });
+    expect(
+      (await situationByDocument(env, f.profile, CNPJ))!.payer.phones.map(
+        (p: any) => p.phone,
+      ),
+    ).toEqual(["5511981000050"]);
+    expect(
+      await one(
+        env,
+        "SELECT count(*) AS n FROM mensalidade_contracts WHERE profile_id=?",
+        f.profile,
+      ),
+    ).toEqual({ n: 0 });
+    // O telefone autorizado contrata em nome do pagador.
+    const own = await receive(f, f.line, "oi", "5511981000050");
+    await drain(f);
+    const result = await contractPlan(env, f.profile, {
+      conversation: await conversation(env, own.id, f.profile),
+      plan_id: plan.id,
+      payer_id: payer.id,
+      sourceKey: uid(),
+      actor: "customer",
+    });
+    expect(result.contract).toMatchObject({
+      payer_id: payer.id,
+      status: "pending",
+    });
+  });
+
+  it("cobrar de novo reaproveita o Pix que vale e troca de forma cancelando a aberta", async () => {
     const { f, plan } = await setup();
     await configurePayments(f);
     const c = await receive(f, f.line, "oi", "5511981000040");
     await drain(f);
     const convo = await conversation(env, c.id, f.profile);
-    const { installment } = await contractPlan(env, f.profile, {
+    const { contract } = await contractPlan(env, f.profile, {
       conversation: convo,
       plan_id: plan.id,
       document: CNPJ,
@@ -455,29 +536,31 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
       sourceKey: uid(),
       actor: "customer",
     });
-    const same = await chargeInstallment(env, f.profile, {
+    const same = await chargeContractAgain(env, f.profile, {
       conversation: convo,
-      installment_id: installment.id,
+      contract_id: contract!.id,
       key: uid(),
     });
-    expect(same.payment?.id).toBe(installment.payment!.id);
+    expect(same.payment?.id).toBe(contract!.payment!.id);
     expect(mp.created).toBe(1);
-    const link = await chargeInstallment(env, f.profile, {
+    const link = await chargeContractAgain(env, f.profile, {
       conversation: convo,
-      installment_id: installment.id,
+      contract_id: contract!.id,
       method: "link",
       key: uid(),
     });
-    expect(link.payment?.id).not.toBe(installment.payment!.id);
+    expect(link.payment?.id).not.toBe(contract!.payment!.id);
     expect(link.payment?.url).toContain("checkout");
+    expect(link.method).toBe("link");
     expect(mp.created).toBe(2);
     expect(
       await one(
         env,
-        "SELECT payment_method FROM mensalidade_installments WHERE id=?",
-        installment.id,
+        "SELECT status FROM payments WHERE id=?",
+        contract!.payment!.id,
       ),
-    ).toEqual({ payment_method: "link" });
+    ).toEqual({ status: "cancelled" });
+    expect(chargeInstallment).toBeTruthy();
     expect(addDays(today(now()), 0)).toBe(today(now()));
   });
 });

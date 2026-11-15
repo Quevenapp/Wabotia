@@ -28,24 +28,35 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 1. **Identificação.** Pelo telefone da conversa, entre os telefones
    autorizados dos pagadores (Mensalidades → Pagadores). Se não achar, pede o
    CPF ou CNPJ de quem paga, com os dígitos conferidos (aceita o CNPJ com
-   letras), em até 3 tentativas (configurável).
-2. **CPF/CNPJ vindo de telefone não vinculado.** Por padrão libera e a
-   conversa chega ao atendente com o aviso "telefone não vinculado ao pagador
-   X"; em **Dados da conversa → Suporte pago**, **Vincular ao pagador**
-   autoriza o número com um toque. No modo **só telefone vinculado**, a
-   conversa vai para a equipe confirmar antes (**Confirmar e liberar**).
-3. **Situação** (Mensalidade, com a carência das regras):
+   letras), em até 3 tentativas por vez (configurável). Por telefone e por
+   dia: no máximo 3 documentos diferentes e 10 tentativas.
+2. **CPF/CNPJ de um cadastro, vindo de telefone que ele não autorizou.**
+   Documento não é prova de identidade (CNPJ é público, CPF vaza). O cliente
+   recebe sempre a mesma resposta ("vamos confirmar com a nossa equipe"), sem
+   nada do cadastro (plano, valor, vencimento, cobrança), e a conversa **não**
+   vai para a fila: fica **aguardando confirmação** (evento
+   `suporte.awaiting_team`, aba **Aguardando confirmação** do Suporte pago).
+   O atendente confere com o cliente e, em **Dados da conversa → Suporte
+   pago**, usa **Confirmar identidade e liberar** (vincula o telefone e libera
+   se o pagador está em dia) ou **Vincular ao pagador**. Nada pelo WhatsApp
+   vincula telefone nem contrata em nome de um cadastro que já existe.
+3. **Situação** (Mensalidade, com a carência das regras), só para o pagador
+   que autorizou o telefone:
    - **em dia**: liberado;
    - **em atraso**: o cliente paga a parcela em aberto (Pix ou link) e é
      liberado quando o pagamento é confirmado;
    - **sem assinatura**: escolhe **Suporte avulso** (pacotes) ou **Plano
-     mensal** (planos vendáveis). Sem cadastro, informa CPF/CNPJ e nome; o
-     plano cria o pagador e a assinatura e cobra a primeira parcela na hora.
+     mensal** (planos vendáveis). Sem cadastro, informa CPF/CNPJ (ainda não
+     cadastrado) e nome. O plano cobra a primeira mensalidade na hora; o
+     pagador (com este telefone), a assinatura e a parcela paga só nascem
+     quando o Mercado Pago confirma o pagamento.
 4. **Pagamento** pela Cobrança: Pix copia e cola na conversa ou link de
    pagamento (cartão e outros meios). "Já paguei" ou um comprovante enviado
    pelo cliente **não libera**: só o webhook do Mercado Pago, depois da
    consulta do pagamento. Enquanto espera, o cliente responde 1 para receber o
-   código de novo ou 2 para trocar a forma.
+   código de novo ou 2 para trocar a forma. A mensalidade paga libera só a
+   conversa em que a cobrança foi feita, ou (baixa manual, pagamento por outro
+   caminho) um telefone autorizado do pagador que pediu atendimento há pouco.
 5. **Liberação.** Fica gravado quem foi liberado, como (assinatura em dia,
    mensalidade paga, avulso, cortesia, confirmado pela equipe), por qual
    pagador e até quando, e a conversa vai para o setor configurado com um
@@ -55,6 +66,46 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
 
 **Suporte pago → Suporte pago** lista as liberações e as compras avulsas,
 com filtro, e busca pagadores.
+
+## Validade da liberação
+
+Toda liberação fica presa ao **protocolo** e à **sessão da conversa** em que
+foi dada. Se a conversa não tem protocolo ativo, o Suporte abre um ("Suporte
+pago: …") na hora de liberar.
+
+- **Até o fim deste atendimento** (assinatura em dia, mensalidade paga,
+  pacote "até o protocolo fechar", cortesia sem horas, confirmação da equipe):
+  vale enquanto aquele protocolo estiver ativo e a conversa não for resolvida.
+  Fechar o protocolo ou resolver a conversa encerra a liberação; um protocolo
+  aberto depois pelo cliente não a revive.
+- **Por horas** (pacote ou cortesia com horas): vale até a hora marcada.
+- **Prazo máximo:** 7 dias para "até o fim deste atendimento" e 30 dias para
+  qualquer liberação, mesmo com o protocolo aberto.
+- **Telefone não vinculado ao pagador:** no máximo 4 horas.
+- **Assinatura e confirmação da equipe:** a cada pedido de humano a situação
+  do pagador é consultada de novo; fora do dia, a liberação acaba.
+- **Estorno:** o estorno da mensalidade ou do pacote que liberou encerra a
+  liberação.
+
+A validade é conferida a cada pedido de humano, que grava o encerramento
+(evento `suporte.release_ended`, com o motivo). A lista de liberações do
+painel já mostra como encerrada, com o motivo, a que deixou de valer.
+
+## Compras e estornos
+
+- Uma compra por sessão e pacote, com **uma cobrança valendo por vez**:
+  trocar a forma de pagamento ou pedir o código depois de vencido cancela a
+  cobrança aberta antes de criar outra. Abrir outra compra (outro pacote,
+  outra sessão) cancela a que estava aberta na conversa. O mesmo vale para a
+  contratação de plano.
+- **Pagamento em dobro** (a cobrança antiga paga junto com a nova, link pago
+  duas vezes): não libera de novo; a compra fica com a pendência **Pago em
+  dobro: estornar** e sai o evento `suporte.purchase_attention`.
+- **Paga depois de cancelada:** libera (o cliente pagou), com a pendência
+  "conferir" para a equipe ver se ele não pagou a outra também.
+- **Estorno ou chargeback:** a compra fica estornada, a liberação acaba e a
+  pendência **Estornada depois de liberar** avisa a equipe. Estorno de
+  mensalidade encerra a liberação que ela deu.
 
 ## Nenhum caminho contorna o pagamento
 
@@ -66,6 +117,26 @@ e o cliente entra no mesmo fluxo de identificação e pagamento. Só a equipe
 (transferir, assumir) passa por cima, de propósito. A liberação usa a
 passagem do núcleo para módulos (`ctx.handoff`), com o resumo e os marcadores
 ("telefone não vinculado") no detalhe da conversa.
+
+**Falha no Suporte.** O portão é *fail-closed*: se a regra der erro (banco,
+envio recusado), a passagem é segurada e a equipe recebe uma nota interna
+para conferir, em vez de o cliente passar sem pagar. A mensagem que pediu a
+passagem entra na chave: reprocessá-la não repete as perguntas.
+
+**Integrações.** Só o telefone verificado pelo canal identifica o pagador.
+Numa conversa criada por integração (`app:<id>`), o `external_id` é escolhido
+por quem chama e nunca identifica nem libera; o cliente cai na pergunta do
+CPF/CNPJ e não vê plano mensal. Cortesia, confirmação, vínculo e encerrar
+liberação por aplicação exigem `billing:write`.
+
+**Grupos.** Num grupo ninguém se identifica nem paga por todos, e o telefone
+de um participante em dia não libera o grupo. Pedido de humano no grupo
+(palavra-chave, bot, anexo) é segurado; o grupo recebe uma vez por sessão o
+aviso "O atendimento humano neste grupo é liberado pela nossa equipe…", e o
+pedido aparece em **Aguardando confirmação** (evento `suporte.group_held`). A
+equipe libera o grupo com **Liberar como cortesia** (com motivo e, de
+preferência, horas); daí em diante as passagens seguem pela validade dessa
+liberação.
 
 ## O que só uma conta real confirma
 

@@ -164,8 +164,9 @@ describe("mensalidade: assinaturas", () => {
       discount_cents: 3000,
       start_date: "2026-12-01",
     };
+    // Com desconto: administrador (M4).
     const first = await api(
-      member,
+      admin,
       root(f) + "/subscriptions",
       "POST",
       body,
@@ -186,7 +187,7 @@ describe("mensalidade: assinaturas", () => {
       status: "active",
     });
     const replay = await api(
-      member,
+      admin,
       root(f) + "/subscriptions",
       "POST",
       body,
@@ -208,7 +209,7 @@ describe("mensalidade: assinaturas", () => {
       { ...body, end_date: "2026-11-01" },
     ])
       expect(
-        (await api(member, root(f) + "/subscriptions", "POST", bad)).status,
+        (await api(admin, root(f) + "/subscriptions", "POST", bad)).status,
       ).toBe(400);
 
     // Pela conversa: telefone e conversa vêm dela.
@@ -252,7 +253,7 @@ describe("mensalidade: assinaturas", () => {
       })
     ).json<any>();
     const changed = await (
-      await api(member, `${root(f)}/subscriptions/${sub.id}`, "PATCH", {
+      await api(admin, `${root(f)}/subscriptions/${sub.id}`, "PATCH", {
         discount_cents: 2000,
         due_day: 5,
       })

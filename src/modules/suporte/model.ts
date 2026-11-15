@@ -16,10 +16,11 @@ export interface SuporteSettings {
   /** Setor que recebe a conversa liberada (null: equipe geral). */
   department_id: string | null;
   /**
-   * any: CPF/CNPJ vindo de telefone não vinculado libera, com aviso ao
-   * atendente. linked_only: esse caso vai para a equipe confirmar antes.
+   * linked_only (único modo): CPF/CNPJ de um pagador cadastrado vindo de
+   * telefone não vinculado fica "aguardando confirmação" até a equipe
+   * confirmar. O antigo "any" (liberava direto) é lido como linked_only.
    */
-  identify: "any" | "linked_only";
+  identify: "linked_only";
   /** Tentativas de digitar o CPF/CNPJ (1 a 5). */
   max_attempts: number;
   packages: SupportPackage[];
@@ -39,7 +40,7 @@ export interface SuporteSettings {
 
 export const SUPORTE_DEFAULTS: SuporteSettings = {
   department_id: null,
-  identify: "any",
+  identify: "linked_only",
   max_attempts: 3,
   packages: [],
   offer_plans: true,
@@ -58,9 +59,15 @@ export function suporteSettings(cfg: any): SuporteSettings {
   return {
     ...SUPORTE_DEFAULTS,
     ...raw,
+    identify: "linked_only",
     texts: { ...SUPORTE_DEFAULTS.texts, ...(raw.texts || {}) },
   };
 }
+
+/** CPF/CNPJ diferentes que um telefone consulta por dia. */
+export const DOCUMENTS_PER_DAY = 3;
+/** Tentativas (válidas ou não) de um telefone por dia. */
+export const LOOKUPS_PER_DAY = 10;
 
 const intIn = (value: unknown, min: number, max: number, what: string) => {
   requireValue(
@@ -85,6 +92,27 @@ const text = (value: unknown, max: number, what: string, required = false) => {
 };
 
 export const PACKAGES_LIMIT = 9;
+
+const HOUR = 3_600_000;
+/** Liberação "até o protocolo fechar": no máximo 7 dias, mesmo com ele aberto. */
+export const TICKET_RELEASE_MAX_MS = 7 * 24 * HOUR;
+/** Qualquer liberação: no máximo 30 dias. */
+export const RELEASE_MAX_MS = 30 * 24 * HOUR;
+/** Telefone não vinculado ao pagador: liberação sempre curta. */
+export const UNLINKED_RELEASE_MS = 4 * HOUR;
+
+/** Prazo absoluto de uma liberação gravada (as antigas, sem a coluna, pelo início). */
+export const releaseDeadline = (row: {
+  expires_at?: number | null;
+  until_ticket?: number;
+  valid_until?: number | null;
+  created: number;
+}) =>
+  row.expires_at ??
+  row.created +
+    (row.until_ticket && row.valid_until === null
+      ? TICKET_RELEASE_MAX_MS
+      : RELEASE_MAX_MS);
 
 export function validatePackages(value: unknown): SupportPackage[] {
   requireValue(
@@ -144,11 +172,12 @@ export function validateSuporteSettings(
         ? null
         : text(raw.department_id, 100, "o setor");
   if (raw.identify !== undefined) {
+    // "any" ainda é aceito (regras salvas antes) e vale como linked_only.
     requireValue(
       raw.identify === "any" || raw.identify === "linked_only",
-      "Suporte: identificação any ou linked_only.",
+      "Suporte: identificação linked_only.",
     );
-    out.identify = raw.identify;
+    out.identify = "linked_only";
   }
   if (raw.max_attempts !== undefined)
     out.max_attempts = intIn(raw.max_attempts, 1, 5, "tentativas de CPF/CNPJ");
@@ -239,6 +268,38 @@ export const dayLabel = (date: string | null | undefined) => {
 export function stamp(at: number) {
   const d = new Date(at - BRT);
   return `${two(d.getUTCDate())}/${two(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
+}
+
+/** `limit` da listagem: inteiro entre 1 e `max` (fração ou texto vira o padrão). */
+export function pageLimit(value: unknown, fallback: number, max: number) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, max) : fallback;
+}
+
+/** Valores de um filtro "a,b,c" sem repetição e com teto (listas IN do D1). */
+export const csv = (value: unknown, max = 20) =>
+  [
+    ...new Set(
+      String(value || "")
+        .split(",")
+        .filter(Boolean),
+    ),
+  ].slice(0, max);
+
+/** "%texto%" para LIKE … ESCAPE '\': % e _ digitados valem como letras. */
+export const likeAny = (value: string) =>
+  "%" + value.replace(/[%_\\]/g, (m) => "\\" + m) + "%";
+
+/** Cópia profunda sem as chaves dadas (dados sensíveis nas respostas da API). */
+export function withoutKeys(value: any, keys: Set<string>): any {
+  if (Array.isArray(value)) return value.map((item) => withoutKeys(item, keys));
+  if (value && typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [key, item] of Object.entries(value))
+      if (!keys.has(key)) out[key] = withoutKeys(item, keys);
+    return out;
+  }
+  return value;
 }
 
 export const normalize = (value: string) =>

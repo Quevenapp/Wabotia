@@ -15,6 +15,8 @@ import {
   text,
   type InstallmentStatus,
   type Period,
+  csv,
+  pageLimit,
 } from "./model";
 import { cancelOpenCharge, installmentView, notFound } from "./store";
 import { announcePaid } from "./listeners";
@@ -177,7 +179,7 @@ export async function listInstallments(
   }
   const countsWhere = where.join(" AND "),
     countsArgs = [...args];
-  const statuses = (query.status || "").split(",").filter(Boolean);
+  const statuses = csv(query.status);
   for (const s of statuses)
     requireValue(isInstallmentStatus(s), `Estado desconhecido: ${s}.`);
   if (statuses.length) {
@@ -202,7 +204,7 @@ export async function listInstallments(
     where.push("(i.due_date>? OR (i.due_date=? AND i.id>?))");
     args.push(due, due, id || "");
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 100, 1), 300);
+  const limit = pageLimit(query.limit, 100, 300);
   const rows = await all(
     ctx.env,
     `SELECT i.*,s.customer_name,s.phone,p.name AS plan_name FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE ${where.join(" AND ")} ORDER BY i.due_date,i.id LIMIT ?`,

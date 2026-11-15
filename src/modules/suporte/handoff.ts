@@ -5,17 +5,106 @@
 //   segurada e o cliente entra no fluxo do Suporte.
 // - `passToTeam`: ctx.handoff ao setor das regras, com resumo e marcadores
 //   para o atendente; não passa pelo gancho.
-import { all, one } from "../../db";
-import { ApiError, type Conversation } from "../../types";
+import { all, exec } from "../../db";
+import { ApiError, type Conversation, now } from "../../types";
 import type { ModuleContext } from "../api";
-import { mensalidadeAvailable, situationByPhone } from "../mensalidade/public";
-import { suporteSettings } from "./model";
+import {
+  mensalidadeAvailable,
+  situationByPayer,
+  situationByPhone,
+} from "../mensalidade/public";
+import { phoneDigits, releaseDeadline, suporteSettings } from "./model";
 
-/** Liberação ativa da conversa: dentro da validade ou com o protocolo aberto. */
+/**
+ * Por que uma liberação gravada como ativa não vale mais, ou null se vale:
+ * - prazo absoluto vencido (7 dias "até o protocolo", 30 dias as demais);
+ * - validade em horas vencida;
+ * - "até o protocolo fechar": o protocolo amarrado na liberação fechou, a
+ *   conversa foi resolvida (sessão nova) ou a liberação não tem protocolo;
+ * - assinatura ou confirmação da equipe: o pagador deixou de estar em dia.
+ */
+export async function releaseEndReason(
+  ctx: ModuleContext,
+  c: Conversation,
+  row: any,
+  at: number,
+): Promise<string | null> {
+  if (releaseDeadline(row) <= at) return "Prazo máximo da liberação.";
+  if (row.valid_until !== null) {
+    if (row.valid_until <= at) return "Validade encerrada.";
+  } else if (row.until_ticket) {
+    if (
+      !row.ticket_id ||
+      c.state === "closed" ||
+      (row.conv_session && row.conv_session !== c.session)
+    )
+      return "Atendimento resolvido.";
+    const ticket = await ctx.activeTicket(c);
+    if (ticket?.id !== row.ticket_id) return "Protocolo fechado.";
+  } else return "Liberação sem validade.";
+  if (
+    (row.kind === "subscription" || row.kind === "team") &&
+    row.payer_id &&
+    (await mensalidadeAvailable(ctx.env, ctx.profile))
+  ) {
+    try {
+      const situation = await situationByPayer(
+        ctx.env,
+        ctx.profile,
+        row.payer_id,
+        { at },
+      );
+      if (situation.status !== "em_dia")
+        return "A assinatura do pagador não está mais em dia.";
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      return "Pagador removido.";
+    }
+  }
+  return null;
+}
+
+/** Encerra pelo sistema (prazo, protocolo fechado, estorno). */
+export async function settleRelease(
+  ctx: ModuleContext,
+  row: any,
+  reason: string,
+  actor = "system",
+) {
+  const at = now();
+  const result = await exec(
+    ctx.env,
+    "UPDATE suporte_releases SET status='ended',ended_at=?,ended_by=?,reason=CASE WHEN reason='' THEN ? ELSE reason END WHERE id=? AND status='active'",
+    at,
+    actor,
+    reason,
+    row.id,
+  );
+  if (result.meta.changes)
+    await ctx.publish(
+      "suporte.release_ended",
+      row.id,
+      {
+        release_id: row.id,
+        conversation_id: row.conversation_id,
+        actor,
+        reason,
+      },
+      { key: `${row.id}:ended` },
+    );
+  return !!result.meta.changes;
+}
+
+/**
+ * Liberação que vale agora para a conversa, ou null. Com `settle`, encerra no
+ * caminho as que não valem mais (no portão e no fluxo; as leituras da API só
+ * consultam).
+ */
 export async function activeRelease(
   ctx: ModuleContext,
   c: Conversation,
   at: number,
+  options: { settle?: boolean } = {},
 ) {
   const rows = await all(
     ctx.env,
@@ -24,15 +113,47 @@ export async function activeRelease(
     ctx.profile,
   );
   for (const row of rows) {
-    if (row.valid_until !== null && row.valid_until > at) return row;
-    if (row.until_ticket) {
-      // Vale enquanto houver protocolo ativo, ou enquanto a conversa estiver
-      // com a equipe.
-      const ticket = await ctx.activeTicket(c);
-      if (ticket || ["waiting", "human"].includes(c.state)) return row;
-    }
+    const ended = await releaseEndReason(ctx, c, row, at);
+    if (!ended) return row;
+    if (options.settle) await settleRelease(ctx, row, ended);
   }
   return null;
+}
+
+/**
+ * Estado efetivo de uma liberação gravada como ativa, sem gravar nada (para
+ * as listas do painel): `null` se vale, ou o motivo do fim. O encerramento
+ * gravado (com o evento) acontece no próximo pedido de humano.
+ */
+export async function releaseEffectiveEnd(
+  ctx: ModuleContext,
+  row: any,
+  at: number,
+) {
+  if (row.status !== "active") return null;
+  let c: Conversation;
+  try {
+    c = await ctx.conversation(row.conversation_id);
+  } catch {
+    return "Conversa removida.";
+  }
+  return releaseEndReason(ctx, c, row, at);
+}
+
+/** Estorno de uma parcela da Mensalidade: encerra as liberações que ela deu. */
+export async function settleByRef(
+  ctx: ModuleContext,
+  ref: string,
+  reason: string,
+) {
+  const rows = await all(
+    ctx.env,
+    "SELECT * FROM suporte_releases WHERE profile_id=? AND ref_id=? AND status='active'",
+    ctx.profile,
+    ref,
+  );
+  for (const row of rows) await settleRelease(ctx, row, reason, "provider");
+  return rows.length;
 }
 
 /**
@@ -43,19 +164,20 @@ export async function handoffGate(
   ctx: ModuleContext,
   c: Conversation,
   at: number,
+  options: { settle?: boolean } = {},
 ): Promise<{ allowed: boolean; reason: string; release_id?: string }> {
   if (!(await ctx.enabled()))
     return { allowed: true, reason: "module_disabled" };
-  const release = await activeRelease(ctx, c, at);
+  const release = await activeRelease(ctx, c, at, options);
   if (release)
     return { allowed: true, reason: "released", release_id: release.id };
-  if (await mensalidadeAvailable(ctx.env, ctx.profile)) {
-    const situation = await situationByPhone(
-      ctx.env,
-      ctx.profile,
-      c.phone || c.external_id,
-      at,
-    );
+  const phone = phoneDigits(ctx.verifiedPhone(c) ?? "");
+  if (
+    c.chat_type !== "group" &&
+    phone &&
+    (await mensalidadeAvailable(ctx.env, ctx.profile))
+  ) {
+    const situation = await situationByPhone(ctx.env, ctx.profile, phone, at);
     if (situation?.status === "em_dia")
       return { allowed: true, reason: "subscription" };
   }

@@ -4,7 +4,7 @@
 import { all, exec, one } from "../../db";
 import { ApiError, now, requireValue, uid } from "../../types";
 import type { ModuleContext } from "../api";
-import { phoneDigits, requireDocument, text } from "./model";
+import { pageLimit, phoneDigits, requireDocument, text } from "./model";
 import { formatDocument } from "../../establishment";
 
 export const PHONES_LIMIT = 50;
@@ -375,7 +375,7 @@ export async function listPayers(
     where.push("p.id>?");
     args.push(query.cursor);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const limit = pageLimit(query.limit, 50, 200);
   const rows = await all(
     ctx.env,
     `SELECT p.*,(SELECT count(*) FROM mensalidade_subscriptions s WHERE s.payer_id=p.id AND s.status<>'ended') AS subscriptions FROM mensalidade_payers p WHERE ${where.join(" AND ")} ORDER BY p.id LIMIT ?`,

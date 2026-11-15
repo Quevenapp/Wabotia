@@ -1,12 +1,15 @@
 // Suporte pago no WhatsApp: o item de menu "Atendimento humano (pago)"
-// identifica o pagador (telefone vinculado ou CPF/CNPJ digitado), confere a
-// situação na Mensalidade e libera, cobra a parcela em aberto ou vende
-// suporte avulso ou plano mensal. Só o pagamento confirmado pelo provedor (ou
-// a equipe) libera; nenhuma mensagem do cliente libera.
-import { all, one } from "../../db";
-import { ApiError, type Conversation, type Env, now } from "../../types";
+// identifica o pagador pelo telefone autorizado, confere a situação na
+// Mensalidade e libera, cobra a parcela em aberto ou vende suporte avulso ou
+// plano mensal. CPF/CNPJ digitado de um cadastro que não autorizou o telefone
+// não mostra nada dele: fica aguardando a equipe confirmar. Só o pagamento
+// confirmado pelo provedor (ou a equipe) libera; nenhuma mensagem do cliente
+// libera.
+import { all, exec, one } from "../../db";
+import { ApiError, type Conversation, type Env, now, uid } from "../../types";
 import { modulesApi, type InteractiveSpec, type ModuleContext } from "../api";
 import {
+  chargeContractAgain,
   chargeInstallment,
   chargesReady,
   contractPlan,
@@ -21,6 +24,8 @@ import {
 } from "../mensalidade/public";
 import {
   dayLabel,
+  DOCUMENTS_PER_DAY,
+  LOOKUPS_PER_DAY,
   phoneDigits,
   METHOD_LABELS,
   money,
@@ -46,8 +51,12 @@ const CANCEL = new Set(["menu", "voltar", "sair", "cancelar"]);
 const say = (ctx: ModuleContext, c: Conversation, text: string, key: string) =>
   ctx.sendMessage(c, { text }, { key });
 
-const customerOf = (c: Conversation) =>
-  `customer:${phoneDigits(c.phone || c.external_id)}`;
+/** Telefone autenticado pelo canal ("" em grupo ou conversa de integração). */
+const verified = (ctx: ModuleContext, c: Conversation) =>
+  phoneDigits(ctx.verifiedPhone(c) ?? "");
+
+const customerOf = (ctx: ModuleContext, c: Conversation) =>
+  `customer:${verified(ctx, c) || c.id}`;
 
 /** Lista interativa com as opções guardadas na sessão (número na linha QR). */
 async function choose(
@@ -90,7 +99,7 @@ export async function startFlow(
   at = now(),
 ) {
   if (c.chat_type === "group") return;
-  const existing = await activeRelease(ctx, c, at);
+  const existing = await activeRelease(ctx, c, at, { settle: true });
   if (existing) {
     await say(
       ctx,
@@ -109,12 +118,10 @@ export async function startFlow(
   const session = await openSession(ctx, c, "start", at);
   if (!(await mensalidadeAvailable(ctx.env, ctx.profile)))
     return showOffers(ctx, c, session, rowId);
-  const found = await situationByPhone(
-    ctx.env,
-    ctx.profile,
-    c.phone || c.external_id,
-    at,
-  );
+  const phone = verified(ctx, c);
+  const found = phone
+    ? await situationByPhone(ctx.env, ctx.profile, phone, at)
+    : null;
   if (found) return onSituation(ctx, c, session, found, rowId);
   return askDocument(ctx, c, session, "identify", rowId);
 }
@@ -137,6 +144,43 @@ async function askDocument(
   );
 }
 
+/** A única resposta a quem digita o documento de um cadastro que não autorizou este telefone. */
+export const UNLINKED_REPLY =
+  "Este número ainda não está autorizado para esse cadastro. Vamos confirmar com a nossa equipe e retornamos por aqui. Enquanto isso, envie MENU para ver as outras opções.";
+
+/**
+ * Documento de um pagador cadastrado vindo de telefone que ele não autorizou:
+ * nada da situação dele (plano, valor, vencimento, cobrança) é mostrado nem
+ * enviado, e a conversa não vai para a fila. A sessão fica "aguardando
+ * confirmação" até um atendente confirmar a identidade (suporte.confirm).
+ */
+async function awaitConfirmation(
+  ctx: ModuleContext,
+  c: Conversation,
+  session: any,
+  payer: { id: string; name: string; document?: string | null },
+  rowId: string,
+) {
+  session = await updateSession(ctx, session, {
+    status: "awaiting_team",
+    step: "awaiting_team",
+    payer_id: payer.id,
+    matched_by: "document",
+    phone_linked: 0,
+    name: payer.name,
+    document: payer.document ?? null,
+    options: "[]",
+  });
+  await ctx.publish(
+    "suporte.awaiting_team",
+    session.id,
+    { session_id: session.id, conversation_id: c.id, payer_id: payer.id },
+    { key: `${session.id}:awaiting_team` },
+  );
+  await say(ctx, c, UNLINKED_REPLY, `confirmar:${rowId}`);
+}
+
+/** Situação de um pagador que autorizou o telefone da conversa. */
 async function onSituation(
   ctx: ModuleContext,
   c: Conversation,
@@ -144,12 +188,13 @@ async function onSituation(
   situation: PayerSituation,
   rowId: string,
 ) {
-  const cfg = suporteSettings(await ctx.settings());
-  const linked = situation.phone_linked !== false;
+  if (situation.phone_linked === false)
+    return awaitConfirmation(ctx, c, session, situation.payer, rowId);
+  const linked = true;
   session = await updateSession(ctx, session, {
     payer_id: situation.payer.id,
     matched_by: situation.matched_by,
-    phone_linked: linked ? 1 : 0,
+    phone_linked: 1,
     name: situation.payer.name,
     document: situation.payer.document,
   });
@@ -171,34 +216,6 @@ async function onSituation(
     name: situation.payer.name,
     document_display: situation.payer.document_display,
   };
-  if (!linked && cfg.identify === "linked_only") {
-    await updateSession(ctx, session, {
-      status: "awaiting_team",
-      step: "awaiting_team",
-    });
-    await ctx.publish(
-      "suporte.awaiting_team",
-      session.id,
-      { session_id: session.id, conversation_id: c.id, payer_id: payer.id },
-      { key: `${session.id}:awaiting_team` },
-    );
-    await say(
-      ctx,
-      c,
-      "Este número ainda não está autorizado para este CPF/CNPJ. Vamos passar para a nossa equipe confirmar antes de continuar.",
-      `confirmar:${rowId}`,
-    );
-    await passToTeam(
-      ctx,
-      c,
-      `Suporte pago NÃO liberado: confirme a identidade antes de atender. Telefone não vinculado ao pagador ${payer.name || ""}${payer.document_display ? ` (${payer.document_display})` : ""}; situação ${situation.status.replace("_", " ")}. Em Dados da conversa → Suporte pago, confirme e vincule.`,
-      {
-        flags: ["Suporte pago: confirmar identidade", "telefone não vinculado"],
-        key: `confirmar:${session.id}`,
-      },
-    );
-    return;
-  }
   if (situation.status === "em_dia") {
     await release(ctx, {
       c,
@@ -207,7 +224,6 @@ async function onSituation(
       ref: situation.subscriptions[0]?.id ?? null,
       payer,
       phone_linked: linked,
-      until_ticket: true,
       actor: "system",
       sourceKey: `sessao:${session.id}`,
       detail: situation.subscriptions
@@ -242,7 +258,11 @@ async function onSituation(
 // ---------------------------------------------------------------------------
 // Ofertas (sem assinatura)
 
-async function offers(ctx: ModuleContext, cfg: SuporteSettings) {
+async function offers(
+  ctx: ModuleContext,
+  c: Conversation,
+  cfg: SuporteSettings,
+) {
   if (!(await chargesReady(ctx.env, ctx.profile))) return [];
   const sections: {
     title: string;
@@ -261,7 +281,12 @@ async function offers(ctx: ModuleContext, cfg: SuporteSettings) {
         ),
       })),
     });
-  if (cfg.offer_plans && (await mensalidadeAvailable(ctx.env, ctx.profile))) {
+  // Plano mensal só com telefone verificado: o pagador nasce com ele.
+  if (
+    cfg.offer_plans &&
+    verified(ctx, c) &&
+    (await mensalidadeAvailable(ctx.env, ctx.profile))
+  ) {
     const plans = (await sellablePlans(ctx.env, ctx.profile)).filter(
       (p) => !cfg.plan_ids.length || cfg.plan_ids.includes(p.id),
     );
@@ -288,7 +313,7 @@ async function showOffers(
   rowId: string,
 ) {
   const cfg = suporteSettings(await ctx.settings());
-  const sections = await offers(ctx, cfg);
+  const sections = await offers(ctx, c, cfg);
   if (!sections.length) {
     await updateSession(ctx, session, { status: "closed" });
     await say(
@@ -429,23 +454,39 @@ async function charge(
         payer_id: session.payer_id,
         document: session.document,
         name: session.name,
-        sourceKey: `compra:${c.id}:${rowId}`,
+        // Uma compra por sessão e pacote: trocar a forma ou pedir de novo
+        // reaproveita a compra e cancela a cobrança aberta.
+        sourceKey: `compra:${session.id}:${pkg.id}`,
       });
       await updateSession(ctx, session, { purchase_id: purchase.id });
+    } else if (session.offer_kind === "plan" && session.contract_id) {
+      // Trocar a forma (ou pedir de novo): a cobrança aberta é cancelada.
+      await chargeContractAgain(ctx.env, ctx.profile, {
+        conversation: c,
+        contract_id: session.contract_id,
+        method,
+        key: `turno:${rowId}`,
+      });
     } else if (session.offer_kind === "plan") {
+      // Só o pagador que autorizou este telefone contrata em nome próprio;
+      // sem ele, um pagador novo nasce no pagamento com o documento digitado.
+      const linkedPayer =
+        session.payer_id && session.phone_linked === 1
+          ? session.payer_id
+          : null;
       const result = await contractPlan(ctx.env, ctx.profile, {
         conversation: c,
         plan_id: session.offer_ref,
-        payer_id: session.payer_id,
-        document: session.payer_id ? null : session.document,
+        payer_id: linkedPayer,
+        document: linkedPayer ? null : session.document,
         name: session.name,
         method,
         sourceKey: `suporte:${session.id}`,
-        actor: customerOf(c),
+        actor: customerOf(ctx, c),
       });
       await updateSession(ctx, session, {
-        installment_id: result.installment.id,
-        payer_id: result.payer.id,
+        contract_id: result.contract?.id ?? null,
+        installment_id: result.installment?.id ?? null,
       });
       await ctx.publish(
         "suporte.plan_contracted",
@@ -453,10 +494,14 @@ async function charge(
         {
           session_id: session.id,
           conversation_id: c.id,
-          payer_id: result.payer.id,
-          subscription_id: result.subscription.id,
-          installment_id: result.installment.id,
-          amount_cents: result.installment.amount_cents,
+          payer_id: linkedPayer,
+          plan_id: session.offer_ref,
+          contract_id: result.contract?.id ?? null,
+          installment_id: result.installment?.id ?? null,
+          amount_cents:
+            result.contract?.amount_cents ??
+            result.installment?.amount_cents ??
+            null,
         },
         { key: `${session.id}:plan` },
       );
@@ -470,6 +515,18 @@ async function charge(
     }
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
+    // O documento virou cadastro de alguém (ou o telefone deixou de ser
+    // autorizado) entre a pergunta e a cobrança: a equipe confirma.
+    if (error.code === "payer_exists" || error.code === "phone_not_linked") {
+      const payer =
+        error.code === "payer_exists" && session.document
+          ? (await situationByDocument(ctx.env, ctx.profile, session.document))
+              ?.payer
+          : session.payer_id
+            ? { id: session.payer_id, name: session.name || "" }
+            : null;
+      if (payer) return awaitConfirmation(ctx, c, session, payer, rowId);
+    }
     await updateSession(ctx, session, { status: "closed" });
     await say(
       ctx,
@@ -525,12 +582,20 @@ async function resend(
     return charge(ctx, c, session, session.method || "pix", rowId);
   }
   try {
-    await chargeInstallment(ctx.env, ctx.profile, {
-      conversation: c,
-      installment_id: session.installment_id,
-      method: session.method || undefined,
-      key: `reenvio:${rowId}`,
-    });
+    if (session.contract_id)
+      await chargeContractAgain(ctx.env, ctx.profile, {
+        conversation: c,
+        contract_id: session.contract_id,
+        method: session.method || undefined,
+        key: `reenvio:${rowId}`,
+      });
+    else
+      await chargeInstallment(ctx.env, ctx.profile, {
+        conversation: c,
+        installment_id: session.installment_id,
+        method: session.method || undefined,
+        key: `reenvio:${rowId}`,
+      });
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     await say(
@@ -554,6 +619,52 @@ async function onDocument(
 ) {
   const cfg = suporteSettings(await ctx.settings());
   const doc = validDocument(text);
+  // Limite por telefone e por dia: ninguém testa documentos à vontade.
+  const phone = verified(ctx, c);
+  const since = now() - 86_400_000;
+  const used = await all(
+    ctx.env,
+    "SELECT document FROM suporte_lookups WHERE profile_id=? AND ((phone<>'' AND phone=?) OR conversation_id=?) AND created>?",
+    ctx.profile,
+    phone,
+    c.id,
+    since,
+  );
+  const known = new Set(used.map((r) => r.document).filter(Boolean));
+  if (
+    used.length >= LOOKUPS_PER_DAY ||
+    (doc && !known.has(doc.document) && known.size >= DOCUMENTS_PER_DAY)
+  ) {
+    await updateSession(ctx, session, { status: "closed" });
+    await ctx.publish(
+      "suporte.identification_failed",
+      session.id,
+      {
+        session_id: session.id,
+        conversation_id: c.id,
+        attempts: session.attempts,
+        reason: "daily_limit",
+      },
+      { key: `${session.id}:failed` },
+    );
+    await say(
+      ctx,
+      c,
+      "Não é possível conferir outro CPF ou CNPJ por este número hoje. Envie MENU para ver as outras opções ou fale com a IA, que é grátis.",
+      `documento-dia:${rowId}`,
+    );
+    return;
+  }
+  await exec(
+    ctx.env,
+    "INSERT INTO suporte_lookups(id,profile_id,phone,conversation_id,document,created) VALUES(?,?,?,?,?,?)",
+    uid(),
+    ctx.profile,
+    phone,
+    c.id,
+    doc?.document ?? "",
+    now(),
+  );
   if (!doc) {
     const attempts = session.attempts + 1;
     if (attempts >= cfg.max_attempts) {
@@ -587,10 +698,13 @@ async function onDocument(
       ctx.profile,
       doc.document,
       {
-        phone: c.phone || c.external_id,
+        phone: phone || null,
       },
     );
     if (situation) {
+      // Cadastro que não autorizou este telefone: nada dele aparece aqui.
+      if (situation.phone_linked !== true)
+        return awaitConfirmation(ctx, c, session, situation.payer, rowId);
       // Já tinha escolhido a compra e o pagador existe: segue a compra se ele
       // não tem assinatura; senão vale a situação dele.
       if (
@@ -600,7 +714,7 @@ async function onDocument(
         session = await updateSession(ctx, session, {
           payer_id: situation.payer.id,
           matched_by: "document",
-          phone_linked: situation.phone_linked === false ? 0 : 1,
+          phone_linked: 1,
           document: doc.document,
           name: situation.payer.name,
         });
@@ -738,7 +852,10 @@ export async function handleTurn(
 
 /**
  * Parcela da Mensalidade paga (webhook ou baixa manual): libera as sessões
- * que esperavam por ela (plano contratado ou mensalidade em atraso).
+ * que esperavam por ela (plano contratado ou mensalidade em atraso), mas só
+ * a da conversa em que a cobrança paga foi feita, ou, dentro da validade da
+ * sessão, a de um telefone que o pagador autorizou. Quem só digitou o
+ * documento de outra pessoa não é liberado quando ela paga.
  */
 export async function installmentPaid(
   env: Env,
@@ -747,11 +864,13 @@ export async function installmentPaid(
 ) {
   const ctx = modulesApi(env, profile, "suporte");
   if (!(await ctx.enabled())) return;
+  const at = now();
   const sessions = await all(
     env,
-    "SELECT * FROM suporte_sessions WHERE profile_id=? AND installment_id=? AND status='active'",
+    "SELECT * FROM suporte_sessions WHERE profile_id=? AND status='active' AND (installment_id=? OR (contract_id IS NOT NULL AND contract_id=?))",
     profile,
     inst.id,
+    inst.contract_id ?? "",
   );
   for (const session of sessions) {
     let c: Conversation;
@@ -760,9 +879,17 @@ export async function installmentPaid(
     } catch {
       continue;
     }
-    const payer = inst.payer_id
-      ? (await situationByPayer(env, profile, inst.payer_id)).payer
+    const situation = inst.payer_id
+      ? await situationByPayer(env, profile, inst.payer_id, {
+          phone: session.phone,
+        })
       : null;
+    const linked = situation?.phone_linked === true;
+    const paidHere =
+      !!inst.conversation_id &&
+      inst.conversation_id === session.conversation_id;
+    if (!paidHere && !(linked && session.expires_at > at)) continue;
+    const payer = situation?.payer ?? null;
     await release(ctx, {
       c,
       session,
@@ -775,8 +902,7 @@ export async function installmentPaid(
             document_display: payer.document_display,
           }
         : null,
-      phone_linked: session.phone_linked !== 0,
-      until_ticket: true,
+      phone_linked: linked,
       actor: inst.paid_via === "manual" ? inst.paid_by : "provider",
       sourceKey: `sessao:${session.id}`,
       detail: `${money(inst.amount_cents)} pago${inst.paid_via === "manual" ? " (baixa manual)" : ""}`,
@@ -784,7 +910,12 @@ export async function installmentPaid(
   }
 }
 
-/** Confirmação da equipe no modo "só telefone vinculado". */
+/**
+ * A equipe aceita explicitamente a identidade de quem digitou o documento de
+ * um cadastro (sessão "aguardando confirmação"): vincula o telefone (padrão)
+ * e libera se o pagador está em dia. A conversa vai para o setor se ainda não
+ * estiver com a equipe.
+ */
 export async function confirmByTeam(
   ctx: ModuleContext,
   c: Conversation,
@@ -804,13 +935,21 @@ export async function confirmByTeam(
       "nothing_to_confirm",
       "Esta conversa não espera confirmação do suporte pago.",
     );
-  const phone = phoneDigits(c.phone || c.external_id);
-  if (options.link) await linkPhoneFn(session.payer_id, phone);
+  const phone = verified(ctx, c);
+  if (options.link) {
+    if (!phone)
+      throw new ApiError(
+        409,
+        "phone_not_verified",
+        "Esta conversa não tem telefone verificado pelo canal: confirme sem vincular ou vincule pelo cadastro do pagador.",
+      );
+    await linkPhoneFn(session.payer_id, phone);
+  }
   const situation = await situationByPayer(
     ctx.env,
     ctx.profile,
     session.payer_id,
-    { phone },
+    { phone: phone || null },
   );
   if (situation.status !== "em_dia")
     throw new ApiError(
@@ -831,10 +970,8 @@ export async function confirmByTeam(
       document_display: situation.payer.document_display,
     },
     phone_linked: options.link || situation.phone_linked === true,
-    until_ticket: true,
     actor,
     sourceKey: `confirmado:${session.id}`,
-    pass: false,
   });
 }
 

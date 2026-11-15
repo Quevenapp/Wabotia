@@ -33,7 +33,8 @@ const normalize = (value: string) =>
  * com o telefone passam a ser desta conversa.
  */
 async function customerScope(ctx: ModuleContext, c: Conversation) {
-  const phone = phoneDigits(c.phone || c.external_id);
+  // Só o telefone autenticado pelo canal (nulo em conversa de integração).
+  const phone = phoneDigits(ctx.verifiedPhone(c) ?? "");
   if (phone.length >= 10)
     await exec(
       ctx.env,

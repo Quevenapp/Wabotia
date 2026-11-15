@@ -1869,10 +1869,21 @@ function describeMensalidadeOperation(
   const adminOnly =
     /\/plans/.test(path) && method !== "get"
       ? true
-      : /\/(import|pause|resume|end|pay|waive)$|\/generate$/.test(path);
+      : /\/(import|pause|resume|end|pay|waive)$|\/generate$|\/payers\/\{id\}\/phones$/.test(
+          path,
+        );
   if (adminOnly)
     entry.description +=
-      " Pessoas: só administradores (403 admin_required). Aplicações: com conversations:write.";
+      " Operação financeira: pessoas, só administradores (403 admin_required); aplicações, com billing:write (403 missing_scope).";
+  if (/\/subscriptions(\/\{id\})?$/.test(path) && method !== "get")
+    entry.description +=
+      " Valor, desconto e plano (e billing_consent, com billing_consent_evidence) exigem administrador ou aplicação com billing:write.";
+  if (/\/payers(\/\{id\})?$/.test(path) && method === "get")
+    entry.description +=
+      " Aplicações precisam de contacts:read. Na listagem, o atendente vê o documento mascarado.";
+  if (method === "get")
+    entry.description +=
+      " Sem contacts:read, a aplicação não recebe documento, e-mail nem telefones; sem notes:read, não recebe as observações.";
   if (path.endsWith("/plans")) {
     if (method === "get")
       success.content["application/json"].schema = list("MensalidadePlan");
@@ -2019,6 +2030,12 @@ function suporteOperations(): [string, string, string, string?, string?][] {
     ],
     [
       "get",
+      `${base}/pending`,
+      "Suporte pago: aguardando a equipe confirmar a identidade",
+      "conversations:read",
+    ],
+    [
+      "get",
       `${base}/conversations/{id}`,
       "Suporte pago: situação de uma conversa",
       "conversations:read",
@@ -2083,7 +2100,17 @@ function suporteSchemas() {
         valid_until: { type: ["integer", "null"] },
         until_ticket: {
           type: "boolean",
-          description: "Vale até o protocolo fechar.",
+          description:
+            "Vale até o protocolo amarrado (ticket_id) fechar ou a conversa ser resolvida.",
+        },
+        ticket_id: {
+          type: ["string", "null"],
+          description: "Protocolo da conversa na hora da liberação.",
+        },
+        expires_at: {
+          type: "integer",
+          description:
+            "Prazo máximo absoluto (7 dias até o protocolo, 30 dias as demais, 4 horas com telefone não vinculado).",
         },
         reason: { type: "string" },
         summary: {
@@ -2121,6 +2148,11 @@ function suporteSchemas() {
           enum: ["pending", "paid", "expired", "cancelled", "refunded"],
         },
         status_label: { type: "string" },
+        attention: {
+          enum: ["duplicate_payment", "paid_after_cancel", "refunded", null],
+          description:
+            "Pendência para a equipe: dinheiro em dobro, paga depois de cancelada ou estornada depois de liberar.",
+        },
         paid_at: { type: ["integer", "null"] },
         created: { type: "integer" },
       },
@@ -2150,7 +2182,16 @@ function suporteSchemas() {
           ],
         },
         session: { type: ["object", "null"] },
-        awaiting_team: { type: "boolean" },
+        awaiting_team: {
+          type: "boolean",
+          description:
+            "CPF/CNPJ de um cadastro digitado por telefone não autorizado: a equipe confirma.",
+        },
+        group_held: {
+          type: "boolean",
+          description:
+            "Pedido de humano num grupo, segurado: a equipe libera com cortesia.",
+        },
         unlinked_phone: {
           type: ["object", "null"],
           properties: {
@@ -2207,6 +2248,12 @@ function describeSuporteOperation(
     );
   entry.description +=
     " Módulo Suporte pago (suporte); desligado, 409 module_disabled.";
+  if (method === "get")
+    entry.description +=
+      " Sem contacts:read, a aplicação não recebe documento nem telefone; sem notes:read, não recebe resumo nem motivo.";
+  else if (/\/(courtesy|link-phone|confirm|end)$/.test(path))
+    entry.description +=
+      " Dá atendimento pago sem pagamento: aplicações precisam de billing:write; pessoas, da conversa assumida ou de administrador.";
   if (path.endsWith("/releases")) {
     query(
       "kind",
@@ -2238,6 +2285,30 @@ function describeSuporteOperation(
         next_cursor: { type: ["string", "null"] },
         counts: { type: "object", additionalProperties: { type: "integer" } },
         paid_cents: { type: "integer" },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/pending")) {
+    entry.description +=
+      " Sessões dos últimos 7 dias em que o cliente digitou o CPF/CNPJ de um cadastro por um telefone que ele não autorizou; nada foi liberado nem mostrado ao cliente. A equipe confirma em conversations/{id}/confirm.";
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              session_id: { type: "string" },
+              conversation_id: { type: "string" },
+              phone: { type: "string" },
+              payer_id: { type: "string" },
+              payer_name: { type: "string" },
+              created: { type: "integer" },
+            },
+          },
+        },
       },
     };
     return;

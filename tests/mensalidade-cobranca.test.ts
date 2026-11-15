@@ -588,21 +588,37 @@ describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
     expect(await events(f, "mensalidade.notice_failed")).toEqual([]);
   });
 
-  it("aceite de cobrança registrado pela equipe no cadastro", async () => {
+  it("aceite de cobrança registrado por administrador no cadastro, com evidência (B9)", async () => {
     const { f, ctx, plan } = await setup();
     const token = await bearer(f.admin);
+    const path = `/profiles/${f.profile}/mensalidade/subscriptions`;
+    const body = {
+      plan_id: plan.id,
+      customer_name: "Nova Aluna",
+      phone: "11900000001",
+      billing_consent: true,
+    };
+    // Atendente comum não declara o aceite em nome do cliente.
+    const member = await api(await bearer(f.member), path, "POST", body);
+    expect(member.status).toBe(403);
+    // Sem a evidência: recusado, e nada é criado.
+    const bare = await api(token, path, "POST", body);
+    expect(bare.status).toBe(400);
+    expect((await bare.json<any>()).error.code).toBe(
+      "consent_evidence_required",
+    );
+    expect(
+      await one(
+        env,
+        "SELECT count(*) AS n FROM mensalidade_subscriptions WHERE profile_id=? AND phone='5511900000001'",
+        f.profile,
+      ),
+    ).toEqual({ n: 0 });
     const sub = await (
-      await api(
-        token,
-        `/profiles/${f.profile}/mensalidade/subscriptions`,
-        "POST",
-        {
-          plan_id: plan.id,
-          customer_name: "Nova Aluna",
-          phone: "11900000001",
-          billing_consent: true,
-        },
-      )
+      await api(token, path, "POST", {
+        ...body,
+        billing_consent_evidence: "Ficha de matrícula assinada em 10/11",
+      })
     ).json<any>();
     expect(sub.customer.conversation_id).toBeTruthy();
     const convo = await conversation(
@@ -610,9 +626,11 @@ describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
       sub.customer.conversation_id,
       f.profile,
     );
-    expect(await ctx.consent(convo, "billing")).toMatchObject({
-      status: "granted",
-    });
+    const consent = await ctx.consent(convo, "billing");
+    expect(consent).toMatchObject({ status: "granted" });
+    expect(JSON.stringify(consent)).toContain(
+      "Ficha de matrícula assinada em 10/11",
+    );
     // Sem o aceite marcado, nada é registrado.
     const other = await (
       await api(

@@ -4,8 +4,14 @@
 // `mensalidadeAvailable` antes de usar. Todas as funções agem como o módulo
 // "mensalidade" (cobranças, eventos e ganchos de pagamento ficam com ele),
 // mesmo chamadas de dentro de outro módulo. Contrato: docs/MENSALIDADE.md.
-import { all, exec, one } from "../../db";
-import { ApiError, type Conversation, type Env, now, uid } from "../../types";
+import { all, one } from "../../db";
+import {
+  ApiError,
+  type Conversation,
+  type Env,
+  now,
+  requireValue,
+} from "../../types";
 import { modulesApi, type ModuleContext } from "../api";
 import {
   addDays,
@@ -13,11 +19,11 @@ import {
   parseDocument,
   phoneDigits,
   requireDocument,
+  text,
   today,
 } from "./model";
 import {
   addPayerPhone,
-  ensurePayer,
   listPayers,
   loadPayer,
   payerByDocument,
@@ -25,18 +31,22 @@ import {
   payersByPhone,
   payerView,
 } from "./payers";
-import {
-  createSubscription,
-  installmentView,
-  loadPlan,
-  planView,
-  subscriptionView,
-  loadSubscription,
-} from "./store";
+import { installmentView, loadPlan, planView } from "./store";
 import { loadInstallment, paymentsReady } from "./installments";
 import { recordBillingConsent, resendCharge } from "./billing";
+import {
+  chargeContract,
+  contractView,
+  createContract,
+  loadContract,
+} from "./contracts";
 
-export { onInstallmentPaid, type InstallmentPaid } from "./listeners";
+export {
+  onInstallmentPaid,
+  onInstallmentRefunded,
+  type InstallmentPaid,
+  type InstallmentRefunded,
+} from "./listeners";
 
 export type PayerStatus = "em_dia" | "em_atraso" | "sem_assinatura";
 
@@ -91,7 +101,7 @@ async function situationOf(
   const phones = await payerPhones(ctx, payer.id);
   const subs = await all(
     ctx.env,
-    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' ORDER BY s.created",
+    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' ORDER BY s.created LIMIT 50",
     payer.id,
     ctx.profile,
   );
@@ -237,24 +247,29 @@ export async function linkPhone(
 export interface ContractInput {
   conversation: Conversation;
   plan_id: string;
-  /** Pagador existente, ou o documento para achar/criar. */
+  /**
+   * Pagador que já autorizou o telefone da conversa (achado por
+   * situationByPhone). Sem ele, `document` e `name` de um pagador novo: um
+   * documento já cadastrado é recusado (409 payer_exists), porque digitar o
+   * documento de alguém não dá acesso ao cadastro dele.
+   */
   payer_id?: string | null;
   document?: string | null;
-  /** Nome do pagador (empresa ou pessoa) quando ainda não existe. */
+  /** Nome do pagador novo (empresa ou pessoa). */
   name?: string | null;
   method?: "pix" | "link";
-  /** Repetir a chave não cria outra assinatura nem outra cobrança. */
+  /** Repetir a chave não cria outro contrato nem outra cobrança. */
   sourceKey: string;
   actor: string;
 }
 
 /**
- * Contrata um plano vendável para o pagador da conversa: acha ou cria o
- * pagador (autorizando o telefone da conversa), cria a assinatura começando
- * hoje e cobra a primeira parcela na hora pela Cobrança (o núcleo entrega o
- * Pix ou o link na conversa). Até ser paga, a situação fica em atraso e as
- * parcelas seguintes não nascem. Se o pagador já tem esse plano ativo, cobra
- * de novo a parcela em aberto em vez de duplicar.
+ * Contrata um plano vendável pela conversa. Cobra a primeira mensalidade na
+ * hora pela Cobrança (o núcleo entrega o Pix ou o link) e só com o pagamento
+ * confirmado pelo provedor nascem o pagador novo (com o telefone da conversa),
+ * a assinatura e a primeira parcela, já paga. Até lá nada muda no cadastro.
+ * Quem já assina o plano (pagador do telefone): cobra a parcela em aberto, ou
+ * 409 nothing_to_pay. Devolve `{contract, installment}` (um dos dois).
  */
 export async function contractPlan(
   env: Env,
@@ -277,38 +292,87 @@ export async function contractPlan(
       "Configure a conta de pagamento em Gestão → Cobrança para vender planos pelo WhatsApp.",
     );
   const c = input.conversation;
-  const phone = phoneDigits(c.phone || c.external_id);
-  const payer = input.payer_id
-    ? await loadPayer(ctx, input.payer_id)
-    : await ensurePayer(
-        ctx,
-        { document: input.document, name: input.name, phone },
-        input.actor,
-      );
-  if (input.payer_id && phone)
-    await addPayerPhone(ctx, payer, phone, "", input.actor);
-  const existing = await one(
-    ctx.env,
-    "SELECT id FROM mensalidade_subscriptions WHERE payer_id=? AND plan_id=? AND status='active' AND profile_id=? AND (source_key IS NULL OR source_key<>?)",
-    payer.id,
-    plan.id,
-    ctx.profile,
-    input.sourceKey,
+  requireValue(
+    c.chat_type !== "group",
+    "Contratação só em conversa individual.",
   );
-  const sub = existing
-    ? await loadSubscription(ctx, existing.id)
-    : await createSubscription(
-        ctx,
-        {
-          conversation: c,
-          plan_id: plan.id,
-          payer_id: payer.id,
-          customer_name: payer.name || input.name || undefined,
-          start_date: today(now()),
-          sourceKey: input.sourceKey,
-        },
-        input.actor,
+  // Só o telefone autenticado pelo canal: em conversa de integração o
+  // external_id é escolhido por quem chama.
+  const verified = ctx.verifiedPhone(c);
+  if (!verified)
+    throw new ApiError(
+      409,
+      "phone_not_verified",
+      "Contratação pelo WhatsApp só em conversa com o telefone verificado pelo canal.",
+    );
+  const phone = phoneDigits(verified);
+  const method =
+    input.method || mensalidadeSettings(await ctx.settings()).method;
+  let payerId: string | null = null;
+  let doc: { document: string; type: string } | null = null;
+  let name = "";
+  if (input.payer_id) {
+    const payer = await loadPayer(ctx, input.payer_id);
+    const phones = await payerPhones(ctx, payer.id);
+    if (!phone || !phones.some((p) => p.phone === phone))
+      throw new ApiError(
+        403,
+        "phone_not_linked",
+        "O telefone desta conversa não está autorizado por este pagador; a equipe precisa confirmar antes.",
       );
+    payerId = payer.id;
+    name = payer.name;
+    // Já assina este plano: cobra a parcela em aberto em vez de duplicar.
+    const existing = await one(
+      ctx.env,
+      "SELECT id FROM mensalidade_subscriptions WHERE payer_id=? AND plan_id=? AND status='active' AND profile_id=?",
+      payer.id,
+      plan.id,
+      ctx.profile,
+    );
+    if (existing) {
+      const inst = await one(
+        ctx.env,
+        "SELECT id FROM mensalidade_installments WHERE subscription_id=? AND status IN ('open','overdue') ORDER BY upfront DESC,due_date LIMIT 1",
+        existing.id,
+      );
+      if (!inst)
+        throw new ApiError(
+          409,
+          "nothing_to_pay",
+          `A assinatura do plano "${plan.name}" está em dia: não há parcela a pagar.`,
+        );
+      return {
+        contract: null,
+        installment: await chargeInstallment(env, profile, {
+          conversation: c,
+          installment_id: inst.id,
+          method,
+          key: `contrato:${input.sourceKey}`,
+        }),
+      };
+    }
+  } else {
+    doc = requireDocument(input.document);
+    if (await payerByDocument(ctx, doc.document))
+      throw new ApiError(
+        409,
+        "payer_exists",
+        "Este CPF/CNPJ já tem cadastro: a equipe confirma o telefone antes de contratar por aqui.",
+      );
+    name = text(input.name, 120, "o nome de quem paga", true);
+  }
+  const contract = await createContract(ctx, {
+    c,
+    plan,
+    phone,
+    payer_id: payerId,
+    document: doc,
+    name,
+    method,
+    sourceKey: input.sourceKey,
+    actor: input.actor,
+  });
   // Contratou pela conversa: aceita receber as cobranças pelo WhatsApp.
   await recordBillingConsent(
     ctx,
@@ -318,79 +382,59 @@ export async function contractPlan(
       action: "contract_plan",
       plan_id: plan.id,
       plan_name: plan.name,
-      subscription_id: sub.id,
-      payer_id: payer.id,
+      contract_id: contract.id,
+      payer_id: payerId,
     },
     `contrato:${input.sourceKey}`,
   );
-  let inst = await one(
-    ctx.env,
-    "SELECT * FROM mensalidade_installments WHERE subscription_id=? AND status IN ('open','overdue') ORDER BY upfront DESC,due_date LIMIT 1",
-    sub.id,
+  const charged =
+    contract.payment_id && contract.status === "pending"
+      ? contract
+      : await chargeContract(
+          ctx,
+          contract,
+          c,
+          method,
+          `contrato:${input.sourceKey}`,
+        );
+  return { contract: contractView(charged)!, installment: null };
+}
+
+/**
+ * Cobra de novo a primeira mensalidade de uma contratação pendente: o código
+ * da cobrança que vale (mesma forma) ou outra cobrança, cancelando a aberta.
+ */
+export async function chargeContractAgain(
+  env: Env,
+  profile: string,
+  input: {
+    conversation: Conversation;
+    contract_id: string;
+    method?: "pix" | "link";
+    key: string;
+  },
+) {
+  const ctx = ctxOf(env, profile);
+  await ctx.requireEnabled();
+  const contract = await loadContract(ctx, input.contract_id);
+  requireValue(
+    contract.conversation_id === input.conversation.id,
+    "Contratação de outra conversa.",
   );
-  if (!inst && !existing) {
-    // Primeira parcela: competência deste mês, vence hoje, cobrada já.
-    const at = now(),
-      day = today(at),
-      id = uid();
-    const amount = sub.amount_cents - sub.discount_cents;
-    const created = await exec(
-      ctx.env,
-      "INSERT INTO mensalidade_installments(id,profile_id,subscription_id,period_key,due_date,amount_cents,status,upfront,notice_before_at,notice_due_at,created,updated) VALUES(?,?,?,?,?,?,'open',1,?,?,?,?) ON CONFLICT(subscription_id,period_key) DO NOTHING",
-      id,
-      ctx.profile,
-      sub.id,
-      day.slice(0, 7),
-      day,
-      amount,
-      at,
-      at,
-      at,
-      at,
-    );
-    if (created.meta.changes)
-      await ctx.publish(
-        "mensalidade.installment_created",
-        id,
-        {
-          installment_id: id,
-          subscription_id: sub.id,
-          period_key: day.slice(0, 7),
-          due_date: day,
-          amount_cents: amount,
-          status: "open",
-          upfront: true,
-        },
-        { key: id },
-      );
-    inst = await one(
-      ctx.env,
-      "SELECT * FROM mensalidade_installments WHERE subscription_id=? AND period_key=?",
-      sub.id,
-      day.slice(0, 7),
-    );
-  }
-  if (!inst)
-    throw new ApiError(
-      409,
-      "nothing_to_pay",
-      `A assinatura do plano "${plan.name}" está em dia: não há parcela a pagar.`,
-    );
-  const charged = await chargeInstallment(env, profile, {
-    conversation: c,
-    installment_id: inst.id,
-    method: input.method,
-    key: `contrato:${input.sourceKey}`,
-  });
-  return {
-    payer: payerView(
-      await loadPayer(ctx, payer.id),
-      await payerPhones(ctx, payer.id),
+  return contractView(
+    await chargeContract(
+      ctx,
+      contract,
+      input.conversation,
+      input.method || contract.method,
+      input.key,
     ),
-    subscription: subscriptionView(await loadSubscription(ctx, sub.id)),
-    installment: charged,
-    created: !existing,
-  };
+  )!;
+}
+
+/** Contratação pelo WhatsApp no formato da API. */
+export async function contractById(env: Env, profile: string, id: string) {
+  return contractView(await loadContract(ctxOf(env, profile), id))!;
 }
 
 /**
