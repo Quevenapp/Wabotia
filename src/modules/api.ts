@@ -10,6 +10,7 @@ import {
   registerPaymentHook,
   registerReadRoute,
   registerSchedule,
+  registerTurnHandler,
   registerSettingsValidator,
   registerWebStepHook,
   registerWriteRoute,
@@ -27,6 +28,14 @@ import { access } from "../security";
 import { event } from "../events";
 import { conversation, enqueue, settings } from "../service";
 import { createPayment, type Payment } from "../payments";
+import {
+  interactiveLine,
+  sendInteractive as sendInteractiveMessage,
+} from "../line-service";
+import {
+  interactiveFallbackText,
+  type InteractiveSpec,
+} from "../whatsapp-interactive";
 import {
   openWebStep,
   type Answers,
@@ -50,6 +59,7 @@ export interface ContactSummary {
   notes: string;
 }
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
+export type { InteractiveSpec } from "../whatsapp-interactive";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export interface OutgoingMessage {
@@ -83,6 +93,18 @@ export interface ModuleContext {
   sendMessage(
     c: Conversation,
     message: OutgoingMessage,
+    options: { key: string; actor?: string; notification?: boolean },
+  ): Promise<string>;
+  /**
+   * Mensagem interativa (botões com URL, lista, Flow, produto…; tipos em
+   * src/whatsapp-interactive.ts). Linha oficial: o elemento nativo; QR ou
+   * grupo: texto numerado com links. Com a janela de 24 h fechada na linha
+   * oficial, `notification: true` envia o texto pelo modelo de notificação.
+   * Use ids de opção com o prefixo do módulo ("agenda:confirmar:…").
+   */
+  sendInteractive(
+    c: Conversation,
+    spec: InteractiveSpec,
     options: { key: string; actor?: string; notification?: boolean },
   ): Promise<string>;
   /** Abre um passo web em nome do módulo (web_steps.module_id). */
@@ -167,6 +189,25 @@ export function modulesApi(
         // A chave do outbox vale para o sistema todo: leva a conversa.
         `module:${moduleId}:${c.id}:${options.key}`,
       );
+    },
+    async sendInteractive(c, spec, options) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      const key = `module:${moduleId}:${c.id}:${options.key}`;
+      const actor = options.actor || "system";
+      if (
+        options.notification &&
+        (await interactiveLine(env, c)) &&
+        Date.now() - c.last_customer >= 86400000
+      )
+        return enqueue(
+          env,
+          c,
+          actor,
+          "notification",
+          { text: interactiveFallbackText(spec), automation: moduleId },
+          key,
+        );
+      return sendInteractiveMessage(env, actor, c, spec, key, moduleId);
     },
     openWebStep(c, request) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
@@ -381,6 +422,39 @@ export function onSchedule(
   registerSchedule(moduleId, (env, profile, now) =>
     handler(modulesApi(env, profile, moduleId), { now }),
   );
+}
+
+/**
+ * Próxima mensagem do cliente numa conversa individual, com o módulo ligado:
+ * texto digitado (`text`) ou toque em botão/lista (`replyId`). Roda depois da
+ * fila de senhas e antes da porta de entrada, dos protocolos, do menu e do
+ * bot, com as mesmas regras de automação e sessão. Devolva true só quando a
+ * mensagem é do módulo (estado aberto na conversa ou replyId com o prefixo do
+ * módulo, "agenda:…"); false deixa seguir. Ao receber MENU/VOLTAR, limpe o
+ * estado e devolva false.
+ */
+export function onConversationTurn(
+  moduleId: string,
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    turn: { text: string; replyId: string | null; rowId: string },
+  ) => Promise<boolean>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerTurnHandler(moduleId, async (env, c, turn) => {
+    const ctx = modulesApi(env, c.profile_id, moduleId);
+    if (!(await ctx.enabled())) return false;
+    return handler(ctx, c, turn);
+  });
+}
+/** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */
+export function onInboundReply(
+  moduleId: string,
+  handler: Parameters<typeof onConversationTurn>[1],
+) {
+  onConversationTurn(moduleId, handler);
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */
