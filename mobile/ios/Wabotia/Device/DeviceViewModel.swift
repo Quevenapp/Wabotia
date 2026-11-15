@@ -115,7 +115,13 @@ final class DeviceViewModel: ObservableObject {
             do {
                 let config = try await flow.run(baseURL: normalized, name: trimmedName, demo: self?.demo ?? false) { start in
                     self?.pairing = PairingUI(userCode: start.userCode, busy: true)
+                    #if DEBUG
+                    print("[Wabotia] aparelho: código de pareamento \(start.userCode) (escopos pedidos: \(DeviceScopes.requested.joined(separator: ",")))")
+                    #endif
                 }
+                #if DEBUG
+                print("[Wabotia] aparelho: pareado com a área \(config.profileId), escopos \(config.scopes?.joined(separator: ",") ?? "-")")
+                #endif
                 guard let self, !Task.isCancelled else { return }
                 self.services.store.save(config)
                 self.config = config
@@ -190,6 +196,9 @@ final class DeviceViewModel: ObservableObject {
         // Cabeçalho do cupom: o estabelecimento da área (servidor antigo sem a rota: fica o nome do aparelho).
         Task { [weak self] in
             if let found = try? await client.establishment() { self?.establishment = found }
+            #if DEBUG
+            print("[Wabotia] aparelho: estabelecimento \(self?.establishment.map { "\"\($0.name ?? "")\" configurado=\($0.configured ?? false)" } ?? "indisponível (rota ausente?)")")
+            #endif
         }
     }
 
@@ -200,6 +209,14 @@ final class DeviceViewModel: ObservableObject {
     }
 
     func handle(_ event: QueueLiveFeed.Event) {
+        #if DEBUG
+        switch event {
+        case .live(let on): print("[Wabotia] aparelho: WebSocket \(on ? "aberto" : "fechado")")
+        case .failure(let e): print("[Wabotia] aparelho: leitura falhou (\(e.status) \(e.code))")
+        case .call(let call): print("[Wabotia] aparelho: quadro call \(call.code ?? "?") \(call.counterName ?? "")")
+        case .snapshot(let o): if overview == nil || offline { print("[Wabotia] aparelho: fila lida (\(o.kioskQueues.count) fila(s) no totem, \(o.recentCalls?.count ?? 0) chamada(s))") }
+        }
+        #endif
         switch event {
         case .snapshot(let overview):
             self.overview = overview
@@ -290,10 +307,16 @@ final class DeviceViewModel: ObservableObject {
                 self.busy = false
                 self.issued = ticket
                 self.couponPrint = .printing
+                #if DEBUG
+                print("[Wabotia] aparelho: senha emitida \(ticket.code ?? "?") (\(ticket.source ?? "-"))")
+                #endif
                 await self.printIssued()
                 self.scheduleIssuedDismiss()
             } catch {
                 guard let self else { return }
+                #if DEBUG
+                print("[Wabotia] aparelho: emissão recusada (\((error as? QueueError)?.code ?? "\(error)"))")
+                #endif
                 self.busy = false
                 self.notice = QueueError.describe(error)
                 if (error as? QueueError)?.status == 0 { self.offline = true }

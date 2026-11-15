@@ -100,6 +100,13 @@ extension DemoMode {
     /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`,
     /// `printer`, `pin`, `unpair` (aparelho), `call` (guichê 2 chama a próxima), `week` (agenda) e `quote` (ordem).
     static let action: String? = env("WABOTIA_DEMO_ACTION")
+    /// Modo aparelho contra um servidor de verdade (teste em aparelho, sem tocar na tela): `WABOTIA_DEVICE_SERVER` abre o
+    /// modo aparelho e pede o código com `WABOTIA_DEVICE_NAME` (o código sai no console); `WABOTIA_DEVICE_ROLE`
+    /// (`totem`, `panel`, `hybrid`) escolhe o papel; `WABOTIA_DEVICE_ACTION` (`issue`, `settings`, `printer`, `unpair`).
+    static let deviceServer: String? = env("WABOTIA_DEVICE_SERVER")
+    static let deviceName: String? = env("WABOTIA_DEVICE_NAME")
+    static let deviceRole: String? = env("WABOTIA_DEVICE_ROLE")
+    static let deviceAction: String? = env("WABOTIA_DEVICE_ACTION")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).

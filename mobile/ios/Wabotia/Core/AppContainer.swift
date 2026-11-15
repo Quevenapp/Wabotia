@@ -61,6 +61,12 @@ final class AppContainer: ObservableObject {
         if !debugLaunch, KeychainDeviceConfigStore().load() != nil {
             deviceLaunch = DeviceLaunch(demo: false, serverURL: nil)
         }
+        #if DEBUG
+        // WABOTIA_DEVICE_SERVER (só depuração): o modo aparelho contra esse servidor, para parear sem tocar na tela.
+        if deviceLaunch == nil, let server = DemoMode.deviceServer {
+            deviceLaunch = DeviceLaunch(demo: false, serverURL: server)
+        }
+        #endif
     }
 
     /// "Usar este aparelho como painel ou totem", com o servidor já informado.

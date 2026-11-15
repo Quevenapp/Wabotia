@@ -59,13 +59,46 @@ struct DeviceModeView: View {
     #if DEBUG
     /// `WABOTIA_DEMO_ACTION` (só depuração): a ação feita sozinha para conferir a tela por print.
     private func runDebugAction() async {
-        guard vm.demo, let action = DemoMode.action else { return }
+        if !vm.demo {
+            await runRealDeviceDebug()
+            return
+        }
+        guard let action = DemoMode.action else { return }
         for _ in 0..<60 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
         switch action {
         case "choose": vm.chooseQueue("dq-geral")
         case "issue":
             vm.chooseQueue("dq-geral")
             vm.issue(preferential: true)
+        case "settings": settings = true
+        case "printer":
+            settings = true
+            printer = true
+        case "unpair": vm.unpair()
+        default: break
+        }
+    }
+
+    /// `WABOTIA_DEVICE_*` (só depuração): pareia com o servidor de verdade, escolhe o papel e faz uma ação, registrando
+    /// tudo no console. A aprovação do código é de quem administra o servidor (no painel ou pelo script de teste).
+    private func runRealDeviceDebug() async {
+        guard DemoMode.deviceServer != nil || DemoMode.deviceRole != nil || DemoMode.deviceAction != nil else { return }
+        if vm.config == nil, let server = DemoMode.deviceServer {
+            vm.startPairing(url: server, name: DemoMode.deviceName ?? "Aparelho de teste")
+        }
+        for _ in 0..<1200 where vm.config == nil { try? await Task.sleep(nanoseconds: 500_000_000) }
+        guard vm.config != nil else { return }
+        if let role = DemoMode.deviceRole.flatMap(DeviceRole.init(rawValue:)), vm.config?.role != role {
+            vm.chooseRole(role)
+            print("[Wabotia] aparelho: papel \(role.rawValue)")
+        }
+        for _ in 0..<100 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        switch DemoMode.deviceAction {
+        case "issue":
+            if let queue = vm.overview?.kioskQueues.first {
+                vm.chooseQueue(queue.id)
+                vm.issue(preferential: false)
+            }
         case "settings": settings = true
         case "printer":
             settings = true
