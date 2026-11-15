@@ -168,6 +168,7 @@ object DemoMode {
             "counter" -> DemoDestination(route = "counter")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
+            "auth-start" -> DemoDestination(route = "preview/start")
             "auth-login" -> DemoDestination(route = "preview/login")
             "auth-profiles" -> DemoDestination(route = "preview/profiles")
             "ticket-new" -> DemoDestination(route = "ticket-new/${Ids.C_RICH}")

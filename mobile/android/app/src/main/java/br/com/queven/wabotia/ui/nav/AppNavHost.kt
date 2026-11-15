@@ -135,8 +135,11 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         }
         composable(Routes.PROFILE_PICKER) { ProfilePickerScreen(container) }
         if (BuildConfig.DEBUG) {
-            // Prévia das telas de entrada dentro da demonstração (atalhos `--es demo auth-server|auth-login|auth-profiles`).
+            // Prévia das telas de entrada dentro da demonstração (atalhos `--es demo auth-server|auth-start|auth-login|auth-profiles`).
             composable("preview/server") { ServerScreen(container) { nav.popBackStack() } }
+            // "Usar este aparelho" daqui pareia pelo caminho real (Keystore, reabrir direto no modo aparelho, desfazer
+            // avisando o servidor), respondido pelo servidor em memória da demonstração.
+            composable("preview/start") { StartScreen(container, onLogin = { nav.popBackStack() }, onChangeServer = { nav.popBackStack() }) }
             composable("preview/login") { LoginScreen(container, onChangeServer = { nav.popBackStack() }) }
             composable("preview/profiles") { ProfilePickerScreen(container) }
         }
