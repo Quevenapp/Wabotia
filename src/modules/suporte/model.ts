@@ -270,6 +270,26 @@ export function stamp(at: number) {
   return `${two(d.getUTCDate())}/${two(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
 }
 
+/** `limit` da listagem: inteiro entre 1 e `max` (fração ou texto vira o padrão). */
+export function pageLimit(value: unknown, fallback: number, max: number) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, max) : fallback;
+}
+
+/** Valores de um filtro "a,b,c" sem repetição e com teto (listas IN do D1). */
+export const csv = (value: unknown, max = 20) =>
+  [
+    ...new Set(
+      String(value || "")
+        .split(",")
+        .filter(Boolean),
+    ),
+  ].slice(0, max);
+
+/** "%texto%" para LIKE … ESCAPE '\': % e _ digitados valem como letras. */
+export const likeAny = (value: string) =>
+  "%" + value.replace(/[%_\\]/g, (m) => "\\" + m) + "%";
+
 /** Cópia profunda sem as chaves dadas (dados sensíveis nas respostas da API). */
 export function withoutKeys(value: any, keys: Set<string>): any {
   if (Array.isArray(value)) return value.map((item) => withoutKeys(item, keys));

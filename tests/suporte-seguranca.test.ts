@@ -643,3 +643,35 @@ describe("B1: portão fail-closed e chave pela mensagem", () => {
     expect(asked).toHaveLength(1);
   });
 });
+
+describe("B10: LIKE escapado e listas IN dentro do D1", () => {
+  it("filtros com % ou _, listas longas e limit fracionário não quebram nem casam tudo", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const c = await talk(f, "oi", "5511987000001");
+    await claim(f, f.member, c.id);
+    await api(
+      await bearer(f.member),
+      `/profiles/${f.profile}/suporte/conversations/${c.id}/courtesy`,
+      "POST",
+      { reason: "Teste", hours: 1 },
+    );
+    const token = await bearer(f.admin);
+    const base = `/profiles/${f.profile}/suporte`;
+    const many = Array.from({ length: 150 }, (_, i) => `k${i}`).join(",");
+    for (const path of [
+      `releases?q=${encodeURIComponent("%")}`,
+      `purchases?q=${encodeURIComponent("_")}`,
+      `releases?kind=${many}&conversation_id=${many}&limit=2.5`,
+      `purchases?status=${many}&limit=abc`,
+    ]) {
+      const res = await api(token, `${base}/${path}`);
+      expect(res.status, path).toBe(200);
+      expect((await res.json<any>()).data, path).toEqual([]);
+    }
+    const ok = await (
+      await api(token, `${base}/releases?kind=courtesy,courtesy&limit=1.7`)
+    ).json<any>();
+    expect(ok.data).toHaveLength(1);
+  });
+});

@@ -7,7 +7,10 @@ import type { Payment } from "../../payments";
 // Sem ctx para abrir protocolo: a liberação abre o da conversa pelo núcleo.
 import { createTicket } from "../../service";
 import {
+  csv,
+  likeAny,
   money,
+  pageLimit,
   packageValidity,
   phoneDigits,
   RELEASE_MAX_MS,
@@ -395,7 +398,8 @@ export async function listReleases(
     ["conversation_id", "conversation_id"],
     ["payer_id", "payer_id"],
   ] as const) {
-    const values = (query[key] || "").split(",").filter(Boolean);
+    // Sem repetição e com teto: a lista IN fica dentro do limite do D1.
+    const values = csv(query[key]);
     if (values.length) {
       where.push(`${column} IN (${values.map(() => "?").join(",")})`);
       args.push(...values);
@@ -413,16 +417,16 @@ export async function listReleases(
   if (q) {
     const digits = q.replace(/\D/g, "");
     where.push(
-      `(lower(payer_name) LIKE ?${digits.length >= 4 ? " OR phone LIKE ?" : ""})`,
+      `(lower(payer_name) LIKE ? ESCAPE '\\'${digits.length >= 4 ? " OR phone LIKE ?" : ""})`,
     );
-    args.push(`%${q}%`);
+    args.push(likeAny(q));
     if (digits.length >= 4) args.push(`%${digits}%`);
   }
   if (query.cursor) {
     where.push("created<?");
     args.push(Number(query.cursor) || 0);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const limit = pageLimit(query.limit, 50, 200);
   const rows = await all(
     ctx.env,
     `SELECT * FROM suporte_releases WHERE ${where.join(" AND ")} ORDER BY created DESC,id LIMIT ?`,
@@ -504,7 +508,7 @@ export async function listPurchases(
 ) {
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
-  const statuses = (query.status || "").split(",").filter(Boolean);
+  const statuses = csv(query.status);
   if (statuses.length) {
     where.push(`status IN (${statuses.map(() => "?").join(",")})`);
     args.push(...statuses);
@@ -516,14 +520,16 @@ export async function listPurchases(
   const q = (query.q || "").trim().toLowerCase().slice(0, 100);
   if (q) {
     const compact = q.toUpperCase().replace(/[\s./()+-]/g, "");
-    where.push("(lower(name) LIKE ? OR document LIKE ? OR phone LIKE ?)");
-    args.push(`%${q}%`, `%${compact}%`, `%${compact}%`);
+    where.push(
+      "(lower(name) LIKE ? ESCAPE '\\' OR document LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')",
+    );
+    args.push(likeAny(q), likeAny(compact), likeAny(compact));
   }
   if (query.cursor) {
     where.push("created<?");
     args.push(Number(query.cursor) || 0);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const limit = pageLimit(query.limit, 50, 200);
   const rows = await all(
     ctx.env,
     `SELECT * FROM suporte_purchases WHERE ${where.join(" AND ")} ORDER BY created DESC,id LIMIT ?`,

@@ -245,3 +245,27 @@ describe("A3: gancho de pagamento repetido pelo núcleo", () => {
     expect(ctx.profile).toBe(f.profile);
   });
 });
+
+describe("B10: listas da Mensalidade dentro do D1", () => {
+  it("estado repetido muitas vezes e limit fracionário não quebram", async () => {
+    const { f, admin } = await setup();
+    const many = Array.from({ length: 150 }, () => "active").join(",");
+    const subs = await api(
+      admin,
+      `${root(f)}/subscriptions?status=${many}&limit=1.5`,
+    );
+    expect(subs.status).toBe(200);
+    expect((await subs.json<any>()).data).toHaveLength(1);
+    const insts = await api(
+      admin,
+      `${root(f)}/installments?status=${Array.from({ length: 150 }, () => "open").join(",")}&limit=x`,
+    );
+    expect(insts.status).toBe(200);
+    const payers = await api(
+      admin,
+      `${root(f)}/payers?q=${encodeURIComponent("%")}&limit=0.5`,
+    );
+    expect(payers.status).toBe(200);
+    expect((await payers.json<any>()).data).toEqual([]);
+  });
+});

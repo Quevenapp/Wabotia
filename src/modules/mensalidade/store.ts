@@ -26,6 +26,8 @@ import {
   type InstallmentStatus,
   type Period,
   type SubscriptionStatus,
+  csv,
+  pageLimit,
 } from "./model";
 import { ensurePayer, loadPayer } from "./payers";
 import { formatDocument } from "../../establishment";
@@ -364,7 +366,7 @@ export async function listSubscriptions(
 ) {
   const where = ["s.profile_id=?"],
     args: any[] = [ctx.profile];
-  const statuses = (query.status || "").split(",").filter(Boolean);
+  const statuses = csv(query.status);
   for (const s of statuses)
     requireValue(
       ["active", "paused", "ended"].includes(s),
@@ -407,7 +409,7 @@ export async function listSubscriptions(
     where.push("s.id>?");
     args.push(query.cursor);
   }
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+  const limit = pageLimit(query.limit, 50, 200);
   const rows = await all(
     ctx.env,
     `SELECT s.*,p.name AS plan_name,${PAYER_COLUMNS},${subscriptionCounts} FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id LEFT JOIN mensalidade_payers y ON y.id=s.payer_id WHERE ${where.join(" AND ")} ORDER BY s.id LIMIT ?`,

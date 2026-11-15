@@ -101,7 +101,7 @@ async function situationOf(
   const phones = await payerPhones(ctx, payer.id);
   const subs = await all(
     ctx.env,
-    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' ORDER BY s.created",
+    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' ORDER BY s.created LIMIT 50",
     payer.id,
     ctx.profile,
   );
