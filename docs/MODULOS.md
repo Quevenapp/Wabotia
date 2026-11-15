@@ -118,6 +118,9 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 |---|---|
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
+| `mayRead(actor, "contacts"\|"notes")` | Dado sensível nas leituras, como no núcleo: pessoas da equipe sempre; aplicação só com `contacts:read` (dados pessoais) ou `notes:read` (notas internas). Veja "Dados pessoais, notas e cobrança" na seção 3 |
+| `redact(actor, row, {contacts?, notes?})` | Cópia do registro sem os campos que o ator não pode ver; os campos somem da resposta |
+| `verifiedPhone(c)` | Telefone autenticado pelo canal (só dígitos) ou null: grupo ou conversa de integração (`app:<id>`), cujo `external_id` é escolhido por quem chama. Compare ou vincule registros por telefone só com ele; nunca use `c.phone \|\| c.external_id` como identidade |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
 | `activeTicket(c)` | Protocolo ativo da conversa (não resolvido nem fechado, o mais recente) ou null: `{id, number, status, title, created}`. Para regras como "vale até o protocolo fechar", sem ler a tabela `tickets` |
 | `conversationByPhone(phone, {open?, connection_id?})` | Conversa individual da área com o telefone (aceita com e sem o 9 do celular; sem DDI, no formato brasileiro, recebe 55), ou null. Com `open: true`, abre uma na linha oficial (Zernio) para o cliente que nunca escreveu: nasce sem janela de 24 h, então só sai notificação por modelo (`notification: true`, com o consentimento da finalidade) até ele responder, e a resposta cai na mesma conversa mesmo que o WhatsApp mande outro identificador. Publica `conversation.created` com `opened_by: "module:<id>"` |
@@ -377,8 +380,26 @@ mensagem, passo web nem protocolo.
   mensagem em português para quem usa. `requireValue(valor, mensagem)` gera
   `400 invalid_request`.
 - Permissões de aplicação: reutilize as existentes (`conversations:*`,
-  `contacts:*`, `tickets:*`). Uma permissão nova entra na lista de
-  `src/service.ts` e no OpenAPI; combine antes.
+  `contacts:*`, `tickets:*`, `billing:write`). Uma permissão nova entra na
+  lista de `src/service.ts` e no OpenAPI; combine antes.
+
+### Dados pessoais, notas e cobrança
+
+- **Dados pessoais** (telefone, e-mail, documento, endereço, respostas de
+  check-in): nas leituras do módulo, aplicação só vê com `contacts:read`.
+  Pessoas da equipe veem. Use `ctx.redact(actor, row, {contacts: [...]})` na
+  visão devolvida (listas, detalhe e as leituras das ferramentas de bot).
+- **Notas internas** (observações da equipe, histórico com notas): aplicação
+  só vê com `notes:read`; `ctx.redact(actor, row, {notes: [...]})`.
+- **Operações financeiras** (baixa manual, isenção, criar ou mudar plano,
+  valor ou desconto, importar assinaturas): aplicação precisa de
+  `billing:write` (`ctx.access(actor, "billing:write")`), além do papel que a
+  pessoa precisaria. `billing:write` não pode ser concedida a aparelhos
+  pareados do Vinki nem do Fagoo (`409 scope_not_allowed`); uma chave de
+  mensagens nunca vira chave financeira.
+- **Identidade por telefone**: compare, vincule ou revincule registros por
+  telefone só com `ctx.verifiedPhone(c)`. Em conversa de integração ele é
+  null, e o módulo não procura nem puxa registros de outro cliente.
 
 ## 4. Passo web
 

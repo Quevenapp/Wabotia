@@ -30,6 +30,7 @@ import {
 } from "../types";
 import { access } from "../security";
 import { activeTicketSql } from "../protocols";
+import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
 import {
   conversation,
@@ -90,6 +91,11 @@ export type { Establishment } from "../establishment";
 export type { ConsentPurpose, ConsentRecord } from "../consents";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
+export type SensitiveKind = "contacts" | "notes";
+/** Pessoas da equipe sempre; aplicação só com `<kind>:read`. */
+export const mayRead = (actor: Actor, kind: SensitiveKind) =>
+  actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
+
 export interface OutgoingMessage {
   text: string;
   /** Conteúdo nativo (interactive, location, …), como em enqueue. */
@@ -108,6 +114,28 @@ export interface ModuleContext {
   requireEnabled(): Promise<void>;
   /** Mesma regra das rotas: área do ator e permissão de aplicação. */
   access(actor: Actor, scope: string): void;
+  /**
+   * Dado sensível nas leituras do módulo, como no núcleo: pessoas da equipe
+   * sempre veem; aplicações só com `contacts:read` (dados pessoais: telefone,
+   * e-mail, documento, endereço, respostas de check-in) ou `notes:read`
+   * (notas internas e observações da equipe).
+   */
+  mayRead(actor: Actor, kind: SensitiveKind): boolean;
+  /**
+   * Cópia do registro sem os campos que o ator não pode ver (`mayRead`). Os
+   * campos somem da resposta; o resto fica igual.
+   */
+  redact<T extends Record<string, any>>(
+    actor: Actor,
+    row: T,
+    fields: Partial<Record<SensitiveKind, string[]>>,
+  ): T;
+  /**
+   * Telefone autenticado pelo canal (só dígitos), ou null: conversa de grupo
+   * ou de integração (`app:<id>`), em que o `external_id` é escolhido por
+   * quem chama. Compare ou vincule registros por telefone só com ele.
+   */
+  verifiedPhone(c: Conversation): string | null;
   /** Configurações da área (itens de menu de módulos desligados ocultos). */
   settings(): Promise<any>;
   /**
@@ -302,6 +330,15 @@ export function modulesApi(
         throw moduleDisabledError(definition);
     },
     access: (actor, scope) => access(actor, profile, scope),
+    mayRead: (actor, kind) => mayRead(actor, kind),
+    redact(actor, row, fields) {
+      const copy: Record<string, any> = { ...row };
+      for (const kind of Object.keys(fields) as SensitiveKind[])
+        if (!mayRead(actor, kind))
+          for (const field of fields[kind] || []) delete copy[field];
+      return copy as typeof row;
+    },
+    verifiedPhone: (c) => verifiedPhone(c),
     settings: () => settings(env, profile),
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),

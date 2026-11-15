@@ -65,7 +65,7 @@ function compactProtocol(value: string) {
 
 // Only provider-authenticated identities may join conversations. A phone supplied
 // by an API application is not evidence that the caller owns that WhatsApp number.
-function verifiedPhone(c: Conversation) {
+export function verifiedPhone(c: Conversation) {
   if (
     c.chat_type === "group" ||
     !c.connection_id ||

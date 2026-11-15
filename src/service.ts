@@ -114,6 +114,9 @@ export const scopes = [
   "contacts:read",
   "contacts:write",
   "notes:read",
+  // Operações financeiras dos módulos (baixa manual, isenção, planos, valores).
+  // Nunca vai para aparelhos pareados de mensagens (Vinki, Fagoo).
+  "billing:write",
   "tickets:read",
   "tickets:write",
   "knowledge:read",
@@ -1662,6 +1665,20 @@ export async function perform(
           data.scopes.every((s: string) => scopes.includes(s))),
       "Permissões inválidas.",
     );
+    if (
+      Array.isArray(data.scopes) &&
+      data.scopes.includes("billing:write") &&
+      (await one(
+        env,
+        "SELECT 1 FROM pairing_requests WHERE app_id=? AND client IN ('vinki','fagoo') LIMIT 1",
+        data.id,
+      ))
+    )
+      throw new ApiError(
+        409,
+        "scope_not_allowed",
+        "billing:write não pode ser concedida a aparelhos pareados do Vinki ou do Fagoo.",
+      );
     await exec(
       env,
       "UPDATE applications SET disabled=?,profiles=?,scopes=?,bots=? WHERE id=?",
