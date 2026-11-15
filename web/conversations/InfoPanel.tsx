@@ -41,6 +41,7 @@ import {
 import { GroupControls } from "../WhatsAppGroups";
 import { isImage, mediaUrl } from "./Media";
 import { headerSubtitle, isMine, tagsOf } from "./model";
+import { WebStepsSection } from "./WebSteps";
 
 export type InfoActions = {
   contact: () => void;
@@ -256,6 +257,8 @@ export function InfoPanel({
           <p className="muted">Nenhum protocolo aberto para esta conversa.</p>
         )}
       </section>
+
+      <WebStepsSection steps={detail.web_steps || []} />
 
       {group && (
         <section className="info-section">

@@ -28,6 +28,7 @@ import { ApplicationsPage } from "./ApplicationsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
+import { FormsPage } from "./FormsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -129,6 +130,8 @@ function Page({ page }: { page: PageId }) {
       return <QueueSettingsPage />;
     case "modules":
       return <ModulesPage />;
+    case "forms":
+      return <FormsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

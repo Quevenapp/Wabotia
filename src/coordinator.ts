@@ -15,6 +15,8 @@ import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
 import { closeDay, overview as queueOverview } from "./queue";
+import { completeWebStep, expireWebSteps } from "./web-steps";
+import "./modules/runtime";
 import {
   processInbox,
   processRun,
@@ -150,6 +152,15 @@ export class Coordinator extends DurableObject<Env> {
           await this.broadcastQueue();
         return Response.json(value, { status });
       });
+    // Passo web concluído pela página pública: a mensagem de retorno, o
+    // protocolo e a nota entram na fila da área como o resto do atendimento.
+    if (new URL(request.url).pathname === "/web-step") {
+      const result = await this.ctx.blockConcurrencyWhile(() =>
+        completeWebStep(this.env, body.id, body.answers || {}),
+      );
+      await this.schedule();
+      return Response.json(result);
+    }
     if (new URL(request.url).pathname === "/transport")
       return this.ctx.blockConcurrencyWhile(async () =>
         Response.json(
@@ -325,6 +336,7 @@ export class Coordinator extends DurableObject<Env> {
       await expireCalls(this.env, this.profile);
       await expireUploads(this.env, this.profile);
       await closeDay(this.env, this.profile);
+      await expireWebSteps(this.env, this.profile);
       await processInbox(this.env, this.profile);
       await this.broadcastQueue();
       for (const run of await all<Run>(

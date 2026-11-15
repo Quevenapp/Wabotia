@@ -8,11 +8,12 @@ import { admin, canProfile } from "../security";
 import { event } from "../events";
 import type { ModuleDefinition } from "./types";
 import { queueModule } from "./queue";
+import { formsModule } from "./forms/definition";
 
 export type { ModuleDefinition } from "./types";
 
 /** Ordem de exibição na tela Módulos e na rota de capacidades. */
-export const modules: readonly ModuleDefinition[] = [queueModule];
+export const modules: readonly ModuleDefinition[] = [queueModule, formsModule];
 
 export const moduleById = (id: unknown) =>
   modules.find((m) => m.id === id) || null;

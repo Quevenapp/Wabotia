@@ -172,4 +172,6 @@ export const defaults = {
   notifications: { enabled: false, template_name: "", language: "pt_BR" },
   // Fila de senhas (src/queue.ts → queueDefaults); merged field by field.
   queue: {},
+  // Formulários do módulo "forms" (src/modules/forms).
+  forms: [],
 };

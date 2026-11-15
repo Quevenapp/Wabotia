@@ -30,6 +30,9 @@ export async function visibleEvent(env: Env, actor: Actor, e: any) {
       return false;
   }
   if (actor.kind !== "app") return true;
+  // Módulo ligado ou desligado: sem conteúdo de conversa, vale para qualquer
+  // aplicação da área (aparelhos pareados escondem telas).
+  if (e.kind === "module.changed") return true;
   // Queue events carry no conversation content: any queue scope may read them.
   if (e.kind.startsWith("queue."))
     return (

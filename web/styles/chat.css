@@ -1607,3 +1607,47 @@
     display: none;
   }
 }
+
+/* Passos web (formulários e links de módulos) */
+.info-web-steps {
+  display: grid;
+  gap: 8px;
+}
+.info-web-step {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+}
+.info-web-step summary {
+  display: grid;
+  gap: 3px;
+  cursor: pointer;
+  list-style: none;
+}
+.info-web-step summary::-webkit-details-marker {
+  display: none;
+}
+.info-web-step summary strong {
+  color: var(--text);
+  font-size: 13.5px;
+}
+.info-web-step summary small {
+  color: var(--text-2);
+}
+.info-web-step dl {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+.info-web-step dt {
+  color: var(--text-2);
+}
+.info-web-step dd {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+}
+.info-web-step p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}

@@ -86,6 +86,10 @@ import {
   requireOperation,
   resolveStates,
 } from "./modules/registry";
+import { conversationAction, settingsValidator } from "./modules/hooks";
+import { cancelWebStep } from "./web-steps";
+// Ganchos dos módulos embutidos (ações de conversa, chaves de configuração).
+import "./modules/runtime";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -142,6 +146,12 @@ export const eventTypes = [
   "queue.counter",
   "queue.changed",
   "module.changed",
+  "web_step.sent",
+  "web_step.opened",
+  "web_step.completed",
+  "web_step.expired",
+  "web_step.cancelled",
+  "form.submitted",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(
@@ -1177,6 +1187,8 @@ export async function perform(
     return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("module."))
     return moduleCommand(env, actor, profile, op, data);
+  if (op === "web_step.cancel")
+    return cancelWebStep(env, actor, profile, data.id);
   if (op.startsWith("system.")) {
     admin(actor);
     const maintenance = await import("./maintenance");
@@ -1515,6 +1527,11 @@ export async function perform(
         ...(old.queue || {}),
         ...data.queue,
       });
+    // Chaves declaradas pelos módulos (src/modules, onSettingsSave).
+    for (const key of Object.keys(data)) {
+      const validate = settingsValidator(key);
+      if (validate) next[key] = validate(data[key]);
+    }
     requireValue(
       JSON.stringify(next).length <= 150000,
       "Configuração muito grande.",
@@ -1592,6 +1609,19 @@ export async function perform(
           409,
           "module_disabled",
           `O destino "${item.label}" pertence ao módulo ${moduleForMenuType(item.type)?.name}, que está desligado. Ligue-o em Gestão → Módulos.`,
+        );
+      // Item de módulo que aponta para um registro da configuração
+      // (form_id → forms): o registro precisa existir.
+      const reference = moduleForMenuType(item.type)?.menu_item_types.find(
+        (t) => t.type === item.type,
+      )?.reference;
+      if (reference)
+        requireValue(
+          Array.isArray(next[reference.setting]) &&
+            next[reference.setting].some(
+              (entry: any) => entry?.id === item[reference.field],
+            ),
+          `${reference.label} do menu "${item.label}" não encontrado. Escolha outro ou cadastre-o antes.`,
         );
       if (item.type === "queue" && item.queue_id)
         requireValue(
@@ -2048,6 +2078,10 @@ export async function perform(
     access(actor, profile, "conversations:write");
     let c = await conversation(env, data.id, profile, actor);
     const action = data.action;
+    // Ações registradas pelos módulos (src/modules/api.ts).
+    const moduleAction =
+      typeof action === "string" ? conversationAction(action) : undefined;
+    if (moduleAction) return moduleAction(env, actor, c, data, requestId);
     if (
       [
         "claim",

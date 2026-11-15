@@ -85,6 +85,50 @@ export const moduleSchemas = {
     required: ["enabled"],
     properties: { enabled: { type: "boolean" } },
   },
+  WebStep: {
+    type: "object",
+    description:
+      "Passo web: link curto de uso único enviado na conversa. O código do link nunca é devolvido pela API.",
+    properties: {
+      id: { type: "string" },
+      conversation_id: { type: "string" },
+      module_id: { type: "string", example: "forms" },
+      kind: { type: "string", example: "form" },
+      ref_id: {
+        type: ["string", "null"],
+        description: "Ex.: ID do formulário.",
+      },
+      title: { type: "string" },
+      status: {
+        enum: ["sent", "opened", "completed", "expired", "cancelled"],
+      },
+      trigger: { enum: ["menu", "agent", "bot", "module"] },
+      actor: { type: "string" },
+      expires_at: { type: "integer" },
+      opened_at: { type: ["integer", "null"] },
+      completed_at: { type: ["integer", "null"] },
+      ticket_id: { type: ["string", "null"] },
+      contact_id: { type: ["string", "null"] },
+      answers: {
+        type: ["object", "null"],
+        description:
+          "Respostas por ID de campo: texto, escolha e data (AAAA-MM-DD) como string; aceite como boolean.",
+      },
+      fields: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            type: { enum: ["text", "choice", "date", "accept"] },
+            label: { type: "string" },
+          },
+        },
+      },
+      created: { type: "integer" },
+      updated: { type: "integer" },
+    },
+  },
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -107,6 +151,30 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "",
     "ModuleState",
   ],
+  [
+    "get",
+    "/profiles/{profile}/conversations/{id}/web-steps",
+    "Passos web da conversa e estado de cada link",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/web-steps/{id}",
+    "Consultar um passo web",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/web-steps/{id}/cancel",
+    "Cancelar um link ainda não respondido",
+    "conversations:write",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/forms",
+    "Formulários ativos da área (módulo Formulários)",
+    "conversations:read",
+  ],
 ];
 
 export function describeModuleOperation(
@@ -118,6 +186,25 @@ export function describeModuleOperation(
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Módulos"];
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  if (path.includes("web-steps")) {
+    entry.description +=
+      " O cliente abre o link em /api/w/{código} (página pública, sem autenticação). Estados: sent (enviado), opened (aberto), completed (concluído, com answers), expired (venceu sem resposta) e cancelled. Cada mudança publica web_step.sent, web_step.opened, web_step.completed, web_step.expired ou web_step.cancelled com conversation_id.";
+    if (path.endsWith("/cancel"))
+      entry.description +=
+        " Só cancela links em sent ou opened; os demais retornam 409 web_step_closed.";
+    success.content["application/json"].schema = path.endsWith("/web-steps")
+      ? {
+          type: "object",
+          properties: { data: { type: "array", items: ref("WebStep") } },
+        }
+      : ref("WebStep");
+    return;
+  }
+  if (path.endsWith("/forms")) {
+    entry.description +=
+      ' Lista os formulários ativos com ID, título e campos (sem textos internos). Envie com POST /conversations/{id}/actions e {"action":"form","form_id":"..."}. Com o módulo Formulários desligado, responde 409 module_disabled.';
+    return;
+  }
   if (path === "/capabilities") {
     entry.description =
       "Aceita qualquer credencial válida: sessão de pessoa (cookie ou token wabu_) e chave de aplicação, inclusive a de um aparelho pareado. Lista só as áreas que a credencial alcança; profile=<id> restringe a uma área (404 se não alcançar). Os aplicativos consultam antes de mostrar telas de módulo.";

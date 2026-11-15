@@ -443,7 +443,13 @@ const schemas = {
           "menu",
           "protocols",
           "survey",
+          "form",
         ],
+      },
+      form_id: {
+        type: "string",
+        description:
+          "Na ação form (módulo Formulários): ID de GET /profiles/{profile}/forms. Envia o link do passo web; exige conversa assumida (ou bot com a conversa) e janela de 24 horas aberta nas linhas oficiais. Responde com o WebStep criado.",
       },
       content: { $ref: "#/components/schemas/MessageContent" },
       text: { type: "string" },

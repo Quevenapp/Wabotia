@@ -7,6 +7,7 @@ import {
   Bot,
   Building2,
   ChevronRight,
+  ClipboardList,
   FileText,
   List,
   ListTree,
@@ -75,6 +76,11 @@ export function TransferDialog({
   const [number, setNumber] = useState("");
   const group = conversation.chat_type === "group";
   const name = conversationName(conversation);
+  // Formulários (módulo Formulários): enviados por link, fora de grupos.
+  const forms: Row[] =
+    !group && app.moduleOn("forms")
+      ? (app.settings.forms || []).filter((form: Row) => form.enabled !== false)
+      : [];
 
   // Presença atualizada ao abrir (a casca relê a cada 20 s).
   useEffect(() => {
@@ -199,7 +205,7 @@ export function TransferDialog({
         : tab === "departments"
           ? departments.length
           : tab === "menu"
-            ? submenus.length + 1
+            ? submenus.length + 1 + forms.length
             : 0;
 
   const row = (
@@ -431,6 +437,30 @@ export function TransferDialog({
                 }),
             );
           })}
+        {forms.length > 0 && (
+          <h3 className="transfer-heading">Formulários</h3>
+        )}
+        {forms
+          .filter((form) => matches(form.name + " " + form.title))
+          .map((form) =>
+            row(
+              "form:" + form.id,
+              <span className="transfer-icon">
+                <ClipboardList size={20} />
+              </span>,
+              form.name,
+              `${(form.fields || []).length} campos · resposta por link`,
+              () =>
+                setChoice({
+                  key: "form:" + form.id,
+                  question: `Enviar o formulário “${form.name}”?`,
+                  confirm: "Enviar formulário",
+                  help: "O cliente recebe um link para responder numa página. Ao concluir, ele volta ao WhatsApp com a confirmação e as respostas aparecem nesta conversa.",
+                  body: { action: "form", form_id: form.id },
+                  success: "Formulário enviado ao cliente.",
+                }),
+            ),
+          )}
       </>
     );
   else

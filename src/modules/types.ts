@@ -21,6 +21,12 @@ export interface ModuleMenuType {
   type: string;
   label: string;
   description: string;
+  /**
+   * Campo do item que aponta para um registro de uma chave de configuração
+   * do módulo (por exemplo form_id → forms[].id). O núcleo recusa salvar um
+   * item que aponte para um registro inexistente.
+   */
+  reference?: { field: string; setting: string; label: string };
 }
 
 /** Chave das configurações da área (PUT /settings) que pertence ao módulo. */

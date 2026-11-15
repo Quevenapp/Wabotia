@@ -37,6 +37,23 @@ const settings: Row = {
     { id: "suporte", name: "Suporte", members: ["demo-user", "demo-ana"], enabled: true },
     { id: "financeiro", name: "Financeiro", members: ["demo-ana"], enabled: true },
   ],
+  forms: [
+    {
+      id: "cadastro",
+      name: "Cadastro de cliente",
+      title: "Cadastro",
+      intro: "Leva menos de um minuto.",
+      fields: [
+        { id: "nome", type: "text", label: "Nome completo", required: true },
+        { id: "plano", type: "choice", label: "Plano", required: true, options: ["Mensal", "Anual"] },
+        { id: "nascimento", type: "date", label: "Data de nascimento", required: true },
+        { id: "termos", type: "accept", label: "Li e aceito os termos de uso", required: true },
+      ],
+      ticket: "attach",
+      expires_hours: 24,
+      enabled: true,
+    },
+  ],
 };
 
 const conversation = (row: Row): Row => ({
@@ -320,6 +337,18 @@ const demoModules: Row[] = [
       { id: "queue-settings", label: "Filas e guichês", place: "admin", admin: true },
     ],
     menu_item_types: [{ type: "queue", label: "Entrar na fila de espera" }],
+  },
+  {
+    id: "forms",
+    name: "Formulários",
+    version: "1.0.0",
+    description:
+      "Formulários do administrador (texto, escolha, data, aceite) respondidos numa página leve aberta pelo WhatsApp; as respostas vão para o contato e o protocolo.",
+    builtin: true,
+    enabled: true,
+    default_enabled: true,
+    navigation: [{ id: "forms", label: "Formulários", place: "admin", admin: true }],
+    menu_item_types: [{ type: "form", label: "Responder formulário" }],
   },
 ];
 

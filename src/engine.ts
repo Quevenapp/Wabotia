@@ -67,6 +67,8 @@ import { formatBrasilia } from "./business-time";
 import { visibleEvent } from "./visibility";
 import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
 import { moduleEnabled } from "./modules/registry";
+import { menuHandler } from "./modules/hooks";
+import "./modules/runtime";
 import {
   activeBlock,
   blockMessage,
@@ -659,6 +661,25 @@ export async function processInbox(env: Env, profile: string) {
       }
       if (choice.type === "queue" && c.chat_type !== "group") {
         await startQueue(env, c, choice.queue_id || null, row.id);
+        return;
+      }
+      // Tipos de item declarados pelos módulos (src/modules/api.ts). Itens de
+      // módulo desligado nem chegam aqui: settings() os esconde do menu.
+      const moduleMenu = menuHandler(choice.type);
+      if (moduleMenu) {
+        if (c.chat_type === "group")
+          await enqueue(
+            env,
+            c,
+            "system",
+            "text",
+            {
+              text: "Esta opção não está disponível em grupos.",
+              automation: "menu",
+            },
+            `menu-group:${row.id}`,
+          );
+        else await moduleMenu(env, c, choice, row.id);
         return;
       }
       if (choice.type === "human") {

@@ -15,6 +15,7 @@ import {
   type ContactValues,
 } from "./contact-csv";
 import { visibleConversation } from "./visibility";
+import { webStepView } from "./web-steps";
 
 export const contactNamespace = (actor: Actor) =>
   actor.kind === "app" ? `app:${actor.id}` : "team";
@@ -133,7 +134,19 @@ export async function contactDetail(
           actor.kind === "user" ? 1 : 0,
           contactNamespace(actor),
         );
-  return { contact, conversations };
+  // Respostas de passos web (formulários) das conversas vinculadas ao
+  // contato, inclusive as respondidas antes do vínculo.
+  const answers = conversations.length
+    ? (
+        await all(
+          env,
+          "SELECT * FROM web_steps WHERE profile_id=? AND status='completed' AND conversation_id IN (SELECT value FROM json_each(?)) ORDER BY completed_at DESC,id DESC LIMIT 50",
+          profile,
+          JSON.stringify(conversations.map((c) => c.id)),
+        )
+      ).map(webStepView)
+    : [];
+  return { contact, conversations, web_steps: answers };
 }
 function insertContact(
   actor: Actor,
@@ -311,7 +324,10 @@ export async function contactCommand(
         conv.external_namespace !== contactNamespace(actor))
     )
       throw new ApiError(404, "not_found", "Conversa não encontrada.");
-    requireValue(conv.chat_type!=="group","Um grupo não pode ser salvo como uma pessoa na agenda.");
+    requireValue(
+      conv.chat_type !== "group",
+      "Um grupo não pode ser salvo como uma pessoa na agenda.",
+    );
     const linked = await one(
       env,
       "SELECT contact_id FROM conversation_contacts WHERE conversation_id=? AND profile_id=?",

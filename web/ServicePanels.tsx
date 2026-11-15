@@ -439,6 +439,8 @@ export function MenusPanel(props: Props) {
     [apps, setApps] = useState<Row[]>([]),
     [departments, setDepartments] = useState<Row[]>([]),
     [categories, setCategories] = useState<Row[]>([]),
+    [forms, setForms] = useState<Row[]>([]),
+    [formsOn, setFormsOn] = useState(false),
     [savedGreeting, setSavedGreeting] = useState(""),
     [greeting, setGreeting] = useState<string | null>(null),
     [draft, setDraft] = useState<Row | null>(null),
@@ -464,6 +466,9 @@ export function MenusPanel(props: Props) {
     setApps(status.settings?.apps || []);
     setDepartments(status.settings?.departments || []);
     setCategories(status.settings?.ticket_categories || []);
+    // Módulo Formulários (Gestão → Módulos): destino "Formulário".
+    setForms(status.settings?.forms || []);
+    setFormsOn(status.modules?.forms !== false);
     setSavedGreeting(status.settings?.menu_greeting || "");
   }
   useEffect(() => {
@@ -720,6 +725,8 @@ export function MenusPanel(props: Props) {
                           protocols: "Consulta de protocolos",
                           ticket: "Abrir protocolo",
                           survey: "Avaliação",
+                          queue: "Fila de senhas",
+                          form: "Formulário",
                         } as Row
                       )[m.type]}{" "}
                   ·{" "}
@@ -1029,6 +1036,9 @@ export function MenusPanel(props: Props) {
                       <option value="protocols">Consultar protocolos</option>
                       <option value="ticket">Abrir protocolo</option>
                       <option value="survey">Avaliar atendimento</option>
+                      {(formsOn || draft.type === "form") && (
+                        <option value="form">Formulário (link)</option>
+                      )}
                     </select>
                   </label>
                 )}
@@ -1161,6 +1171,31 @@ export function MenusPanel(props: Props) {
                     </small>
                   </label>
                 </>
+              )}
+              {draft.type === "form" && (
+                <label>
+                  Formulário
+                  <select
+                    required
+                    value={draft.form_id || ""}
+                    onChange={(e) =>
+                      setDraft({ ...draft, form_id: e.target.value })
+                    }
+                  >
+                    <option value="">Selecione...</option>
+                    {forms.map((form) => (
+                      <option key={form.id} value={form.id}>
+                        {form.name}
+                        {form.enabled === false ? " · desativado" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    {forms.length
+                      ? "O cliente recebe um link para responder numa página e volta ao WhatsApp com a confirmação. As respostas vão para a conversa, o contato e o protocolo."
+                      : "Nenhum formulário cadastrado. Cadastre em Gestão → Formulários."}
+                  </small>
+                </label>
               )}
               {draft.type === "survey" && (
                 <label>

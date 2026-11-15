@@ -333,6 +333,40 @@ export const tools: Tool[] = [
     }),
   },
   {
+    name: "list_forms",
+    description:
+      "Lista os formulários ativos da área (módulo Formulários), com ID, título e campos. Use o ID em send_form. Requer conversations:read.",
+    input: { profile },
+    call: (_a, id) => ({ path: p(id, "/forms") }),
+  },
+  {
+    name: "send_form",
+    description:
+      "Envia ao cliente o link de um formulário (passo web). O cliente responde numa página e volta ao WhatsApp com a confirmação; as respostas vão para a conversa, o contato e o protocolo ativo. Exige conversa assumida e janela de 24 horas aberta. Requer conversations:write.",
+    input: {
+      profile,
+      conversation_id: conversationId,
+      form_id: { type: "string", description: "ID de list_forms." },
+      idempotency_key: idempotency,
+    },
+    required: ["conversation_id", "form_id"],
+    call: (a, id) => ({
+      method: "POST",
+      path: p(id, `/conversations/${a.conversation_id}/actions`),
+      body: { action: "form", form_id: a.form_id },
+    }),
+  },
+  {
+    name: "list_web_steps",
+    description:
+      "Passos web da conversa e o estado de cada link: sent (enviado), opened (aberto), completed (concluído, com answers), expired ou cancelled. Requer conversations:read.",
+    input: { profile, conversation_id: conversationId },
+    required: ["conversation_id"],
+    call: (a, id) => ({
+      path: p(id, `/conversations/${a.conversation_id}/web-steps`),
+    }),
+  },
+  {
     name: "lookup_conversation_protocols",
     description:
       "Lista os protocolos do telefone verificado desta conversa, ou confere um número exato de protocolo. Não consulta terceiros. Requer conversations:write.",

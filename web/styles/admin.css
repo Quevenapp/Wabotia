@@ -826,3 +826,53 @@
 .module-facts dd {
   margin: 0;
 }
+/* ---------- Formulários ---------- */
+.form-editor-heading {
+  margin: 22px 0 6px;
+  font-size: 15px;
+}
+.form-field-editor {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+}
+.form-field-editor legend {
+  padding: 0 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.form-field-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 0 12px;
+}
+@media (max-width: 560px) {
+  .form-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.form-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 6px;
+}
+.form-field-actions .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.form-field-actions .spacer {
+  flex: 1;
+}
+.form-enabled {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-2);
+  font-size: 14px;
+}

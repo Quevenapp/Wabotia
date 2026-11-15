@@ -2,6 +2,7 @@ import {
   Activity,
   Blocks,
   BookOpen,
+  ClipboardList,
   Bot,
   Cloud,
   Code2,
@@ -43,6 +44,7 @@ export const sections = [
   ["knowledge", "Conhecimento", BookOpen],
   ["settings", "Regras de atendimento", Settings],
   ["queue-settings", "Filas e guichês", Ticket],
+  ["forms", "Formulários", ClipboardList],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -101,6 +103,7 @@ export const workspaceGroups = [
       "knowledge",
       "settings",
       "queue-settings",
+      "forms",
     ],
   },
   {
@@ -135,6 +138,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "setup",
   "settings",
   "queue-settings",
+  "forms",
   "menus",
   "templates",
   "lines",
@@ -154,6 +158,7 @@ const adminPages: ReadonlySet<string> = new Set([
 export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
   "queue-settings": "queue",
+  forms: "forms",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -225,5 +230,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   "webhook-deliveries": "Acompanhe os eventos enviados aos seus sistemas.",
   system: "Verifique versões, instale atualizações e mantenha sua instalação.",
   modules:
-    "Ligue e desligue as funções desta área, como a fila presencial.",
+    "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
+  forms:
+    "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
 };

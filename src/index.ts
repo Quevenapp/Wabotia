@@ -92,10 +92,26 @@ import {
 import { installStep, webInstallerEnabled } from "./web-install";
 import {
   listModules,
+  moduleById,
+  moduleEnabled,
   moduleForRoute,
   moduleStates,
   requireModule,
 } from "./modules/registry";
+import {
+  formInput,
+  formPage,
+  getWebStep,
+  listWebSteps,
+  rememberOrigin,
+  statePage,
+  touchWebStep,
+  webStepByCode,
+  webStepView,
+  whatsappReturnLink,
+} from "./web-steps";
+import { listForms } from "./modules/forms/forms";
+import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import {
   queueRead,
@@ -160,7 +176,9 @@ app.use("*", async (c, next) => {
   c.header("X-Request-Id", c.get("requestId"));
   if (c.res.status === 429) c.header("Retry-After", "60");
   c.header("X-Content-Type-Options", "nosniff");
-  c.header("Referrer-Policy", "same-origin");
+  // A página do passo web leva o código no endereço: ela pede no-referrer.
+  if (!c.res.headers.has("Referrer-Policy"))
+    c.header("Referrer-Policy", "same-origin");
   if (c.req.path.startsWith("/api/")) c.header("Cache-Control", "no-store");
 });
 app.onError((error, c) => {
@@ -234,6 +252,125 @@ app.get("/api/public/queue/:token", async (c) => {
   );
   if (owner) await requireModule(c.env, owner.profile_id, "queue");
   return c.json(await publicTicket(c.env, c.req.param("token")));
+});
+// Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto
+// enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
+const webStepHeaders = {
+  "Content-Security-Policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex",
+};
+const webStepHtml = (c: any, body: string, status = 200) =>
+  c.html(body, status, webStepHeaders);
+const appName = (env: Env) => env.APP_NAME || "Wabotia";
+async function webStepRate(c: any) {
+  await rate(
+    c.env,
+    "web-step:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
+    120,
+  );
+}
+async function webStepAvailable(env: Env, row: any) {
+  return moduleById(row.module_id)
+    ? moduleEnabled(env, row.profile_id, row.module_id)
+    : true;
+}
+app.get("/api/w/:code", async (c) => {
+  await webStepRate(c);
+  const row = await webStepByCode(c.env, c.req.param("code"));
+  if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  const current = await touchWebStep(c.env, row);
+  const conv = await one(
+    c.env,
+    "SELECT * FROM conversations WHERE id=?",
+    row.conversation_id,
+  );
+  const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
+  if (current.status === "completed")
+    return webStepHtml(c, statePage("used", appName(c.env), { whatsapp }));
+  if (
+    !["sent", "opened"].includes(current.status) ||
+    !(await webStepAvailable(c.env, row))
+  )
+    return webStepHtml(
+      c,
+      statePage("expired", appName(c.env), {
+        whatsapp,
+        ...(current.status === "cancelled" ||
+        ["sent", "opened"].includes(current.status)
+          ? {
+              title: "Link indisponível",
+              text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
+            }
+          : {}),
+      }),
+      410,
+    );
+  return webStepHtml(c, formPage(current, appName(c.env)));
+});
+app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+  await webStepRate(c);
+  const origin = c.req.header("Origin");
+  if (origin && origin !== "null" && origin !== new URL(c.req.url).origin)
+    throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
+  const row = await webStepByCode(c.env, c.req.param("code"));
+  if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  const input = formInput(
+    await c.req.raw.formData().catch(() => new URLSearchParams()),
+  );
+  if (!(await webStepAvailable(c.env, row)))
+    return webStepHtml(
+      c,
+      statePage("expired", appName(c.env), {
+        title: "Link indisponível",
+        text: "Este link não está mais disponível. Peça um novo na conversa pelo WhatsApp.",
+      }),
+      410,
+    );
+  const response = await c.env.COORDINATOR.get(
+    c.env.COORDINATOR.idFromName(row.profile_id),
+  ).fetch("https://coordinator/web-step", {
+    method: "POST",
+    body: JSON.stringify({
+      profile: row.profile_id,
+      id: row.id,
+      answers: input,
+    }),
+  });
+  const result = await response.json<any>();
+  if (result.ok) {
+    const spec = json(row.spec);
+    return webStepHtml(
+      c,
+      statePage("done", appName(c.env), {
+        title: spec.title,
+        text:
+          spec.done_text ||
+          "Recebemos suas respostas. A confirmação chega na conversa do WhatsApp.",
+        whatsapp: result.whatsapp,
+      }),
+    );
+  }
+  if (result.reason === "invalid")
+    return webStepHtml(
+      c,
+      formPage(row, appName(c.env), input, result.errors || {}),
+      422,
+    );
+  return webStepHtml(
+    c,
+    statePage(
+      result.reason === "used"
+        ? "used"
+        : result.reason === "not_found"
+          ? "not_found"
+          : "expired",
+      appName(c.env),
+      { whatsapp: result.whatsapp },
+    ),
+    result.reason === "not_found" ? 404 : 410,
+  );
 });
 const displayToken = (c: any) =>
   c.req.header("Authorization")?.match(/^Display ([0-9a-f]{64})$/)?.[1] ||
@@ -503,10 +640,14 @@ app.post("/api/auth/mobile/login", async (c) => {
 });
 app.use("/api/v1/*", async (c, next) => {
   // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
-  c.set(
-    "actor",
-    takeInternalActor(c.req.raw) || (await authenticate(c.env, c.req.raw)),
-  );
+  const internal = takeInternalActor(c.req.raw);
+  const actor = internal || (await authenticate(c.env, c.req.raw));
+  c.set("actor", actor);
+  // Endereço público visto por quem usa o painel e os aplicativos: o passo
+  // web monta com ele os links enviados ao cliente (src/web-steps.ts). Chaves
+  // de integração podem chamar por outro domínio e não contam.
+  if (!internal && actor.kind === "user")
+    await rememberOrigin(c.env, c.req.url);
   await next();
 });
 // Rotas de um módulo desligado na área (/profiles/:profile/<rota do módulo>)
@@ -1014,6 +1155,7 @@ const commands = [
   ["DELETE", "queue/displays/:id", "queue.display.revoke"],
   // Módulos embutidos (docs/MODULOS.md).
   ["PUT", "modules/:id", "module.set"],
+  ["POST", "web-steps/:id/cancel", "web_step.cancel"],
 ];
 for (const [method, path, op] of commands)
   app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) =>
@@ -1550,8 +1692,39 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
       "SELECT id,status,error,created FROM outbox WHERE conversation_id=? ORDER BY created",
       conv.id,
     ),
+    // Passos web da conversa (enviado, aberto, concluído, expirado).
+    web_steps: (
+      await all(
+        c.env,
+        "SELECT * FROM web_steps WHERE conversation_id=? ORDER BY created DESC,id DESC LIMIT 20",
+        conv.id,
+      )
+    ).map(webStepView),
   });
 });
+app.get("/api/v1/profiles/:profile/conversations/:id/web-steps", async (c) =>
+  c.json(
+    await listWebSteps(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/web-steps/:id", async (c) =>
+  c.json(
+    await getWebStep(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.param("id"),
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/forms", async (c) =>
+  c.json(await listForms(c.env, c.get("actor"), c.req.param("profile"))),
+);
 app.get("/api/v1/profiles/:profile/presence", async (c) => {
   access(c.get("actor"), c.req.param("profile"), "presence:read");
   return c.json(
