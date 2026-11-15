@@ -2,7 +2,13 @@
 // embutidas por área de atendimento. Desligado, o módulo some do painel e do
 // menu do WhatsApp; o que foi configurado fica guardado para quando religar.
 import React, { useState } from "react";
-import { Blocks, ClipboardList, Puzzle, Ticket } from "lucide-react";
+import {
+  Blocks,
+  ClipboardList,
+  CreditCard,
+  Puzzle,
+  Ticket,
+} from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
@@ -12,6 +18,7 @@ import { useResource } from "./shared";
 const icons: Record<string, typeof Puzzle> = {
   queue: Ticket,
   forms: ClipboardList,
+  payments: CreditCard,
 };
 
 function ModuleCard({

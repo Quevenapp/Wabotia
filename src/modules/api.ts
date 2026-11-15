@@ -7,6 +7,7 @@ import {
   registerConversationAction,
   registerInboundHandler,
   registerMenuHandler,
+  registerPaymentHook,
   registerReadRoute,
   registerSchedule,
   registerSettingsValidator,
@@ -25,6 +26,7 @@ import {
 import { access } from "../security";
 import { event } from "../events";
 import { conversation, enqueue, settings } from "../service";
+import { createPayment, type Payment } from "../payments";
 import {
   openWebStep,
   type Answers,
@@ -90,6 +92,27 @@ export interface ModuleContext {
   ): ReturnType<typeof openWebStep>;
   /** Publica um evento declarado em `events` do módulo. */
   publish(kind: string, resourceId: string, payload: any): Promise<number>;
+  /**
+   * Cobra o cliente da conversa (Pix ou link) pela conta da área
+   * (docs/COBRANCA.md). A confirmação chega em onPaymentUpdated.
+   */
+  charge(c: Conversation, request: ChargeRequest): Promise<Payment>;
+}
+
+export interface ChargeRequest {
+  method: "pix" | "link";
+  amount_cents: number;
+  description: string;
+  /** Registro do módulo pago por esta cobrança (pedido, mensalidade…). */
+  ref?: string | null;
+  /** Repetir a chave devolve a mesma cobrança, sem cobrar de novo. */
+  sourceKey: string;
+  /** 30 min a 30 dias; padrão 24 h. */
+  expiresMinutes?: number;
+  trigger?: "module" | "agent" | "bot" | "menu";
+  actor?: string;
+  /** Janela de 24 h fechada: envia pelo modelo de notificação. */
+  notification?: boolean;
 }
 
 export function modulesApi(
@@ -154,6 +177,24 @@ export function modulesApi(
         sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
       });
     },
+    async charge(c, request) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return (
+        await createPayment(env, {
+          conversation: c,
+          method: request.method,
+          amount_cents: request.amount_cents,
+          description: request.description,
+          module: moduleId,
+          ref: request.ref ?? null,
+          trigger: request.trigger || "module",
+          actor: request.actor || "system",
+          sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
+          expiresMinutes: request.expiresMinutes,
+          notification: request.notification,
+        })
+      ).payment;
+    },
     async publish(kind, resourceId, payload) {
       if (!definition.events.includes(kind))
         throw new Error(
@@ -166,6 +207,24 @@ export function modulesApi(
     },
   };
   return ctx;
+}
+
+/**
+ * Cobrança aberta pelo módulo (ctx.charge) mudou de estado: paid, expired,
+ * cancelled ou refunded. Só depois do webhook assinado e da consulta ao
+ * provedor; repetições do webhook não chamam de novo.
+ */
+export function onPaymentUpdated(
+  moduleId: string,
+  hook: (
+    ctx: ModuleContext,
+    payment: Payment,
+    change: { previous: string },
+  ) => Promise<void>,
+) {
+  registerPaymentHook(moduleId, (env, profile, payment, previous) =>
+    hook(modulesApi(env, profile, moduleId), payment, { previous }),
+  );
 }
 
 /** Reage à conclusão dos passos web abertos pelo módulo. */

@@ -91,6 +91,7 @@ O que o núcleo faz com cada campo:
 | `sendMessage(c, {text, content?, attachments?}, {key, actor?, notification?})` | Mensagem ao cliente pela fila de entrega; `key` torna idempotente; `notification: true` usa o modelo de notificação com a janela de 24 h fechada |
 | `openWebStep(c, request)` | Abre um passo web do módulo (seção 4) |
 | `publish(kind, id, payload)` | Evento declarado em `events`; o núcleo acrescenta `module_id` |
+| `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar") |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
@@ -103,6 +104,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
+| `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 
@@ -271,6 +273,55 @@ const { step, url, created } = await ctx.openWebStep(c, {
   Wabotia; use Flows de navegação.
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
+
+## 4b. Cobrar (Pix e link de pagamento)
+
+A Cobrança é do núcleo (módulo `payments`, `src/payments.ts`, contrato em
+[COBRANCA.md](COBRANCA.md)). Uma vertical cobra assim:
+
+```ts
+import { onPaymentUpdated } from "../api";
+
+// Ao fechar o pedido:
+const payment = await ctx.charge(c, {
+  method: "pix",                    // ou "link" (Checkout Pro: cartão, Pix…)
+  amount_cents: order.total_cents,  // inteiro, em centavos
+  description: `Pedido ${order.number}`,  // até 120 caracteres
+  ref: order.id,                    // vira ref_id na cobrança e no gancho
+  sourceKey: `order:${order.id}`,   // repetir não cobra de novo
+  expiresMinutes: 60,               // 30 min a 30 dias; padrão 24 h
+});
+// Guarde payment.id no registro do módulo, se quiser mostrar o estado.
+
+onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
+  if (payment.status === "paid") await marcarPago(ctx, payment.ref_id!);
+  if (payment.status === "refunded") await marcarEstornado(ctx, payment.ref_id!);
+  // expired e cancelled: liberar estoque, horário, quarto…
+});
+```
+
+- Pré-requisitos: módulo **Cobrança** ligado e conta configurada em
+  **Gestão → Cobrança**. Sem conta: `409 payments_not_configured`; módulo
+  desligado: `409 module_disabled`. Trate esses erros mostrando ao cliente
+  outra forma de pagar.
+- O núcleo entrega ao cliente (botão com URL na linha oficial, link no texto
+  no QR, e o código Pix numa mensagem separada), registra nota na conversa,
+  publica `payment.*` e envia "Pagamento recebido" quando paga. O módulo não
+  envia essas mensagens.
+- **Janela de 24 horas:** na linha oficial com a janela fechada, `charge`
+  recusa (`409 window_closed`), a menos que você passe `notification: true`
+  (lembrete de mensalidade, por exemplo): aí a cobrança sai em texto pelo
+  modelo de notificação configurado.
+- `paid` só chega pelo webhook do provedor, depois de consultar o pagamento.
+  Nunca marque um registro como pago por mensagem do cliente. O gancho roda no
+  `Coordinator` da área, uma vez por mudança, mesmo com webhooks repetidos.
+- Um pagamento aprovado depois de `expired` ou `cancelled` vira `paid` (o
+  dinheiro entrou): o gancho recebe `previous: "expired"`; decida no módulo
+  se ainda dá para atender ou se é preciso estornar pelo painel do provedor.
+- Sinal ou parcial: crie uma cobrança por parcela, cada uma com a sua
+  `sourceKey`.
+- Nos testes, simule o Mercado Pago com `vi.stubGlobal("fetch", …)` e o
+  webhook assinado como em `tests/payments.test.ts` (`mpManifest` + `hmac`).
 
 ## 5. Painel web
 

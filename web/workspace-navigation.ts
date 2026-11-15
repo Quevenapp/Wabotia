@@ -3,6 +3,7 @@ import {
   Blocks,
   BookOpen,
   ClipboardList,
+  CreditCard,
   Bot,
   Cloud,
   Code2,
@@ -45,6 +46,7 @@ export const sections = [
   ["settings", "Regras de atendimento", Settings],
   ["queue-settings", "Filas e guichês", Ticket],
   ["forms", "Formulários", ClipboardList],
+  ["payments", "Cobrança", CreditCard],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -104,6 +106,7 @@ export const workspaceGroups = [
       "settings",
       "queue-settings",
       "forms",
+      "payments",
     ],
   },
   {
@@ -149,6 +152,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
   "modules",
+  "payments",
 ]);
 
 /**
@@ -159,6 +163,7 @@ export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
+  payments: "payments",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -233,4 +238,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
+  payments:
+    "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
 };

@@ -16,6 +16,7 @@ import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
 import { closeDay, overview as queueOverview } from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
+import { expirePayments, refreshFromProvider } from "./payments";
 import "./modules/runtime";
 import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
 import {
@@ -158,6 +159,15 @@ export class Coordinator extends DurableObject<Env> {
     if (new URL(request.url).pathname === "/web-step") {
       const result = await this.ctx.blockConcurrencyWhile(() =>
         completeWebStep(this.env, body.id, body.answers || {}),
+      );
+      await this.schedule();
+      return Response.json(result);
+    }
+    // Webhook de pagamento já assinado: consulta o provedor e muda o estado
+    // na mesma fila de escrita da área.
+    if (new URL(request.url).pathname === "/payment-webhook") {
+      const result = await this.ctx.blockConcurrencyWhile(() =>
+        refreshFromProvider(this.env, body.account, body.payment_id),
       );
       await this.schedule();
       return Response.json(result);
@@ -338,6 +348,7 @@ export class Coordinator extends DurableObject<Env> {
       await expireUploads(this.env, this.profile);
       await closeDay(this.env, this.profile);
       await expireWebSteps(this.env, this.profile);
+      await expirePayments(this.env, this.profile);
       // Tarefas periódicas dos módulos (onSchedule): no máximo uma rodada por
       // minuto; o cron de 5 minutos garante a frequência mínima.
       const tick = now();
