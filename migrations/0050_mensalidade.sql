@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS mensalidade_installments (
   amount_cents INTEGER NOT NULL,
   -- open | paid | overdue | cancelled | waived
   status TEXT NOT NULL DEFAULT 'open',
+  -- Gerada já vencida (início no passado): sem avisos automáticos.
+  retroactive INTEGER NOT NULL DEFAULT 0,
   -- Cobrança do núcleo (tabela payments) em uso e o que o cliente recebeu.
   payment_id TEXT,
   payment_status TEXT,
