@@ -1,7 +1,15 @@
+import Combine
 import Foundation
 
 /// O servidor oferece a fila de senhas a esta área?
 enum QueueAvailability: Equatable { case available, unavailable, unknown }
+
+/// Ids dos módulos que o app conhece.
+enum ModuleId {
+    static let queue = "queue"
+    static let agenda = "agenda"
+    static let serviceOrders = "os"
+}
 
 /// Lê os módulos ligados na resposta da rota de capacidades (docs/MODULOS.md, seção 6):
 /// `{capabilities_version, server, features, actor, profiles:[{id, modules:[{id,name,version}]}], modules:[…]}`, com
@@ -13,34 +21,40 @@ enum ModuleCapabilities {
     static let queueIds: Set<String> = ["queue", "fila", "queue_tickets"]
 
     static func hasModule(_ json: Any, profileId: String? = nil, ids: Set<String> = queueIds) -> Bool? {
-        guard let root = json as? [String: Any] else { return nil }
-        if let modules = root["modules"] ?? (root["data"] as? [String: Any])?["modules"] {
-            return contains(modules, ids)
-        }
-        if let profiles = root["profiles"] as? [[String: Any]] {
-            let area = profiles.first { ($0["id"] as? String) == profileId } ?? (profiles.count == 1 ? profiles.first : nil)
-            if let modules = area?["modules"] { return contains(modules, ids) }
-            // A credencial não alcança a área pedida: a fila não está aqui.
-            if profileId != nil, area == nil { return false }
-        }
-        return nil
+        enabledIds(json, profileId: profileId).map { !$0.isDisjoint(with: ids) }
     }
 
-    private static func contains(_ modules: Any, _ ids: Set<String>) -> Bool? {
+    /// Os ids dos módulos ligados na área (`queue` também quando o servidor usa um dos nomes antigos da fila).
+    static func enabledIds(_ json: Any, profileId: String? = nil) -> Set<String>? {
+        guard let root = json as? [String: Any] else { return nil }
+        var found: Set<String>?
+        if let modules = root["modules"] ?? (root["data"] as? [String: Any])?["modules"] {
+            found = ids(modules)
+        } else if let profiles = root["profiles"] as? [[String: Any]] {
+            let area = profiles.first { ($0["id"] as? String) == profileId } ?? (profiles.count == 1 ? profiles.first : nil)
+            if let modules = area?["modules"] { found = ids(modules) }
+            // A credencial não alcança a área pedida: nenhum módulo aqui.
+            else if profileId != nil, area == nil { found = [] }
+        }
+        guard var set = found else { return nil }
+        if !set.isDisjoint(with: queueIds) { set.insert(ModuleId.queue) }
+        return set
+    }
+
+    private static func ids(_ modules: Any) -> Set<String>? {
         if let list = modules as? [Any] {
-            return list.contains { entry in
-                if let id = entry as? String { return ids.contains(id) }
-                if let object = entry as? [String: Any], let id = object["id"] as? String { return ids.contains(id) && enabled(object) }
-                return false
-            }
+            return Set(list.compactMap { entry -> String? in
+                if let id = entry as? String { return id }
+                if let object = entry as? [String: Any], let id = object["id"] as? String, enabled(object) { return id }
+                return nil
+            })
         }
         if let map = modules as? [String: Any] {
-            return map.contains { id, value in
-                guard ids.contains(id) else { return false }
-                if let object = value as? [String: Any] { return enabled(object) }
-                if let flag = value as? Bool { return flag }
-                return true
-            }
+            return Set(map.compactMap { id, value -> String? in
+                if let object = value as? [String: Any] { return enabled(object) ? id : nil }
+                if let flag = value as? Bool { return flag ? id : nil }
+                return id
+            })
         }
         return nil
     }
@@ -53,31 +67,31 @@ enum ModuleCapabilities {
     }
 }
 
-/// Decide se a fila aparece no app. Primeiro a rota de capacidades (`GET /api/v1/profiles/{p}/capabilities`, depois
-/// `GET /api/v1/capabilities?profile_id=`); enquanto nenhuma delas existir (servidor anterior aos módulos) ou não falar
-/// de módulos, `GET /queue` é o sinal: 200 é fila disponível, recusa é indisponível. Falha de rede é `unknown` e quem
-/// chama mantém o que sabia.
-struct QueueAvailabilityProbe {
+/// Quais módulos o servidor oferece à área. Primeiro a rota de capacidades (`GET /api/v1/profiles/{p}/capabilities`,
+/// depois `GET /api/v1/capabilities?profile_id=`); enquanto nenhuma delas existir (servidor anterior aos módulos) ou não
+/// falar de módulos, só a fila pode existir, e `GET /queue` é o sinal dela: 200 é fila disponível, recusa é
+/// indisponível. Falha de rede é `nil` (quem chama mantém o que sabia).
+struct ModulesProbe {
     let baseURL: String
     let profileId: String
     let token: () -> String?
     var session: URLSession = QueueHTTP.shared
 
-    func check() async -> QueueAvailability {
+    func check() async -> Set<String>? {
         let base = QueueHTTP.normalize(baseURL)
         let p = profileId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? profileId
         for path in ["/api/v1/profiles/\(p)/capabilities", "/api/v1/capabilities?profile_id=\(p)"] {
             switch await get(base + path) {
             case .ok(let json):
-                if let has = ModuleCapabilities.hasModule(json, profileId: profileId) { return has ? .available : .unavailable }
+                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) { return ids }
             case .failed(let status):
-                if status == 0 { return .unknown }
+                if status == 0 { return nil }
                 // 404/405 (servidor antigo), 401/403: tenta o próximo sinal.
             }
         }
         switch await get(base + "/api/v1/profiles/\(p)/queue") {
-        case .ok: return .available
-        case .failed(let status): return status == 0 || status >= 500 || status == 429 ? .unknown : .unavailable
+        case .ok: return [ModuleId.queue]
+        case .failed(let status): return status == 0 || status >= 500 || status == 429 ? nil : []
         }
     }
 
@@ -96,43 +110,66 @@ struct QueueAvailabilityProbe {
     }
 }
 
-/// Se a fila de senhas existe no servidor para a área aberta (módulo ligado). As telas só mostram guichê e impressora
-/// quando sim; servidor antigo, módulo desligado ou sem permissão escondem. Consulta no máximo a cada minuto por área.
+/// A fila de senhas, com o mesmo critério de `ModulesProbe`.
+struct QueueAvailabilityProbe {
+    let baseURL: String
+    let profileId: String
+    let token: () -> String?
+    var session: URLSession = QueueHTTP.shared
+
+    func check() async -> QueueAvailability {
+        guard let ids = await ModulesProbe(baseURL: baseURL, profileId: profileId, token: token, session: session).check() else { return .unknown }
+        return ids.contains(ModuleId.queue) ? .available : .unavailable
+    }
+}
+
+/// Os módulos que o servidor oferece à área aberta (fila, agenda, ordem de serviço). As telas de um módulo só aparecem
+/// quando ele está na lista; servidor antigo, módulo desligado ou sem permissão escondem. Consulta no máximo a cada
+/// minuto por área, e de novo quando chega `module.changed`.
 @MainActor
-final class QueueFeature: ObservableObject {
-    static let shared = QueueFeature()
+final class ModuleFeature: ObservableObject {
+    static let shared: ModuleFeature = {
+        let feature = ModuleFeature()
+        // Um administrador ligou ou desligou um módulo: consulta de novo (evento visível a toda credencial da área).
+        feature.subscription = Workspace.shared.events.sink { [weak feature] list in
+            guard list.contains(where: { $0.kind == "module.changed" }) else { return }
+            Task { @MainActor in await feature?.refresh(container: .shared, force: true) }
+        }
+        return feature
+    }()
 
-    @Published private(set) var available: [String: Bool] = [:]
+    @Published private(set) var modules: [String: Set<String>] = [:]
     private var checkedAt: [String: Date] = [:]
+    private var subscription: AnyCancellable?
 
-    func isAvailable(_ profileId: String?) -> Bool { profileId.flatMap { available[$0] } ?? false }
+    func isAvailable(_ module: String, _ profileId: String?) -> Bool {
+        guard let profileId else { return false }
+        return modules[profileId]?.contains(module) ?? false
+    }
 
     func refresh(container: AppContainer, force: Bool = false) async {
         guard container.isLoggedIn, let server = container.session.serverURL, let profile = container.profileId else { return }
         if !force, let last = checkedAt[profile], Date().timeIntervalSince(last) < 60 { return }
         checkedAt[profile] = Date()
         let session = container.session
-        let result = await QueueAvailabilityProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).check()
+        let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).check()
         apply(result, profile: profile)
     }
 
-    func apply(_ result: QueueAvailability, profile: String) {
-        switch result {
-        case .available: available[profile] = true
-        case .unavailable: available[profile] = false
-        // Sem rede: fica o que já se sabia, e a próxima consulta tenta de novo.
-        case .unknown: checkedAt[profile] = nil
-        }
+    /// `nil` (sem rede): fica o que já se sabia, e a próxima consulta tenta de novo.
+    func apply(_ result: Set<String>?, profile: String) {
+        guard let result else { checkedAt[profile] = nil; return }
+        modules[profile] = result
     }
 
-    /// Um 409 `module_disabled` numa rota da fila esconde a tela até a próxima consulta.
-    func markDisabled(_ profile: String) {
-        available[profile] = false
+    /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.
+    func markDisabled(_ module: String, profile: String) {
+        modules[profile]?.remove(module)
         checkedAt[profile] = nil
     }
 
     func clear() {
-        available = [:]
+        modules = [:]
         checkedAt = [:]
     }
 }

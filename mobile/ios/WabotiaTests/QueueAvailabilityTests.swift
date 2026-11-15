@@ -83,15 +83,29 @@ final class QueueAvailabilityTests: XCTestCase {
 
     @MainActor
     func testFeatureKeepsWhatItKnewWhenUnknown() {
-        let feature = QueueFeature()
-        feature.apply(.available, profile: "p1")
-        XCTAssertTrue(feature.isAvailable("p1"))
-        feature.apply(.unknown, profile: "p1")
-        XCTAssertTrue(feature.isAvailable("p1"))
-        feature.markDisabled("p1")
-        XCTAssertFalse(feature.isAvailable("p1"))
-        XCTAssertFalse(feature.isAvailable(nil))
+        let feature = ModuleFeature()
+        feature.apply(["queue", "agenda"], profile: "p1")
+        XCTAssertTrue(feature.isAvailable("queue", "p1"))
+        XCTAssertTrue(feature.isAvailable("agenda", "p1"))
+        XCTAssertFalse(feature.isAvailable("os", "p1"))
+        feature.apply(nil, profile: "p1")
+        XCTAssertTrue(feature.isAvailable("queue", "p1"))
+        feature.markDisabled("agenda", profile: "p1")
+        XCTAssertFalse(feature.isAvailable("agenda", "p1"))
+        XCTAssertTrue(feature.isAvailable("queue", "p1"))
+        XCTAssertFalse(feature.isAvailable("queue", nil))
         feature.clear()
-        XCTAssertFalse(feature.isAvailable("p1"))
+        XCTAssertFalse(feature.isAvailable("queue", "p1"))
+    }
+
+    func testEnabledIdsListsEveryModule() {
+        let answer = json(#"{"profiles":[{"id":"p1","modules":[{"id":"agenda"},{"id":"os"},{"id":"fila"}]}]}"#)
+        XCTAssertEqual(ModuleCapabilities.enabledIds(answer, profileId: "p1"), ["agenda", "os", "fila", "queue"])
+    }
+
+    func testModulesProbeOnOldServerKnowsOnlyTheQueue() async {
+        StubURLProtocol.reset { seen in seen.url.path.hasSuffix("/queue") ? .json(200, "{}") : .json(404, "{}") }
+        let ids = await ModulesProbe(baseURL: "https://w.example", profileId: "p1", token: { nil }, session: StubURLProtocol.session()).check()
+        XCTAssertEqual(ids, ["queue"])
     }
 }

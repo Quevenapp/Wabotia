@@ -9,6 +9,7 @@ struct ConversationView: View {
     @Environment(\.pushRoute) private var push
     @StateObject private var vm: ConversationViewModel
     @ObservedObject private var workspace = Workspace.shared
+    @ObservedObject private var modules = ModuleFeature.shared
     let conversationId: String
 
     @State private var transferTab: TransferSheet.Tab?
@@ -169,6 +170,9 @@ struct ConversationView: View {
         Menu {
             Button { showTags = true } label: { Label("Etiquetas", systemImage: "tag") }
             Button { push(.newTicket(conversationId: conversationId)) } label: { Label("Abrir protocolo", systemImage: "doc.text") }
+            if !c.isGroup, modules.isAvailable(ModuleId.agenda, container.profileId) {
+                Button { push(.newAppointment(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Agendar para este cliente", systemImage: "calendar.badge.plus") }
+            }
             if vm.canTransfer {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }
             }

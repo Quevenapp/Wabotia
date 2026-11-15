@@ -13,6 +13,10 @@ enum Route: Hashable {
     case botLines
     /// Guichê da fila de senhas (só quando o servidor oferece a fila).
     case counter
+    /// Agenda (módulo `agenda`).
+    case agenda
+    case appointment(id: String)
+    case newAppointment(conversationId: String?, customer: String?)
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -137,6 +141,9 @@ struct RouteDestination: View {
             case .menus: MenusView()
             case .botLines: BotLinesView()
             case .counter: CounterView()
+            case .agenda: AgendaView()
+            case .appointment(let id): AppointmentDetailView(id: id)
+            case .newAppointment(let conversation, let customer): BookingView(purpose: .new(conversationId: conversation, customer: customer))
             }
         }
         .id(route)

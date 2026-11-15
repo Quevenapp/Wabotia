@@ -62,7 +62,7 @@ final class CounterViewModel: ObservableObject {
         let client = QueueClient(baseURL: session.serverURL?.absoluteString ?? "", profileId: profile) { session.token }
         self.init(client: client, demo: container.isDemo, onUnauthorized: { container.handleUnauthorized() },
                   onMessage: { Workspace.shared.show($0, style: .success) },
-                  onModuleDisabled: { QueueFeature.shared.markDisabled(profile) })
+                  onModuleDisabled: { ModuleFeature.shared.markDisabled(ModuleId.queue, profile: profile) })
     }
 
     // MARK: - Leitura

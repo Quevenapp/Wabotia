@@ -91,7 +91,11 @@ struct HomeView: View {
             }
             #endif
         }
-        .task { await container.refreshTokenIfNeeded() }
+        .task {
+            await container.refreshTokenIfNeeded()
+            // Módulos ligados na área (fila, agenda, ordem de serviço): decidem as entradas em Ajustes e na conversa.
+            await ModuleFeature.shared.refresh(container: container)
+        }
     }
 
     @ViewBuilder
