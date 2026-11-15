@@ -94,7 +94,10 @@ notificação se a janela de 24 horas estiver fechada).
    (`ts=…,v1=…`) e `x-request-id`.
 2. O Wabotia monta `id:<data.id em minúsculas>;request-id:<x-request-id>;ts:<ts>;`
    e confere o HMAC-SHA256 com a assinatura secreta. Diferente: `401` e nada
-   muda.
+   muda. O `ts` assinado precisa estar a até 15 minutos do relógio; o
+   `data.id` vale só o da consulta (o do corpo, se vier, tem de ser igual);
+   sem `data.id` na consulta, o aviso é ignorado. Cada IP tem um limite de
+   avisos por minuto.
 3. Consulta `GET /v1/payments/{id}` com o Access Token, encontra a cobrança
    pelo `external_reference` (o id da cobrança no Wabotia) e confere valor e
    moeda.

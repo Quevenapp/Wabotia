@@ -68,6 +68,8 @@ async function call(
   return data;
 }
 
+/** Diferença máxima entre o ts assinado do webhook e o relógio. */
+export const WEBHOOK_WINDOW_MS = 15 * 60_000;
 const cents = (value: unknown) => Math.round(Number(value || 0) * 100);
 const amount = (value: number) => Math.round(value) / 100;
 
@@ -224,19 +226,36 @@ export const mercadoPago: PaymentProvider = {
   async verifyWebhook(creds, input) {
     const signature = parseSignature(input.headers.get("x-signature"));
     const requestId = input.headers.get("x-request-id");
-    const dataId =
-      input.query.get("data.id") ||
-      (input.body?.data?.id != null ? String(input.body.data.id) : null);
     if (!creds.webhook_secret || !signature.ts || !signature.v1)
       throw new ApiError(401, "invalid_signature", "Assinatura ausente.");
+    // Janela de tempo do ts assinado (revisão B2): aviso velho ou do futuro
+    // não vale, mesmo com a assinatura certa.
+    const ts = Number(signature.ts);
+    const tsMs = ts < 1e12 ? ts * 1000 : ts;
+    if (
+      !Number.isFinite(tsMs) ||
+      Math.abs(Date.now() - tsMs) > WEBHOOK_WINDOW_MS
+    )
+      throw new ApiError(401, "invalid_signature", "Assinatura fora do prazo.");
+    // O id do pagamento só vale se veio na consulta, que entra no manifesto
+    // assinado; o do corpo, se houver, tem de ser o mesmo (revisão B2).
+    const signedId = input.query.get("data.id");
     const expected = await hmac(
       creds.webhook_secret,
-      mpManifest(input.query.get("data.id"), requestId, signature.ts),
+      mpManifest(signedId, requestId, signature.ts),
     );
     if (!equal(expected, signature.v1.toLowerCase()))
       throw new ApiError(401, "invalid_signature", "Assinatura inválida.");
+    const bodyId =
+      input.body?.data?.id != null ? String(input.body.data.id) : null;
+    if (bodyId !== null && signedId !== null && bodyId !== signedId)
+      throw new ApiError(
+        401,
+        "invalid_signature",
+        "data.id diferente do assinado.",
+      );
     const type =
       input.query.get("type") || input.query.get("topic") || input.body?.type;
-    return { paymentId: type === "payment" && dataId ? dataId : null };
+    return { paymentId: type === "payment" && signedId ? signedId : null };
   },
 };

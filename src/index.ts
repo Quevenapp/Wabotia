@@ -2332,6 +2332,13 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
 // Webhook de pagamento (docs/COBRANCA.md). A assinatura é conferida aqui; o
 // estado só muda depois da consulta ao provedor, no Coordinator da área.
 app.post("/webhooks/payments/:provider/:account", async (c) => {
+  // Limite por IP antes de qualquer consulta (revisão B2).
+  await rate(
+    c.env,
+    "payment-webhook:" +
+      (await sha(c.req.header("CF-Connecting-IP") || "local")),
+    240,
+  );
   const url = new URL(c.req.url);
   const body = json(await c.req.text(), {});
   const { account, paymentId } = await verifyPaymentWebhook(
