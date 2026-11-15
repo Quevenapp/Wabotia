@@ -46,6 +46,7 @@ fun queueHttp(): OkHttpClient =
         .writeTimeout(15, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS)
         .addInterceptor(DemoMode.interceptor)
+        .addInterceptor(DebugNetwork.interceptor)
         .build()
 
 /** O endereço da instalação sem barra no fim; aceita "wabotia.minhaempresa.com.br" sem https. */

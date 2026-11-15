@@ -4,6 +4,7 @@ import br.com.queven.wabotia.device.core.PanelCallAnnouncer
 import br.com.queven.wabotia.printing.CouponData
 import br.com.queven.wabotia.printing.CouponText
 import br.com.queven.wabotia.queue.CallFrame
+import br.com.queven.wabotia.queue.DebugNetwork
 import br.com.queven.wabotia.queue.DeviceScopes
 import br.com.queven.wabotia.queue.QueueClient
 import br.com.queven.wabotia.queue.QueueException
@@ -110,6 +111,14 @@ class TotemLogicTest {
         assertEquals(listOf("q1", "q2"), options.map { it.queueId })
         assertEquals('N', options[0].letter)
         assertEquals(null, options[1].letter)
+    }
+
+    @Test
+    fun `comando de depuracao da rede`() {
+        assertEquals(20, DebugNetwork.parse("offline:20"))
+        assertEquals(null, DebugNetwork.parse("offline:x"))
+        assertEquals(null, DebugNetwork.parse("20"))
+        assertEquals(null, DebugNetwork.parse(null))
     }
 
     @Test

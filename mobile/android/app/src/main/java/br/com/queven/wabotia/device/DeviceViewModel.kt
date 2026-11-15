@@ -27,7 +27,9 @@ import br.com.queven.wabotia.queue.QueueTicket
 import br.com.queven.wabotia.queue.normalizeBaseUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -95,6 +97,8 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private var client: QueueClient? = null
     private var socket: WebSocket? = null
     private var loop: Job? = null
+    /** Acorda o laço da conexão quando o WebSocket cai. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
     private var spotlightJob: Job? = null
     private var issuedJob: Job? = null
     private var pairingJob: Job? = null
@@ -247,7 +251,9 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
                     )
                 } else {
                     backoff = 1000L
-                    delay(60_000)
+                    // Ao vivo, uma leitura por minuto basta; se o WebSocket cair, [dropped] acorda o laço na hora, para
+                    // ler a fila e reabrir o socket sem esperar o minuto inteiro.
+                    withTimeoutOrNull(60_000) { wake.receive() }
                     refresh()
                 }
             }
@@ -303,8 +309,15 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     }
 
     private fun dropped(webSocket: WebSocket) {
-        if (socket === webSocket) socket = null
+        if (socket !== webSocket) return
+        socket = null
         mutable.update { it.copy(live = false) }
+        wake.trySend(Unit)
+    }
+
+    /** Só no build de depuração: derruba o WebSocket como uma queda de rede, para conferir a volta automática. */
+    fun debugDropConnection() {
+        socket?.cancel()
     }
 
     private fun stopLive() {

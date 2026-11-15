@@ -31,6 +31,7 @@ import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.device.DeviceActivity
+import br.com.queven.wabotia.device.withDebugCommand
 import br.com.queven.wabotia.ui.components.DemoBanner
 import br.com.queven.wabotia.ui.nav.AppNavHost
 import br.com.queven.wabotia.ui.nav.DeepLink
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
         val container = (application as WabotiaApp).container
         // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
         if (savedInstanceState == null && intent?.getStringExtra("demo") == null && DeviceActivity.isPaired(container.deviceStore)) {
-            startActivity(DeviceActivity.intent(this))
+            startActivity(DeviceActivity.intent(this).withDebugCommand(intent))
             finish()
             return
         }
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
         // Esta Activity é singleTask: uma intent entregue a ela (ícone aberto por outro caminho, notificação) limpa o
         // modo aparelho que estava por cima. Com um aparelho pareado, volta para ele, como na abertura do app.
         if (intent.getStringExtra("demo") == null && DeviceActivity.isPaired((application as WabotiaApp).container.deviceStore)) {
-            startActivity(DeviceActivity.intent(this))
+            startActivity(DeviceActivity.intent(this).withDebugCommand(intent))
             finish()
             return
         }

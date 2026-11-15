@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.ViewModelProvider
+import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.MainActivity
 import br.com.queven.wabotia.WabotiaApp
 import br.com.queven.wabotia.demo.DemoMode
@@ -18,6 +19,7 @@ import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelSoundStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelTemplateStore
 import br.com.queven.wabotia.printing.SenhaPrinter
+import br.com.queven.wabotia.queue.DebugNetwork
 import br.com.queven.wabotia.queue.QueuePairing
 import br.com.queven.wabotia.ui.theme.WabotiaTheme
 
@@ -51,11 +53,29 @@ class DeviceActivity : ComponentActivity() {
             demo = demo,
         )
         val vm = ViewModelProvider(this, DeviceViewModel.factory(services))[DeviceViewModel::class.java]
+        this.vm = vm
+        if (savedInstanceState == null) runDebugCommand(intent)
         setContent {
             WabotiaTheme {
                 DeviceApp(container, vm, onFinish = ::backToApp)
             }
         }
+    }
+
+    private var vm: DeviceViewModel? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        runDebugCommand(intent)
+    }
+
+    /** `--es debug offline:20` (só no build de depuração): tira a rede da fila e derruba o WebSocket, como uma queda. */
+    private fun runDebugCommand(intent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        val seconds = DebugNetwork.parse(intent?.getStringExtra(EXTRA_DEBUG)) ?: return
+        DebugNetwork.goOffline(seconds)
+        vm?.debugDropConnection()
     }
 
     /** Desfeito o pareamento (ou saindo da demonstração), volta à tela inicial do app. */
@@ -68,6 +88,7 @@ class DeviceActivity : ComponentActivity() {
         private const val EXTRA_SERVER = "server"
         private const val EXTRA_DEMO = "demo"
         private const val EXTRA_DEMO_ROLE = "demo_role"
+        private const val EXTRA_DEBUG = "debug"
 
         /** Parear com o servidor escolhido na tela Servidor (ou retomar o aparelho já pareado). */
         fun intent(context: Context, serverUrl: String? = null): Intent =
@@ -88,6 +109,11 @@ class DeviceActivity : ComponentActivity() {
             return DemoMode.deviceConfig(chosen)
         }
     }
+}
+
+/** Repassa ao modo aparelho o comando de depuração (`--es debug …`) que chegou ao ícone do app; no release, nada. */
+fun Intent.withDebugCommand(from: Intent?): Intent = apply {
+    if (BuildConfig.DEBUG) from?.getStringExtra("debug")?.let { putExtra("debug", it) }
 }
 
 /** O PIN de saída da demonstração: some com o aparelho fictício. */
