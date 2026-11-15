@@ -1,24 +1,92 @@
-#if DEBUG
 import Foundation
 import UIKit
 
-/// Modo de demonstração (somente em compilações Debug).
+/// Modo de demonstração: uma instalação Wabotia fictícia, em memória, para quem ainda não tem servidor
+/// (e para a revisão das lojas). Entra pelo botão "Conhecer o app (demonstração)" da primeira tela ou
+/// digitando `demo` como servidor; existe em todos os builds.
 ///
-/// - Digitar `demo` como endereço do servidor entra direto em um servidor em memória.
+/// - As respostas vêm de `DemoURLProtocol`, registrado na URLSession do app: as telas e os view models
+///   de produção rodam sem saber que o servidor não existe. Nada sai do aparelho: `demo.wabotia.localhost`
+///   é respondido em memória (e `.localhost` nunca é um endereço da internet). O que não passa pela
+///   URLSession (players de áudio e vídeo) toca uma cópia local (`DemoServer.localFile`).
+/// - Na demonstração o aparelho nunca é registrado para push e o app não pede permissão de notificações.
+/// - Os dados são fictícios e recomeçam a cada entrada e a cada abertura do app.
+/// - Uma faixa fixa no topo (`DemoBanner`) avisa que é demonstração e leva de volta à primeira tela.
+///
+/// Só no build de depuração (extensão abaixo): `WABOTIA_DEMO=<tela>` no ambiente abre o app já na
+/// demonstração, em uma sessão isolada, e mostra a tela pedida.
+enum DemoMode {
+    static let host = "demo.wabotia.localhost"
+    static let serverURL = URL(string: "https://demo.wabotia.localhost")!
+    static let profileId = "demo"
+    static let profileName = "Empresa Exemplo"
+    static let meId = "u_diego"
+    static let meName = "Diego Andrade"
+    /// Domínio `.example` (RFC 2606): nunca é um endereço real.
+    static let meEmail = "diego@empresa.example"
+
+    static var user: User {
+        User(id: meId, name: meName, email: meEmail, role: "admin", profiles: [profileId])
+    }
+
+    static var session: MobileSession {
+        MobileSession(token: "wabu_demo", expires: Int64((Date().timeIntervalSince1970 + 30 * 86400) * 1000), user: user)
+    }
+
+    static func isDemo(_ url: URL?) -> Bool { url?.host == host }
+
+    /// O texto digitado na tela de servidor pede a demonstração?
+    static func wantsDemo(_ input: String) -> Bool {
+        input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "demo"
+    }
+
+    /// Entra na demonstração: dados de exemplo do zero e uma sessão local, sem push.
+    @MainActor
+    static func signIn(_ container: AppContainer) {
+        DemoServer.reset()
+        container.session.clearLocalCaches()
+        container.onLoggedIn(server: serverURL, result: session)
+    }
+
+    /// Abertura do app com a demonstração aberta na última vez: os dados de exemplo recomeçam (vivem só na
+    /// memória), então as prévias, as não lidas e o cursor de eventos guardados também voltam ao início.
+    static func prepareRelaunch(_ store: SessionStore) {
+        guard isDemo(store.serverURL) else { return }
+        store.clearLocalCaches()
+    }
+
+    /// Não lidas e chips de eventos de exemplo (esse estado é local do app, não vem do servidor).
+    @MainActor
+    static func seedLocalState(_ workspace: Workspace) {
+        guard isDemo(AppContainer.shared.session.serverURL) else { return }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        func ago(_ minutes: Double) -> Int64 { now - Int64(minutes * 60_000) }
+        workspace.seedDemo(
+            unread: ["c_queue": 2, "c_5h": 1, "c_group": 4],
+            events: [
+                "c_rich": [
+                    ServiceEvent(id: "seed-1", kind: "queue", text: "Conversa entrou na fila", created: ago(26 * 60 - 1.5)),
+                    ServiceEvent(id: "seed-2", kind: "claim", text: "Você assumiu a conversa", created: ago(26 * 60 - 4)),
+                    ServiceEvent(id: "seed-3", kind: "ticket", text: "Protocolo WA-MF3K-7Q2D aberto", created: ago(87)),
+                    ServiceEvent(id: "seed-4", kind: "menu", text: "Menu enviado ao cliente", created: ago(50)),
+                ],
+                "c_other": [ServiceEvent(id: "seed-5", kind: "transfer", text: "Transferida para Ana Souza", created: ago(170))],
+                "c_closed": [ServiceEvent(id: "seed-6", kind: "resolve", text: "Conversa concluída", created: ago(2 * 24 * 60 - 30))],
+            ]
+        )
+    }
+}
+
+#if DEBUG
+/// Atalhos de depuração para conferir telas por print, sem tocar na tela:
+///
 /// - `WABOTIA_DEMO=<tela>` no ambiente abre o app já na demonstração, em uma sessão isolada (não toca na
 ///   sessão real do aparelho), e mostra a tela pedida. `WABOTIA_DEMO_DARK=1` força a aparência escura.
 ///   `WABOTIA_DEMO_ANCHOR=<id>` rola a tela aberta até um ponto (ex.: id de mensagem, `bottom`).
 ///   As telas `claim`, `send`, `transferred` e `ticket-progress` executam a ação de verdade ao abrir
 ///   (assumir, responder, transferir, registrar andamento), para conferir as escritas por print.
-///
-/// As respostas vêm de `DemoURLProtocol`, registrado na URLSession do app: as telas e os view models
-/// de produção rodam sem saber que o servidor não existe.
-enum DemoMode {
-    static let host = "demo.wabotia.localhost"
-    static let serverURL = URL(string: "https://demo.wabotia.localhost")!
+extension DemoMode {
     static let suiteName = "br.com.queven.wabotia.demo"
-    static let profileId = "demo"
-    static let meId = "u_bruno"
 
     private static func env(_ name: String) -> String? {
         guard let value = ProcessInfo.processInfo.environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
@@ -33,21 +101,6 @@ enum DemoMode {
     static var pendingScreen: String? = launchScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).
     static var pendingSheet: String?
-
-    static var user: User {
-        User(id: meId, name: "Bruno Martins", email: "bruno@demo.wabotia", role: "admin", profiles: [profileId])
-    }
-
-    static var session: MobileSession {
-        MobileSession(token: "wabu_demo", expires: Int64((Date().timeIntervalSince1970 + 30 * 86400) * 1000), user: user)
-    }
-
-    static func isDemo(_ url: URL?) -> Bool { url?.host == host }
-
-    /// O texto digitado na tela de servidor pede a demonstração?
-    static func wantsDemo(_ input: String) -> Bool {
-        input.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "demo"
-    }
 
     /// Sessão pronta gravada no armazenamento isolado (abertura por variável de ambiente).
     /// `server`, `login` e `profile` param nas telas de entrada.
@@ -70,33 +123,6 @@ enum DemoMode {
             store.profileId = profileId
         }
         if launchScreen == "offline" { DemoServer.shared.simulateOffline = true }
-    }
-
-    /// Entrada direta ao digitar `demo` na tela de servidor.
-    @MainActor
-    static func signIn(_ container: AppContainer) {
-        container.onLoggedIn(server: serverURL, result: session)
-    }
-
-    /// Não lidas e chips de eventos de exemplo (esse estado é local do app, não vem do servidor).
-    @MainActor
-    static func seedLocalState(_ workspace: Workspace) {
-        guard isDemo(AppContainer.shared.session.serverURL) else { return }
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        func ago(_ minutes: Double) -> Int64 { now - Int64(minutes * 60_000) }
-        workspace.seedDemo(
-            unread: ["c_queue": 2, "c_5h": 1, "c_group": 4],
-            events: [
-                "c_rich": [
-                    ServiceEvent(id: "seed-1", kind: "queue", text: "Conversa entrou na fila", created: ago(26 * 60 - 1.5)),
-                    ServiceEvent(id: "seed-2", kind: "claim", text: "Você assumiu a conversa", created: ago(26 * 60 - 4)),
-                    ServiceEvent(id: "seed-3", kind: "ticket", text: "Protocolo WA-MF3K-7Q2D aberto", created: ago(87)),
-                    ServiceEvent(id: "seed-4", kind: "menu", text: "Menu enviado ao cliente", created: ago(50)),
-                ],
-                "c_other": [ServiceEvent(id: "seed-5", kind: "transfer", text: "Transferida para Ana Souza", created: ago(170))],
-                "c_closed": [ServiceEvent(id: "seed-6", kind: "resolve", text: "Conversa concluída", created: ago(2 * 24 * 60 - 30))],
-            ]
-        )
     }
 
     /// Destino da tela pedida: aba, rota empilhada e folha.

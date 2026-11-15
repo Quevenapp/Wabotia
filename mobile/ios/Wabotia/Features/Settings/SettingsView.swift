@@ -14,8 +14,12 @@ struct SettingsView: View {
     @Environment(\.pushRoute) private var push
     @State private var confirmLogout = false
     @State private var confirmChangeServer = false
+    @State private var confirmExitDemo = false
     @State private var showPresence = false
     @State private var appearance = AppAppearance.current
+
+    /// Na demonstração não há push nem servidor de verdade: essas seções dão lugar a explicações e à saída.
+    private var demo: Bool { container.isDemo }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,12 +29,12 @@ struct SettingsView: View {
                     VStack(spacing: 20) {
                         userCard.padding(.horizontal, 16)
                         serviceSection.padding(.horizontal, 16)
-                        notificationsSection.padding(.horizontal, 16).id("notifications")
+                        Group { if demo { demoNotificationsSection } else { notificationsSection } }.padding(.horizontal, 16).id("notifications")
                         appearanceSection.padding(.horizontal, 16).id("appearance")
-                        serverSection.padding(.horizontal, 16).id("server")
+                        Group { if demo { demoServerSection } else { serverSection } }.padding(.horizontal, 16).id("server")
                         deviceSection.padding(.horizontal, 16).id("device")
                         aboutSection.padding(.horizontal, 16).id("about")
-                        logoutSection.padding(.horizontal, 16).id("logout")
+                        Group { if demo { exitDemoSection } else { logoutSection } }.padding(.horizontal, 16).id("logout")
                     }
                     .padding(.top, 4)
                     .padding(.bottom, 24)
@@ -83,6 +87,12 @@ struct SettingsView: View {
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text("Você sai da conta neste aparelho e informa o endereço de outra instalação Wabotia.")
+        }
+        .confirmationDialog("Sair da demonstração?", isPresented: $confirmExitDemo, titleVisibility: .visible) {
+            Button("Sair da demonstração", role: .destructive) { vm.cancel(); container.exitDemo() }
+            Button("Continuar explorando", role: .cancel) {}
+        } message: {
+            Text("Você volta para a primeira tela para informar o servidor da sua empresa. Os dados de exemplo recomeçam na próxima vez.")
         }
     }
 
@@ -161,6 +171,13 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .disabled(vm.registering)
             }
+        }
+    }
+
+    /// Demonstração: o aparelho não é registrado para push e nenhuma permissão é pedida.
+    private var demoNotificationsSection: some View {
+        SectionCard(title: "Notificações", footer: "Na demonstração o aparelho não é registrado para notificações e o app não pede permissão. Conectado ao servidor da sua empresa, você recebe avisos de mensagens, fila, transferências e protocolos.") {
+            CardRow(icon: "bell.slash.fill", iconColor: Theme.muted, title: "Notificações", value: "Desligadas", divider: false)
         }
     }
 
@@ -253,6 +270,14 @@ struct SettingsView: View {
         }
     }
 
+    /// Demonstração: não há servidor nem painel para abrir; a saída fica no fim da tela.
+    private var demoServerSection: some View {
+        SectionCard(title: "Servidor", footer: "Os dados são fictícios e ficam só na memória do aparelho. Para usar o app de verdade, saia da demonstração e informe o endereço do servidor da sua empresa.") {
+            CardRow(icon: "globe", iconColor: Theme.ticket, title: "Endereço", value: "Demonstração")
+            CardRow(icon: "person.2.fill", iconColor: Theme.brand, title: "Perfil", value: DemoMode.profileName, divider: false)
+        }
+    }
+
     @ViewBuilder private var profileRow: some View {
         if vm.profiles.count > 1 {
             Menu {
@@ -305,6 +330,24 @@ struct SettingsView: View {
                     Spacer()
                     Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 15, weight: .semibold))
                     Text("Sair da conta").font(Theme.font(16, .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(Theme.danger)
+                .frame(minHeight: 52)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Demonstração: no lugar de "Sair da conta", volta para a primeira tela.
+    private var exitDemoSection: some View {
+        SectionCard(footer: "Volta para a primeira tela. Os dados de exemplo recomeçam na próxima vez.") {
+            Button { confirmExitDemo = true } label: {
+                HStack {
+                    Spacer()
+                    Image(systemName: "rectangle.portrait.and.arrow.right").font(.system(size: 15, weight: .semibold))
+                    Text("Sair da demonstração").font(Theme.font(16, .semibold))
                     Spacer()
                 }
                 .foregroundStyle(Theme.danger)

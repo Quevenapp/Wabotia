@@ -1,8 +1,8 @@
-#if DEBUG
 import Foundation
 import UIKit
 
 /// Responde a toda requisição para `demo.wabotia.localhost` a partir de `DemoServer` (dados em memória).
+/// Registrado em toda URLSession do app (`APIClient`): nenhuma chamada para esse endereço sai do aparelho.
 final class DemoURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == DemoMode.host }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -45,12 +45,27 @@ final class DemoURLProtocol: URLProtocol {
 
 /// Servidor Wabotia de mentira: dados de exemplo mutáveis e as mesmas rotas que o app usa.
 /// Todo acesso acontece na fila serial `queue`.
+///
+/// Os dados são fictícios: pessoas e empresa inventadas, telefones com o DDD 20 (que não existe no Brasil)
+/// e números começando por 9 0 (faixa sem celulares), e-mails e links em `.example`.
 final class DemoServer {
     typealias Row = [String: Any]
     struct Reply { var status = 200; var data = Data(); var type = "application/json" }
 
-    static let shared = DemoServer()
+    /// Instância atual; `reset()` troca por uma nova (dados de exemplo do zero).
+    private(set) static var shared = DemoServer()
     static let queue = DispatchQueue(label: "br.com.queven.wabotia.demo")
+
+    /// Recomeça os dados de exemplo (cada entrada na demonstração começa igual).
+    static func reset() {
+        queue.sync { shared = DemoServer() }
+    }
+
+    /// Arquivo local com os bytes de um anexo, para os players de áudio e vídeo: o AVPlayer não passa pela
+    /// URLSession do app, então tocar o endereço da demonstração sairia para a rede (e falharia).
+    static func localFile(mediaId: String) -> URL? {
+        queue.sync { shared.writeLocalFile(mediaId) }
+    }
 
     var extraProfile = false
     var simulateOffline = false
@@ -82,7 +97,10 @@ final class DemoServer {
     private var runs: [Row] = []
     private var events: [Row] = []
     private var uploads: [String: (name: String, type: String, parts: [Int: Data])] = [:]
-    private var eventId: Int64 = 1000
+    /// Anexos enviados nesta demonstração (os demais têm bytes gerados na hora).
+    private var uploaded: Set<String> = []
+    /// Ids de evento partem do relógio: sempre maiores que um cursor guardado numa abertura anterior.
+    private var eventId = Int64(Date().timeIntervalSince1970 * 1000)
     private var sequence = 0
     /// Efeitos com hora marcada (recibos avançando, resposta do cliente, resposta do bot).
     private var scheduled: [(due: Int64, run: () -> Void)] = []
@@ -98,7 +116,7 @@ final class DemoServer {
 
     private func buildFixtures() {
         presence = [
-            ["actor": me, "name": "Bruno Martins", "present": 1],
+            ["actor": me, "name": DemoMode.meName, "present": 1],
             ["actor": "u_ana", "name": "Ana Souza", "present": 1],
             ["actor": "u_marina", "name": "Marina Lima", "present": 1],
             ["actor": "u_carlos", "name": "Carlos Pereira", "present": 0],
@@ -114,26 +132,26 @@ final class DemoServer {
         menus = [
             ["id": "m_vendas", "label": "Falar com Vendas", "type": "bot", "bot_id": "b_vendas", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
             ["id": "m_fin", "label": "Financeiro", "type": "submenu", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
-            ["id": "m_fin_boleto", "label": "Segunda via de boleto", "type": "link", "parent_id": "m_fin", "url": "https://exemplo.com.br/boleto", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
+            ["id": "m_fin_boleto", "label": "Segunda via de boleto", "type": "link", "parent_id": "m_fin", "url": "https://empresa.example/boleto", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
             ["id": "m_fin_humano", "label": "Falar com o Financeiro", "type": "human", "parent_id": "m_fin", "department_id": "dep_fin", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
             ["id": "m_sup", "label": "Suporte técnico", "type": "submenu", "enabled": true, "trigger": "manual", "line_ids": [String]()],
             ["id": "m_sup_humano", "label": "Falar com um especialista", "type": "human", "parent_id": "m_sup", "department_id": "dep_sup", "enabled": true, "trigger": "manual", "line_ids": [String]()],
             ["id": "m_prot", "label": "Consultar protocolo", "type": "protocols", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
-            ["id": "m_abrir", "label": "Abrir protocolo", "type": "ticket", "category_id": "wabotia", "content": "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
+            ["id": "m_abrir", "label": "Abrir protocolo", "type": "ticket", "category_id": "pedidos", "content": "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.", "enabled": true, "trigger": "automatic", "line_ids": [String]()],
         ]
         ticketCategories = [
-            ["id": "wabotia", "name": "Wabotia", "enabled": true],
-            ["id": "printher", "name": "Printher", "enabled": true],
-            ["id": "nfse-leve", "name": "NFS-e Leve", "enabled": true],
-            ["id": "fagoo-erp", "name": "Fagoo ERP", "enabled": true],
-            ["id": "servidor-integracao", "name": "Servidor ou integração", "enabled": true],
+            ["id": "pedidos", "name": "Pedidos e entregas", "enabled": true],
+            ["id": "trocas", "name": "Trocas e devoluções", "enabled": true],
+            ["id": "financeiro", "name": "Financeiro", "enabled": true],
+            ["id": "nota-fiscal", "name": "Nota fiscal", "enabled": true],
+            ["id": "sistemas", "name": "Sistemas e integrações", "enabled": true],
             ["id": "outro", "name": "Outro ou não sei", "enabled": true],
-            ["id": "vinki", "name": "Vinki", "enabled": false],
+            ["id": "garantia", "name": "Garantia estendida", "enabled": false],
         ]
         let policy: Row = ["pool": true, "human": true, "bots": true, "menu": true, "api": true, "service": true, "templates": true]
         lines = [
-            ["id": "line_meta", "name": "WhatsApp Principal", "kind": "meta", "mode": "direct", "status": "active", "number": "551140001234", "number_policy": policy, "service": ["mode": "inherit", "bot_id": NSNull(), "menu_mode": "automatic"] as Row],
-            ["id": "line_zernio", "name": "WhatsApp Vendas", "kind": "zernio", "mode": "direct", "status": "active", "number": "551140005678", "number_policy": policy, "service": ["mode": "bot", "bot_id": "b_vendas", "menu_mode": "manual"] as Row],
+            ["id": "line_meta", "name": "WhatsApp Principal", "kind": "meta", "mode": "direct", "status": "active", "number": "5520900001000", "number_policy": policy, "service": ["mode": "inherit", "bot_id": NSNull(), "menu_mode": "automatic"] as Row],
+            ["id": "line_zernio", "name": "WhatsApp Vendas", "kind": "zernio", "mode": "direct", "status": "active", "number": "5520900002000", "number_policy": policy, "service": ["mode": "bot", "bot_id": "b_vendas", "menu_mode": "manual"] as Row],
         ]
 
         func conversation(_ id: String, _ name: String, _ phone: String, state: String, owner: String? = nil, line: String = "line_meta", lastCustomer: Double?, updated: Double, tags: [String] = [], department: String? = nil, bot: String? = nil, group: Bool = false) -> Row {
@@ -148,16 +166,16 @@ final class DemoServer {
             ]
         }
         conversations = [
-            conversation("c_rich", "Mariana Costa", "5511987654321", state: "human", owner: me, lastCustomer: 46, updated: 44, tags: ["VIP", "Troca"], department: "dep_fin"),
-            conversation("c_queue", "Fernanda Rocha", "5521991122334", state: "waiting", lastCustomer: 12, updated: 12, tags: ["Suporte"], department: "dep_sup"),
-            conversation("c_queue2", "Lucas Martins", "5531988776655", state: "waiting", line: "line_zernio", lastCustomer: 3, updated: 3),
-            conversation("c_5h", "João Pedro Almeida", "5511976543210", state: "human", owner: me, line: "line_zernio", lastCustomer: 19 * 60 - 2, updated: 58, tags: ["Entrega"]),
-            conversation("c_40", "Patrícia Nunes", "5541999887766", state: "human", owner: me, lastCustomer: 23 * 60 + 20, updated: 23 * 60 + 15, tags: ["Orçamento"]),
-            conversation("c_closedwin", "Roberto Dias", "5551981234567", state: "human", owner: me, lastCustomer: 30 * 60, updated: 29 * 60, tags: ["Cobrança", "Financeiro", "Urgente"], department: "dep_fin"),
-            conversation("c_bot", "Camila Ferreira", "5561992223344", state: "ai", line: "line_zernio", lastCustomer: 125, updated: 124, bot: "b_vendas"),
-            conversation("c_other", "Eduardo Santos", "5571993334455", state: "human", owner: "u_ana", lastCustomer: 180, updated: 170, tags: ["Suporte"]),
+            conversation("c_rich", "Mariana Costa", "5520908765432", state: "human", owner: me, lastCustomer: 46, updated: 44, tags: ["VIP", "Troca"], department: "dep_fin"),
+            conversation("c_queue", "Fernanda Rocha", "5520901122334", state: "waiting", lastCustomer: 12, updated: 12, tags: ["Suporte"], department: "dep_sup"),
+            conversation("c_queue2", "Lucas Martins", "5520908876655", state: "waiting", line: "line_zernio", lastCustomer: 3, updated: 3),
+            conversation("c_5h", "João Pedro Almeida", "5520906543210", state: "human", owner: me, line: "line_zernio", lastCustomer: 19 * 60 - 2, updated: 58, tags: ["Entrega"]),
+            conversation("c_40", "Patrícia Nunes", "5520909887766", state: "human", owner: me, lastCustomer: 23 * 60 + 20, updated: 23 * 60 + 15, tags: ["Orçamento"]),
+            conversation("c_closedwin", "Roberto Dias", "5520901234567", state: "human", owner: me, lastCustomer: 30 * 60, updated: 29 * 60, tags: ["Cobrança", "Financeiro", "Urgente"], department: "dep_fin"),
+            conversation("c_bot", "Camila Ferreira", "5520902223344", state: "ai", line: "line_zernio", lastCustomer: 125, updated: 124, bot: "b_vendas"),
+            conversation("c_other", "Eduardo Santos", "5520903334455", state: "human", owner: "u_ana", lastCustomer: 180, updated: 170, tags: ["Suporte"]),
             conversation("c_group", "Equipe Loja Centro", "120363041234567890", state: "ai", lastCustomer: 240, updated: 235, group: true),
-            conversation("c_closed", "Aline Barbosa", "5581994445566", state: "closed", lastCustomer: 2 * 24 * 60, updated: 2 * 24 * 60 - 30, tags: ["Garantia"]),
+            conversation("c_closed", "Aline Barbosa", "5520904445566", state: "closed", lastCustomer: 2 * 24 * 60, updated: 2 * 24 * 60 - 30, tags: ["Garantia"]),
         ]
 
         // Mídias de exemplo (os bytes são gerados na hora, ao pedir o conteúdo).
@@ -166,7 +184,6 @@ final class DemoServer {
             "md_voz": ["id": "md_voz", "name": "mensagem-de-voz.ogg", "type": "audio/ogg; codecs=opus", "size": 38_400],
             "md_voz2": ["id": "md_voz2", "name": "mensagem-de-voz.ogg", "type": "audio/ogg; codecs=opus", "size": 21_900],
             "md_pdf": ["id": "md_pdf", "name": "Politica-de-troca.pdf", "type": "application/pdf", "size": 184_320],
-            "md_video": ["id": "md_video", "name": "vitrine-nova.mp4", "type": "video/mp4", "size": 3_650_000],
         ]
 
         func message(_ id: String, _ conversation: String, _ direction: String, _ author: String, _ text: String, at minutes: Double, status: String = "", attachments: [String] = [], content: Row = [:]) -> Row {
@@ -174,20 +191,21 @@ final class DemoServer {
              "attachments": json(attachments), "external_id": "wamid.\(id)", "created": ago(minutes), "content": json(content),
              "delivery_status": direction == "outbound" ? status : "", "status_at": ago(minutes)]
         }
-        let customer = "customer:channel:line_meta:5511987654321"
+        let customer = "customer:channel:line_meta:5520908765432"
         let day: Double = 26 * 60
         messages["c_rich"] = [
             message("m1", "c_rich", "customer", customer, "Oi, boa tarde! Fiz um pedido ontem e queria saber o prazo de entrega.", at: day, content: ["type": "text"]),
-            message("m2", "c_rich", "outbound", "bot:attendant", "Olá, Mariana! 👋 Sou a assistente virtual da Queven. Vou encaminhar sua solicitação para nossa equipe.", at: day - 1, status: "read"),
-            message("m3", "c_rich", "outbound", me, "Oi, Mariana! Aqui é o Bruno. Seu pedido #48213 saiu hoje para entrega e chega até sexta-feira. 🚚", at: day - 5, status: "read", content: ["type": "text", "reactions": ["customer": ["emoji": "❤️", "timestamp": ago(day - 6)] as Row] as Row]),
+            message("m2", "c_rich", "outbound", "bot:attendant", "Olá, Mariana! 👋 Sou a assistente virtual da \(DemoMode.profileName). Vou encaminhar sua solicitação para nossa equipe.", at: day - 1, status: "read"),
+            message("m3", "c_rich", "outbound", me, "Oi, Mariana! Aqui é o Diego. Seu pedido #48213 saiu hoje para entrega e chega até sexta-feira. 🚚", at: day - 5, status: "read", content: ["type": "text", "reactions": ["customer": ["emoji": "❤️", "timestamp": ago(day - 6)] as Row] as Row]),
             message("m4", "c_rich", "customer", customer, "Que ótimo, obrigada!", at: day - 7, content: ["type": "text"]),
             message("m5", "c_rich", "customer", customer, "O produto chegou assim, a caixa veio amassada 😕", at: 95, attachments: ["md_foto"], content: ["type": "image"]),
             message("m6", "c_rich", "customer", customer, "", at: 94, attachments: ["md_voz"], content: ["type": "voice"]),
             message("m7", "c_rich", "note", me, "Cliente VIP. Autorizar a troca sem custo, conforme a política.", at: 90),
             message("m8", "c_rich", "outbound", me, "Sinto muito por isso, Mariana. Já vamos resolver: estou abrindo um protocolo de troca agora.", at: 88, status: "delivered", content: ["type": "text", "reply_to": "m5", "reply_text": "O produto chegou assim, a caixa veio amassada 😕", "reply_from_me": false]),
             message("m9", "c_rich", "outbound", me, "Segue nossa política de troca.", at: 86, status: "read", attachments: ["md_pdf"], content: ["type": "document"]),
-            message("m10", "c_rich", "customer", customer, "", at: 60, content: ["type": "location", "location": ["latitude": -23.561414, "longitude": -46.655881, "name": "Casa", "address": "Av. Paulista, 1000 - Bela Vista, São Paulo"] as Row]),
-            message("m11", "c_rich", "customer", customer, "", at: 58, content: ["type": "contacts", "contacts": [["name": "Carlos (portaria)", "phone": "+5511912345678"] as Row]]),
+            // Endereço inventado; as coordenadas caem num parque público, não na casa de alguém.
+            message("m10", "c_rich", "customer", customer, "", at: 60, content: ["type": "location", "location": ["latitude": -23.587416, "longitude": -46.657634, "name": "Endereço de coleta", "address": "Rua das Acácias, 245 · Jardim Primavera"] as Row]),
+            message("m11", "c_rich", "customer", customer, "", at: 58, content: ["type": "contacts", "contacts": [["name": "Carlos (portaria)", "phone": "+5520905551234"] as Row]]),
             message("m12", "c_rich", "outbound", me, "Perfeito! A transportadora retira amanhã entre 9h e 12h.", at: 55, status: "sent", content: ["type": "text", "edited": true]),
             message("m13", "c_rich", "outbound", me, "Enviei o código de rastreio por e-mail também.", at: 52, status: "failed"),
             message("m14", "c_rich", "outbound", me, "", at: 49, status: "played", attachments: ["md_voz2"], content: ["type": "voice"]),
@@ -206,7 +224,7 @@ final class DemoServer {
         messages["c_5h"] = [
             message("j1", "c_5h", "customer", "customer:j", "Consegue alterar o endereço de entrega?", at: 19 * 60 - 2, content: ["type": "text"]),
             message("j2", "c_5h", "outbound", me, "Claro, João! Me passa o novo endereço completo, por favor.", at: 19 * 60 - 6, status: "read"),
-            message("j3", "c_5h", "outbound", me, "", at: 58, status: "delivered", attachments: ["md_video"], content: ["type": "video"]),
+            message("j3", "c_5h", "outbound", me, "Recebi o endereço novo pelo e-mail e já atualizei. A entrega sai amanhã pela manhã.", at: 58, status: "delivered"),
         ]
         messages["c_40"] = [
             message("p1", "c_40", "outbound", me, "Bom dia, Patrícia! Segue o orçamento atualizado.", at: 23 * 60 + 30, status: "read"),
@@ -229,10 +247,10 @@ final class DemoServer {
             message("e3", "c_other", "customer", "customer:e", "Versão 4.2.1", at: 180, content: ["type": "text"]),
         ].sorted { ($0["created"] as? Int64 ?? 0) < ($1["created"] as? Int64 ?? 0) }
         messages["c_group"] = [
-            message("g1", "c_group", "customer", "customer:g:1", "Pessoal, chegou a reposição de estoque?", at: 250, content: ["type": "text", "participant": "5511900000001", "participant_name": "Rafael Gomes"]),
-            message("g2", "c_group", "customer", "customer:g:2", "Chegou agora há pouco, estou conferindo as caixas.", at: 246, content: ["type": "text", "participant": "5511900000002", "participant_name": "Juliana Prado"]),
-            message("g3", "c_group", "outbound", "bot:attendant", "Posso registrar a conferência no sistema quando terminarem. É só me mencionar.", at: 244, status: "delivered", content: ["type": "text", "receipts": ["5511900000001": ["status": "read", "timestamp": ago(243)] as Row, "5511900000002": ["status": "delivered", "timestamp": ago(243)] as Row] as Row]),
-            message("g4", "c_group", "customer", "customer:g:3", "Faltaram 2 unidades do item 1042.", at: 240, content: ["type": "text", "participant": "5511900000003", "participant_name": "Thiago Moreira"]),
+            message("g1", "c_group", "customer", "customer:g:1", "Pessoal, chegou a reposição de estoque?", at: 250, content: ["type": "text", "participant": "5520900000001", "participant_name": "Rafael Gomes"]),
+            message("g2", "c_group", "customer", "customer:g:2", "Chegou agora há pouco, estou conferindo as caixas.", at: 246, content: ["type": "text", "participant": "5520900000002", "participant_name": "Juliana Prado"]),
+            message("g3", "c_group", "outbound", "bot:attendant", "Posso registrar a conferência no sistema quando terminarem. É só me mencionar.", at: 244, status: "delivered", content: ["type": "text", "receipts": ["5520900000001": ["status": "read", "timestamp": ago(243)] as Row, "5520900000002": ["status": "delivered", "timestamp": ago(243)] as Row] as Row]),
+            message("g4", "c_group", "customer", "customer:g:3", "Faltaram 2 unidades do item 1042.", at: 240, content: ["type": "text", "participant": "5520900000003", "participant_name": "Thiago Moreira"]),
         ]
         messages["c_closed"] = [
             message("a1", "c_closed", "customer", "customer:a", "A garantia estendida cobre troca de bateria?", at: 2 * 24 * 60 + 20, content: ["type": "text"]),
@@ -249,12 +267,12 @@ final class DemoServer {
         // Os seis estados (docs/CENTRAL-ATENDIMENTO.md §2), com categoria: Recebido (atrasado e vencendo), Em análise,
         // Aguardando cliente, Aguardando terceiro, Resolvido e Encerrado (este sem categoria).
         tickets = [
-            ticket("t_cobranca", "WA-MF2A-1K9P", "Cobrança em duplicidade na fatura de outubro", conversation: "c_closedwin", status: "open", owner: "u_ana", due: -125, created: 29 * 60, updated: 29 * 60, category: "fagoo-erp"),
-            ticket("t_troca", "WA-MF3K-7Q2D", "Troca de produto avariado: pedido #48213", conversation: "c_rich", status: "open", owner: me, due: 40, created: 87, updated: 70, category: "outro"),
-            ticket("t_endereco", "WA-MF1C-88XZ", "Atualização do endereço de entrega", conversation: "c_5h", status: "in_progress", owner: me, due: 5 * 60, created: 18 * 60, updated: 17 * 60, category: "wabotia"),
-            ticket("t_nota", "WA-MEZ7-3H5T", "Segunda via de nota fiscal", conversation: "c_other", status: "waiting_customer", owner: "u_marina", due: -60, firstResponse: 170, created: 4 * 60, updated: 95, category: "nfse-leve"),
-            ticket("t_integracao", "WA-MEY4-5T8R", "Webhook do ERP parou de receber os pedidos", conversation: "c_queue", status: "waiting_third", owner: "u_marina", due: -20 * 60, firstResponse: 25 * 60, created: 26 * 60, updated: 22 * 60, category: "servidor-integracao"),
-            ticket("t_etiqueta", "WA-MEX9-2L4C", "Etiquetas saindo cortadas na impressora térmica", conversation: "c_40", status: "resolved", owner: "u_ana", due: -40 * 60, firstResponse: 43 * 60, created: 44 * 60, updated: 38 * 60, category: "printher"),
+            ticket("t_cobranca", "WA-MF2A-1K9P", "Cobrança em duplicidade na fatura de outubro", conversation: "c_closedwin", status: "open", owner: "u_ana", due: -125, created: 29 * 60, updated: 29 * 60, category: "financeiro"),
+            ticket("t_troca", "WA-MF3K-7Q2D", "Troca de produto avariado: pedido #48213", conversation: "c_rich", status: "open", owner: me, due: 40, created: 87, updated: 70, category: "trocas"),
+            ticket("t_endereco", "WA-MF1C-88XZ", "Atualização do endereço de entrega", conversation: "c_5h", status: "in_progress", owner: me, due: 5 * 60, created: 18 * 60, updated: 17 * 60, category: "pedidos"),
+            ticket("t_nota", "WA-MEZ7-3H5T", "Segunda via de nota fiscal", conversation: "c_other", status: "waiting_customer", owner: "u_marina", due: -60, firstResponse: 170, created: 4 * 60, updated: 95, category: "nota-fiscal"),
+            ticket("t_integracao", "WA-MEY4-5T8R", "Pedidos do aplicativo não chegam ao estoque", conversation: "c_queue", status: "waiting_third", owner: "u_marina", due: -20 * 60, firstResponse: 25 * 60, created: 26 * 60, updated: 22 * 60, category: "sistemas"),
+            ticket("t_etiqueta", "WA-MEX9-2L4C", "Etiqueta de envio saiu com o endereço cortado", conversation: "c_40", status: "resolved", owner: "u_ana", due: -40 * 60, firstResponse: 43 * 60, created: 44 * 60, updated: 38 * 60, category: "pedidos"),
             ticket("t_garantia", "WA-MEX2-0B6M", "Dúvida sobre garantia estendida", conversation: "c_closed", status: "closed", owner: me, due: nil, firstResponse: 2 * 24 * 60 + 4, created: 2 * 24 * 60 + 18, updated: 2 * 24 * 60 - 30),
         ]
         func update(_ id: String, _ ticket: String, _ actor: String, _ text: String, at minutes: Double, internalNote: Bool = false) -> Row {
@@ -269,12 +287,12 @@ final class DemoServer {
             update("tu4", "t_nota", "u_marina", "Nota fiscal reenviada para o e-mail cadastrado.", at: 95),
         ]
         ticketUpdates["t_integracao"] = [
-            update("tu8", "t_integracao", "u_marina", "Identificamos que o fornecedor do ERP trocou o certificado. Abrimos um chamado com eles.", at: 25 * 60),
+            update("tu8", "t_integracao", "u_marina", "Identificamos que o fornecedor do sistema de estoque trocou o certificado. Abrimos um chamado com eles.", at: 25 * 60),
             update("tu9", "t_integracao", "u_marina", "Aguardando o fornecedor liberar o novo certificado.", at: 22 * 60, internalNote: true),
         ]
         ticketUpdates["t_etiqueta"] = [
-            update("tu10", "t_etiqueta", "u_ana", "Ajustamos o tamanho da etiqueta no modelo de impressão. Pode testar com um pedido novo?", at: 43 * 60),
-            update("tu11", "t_etiqueta", "u_ana", "Cliente confirmou que as etiquetas voltaram a sair inteiras.", at: 38 * 60),
+            update("tu10", "t_etiqueta", "u_ana", "Reimprimimos a etiqueta e o pedido já saiu de novo. Pode nos avisar quando receber?", at: 43 * 60),
+            update("tu11", "t_etiqueta", "u_ana", "Cliente confirmou que recebeu o pedido.", at: 38 * 60),
         ]
         ticketUpdates["t_garantia"] = [
             update("tu5", "t_garantia", me, "A garantia estendida cobre a troca de bateria por 24 meses.", at: 2 * 24 * 60 + 4),
@@ -317,7 +335,7 @@ final class DemoServer {
              "result": result ?? NSNull() as Any, "error": error ?? NSNull() as Any, "attachments": [String](), "created": ago(minutes), "updated": ago(minutes - 0.5)]
         }
         runs = [
-            run("run1", "b_vendas", "completed", "Cliente 5511987654321 perguntou: vocês fazem troca de produto avariado?", result: "Sim. A troca é gratuita em até 30 dias, com coleta pela transportadora no endereço do cliente.", at: 92),
+            run("run1", "b_vendas", "completed", "Cliente 5520908765432 perguntou: vocês fazem troca de produto avariado?", result: "Sim. A troca é gratuita em até 30 dias, com coleta pela transportadora no endereço do cliente.", at: 92),
             run("run2", "b_suporte", "failed", "Como reinstalar o módulo fiscal?", error: "O bot Suporte está indisponível no momento.", at: 6 * 60),
             run("run3", "b_vendas", "completed", "Resuma a política de frete grátis.", result: "Frete grátis em compras acima de R$ 199 para Sul e Sudeste, e em todas as trocas até domingo.", at: 26 * 60),
         ]
@@ -447,10 +465,10 @@ final class DemoServer {
             return captures
         }
         let get = method == "GET", post = method == "POST", put = method == "PUT", patch = method == "PATCH", delete = method == "DELETE"
-        let session: Row = ["token": "wabu_demo", "expires": now + 30 * 86_400_000, "user": ["id": me, "name": "Bruno Martins", "email": "bruno@demo.wabotia", "role": "admin", "profiles": ["demo"]] as Row]
+        let session: Row = ["token": "wabu_demo", "expires": now + 30 * 86_400_000, "user": ["id": me, "name": DemoMode.meName, "email": DemoMode.meEmail, "role": "admin", "profiles": ["demo"]] as Row]
 
         // Descoberta e conta
-        if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "0.14.0", "commit": "demo"]) }
+        if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }
         if get, m("api/auth/status") != nil { return ok(["initialized": true, "configured": true]) }
         if post, m("api/auth/mobile/login") != nil {
             guard (body["password"] as? String)?.isEmpty == false else { return fail(401, "invalid_credentials", "E-mail ou senha incorretos.") }
@@ -458,10 +476,10 @@ final class DemoServer {
         }
         if post, m("api/v1/auth/mobile/refresh") != nil { return ok(session) }
         if post, m("api/v1/logout") != nil { return ok(["ok": true]) }
-        if get, m("api/v1/me") != nil { return ok(["id": me, "kind": "user", "name": "Bruno Martins", "role": "admin", "profiles": ["demo"]]) }
+        if get, m("api/v1/me") != nil { return ok(["id": me, "kind": "user", "name": DemoMode.meName, "role": "admin", "profiles": ["demo"]]) }
         if get, m("api/v1/profiles") != nil {
-            var list: [Row] = [["id": "demo", "name": "Queven Atendimento", "enabled": 1]]
-            if extraProfile { list.append(["id": "demo2", "name": "Queven Loja Virtual", "enabled": 0]) }
+            var list: [Row] = [["id": "demo", "name": DemoMode.profileName, "enabled": 1]]
+            if extraProfile { list.append(["id": "demo2", "name": "\(DemoMode.profileName) · Filial", "enabled": 0]) }
             return ok(list)
         }
         if get, m("api/v1/devices") != nil { return ok(["data": [Row]()]) }
@@ -590,6 +608,7 @@ final class DemoServer {
             let id = "md_\(c[1])"
             media[id] = ["id": id, "name": upload.name, "type": upload.type, "size": bytes.count]
             mediaBytes[id] = bytes
+            uploaded.insert(id)
             uploads[c[1]] = nil
             return ok(["id": id, "name": upload.name, "size": bytes.count, "status": "ready"])
         }
@@ -722,6 +741,28 @@ final class DemoServer {
         return fail(404, "not_found", "Recurso não encontrado.")
     }
 
+    /// Grava (uma vez) os bytes do anexo numa pasta temporária, com a extensão que o AVFoundation reconhece:
+    /// áudio gerado aqui é WAV, qualquer que seja o tipo declarado. A pasta temporária é apagada ao sair.
+    private func writeLocalFile(_ id: String) -> URL? {
+        guard let file = media[id] else { return nil }
+        let type = file["type"] as? String ?? "application/octet-stream"
+        let name = file["name"] as? String ?? id
+        let bytes = mediaBytes[id] ?? DemoMedia.bytes(for: type, name: name)
+        mediaBytes[id] = bytes
+        let typed = (name as NSString).pathExtension
+        let ext: String
+        if !uploaded.contains(id), type.hasPrefix("audio/") { ext = "wav" }
+        else if !typed.isEmpty { ext = typed }
+        else { ext = MediaLoader.extensionFor(mimeType: type) ?? "bin" }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("wabotia-demo", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("\(id.replacingOccurrences(of: "/", with: "_")).\(ext)")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            guard (try? bytes.write(to: url, options: .atomic)) != nil else { return nil }
+        }
+        return url
+    }
+
     private func chatRow(_ chat: Row) -> Row {
         var row = chat
         let peer = chat["peer_id"] as? String ?? ""
@@ -761,7 +802,7 @@ final class DemoServer {
             "server_now": now,
             "media": used,
             "capabilities": capabilities(conversation),
-            "group": group ? ["id": id, "participants": ["5511900000001", "5511900000002", "5511900000003", "5511900000004", "5511900000005", "5511900000006"], "announcement": false] as Row : NSNull() as Any,
+            "group": group ? ["id": id, "participants": ["5520900000001", "5520900000002", "5520900000003", "5520900000004", "5520900000005", "5520900000006"], "announcement": false] as Row : NSNull() as Any,
             "contact": contacts[id] ?? NSNull() as Any,
             "messages": list,
             "deliveries": deliveries[id] ?? [],
@@ -1018,4 +1059,3 @@ enum DemoMedia {
         return data
     }
 }
-#endif

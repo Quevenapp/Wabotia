@@ -12,13 +12,16 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.TreeMap
 
-// Estado em memória do servidor de demonstração (somente build de depuração) e os dados iniciais.
+// Estado em memória do servidor de demonstração e os dados iniciais.
+//
+// Os dados são fictícios: pessoas e empresa inventadas, telefones com o DDD 20 (que não existe no Brasil) e números
+// começando por 9 0 (faixa sem celulares), e-mails em `.example` e endereços inventados.
 
 /** Identificadores fixos, usados também pelos atalhos de tela em [DemoMode]. */
 internal object Ids {
     const val PROFILE = "demo-profile"
 
-    const val ME = "u-bruno"
+    const val ME = "u-diego"
     const val ANA = "u-ana"
     const val MARINA = "u-marina"
     const val CARLOS = "u-carlos"
@@ -51,11 +54,11 @@ internal object Ids {
     const val T_RESOLVED = "t-resolved"
     const val T_CLOSED = "t-closed"
 
-    const val CAT_WABOTIA = "wabotia"
-    const val CAT_PRINTHER = "printher"
-    const val CAT_NFSE = "nfse-leve"
-    const val CAT_FAGOO = "fagoo-erp"
-    const val CAT_SERVIDOR = "servidor-integracao"
+    const val CAT_COMERCIAL = "comercial"
+    const val CAT_IMPLANTACAO = "implantacao"
+    const val CAT_FINANCEIRO = "financeiro"
+    const val CAT_NOTA = "nota-fiscal"
+    const val CAT_INTEGRACOES = "integracoes"
     const val CAT_OUTRO = "outro"
 
     const val CHAT_ANA = "ic-ana"
@@ -110,7 +113,7 @@ internal class Upload(val name: String, val type: String, val size: Long) {
 /** Tudo o que o servidor fictício guarda. Recriado a cada entrada na demonstração. */
 internal class DemoState(val t0: Long) {
     val users = linkedMapOf(
-        Ids.ME to "Bruno Almeida",
+        Ids.ME to DemoMode.USER_NAME,
         Ids.ANA to "Ana Souza",
         Ids.MARINA to "Marina Lopes",
         Ids.CARLOS to "Carlos Pereira",
@@ -250,22 +253,22 @@ internal class DemoState(val t0: Long) {
         for (entry in DemoMedia.fixtures()) media[entry.id] = entry
 
         bots += row(
-            "id" to Ids.BOT_VENDAS, "profile_id" to Ids.PROFILE, "connection_id" to "hermes-queven", "remote_profile" to "vendas",
+            "id" to Ids.BOT_VENDAS, "profile_id" to Ids.PROFILE, "connection_id" to "hermes", "remote_profile" to "vendas",
             "name" to "Vendas", "enabled" to 1, "line_ids" to null,
         )
         bots += row(
-            "id" to Ids.BOT_SUPORTE, "profile_id" to Ids.PROFILE, "connection_id" to "hermes-queven", "remote_profile" to "suporte",
+            "id" to Ids.BOT_SUPORTE, "profile_id" to Ids.PROFILE, "connection_id" to "hermes", "remote_profile" to "suporte",
             "name" to "Suporte", "enabled" to 1, "line_ids" to "[\"${Ids.LINE_META}\"]",
         )
 
         val policy = j("pool" to true, "human" to true, "bots" to true, "menu" to true, "api" to true, "service" to true, "templates" to true, "purpose" to "custom")
         lines += row(
             "id" to Ids.LINE_META, "name" to "WhatsApp Vendas", "kind" to "meta", "mode" to "cloud", "status" to "active",
-            "number" to "+55 11 4000-1234", "number_policy" to policy, "service" to j("mode" to "inherit", "bot_id" to null, "menu_mode" to "automatic"),
+            "number" to "+55 20 90000-1000", "number_policy" to policy, "service" to j("mode" to "inherit", "bot_id" to null, "menu_mode" to "automatic"),
         )
         lines += row(
             "id" to Ids.LINE_ZERNIO, "name" to "WhatsApp Suporte", "kind" to "zernio", "mode" to "cloud", "status" to "active",
-            "number" to "+55 11 4000-5678", "number_policy" to policy, "service" to j("mode" to "human", "bot_id" to null, "menu_mode" to "manual"),
+            "number" to "+55 20 90000-2000", "number_policy" to policy, "service" to j("mode" to "human", "bot_id" to null, "menu_mode" to "manual"),
         )
 
         departments = listOf(
@@ -274,13 +277,13 @@ internal class DemoState(val t0: Long) {
         )
 
         ticketCategories = listOf(
-            j("id" to Ids.CAT_WABOTIA, "name" to "Wabotia", "enabled" to true),
-            j("id" to Ids.CAT_PRINTHER, "name" to "Printher", "enabled" to true),
-            j("id" to Ids.CAT_NFSE, "name" to "NFS-e Leve", "enabled" to true),
-            j("id" to Ids.CAT_FAGOO, "name" to "Fagoo ERP", "enabled" to true),
-            j("id" to Ids.CAT_SERVIDOR, "name" to "Servidor ou integração", "enabled" to true),
+            j("id" to Ids.CAT_COMERCIAL, "name" to "Comercial", "enabled" to true),
+            j("id" to Ids.CAT_IMPLANTACAO, "name" to "Implantação", "enabled" to true),
+            j("id" to Ids.CAT_FINANCEIRO, "name" to "Financeiro", "enabled" to true),
+            j("id" to Ids.CAT_NOTA, "name" to "Nota fiscal", "enabled" to true),
+            j("id" to Ids.CAT_INTEGRACOES, "name" to "Integrações", "enabled" to true),
             j("id" to Ids.CAT_OUTRO, "name" to "Outro ou não sei", "enabled" to true),
-            j("id" to "vinki", "name" to "Vinki", "enabled" to false),
+            j("id" to "treinamento", "name" to "Treinamento", "enabled" to false),
         )
 
         fun menu(id: String, label: String, type: String, parent: String? = null, bot: String = "") = j(
@@ -300,7 +303,7 @@ internal class DemoState(val t0: Long) {
             // Destinos que o aplicativo não monta, mas precisa mostrar e preservar ao editar.
             JsonObject(
                 menu("mn-sup-protocolo", "Abrir protocolo", "ticket", parent = "mn-suporte") +
-                    ("category_id" to JsonPrimitive(Ids.CAT_WABOTIA)) +
+                    ("category_id" to JsonPrimitive(Ids.CAT_INTEGRACOES)) +
                     ("content" to JsonPrimitive("Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.")),
             ),
             menu("mn-protocolos", "Meus protocolos", "protocols"),
@@ -318,26 +321,27 @@ internal class DemoState(val t0: Long) {
         val vendas = "bot:${Ids.BOT_VENDAS}"
 
         // (1) conversa completa, minha, ~23 h de janela
-        val richPhone = "5511987654321"
+        val richPhone = "5520908765432"
         conversation(
             Ids.C_RICH, "Mariana Costa", richPhone, "human", me, Ids.LINE_META,
             lastCustomer = minAgo(50), updated = minAgo(2), created = yesterdayAt(16, 2), tags = listOf("VIP", "Financeiro"),
             contact = j(
-                "id" to "ct-${Ids.C_RICH}", "name" to "Mariana Costa", "phone" to richPhone, "email" to "mariana@costafilhos.com.br",
-                "company" to "Costa & Filhos Contabilidade", "notes" to "Indicação da Fagoo. Prefere contato pela manhã.", "version" to 3,
+                "id" to "ct-${Ids.C_RICH}", "name" to "Mariana Costa", "phone" to richPhone, "email" to "mariana@costafilhos.example",
+                "company" to "Costa & Filhos Contabilidade", "notes" to "Indicação de um parceiro. Prefere contato pela manhã.", "version" to 3,
             ),
         )
         val r = Ids.C_RICH
+        val myName = DemoMode.USER_NAME
         addMessage(r, "customer", richPhone, "Oi, boa tarde! Queria saber sobre o plano empresarial de vocês.", yesterdayAt(16, 2))
         addMessage(
             r, "outbound", vendas,
-            "Olá, Mariana! Sou a assistente virtual da Queven. Posso ajudar com planos, valores e segunda via de boleto. Sobre o que você quer falar?",
+            "Olá, Mariana! Sou a assistente virtual da ${DemoMode.PROFILE_NAME}. Posso ajudar com planos, valores e segunda via de boleto. Sobre o que você quer falar?",
             yesterdayAt(16, 2), "read",
         )
         addMessage(r, "system", "system", "Menu enviado ao cliente", yesterdayAt(16, 3))
         addMessage(r, "customer", richPhone, "Quero falar com um atendente, por favor.", yesterdayAt(16, 5))
-        addMessage(r, "system", "system", "Conversa assumida por Bruno Almeida", yesterdayAt(16, 6))
-        addMessage(r, "outbound", me, "Oi, Mariana! Aqui é o Bruno, do time comercial. Me conta: quantas pessoas vão usar o atendimento?", yesterdayAt(16, 7), "read")
+        addMessage(r, "system", "system", "Conversa assumida por $myName", yesterdayAt(16, 6))
+        addMessage(r, "outbound", me, "Oi, Mariana! Aqui é o Diego, do time comercial. Me conta: quantas pessoas vão usar o atendimento?", yesterdayAt(16, 7), "read")
         val team = addMessage(r, "customer", richPhone, "Somos 12 atendentes hoje, mas a ideia é chegar a 20 até o fim do ano.", yesterdayAt(16, 9))
         addMessage(
             r, "outbound", me, "Perfeito. Para esse tamanho o plano Empresarial atende bem e já inclui os bots de vendas e de suporte.",
@@ -353,14 +357,14 @@ internal class DemoState(val t0: Long) {
             r, "customer", richPhone, "Esse é o painel que usamos hoje. Dá para migrar o histórico?", yesterdayAt(16, 15),
             content = j("type" to "image"), attachments = listOf(DemoMedia.IMAGE_ID),
         )
-        addMessage(r, "note", Ids.ANA, "Cliente veio por indicação da Fagoo. Dá para aplicar o desconto de parceiro.", yesterdayAt(16, 20))
+        addMessage(r, "note", Ids.ANA, "Cliente veio por indicação de um parceiro. Dá para aplicar o desconto de parceiro.", yesterdayAt(16, 20))
         addMessage(
             r, "outbound", me, "Segue a proposta com os valores para 20 atendentes.", yesterdayAt(16, 24), "read",
             content = j("type" to "document"), attachments = listOf(DemoMedia.PDF_ID),
         )
-        addMessage(r, "system", "system", "Transferida de Bruno Almeida para Ana Souza", yesterdayAt(18, 1))
+        addMessage(r, "system", "system", "Transferida de $myName para Ana Souza", yesterdayAt(18, 1))
 
-        addMessage(r, "system", "system", "Transferida de Ana Souza para Bruno Almeida", minAgo(190))
+        addMessage(r, "system", "system", "Transferida de Ana Souza para $myName", minAgo(190))
         addMessage(r, "customer", richPhone, "", minAgo(180), content = j("type" to "voice"), attachments = listOf(DemoMedia.VOICE_ID))
         addMessage(
             r, "outbound", me, "Ouvi aqui! Dá sim: a migração do histórico está incluída na implantação.", minAgo(175), "read",
@@ -373,12 +377,13 @@ internal class DemoState(val t0: Long) {
             r, "outbound", me, "", minAgo(148), "delivered",
             content = j(
                 "type" to "location",
-                "location" to j("latitude" to -23.561684, "longitude" to -46.655981, "name" to "Queven Matriz", "address" to "Av. Paulista, 1578 · Bela Vista, São Paulo"),
+                // Endereço inventado; as coordenadas caem num parque público, não no endereço de alguém.
+                "location" to j("latitude" to -23.587416, "longitude" to -46.657634, "name" to "${DemoMode.PROFILE_NAME} · Escritório", "address" to "Rua das Palmeiras, 100 · Centro"),
             ),
         )
         addMessage(
             r, "customer", richPhone, "Esse é o contato do nosso financeiro, pode tratar do contrato com ele.", minAgo(140),
-            content = j("type" to "contacts", "contacts" to listOf(j("name" to "Rafael Nunes (Financeiro)", "phone" to "5511912345678"))),
+            content = j("type" to "contacts", "contacts" to listOf(j("name" to "Rafael Nunes (Financeiro)", "phone" to "5520901234567"))),
         )
         val failed = addMessage(r, "outbound", me, "Combinado, vou falar com o Rafael ainda hoje.", minAgo(90), "failed")
         addMessage(r, "outbound", me, "Mariana, consegue me confirmar o CNPJ para eu emitir o contrato?", minAgo(85), "delivered")
@@ -391,10 +396,10 @@ internal class DemoState(val t0: Long) {
         )
 
         // (2) minha, ~5 h de janela
-        val joao = "5511991234567"
+        val joao = "5520909123456"
         conversation(Ids.C_5H, "João Pedro Martins", joao, "human", me, Ids.LINE_META, lastCustomer = hoursAgo(19.0), updated = hoursAgo(19.0), created = hoursAgo(19.4), tags = listOf("Boleto"))
         addMessage(Ids.C_5H, "customer", joao, "Bom dia! Não recebi o boleto deste mês.", hoursAgo(19.35))
-        addMessage(Ids.C_5H, "system", "system", "Conversa assumida por Bruno Almeida", hoursAgo(19.3))
+        addMessage(Ids.C_5H, "system", "system", "Conversa assumida por $myName", hoursAgo(19.3))
         addMessage(Ids.C_5H, "outbound", me, "Bom dia, João! Vou verificar agora mesmo.", hoursAgo(19.2), "read")
         addMessage(Ids.C_5H, "outbound", me, "Acabei de reenviar para o e-mail cadastrado. Consegue conferir?", hoursAgo(19.1), "read")
         addMessage(Ids.C_5H, "customer", joao, "Chegou sim!", hoursAgo(19.04))
@@ -402,7 +407,7 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_5H, "customer", joao, "Consegue gerar a segunda via atualizada?", hoursAgo(19.0))
 
         // (3) minha, ~40 min de janela
-        val fernanda = "5521998765432"
+        val fernanda = "5520909876543"
         conversation(Ids.C_40MIN, "Fernanda Oliveira", fernanda, "human", me, Ids.LINE_META, lastCustomer = minAgo(23 * 60 + 20), updated = minAgo(23 * 60 + 15), created = minAgo(23 * 60 + 45), tags = listOf("Urgente"))
         addMessage(Ids.C_40MIN, "customer", fernanda, "Olá! Meu pedido 4817 ainda não chegou e o prazo era ontem.", minAgo(23 * 60 + 40))
         addMessage(Ids.C_40MIN, "outbound", me, "Oi, Fernanda! Sinto muito pelo atraso. Já abri um chamado com a transportadora.", minAgo(23 * 60 + 30), "read")
@@ -410,14 +415,14 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_40MIN, "outbound", me, "Entendido. Te retorno hoje com a nova previsão de entrega.", minAgo(23 * 60 + 15), "delivered")
 
         // (4) minha, janela fechada
-        val ricardo = "5531987651234"
+        val ricardo = "5520908765123"
         conversation(Ids.C_WINDOW_CLOSED, "Ricardo Santos", ricardo, "human", me, Ids.LINE_META, lastCustomer = hoursAgo(30.0), updated = hoursAgo(30.0), created = hoursAgo(31.0))
         addMessage(Ids.C_WINDOW_CLOSED, "customer", ricardo, "Vocês emitem nota fiscal para pessoa jurídica?", hoursAgo(31.0))
         addMessage(Ids.C_WINDOW_CLOSED, "outbound", me, "Emitimos sim, Ricardo. Só preciso do CNPJ e da inscrição estadual.", hoursAgo(30.8), "read")
         addMessage(Ids.C_WINDOW_CLOSED, "customer", ricardo, "Vou pegar com a contabilidade e te envio.", hoursAgo(30.0))
 
         // (5) fila, esperando há 12 min, setor Financeiro
-        val patricia = "5511976543210"
+        val patricia = "5520907654321"
         conversation(Ids.C_QUEUE, "Patrícia Lima", patricia, "waiting", null, Ids.LINE_META, lastCustomer = minAgo(12), updated = minAgo(12), created = minAgo(14), tags = listOf("Financeiro"), department = Ids.DEP_FINANCEIRO)
         addMessage(Ids.C_QUEUE, "customer", patricia, "Oi, preciso falar sobre uma cobrança duplicada no cartão.", minAgo(14))
         addMessage(Ids.C_QUEUE, "outbound", vendas, "Entendi, Patrícia. Vou encaminhar você para o setor Financeiro. Um atendente já vai falar com você.", minAgo(13), "read")
@@ -425,13 +430,13 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_QUEUE, "customer", patricia, "Ok, fico no aguardo.", minAgo(12))
 
         // (6) fila, esperando há 2 min
-        val lucas = "5541999887766"
+        val lucas = "5520909988776"
         conversation(Ids.C_QUEUE2, "Lucas Ferreira", lucas, "waiting", null, Ids.LINE_ZERNIO, lastCustomer = minAgo(2), updated = minAgo(2), created = minAgo(3))
         addMessage(Ids.C_QUEUE2, "customer", lucas, "Boa tarde!", minAgo(3))
         addMessage(Ids.C_QUEUE2, "customer", lucas, "Quero contratar o plano para 5 usuários. Com quem eu falo?", minAgo(2))
 
         // (7) com o bot Vendas
-        val camila = "5511965432109"
+        val camila = "5520906543219"
         conversation(Ids.C_BOT, "Camila Rocha", camila, "ai", null, Ids.LINE_META, lastCustomer = minAgo(8), updated = minAgo(8), created = minAgo(11), bot = Ids.BOT_VENDAS)
         addMessage(Ids.C_BOT, "customer", camila, "Qual o horário de atendimento de vocês?", minAgo(11))
         addMessage(Ids.C_BOT, "outbound", vendas, "Oi, Camila! Atendemos de segunda a sexta, das 8h às 18h, e aos sábados das 9h às 13h. 😊", minAgo(10), "read")
@@ -439,7 +444,7 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_BOT, "outbound", vendas, "Temos sim: 14 dias com todos os recursos, sem cartão. Quer que eu crie o seu acesso agora?", minAgo(8), "delivered")
 
         // (8) com a Ana, setor Suporte
-        val eduardo = "5519988776655"
+        val eduardo = "5520908877665"
         conversation(Ids.C_ANA, "Eduardo Ribeiro", eduardo, "human", Ids.ANA, Ids.LINE_ZERNIO, lastCustomer = minAgo(180), updated = minAgo(175), created = minAgo(200), tags = listOf("Suporte"), department = Ids.DEP_SUPORTE)
         addMessage(Ids.C_ANA, "customer", eduardo, "O QR code da integração não está aparecendo para mim.", minAgo(200))
         addMessage(Ids.C_ANA, "system", "system", "Conversa assumida por Ana Souza", minAgo(190))
@@ -448,7 +453,7 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_ANA, "outbound", Ids.ANA, "Certo! Limpa o cache e tenta de novo, por favor. Se não aparecer, eu gero outro por aqui.", minAgo(175), "delivered")
 
         // (9) concluída
-        val juliana = "5511954321098"
+        val juliana = "5520905432109"
         conversation(Ids.C_DONE, "Juliana Mendes", juliana, "closed", null, Ids.LINE_META, lastCustomer = hoursAgo(47.0), updated = hoursAgo(46.7), created = hoursAgo(50.0))
         addMessage(Ids.C_DONE, "customer", juliana, "Não estou conseguindo entrar no painel, diz que a senha está errada.", hoursAgo(50.0))
         addMessage(Ids.C_DONE, "outbound", Ids.CARLOS, "Oi, Juliana! Enviei um link para redefinir a senha no seu e-mail.", hoursAgo(49.5), "read")
@@ -459,18 +464,18 @@ internal class DemoState(val t0: Long) {
         // (10) grupo, linha Zernio
         conversation(Ids.C_GROUP, "Condomínio Jardins", null, "human", me, Ids.LINE_ZERNIO, lastCustomer = minAgo(25), updated = minAgo(25), created = hoursAgo(200.0), tags = listOf("Condomínio"), group = true)
         val participants = listOf(
-            j("id" to "5511970001111", "name" to "Sérgio (Síndico)", "admin" to true),
-            j("id" to "5511970002222", "name" to "Helena · Bloco B", "admin" to false),
-            j("id" to "5511970003333", "name" to "Dona Lúcia", "admin" to false),
-            j("id" to "5511970004444", "name" to "Marcos Portaria", "admin" to false),
+            j("id" to "5520900001111", "name" to "Sérgio (Síndico)", "admin" to true),
+            j("id" to "5520900002222", "name" to "Helena · Bloco B", "admin" to false),
+            j("id" to "5520900003333", "name" to "Dona Lúcia", "admin" to false),
+            j("id" to "5520900004444", "name" to "Marcos Portaria", "admin" to false),
         )
         groups[Ids.C_GROUP] = j("id" to Ids.C_GROUP, "subject" to "Condomínio Jardins", "announcement" to false, "participants" to JsonArray(participants).toString())
         fun member(index: Int) = j("type" to "text", "participant" to participants[index].str("id"), "participant_name" to participants[index].str("name"))
-        addMessage(Ids.C_GROUP, "customer", "5511970001111", "Pessoal, a manutenção do portão ficou para quinta-feira.", minAgo(40), content = member(0))
-        addMessage(Ids.C_GROUP, "customer", "5511970002222", "Bruno, consegue confirmar o horário com a empresa?", minAgo(35), content = member(1))
+        addMessage(Ids.C_GROUP, "customer", "5520900001111", "Pessoal, a manutenção do portão ficou para quinta-feira.", minAgo(40), content = member(0))
+        addMessage(Ids.C_GROUP, "customer", "5520900002222", "Diego, consegue confirmar o horário com a empresa?", minAgo(35), content = member(1))
         addMessage(Ids.C_GROUP, "outbound", me, "Confirmado: quinta, das 9h às 12h. O portão de pedestres continua funcionando normalmente.", minAgo(30), "read")
-        addMessage(Ids.C_GROUP, "customer", "5511970003333", "Obrigada pelo aviso! 🙏", minAgo(26), content = member(2))
-        addMessage(Ids.C_GROUP, "customer", "5511970001111", "Perfeito, vou colocar no mural também.", minAgo(25), content = member(0))
+        addMessage(Ids.C_GROUP, "customer", "5520900003333", "Obrigada pelo aviso! 🙏", minAgo(26), content = member(2))
+        addMessage(Ids.C_GROUP, "customer", "5520900001111", "Perfeito, vou colocar no mural também.", minAgo(25), content = member(0))
     }
 
     private fun seedTickets() {
@@ -489,30 +494,31 @@ internal class DemoState(val t0: Long) {
 
         // Os seis estados (docs/CENTRAL-ATENDIMENTO.md §2), com categoria: Recebido (atrasado e vencendo), Em análise,
         // Aguardando cliente, Aguardando terceiro, Resolvido e Encerrado (este sem categoria).
-        ticket(Ids.T_OVERDUE, "WA-2026-000181", Ids.C_5H, "Segunda via do boleto de outubro com o valor corrigido", "open", Ids.ME, hoursAgo(2.0), null, hoursAgo(18.9), hoursAgo(18.9), category = Ids.CAT_FAGOO)
-        update(Ids.T_OVERDUE, "system", "Protocolo aberto por Bruno Almeida.", hoursAgo(18.9))
+        val openedByMe = "Protocolo aberto por ${DemoMode.USER_NAME}."
+        ticket(Ids.T_OVERDUE, "WA-2026-000181", Ids.C_5H, "Segunda via do boleto de outubro com o valor corrigido", "open", Ids.ME, hoursAgo(2.0), null, hoursAgo(18.9), hoursAgo(18.9), category = Ids.CAT_FINANCEIRO)
+        update(Ids.T_OVERDUE, "system", openedByMe, hoursAgo(18.9))
         update(Ids.T_OVERDUE, Ids.ME, "Financeiro precisa recalcular os juros antes de emitir a segunda via.", hoursAgo(18.5), internal = true)
 
-        ticket(Ids.T_SOON, "WA-2026-000185", Ids.C_ANA, "QR code da integração não aparece no painel", "open", Ids.ANA, t0 + 40 * 60_000L, null, minAgo(170), minAgo(170), category = Ids.CAT_SERVIDOR)
+        ticket(Ids.T_SOON, "WA-2026-000185", Ids.C_ANA, "QR code da integração não aparece no painel", "open", Ids.ANA, t0 + 40 * 60_000L, null, minAgo(170), minAgo(170), category = Ids.CAT_INTEGRACOES)
         update(Ids.T_SOON, "system", "Protocolo aberto por Ana Souza.", minAgo(170))
 
-        ticket(Ids.T_PROGRESS, "WA-2026-000184", Ids.C_RICH, "Migração do histórico do painel antigo", "in_progress", Ids.ME, t0 + 22 * 3_600_000L, null, minAgo(160), minAgo(95), category = Ids.CAT_WABOTIA)
-        update(Ids.T_PROGRESS, "system", "Protocolo aberto por Bruno Almeida.", minAgo(160))
+        ticket(Ids.T_PROGRESS, "WA-2026-000184", Ids.C_RICH, "Migração do histórico do painel antigo", "in_progress", Ids.ME, t0 + 22 * 3_600_000L, null, minAgo(160), minAgo(95), category = Ids.CAT_IMPLANTACAO)
+        update(Ids.T_PROGRESS, "system", openedByMe, minAgo(160))
         update(Ids.T_PROGRESS, Ids.ME, "Cliente usa o painel antigo desde 2022. Confirmar com o suporte se a exportação em CSV traz os anexos.", minAgo(155), internal = true)
         update(Ids.T_PROGRESS, Ids.MARINA, "Suporte confirmou: a exportação traz mensagens e anexos. Precisamos do acesso de administrador do cliente.", minAgo(120))
         update(Ids.T_PROGRESS, Ids.ME, "Estamos preparando a migração do seu histórico. Assim que tivermos o acesso de administrador, concluímos em até 2 dias úteis.", minAgo(95))
 
         val answeredAt = messages[Ids.C_RICH]?.firstOrNull { it.str("attachments")?.contains(DemoMedia.PDF_ID) == true }?.long("created") ?: hoursAgo(20.0)
-        ticket(Ids.T_ANSWERED, "WA-2026-000182", Ids.C_RICH, "Proposta do plano Empresarial para 20 atendentes", "waiting_customer", Ids.ME, answeredAt + 90 * 60_000L, answeredAt, answeredAt - 14 * 60_000L, answeredAt, category = Ids.CAT_WABOTIA)
-        update(Ids.T_ANSWERED, "system", "Protocolo aberto por Bruno Almeida.", answeredAt - 14 * 60_000L)
+        ticket(Ids.T_ANSWERED, "WA-2026-000182", Ids.C_RICH, "Proposta do plano Empresarial para 20 atendentes", "waiting_customer", Ids.ME, answeredAt + 90 * 60_000L, answeredAt, answeredAt - 14 * 60_000L, answeredAt, category = Ids.CAT_COMERCIAL)
+        update(Ids.T_ANSWERED, "system", openedByMe, answeredAt - 14 * 60_000L)
         update(Ids.T_ANSWERED, Ids.ME, "Proposta enviada com o desconto de parceiro. Aguardando a confirmação do CNPJ para emitir o contrato.", answeredAt)
 
-        ticket(Ids.T_THIRD, "WA-2026-000179", Ids.C_WINDOW_CLOSED, "Nota fiscal de serviço rejeitada pela prefeitura", "waiting_third", Ids.MARINA, hoursAgo(29.0), hoursAgo(30.5), hoursAgo(30.9), hoursAgo(26.0), category = Ids.CAT_NFSE)
+        ticket(Ids.T_THIRD, "WA-2026-000179", Ids.C_WINDOW_CLOSED, "Nota fiscal de serviço rejeitada pela prefeitura", "waiting_third", Ids.MARINA, hoursAgo(29.0), hoursAgo(30.5), hoursAgo(30.9), hoursAgo(26.0), category = Ids.CAT_NOTA)
         update(Ids.T_THIRD, "system", "Protocolo aberto por Marina Lopes.", hoursAgo(30.9))
         update(Ids.T_THIRD, Ids.MARINA, "Recebemos o retorno da prefeitura com o código da rejeição. Abrimos um chamado no portal do município.", hoursAgo(30.5))
         update(Ids.T_THIRD, Ids.MARINA, "Aguardando a prefeitura liberar o novo código de serviço.", hoursAgo(26.0), internal = true)
 
-        ticket(Ids.T_RESOLVED, "WA-2026-000178", Ids.C_40MIN, "Etiquetas saindo cortadas na impressora térmica", "resolved", Ids.ANA, hoursAgo(40.0), hoursAgo(43.0), hoursAgo(44.0), hoursAgo(38.0), category = Ids.CAT_PRINTHER)
+        ticket(Ids.T_RESOLVED, "WA-2026-000178", Ids.C_40MIN, "Etiquetas saindo cortadas na impressora térmica", "resolved", Ids.ANA, hoursAgo(40.0), hoursAgo(43.0), hoursAgo(44.0), hoursAgo(38.0), category = Ids.CAT_OUTRO)
         update(Ids.T_RESOLVED, "system", "Protocolo aberto por Ana Souza.", hoursAgo(44.0))
         update(Ids.T_RESOLVED, Ids.ANA, "Ajustamos o tamanho da etiqueta no modelo de impressão. Pode testar com um pedido novo?", hoursAgo(43.0))
         update(Ids.T_RESOLVED, Ids.ANA, "Cliente confirmou que as etiquetas voltaram a sair inteiras.", hoursAgo(38.0))
@@ -531,7 +537,7 @@ internal class DemoState(val t0: Long) {
             )
         }
         botRun(
-            "run-5", Ids.BOT_VENDAS, Ids.ME, "completed", "Resuma os pedidos em aberto da cliente 5511987654321.",
+            "run-5", Ids.BOT_VENDAS, Ids.ME, "completed", "Resuma os pedidos em aberto da cliente 5520908765432.",
             "Mariana Costa tem 2 solicitações em aberto: a proposta do plano Empresarial (aguardando o CNPJ para o contrato) e a migração do histórico do painel antigo, com retorno prometido para amanhã.",
             null, hoursAgo(4.0), Ids.C_RICH,
         )
@@ -575,9 +581,9 @@ internal class DemoState(val t0: Long) {
             chatMessages[id] = ArrayList()
         }
         chat(Ids.CHAT_ANA, Ids.ANA, minAgo(60))
-        addChatMessage(Ids.CHAT_ANA, Ids.ANA, "Bruno, a Mariana Costa voltou a falar com você?", minAgo(52))
+        addChatMessage(Ids.CHAT_ANA, Ids.ANA, "Diego, a Mariana Costa voltou a falar com você?", minAgo(52))
         addChatMessage(Ids.CHAT_ANA, Ids.ME, "Voltou sim, estou fechando o contrato com ela agora.", minAgo(50))
-        addChatMessage(Ids.CHAT_ANA, Ids.ANA, "Ótimo! Lembra de aplicar o desconto de parceiro, ela veio pela Fagoo.", minAgo(47))
+        addChatMessage(Ids.CHAT_ANA, Ids.ANA, "Ótimo! Lembra de aplicar o desconto de parceiro, ela veio por indicação.", minAgo(47))
         addChatMessage(Ids.CHAT_ANA, Ids.ME, "Boa, já coloquei na proposta. Obrigado pelo aviso!", minAgo(45))
         addChatMessage(Ids.CHAT_ANA, Ids.ME, "Você consegue pegar a Patrícia Lima da fila? É cobrança duplicada.", minAgo(11))
         addChatMessage(Ids.CHAT_ANA, Ids.ANA, "Pego sim, é só terminar este atendimento aqui. 👍", minAgo(9))

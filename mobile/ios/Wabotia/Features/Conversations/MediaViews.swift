@@ -208,6 +208,12 @@ struct VideoPlayerSheet: View {
 enum AuthenticatedAsset {
     /// AVURLAsset que envia o cabeçalho Authorization (players não aceitam URLRequest).
     static func make(file: MediaFile, profileId: String, api: APIClient) -> AVURLAsset {
+        if DemoMode.isDemo(api.baseURL) {
+            // O AVPlayer não passa pela URLSession do app: na demonstração ele toca uma cópia local do anexo,
+            // e nada sai do aparelho (sem cópia, um caminho local inexistente só falha em silêncio).
+            let local = DemoServer.localFile(mediaId: file.id) ?? FileManager.default.temporaryDirectory.appendingPathComponent("wabotia-demo-indisponivel")
+            return AVURLAsset(url: local)
+        }
         let url = api.mediaURL(profileId: profileId, mediaId: file.id, inline: true)
         return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": api.authorizationHeaders])
     }

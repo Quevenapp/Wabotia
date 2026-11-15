@@ -8,7 +8,8 @@ final class SessionStore {
     /// Sessão isolada: nada vai para o Keychain nem para as preferências reais do aparelho.
     private let isolated: Bool
 
-    /// `isolatedSuite` guarda tudo em um domínio à parte (demonstração aberta por variável de ambiente),
+    /// `isolatedSuite` guarda tudo em um domínio à parte (demonstração aberta por variável de ambiente no build
+    /// de depuração, testes),
     /// sem tocar na sessão real do aparelho. O domínio é zerado a cada abertura e o token (de mentira)
     /// fica nele, fora do Keychain.
     init(isolatedSuite: String? = nil) {
@@ -95,11 +96,17 @@ final class SessionStore {
         profileId = nil
         pushToken = nil
         registeredPushToken = nil
+        clearLocalCaches()
+        serverURL = keepServer ? server : nil
+        Self.removeLocalFiles()
+    }
+
+    /// Caches `cache.*` (prévias, não lidas, eventos do atendimento) e cursores de eventos. A demonstração
+    /// também usa ao entrar e ao reabrir o app, porque os dados de exemplo recomeçam do zero.
+    func clearLocalCaches() {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache.") || key.hasPrefix("\(Keys.eventCursor).") {
             defaults.removeObject(forKey: key)
         }
-        serverURL = keepServer ? server : nil
-        Self.removeLocalFiles()
     }
 
     /// Apaga do disco o que o app baixou ou gerou: anexos em Caches/media, respostas HTTP em cache e tudo

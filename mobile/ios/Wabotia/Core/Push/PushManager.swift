@@ -86,7 +86,8 @@ final class PushManager: NSObject {
     @discardableResult
     func register(force: Bool = false) async -> Bool {
         let container = AppContainer.shared
-        guard container.isLoggedIn, container.session.serverURL != nil else { return false }
+        // Na demonstração não há servidor: o aparelho nunca é registrado (nem o token FCM é pedido).
+        guard container.isLoggedIn, let server = container.session.serverURL, !DemoMode.isDemo(server) else { return false }
         let store = container.session
         if store.pushToken == nil, let token = await fetchFCMToken() { store.pushToken = token }
         guard let token = store.pushToken else { return false }
@@ -116,7 +117,7 @@ final class PushManager: NSObject {
     func unregister() async {
         let target: (APIClient, String)? = await MainActor.run { () -> (APIClient, String)? in
             let container = AppContainer.shared
-            guard container.session.serverURL != nil, container.session.token != nil else { return nil }
+            guard let server = container.session.serverURL, !DemoMode.isDemo(server), container.session.token != nil else { return nil }
             return (container.api, container.session.deviceId)
         }
         if let (api, deviceId) = target { _ = try? await api.deleteDevice(id: deviceId) }

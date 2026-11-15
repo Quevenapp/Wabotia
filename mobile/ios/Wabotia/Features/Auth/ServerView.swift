@@ -47,7 +47,19 @@ struct AuthField<Field: View>: View {
     }
 }
 
-/// Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia.
+/// Linha fina com "ou" no meio, separando duas formas de seguir.
+struct OrDivider: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Theme.divider.frame(height: 1)
+            Text("ou").font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
+            Theme.divider.frame(height: 1)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia, ou abre a demonstração.
 struct ServerView: View {
     @EnvironmentObject private var container: AppContainer
     @Environment(\.openURL) private var openURL
@@ -72,6 +84,10 @@ struct ServerView: View {
             PrimaryButton(title: "Conectar", busy: busy, disabled: input.trimmingCharacters(in: .whitespaces).isEmpty, action: connect)
             Text("Cada empresa tem a própria instalação. Use o mesmo endereço do painel, por exemplo wabotia.suaempresa.com.br.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            OrDivider().padding(.top, 4)
+            SecondaryButton(title: "Conhecer o app (demonstração)", icon: "play.circle", disabled: busy, action: enterDemo)
+            Text("Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Button("Política de privacidade") { openURL(AppLinks.privacyPolicy) }
                 .font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
                 .frame(maxWidth: .infinity, minHeight: Theme.touch)
@@ -89,13 +105,19 @@ struct ServerView: View {
         }
     }
 
+    /// Demonstração com dados fictícios em memória: sem servidor, sem senha e sem push.
+    private func enterDemo() {
+        focused = false
+        error = nil
+        DemoMode.signIn(container)
+    }
+
     private func connect() {
-        #if DEBUG
+        // Digitar "demo" como servidor também abre a demonstração.
         if DemoMode.wantsDemo(input) {
-            DemoMode.signIn(container)
+            enterDemo()
             return
         }
-        #endif
         guard let url = SessionStore.normalizeServer(input) else {
             error = "Digite um endereço válido, por exemplo wabotia.suaempresa.com.br"
             return

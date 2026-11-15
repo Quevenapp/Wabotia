@@ -3,6 +3,7 @@ package br.com.queven.wabotia.core.net
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.model.ApiErrorBody
 import br.com.queven.wabotia.core.model.WabotiaJson
+import br.com.queven.wabotia.demo.DemoMode
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -33,9 +34,10 @@ class ApiClient(val baseUrl: String, private val tokenProvider: () -> String?) {
         .addInterceptor(ErrorInterceptor())
         .apply {
             if (BuildConfig.DEBUG) addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
-            // Modo de demonstração (somente depuração): responde em memória pelas chamadas ao servidor fictício.
-            if (BuildConfig.DEBUG) br.com.queven.wabotia.core.DebugHooks.interceptor?.let { addInterceptor(it) }
         }
+        // Modo de demonstração: responde em memória pelas chamadas a demo.wabotia.localhost, que assim nunca vão para a
+        // rede. Os demais endereços seguem normalmente. Este cliente também serve imagens (Coil) e áudio/vídeo (Media3).
+        .addInterceptor(DemoMode.interceptor)
         .build()
 
     val api: WabotiaApi = Retrofit.Builder()

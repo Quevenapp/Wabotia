@@ -285,9 +285,7 @@ final class Workspace: ObservableObject {
         reset()
         profileId = p
         loadCache()
-        #if DEBUG
         DemoMode.seedLocalState(self)
-        #endif
     }
 
     /// Recarrega linhas, setores, equipe, presença e contadores de protocolo.
@@ -603,11 +601,9 @@ final class Workspace: ObservableObject {
         container.session.setCachedData(try? JSONEncoder().encode(cache), key)
     }
 
-    #if DEBUG
     /// Estado local de exemplo para a demonstração (não lidas e chips de eventos).
     func seedDemo(unread: [String: Int], events: [String: [ServiceEvent]]) {
         self.unread = unread
         self.serviceEvents = events
     }
-    #endif
 }

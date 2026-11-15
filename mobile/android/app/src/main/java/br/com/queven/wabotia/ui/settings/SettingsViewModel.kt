@@ -11,6 +11,7 @@ import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
 import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.core.push.PushRegistrar
+import br.com.queven.wabotia.demo.DemoMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -213,6 +214,11 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      */
     fun logout(force: Boolean = false) {
         if (_state.value.loggingOut) return
+        // Demonstração: não há servidor a avisar nem aparelho registrado; só volta à tela Servidor.
+        if (container.isDemo) {
+            DemoMode.signOut(container)
+            return
+        }
         val key = logoutKey ?: ApiClient.newIdempotencyKey().also { logoutKey = it }
         _state.update { it.copy(loggingOut = true, logoutError = null) }
         viewModelScope.launch {

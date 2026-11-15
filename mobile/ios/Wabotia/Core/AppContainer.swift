@@ -38,10 +38,15 @@ final class AppContainer: ObservableObject {
         #else
         session = SessionStore()
         #endif
+        // Demonstração aberta na última vez: os dados de exemplo recomeçam, então o estado local também.
+        DemoMode.prepareRelaunch(session)
         isLoggedIn = session.token != nil && session.user != nil && session.serverURL != nil
         user = session.user
         profileId = session.profileId
     }
+
+    /// Sessão atual é a demonstração (servidor fictício em memória).
+    var isDemo: Bool { DemoMode.isDemo(session.serverURL) }
 
     /// Cliente para o servidor configurado. Falha se não houver servidor.
     var api: APIClient {
@@ -65,10 +70,19 @@ final class AppContainer: ObservableObject {
         if result.user.profiles.count == 1 { profileId = result.user.profiles[0] } else { profileId = session.profileId }
         client = nil
         isLoggedIn = true
-        PushManager.shared.registerIfNeeded(force: true)
+        // A demonstração não tem servidor: nada de token de push nem de registro do aparelho.
+        if !DemoMode.isDemo(server) { PushManager.shared.registerIfNeeded(force: true) }
+    }
+
+    /// Sai da demonstração e volta à primeira tela (não há servidor a avisar nem aparelho registrado).
+    func exitDemo() {
+        guard isDemo else { return }
+        onLoggedOut(keepServer: false)
     }
 
     func onLoggedOut(keepServer: Bool) {
+        // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à primeira tela.
+        let keepServer = keepServer && !isDemo
         // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
         Workspace.shared.reset()
         session.clearSession(keepServer: keepServer)
@@ -90,7 +104,8 @@ final class AppContainer: ObservableObject {
     }
 
     func handle(deepLink: DeepLink?) {
-        guard let deepLink else { return }
+        // Avisos são de servidores reais; na demonstração não há o que abrir.
+        guard let deepLink, !isDemo else { return }
         if let p = deepLink.profileId, p != profileId, let u = user, u.isAdmin || u.profiles.contains(p) { profileId = p }
         pendingLink = deepLink
     }

@@ -2,7 +2,7 @@ package br.com.queven.wabotia
 
 import android.app.Application
 import br.com.queven.wabotia.core.AppContainer
-import br.com.queven.wabotia.core.DebugHooks
+import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.ui.theme.ThemeController
 import br.com.queven.wabotia.core.push.Notifications
 
@@ -13,9 +13,9 @@ class WabotiaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // O modo de demonstração (somente depuração) precisa estar instalado antes do primeiro cliente HTTP.
         container = AppContainer(this)
-        DebugHooks.install(container)
+        // Demonstração aberta na última vez: os dados de exemplo recomeçam, e o estado local também (antes da 1ª tela).
+        DemoMode.restoreOnLaunch(container)
         ThemeController.init(container.session)
         container.events.start()
         Notifications.ensureChannels(this)

@@ -2,6 +2,8 @@
 
 Os aplicativos nativos **Wabotia** para Android (Kotlin/Jetpack Compose) e iOS (Swift/SwiftUI) ficam em [`mobile/android`](../mobile/android) e [`mobile/ios`](../mobile/ios). Eles são clientes da mesma API REST do painel e funcionam com **qualquer instalação Wabotia**: na primeira tela a pessoa digita o endereço do seu servidor (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`), depois entra com o e-mail e a senha de atendente cadastrados em **Pessoas**.
 
+Quem ainda não tem um servidor pode tocar em **Conhecer o app (demonstração)** na mesma tela: o app abre uma instalação fictícia, em memória, com dados de exemplo (fila, conversas, protocolos, equipe, ligações). Nenhuma chamada sai do aparelho, nenhuma conta é criada, o aparelho não é registrado para notificações e uma faixa no topo de todas as telas avisa que é demonstração, com **Sair** para voltar à primeira tela. É também o caminho para a revisão das lojas sem depender de uma conta no servidor de produção. Regras em [`mobile/README.md`](../mobile/README.md).
+
 O que os aplicativos oferecem:
 
 - **Conversas:** fila, atendimentos próprios, conversas com a IA e concluídas; assumir, transferir para outro atendente, devolver à IA, concluir, notas internas e etiquetas.
@@ -35,7 +37,7 @@ O token tem 30 dias; expira sem uso. É armazenado apenas como hash no servidor 
 
 ## 3. Dispositivos e notificações push
 
-Cada instalação do aplicativo gera um identificador próprio (UUID) e registra o token do provedor após o login e sempre que o token muda.
+Cada instalação do aplicativo gera um identificador próprio (UUID) e registra o token do provedor após o login e sempre que o token muda. No modo de demonstração nada disso acontece: não há servidor, o aparelho nunca é registrado e o app não pede permissão de notificações.
 
 | Método e rota | Uso |
 |---|---|
@@ -146,3 +148,4 @@ Coloque o `GoogleService-Info.plist` em `mobile/ios/Wabotia/Resources/`. O `proj
 - Mensagens em conversas sob controle da IA não geram notificação.
 - O áudio gravado no iOS é convertido para OGG/Opus no aparelho; se a conversão falhar, o aplicativo envia M4A/AAC como áudio comum.
 - O aplicativo guarda um único servidor por vez. Para usar outro servidor, saia da conta e informe o novo endereço.
+- A demonstração não recebe notificações e seus dados vivem só na memória: recomeçam a cada entrada e a cada abertura do app.
