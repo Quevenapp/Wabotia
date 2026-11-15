@@ -1,10 +1,37 @@
 // Pedido (módulo "pedido"): registra rotas, comandos e ganchos no núcleo
 // (src/modules/api.ts). Cardápio em ./menu.ts; regras da loja em ./model.ts
 // e ./store.ts. Uso: docs/PEDIDO.md.
-import { now } from "../../types";
-import { onCommand, onRead, onRoute, onSettingsSave } from "../api";
+import {
+  ApiError,
+  type Actor,
+  type Conversation,
+  now,
+  requireValue,
+} from "../../types";
+import {
+  onCommand,
+  onConversationAction,
+  onConversationTurn,
+  onInboundContent,
+  onMenuChoice,
+  onPaymentUpdated,
+  onRead,
+  onRoute,
+  onSettingsSave,
+  onWebStepCompleted,
+  type ModuleContext,
+} from "../api";
+import type { CartOrder } from "../../web-cart";
 import { validatePedidoConfig } from "./model";
 import { overview, setPause } from "./store";
+import { paymentUpdated } from "./orders";
+import {
+  cartCompleted,
+  catalogOrder,
+  pedidoTurn,
+  sendCart,
+  trackOrders,
+} from "./chat";
 import {
   deleteCategory,
   deleteGroup,
@@ -20,6 +47,126 @@ import {
 } from "./menu";
 
 const MODULE = "pedido";
+
+// ---------------------------------------------------------------------------
+// WhatsApp
+
+async function unavailable(
+  ctx: ModuleContext,
+  c: Conversation,
+  error: unknown,
+  key: string,
+) {
+  if (!(error instanceof ApiError)) throw error;
+  try {
+    await ctx.sendMessage(
+      c,
+      {
+        text: "O cardápio não está disponível agora. Envie MENU para ver as opções.",
+      },
+      { key: `menu-unavailable:${key}` },
+    );
+  } catch (inner) {
+    if (!(inner instanceof ApiError)) throw inner;
+  }
+}
+
+// Item de menu "Cardápio": imagens do cardápio e o botão Fazer pedido.
+onMenuChoice("pedido_cardapio", async (ctx, c, _item, { rowId }) => {
+  try {
+    await sendCart(ctx, c, {
+      trigger: "menu",
+      actor: "system",
+      sourceKey: `menu:${rowId}`,
+      images: true,
+    });
+  } catch (error) {
+    await unavailable(ctx, c, error, rowId);
+  }
+});
+
+// Item de menu "Acompanhar pedido".
+onMenuChoice("pedido_acompanhar", async (ctx, c, _item, { rowId }) => {
+  await trackOrders(ctx, c, rowId);
+});
+
+// Respostas do cliente: forma de pagamento, troco, retirada/entrega, endereço.
+onConversationTurn(MODULE, (ctx, c, turn) => pedidoTurn(ctx, c, turn));
+
+// Carrinho do catálogo da Meta (content.order) com retailer_id cadastrado.
+onInboundContent(MODULE, "order", (ctx, c, content, { rowId }) =>
+  catalogOrder(ctx, c, content, rowId),
+);
+
+// Página de carrinho concluída: o pedido validado vira pedido numerado. O
+// passo já está concluído aqui; uma falha não pode derrubar a página.
+onWebStepCompleted(MODULE, async (ctx, step, answers) => {
+  if (step.page !== "cart" || step.kind !== "cart") return;
+  try {
+    await cartCompleted(ctx, step, answers as CartOrder);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        component: "pedido",
+        web_step: step.id,
+        error: String((error as Error)?.message || error).slice(0, 300),
+      }),
+    );
+    try {
+      await ctx.sendMessage(
+        await ctx.conversation(step.conversation_id),
+        {
+          text: "Recebemos o seu pedido, mas não conseguimos confirmar o número agora. A equipe vai falar com você por aqui.",
+        },
+        { key: `cart-error:${step.id}`, notification: true },
+      );
+    } catch {
+      // A nota interna do passo web já registra o pedido para a equipe.
+    }
+  }
+});
+
+// Cobrança do pedido: pago vai para o preparo; vencida cancela o pedido.
+onPaymentUpdated(MODULE, (ctx, payment, { previous }) =>
+  paymentUpdated(ctx, payment, previous),
+);
+
+/** Quem age na conversa: o responsável, um administrador ou o bot que atende. */
+function mayActOn(actor: Actor, c: Conversation) {
+  const bot = actor.id.startsWith("bot:");
+  requireValue(
+    c.owner === actor.id ||
+      (actor.kind === "user" && actor.role === "admin") ||
+      (bot && c.state === "ai"),
+    "Assuma a conversa antes de enviar o pedido ao cliente.",
+  );
+  return bot;
+}
+
+// Ação "Montar pedido para este cliente": envia o link do carrinho
+// (POST /conversations/:id/actions {"action":"pedido_link"}).
+onConversationAction(
+  MODULE,
+  "pedido_link",
+  async (ctx, actor, c, _data, { requestId }) => {
+    const bot = mayActOn(actor, c);
+    requireValue(
+      c.chat_type !== "group",
+      "Envie pela conversa direta do cliente.",
+    );
+    const sent = await sendCart(ctx, c, {
+      trigger: bot ? "bot" : "agent",
+      actor: actor.id,
+      sourceKey: `action:${actor.id}:${requestId}`,
+      images: false,
+    });
+    return {
+      sent: sent.sent,
+      reason: sent.reason,
+      web_step: sent.step,
+    };
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Regras da loja: chave "pedido" de PUT /settings (administrador) e a pausa
