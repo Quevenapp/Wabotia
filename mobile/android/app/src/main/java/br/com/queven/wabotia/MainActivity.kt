@@ -100,6 +100,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Esta Activity é singleTask: uma intent entregue a ela (ícone aberto por outro caminho, notificação) limpa o
+        // modo aparelho que estava por cima. Com um aparelho pareado, volta para ele, como na abertura do app.
+        if (intent.getStringExtra("demo") == null && DeviceActivity.isPaired((application as WabotiaApp).container.deviceStore)) {
+            startActivity(DeviceActivity.intent(this))
+            finish()
+            return
+        }
         accept(DeepLink.from(intent))?.let { pendingLink = it }
     }
 
