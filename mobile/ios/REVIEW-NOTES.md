@@ -1,4 +1,4 @@
-# Notas para a revisão da App Store (modo aparelho e guichê)
+# Notas para a revisão da App Store (modo aparelho, guichê e verticais)
 
 Texto para o campo **Notas** de "Informações para a revisão do app" no App Store Connect. O revisor não precisa de
 conta nem de servidor: a demonstração da primeira tela responde em memória e nada sai do aparelho.
@@ -28,6 +28,11 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Almeida**, a faixa no topo mostra que o Suporte pago passou o cliente à equipe, com o resumo e os avisos ("telefone
 > não vinculado ao pagador"); o menu **⋯** e os dados da conversa trazem **Vincular telefone**, **Confirmar e liberar**
 > e **Liberar como cortesia**. Nenhum pagamento é feito no app: a cobrança é do servidor da empresa.
+>
+> Na conversa de **Mariana Costa**, a faixa no topo mostra o Pix do frete aguardando pagamento e o formulário
+> respondido; o menu **⋯** traz **Enviar formulário** e **Cobrar** (Pix ou link de pagamento). Na demonstração, o
+> formulário enviado é respondido sozinho e a cobrança fictícia é confirmada em 15 segundos. O app só pede a
+> cobrança ao servidor da empresa, que cobra pelo Mercado Pago dela; o app não processa pagamento nem vende nada.
 >
 > O mesmo app também transforma um iPad ou iPhone da recepção em totem de senhas ou painel de chamadas. Para ver: na
 > primeira tela, toque em **Ver o modo painel ou totem (demonstração)** → **Gerar código** (o código de exemplo é
@@ -65,6 +70,12 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > the team, with a summary and warnings ("phone not linked to the payer"); the **⋯** menu and the conversation details
 > offer **Vincular telefone** (link phone), **Confirmar e liberar** (confirm and release) and **Liberar como cortesia**
 > (release as a courtesy). No payment happens in the app: charging is done by the company's server.
+>
+> In **Mariana Costa**'s conversation, the strip at the top shows the shipping Pix awaiting payment and the answered
+> form; the **⋯** menu offers **Enviar formulário** (send a form) and **Cobrar** (charge by Pix or payment link). In the
+> demo, a sent form is answered by itself and the fictitious charge is confirmed after 15 seconds. The app only asks
+> the company's server to charge the customer through the company's own Mercado Pago account; the app does not
+> process payments or sell anything.
 >
 > The same app also turns a front-desk iPad or iPhone into a ticket kiosk or a call display. To see it: on the first
 > screen tap **Ver o modo painel ou totem (demonstração)** → **Gerar código** (the sample code is approved by itself
