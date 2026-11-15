@@ -78,6 +78,7 @@ import {
 } from "./protocols";
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
+import { moduleCommand } from "./modules/registry";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -133,6 +134,7 @@ export const eventTypes = [
   "queue.transferred",
   "queue.counter",
   "queue.changed",
+  "module.changed",
 ];
 const text = (value: any, max = 3800) => {
   requireValue(
@@ -1147,6 +1149,8 @@ export async function perform(
     return queueCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("contact."))
     return contactCommand(env, actor, profile, op, data);
+  if (op.startsWith("module."))
+    return moduleCommand(env, actor, profile, op, data);
   if (op.startsWith("system.")) {
     admin(actor);
     const maintenance = await import("./maintenance");

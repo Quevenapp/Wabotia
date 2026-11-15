@@ -90,6 +90,7 @@ import {
   prunePairings,
 } from "./pairing";
 import { installStep, webInstallerEnabled } from "./web-install";
+import { listModules } from "./modules/registry";
 import {
   queueRead,
   overview as queueOverview,
@@ -978,6 +979,8 @@ const commands = [
   ["DELETE", "queue/blocklist/:id", "queue.unblock"],
   ["POST", "queue/displays", "queue.display.create"],
   ["DELETE", "queue/displays/:id", "queue.display.revoke"],
+  // Módulos embutidos (docs/MODULOS.md).
+  ["PUT", "modules/:id", "module.set"],
 ];
 for (const [method, path, op] of commands)
   app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) =>
@@ -1547,6 +1550,9 @@ app.get("/api/v1/profiles/:profile/events", async (c) => {
     cursor: rows.at(-1)?.id || after,
   });
 });
+app.get("/api/v1/profiles/:profile/modules", async (c) =>
+  c.json(await listModules(c.env, c.get("actor"), c.req.param("profile"))),
+);
 // Fila de senhas: leituras e WebSocket dos painéis.
 app.get("/api/v1/profiles/:profile/queue", async (c) => {
   queueRead(c.get("actor"), c.req.param("profile"));
