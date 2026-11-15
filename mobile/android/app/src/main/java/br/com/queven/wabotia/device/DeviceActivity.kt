@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModelProvider
 import br.com.queven.wabotia.MainActivity
 import br.com.queven.wabotia.WabotiaApp
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.ui.AndroidPanelCallAudio
 import br.com.queven.wabotia.device.ui.DeviceApp
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinStore
@@ -41,7 +42,9 @@ class DeviceActivity : ComponentActivity() {
             pairing = QueuePairing(),
             printer = SenhaPrinter(container.thermalPrinter, ready = { container.printerReady() }),
             sound = SharedPreferencesPanelSoundStore(this),
-            pins = SharedPreferencesPanelPinStore(this),
+            // Na demonstração o PIN vive só na memória, como o aparelho fictício: quem sai pelo botão Início e volta
+            // não encontra um PIN esquecido de outra vez (sem ele não se sai da tela).
+            pins = if (demo) MemoryPanelPinStore() else SharedPreferencesPanelPinStore(this),
             templates = SharedPreferencesPanelTemplateStore(this),
             audio = { AndroidPanelCallAudio(applicationContext) },
             serverUrl = server,
@@ -84,5 +87,16 @@ class DeviceActivity : ComponentActivity() {
             val chosen = DeviceRole.entries.firstOrNull { it.name == role } ?: return null
             return DemoMode.deviceConfig(chosen)
         }
+    }
+}
+
+/** O PIN de saída da demonstração: some com o aparelho fictício. */
+class MemoryPanelPinStore : PanelPinStore {
+    private val pins = mutableMapOf<String, String>()
+
+    override fun sealed(deviceId: String): String? = pins[deviceId]
+
+    override fun save(deviceId: String, sealed: String?) {
+        if (sealed == null) pins.remove(deviceId) else pins[deviceId] = sealed
     }
 }
