@@ -18,11 +18,19 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 | Passagem e Suporte pago | `Modules/Suporte/` | Faixa no topo da conversa com o resumo e os avisos do módulo que passou o cliente à equipe; vincular telefone, confirmar e liberar, cortesia. |
 | Formulário e Cobrança | `Modules/Cobranca/` | "Enviar formulário" (passo web) e "Cobrar" (Pix ou link) na conversa, com o estado de cada link e cobrança atualizado por eventos. |
 
-### Modo aparelho: PIN e recuperação
+### Modo aparelho: travar na tela, PIN e recuperação
 
-- Ao escolher o primeiro papel, o app pede um **PIN de saída** de 4 ou 6 números. Ele guarda a engrenagem dos
-  ajustes; o resumo com sal, os erros e a trava ficam no Keychain do aparelho (`…wabotia.device`, só neste
-  aparelho, fora do backup).
+- **O PIN não impede sair do app.** O gesto de Início é do sistema; só o **Acesso Guiado** o bloqueia. Para um
+  totem ou painel, ligue em Ajustes → Acessibilidade → Acesso Guiado (com código) e, na tela do papel, clique três
+  vezes no botão lateral (ou no de Início) → Iniciar. Os ajustes do aparelho mostram o cartão **Travar na tela**:
+  verde quando o Acesso Guiado está ligado, ou o passo a passo quando não está (`Device/GuidedAccess.swift`).
+- **iPad gerenciado por MDM:** com o app em `autonomousSingleAppModePermittedAppIDs` num aparelho supervisionado, a
+  tela do papel chama `UIAccessibility.requestGuidedAccessSession(enabled: true)` e trava sem diálogo (Modo de
+  App Único); desfazer o pareamento ou sair do modo aparelho destrava. Nos outros aparelhos o pedido volta `false`
+  sem mostrar nada.
+- Ao escolher o primeiro papel, o app pede um **PIN dos ajustes** de 4 ou 6 números. Ele guarda a engrenagem
+  (ajustes, impressora, desfazer pareamento); o resumo com sal, os erros e a trava ficam no Keychain do aparelho
+  (`…wabotia.device`, só neste aparelho, fora do backup).
 - Cinco erros travam por 30 s, e cada nova trava dobra a espera, até 15 min. Fechar e abrir o app não zera.
 - Os ajustes destravados voltam sozinhos à tela do papel depois de 2 min sem toque ou quando o app vai para
   segundo plano.

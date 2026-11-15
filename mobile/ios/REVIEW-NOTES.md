@@ -39,7 +39,9 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > aprovado sozinho em 2 segundos) → escolha **Totem**, **Painel de chamadas** ou **Painel híbrido**. O totem emite a
 > senha (o cupom só é impresso se houver uma impressora térmica escolhida; sem ela, a senha fica na tela). O painel
 > mostra e fala as chamadas; uma atendente fictícia chama uma senha a cada 20 segundos. A engrenagem no canto abre os
-> ajustes; **Sair da demonstração** volta à primeira tela.
+> ajustes; **Sair da demonstração** volta à primeira tela. Para o visitante não sair do app, os ajustes ensinam a ligar
+> o Acesso Guiado (**Travar na tela**); num iPad supervisionado cujo perfil MDM libera o app, ele inicia o Modo de App
+> Único por `UIAccessibility.requestGuidedAccessSession`, e nos demais aparelhos nada acontece.
 >
 > Bluetooth e rede local são pedidos só quando a pessoa procura uma impressora térmica para o cupom.
 
@@ -82,6 +84,8 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > in 2 seconds) → choose **Totem**, **Painel de chamadas** or **Painel híbrido**. The kiosk issues a ticket (a receipt is
 > printed only if a thermal printer was set up; otherwise the ticket stays on screen). The display shows and speaks the
 > calls; a fictitious agent calls a ticket every 20 seconds. The gear icon opens the settings; **Sair da demonstração**
-> returns to the first screen.
+> returns to the first screen. To keep visitors inside the app, the settings explain how to turn on Guided Access
+> (**Travar na tela**); on a supervised iPad whose MDM profile allows the app, it starts Single App Mode with
+> `UIAccessibility.requestGuidedAccessSession`, and on other devices nothing happens.
 >
 > Bluetooth and local network access are requested only when the user searches for a thermal receipt printer.

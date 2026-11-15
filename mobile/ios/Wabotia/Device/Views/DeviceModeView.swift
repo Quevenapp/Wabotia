@@ -11,9 +11,11 @@ struct DeviceLaunch: Identifiable, Equatable {
 }
 
 /// O modo aparelho ocupa o app inteiro, fora do login: parear com o Wabotia, escolher o papel (e os ajustes), a tela do
-/// papel (totem, painel de chamadas ou híbrido) e a impressora. Ajustes e saída ficam atrás da engrenagem e do PIN.
+/// papel (totem, painel de chamadas ou híbrido) e a impressora. Os ajustes ficam atrás da engrenagem e do PIN; sair do
+/// app pelo gesto de Início só o Acesso Guiado (ou o Modo de App Único por MDM) impede (`GuidedAccessStatus`).
 struct DeviceModeView: View {
     @StateObject private var vm: DeviceViewModel
+    @StateObject private var guided = GuidedAccessStatus()
     let onFinish: () -> Void
     @State private var printer = false
     @State private var settings = false
@@ -41,7 +43,7 @@ struct DeviceModeView: View {
                 Theme.background.ignoresSafeArea()
             } else if let config = vm.config {
                 if config.role == nil || settings {
-                    DeviceSettingsScreen(vm: vm, onPrinter: { printer = true }, onDone: config.role != nil ? { settings = false } : nil)
+                    DeviceSettingsScreen(vm: vm, guided: guided, onPrinter: { printer = true }, onDone: config.role != nil ? { settings = false } : nil)
                         .simultaneousGesture(TapGesture().onEnded { settingsTouched = Date() })
                         .task(id: settingsTouched) {
                             // Ajustes esquecidos abertos: voltam sozinhos à tela do papel, que pede o PIN de novo.
@@ -51,6 +53,8 @@ struct DeviceModeView: View {
                         }
                 } else {
                     DevicePanelScreen(vm: vm, onSettings: { settingsTouched = Date(); settings = true })
+                        // Aparelho gerenciado (MDM) com o app liberado: trava no app sem diálogo. Nos outros, nada acontece.
+                        .onAppear { if !vm.demo { guided.requestLock() } }
                 }
             } else {
                 DevicePairingScreen(vm: vm, onBack: onFinish)
@@ -62,10 +66,16 @@ struct DeviceModeView: View {
         .onAppear { OrientationPolicy.setDeviceMode(true) }
         .onDisappear {
             vm.close()
+            guided.releaseLock()
             OrientationPolicy.setDeviceMode(false)
             UIApplication.shared.isIdleTimerDisabled = false
         }
-        .onChange(of: vm.finished) { finished in if finished { onFinish() } }
+        .onChange(of: vm.finished) { finished in
+            if finished {
+                guided.releaseLock()
+                onFinish()
+            }
+        }
         // Ir para segundo plano fecha os ajustes destravados: quem volta ao app encontra a tela do papel.
         .onChange(of: scenePhase) { phase in if phase == .background { closeSettings() } }
         #if DEBUG
@@ -227,6 +237,7 @@ struct DeviceNotice: View {
 
 private struct DeviceSettingsScreen: View {
     @ObservedObject var vm: DeviceViewModel
+    @ObservedObject var guided: GuidedAccessStatus
     let onPrinter: () -> Void
     let onDone: (() -> Void)?
     @State private var pinSheet = false
@@ -282,8 +293,8 @@ private struct DeviceSettingsScreen: View {
                             }
                             Button { pinSheet = true } label: {
                                 CardRow(icon: vm.pinSet ? "lock.fill" : "lock.open.fill", iconColor: vm.pinSet ? Theme.ok : Theme.warn,
-                                        title: vm.pinSet ? "Trocar o PIN de saída" : "Criar PIN de saída",
-                                        subtitle: "Sem o PIN, ninguém abre estes ajustes nem sai da tela do aparelho", chevron: true, divider: vm.pinSet)
+                                        title: vm.pinSet ? "Trocar o PIN dos ajustes" : "Criar PIN dos ajustes",
+                                        subtitle: "Sem o PIN, ninguém abre estes ajustes nem desfaz o pareamento", chevron: true, divider: vm.pinSet)
                             }
                             .buttonStyle(.plain)
                             if vm.pinSet {
@@ -291,6 +302,7 @@ private struct DeviceSettingsScreen: View {
                                     .buttonStyle(.plain)
                             }
                         }
+                        if config.role != nil { GuidedAccessCard(status: guided) }
                         SectionCard(title: "Conexão") {
                             CardRow(icon: "globe", iconColor: vm.revoked || vm.offline ? Theme.danger : Theme.ok,
                                     title: URL(string: config.baseUrl)?.host ?? config.baseUrl, subtitle: connectionText)
@@ -395,8 +407,8 @@ private struct PinCreateSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SheetHeader(title: "PIN de saída") { dismiss() }
-            Text("Quem passa na frente do totem ou da TV não abre os ajustes nem sai da tela sem o PIN.")
+            SheetHeader(title: "PIN dos ajustes") { dismiss() }
+            Text("Quem passa na frente do totem ou da TV não abre estes ajustes nem desfaz o pareamento sem o PIN. Para ninguém sair do app pelo gesto de Início, ligue também o Acesso Guiado (Ajustes → Acessibilidade).")
                 .font(Theme.font(14)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             PinField(label: "PIN (4 ou 6 números)", value: $pin)
             PinField(label: "Repita o PIN", value: $again)
