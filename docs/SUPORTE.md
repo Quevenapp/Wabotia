@@ -65,8 +65,6 @@ com filtro, e busca pagadores.
   núcleo, o cliente ainda consegue pedir um humano ao bot de IA ou por outro
   item "humano" do menu. A regra está pronta (`handoffGate`): libera com
   liberação ativa ou pagador em dia.
-- **Pix direto** (chave Pix da empresa, confirmado pela equipe): entra como
-  terceira forma de pagamento quando a Cobrança tiver.
 - **`requires` entre módulos**: hoje o Suporte importa a Mensalidade direto
   (`src/modules/mensalidade/public.ts`) e confere se ela está ligada.
 
