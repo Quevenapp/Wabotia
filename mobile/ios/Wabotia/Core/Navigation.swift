@@ -11,6 +11,8 @@ enum Route: Hashable {
     case lines
     case menus
     case botLines
+    /// Guichê da fila de senhas (só quando o servidor oferece a fila).
+    case counter
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -134,6 +136,7 @@ struct RouteDestination: View {
             case .lines: LinesView()
             case .menus: MenusView()
             case .botLines: BotLinesView()
+            case .counter: CounterView()
             }
         }
         .id(route)

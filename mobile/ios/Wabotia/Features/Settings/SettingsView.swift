@@ -117,6 +117,8 @@ struct SettingsView: View {
 
     private var serviceSection: some View {
         SectionCard(title: "Atendimento", footer: vm.isAdmin ? nil : "Atendentes consultam as linhas; a edição é do administrador.") {
+            navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
+                .accessibilityIdentifier("settings.counter")
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }
