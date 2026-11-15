@@ -34,7 +34,7 @@ import {
   loadSubscription,
 } from "./store";
 import { loadInstallment, paymentsReady } from "./installments";
-import { resendCharge } from "./billing";
+import { recordBillingConsent, resendCharge } from "./billing";
 
 export { onInstallmentPaid, type InstallmentPaid } from "./listeners";
 
@@ -309,6 +309,20 @@ export async function contractPlan(
         },
         input.actor,
       );
+  // Contratou pela conversa: aceita receber as cobranças pelo WhatsApp.
+  await recordBillingConsent(
+    ctx,
+    c,
+    "whatsapp",
+    {
+      action: "contract_plan",
+      plan_id: plan.id,
+      plan_name: plan.name,
+      subscription_id: sub.id,
+      payer_id: payer.id,
+    },
+    `contrato:${input.sourceKey}`,
+  );
   let inst = await one(
     ctx.env,
     "SELECT * FROM mensalidade_installments WHERE subscription_id=? AND status IN ('open','overdue') ORDER BY upfront DESC,due_date LIMIT 1",

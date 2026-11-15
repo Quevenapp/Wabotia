@@ -88,6 +88,7 @@ const payLines = (inst: any) =>
 export async function conversationFor(
   ctx: ModuleContext,
   sub: { id: string; phone: string; conversation_id: string | null },
+  options: { open?: boolean } = {},
 ): Promise<Conversation | null> {
   if (sub.conversation_id)
     try {
@@ -97,22 +98,62 @@ export async function conversationFor(
       // Conversa apagada ou de outra área: procura pelo telefone.
     }
   if (!sub.phone) return null;
-  const row = await one(
-    ctx.env,
-    "SELECT id FROM conversations WHERE profile_id=? AND phone=? AND coalesce(chat_type,'')<>'group' ORDER BY last_customer DESC LIMIT 1",
-    ctx.profile,
-    sub.phone,
-  );
-  if (!row) return null;
+  // A conversa do telefone (com ou sem o 9); quem nunca escreveu ganha uma na
+  // linha oficial, que só recebe notificação por modelo até responder.
+  const found = await ctx.conversationByPhone(sub.phone, {
+    open: options.open !== false,
+  });
+  if (!found || found.chat_type === "group") return null;
   await exec(
     ctx.env,
     "UPDATE mensalidade_subscriptions SET conversation_id=? WHERE id=? AND profile_id=?",
-    row.id,
+    found.id,
     sub.id,
     ctx.profile,
   );
-  return ctx.conversation(row.id);
+  return found;
 }
+
+/**
+ * Aceite de receber cobranças pelo WhatsApp (finalidade "billing"): sem ele,
+ * avisos fora da janela de 24 horas esperam o cliente escrever. Registrado
+ * na contratação pelo WhatsApp ("whatsapp") ou quando a equipe confirma o
+ * aceite no cadastro ("panel", "contract", "api").
+ */
+export async function recordBillingConsent(
+  ctx: ModuleContext,
+  c: Conversation,
+  source: string,
+  evidence: Record<string, unknown>,
+  key: string,
+) {
+  return ctx.recordConsent(c, { purpose: "billing", source, evidence, key });
+}
+
+/**
+ * A equipe confirma no cadastro que o cliente aceitou receber cobranças pelo
+ * WhatsApp (`billing_consent: true`): registra na conversa do telefone,
+ * abrindo uma na linha oficial se ele nunca escreveu.
+ */
+export async function consentFromTeam(
+  ctx: ModuleContext,
+  sub: { id: string; phone: string; conversation_id: string | null },
+  source: string,
+  actor: string,
+) {
+  const c = await conversationFor(ctx, sub);
+  if (!c) return null;
+  return recordBillingConsent(
+    ctx,
+    c,
+    source,
+    { action: "subscription", subscription_id: sub.id, registered_by: actor },
+    `assinatura:${sub.id}`,
+  );
+}
+
+/** Notificação de cobrança: fora da janela, só com o aceite "billing". */
+const BILLING = { notification: true, purpose: "billing" as const };
 
 /** Avisa o administrador (evento) no máximo uma vez a cada 24 horas. */
 export async function warnSetup(
@@ -280,7 +321,7 @@ export async function sendNotice(
       await ctx.sendMessage(
         c,
         { text: `${noticeText(inst, kind, at)}\n\n${payLines(result.inst)}` },
-        { key, notification: true },
+        { key, ...BILLING },
       );
       await published(ctx, inst, kind, c, false, key);
       return { sent: true, charged: false };
@@ -304,7 +345,7 @@ export async function sendNotice(
   await ctx.sendMessage(
     c,
     { text: `${noticeText(inst, kind, at)}\n\n${how}` },
-    { key, notification: true },
+    { key, ...BILLING },
   );
   await published(ctx, inst, kind, c, false, key);
   return { sent: true, charged: false, fallback };
@@ -475,7 +516,7 @@ export async function resendCharge(
       {
         text: `Segunda via: ${noticeText(inst, kind, at)}\n\n${payLines(result.inst)}`,
       },
-      { key, notification: true },
+      { key, ...BILLING },
     );
   return loadInstallment(ctx, inst.id);
 }
@@ -524,7 +565,7 @@ export async function sendReceipt(ctx: ModuleContext, instId: string) {
   return ctx.sendMessage(
     c,
     { text: receiptText(inst, await ctx.establishment()) },
-    { key: `comprovante:${inst.id}:${inst.paid_at}`, notification: true },
+    { key: `comprovante:${inst.id}:${inst.paid_at}`, ...BILLING },
   );
 }
 

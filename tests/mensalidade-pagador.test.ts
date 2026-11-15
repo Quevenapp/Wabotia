@@ -373,6 +373,10 @@ describe("mensalidade: contratar pelo WhatsApp", () => {
     expect(contract.payer.phones.map((p: any) => p.phone)).toEqual([
       "5511981000030",
     ]);
+    // Contratar pela conversa registra o aceite de cobranças pelo WhatsApp.
+    expect(await ctx.consent(convo, "billing")).toMatchObject({
+      status: "granted",
+    });
     expect(contract.subscription).toMatchObject({
       plan_id: plan.id,
       status: "active",

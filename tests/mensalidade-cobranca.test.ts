@@ -189,7 +189,7 @@ async function setup(
     },
     f.admin.id,
   );
-  return { f, ctx, c, sub, due, account, phone };
+  return { f, ctx, c, sub, due, account, phone, plan };
 }
 const at = (days: number, hours = 0) => now() + days * DAY + hours * 3600_000;
 
@@ -509,7 +509,7 @@ describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
     expect((await outboxRows(c.id)).at(-1)!.text).toContain("Pago em");
   });
 
-  it("sem conversa para o telefone: registra a falha e não envia", async () => {
+  it("telefone que nunca escreveu: abre a conversa na linha oficial e cobra por notificação", async () => {
     const { f, ctx, sub } = await setup();
     await exec(
       env,
@@ -517,13 +517,63 @@ describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
       sub.id,
     );
     await runDue(ctx, at(0));
-    expect(await installment(sub.id)).toMatchObject({
-      notice_error: "Sem conversa no WhatsApp com o telefone desta assinatura.",
-      payment_id: null,
+    const opened = await one(
+      env,
+      "SELECT conversation_id FROM mensalidade_subscriptions WHERE id=?",
+      sub.id,
+    );
+    expect(opened.conversation_id).toBeTruthy();
+    const convo = await conversation(env, opened.conversation_id, f.profile);
+    expect(convo.phone).toBe("5511900000000");
+    const inst = await installment(sub.id);
+    expect(inst.payment_id).toBeTruthy();
+    // Sem janela: a cobrança sai só como notificação de modelo.
+    const rows = await outboxRows(convo.id);
+    expect(
+      rows.filter((m) => m.automation === "payment").map((m) => m.kind),
+    ).toEqual(["notification"]);
+    expect(await events(f, "mensalidade.notice_failed")).toEqual([]);
+  });
+
+  it("aceite de cobrança registrado pela equipe no cadastro", async () => {
+    const { f, ctx, plan } = await setup();
+    const token = await bearer(f.admin);
+    const sub = await (
+      await api(
+        token,
+        `/profiles/${f.profile}/mensalidade/subscriptions`,
+        "POST",
+        {
+          plan_id: plan.id,
+          customer_name: "Nova Aluna",
+          phone: "11900000001",
+          billing_consent: true,
+        },
+      )
+    ).json<any>();
+    expect(sub.customer.conversation_id).toBeTruthy();
+    const convo = await conversation(
+      env,
+      sub.customer.conversation_id,
+      f.profile,
+    );
+    expect(await ctx.consent(convo, "billing")).toMatchObject({
+      status: "granted",
     });
-    expect(await events(f, "mensalidade.notice_failed")).toEqual([
-      expect.objectContaining({ reason: "no_conversation", kind: "before" }),
-    ]);
+    // Sem o aceite marcado, nada é registrado.
+    const other = await (
+      await api(
+        token,
+        `/profiles/${f.profile}/mensalidade/subscriptions`,
+        "POST",
+        {
+          plan_id: plan.id,
+          customer_name: "Sem aceite",
+          phone: "11900000002",
+        },
+      )
+    ).json<any>();
+    expect(other.customer.conversation_id).toBeNull();
   });
 
   it("reenviar cobrança pela equipe manda o código que ainda vale", async () => {
