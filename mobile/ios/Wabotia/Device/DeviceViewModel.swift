@@ -83,7 +83,9 @@ final class DeviceViewModel: ObservableObject {
     private var client: QueueClient?
     private var audio: PanelCallAudio = SilentPanelAudio()
     private let announcer = PanelCallAnnouncer()
-    private let pinAttempts = PanelPinAttempts()
+    private var pinAttempts = PanelPinAttempts()
+    /// Papel escolhido agora há pouco sem PIN: a tela de ajustes oferece criar um.
+    @Published var suggestPin = false
     private var pairingTask: Task<Void, Never>?
     private var spotlightTask: Task<Void, Never>?
     private var issuedTask: Task<Void, Never>?
@@ -149,6 +151,7 @@ final class DeviceViewModel: ObservableObject {
             notice = "O administrador não liberou “Emitir senhas” para este aparelho: use-o como painel de chamadas."
             return
         }
+        let firstRole = config.role == nil
         config.role = role
         services.store.save(config)
         self.config = config
@@ -156,6 +159,8 @@ final class DeviceViewModel: ObservableObject {
         audio.stop()
         audio = role.panel ? services.audio() : SilentPanelAudio()
         loadLocalSettings(config)
+        // Sem PIN, qualquer pessoa diante da tela abre os ajustes: ao escolher o primeiro papel, o app pede um.
+        if firstRole, !pinSet, !demo { suggestPin = true }
         // O totem não anuncia, mas guarda o que já foi chamado, para não recitar ao virar painel.
         if let overview { announce(overview.stationCalls) }
     }
@@ -205,6 +210,7 @@ final class DeviceViewModel: ObservableObject {
     private func loadLocalSettings(_ config: DeviceConfig) {
         soundEnabled = services.settings.soundEnabled(config.deviceId)
         pinSet = services.settings.sealedPin(config.deviceId) != nil
+        pinAttempts = PanelPinAttempts(saved: services.settings.pinAttempts(config.deviceId))
         template = services.settings.template(config.deviceId)
     }
 
@@ -388,6 +394,9 @@ final class DeviceViewModel: ObservableObject {
         guard pin == confirmation else { return "Os dois PINs não conferem." }
         services.settings.savePin(id, PanelPin.seal(pin))
         pinSet = true
+        suggestPin = false
+        pinAttempts.succeed()
+        services.settings.savePinAttempts(id, nil)
         return nil
     }
 
@@ -397,19 +406,25 @@ final class DeviceViewModel: ObservableObject {
         pinSet = false
     }
 
+    /// Credencial revogada no servidor: ela não vale mais nada, então os ajustes abrem sem PIN para desfazer o
+    /// pareamento e parear de novo (é o caminho de quem esqueceu o PIN: revogar no Wabotia).
+    var settingsNeedPin: Bool { pinSet && !revoked }
+
     func unlock(_ pin: String) -> Bool {
         guard let id = config?.deviceId, let sealed = services.settings.sealedPin(id) else { return true }
         if pinAttempts.locked {
-            pinError = "Muitas tentativas. Aguarde 30 segundos."
+            pinError = pinAttempts.lockedMessage
             return false
         }
         if PanelPin.matches(pin, sealed: sealed) {
             pinAttempts.succeed()
+            services.settings.savePinAttempts(id, nil)
             pinError = nil
             return true
         }
         pinAttempts.fail()
-        pinError = pinAttempts.locked ? "Muitas tentativas. Aguarde 30 segundos." : "PIN incorreto."
+        services.settings.savePinAttempts(id, pinAttempts.saved)
+        pinError = pinAttempts.locked ? pinAttempts.lockedMessage : "PIN incorreto."
         return false
     }
 }

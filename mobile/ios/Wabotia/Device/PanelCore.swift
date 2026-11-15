@@ -154,14 +154,18 @@ final class PanelCallAnnouncer {
 }
 
 /// O PIN do painel e do totem: quem passa na frente da tela não tira o painel do ar nem o cala. É deste aparelho, não do
-/// servidor: protege os botões, não a credencial. Quatro números, digitados em pé na frente da TV. Guarda-se só o
-/// resumo com sal.
+/// servidor: protege os botões, não a credencial. Quatro ou seis números, digitados em pé na frente da TV. Guarda-se só
+/// o resumo com sal, no Keychain deste aparelho (fora do backup).
 enum PanelPin {
-    static let length = 4
+    static let lengths = [4, 6]
+    static let maxLength = 6
+
+    /// Tamanho que o campo aceita para seguir.
+    static func validLength(_ pin: String) -> Bool { lengths.contains(pin.count) }
 
     /// O que está errado com o PIN escolhido, ou `nil` quando serve.
     static func problem(_ pin: String) -> String? {
-        guard pin.count == length, pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { return "O PIN tem \(length) números." }
+        guard validLength(pin), pin.allSatisfy({ $0.isASCII && $0.isNumber }) else { return "O PIN tem 4 ou 6 números." }
         let digits = pin.compactMap { $0.wholeNumberValue }
         let repeated = Set(digits).count == 1
         let steps = Set(zip(digits, digits.dropFirst()).map { $1 - $0 })
@@ -194,17 +198,46 @@ enum PanelPin {
     }
 }
 
-/// Cinco erros seguidos travam o PIN por 30 segundos; um acerto zera.
+/// Cinco erros seguidos travam o PIN por 30 segundos; cada nova trava dobra a espera, até 15 minutos; um acerto zera.
+/// O estado (`saved`) fica guardado no aparelho: fechar e reabrir o app não zera a contagem.
 final class PanelPinAttempts {
     static let maxFailures = 5
     static let lockSeconds: TimeInterval = 30
+    static let maxLockSeconds: TimeInterval = 15 * 60
     private let clock: () -> Date
-    private var failures = 0
-    private var lockedUntil = Date.distantPast
+    private(set) var failures = 0
+    /// Quantas vezes travou desde o último acerto.
+    private(set) var strikes = 0
+    private(set) var lockedUntil = Date.distantPast
 
-    init(clock: @escaping () -> Date = Date.init) { self.clock = clock }
+    init(saved: String? = nil, clock: @escaping () -> Date = Date.init) {
+        self.clock = clock
+        let parts = saved?.split(separator: ":").map(String.init) ?? []
+        if parts.count == 3, let f = Int(parts[0]), let s = Int(parts[1]), let until = Double(parts[2]) {
+            failures = max(0, f)
+            strikes = max(0, s)
+            lockedUntil = Date(timeIntervalSince1970: until)
+            // Relógio do aparelho atrasado de propósito não estica a trava além do máximo.
+            let ceiling = clock().addingTimeInterval(Self.maxLockSeconds)
+            if lockedUntil > ceiling { lockedUntil = ceiling }
+        }
+    }
+
+    /// `falhas:travas:fim-da-trava` para guardar no aparelho.
+    var saved: String { "\(failures):\(strikes):\(lockedUntil.timeIntervalSince1970)" }
 
     var locked: Bool { clock() < lockedUntil }
+
+    /// Segundos que faltam para destravar (0 quando livre).
+    var remaining: TimeInterval { max(0, lockedUntil.timeIntervalSince(clock())) }
+
+    /// "Muitas tentativas. Aguarde 30 segundos." / "… 2 minutos."
+    var lockedMessage: String {
+        let seconds = Int(remaining.rounded(.up))
+        if seconds < 60 { return "Muitas tentativas. Aguarde \(seconds) segundo\(seconds == 1 ? "" : "s")." }
+        let minutes = Int((Double(seconds) / 60).rounded(.up))
+        return "Muitas tentativas. Aguarde \(minutes) minuto\(minutes == 1 ? "" : "s")."
+    }
 
     /// Conta um erro; devolve até quando fica travado, quando trava.
     @discardableResult
@@ -212,11 +245,17 @@ final class PanelPinAttempts {
         failures += 1
         guard failures >= Self.maxFailures else { return nil }
         failures = 0
-        lockedUntil = clock().addingTimeInterval(Self.lockSeconds)
+        strikes += 1
+        let seconds = min(Self.lockSeconds * pow(2, Double(strikes - 1)), Self.maxLockSeconds)
+        lockedUntil = clock().addingTimeInterval(seconds)
         return lockedUntil
     }
 
-    func succeed() { failures = 0 }
+    func succeed() {
+        failures = 0
+        strikes = 0
+        lockedUntil = .distantPast
+    }
 }
 
 /// O destino da chamada em duas partes: o rótulo pequeno ("Guichê") e o valor grande ("3"). O número curto no fim é o

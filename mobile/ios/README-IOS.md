@@ -18,6 +18,18 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 | Passagem e Suporte pago | `Modules/Suporte/` | Faixa no topo da conversa com o resumo e os avisos do módulo que passou o cliente à equipe; vincular telefone, confirmar e liberar, cortesia. |
 | Formulário e Cobrança | `Modules/Cobranca/` | "Enviar formulário" (passo web) e "Cobrar" (Pix ou link) na conversa, com o estado de cada link e cobrança atualizado por eventos. |
 
+### Modo aparelho: PIN e recuperação
+
+- Ao escolher o primeiro papel, o app pede um **PIN de saída** de 4 ou 6 números. Ele guarda a engrenagem dos
+  ajustes; o resumo com sal, os erros e a trava ficam no Keychain do aparelho (`…wabotia.device`, só neste
+  aparelho, fora do backup).
+- Cinco erros travam por 30 s, e cada nova trava dobra a espera, até 15 min. Fechar e abrir o app não zera.
+- Os ajustes destravados voltam sozinhos à tela do papel depois de 2 min sem toque ou quando o app vai para
+  segundo plano.
+- **Esqueci o PIN:** um administrador revoga o aparelho no Wabotia (Integrações). Com a credencial revogada, a
+  engrenagem abre sem PIN para **Desfazer pareamento**, e o aparelho pareia de novo. Apagar e instalar o app também
+  zera tudo, porque a primeira abertura de uma instalação nova apaga o Keychain que o iOS deixou.
+
 ### Regras comuns às verticais
 
 - **Só com o módulo ligado.** `ModuleFeature` lê `GET /api/v1/profiles/{p}/capabilities` (ou `/capabilities?profile_id=`)

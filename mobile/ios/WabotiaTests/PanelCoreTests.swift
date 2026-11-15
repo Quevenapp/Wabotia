@@ -85,6 +85,35 @@ final class PanelPinTests: XCTestCase {
         XCTAssertNotNil(PanelPin.problem("1234"))
         XCTAssertNotNil(PanelPin.problem("9876"))
         XCTAssertNil(PanelPin.problem("2580"))
+        XCTAssertNil(PanelPin.problem("258046"))
+        XCTAssertNotNil(PanelPin.problem("25804"), "5 números não")
+        XCTAssertNotNil(PanelPin.problem("123456"))
+        XCTAssertNotNil(PanelPin.problem("000000"))
+    }
+
+    func testEachNewLockDoublesAndTheStateIsRestored() {
+        var now = Date(timeIntervalSince1970: 1_000)
+        let attempts = PanelPinAttempts { now }
+        for _ in 0..<5 { attempts.fail() }
+        XCTAssertEqual(attempts.remaining, 30)
+        now = now.addingTimeInterval(31)
+        for _ in 0..<5 { attempts.fail() }
+        XCTAssertEqual(attempts.remaining, 60, "a segunda trava dobra")
+        XCTAssertEqual(attempts.lockedMessage, "Muitas tentativas. Aguarde 1 minuto.")
+
+        let restored = PanelPinAttempts(saved: attempts.saved) { now }
+        XCTAssertTrue(restored.locked, "reabrir o app não zera")
+        XCTAssertEqual(restored.strikes, 2)
+        now = now.addingTimeInterval(61)
+        for _ in 0..<5 { restored.fail() }
+        XCTAssertEqual(restored.remaining, 120)
+        restored.succeed()
+        XCTAssertFalse(restored.locked)
+        XCTAssertEqual(restored.strikes, 0)
+
+        let skewed = PanelPinAttempts(saved: "0:9:\(now.timeIntervalSince1970 + 999_999)") { now }
+        XCTAssertLessThanOrEqual(skewed.remaining, PanelPinAttempts.maxLockSeconds, "nunca mais que 15 minutos")
+        XCTAssertFalse(PanelPinAttempts(saved: "lixo") { now }.locked)
     }
 
     func testSealAndMatch() {

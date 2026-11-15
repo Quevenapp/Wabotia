@@ -17,6 +17,12 @@ struct DeviceModeView: View {
     let onFinish: () -> Void
     @State private var printer = false
     @State private var settings = false
+    /// Último toque nos ajustes destravados: sem uso por alguns minutos, eles fecham e a tela do papel volta.
+    @State private var settingsTouched = Date()
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Ajustes destravados sem nenhum toque por esse tempo voltam à tela do papel.
+    static let settingsIdleSeconds: TimeInterval = 120
 
     init(launch: DeviceLaunch, onFinish: @escaping () -> Void) {
         _vm = StateObject(wrappedValue: DeviceViewModel(services: launch.demo ? .demo(role: launch.role) : .live(serverURL: launch.serverURL)))
@@ -36,14 +42,23 @@ struct DeviceModeView: View {
             } else if let config = vm.config {
                 if config.role == nil || settings {
                     DeviceSettingsScreen(vm: vm, onPrinter: { printer = true }, onDone: config.role != nil ? { settings = false } : nil)
+                        .simultaneousGesture(TapGesture().onEnded { settingsTouched = Date() })
+                        .task(id: settingsTouched) {
+                            // Ajustes esquecidos abertos: voltam sozinhos à tela do papel, que pede o PIN de novo.
+                            guard settings, !printer else { return }
+                            try? await Task.sleep(nanoseconds: UInt64(Self.settingsIdleSeconds * 1_000_000_000))
+                            if !Task.isCancelled { closeSettings() }
+                        }
                 } else {
-                    DevicePanelScreen(vm: vm, onSettings: { settings = true })
+                    DevicePanelScreen(vm: vm, onSettings: { settingsTouched = Date(); settings = true })
                 }
             } else {
                 DevicePairingScreen(vm: vm, onBack: onFinish)
             }
         }
         .sheet(isPresented: $printer) { PrinterScreen { printer = false } }
+        // A busca de impressora pode demorar: o relógio dos ajustes recomeça quando ela fecha.
+        .onChange(of: printer) { _ in settingsTouched = Date() }
         .onAppear { OrientationPolicy.setDeviceMode(true) }
         .onDisappear {
             vm.close()
@@ -51,9 +66,18 @@ struct DeviceModeView: View {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: vm.finished) { finished in if finished { onFinish() } }
+        // Ir para segundo plano fecha os ajustes destravados: quem volta ao app encontra a tela do papel.
+        .onChange(of: scenePhase) { phase in if phase == .background { closeSettings() } }
         #if DEBUG
         .task { await runDebugAction() }
         #endif
+    }
+
+    /// Fecha os ajustes (e a impressora) quando o papel já está escolhido; sem papel não há tela para onde voltar.
+    private func closeSettings() {
+        guard settings, vm.config?.role != nil else { return }
+        printer = false
+        settings = false
     }
 
     #if DEBUG
@@ -287,7 +311,8 @@ private struct DeviceSettingsScreen: View {
                 }
             }
             .background(Theme.background.ignoresSafeArea())
-            .sheet(isPresented: $pinSheet) { PinCreateSheet(onCreate: vm.createPin) }
+            .sheet(isPresented: $pinSheet, onDismiss: { vm.suggestPin = false }) { PinCreateSheet(onCreate: vm.createPin) }
+            .onChange(of: vm.suggestPin) { suggest in if suggest { pinSheet = true } }
             .confirmationDialog(vm.demo ? "Sair da demonstração?" : "Desfazer pareamento?", isPresented: $confirmLeave, titleVisibility: .visible) {
                 Button(vm.demo ? "Sair" : "Desfazer", role: .destructive, action: vm.unpair)
                 Button("Cancelar", role: .cancel) {}
@@ -373,10 +398,10 @@ private struct PinCreateSheet: View {
             SheetHeader(title: "PIN de saída") { dismiss() }
             Text("Quem passa na frente do totem ou da TV não abre os ajustes nem sai da tela sem o PIN.")
                 .font(Theme.font(14)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            PinField(label: "PIN (4 números)", value: $pin)
+            PinField(label: "PIN (4 ou 6 números)", value: $pin)
             PinField(label: "Repita o PIN", value: $again)
             if let error { InlineError(text: error) }
-            PrimaryButton(title: "Salvar", disabled: pin.count != 4 || again.count != 4) {
+            PrimaryButton(title: "Salvar", disabled: !PanelPin.validLength(pin) || again.count != pin.count) {
                 error = onCreate(pin, again)
                 if error == nil { dismiss() }
             }
@@ -397,7 +422,7 @@ private struct PinField: View {
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
                 .onChange(of: value) { v in
-                    let digits = String(v.filter(\.isNumber).prefix(4))
+                    let digits = String(v.filter(\.isNumber).prefix(PanelPin.maxLength))
                     if digits != v { value = digits }
                 }
         }
@@ -416,7 +441,7 @@ private struct UnlockSheet: View {
             SheetHeader(title: "Digite o PIN") { dismiss() }
             PinField(label: "PIN", value: $pin)
             if let error = vm.pinError { InlineError(text: error) }
-            PrimaryButton(title: "Entrar", disabled: pin.count != 4) {
+            PrimaryButton(title: "Entrar", disabled: !PanelPin.validLength(pin)) {
                 if vm.unlock(pin) {
                     dismiss()
                     onUnlocked()
@@ -424,6 +449,8 @@ private struct UnlockSheet: View {
                     pin = ""
                 }
             }
+            Text(vm.demo ? "Esqueceu o PIN? Na demonstração, feche e abra o app de novo." : "Esqueceu o PIN? Um administrador revoga este aparelho no Wabotia (Integrações). Os ajustes passam a abrir sem PIN para desfazer o pareamento e parear de novo.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(.horizontal, 20)
@@ -555,9 +582,9 @@ private struct DevicePanelScreen: View {
         return "● conectando"
     }
 
-    /// Ajustes e saída passam pelo PIN quando há um.
+    /// Ajustes e saída passam pelo PIN quando há um (menos com a credencial revogada, que não vale mais nada).
     private func guarded() {
-        if vm.pinSet { unlocking = true } else { onSettings() }
+        if vm.settingsNeedPin { unlocking = true } else { onSettings() }
     }
 }
 

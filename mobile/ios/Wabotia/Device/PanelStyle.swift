@@ -124,31 +124,69 @@ protocol PanelSettingsStore: AnyObject {
     func template(_ deviceId: String) -> PanelTemplate
     func setTemplate(_ deviceId: String, _ template: PanelTemplate)
     func sealedPin(_ deviceId: String) -> String?
-    /// `nil` apaga.
+    /// `nil` apaga (e zera as tentativas).
     func savePin(_ deviceId: String, _ sealed: String?)
+    /// Erros e trava do PIN (`PanelPinAttempts.saved`), para fechar o app não zerar a contagem.
+    func pinAttempts(_ deviceId: String) -> String?
+    func savePinAttempts(_ deviceId: String, _ state: String?)
 }
 
+/// Som e visual nas preferências; PIN e tentativas no Keychain, no serviço do aparelho, só neste aparelho e fora do
+/// backup (um resumo de 4 números tirado de um backup cairia em segundos). Reinstalar o app apaga os dois.
 final class DefaultsPanelSettingsStore: PanelSettingsStore {
     private let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    private let keychainService: String
+    init(defaults: UserDefaults = .standard, keychainService: String = KeychainDeviceConfigStore.productionService) {
+        self.defaults = defaults
+        self.keychainService = keychainService
+    }
 
     func soundEnabled(_ id: String) -> Bool { defaults.object(forKey: "panel.sound.\(id)") as? Bool ?? true }
     func setSoundEnabled(_ id: String, _ enabled: Bool) { defaults.set(enabled, forKey: "panel.sound.\(id)") }
     func template(_ id: String) -> PanelTemplate { .from(defaults.string(forKey: "panel.template.\(id)")) }
     func setTemplate(_ id: String, _ template: PanelTemplate) { defaults.set(template.rawValue, forKey: "panel.template.\(id)") }
-    func sealedPin(_ id: String) -> String? { defaults.string(forKey: "panel.pin.\(id)") }
-    func savePin(_ id: String, _ sealed: String?) { defaults.set(sealed, forKey: "panel.pin.\(id)") }
+
+    func sealedPin(_ id: String) -> String? {
+        // Versões anteriores guardavam nas preferências: passa para o Keychain e apaga de lá.
+        if let legacy = defaults.string(forKey: "panel.pin.\(id)") {
+            Keychain.write(legacy, service: keychainService, account: "pin.\(id)")
+            defaults.removeObject(forKey: "panel.pin.\(id)")
+        }
+        return Keychain.read(service: keychainService, account: "pin.\(id)")
+    }
+
+    func savePin(_ id: String, _ sealed: String?) {
+        defaults.removeObject(forKey: "panel.pin.\(id)")
+        if let sealed { Keychain.write(sealed, service: keychainService, account: "pin.\(id)") }
+        else {
+            Keychain.delete(service: keychainService, account: "pin.\(id)")
+            savePinAttempts(id, nil)
+        }
+    }
+
+    func pinAttempts(_ id: String) -> String? { Keychain.read(service: keychainService, account: "pin.attempts.\(id)") }
+    func savePinAttempts(_ id: String, _ state: String?) {
+        if let state { Keychain.write(state, service: keychainService, account: "pin.attempts.\(id)") }
+        else { Keychain.delete(service: keychainService, account: "pin.attempts.\(id)") }
+    }
 }
 
 final class MemoryPanelSettingsStore: PanelSettingsStore {
     private var sound: [String: Bool] = [:]
     private var templates: [String: PanelTemplate] = [:]
     private var pins: [String: String] = [:]
+    private var attempts: [String: String] = [:]
+
+    func pinAttempts(_ id: String) -> String? { attempts[id] }
+    func savePinAttempts(_ id: String, _ state: String?) { attempts[id] = state }
 
     func soundEnabled(_ id: String) -> Bool { sound[id] ?? true }
     func setSoundEnabled(_ id: String, _ enabled: Bool) { sound[id] = enabled }
     func template(_ id: String) -> PanelTemplate { templates[id] ?? .default }
     func setTemplate(_ id: String, _ template: PanelTemplate) { templates[id] = template }
     func sealedPin(_ id: String) -> String? { pins[id] }
-    func savePin(_ id: String, _ sealed: String?) { pins[id] = sealed }
+    func savePin(_ id: String, _ sealed: String?) {
+        pins[id] = sealed
+        if sealed == nil { attempts[id] = nil }
+    }
 }

@@ -189,6 +189,9 @@ final class DeviceViewModelTests: XCTestCase {
         vm.chooseRole(.panel)
         XCTAssertEqual(vm.config?.role, .panel)
         XCTAssertEqual(store.load()?.role, .panel, "o papel fica guardado com a credencial")
+        XCTAssertTrue(vm.suggestPin, "sem PIN, escolher o primeiro papel pede um")
+        XCTAssertNil(vm.createPin("258046", confirmation: "258046"), "seis números também servem")
+        XCTAssertFalse(vm.suggestPin)
         vm.close()
     }
 
@@ -210,5 +213,31 @@ final class DeviceViewModelTests: XCTestCase {
         await waitUntil { StubURLProtocol.seen.contains { $0.url.path.hasSuffix("/pairings/disconnect") } }
         let disconnect = StubURLProtocol.seen.first { $0.url.path.hasSuffix("/pairings/disconnect") }
         XCTAssertEqual(disconnect?.header("Authorization"), "Bearer wab_t")
+    }
+
+    func testPinLockSurvivesReopeningTheApp() async {
+        let vm = model(role: .panel) { _ in .json(200, self.overview(calls: [])) }
+        XCTAssertNil(vm.createPin("2580", confirmation: "2580"))
+        for _ in 0..<5 { XCTAssertFalse(vm.unlock("0000")) }
+        XCTAssertEqual(vm.pinError, "Muitas tentativas. Aguarde 30 segundos.")
+        vm.close()
+
+        // O app fechado e aberto de novo lê a trava guardada no aparelho.
+        let session = StubURLProtocol.session()
+        let reopened = DeviceViewModel(services: DeviceServices(store: store, pairing: QueuePairing(session: session), session: session, printer: printer,
+                                                                settings: settings, audio: { RecordingAudio() }, serverURL: "https://w.example",
+                                                                demo: false, pollInterval: 0.05))
+        XCTAssertFalse(reopened.unlock("2580"), "o PIN certo espera a trava acabar")
+        XCTAssertTrue(reopened.pinError?.hasPrefix("Muitas tentativas") == true)
+        reopened.close()
+    }
+
+    func testRevokedDeviceOpensSettingsWithoutThePin() async {
+        let vm = model(role: .panel) { _ in .json(401, #"{"error":{"code":"unauthorized","message":"Revogado"}}"#) }
+        XCTAssertNil(vm.createPin("2580", confirmation: "2580"))
+        XCTAssertTrue(vm.settingsNeedPin)
+        await waitUntil { vm.revoked }
+        vm.close()
+        XCTAssertFalse(vm.settingsNeedPin, "revogado no Wabotia: os ajustes abrem para desfazer e parear de novo")
     }
 }
