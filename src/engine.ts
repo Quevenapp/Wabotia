@@ -30,6 +30,7 @@ import {
 import { assertNumberDelivery, getNumberPolicy } from "./number-permissions";
 import { chunkWrites, searchKnowledge } from "./knowledge";
 import { all, one, exec, batch } from "./db";
+import { consentFor } from "./consents";
 import {
   type Env,
   type Actor,
@@ -154,11 +155,9 @@ export async function processInbox(env: Env, profile: string) {
         .toLowerCase()
         .normalize("NFD")
         .replace(/\p{Diacritic}/gu, "");
-    const consent = await one(
-      env,
-      "SELECT * FROM consents WHERE conversation_id=? ORDER BY created DESC LIMIT 1",
-      c.id,
-    );
+    // Pergunta de protocolo (AUTORIZO / NÃO AUTORIZO); REVOGAR vale para
+    // todas as finalidades, inclusive as dos módulos.
+    const consent = await consentFor(env, c.id, "protocol");
     // The consent question may be answered by its buttons or by the words.
     const consentButton = data.content?.interactive_reply_id;
     const consentAnswer =
@@ -174,10 +173,11 @@ export async function processInbox(env: Env, profile: string) {
       if (consent?.status === "pending" || consentAnswer === "revogar") {
         await exec(
           env,
-          "INSERT OR IGNORE INTO consents(id,profile_id,conversation_id,status,evidence,created) VALUES(?,?,?,?,?,?)",
+          "INSERT OR IGNORE INTO consents(id,profile_id,conversation_id,purpose,source,status,evidence,created) VALUES(?,?,?,?,'whatsapp',?,?,?)",
           "response:" + row.id,
           profile,
           c.id,
+          consentAnswer === "revogar" ? "*" : "protocol",
           consentAnswer === "autorizo" ? "granted" : "revoked",
           JSON.stringify({
             message_id: data.message_id,

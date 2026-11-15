@@ -614,9 +614,10 @@ export async function offerProtocolConsent(
     !cfg.notifications?.enabled ||
     c.chat_type === "group" ||
     !c.connection_id ||
+    // Só a pergunta de protocolo: consentimentos de módulos não contam.
     (await one(
       env,
-      "SELECT id FROM consents WHERE conversation_id=? LIMIT 1",
+      "SELECT id FROM consents WHERE conversation_id=? AND purpose IN ('protocol','*') LIMIT 1",
       c.id,
     ))
   )
@@ -1016,6 +1017,97 @@ async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
     !!botId && (await botAllowsLine(env, botId, c.profile_id, c.connection_id))
   );
 }
+/**
+ * Telefone em dígitos e, no Brasil, também com e sem o 9 do celular: o
+ * WhatsApp às vezes identifica o mesmo número das duas formas.
+ */
+export function phoneVariants(phone: unknown) {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+  requireValue(
+    /^\d{10,15}$/.test(digits),
+    "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).",
+  );
+  const out = new Set([digits]);
+  if (/^55\d{2}9\d{8}$/.test(digits))
+    out.add(digits.slice(0, 4) + digits.slice(5));
+  else if (/^55\d{2}[6-9]\d{7}$/.test(digits))
+    out.add(digits.slice(0, 4) + "9" + digits.slice(4));
+  return [...out];
+}
+
+/**
+ * Conversa individual da área com o telefone (a de contato mais recente).
+ * Com `open`, abre uma na linha oficial (Zernio) quando não existe, para o
+ * cliente que nunca escreveu: ela nasce sem janela de 24 h, então só
+ * notificações por modelo saem até o cliente responder.
+ */
+export async function conversationByPhone(
+  env: Env,
+  profile: string,
+  phone: unknown,
+  options: {
+    open?: boolean;
+    connectionId?: string | null;
+    module?: string | null;
+  } = {},
+): Promise<Conversation | null> {
+  const variants = JSON.stringify(phoneVariants(phone));
+  const found = await one<Conversation>(
+    env,
+    `SELECT * FROM conversations WHERE profile_id=? AND chat_type='direct' AND (phone IN (SELECT value FROM json_each(?)) OR (external_namespace LIKE 'channel:%' AND external_id IN (SELECT value FROM json_each(?))))${options.connectionId ? " AND connection_id=?" : ""} ORDER BY last_customer DESC,updated DESC LIMIT 1`,
+    profile,
+    variants,
+    variants,
+    ...(options.connectionId ? [options.connectionId] : []),
+  );
+  if (found || !options.open) return found;
+  const line = await one(
+    env,
+    options.connectionId
+      ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND status='active'"
+      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,id LIMIT 1",
+    ...(options.connectionId ? [options.connectionId, profile] : [profile]),
+  );
+  requireValue(
+    line,
+    "Nenhuma linha oficial ativa nesta área para abrir a conversa.",
+  );
+  requireValue(
+    line.kind === "zernio",
+    "Conversa nova pelo telefone só em linha oficial (Zernio), que envia modelos aprovados.",
+  );
+  const digits = phoneVariants(phone)[0];
+  const namespace = `channel:${line.id}`;
+  const id = uid();
+  const created = await exec(
+    env,
+    "INSERT OR IGNORE INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,session,last_customer,created,updated) VALUES(?,?,?,?,?,?,?,0,?,?)",
+    id,
+    profile,
+    line.id,
+    namespace,
+    digits,
+    digits,
+    uid(),
+    now(),
+    now(),
+  );
+  const c = await one<Conversation>(
+    env,
+    "SELECT * FROM conversations WHERE profile_id=? AND external_namespace=? AND external_id=?",
+    profile,
+    namespace,
+    digits,
+  );
+  if (created.meta?.changes)
+    await event(env, profile, "conversation.created", id, {
+      id,
+      external_id: digits,
+      opened_by: options.module ? `module:${options.module}` : "system",
+    });
+  return c;
+}
+
 export async function inbound(
   env: Env,
   profile: string,
@@ -1105,6 +1197,38 @@ export async function inbound(
     !c?.connection_id || !!connectionId,
     "Mensagens de cliente em um canal real devem chegar pelo webhook autenticado.",
   );
+  // Primeira resposta de quem recebeu uma conversa aberta pelo telefone
+  // (conversationByPhone) com outro identificador do WhatsApp: a mesma
+  // conversa passa a usar o identificador do canal.
+  if (!c && connectionId && !isGroup && data.phone) {
+    const variants = (() => {
+      try {
+        return phoneVariants(data.phone);
+      } catch {
+        return [];
+      }
+    })();
+    const opened = variants.length
+      ? await one<Conversation>(
+          env,
+          "SELECT * FROM conversations WHERE profile_id=? AND connection_id=? AND external_namespace=? AND chat_type='direct' AND last_customer=0 AND phone IN (SELECT value FROM json_each(?)) ORDER BY created DESC LIMIT 1",
+          profile,
+          connectionId,
+          namespace,
+          JSON.stringify(variants),
+        )
+      : null;
+    if (opened) {
+      await exec(
+        env,
+        "UPDATE conversations SET external_id=?,updated=? WHERE id=? AND last_customer=0",
+        data.external_id,
+        now(),
+        opened.id,
+      );
+      c = await conversation(env, opened.id, profile);
+    }
+  }
   if (!c) {
     const id = uid();
     await exec(

@@ -510,6 +510,8 @@ async function deliver(
         text: `${body}\n${row.url}${pix ? `\n\nPix copia e cola:\n${row.pix_code}` : ""}`,
         automation: "payment",
         payment_id: row.id,
+        // Fora da janela, exige o consentimento de cobrança.
+        consent_purpose: "billing",
       },
       `payment:${row.id}`,
     );
@@ -624,6 +626,7 @@ async function transition(
             text: `Pagamento recebido: ${value} (${fresh.description}). Obrigado!`,
             automation: "payment",
             payment_id: fresh.id,
+            consent_purpose: "billing",
           },
           `payment-paid:${fresh.id}`,
         );

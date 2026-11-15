@@ -46,7 +46,7 @@ Execute `node scripts/diagnose.mjs https://seu-worker.workers.dev`. Use o dashbo
 | Bot `unknown` | Não repita a execução. Encontre o run_id no Hermes e reconcilie por `/bot-runs/{id}/reconcile`, como administrador. |
 | Entrega `unknown` | Confira o canal. Marque enviada/cancelada ou autorize nova tentativa por `/deliveries/{id}/reconcile`. Nova tentativa recebe outro ID. |
 | Tópico `creating:*` | Confira o grupo; vincule o ID do tópico já criado com a ação administrativa `bind_topic`. Não crie outro automaticamente. |
-| Meta aguardando | Janela de 24h ou consentimento/template. Use UTILITY aprovado, idioma correto e corpo com `{{1}}` protocolo e `{{2}}` andamento. |
+| Meta aguardando | Janela de 24h ou consentimento/template. Use UTILITY aprovado, idioma correto e corpo com `{{1}}` protocolo e `{{2}}` andamento. Notificação de módulo (cobrança, agendamento, pedido, reserva) exige o consentimento dessa finalidade (`GET /consents`, campo `purpose`). O `{{2}}` vai numa linha só: quebras de linha viram " · ". |
 | QR desconectado | Host ligado, processo ativo e sessão não encerrada no celular. Não apague o diário. |
 | Documento indisponível | PDF deve conter texto; vídeo precisa de legendas públicas. Importe transcrição TXT/VTT/SRT autorizada se necessário. |
 
