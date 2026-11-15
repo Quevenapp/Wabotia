@@ -127,6 +127,10 @@ fun SettingsScreen(
     // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
     val demo = container.isDemo
     val c = Wb.colors
+    // Guichê e impressora só aparecem quando o servidor oferece a fila de senhas a este perfil.
+    val queueProfiles by container.queueFeature.available.collectAsState()
+    val queueAvailable = queueProfiles[container.session.profileId] == true
+    LaunchedEffect(container.session.profileId) { container.queueFeature.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
     LifecycleResumeEffect(Unit) {
@@ -165,14 +169,16 @@ fun SettingsScreen(
             item("service-label") { SectionLabel("Atendimento") }
             item("service") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
-                    SettingsRow(
-                        Icons.Filled.ConfirmationNumber,
-                        "Guichê da fila de senhas",
-                        subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
-                        tint = c.warn,
-                        onClick = openCounter,
-                    )
-                    RowDivider()
+                    if (queueAvailable) {
+                        SettingsRow(
+                            Icons.Filled.ConfirmationNumber,
+                            "Guichê da fila de senhas",
+                            subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
+                            tint = c.warn,
+                            onClick = openCounter,
+                        )
+                        RowDivider()
+                    }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
                     if (state.isAdmin) {
                         RowDivider()
@@ -347,8 +353,8 @@ fun SettingsScreen(
                         RowDivider()
                         SettingsRow(Icons.Filled.Tune, "Sessão", subtitle = text, tint = c.textSecondary)
                     }
-                    RowDivider()
-                    SettingsRow(
+                    if (queueAvailable) RowDivider()
+                    if (queueAvailable) SettingsRow(
                         Icons.Filled.Print,
                         "Impressora térmica",
                         subtitle = "Bluetooth, USB ou Wi-Fi, para o cupom da senha do totem",
