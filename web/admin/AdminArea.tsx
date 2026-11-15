@@ -35,6 +35,8 @@ import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
 import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
+import { ReservaPage } from "../modules/reserva/ReservaPage";
+import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -150,6 +152,10 @@ function Page({ page }: { page: PageId }) {
       return <PaymentsPage />;
     case "establishment":
       return <EstablishmentPage />;
+    case "reserva":
+      return <ReservaPage />;
+    case "reserva-settings":
+      return <ReservaSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

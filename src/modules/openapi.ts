@@ -1,4 +1,9 @@
 // Trecho do OpenAPI dos módulos embutidos (docs/MODULOS.md).
+import {
+  describeReservaOperation,
+  reservaOperations,
+  reservaSchemas,
+} from "./reserva/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -396,6 +401,7 @@ export const moduleSchemas = {
       },
     },
   },
+  ...reservaSchemas,
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -687,6 +693,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "conversations:write",
     "ServiceOrderDecision",
   ],
+  ...reservaOperations,
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -839,6 +846,8 @@ export function describeModuleOperation(
 ) {
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Módulos"];
+  if (path.startsWith("/profiles/{profile}/reserva"))
+    return describeReservaOperation(path, method, entry, success);
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
