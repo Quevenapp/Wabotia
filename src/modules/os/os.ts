@@ -10,6 +10,7 @@ import {
 import {
   onCommand,
   onConversationAction,
+  onConversationTurn,
   onMenuChoice,
   onRead,
   onRoute,
@@ -18,7 +19,6 @@ import {
   onWebStepCompleted,
   type ModuleContext,
 } from "../api";
-import * as moduleApi from "../api";
 import { osSettings, validateOsSettings } from "./model";
 import { runDue } from "./reminders";
 import {
@@ -30,35 +30,15 @@ import {
   loadOrder,
   orderHistory,
   orderView,
-  quoteLinkAnswered,
-  quoteReplies,
   saveQuote,
   sendQuote,
   trackText,
   updateOrder,
 } from "./store";
 
-/**
- * Resposta ao orçamento por botão (linha oficial) ou 1/2 (QR): precisa de um
- * gancho do núcleo que entregue ao módulo as respostas de botão e texto antes
- * do menu, pedido à sessão A como
- * onInboundReply(module, (ctx, c, {text, replyId, rowId}) => Promise<boolean>).
- * Enquanto ele não existir, o orçamento vai por link (passo web).
- */
-type ReplyHook = (
-  moduleId: string,
-  handler: (
-    ctx: ModuleContext,
-    c: Conversation,
-    turn: { text: string; replyId?: string | null; rowId: string },
-  ) => Promise<boolean>,
-) => void;
-const onInboundReply = (moduleApi as Record<string, unknown>).onInboundReply as
-  ReplyHook | undefined;
-if (typeof onInboundReply === "function") {
-  onInboundReply("os", (ctx, c, turn) => handleQuoteReply(ctx, c, turn));
-  quoteReplies.wired = true;
-}
+// Resposta ao orçamento: lista Aprovar/Recusar (linha oficial), 1/2 (QR) ou
+// APROVAR <nº>, antes do menu e do bot.
+onConversationTurn("os", (ctx, c, turn) => handleQuoteReply(ctx, c, turn));
 
 const clip = (value: unknown, max: number) =>
   Array.from(String(value ?? "").trim())
@@ -197,13 +177,8 @@ onConversationAction(
   },
 );
 
-// Cliente concluiu um link do módulo: abertura (a ordem nasce com os termos
-// aceitos) ou resposta ao orçamento.
+// Cliente concluiu o link de abertura: a ordem nasce com os termos aceitos.
 onWebStepCompleted("os", async (ctx, step, answers) => {
-  if (step.kind === "quote") {
-    await quoteLinkAnswered(ctx, step, answers.decision);
-    return;
-  }
   if (step.kind !== "open") return;
   const c = await ctx.conversation(step.conversation_id);
   const cfg = osSettings(await ctx.settings());

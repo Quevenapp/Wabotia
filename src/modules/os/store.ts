@@ -10,8 +10,7 @@ import {
   requireValue,
   uid,
 } from "../../types";
-import { interactiveLine } from "../../line-service";
-import type { ModuleContext } from "../api";
+import type { InteractiveSpec, ModuleContext } from "../api";
 import {
   CLOSED,
   MANUAL_TRANSITIONS,
@@ -658,16 +657,6 @@ export async function saveQuote(
   return loadOrder(ctx, order.id);
 }
 
-/**
- * Como o cliente responde ao orçamento. Com o gancho do núcleo para respostas
- * de botão e texto (onInboundReply, ligado em ./os.ts quando existe), a
- * mensagem leva Aprovar/Recusar (linha oficial) ou 1/2 (QR). Sem ele, o
- * orçamento vai por um passo web com a escolha Aprovar/Recusar.
- */
-export const quoteReplies = { wired: false };
-
-const QUOTE_CHOICES = ["Aprovar o orçamento", "Recusar o orçamento"];
-
 /** Linhas do orçamento, sem a instrução de resposta. */
 export function quoteSummary(order: any) {
   const items: QuoteItem[] = json(order.quote_items, []);
@@ -686,148 +675,34 @@ export function quoteSummary(order: any) {
   ].join("\n");
 }
 
-/**
- * Passo web do orçamento: a página mostra os itens e pede Aprovar ou Recusar.
- * `ref` = "<ordem>:<versão>", para um link antigo não valer depois do reenvio.
- */
-async function sendQuoteLink(ctx: ModuleContext, c: Conversation, order: any) {
-  const ttl = Math.max(
-    5,
-    Math.min(
-      7 * 24 * 60,
-      Math.floor((order.quote_valid_until - now()) / 60000),
-    ),
-  );
-  await ctx.openWebStep(c, {
-    kind: "quote",
-    ref: `${order.id}:${order.quote_version}`,
-    trigger: "module",
-    actor: "system",
-    sourceKey: `quote:${order.id}:${order.quote_version}`,
-    ttlMinutes: ttl,
-    text: `Orçamento da ordem de serviço nº ${order.number}: total ${money(order.quote_total_cents)}, válido até ${day(order.quote_valid_until)}. Veja os itens e responda no link:`,
-    button: "Ver orçamento",
-    spec: {
-      title: `Orçamento da ordem nº ${order.number}`,
-      intro: Array.from(quoteSummary(order)).slice(0, 1500).join(""),
-      fields: [
-        {
-          id: "decision",
-          type: "choice",
-          label: "Sua resposta",
-          required: true,
-          options: QUOTE_CHOICES,
-        },
-      ],
-      submit_label: "Enviar resposta",
-      done_text: "Resposta registrada. A confirmação chega no WhatsApp.",
-      return_text: "Recebemos sua resposta ao orçamento.",
-      ticket: "none",
-    },
-  });
-}
-
-/** Cliente respondeu no link do orçamento (onWebStepCompleted, kind "quote"). */
-export async function quoteLinkAnswered(
-  ctx: ModuleContext,
-  step: { ref_id: string | null; conversation_id: string; id: string },
-  answer: unknown,
-) {
-  const [orderId, version] = String(step.ref_id || "").split(":");
-  const order = await one(
-    ctx.env,
-    "SELECT * FROM os_orders WHERE id=? AND profile_id=?",
-    orderId,
-    ctx.profile,
-  );
-  if (!order) return;
-  const c = await ctx.conversation(step.conversation_id);
-  const say = (message: string) =>
-    ctx.sendMessage(c, { text: message }, { key: `quote-link:${step.id}` });
-  if (order.status === "quoted" && Number(version) !== order.quote_version) {
-    await say(
-      `O orçamento da ordem nº ${order.number} foi atualizado. Responda pelo link mais recente.`,
-    );
-    return;
-  }
-  const decision =
-    answer === QUOTE_CHOICES[0]
-      ? "approve"
-      : answer === QUOTE_CHOICES[1]
-        ? "decline"
-        : null;
-  if (!decision) return;
-  try {
-    await decide(
-      ctx,
-      order,
-      decision,
-      `customer:${phoneDigits(c.phone || c.external_id)}`,
-      "web_step",
-    );
-  } catch (error) {
-    if (!(error instanceof ApiError)) throw error;
-    if (error.code === "quote_expired")
-      await say(
-        `O orçamento da ordem nº ${order.number} venceu em ${day(order.quote_valid_until)}. Peça um novo orçamento à equipe.`,
-      );
-    else if (error.code === "quote_not_pending")
-      await say(
-        `A ordem nº ${order.number} não tem orçamento aguardando resposta. Estado atual: ${STATUS_LABELS[order.status as OsStatus]}.`,
-      );
-    else throw error;
-  }
-}
-
-/** Texto do orçamento com resposta por botão ou número. */
-export function quoteText(order: any) {
-  return [
-    `Orçamento da ordem de serviço nº ${order.number}`,
-    quoteSummary(order),
-    "",
-    "Para aprovar, responda 1. Para recusar, responda 2.",
-  ].join("\n");
-}
-
 export const replyId = (order: any, decision: "approve" | "decline") =>
   `os:${order.id}:${order.quote_version}:${decision}`;
 
 /**
- * Mensagem do orçamento. Nas linhas oficiais, com os botões Aprovar e Recusar
- * (o texto numerado fica como histórico); em QR, o texto numerado.
+ * Orçamento como lista interativa (ctx.sendInteractive): Aprovar e Recusar na
+ * linha oficial; no QR, o texto numerado "1. Aprovar / 2. Recusar"; fora da
+ * janela de 24 horas, o mesmo texto pelo modelo de notificação. A resposta
+ * volta por onConversationTurn (handleQuoteReply).
  */
-export async function quoteMessage(
-  ctx: ModuleContext,
-  c: Conversation,
-  order: any,
-) {
-  const body = quoteText(order);
-  if (!(await interactiveLine(ctx.env, c)) || Array.from(body).length > 1024)
-    return { text: body };
+export function quoteSpec(order: any): InteractiveSpec {
   return {
-    text: body,
-    content: {
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text: body },
-        action: {
-          buttons: [
-            {
-              type: "reply",
-              reply: { id: replyId(order, "approve"), title: "Aprovar" },
-            },
-            {
-              type: "reply",
-              reply: { id: replyId(order, "decline"), title: "Recusar" },
-            },
-          ],
-        },
+    type: "list",
+    body: Array.from(
+      `Orçamento da ordem de serviço nº ${order.number}\n${quoteSummary(order)}`,
+    )
+      .slice(0, 4000)
+      .join(""),
+    button: "Responder",
+    sections: [
+      {
+        rows: [
+          { id: replyId(order, "approve"), title: "Aprovar" },
+          { id: replyId(order, "decline"), title: "Recusar" },
+        ],
       },
-    },
+    ],
   };
 }
-
 /**
  * POST service-orders/:id/quote/send: fixa a validade, sobe a versão (botões
  * antigos deixam de valer), muda para "Orçamento enviado" e envia ao cliente.
@@ -883,28 +758,11 @@ export async function sendQuote(
     sent: send,
     actor,
   });
-  if (c && quoteReplies.wired)
-    await ctx.sendMessage(c, await quoteMessage(ctx, c, next), {
+  if (c)
+    await ctx.sendInteractive(c, quoteSpec(next), {
       key: `quote:${order.id}:${next.quote_version}`,
       notification: true,
     });
-  else if (c) {
-    try {
-      await sendQuoteLink(ctx, c, next);
-    } catch (error) {
-      // Linha oficial com a janela de 24 h fechada: o link não pode sair. O
-      // orçamento vai como notificação e a equipe reenvia quando o cliente
-      // responder (ou registra a resposta dada por outro meio).
-      if (!(error instanceof ApiError) || error.status !== 400) throw error;
-      await ctx.sendMessage(
-        c,
-        {
-          text: `Orçamento da ordem de serviço nº ${next.number}\n${quoteSummary(next)}\n\nResponda a esta mensagem para receber o link de aprovação.`,
-        },
-        { key: `quote:${order.id}:${next.quote_version}`, notification: true },
-      );
-    }
-  }
   return next;
 }
 
@@ -917,7 +775,7 @@ export async function decide(
   order: any,
   decision: unknown,
   by: string,
-  via: "whatsapp" | "web_step" | "panel" | "api",
+  via: "whatsapp" | "panel" | "api",
   note: unknown = "",
 ) {
   requireValue(
@@ -944,12 +802,7 @@ export async function decide(
     order,
     to,
     by,
-    memo ||
-      (via === "whatsapp"
-        ? "Resposta do cliente pelo WhatsApp"
-        : via === "web_step"
-          ? "Resposta do cliente pelo link do orçamento"
-          : ""),
+    memo || (via === "whatsapp" ? "Resposta do cliente pelo WhatsApp" : ""),
     { decision: to, decided_at: at, decided_by: by, decided_via: via },
   );
   await ctx.publish(
@@ -1005,7 +858,11 @@ export async function handleQuoteReply(
     ? /^os:([^:]+):(\d+):(approve|decline)$/.exec(turn.replyId)
     : null;
   if (turn.replyId) {
-    if (!button) return false;
+    if (!turn.replyId.startsWith("os:")) return false;
+    if (!button) {
+      await say("Esta opção não está mais disponível.");
+      return true;
+    }
     order = await one(
       ctx.env,
       "SELECT * FROM os_orders WHERE id=? AND profile_id=? AND conversation_id=?",

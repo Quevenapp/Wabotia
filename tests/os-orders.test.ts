@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { json, now, uid } from "../src/types";
 import { modulesApi } from "../src/modules/api";
 import { openapi } from "../src/openapi";
-import { createOrder, quoteReplies } from "../src/modules/os/store";
+import { createOrder } from "../src/modules/os/store";
 import {
   endOfDayAfter,
   money,
@@ -251,13 +251,6 @@ describe("ordem de serviço: abertura e numeração", () => {
 });
 
 describe("ordem de serviço: estados e orçamento", () => {
-  // Simula o gancho de resposta do núcleo (botões Aprovar/Recusar).
-  beforeEach(() => {
-    quoteReplies.wired = true;
-  });
-  afterEach(() => {
-    quoteReplies.wired = false;
-  });
   it("aceita transições válidas, recusa inválidas e guarda o histórico", async () => {
     const { f, c, token } = await setup();
     const action = await api(
@@ -311,9 +304,13 @@ describe("ordem de serviço: estados e orçamento", () => {
     expect(message.text).toContain("• 2 x Película: R$ 50,00 (R$ 25,00 cada)");
     expect(message.text).toContain("Total: R$ 230,00");
     expect(message.text).toContain("Peça original.");
-    // Linha oficial: botões Aprovar e Recusar com a versão do orçamento.
+    // Linha oficial: lista Aprovar/Recusar com a versão do orçamento.
+    expect(message.content.interactive.type).toBe("list");
     expect(
-      message.content.interactive.action.buttons.map((b: any) => b.reply),
+      message.content.interactive.action.sections[0].rows.map((r: any) => ({
+        id: r.id,
+        title: r.title,
+      })),
     ).toEqual([
       { id: `os:${order.id}:1:approve`, title: "Aprovar" },
       { id: `os:${order.id}:1:decline`, title: "Recusar" },

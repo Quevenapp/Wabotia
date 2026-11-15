@@ -527,7 +527,7 @@ function serviceOrderSchemas() {
               type: "string",
               description: "Pessoa, aplicação ou customer:<telefone>.",
             },
-            via: { enum: ["whatsapp", "web_step", "panel", "api"] },
+            via: { enum: ["whatsapp", "panel", "api"] },
           },
         },
         ready_at: { type: ["integer", "null"] },

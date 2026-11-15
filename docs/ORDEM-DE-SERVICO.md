@@ -44,10 +44,10 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
 - Orçamento **vencido** não pode ser aprovado: envie de novo.
 - Mudar um orçamento já enviado volta a ordem para *Em análise* até o novo
   envio; respostas ao orçamento anterior deixam de valer.
-- Nesta versão o cliente responde por um link com os itens. Quando o
-  servidor passar a entregar ao módulo as respostas de botão, o orçamento sai
-  com os botões Aprovar e Recusar nas linhas oficiais e com "responda 1 ou 2"
-  nas linhas QR.
+- Na linha oficial o orçamento chega como lista com **Aprovar** e **Recusar**;
+  na linha QR, com "1. Aprovar / 2. Recusar". O cliente também pode escrever
+  `APROVAR 12` ou `RECUSAR 12` (número da ordem). Com um menu aberto depois
+  do orçamento, "1" e "2" são opções do menu.
 
 ## Acompanhamento e avisos
 
