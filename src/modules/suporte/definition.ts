@@ -36,6 +36,7 @@ export const suporteModule: ModuleDefinition = {
     "suporte.identification_failed",
     "suporte.released",
     "suporte.awaiting_team",
+    "suporte.group_held",
     "suporte.purchase_created",
     "suporte.purchase_paid",
     "suporte.purchase_expired",

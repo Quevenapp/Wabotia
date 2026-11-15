@@ -3,7 +3,7 @@
 // Depende da Mensalidade por src/modules/mensalidade/public.ts (até o núcleo
 // formalizar `requires`). Uso: docs/SUPORTE.md.
 import { all, one } from "../../db";
-import { ApiError, type Actor, now } from "../../types";
+import { ApiError, type Actor, type Conversation, now } from "../../types";
 import {
   moduleError,
   modulesApi,
@@ -49,11 +49,13 @@ import {
   endRelease,
   listPurchases,
   listReleases,
+  openSession,
   purchasePaymentUpdated,
   purchaseView,
   release,
   releaseView,
   sessionView,
+  updateSession,
 } from "./store";
 
 onSettingsSave("suporte", "suporte", validateSuporteSettings);
@@ -67,8 +69,15 @@ onMenuChoice("suporte_humano", (ctx, c, _item, { rowId }) =>
 // bot de IA que transfere, falha do bot, anexo) só segue com liberação ativa
 // ou pagador em dia; senão o Suporte segura e conduz a liberação.
 onHandoffRequest("suporte", async (ctx, c, request) => {
-  if (c.chat_type === "group") return "allow";
   const at = now();
+  // Grupo: ninguém se identifica nem paga por todos ali. Passa só com uma
+  // liberação dada ao grupo pela equipe (cortesia); senão segura, avisa uma
+  // vez no grupo e deixa o pedido para a equipe (aba Aguardando confirmação).
+  if (c.chat_type === "group") {
+    if (await activeRelease(ctx, c, at, { settle: true })) return "allow";
+    await holdGroup(ctx, c, request.source, at);
+    return "hold";
+  }
   if ((await handoffGate(ctx, c, at, { settle: true })).allowed) return "allow";
   await startFlow(ctx, c, `gate:${request.source}:${at}`, at);
   return "hold";
@@ -97,6 +106,39 @@ onPaymentUpdated("suporte", (ctx, payment) =>
 
 // Mensalidade paga (plano contratado ou parcela em atraso): libera quem esperava.
 onInstallmentPaid("suporte", installmentPaid);
+
+export const GROUP_REPLY =
+  "O atendimento humano neste grupo é liberado pela nossa equipe. Já avisamos e um atendente responde por aqui assim que liberar.";
+
+/** Pedido de humano num grupo sem liberação: um aviso por sessão do grupo. */
+async function holdGroup(
+  ctx: ModuleContext,
+  c: Conversation,
+  source: string,
+  at: number,
+) {
+  const pending = await one(
+    ctx.env,
+    "SELECT id FROM suporte_sessions WHERE conversation_id=? AND profile_id=? AND status='awaiting_team' AND step='group' AND updated>?",
+    c.id,
+    ctx.profile,
+    at - 86_400_000,
+  );
+  if (pending) return;
+  const session = await openSession(ctx, c, "group", at);
+  await updateSession(ctx, session, { status: "awaiting_team" });
+  await ctx.publish(
+    "suporte.group_held",
+    session.id,
+    { session_id: session.id, conversation_id: c.id, source },
+    { key: `${session.id}:group` },
+  );
+  await ctx.sendMessage(
+    c,
+    { text: GROUP_REPLY },
+    { key: `grupo:${c.id}:${c.session}` },
+  );
+}
 
 /** Atendente da conversa, administrador ou integração. */
 function mayAct(
@@ -155,7 +197,13 @@ async function conversationStatus(
     reason: gate.reason,
     release: rel ? releaseView(rel) : null,
     session: sessionView(current),
-    awaiting_team: current?.status === "awaiting_team",
+    awaiting_team: current?.status === "awaiting_team" && !!current.payer_id,
+    // Pedido de humano num grupo, segurado: a equipe libera como cortesia.
+    group_held:
+      c.chat_type === "group" &&
+      !rel &&
+      current?.status === "awaiting_team" &&
+      current.step === "group",
     unlinked_phone: unlinked,
     purchases: purchases.data,
   };
@@ -186,6 +234,8 @@ onRead("suporte", "suporte/pending", async (ctx, actor) => {
       phone: row.phone,
       payer_id: row.payer_id,
       payer_name: row.name || "",
+      // Pedido de humano num grupo (libera com cortesia).
+      group: row.step === "group",
       created: row.updated,
     })),
   };

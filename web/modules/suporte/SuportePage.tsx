@@ -268,7 +268,14 @@ function PendingTab() {
             columns={[
               ["created", "Quando", (row) => stampLabel(row.created)],
               ["phone", "Telefone", (row) => phoneLabel(row.phone)],
-              ["payer_name", "Diz falar por", (row) => row.payer_name || "—"],
+              [
+                "payer_name",
+                "Diz falar por",
+                (row) =>
+                  row.group
+                    ? "Pedido num grupo (libere como cortesia)"
+                    : row.payer_name || "—",
+              ],
             ]}
             empty={
               <Empty

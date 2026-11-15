@@ -59,6 +59,12 @@ export function ConversationSuporte({
           </Pill>
         </p>
       )}
+      {data.group_held && (
+        <Notice tone="warn">
+          Alguém pediu atendimento humano neste grupo. Em grupo o suporte pago
+          não identifica quem paga: se for o caso, libere como cortesia.
+        </Notice>
+      )}
       {data.awaiting_team ? (
         <Notice tone="warn">
           O cliente digitou o CPF/CNPJ de{" "}

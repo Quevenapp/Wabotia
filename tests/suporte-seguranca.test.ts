@@ -4,7 +4,8 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
 import { now, uid } from "../src/types";
-import { conversation, perform } from "../src/service";
+import { conversation, handoff, perform } from "../src/service";
+import { GROUP_REPLY } from "../src/modules/suporte/suporte";
 import { startFlow, UNLINKED_REPLY } from "../src/modules/suporte/flow";
 import { situationByPhone } from "../src/modules/mensalidade/public";
 import { settleReleases } from "../src/modules/suporte/handoff";
@@ -430,5 +431,61 @@ describe("M5: vincular pelo Suporte exige quem está atendendo", () => {
     expect((await situationByPhone(env, f.profile, phone))?.status).toBe(
       "em_dia",
     );
+  });
+});
+
+describe("B1: regra de grupos", () => {
+  it("em grupo o pedido de humano é segurado, avisado uma vez e liberado só pela equipe", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const first = await talk(f, "oi", "grupo-clientes");
+    await exec(
+      env,
+      "UPDATE conversations SET chat_type='group',title='Clientes' WHERE id=?",
+      first.id,
+    );
+    let c = await conversation(env, first.id, f.profile);
+    // Mesmo com um pagador em dia no grupo, ninguém se identifica por todos.
+    await payerEmDia(s, "5511984000001");
+    for (let i = 0; i < 2; i++)
+      await handoff(env, c, "Cliente pediu atendente.", null, undefined, true, {
+        source: "keyword",
+      });
+    c = await conversation(env, c.id, f.profile);
+    expect(c.state).not.toBe("waiting");
+    expect(
+      (await texts(c.id)).filter((m) => m.text === GROUP_REPLY),
+    ).toHaveLength(1);
+    const token = await bearer(f.admin);
+    const pending = await (
+      await api(token, `/profiles/${f.profile}/suporte/pending`)
+    ).json<any>();
+    expect(pending.data).toEqual([
+      expect.objectContaining({ conversation_id: c.id, group: true }),
+    ]);
+    const status = await (
+      await api(token, `/profiles/${f.profile}/suporte/conversations/${c.id}`)
+    ).json<any>();
+    expect(status).toMatchObject({ allowed: false, group_held: true });
+    // A equipe libera o grupo como cortesia: a passagem segue.
+    const res = await api(
+      token,
+      `/profiles/${f.profile}/suporte/conversations/${c.id}/courtesy`,
+      "POST",
+      { reason: "Grupo do contrato da Empresa Alfa", hours: 2 },
+    );
+    expect(res.status).toBe(200);
+    c = await conversation(env, c.id, f.profile);
+    expect(c.state).toBe("waiting");
+    await exec(
+      env,
+      "UPDATE conversations SET state='ai',owner=NULL WHERE id=?",
+      c.id,
+    );
+    c = await conversation(env, c.id, f.profile);
+    await handoff(env, c, "Cliente pediu atendente.", null, undefined, true, {
+      source: "keyword",
+    });
+    expect((await conversation(env, c.id, f.profile)).state).toBe("waiting");
   });
 });

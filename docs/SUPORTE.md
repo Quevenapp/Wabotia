@@ -117,6 +117,15 @@ e o cliente entra no mesmo fluxo de identificação e pagamento. Só a equipe
 passagem do núcleo para módulos (`ctx.handoff`), com o resumo e os marcadores
 ("telefone não vinculado") no detalhe da conversa.
 
+**Grupos.** Num grupo ninguém se identifica nem paga por todos, e o telefone
+de um participante em dia não libera o grupo. Pedido de humano no grupo
+(palavra-chave, bot, anexo) é segurado; o grupo recebe uma vez por sessão o
+aviso "O atendimento humano neste grupo é liberado pela nossa equipe…", e o
+pedido aparece em **Aguardando confirmação** (evento `suporte.group_held`). A
+equipe libera o grupo com **Liberar como cortesia** (com motivo e, de
+preferência, horas); daí em diante as passagens seguem pela validade dessa
+liberação.
+
 ## O que só uma conta real confirma
 
 Os testes simulam o Mercado Pago e não enviam nada ao WhatsApp. Antes de

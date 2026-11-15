@@ -2171,7 +2171,16 @@ function suporteSchemas() {
           ],
         },
         session: { type: ["object", "null"] },
-        awaiting_team: { type: "boolean" },
+        awaiting_team: {
+          type: "boolean",
+          description:
+            "CPF/CNPJ de um cadastro digitado por telefone não autorizado: a equipe confirma.",
+        },
+        group_held: {
+          type: "boolean",
+          description:
+            "Pedido de humano num grupo, segurado: a equipe libera com cortesia.",
+        },
         unlinked_phone: {
           type: ["object", "null"],
           properties: {
