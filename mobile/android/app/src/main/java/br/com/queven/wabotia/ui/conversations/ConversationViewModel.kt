@@ -293,8 +293,10 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     }
 
     fun onEvents(events: List<Event>) {
+        // Links (web_step.*, form.*) e cobranças (payment.*) da conversa também mudam o detalhe.
+        val kinds = listOf("message.", "conversation.", "web_step.", "form.", "payment.")
         val relevant = events.any { e ->
-            (e.kind.startsWith("message.") || e.kind.startsWith("conversation.")) &&
+            kinds.any { e.kind.startsWith(it) } &&
                 (e.resource_id == conversationId || (e.payload as? JsonObject)?.string("conversation_id") == conversationId)
         }
         if (relevant) load(silent = true)

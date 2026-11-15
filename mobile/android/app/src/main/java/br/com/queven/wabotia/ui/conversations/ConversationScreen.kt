@@ -46,7 +46,9 @@ import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -99,6 +101,14 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.modules.ModuleShortcut
+import br.com.queven.wabotia.modules.cobranca.ChargeSheet
+import br.com.queven.wabotia.modules.cobranca.ConversationItems
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsBar
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsRules
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsSheet
+import br.com.queven.wabotia.modules.cobranca.FormPickerSheet
+import br.com.queven.wabotia.modules.cobranca.FormsPaymentsDeps
+import br.com.queven.wabotia.modules.cobranca.FormsPaymentsViewModel
 import br.com.queven.wabotia.modules.suporte.CourtesyDialog
 import br.com.queven.wabotia.modules.suporte.HandoffBand
 import br.com.queven.wabotia.modules.suporte.ModuleHandoff
@@ -276,6 +286,25 @@ fun ConversationScreen(
         vm.notice = text
     }
 
+    // Formulários e cobranças: o estado de cada link e de cada cobrança vem do detalhe; enviar só com o módulo ligado.
+    val formsEnabled = ModuleIds.FORMS in modules
+    val paymentsEnabled = ModuleIds.PAYMENTS in modules
+    val itemsVm: FormsPaymentsViewModel = viewModel(key = "items:$conversationId") { FormsPaymentsViewModel(conversationId, FormsPaymentsDeps.of(container)) }
+    val webSteps = remember(detail?.web_steps, formsEnabled) { ConversationItems.steps(detail?.web_steps).filter { formsEnabled || it.kind != "form" } }
+    val payments = remember(detail?.payments, paymentsEnabled) { if (paymentsEnabled) ConversationItems.payments(detail?.payments) else emptyList() }
+    val direct = conversation?.isGroup == false
+    val canForm = formsEnabled && canHandOff && direct
+    val canCharge = paymentsEnabled && canHandOff && direct
+    var itemsSheet by rememberSaveable { mutableStateOf(initialSheet == "items") }
+    var formSheet by rememberSaveable { mutableStateOf(initialSheet == "form") }
+    var chargeSheet by rememberSaveable { mutableStateOf(initialSheet == "charge") }
+    LaunchedEffect(itemsVm.done) {
+        val text = itemsVm.done ?: return@LaunchedEffect
+        itemsVm.done = null
+        vm.notice = text
+        vm.load(silent = true)
+    }
+
     fun openTransfer(tab: String?) {
         if (!canHandOff) {
             vm.notice = "Assuma a conversa para encaminhar o atendimento."
@@ -326,6 +355,8 @@ fun ConversationScreen(
                             // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
                             suporte = suporte.takeIf { canHandOff },
                             onSuporte = { suporteDialog = it },
+                            onForm = if (canForm) ({ formSheet = true }) else null,
+                            onCharge = if (canCharge) ({ chargeSheet = true }) else null,
                         )
                     }
                 }
@@ -350,6 +381,10 @@ fun ConversationScreen(
                         onConfirm = { suporteDialog = "confirm" },
                         onCourtesy = { suporteDialog = "courtesy" },
                     )
+                }
+                if (direct) {
+                    val (recentSteps, recentPayments) = ConversationItemsRules.recent(webSteps, payments, now)
+                    ConversationItemsBar(recentSteps, recentPayments, onClick = { itemsSheet = true })
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     MessagesList(
@@ -497,6 +532,20 @@ fun ConversationScreen(
             "courtesy" -> CourtesyDialog(onRelease = { reason, hours -> suporteDialog = null; suporteVm.courtesy(reason, hours) }, onDismiss = { suporteDialog = null })
             else -> Unit
         }
+        if (itemsSheet) {
+            ConversationItemsSheet(
+                steps = webSteps,
+                payments = payments,
+                canForm = canForm,
+                canCharge = canCharge,
+                onForm = { itemsSheet = false; formSheet = true },
+                onCharge = { itemsSheet = false; chargeSheet = true },
+                onCopied = { vm.notice = it },
+                onDismiss = { itemsSheet = false },
+            )
+        }
+        if (formSheet && canForm) FormPickerSheet(itemsVm, windowClosed = window?.closed == true, onDismiss = { formSheet = false })
+        if (chargeSheet && canCharge) ChargeSheet(itemsVm, windowClosed = window?.closed == true, onDismiss = { chargeSheet = false })
     }
 }
 
@@ -583,6 +632,10 @@ private fun ConversationMenu(
     /** Suporte pago ligado e a conversa assumida (ou administrador): `link`, `confirm` ou `courtesy`. */
     suporte: SuporteStatus? = null,
     onSuporte: (String) -> Unit = {},
+    /** Formulários ligados e a conversa assumida (ou administrador), fora de grupos. */
+    onForm: (() -> Unit)? = null,
+    /** Cobrança ligada e a conversa assumida (ou administrador), fora de grupos. */
+    onCharge: (() -> Unit)? = null,
 ) {
     val c = Wb.colors
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = if (c.isDark) c.surface else c.background, shape = RoundedCornerShape(16.dp)) {
@@ -600,6 +653,8 @@ private fun ConversationMenu(
             item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
         shortcuts.forEach { shortcut -> item(shortcut.label, shortcut.icon, action = { onShortcut(shortcut) }) }
+        onForm?.let { item("Enviar formulário", Icons.Filled.Description, action = it) }
+        onCharge?.let { item("Cobrar", Icons.Filled.Payments, action = it) }
         onPedidoLink?.let { item("Montar pedido para este cliente", Icons.Filled.RestaurantMenu, action = it) }
         if (SuporteRules.canLink(suporte)) item(SuporteRules.linkTitle(suporte), Icons.Filled.Link, action = { onSuporte("link") })
         if (SuporteRules.canConfirm(suporte)) item("Confirmar e liberar", Icons.Filled.CheckCircle, action = { onSuporte("confirm") })

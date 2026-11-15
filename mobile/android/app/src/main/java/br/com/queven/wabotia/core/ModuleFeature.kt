@@ -16,6 +16,10 @@ object ModuleIds {
     const val PEDIDO = "pedido"
     /** Suporte pago: passagem para humano só depois de conferir o pagamento (depende da Mensalidade). */
     const val SUPORTE = "suporte"
+    /** Formulários por link de uso único (passo web), enviados pela conversa. */
+    const val FORMS = "forms"
+    /** Cobrança: Pix e link de pagamento pelo provedor, enviados pela conversa. */
+    const val PAYMENTS = "payments"
 }
 
 /**

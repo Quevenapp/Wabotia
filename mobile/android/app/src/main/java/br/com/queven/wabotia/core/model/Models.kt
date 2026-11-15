@@ -149,6 +149,10 @@ data class LastMessage(
      * [br.com.queven.wabotia.modules.suporte.ModuleHandoff.of].
      */
     val handoff: JsonElement? = null,
+    /** Cobranças da conversa (módulo `payments`), crus: [br.com.queven.wabotia.modules.cobranca.ConversationItems]. */
+    val payments: JsonElement? = null,
+    /** Links de passo web da conversa (formulário, check-in, carrinho), crus como [payments]. */
+    val web_steps: JsonElement? = null,
 ) {
     fun can(feature: String): Boolean = capabilities?.bool(feature) ?: false
 }

@@ -146,6 +146,10 @@ object DemoMode {
             "transfer" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "transfer", arg = option)
             "attach" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "attach")
             "actions" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "menu")
+            // Formulários e cobranças na conversa da Mariana: a lista, "Enviar formulário" e "Cobrar".
+            "items" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "items")
+            "form" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "form")
+            "charge" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "charge")
             "info" -> DemoDestination(conversationId = Ids.C_RICH, info = true)
             "tickets" -> DemoDestination(tab = "tickets", arg = option)
             "ticket" -> DemoDestination(

@@ -124,6 +124,11 @@ internal object DemoServer {
 
     private fun suporteOf(s: DemoState): DemoSuporte = suporte ?: DemoSuporte(s.t0).also { suporte = it }
 
+    private var cobranca: DemoCobranca? = null
+    private var actionReplays = DemoReplays()
+
+    private fun cobrancaOf(s: DemoState): DemoCobranca = cobranca ?: DemoCobranca(s.t0).also { cobranca = it }
+
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
         s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
 
@@ -137,6 +142,8 @@ internal object DemoServer {
             j("id" to "mensalidade", "name" to "Mensalidade", "version" to "1.0.0"),
             j("id" to "pedido", "name" to "Pedido", "version" to "1.0.0"),
             j("id" to "suporte", "name" to "Suporte pago", "version" to "1.0.0"),
+            j("id" to "forms", "name" to "Formulários", "version" to "1.0.0"),
+            j("id" to "payments", "name" to "Cobrança", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -166,6 +173,8 @@ internal object DemoServer {
         mensalidade = null
         pedido = null
         suporte = null
+        cobranca = null
+        actionReplays = DemoReplays()
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -341,6 +350,8 @@ internal object DemoServer {
             "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "mensalidade" -> mensalidadeOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            // Formulários ativos da área ("Enviar formulário").
+            "forms" -> if (method == "GET" && r.size == 1) ok(j("data" to cobrancaOf(s).forms)) else notFound()
             "suporte" -> suporteOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now, s.emitter(now))
             "pedido" -> pedidoOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
@@ -482,7 +493,12 @@ internal object DemoServer {
         val c = s.conversations[id] ?: return notFound("Conversa não encontrada.")
         return when (r.getOrNull(1)) {
             null -> ok(detail(s, c))
-            "actions" -> action(s, c, bodyJson(request), now)
+            "actions" -> {
+                val body = bodyJson(request)
+                // Formulário e cobrança repetidos com a mesma chave devolvem o mesmo link ou a mesma cobrança.
+                if (body.str("action") in setOf("form", "charge")) actionReplays.run(request.header("Idempotency-Key"), listOf(id, "actions"), body) { action(s, c, body, now) }
+                else action(s, c, body, now)
+            }
             "message-actions" -> messageAction(s, c, bodyJson(request), now)
             else -> notFound()
         }
@@ -518,6 +534,9 @@ internal object DemoServer {
             "deliveries" to s.deliveries[id].orEmpty().map { it.json() },
             // Passagem feita por módulo (o Suporte pago passou a conversa à equipe); `null` nas outras.
             "handoff" to suporteOf(s).handoff(id),
+            // Cobranças e links de passo web da conversa, do mais novo para o mais antigo.
+            "payments" to cobrancaOf(s).paymentsOf(id),
+            "web_steps" to cobrancaOf(s).stepsOf(id),
         )
     }
 
@@ -739,6 +758,59 @@ internal object DemoServer {
                 system(id, "Consulta de protocolos enviada ao cliente", now)
                 val message = outbound(c, text, now + 1, j("type" to "text", "automation" to "protocols"))
                 ok(j("delivery_id" to "d-${message.str("id")}", "status" to "queued"))
+            }
+            "form" -> {
+                // Link de formulário: enviado; o cliente fictício abre em 8 s e responde em 20 s.
+                if (c.str("chat_type") == "group") return Reply.error(400, "invalid_request", "Formulários são enviados só em conversas individuais.")
+                val items = cobrancaOf(s)
+                val form = items.form(body.str("form_id")) ?: return Reply.error(400, "invalid_request", "Formulário não encontrado.")
+                if (windowClosed(c, now)) return Reply.error(409, "window_closed", "O cliente precisa ter escrito nas últimas 24 horas para receber o link.")
+                val step = items.addStep(id, form, now)
+                val stepId = step.str("id")
+                outbound(c, "${form.str("title")}: responda pelo link (vale 24 horas).\nhttps://formulario.example/w/$stepId", now, j("type" to "text", "automation" to "form"))
+                emit("web_step.sent", stepId, j("conversation_id" to id, "web_step_id" to stepId, "module_id" to "forms"), now)
+                later(now + 8_000) { at ->
+                    if (step.str("status") != "sent") return@later
+                    step.assign("status", "opened")
+                    step.assign("opened_at", at)
+                    emit("web_step.opened", stepId, j("conversation_id" to id, "web_step_id" to stepId, "module_id" to "forms"), at)
+                }
+                later(now + 20_000) { at ->
+                    if (step.str("status") !in setOf("sent", "opened")) return@later
+                    step.assign("status", "completed")
+                    step.assign("completed_at", at)
+                    step.assign("answers", if (form.str("id") == "coleta") j("endereco" to "Rua Exemplo, 200 — Bairro Exemplo", "periodo" to "Tarde") else j("nota" to "5", "comentario" to "Atendimento rápido."))
+                    emit("web_step.completed", stepId, j("conversation_id" to id, "web_step_id" to stepId, "module_id" to "forms"), at)
+                    emit("form.submitted", stepId, j("conversation_id" to id, "form_id" to form.str("id"), "web_step_id" to stepId), at)
+                    addMessage(id, "note", "system", "Formulário respondido pelo cliente. As respostas estão em Formulários e cobranças.", at, id = nextId("m-$id-n"))
+                }
+                ok(step.json())
+            }
+            "charge" -> {
+                // Cobrança: Pix com copia e cola ou link; o "Mercado Pago" da demonstração confirma em 15 s.
+                if (c.str("chat_type") == "group") return Reply.error(400, "invalid_request", "Cobranças são enviadas só em conversas individuais.")
+                val method = body.str("method").orEmpty()
+                if (method !in setOf("pix", "link")) return Reply.error(400, "invalid_request", "Escolha Pix ou link.")
+                val cents = body.longOrNull("amount_cents")?.takeIf { it in 1..10_000_000 } ?: return Reply.error(400, "invalid_request", "Informe um valor entre R$ 0,01 e R$ 100.000,00.")
+                val description = body.str("description")?.trim().orEmpty()
+                if (description.isEmpty() || description.length > 120) return Reply.error(400, "invalid_request", "Informe a descrição da cobrança (até 120 caracteres).")
+                if (windowClosed(c, now)) return Reply.error(409, "window_closed", "O cliente precisa ter escrito nas últimas 24 horas para receber a cobrança.")
+                val payment = cobrancaOf(s).addPayment(id, method, cents, description, now)
+                val paymentId = payment.str("id")
+                val value = br.com.queven.wabotia.modules.Money.format(cents)
+                outbound(c, "$description\nValor: $value\n\n" + if (method == "pix") "Pague com Pix: toque no botão para ver o QR Code ou copie o código na próxima mensagem." else "Toque no botão para pagar.", now, j("type" to "text", "automation" to "payment"))
+                payment.str("pix_code")?.let { outbound(c, it, now + 1, j("type" to "text", "automation" to "payment")) }
+                system(id, "Cobrança enviada: $description · $value (${if (method == "pix") "Pix" else "link de pagamento"}).", now)
+                emit("payment.created", paymentId, j("conversation_id" to id, "payment_id" to paymentId), now)
+                later(now + 15_000) { at ->
+                    if (payment.str("status") != "created") return@later
+                    payment.assign("status", "paid")
+                    payment.assign("provider_status", "approved")
+                    payment.assign("paid_at", at)
+                    emit("payment.paid", paymentId, j("conversation_id" to id, "payment_id" to paymentId), at)
+                    system(id, "Pagamento confirmado pelo provedor: $description · $value.", at)
+                }
+                ok(payment.json())
             }
             "pedido_link" -> {
                 // Como no servidor: quem atende ou um administrador (a pessoa da demonstração é), nunca em grupo; loja
