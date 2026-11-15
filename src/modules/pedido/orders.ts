@@ -768,6 +768,11 @@ async function paymentFailed(
   return fresh;
 }
 
+/** Forma de pagamento ainda pode ser escolhida (cliente ou equipe). */
+export const choosable = (order: any) =>
+  (ACTIVE_STATUSES as readonly string[]).includes(order.status) &&
+  ["choosing", "failed"].includes(order.payment_status);
+
 /**
  * Aplica a forma de pagamento escolhida. Na hora (dinheiro, maquininha): vai
  * para o preparo. Online (Pix, link): cobra pela Cobrança do núcleo; com
@@ -781,10 +786,9 @@ export async function applyMethod(
   actor: string,
 ) {
   const order = await loadOrder(ctx, input.id);
-  if (
-    order.status !== "awaiting_payment" ||
-    !["choosing", "failed"].includes(order.payment_status)
-  )
+  // Pedido em andamento esperando a escolha, ou com a cobrança online não
+  // gerada (pode já estar no preparo, sem "preparo só depois de pago").
+  if (!choosable(order))
     throw new ApiError(
       409,
       "payment_chosen",
@@ -811,13 +815,15 @@ export async function applyMethod(
       actor,
       `Pagamento: ${PAYMENT_LABELS[method]}.`,
     );
-    const next = await moveOrder(
-      ctx,
-      await loadOrder(ctx, order.id),
-      "received",
-      actor,
-      `Pagamento na ${order.fulfillment === "delivery" ? "entrega" : "retirada"}.`,
-    );
+    let next = await loadOrder(ctx, order.id);
+    if (next.status === "awaiting_payment")
+      next = await moveOrder(
+        ctx,
+        next,
+        "received",
+        actor,
+        `Pagamento na ${order.fulfillment === "delivery" ? "entrega" : "retirada"}.`,
+      );
     if (method === "cash" && c) {
       await saveChat(ctx, c, "change", order.id, {}, 30);
       await say(
@@ -857,7 +863,9 @@ export async function applyMethod(
   );
   if (!result.meta.changes) throw conflict();
   let current = await loadOrder(ctx, order.id);
-  if (cfg.pay_before_prepare)
+  if (current.status !== "awaiting_payment") {
+    // Já no preparo: só a cobrança.
+  } else if (cfg.pay_before_prepare)
     await notify(ctx, current, "awaiting_payment", `awaiting:${order.id}`);
   else
     current = await moveOrder(

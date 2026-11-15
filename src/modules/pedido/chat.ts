@@ -24,6 +24,7 @@ import {
 import { config, offeredMethods, storeSituation } from "./store";
 import {
   applyMethod,
+  choosable,
   clearChat,
   createOrder,
   loadOrder,
@@ -681,10 +682,7 @@ async function choosePayment(
     await say(ctx, c, "Não encontramos este pedido.", key);
     return true;
   }
-  if (
-    order.status !== "awaiting_payment" ||
-    !["choosing", "failed"].includes(order.payment_status)
-  ) {
+  if (!choosable(order)) {
     await say(
       ctx,
       c,

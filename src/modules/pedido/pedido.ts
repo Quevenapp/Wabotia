@@ -13,6 +13,7 @@ import {
   onConversationAction,
   onConversationTurn,
   onInboundContent,
+  onMcpTool,
   onMenuChoice,
   onPaymentUpdated,
   onRead,
@@ -387,3 +388,48 @@ onRoute(MODULE, {
 onCommand(MODULE, "pedido.images.save", (ctx, actor, data) =>
   saveMenuImages(ctx, actor, data),
 );
+
+// ---------------------------------------------------------------------------
+// Ferramentas MCP para bots (núcleo: onMcpTool). Viram chamadas à API v1 com
+// a chave do bot; permissões e 409 module_disabled valem como na API.
+
+onMcpTool(MODULE, {
+  name: "pedido_cardapio",
+  description:
+    "Cardápio da área: categorias, itens com preço em centavos, esgotados (available=false) e grupos de adicionais com mínimo e máximo. Para o cliente pedir, use pedido_enviar_carrinho. Requer conversations:read.",
+  input: {},
+  call: (_a, profile) => ({ path: `/profiles/${profile}/pedido/menu` }),
+});
+onMcpTool(MODULE, {
+  name: "pedido_consultar",
+  description:
+    "Pedidos da área por conversa (conversation_id), telefone (phone) ou busca (q, número do pedido). open=true só os em andamento. Traz estado, itens, total e pagamento. Requer conversations:read.",
+  input: {
+    conversation_id: { type: "string" },
+    phone: { type: "string" },
+    q: { type: "string" },
+    open: { type: "boolean" },
+  },
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/pedido/orders`,
+    query: {
+      conversation_id: a.conversation_id,
+      phone: a.phone,
+      q: a.q,
+      open: a.open ? "1" : undefined,
+    },
+  }),
+});
+onMcpTool(MODULE, {
+  name: "pedido_enviar_carrinho",
+  description:
+    "Envia ao cliente da conversa o link do carrinho (botão Fazer pedido). Com a loja fechada, o cliente recebe o horário e sent=false. Exige a conversa assumida pelo bot. Requer conversations:write.",
+  input: { conversation_id: { type: "string" } },
+  required: ["conversation_id"],
+  write: true,
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: { action: "pedido_link" },
+  }),
+});

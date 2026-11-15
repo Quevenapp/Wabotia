@@ -386,10 +386,15 @@ export function linesToCartInput(
       options && typeof options === "object" && !Array.isArray(options),
       `Linha ${index + 1}: options no formato {"<group_id>": ["<option_id>"]}.`,
     );
-    for (const [groupId, ids] of Object.entries(options))
+    for (const [groupId, ids] of Object.entries(options)) {
+      requireValue(
+        item.option_groups.some((group) => group.id === groupId),
+        `Linha ${index + 1}: o grupo de adicionais ${groupId} não é de ${item.name}.`,
+      );
       input[`o_${key}_${groupId}`] = (Array.isArray(ids) ? ids : [ids]).map(
         String,
       );
+    }
     if (line.note) input[`n_${key}`] = [String(line.note)];
   }
   return input;

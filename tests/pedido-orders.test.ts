@@ -409,6 +409,26 @@ describe("pedido: equipe e integrações", () => {
       },
     );
     expect(sold.status).toBe(400);
+    // Grupo de adicionais que não é do item: recusa, em vez de ignorar.
+    const foreign = await api(
+      admin,
+      `/profiles/${f.profile}/pedido/orders`,
+      "POST",
+      {
+        ...body,
+        items: [
+          {
+            item_id: menu.suco.id,
+            quantity: 1,
+            options: { [menu.adicionais.id]: ["bacon"] },
+          },
+        ],
+      },
+    );
+    expect(foreign.status).toBe(400);
+    expect((await foreign.json<any>()).error.message).toContain(
+      "não é de Suco de laranja",
+    );
 
     // Lista, busca pelo número, baixa do pagamento e dados internos.
     const list = await (

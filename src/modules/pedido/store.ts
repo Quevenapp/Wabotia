@@ -84,7 +84,8 @@ export async function storeSituation(
     ...state,
     paused: pause.paused,
     pause_message: pause.message,
-    message,
+    // Texto apagado nas mensagens: o cliente ainda recebe um aviso.
+    message: message || (state.open ? "" : "A loja está fechada agora."),
     hours_text: hoursText(cfg),
     eta: etaText(cfg),
   };

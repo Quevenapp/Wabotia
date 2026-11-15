@@ -1,4 +1,9 @@
 // Trecho do OpenAPI dos módulos embutidos (docs/MODULOS.md).
+import {
+  describePedidoOperation,
+  pedidoOperations,
+  pedidoSchemas,
+} from "./pedido/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -135,6 +140,7 @@ export const moduleSchemas = {
     properties: { conversation_id: { type: "string" } },
   },
   ...serviceOrderSchemas(),
+  ...pedidoSchemas(),
   WebStep: {
     type: "object",
     description:
@@ -687,6 +693,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "conversations:write",
     "ServiceOrderDecision",
   ],
+  ...pedidoOperations,
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -840,6 +847,8 @@ export function describeModuleOperation(
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Módulos"];
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  if (path.startsWith("/profiles/{profile}/pedido"))
+    return describePedidoOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("web-steps")) {

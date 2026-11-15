@@ -820,3 +820,50 @@ describe("pedido no WhatsApp: catálogo da Meta, acompanhar e ação da equipe",
     expect((await conversation(env, c.id, f.profile)).owner).toBe(f.member.id);
   });
 });
+
+describe("pedido no WhatsApp: preparo sem esperar o pagamento", () => {
+  it("falha ao cobrar mantém o pedido no preparo e aceita a forma na hora", async () => {
+    const { f, menu } = await setup({
+      payments: { pix: true, cash: true, card: false },
+      pay_before_prepare: false,
+    });
+    await paymentAccount(f);
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 500 }));
+    const { c, code } = await openCart(f, "5511970000070");
+    await submitCart(code, { ...cartFields(menu), confirm: "1" });
+    const [order] = await orders(f);
+    await receive(f, f.line, "Pix agora", "5511970000070", {
+      interactive_reply_id: `pedido:pay:${order.id}:pix`,
+    });
+    await drain(f);
+    // Foi para o preparo antes de cobrar; a cobrança falhou.
+    expect(
+      await one(
+        env,
+        "SELECT status,payment_status FROM pedido_orders WHERE id=?",
+        order.id,
+      ),
+    ).toEqual({ status: "received", payment_status: "failed" });
+    expect(
+      (await latest(c.id)).content.interactive.action.buttons.map(
+        (b: any) => b.reply.title,
+      ),
+    ).toEqual(["Dinheiro"]);
+    await receive(f, f.line, "Dinheiro", "5511970000070", {
+      interactive_reply_id: `pedido:pay:${order.id}:cash`,
+    });
+    await drain(f);
+    expect(
+      await one(
+        env,
+        "SELECT status,payment_method,payment_status FROM pedido_orders WHERE id=?",
+        order.id,
+      ),
+    ).toEqual({
+      status: "received",
+      payment_method: "cash",
+      payment_status: "pending",
+    });
+    expect((await latest(c.id)).text).toContain("Vai precisar de troco?");
+  });
+});
