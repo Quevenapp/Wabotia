@@ -15,6 +15,7 @@ import {
   Menu,
   MessageCircle,
   Phone,
+  PiggyBank,
   Plug,
   Send,
   Settings,
@@ -59,6 +60,8 @@ export const sections = [
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
   ["modules", "Módulos", Blocks],
+  ["mensalidades", "Mensalidades", PiggyBank],
+  ["mensalidade-settings", "Planos e regras", PiggyBank],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -94,6 +97,12 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
+  {
+    id: "mensalidades",
+    label: "Mensalidades",
+    icon: PiggyBank,
+    pages: ["mensalidades", "mensalidade-settings"],
+  },
   {
     id: "automation",
     label: "Automação",
@@ -153,6 +162,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
   "modules",
   "payments",
+  "mensalidade-settings",
 ]);
 
 /**
@@ -164,6 +174,8 @@ export const pageModules: Partial<Record<string, string>> = {
   "queue-settings": "queue",
   forms: "forms",
   payments: "payments",
+  mensalidades: "mensalidade",
+  "mensalidade-settings": "mensalidade",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
@@ -240,4 +252,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Formulários respondidos pelo cliente num link enviado no WhatsApp.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
+  mensalidades:
+    "Assinaturas, parcelas do mês, inadimplentes, baixa manual e reenvio da cobrança.",
+  "mensalidade-settings":
+    "Planos, regras de cobrança e avisos de vencimento e atraso, e itens do menu.",
 };

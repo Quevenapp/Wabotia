@@ -30,6 +30,8 @@ import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
 import { PaymentsPage } from "./PaymentsPage";
+import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
+import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -135,6 +137,10 @@ function Page({ page }: { page: PageId }) {
       return <FormsPage />;
     case "payments":
       return <PaymentsPage />;
+    case "mensalidades":
+      return <MensalidadesPage />;
+    case "mensalidade-settings":
+      return <MensalidadeSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":
