@@ -1,5 +1,6 @@
 import { one, exec } from "./db";
 import { consentFor, payloadPurpose } from "./consents";
+import { templateParam } from "./template-params";
 import { ApiError, Env, json, now, requireValue } from "./types";
 import { equal, hmac, publicUrl, secret, sha } from "./security";
 import { approvedTemplate, storeRemoteMedia } from "./integrations";
@@ -314,8 +315,11 @@ export async function zernioTemplatePayload(
         {
           type: "body",
           parameters: [
-            { type: "text", text: payload.ticket_id || "Atendimento" },
-            { type: "text", text: String(payload.text || "").slice(0, 1000) },
+            {
+              type: "text",
+              text: templateParam(payload.ticket_id || "Atendimento", 100),
+            },
+            { type: "text", text: templateParam(payload.text) },
           ],
         },
       ],
