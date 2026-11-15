@@ -70,6 +70,8 @@ export async function structuredInbound(
         : "Formulário do WhatsApp respondido",
       null,
       String(data.text || "").slice(0, 3800),
+      true,
+      { source: "structured" },
     );
   return "team";
 }

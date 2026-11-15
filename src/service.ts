@@ -86,9 +86,11 @@ import {
   moduleMenuTypes,
   requireOperation,
   resolveStates,
+  modules as registeredModules,
 } from "./modules/registry";
 import {
   conversationAction,
+  handoffGatesList,
   moduleCommandHandler,
   settingsValidator,
 } from "./modules/hooks";
@@ -693,6 +695,58 @@ async function requestTitle(env: Env, c: Conversation, request?: string) {
   return line.length > 120 ? line.slice(0, 117).trimEnd() + "..." : line;
 }
 
+/**
+ * De onde veio a passagem para humano. "staff" (transferência da equipe) e
+ * "module" (ctx.handoff) não passam pelos ganchos onHandoffRequest; as demais
+ * são automáticas e passam.
+ */
+export type HandoffSource =
+  | "menu"
+  | "keyword"
+  | "bot"
+  | "bot_error"
+  | "attachment"
+  | "structured"
+  | "system"
+  | "staff"
+  | "module";
+
+/**
+ * Ganchos dos módulos ligados, na ordem de `modules`: o primeiro que segura
+ * a conversa encerra a consulta. Erro num gancho não prende o cliente: a
+ * passagem segue e o erro vai para o log.
+ */
+async function handoffHeld(
+  env: Env,
+  c: Conversation,
+  request: {
+    source: HandoffSource;
+    reason: string;
+    department_id: string | null;
+    summary: string | null;
+    menu_item_id: string | null;
+  },
+) {
+  const gates = handoffGatesList();
+  if (!gates.length) return null;
+  const order = new Map(registeredModules.map((m, i) => [m.id, i]));
+  gates.sort(([a], [b]) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
+  for (const [module, gate] of gates) {
+    try {
+      if ((await gate(env, c, request)) === "hold") return module;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          component: "handoff-gate",
+          module,
+          error: error instanceof ApiError ? error.code : String(error),
+        }),
+      );
+    }
+  }
+  return null;
+}
+
 /** Dados de uma passagem para humano feita por um módulo (ctx.handoff). */
 export interface HandoffMeta {
   module: string;
@@ -715,8 +769,31 @@ export async function handoff(
    * Passagem pedida por um módulo (ctx.handoff): resumo e marcadores que o
    * atendente vê. Sem ela, os de uma passagem anterior são limpos.
    */
-  options: { meta?: HandoffMeta | null } = {},
+  options: {
+    meta?: HandoffMeta | null;
+    source?: HandoffSource;
+    menuItemId?: string | null;
+  } = {},
 ) {
+  const source = options.source || "system";
+  // Um módulo pode segurar a passagem automática (Suporte pago: oferece o
+  // pagamento antes) e liberar depois por ctx.handoff.
+  if (source !== "staff" && source !== "module") {
+    const held = await handoffHeld(env, c, {
+      source,
+      reason,
+      department_id: departmentId,
+      summary: request ?? null,
+      menu_item_id: options.menuItemId ?? null,
+    });
+    if (held) {
+      await event(env, c.profile_id, "conversation.updated", c.id, {
+        state: c.state,
+        handoff_held: { module: held, source, reason },
+      });
+      return;
+    }
+  }
   const department = await departmentFor(env, c.profile_id, departmentId);
   requireValue(
     !departmentId || department,
@@ -2329,7 +2406,15 @@ export async function perform(
             !data.target,
             "Escolha uma pessoa, bot ou setor por transferência.",
           );
-          await handoff(env, c, "Encaminhado pela equipe.", data.department_id);
+          await handoff(
+            env,
+            c,
+            "Encaminhado pela equipe.",
+            data.department_id,
+            undefined,
+            true,
+            { source: "staff" },
+          );
           return conversation(env, c.id, profile, actor);
         }
         const botId = String(data.target || "").startsWith("bot:")

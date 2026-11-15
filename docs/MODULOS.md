@@ -112,6 +112,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`, uma vez por mudança |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
+| `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
 
 Exemplo mínimo (do módulo Formulários):
 
@@ -204,6 +205,49 @@ onConversationTurn("os", async (ctx, c, { text, replyId, rowId }) => {
   da mesma mensagem não repete a resposta.
 - Os ids de opção: até 200 caracteres; títulos de lista até 24. A validação é
   a mesma em todas as linhas (`src/whatsapp-interactive.ts`).
+
+### Passagem para humano (`onHandoffRequest` + `ctx.handoff`)
+
+Para condicionar o atendimento humano (Suporte pago: só com assinatura em
+dia ou depois de pagar), o módulo segura a passagem automática e libera
+depois:
+
+```ts
+onHandoffRequest("suporte", async (ctx, c, request) => {
+  if (request.source === "menu" && request.menu_item_id !== "humano-pago")
+    return "allow";
+  if (await assinaturaEmDia(ctx, c)) return "allow";
+  await oferecerPagamento(ctx, c, request); // ctx.sendInteractive / ctx.charge
+  return "hold";
+});
+onPaymentUpdated("suporte", async (ctx, payment) => {
+  if (payment.status !== "paid") return;
+  const c = await ctx.conversation(payment.conversation_id!);
+  await ctx.handoff(c, {
+    summary: "Atendimento avulso pago.",
+    flags: ["telefone não vinculado"],
+    key: payment.id,
+  });
+});
+```
+
+- **Passam pelo gancho** (`source`): item de menu de atendimento humano
+  (`"menu"`, com `menu_item_id`), palavra-chave como "atendente" (`"keyword"`),
+  bot de IA ou especialista que transfere (`"bot"`), falha do bot
+  (`"bot_error"`), anexo que o bot não lê (`"attachment"`), carrinho ou Flow
+  sem dono (`"structured"`).
+- **Não passam**: a transferência feita pela equipe, o atendente que assume a
+  conversa e o próprio `ctx.handoff`.
+- **Segurar** (`"hold"`): o núcleo não muda a conversa nem avisa o cliente;
+  publica `conversation.updated` com `handoff_held: {module, source, reason}`.
+  O módulo conduz pelo `onConversationTurn` e chama `ctx.handoff` quando
+  liberar. Guarde `department_id` se quiser respeitar o setor pedido.
+- **Ordem com mais de um módulo**: a de `modules` em
+  `src/modules/registry.ts`; só módulos ligados; o primeiro `"hold"` encerra
+  a consulta e os seguintes não são chamados. Quem segura assume a conversa
+  inteira.
+- **Erro no gancho** libera a passagem e vai para o log: o cliente nunca fica
+  preso por falha do módulo.
 
 ### Ferramentas para bots (`onMcpTool`)
 

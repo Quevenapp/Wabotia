@@ -5,6 +5,7 @@
 import {
   registerCommand,
   registerConversationAction,
+  registerHandoffGate,
   registerInboundHandler,
   registerMenuHandler,
   registerPaymentHook,
@@ -35,6 +36,7 @@ import {
   handoffToPerson,
   settings,
   type HandoffMeta,
+  type HandoffSource,
 } from "../service";
 import { createPayment, type Payment } from "../payments";
 import { establishment, type Establishment } from "../establishment";
@@ -344,7 +346,7 @@ export function modulesApi(
           target.department_id ?? null,
           summary || null,
           true,
-          { meta },
+          { meta, source: "module" },
         );
       return conversation(env, c.id, profile);
     },
@@ -577,6 +579,48 @@ export function onConversationTurn(
     return handler(ctx, c, turn);
   });
 }
+/**
+ * Condiciona toda passagem automática para humano: item de menu de
+ * atendimento humano ("menu", com `menu_item_id`), palavra-chave
+ * ("keyword"), bot de IA que transfere ("bot"), falha do bot ("bot_error"),
+ * anexo ("attachment"), carrinho ou Flow sem dono ("structured"). Devolva
+ * "hold" para segurar: o núcleo não muda a conversa nem avisa o cliente; o
+ * módulo assume o fluxo (oferece o pagamento, por exemplo) e libera depois
+ * com ctx.handoff, que não passa por aqui. "allow" (ou nada) deixa seguir.
+ *
+ * Não passam por aqui: a transferência feita pela equipe e o atendente que
+ * assume a conversa. Com mais de um módulo, a ordem é a de `modules` em
+ * src/modules/registry.ts; o primeiro "hold" encerra a consulta. Erro no
+ * gancho libera a passagem (o cliente nunca fica preso) e vai para o log.
+ */
+export function onHandoffRequest(
+  moduleId: string,
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    request: HandoffGateRequest,
+  ) => Promise<"allow" | "hold" | void>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerHandoffGate(moduleId, async (env, c, request) => {
+    const ctx = modulesApi(env, c.profile_id, moduleId);
+    if (!(await ctx.enabled())) return "allow";
+    return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
+  });
+}
+export interface HandoffGateRequest {
+  source: Exclude<HandoffSource, "staff" | "module">;
+  /** Motivo do núcleo ("Menu: Humano (pago)", "Bot transferiu…"). */
+  reason: string;
+  /** Setor pedido (item de menu); null = fila geral. */
+  department_id: string | null;
+  /** Pedido do cliente ou resumo do bot, quando houver. */
+  summary: string | null;
+  /** Item de menu escolhido (source "menu"). */
+  menu_item_id: string | null;
+}
+
 /** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */
 export function onInboundReply(
   moduleId: string,
