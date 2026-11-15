@@ -473,6 +473,40 @@ const spPurchases: Row[] = [
   { id: "buy-3", conversation_id: "demo-8", payer_id: null, document: "11144477735", name: "Ana Prado", phone: "5511988001008", package_id: "avulso", package_name: "Chamado avulso", price_cents: 8900, mode: "ticket", hours: null, validity: "até o fim deste atendimento", method: "pix", payment: null, status: "expired", status_label: "Expirada", paid_at: null, created: t(30 * H), updated: t(6 * H) },
 ];
 
+// Fila de senhas (módulo "queue"): os formatos de GET /queue e
+// /queue/tickets (docs/FILA-SENHAS.md). Sem eles, Fila e Filas e guichês
+// não abriam na demonstração.
+const qTicket = (code: string, queue: Row, status: string, age: number, extra: Row = {}): Row => ({
+  id: "qt-" + code, queue_id: queue.id, queue_name: queue.name, code, preferential: code.startsWith("P"), source: "kiosk", status,
+  counter_id: null, counter_name: null, target_counter_id: null, call_count: 0, ahead: 0, wait_minutes: null, phone: null,
+  conversation_id: null, window_open: false, created_at: t(age), called_at: null, started_at: null, finished_at: null, ...extra,
+});
+const qGeral: Row = { id: "q-geral", name: "Atendimento geral", prefix_normal: "N", prefix_preferential: "P", normals_per_preferential: 2, priority: 0, wait_mode: "average", service_minutes: 8, channels: ["whatsapp", "kiosk"], enabled: true, preferential_notice: "Idosos (60+), gestantes, lactantes e pessoas com deficiência." };
+const qCaixa: Row = { id: "q-caixa", name: "Caixa", prefix_normal: "C", prefix_preferential: "D", normals_per_preferential: 3, priority: 1, wait_mode: "fixed", service_minutes: 5, channels: ["kiosk"], enabled: true, preferential_notice: "" };
+const qServing = qTicket("N021", qGeral, "serving", 18 * M, { counter_id: "counter-1", counter_name: "Guichê 1", call_count: 1, called_at: t(6 * M), started_at: t(5 * M) });
+const qTickets: Row[] = [
+  qServing,
+  qTicket("P007", qGeral, "waiting", 9 * M, { ahead: 0, wait_minutes: 4 }),
+  qTicket("N022", qGeral, "waiting", 14 * M, { ahead: 1, wait_minutes: 12, source: "whatsapp", phone: "5511988776655", window_open: true }),
+  qTicket("N023", qGeral, "waiting", 7 * M, { ahead: 2, wait_minutes: 20, source: "staff" }),
+  qTicket("C014", qCaixa, "waiting", 3 * M, { ahead: 0, wait_minutes: 5 }),
+  qTicket("N020", qGeral, "done", 40 * M, { counter_id: "counter-1", counter_name: "Guichê 1", call_count: 1, finished_at: t(19 * M) }),
+  qTicket("C013", qCaixa, "done", 35 * M, { counter_id: "counter-2", counter_name: "Guichê 2", call_count: 2, finished_at: t(25 * M) }),
+];
+const queueOverview = () => ({
+  day: new Date().toISOString().slice(0, 10),
+  settings: { front_door: true, notify_ahead: 2 },
+  queues: [
+    { ...qGeral, waiting: { normal: 2, preferential: 1 }, wait_minutes: { normal: 20, preferential: 4 }, open_counters: 1 },
+    { ...qCaixa, waiting: { normal: 1, preferential: 0 }, wait_minutes: { normal: 5, preferential: 5 }, open_counters: 0 },
+  ],
+  counters: [
+    { id: "counter-1", name: "Guichê 1", queue_ids: ["q-geral"], status: "open", user_id: "demo-user", user_name: "Administrador", current: qServing },
+    { id: "counter-2", name: "Guichê 2", queue_ids: ["q-geral", "q-caixa"], status: "paused", user_id: "demo-ana", user_name: "Ana", current: null },
+  ],
+  recent_calls: [],
+});
+
 // Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
 const osLabels: Row = {
   received: "Recebida",
@@ -996,6 +1030,8 @@ function read(path: string, query: URLSearchParams): any {
         }),
     };
   }
+  if (rest === "queue") return queueOverview();
+  if (rest === "queue/tickets") return { data: qTickets };
   if (rest === "lines") return { data: [] };
   if (rest === "calls")
     return page([
