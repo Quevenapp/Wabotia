@@ -30,6 +30,7 @@ import br.com.queven.wabotia.ui.conversations.ConversationInfoScreen
 import br.com.queven.wabotia.ui.conversations.ConversationScreen
 import br.com.queven.wabotia.ui.home.HomeScreen
 import br.com.queven.wabotia.ui.home.HomeTab
+import br.com.queven.wabotia.ui.printing.PrinterScreen
 import br.com.queven.wabotia.ui.service.BotLinesScreen
 import br.com.queven.wabotia.ui.service.LinesScreen
 import br.com.queven.wabotia.ui.service.MenusScreen
@@ -146,8 +147,10 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openLines = { nav.navigate(Routes.LINES) },
                 openMenus = { nav.navigate(Routes.MENUS) },
                 openBotLines = { nav.navigate(Routes.BOT_LINES) },
+                openPrinter = { nav.navigate(Routes.PRINTER) },
             )
         }
+        composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.LINES) { LinesScreen(container) { nav.popBackStack() } }
         composable(Routes.MENUS) { MenusScreen(container) { nav.popBackStack() } }
         composable(Routes.BOT_LINES) { BotLinesScreen(container) { nav.popBackStack() } }

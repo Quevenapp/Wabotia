@@ -13,6 +13,7 @@ object Routes {
     const val MENUS = "menus"
     const val BOT_LINES = "bot-lines"
     const val BOT_RUNS = "bot-runs"
+    const val PRINTER = "printer"
     const val CONVERSATION = "conversation/{id}?sheet={sheet}&arg={arg}"
     const val CONVERSATION_INFO = "conversation-info/{id}"
     const val TICKET = "ticket/{id}"

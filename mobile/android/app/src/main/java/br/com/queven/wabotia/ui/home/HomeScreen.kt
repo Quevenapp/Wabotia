@@ -134,6 +134,7 @@ fun HomeScreen(
     openLines: () -> Unit,
     openMenus: () -> Unit,
     openBotLines: () -> Unit,
+    openPrinter: () -> Unit = {},
 ) {
     val c = Wb.colors
     val profileId = container.session.profileId ?: ""
@@ -225,7 +226,7 @@ fun HomeScreen(
                 HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) }, initialFilter = initialArg)
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
-                HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines)
+                HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines, openPrinter = openPrinter)
             }
             }
         }

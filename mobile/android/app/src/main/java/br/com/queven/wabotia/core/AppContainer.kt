@@ -8,8 +8,13 @@ import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
 import br.com.queven.wabotia.core.push.Notifications
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.printing.createWabotiaThermalPrinter
+import br.com.thermalprinterkit.ThermalPrinter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +48,26 @@ class AppContainer(context: Context) {
 
     /** Consulta única de eventos em primeiro plano, compartilhada por todas as telas. */
     val events = EventHub(this)
+
+    /** A impressora térmica deste aparelho (cupom do totem); criada só quando alguém precisa dela. */
+    val thermalPrinter: ThermalPrinter by lazy { createWabotiaThermalPrinter(appContext) }
+
+    /** Readota a impressora escolhida uma vez por abertura do app; falhar aqui não derruba nada. */
+    private val printerRestore: Job by lazy {
+        scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                thermalPrinter.restore()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Espera a impressora escolhida voltar (inicia a readoção na primeira chamada). */
+    suspend fun printerReady() {
+        printerRestore.join()
+    }
 
     /** Cliente para o servidor configurado. Lança [IllegalStateException] se não houver servidor. */
     val api: WabotiaApi

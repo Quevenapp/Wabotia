@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -104,7 +105,14 @@ import java.util.Date
  * passou para a aba Equipe.
  */
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openLines: () -> Unit, openMenus: () -> Unit, openBotLines: () -> Unit) {
+fun SettingsScreen(
+    container: AppContainer,
+    modifier: Modifier = Modifier,
+    openLines: () -> Unit,
+    openMenus: () -> Unit,
+    openBotLines: () -> Unit,
+    openPrinter: () -> Unit = {},
+) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
     val presence = rememberPresence(container)
@@ -329,6 +337,14 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                         RowDivider()
                         SettingsRow(Icons.Filled.Tune, "Sessão", subtitle = text, tint = c.textSecondary)
                     }
+                    RowDivider()
+                    SettingsRow(
+                        Icons.Filled.Print,
+                        "Impressora térmica",
+                        subtitle = "Bluetooth, USB ou Wi-Fi, para o cupom da senha do totem",
+                        tint = c.textSecondary,
+                        onClick = openPrinter,
+                    )
                 }
             }
 

@@ -115,6 +115,9 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     implementation(libs.play.services.location)
+    // Impressora térmica do totem (cupom da senha) e a superfície de configuração do kit.
+    implementation(libs.thermalprinterkit)
+    implementation(libs.thermalprinterkit.printher)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
