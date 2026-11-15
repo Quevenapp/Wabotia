@@ -152,7 +152,7 @@ function Navigation({
   onNavigate: () => void;
 }) {
   const app = useApp();
-  const groups = visibleGroups(app.me.role);
+  const groups = visibleGroups(app.me.role, app.modules);
   const link = (id: PageId, label: string, Icon: any, child = false) => (
     <a
       key={id}
@@ -231,7 +231,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
   const app = useApp();
   const compact = useCompact();
   const allowed =
-    !!section(requested) && canOpenPage(requested, app.me.role);
+    !!section(requested) && canOpenPage(requested, app.me.role, app.modules);
   const page = (allowed ? requested : "overview") as PageId;
   const [drawer, setDrawer] = useState(false),
     [setupActive, setSetupActive] = useState(readFlag);

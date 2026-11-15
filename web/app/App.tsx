@@ -52,7 +52,20 @@ function Areas() {
       ) : route.area === "calls" ? (
         <CallsArea key={app.profile} />
       ) : route.area === "queue" ? (
-        <QueueArea key={app.profile} />
+        app.moduleOn("queue") ? (
+          <QueueArea key={app.profile} />
+        ) : (
+          <div className="area">
+            <Empty
+              title="Fila presencial desligada"
+              description={
+                app.isAdmin
+                  ? "A fila de senhas está desligada nesta área de atendimento. Ligue-a em Gestão → Módulos."
+                  : "A fila de senhas está desligada nesta área de atendimento. Fale com o administrador."
+              }
+            />
+          </div>
+        )
       ) : route.area === "contacts" ? (
         <ContactsArea key={app.profile} />
       ) : route.area === "more" ? (

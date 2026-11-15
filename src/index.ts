@@ -90,7 +90,12 @@ import {
   prunePairings,
 } from "./pairing";
 import { installStep, webInstallerEnabled } from "./web-install";
-import { listModules } from "./modules/registry";
+import {
+  listModules,
+  moduleForRoute,
+  moduleStates,
+  requireModule,
+} from "./modules/registry";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import {
   queueRead,
@@ -222,6 +227,12 @@ app.get("/api/public/queue/:token", async (c) => {
     "queue-public:" + (await sha(c.req.header("CF-Connecting-IP") || "")),
     120,
   );
+  const owner = await one(
+    c.env,
+    "SELECT profile_id FROM queue_tickets WHERE public_token=?",
+    c.req.param("token"),
+  );
+  if (owner) await requireModule(c.env, owner.profile_id, "queue");
   return c.json(await publicTicket(c.env, c.req.param("token")));
 });
 const displayToken = (c: any) =>
@@ -235,6 +246,7 @@ app.get("/api/public/queue-display/state", async (c) => {
   const display = await displayByToken(c.env, displayToken(c));
   if (!display)
     throw new ApiError(401, "invalid_token", "Painel inválido ou revogado.");
+  await requireModule(c.env, display.profile, "queue");
   return c.json({
     display: { id: display.id, name: display.name },
     ...(await queueOverview(c.env, display.profile, display.queue_ids)),
@@ -244,6 +256,7 @@ app.get("/api/public/queue-display/ws", async (c) => {
   const display = await displayByToken(c.env, displayToken(c));
   if (!display)
     throw new ApiError(401, "invalid_token", "Painel inválido ou revogado.");
+  await requireModule(c.env, display.profile, "queue");
   return queueSocket(c.env, c.req.raw, display.profile, display.queue_ids);
 });
 app.get("/api/install/status", (c) =>
@@ -494,6 +507,14 @@ app.use("/api/v1/*", async (c, next) => {
     "actor",
     takeInternalActor(c.req.raw) || (await authenticate(c.env, c.req.raw)),
   );
+  await next();
+});
+// Rotas de um módulo desligado na área (/profiles/:profile/<rota do módulo>)
+// respondem 409 module_disabled antes de qualquer outra regra.
+app.use("/api/v1/profiles/*", async (c, next) => {
+  const [, , , , profile, segment] = c.req.path.split("/");
+  const owner = segment ? moduleForRoute(segment) : null;
+  if (owner) await requireModule(c.env, decodeURIComponent(profile), owner.id);
   await next();
 });
 mountMcp(app);
@@ -1081,6 +1102,8 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
       "SELECT id,name,kind,status,last_seen FROM connections WHERE profile_id=?",
       p,
     ),
+    // Módulos ligados (true) e desligados (false): o painel esconde telas.
+    modules: await moduleStates(c.env, p),
   });
 });
 app.get("/api/v1/profiles/:profile/router", async (c) =>

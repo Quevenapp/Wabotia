@@ -44,11 +44,13 @@ export function MoreArea() {
         />
       </header>
       <section className="more-group">
-        <a className="more-link" {...linkProps({ area: "queue" })}>
-          <Ticket size={21} />
-          <span>Fila de senhas</span>
-          <ChevronRight size={18} />
-        </a>
+        {app.moduleOn("queue") && (
+          <a className="more-link" {...linkProps({ area: "queue" })}>
+            <Ticket size={21} />
+            <span>Fila de senhas</span>
+            <ChevronRight size={18} />
+          </a>
+        )}
         <a className="more-link" {...linkProps({ area: "contacts" })}>
           <Contact size={21} />
           <span>Contatos</span>

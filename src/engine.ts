@@ -66,6 +66,7 @@ import { presentInDepartment } from "./departments";
 import { formatBrasilia } from "./business-time";
 import { visibleEvent } from "./visibility";
 import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
+import { moduleEnabled } from "./modules/registry";
 import {
   activeBlock,
   blockMessage,
@@ -246,7 +247,11 @@ export async function processInbox(env: Env, profile: string) {
     const menuInteraction = policy.menu && (automaticMenus || !!c.menu_active);
     const replyId = data.content?.interactive_reply_id;
     // Fila de senhas: coupon link, SENHA/SAIR and the open queue question.
-    const queueResult = await queueTurn(env, c, row, value, replyId);
+    // With the module off (Gestão → Módulos) none of it answers.
+    const queueOn = await moduleEnabled(env, profile, "queue");
+    const queueResult = queueOn
+      ? await queueTurn(env, c, row, value, replyId)
+      : { handled: false, menu: false };
     if (queueResult.handled) {
       if (
         queueResult.menu &&
@@ -285,6 +290,7 @@ export async function processInbox(env: Env, profile: string) {
       !awaitingTicket &&
       !menuOpen &&
       (c.state === "ai" || (c.state === "waiting" && data.queued_by_line)) &&
+      queueOn &&
       (await queueFrontDoor(env, c, row.id, async () => {
         if (
           !(
@@ -657,13 +663,14 @@ export async function processInbox(env: Env, profile: string) {
       }
       if (choice.type === "human") {
         const qcfg = queueSettings(cfg);
-        const blocked = qcfg.blocked_can_talk
-          ? null
-          : await activeBlock(
-              env,
-              profile,
-              normalizePhone(c.phone || c.external_id),
-            );
+        const blocked =
+          !queueOn || qcfg.blocked_can_talk
+            ? null
+            : await activeBlock(
+                env,
+                profile,
+                normalizePhone(c.phone || c.external_id),
+              );
         if (blocked) {
           await enqueue(
             env,

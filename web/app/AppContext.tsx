@@ -39,6 +39,13 @@ export type AppState = {
   /** Resposta de GET /status: settings, enabled, conversations, connections. */
   status: Row;
   settings: Row;
+  /**
+   * Módulos da área (Gestão → Módulos): true ligado, false desligado.
+   * Vazio enquanto GET /status não chega; nada some antes disso.
+   */
+  modules: Record<string, boolean> | undefined;
+  /** O módulo não está desligado na área. */
+  moduleOn: (id: string) => boolean;
   statusLoaded: boolean;
   bots: Row[];
   /** Diretório de GET /team (pessoas e bots com presença). */
@@ -638,6 +645,8 @@ export function AppProvider({
     chooseProfile,
     status,
     settings: status.settings || {},
+    modules: status.modules,
+    moduleOn: (id: string) => status.modules?.[id] !== false,
     statusLoaded,
     bots,
     team,

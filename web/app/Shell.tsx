@@ -30,6 +30,7 @@ import {
   type Route,
 } from "../lib/routes";
 import { useTheme } from "../lib/theme";
+import { moduleAllows } from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
@@ -77,7 +78,7 @@ function useItems(): Item[] {
     { area: "queue", label: "Fila", icon: Ticket },
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "admin", label: "Gestão", icon: Settings },
-  ];
+  ].filter((item) => moduleAllows(item.area, app.modules)) as Item[];
 }
 
 function NavLink({

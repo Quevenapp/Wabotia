@@ -78,7 +78,14 @@ import {
 } from "./protocols";
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
-import { moduleCommand } from "./modules/registry";
+import {
+  hiddenMenuTypes,
+  moduleCommand,
+  moduleForMenuType,
+  moduleMenuTypes,
+  requireOperation,
+  resolveStates,
+} from "./modules/registry";
 import {
   assertNumberDelivery,
   getNumberPolicy,
@@ -143,11 +150,28 @@ const text = (value: any, max = 3800) => {
   );
   return value.trim();
 };
-export async function settings(env: Env, profile: string) {
-  const row = await one(env, "SELECT * FROM profiles WHERE id=?", profile);
+async function profileWithModules(env: Env, profile: string) {
+  const row = await one(
+    env,
+    "SELECT p.*,(SELECT json_group_object(m.module_id,m.enabled) FROM profile_modules m WHERE m.profile_id=p.id) module_states FROM profiles p WHERE p.id=?",
+    profile,
+  );
   if (!row)
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  return { ...defaults, ...json(row.settings) };
+  return { row, states: resolveStates(json(row.module_states)) };
+}
+/**
+ * Configurações da área como o atendimento as vê: itens de menu de módulos
+ * desligados ficam de fora (somem do WhatsApp e do editor de menus). O que
+ * está salvo não muda; o comando "settings" devolve esses itens ao gravar.
+ */
+export async function settings(env: Env, profile: string) {
+  const { row, states } = await profileWithModules(env, profile);
+  const cfg = { ...defaults, ...json(row.settings) };
+  const hidden = hiddenMenuTypes(states);
+  if (hidden.size && Array.isArray(cfg.menus))
+    cfg.menus = cfg.menus.filter((item: any) => !hidden.has(item?.type));
+  return cfg;
 }
 /**
  * Especialistas e itens de menu do tipo bot executam ações em sistemas
@@ -1116,6 +1140,8 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  // Operações de um módulo desligado na área: 409 module_disabled.
+  await requireOperation(env, profile, op);
   if (op === "line.save") return saveLine(env, actor, profile, data);
   if (op === "service-template.apply")
     return applyServiceTemplate(env, actor, profile, data, requestId);
@@ -1359,6 +1385,13 @@ export async function perform(
   if (op === "settings") {
     admin(actor);
     const old = await settings(env, profile);
+    const stored = await (async () => {
+      const { row, states } = await profileWithModules(env, profile);
+      return {
+        menus: (json(row.settings).menus || []) as any[],
+        hidden: hiddenMenuTypes(states),
+      };
+    })();
     const { menus_revision, keep_department_conversations, ...changes } = data;
     if (menus_revision !== undefined) {
       requireValue(
@@ -1549,10 +1582,17 @@ export async function perform(
           "protocols",
           "survey",
           "ticket",
-          "queue",
+          ...moduleMenuTypes(),
         ].includes(item.type),
         "Destino de menu inválido.",
       );
+      // Itens de módulos desligados só existem guardados (veja abaixo).
+      if (stored.hidden.has(item.type))
+        throw new ApiError(
+          409,
+          "module_disabled",
+          `O destino "${item.label}" pertence ao módulo ${moduleForMenuType(item.type)?.name}, que está desligado. Ligue-o em Gestão → Módulos.`,
+        );
       if (item.type === "queue" && item.queue_id)
         requireValue(
           await one(
@@ -1625,10 +1665,29 @@ export async function perform(
       );
     for (const action of next.capabilities || [])
       await requireToolBot(env, profile, action.bot_id, "specialist");
+    // Itens de módulos desligados não aparecem em `old` nem no editor: ficam
+    // guardados como estavam e voltam quando o módulo é religado. Um item cujo
+    // submenu foi excluído enquanto isso sobe para o menu principal.
+    const kept = stored.menus
+      .filter(
+        (item) =>
+          stored.hidden.has(item?.type) &&
+          !next.menus.some((m: any) => m.id === item.id),
+      )
+      .map((item) => ({
+        ...item,
+        parent_id: next.menus.some(
+          (m: any) => m.id === item.parent_id && m.type === "submenu",
+        )
+          ? item.parent_id
+          : null,
+      }));
     await exec(
       env,
       "UPDATE profiles SET settings=? WHERE id=?",
-      JSON.stringify(next),
+      JSON.stringify(
+        kept.length ? { ...next, menus: [...next.menus, ...kept] } : next,
+      ),
       profile,
     );
     if (removedDepartments.length && keep_department_conversations !== true)

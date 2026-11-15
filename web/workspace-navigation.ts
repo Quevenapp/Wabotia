@@ -139,19 +139,39 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
 ]);
 
-export function canOpenPage(page: string, role: string) {
+/**
+ * Páginas de Gestão e áreas do trilho que pertencem a um módulo embutido
+ * (src/modules, campo navigation). Com o módulo desligado na área, somem.
+ */
+export const pageModules: Partial<Record<string, string>> = {
+  queue: "queue",
+  "queue-settings": "queue",
+};
+/** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
+export type ModuleStates = Record<string, boolean> | undefined;
+export const moduleAllows = (page: string, modules?: ModuleStates) => {
+  const owner = pageModules[page];
+  return !owner || modules?.[owner] !== false;
+};
+
+export function canOpenPage(
+  page: string,
+  role: string,
+  modules?: ModuleStates,
+) {
   return (
     sections.some(([id]) => id === page) &&
-    (role === "admin" || !adminPages.has(page))
+    (role === "admin" || !adminPages.has(page)) &&
+    moduleAllows(page, modules)
   );
 }
 
-export function visibleGroups(role: string) {
+export function visibleGroups(role: string, modules?: ModuleStates) {
   return workspaceGroups
     .map((group) => ({
       ...group,
       pages: group.pages.filter((page) =>
-        canOpenPage(page, role),
+        canOpenPage(page, role, modules),
       ) as PageId[],
     }))
     .filter((group) => group.pages.length);
@@ -176,8 +196,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Comece por um modelo pronto: menus, setores, categorias e prazos de uma vez.",
   knowledge: "Informações confiáveis para fundamentar as respostas.",
   settings: "Defina orientações, prazos, avaliações e a participação do JEV.",
-  queue:
-    "Chame senhas no guichê, transfira entre filas e acompanhe a espera.",
+  queue: "Chame senhas no guichê, transfira entre filas e acompanhe a espera.",
   "queue-settings":
     "Crie filas e guichês, ligue a fila no WhatsApp, painéis de TV, totens Senhapp e a lista negra.",
   router:
