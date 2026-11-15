@@ -253,6 +253,7 @@ function SubscriptionForm({
     notes: initial?.notes || "",
     document: "",
     payer_name: "",
+    billing_consent: false,
   }));
   const set = (key: string) => (value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -288,6 +289,7 @@ function SubscriptionForm({
         if (!initial && draft.start_date) body.start_date = draft.start_date;
         if (!initial && draft.document) body.document = draft.document;
         if (!initial && draft.payer_name) body.payer_name = draft.payer_name;
+        if (!initial && draft.billing_consent) body.billing_consent = true;
         const saved = initial
           ? await write(`/subscriptions/${initial.id}`, "PATCH", body)
           : await write("/subscriptions", "POST", body);
@@ -393,7 +395,37 @@ function SubscriptionForm({
         maxLength={1000}
         placeholder="Ex.: aluno Pedro, turma de sábado"
       />
+      {!initial && (
+        <ConsentCheck
+          checked={!!draft.billing_consent}
+          onChange={(value) =>
+            setDraft((current) => ({ ...current, billing_consent: value }))
+          }
+        />
+      )}
     </FormDialog>
+  );
+}
+
+/** Aceite de cobranças pelo WhatsApp, confirmado pela equipe. */
+function ConsentCheck({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="mensalidade-check">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />{" "}
+      O cliente aceitou receber as cobranças e avisos pelo WhatsApp (contrato,
+      ficha ou pedido dele). Sem esse aceite, os avisos fora da janela de 24
+      horas esperam o cliente escrever.
+    </label>
   );
 }
 
@@ -407,6 +439,7 @@ function ImportDialog({
   const write = useWrite();
   const [text, setText] = useState("");
   const [result, setResult] = useState<Row | null>(null);
+  const [consent, setConsent] = useState(false);
   const parsed = parseImport(text);
   if (result)
     return (
@@ -441,7 +474,10 @@ function ImportDialog({
       onClose={onClose}
       onSubmit={async () => {
         setResult(
-          await write("/subscriptions/import", "POST", { rows: parsed.rows }),
+          await write("/subscriptions/import", "POST", {
+            rows: parsed.rows,
+            ...(consent ? { billing_consent: true } : {}),
+          }),
         );
       }}
     >
@@ -463,6 +499,7 @@ function ImportDialog({
         (Planos e regras). Telefone que já tem assinatura no mesmo plano é
         pulado, então dá para importar a mesma planilha de novo.
       </p>
+      <ConsentCheck checked={consent} onChange={setConsent} />
     </FormDialog>
   );
 }

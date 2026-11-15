@@ -32,6 +32,7 @@ import {
   situationByPhone,
 } from "./public";
 import {
+  consentFromTeam,
   conversationFor,
   paymentUpdated,
   resendCharge,
@@ -419,7 +420,15 @@ onCommand(
       { ...data, conversation: c },
       actor.id,
     );
-    return subscriptionView(sub);
+    // A equipe confirma que o cliente aceitou receber cobranças pelo WhatsApp.
+    if (data.billing_consent === true)
+      await consentFromTeam(
+        ctx,
+        sub,
+        actor.kind === "app" ? "api" : "panel",
+        actor.id,
+      );
+    return subscriptionView(await loadSubscription(ctx, sub.id));
   },
 );
 
@@ -434,7 +443,20 @@ onCommand(
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
-    return importSubscriptions(ctx, data.rows, actor.id);
+    const result = await importSubscriptions(ctx, data.rows, actor.id);
+    if (data.billing_consent === true)
+      for (const sub of result.created)
+        await consentFromTeam(
+          ctx,
+          {
+            id: sub.id,
+            phone: sub.customer.phone,
+            conversation_id: sub.customer.conversation_id,
+          },
+          actor.kind === "app" ? "api" : "panel",
+          actor.id,
+        );
+    return result;
   },
 );
 

@@ -31,6 +31,7 @@ import { access } from "../security";
 import { event } from "../events";
 import {
   conversation,
+  conversationByPhone,
   enqueue,
   handoff as coreHandoff,
   handoffToPerson,
@@ -45,6 +46,13 @@ import {
   type Payment,
 } from "../payments";
 import { establishment, type Establishment } from "../establishment";
+import {
+  CONSENT_PURPOSES,
+  consentFor,
+  recordConsent,
+  type ConsentPurpose,
+  type ConsentRecord,
+} from "../consents";
 import {
   interactiveLine,
   interactivePayload,
@@ -76,6 +84,7 @@ export interface ContactSummary {
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
 export type { InteractiveSpec } from "../whatsapp-interactive";
 export type { Establishment } from "../establishment";
+export type { ConsentPurpose, ConsentRecord } from "../consents";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export interface OutgoingMessage {
@@ -105,17 +114,30 @@ export interface ModuleContext {
    */
   establishment(): Promise<Establishment>;
   conversation(id: string, actor?: Actor): Promise<Conversation>;
+  /**
+   * Conversa individual da área com o telefone (com e sem o 9 do celular),
+   * ou null. Com `open: true`, abre uma na linha oficial (ou na
+   * `connection_id` dada) para o cliente que nunca escreveu: sem janela de
+   * 24 h, só sai notificação por modelo (`notification: true` + consentimento
+   * da finalidade) até ele responder; a resposta cai na mesma conversa.
+   */
+  conversationByPhone(
+    phone: string,
+    options?: { open?: boolean; connection_id?: string },
+  ): Promise<Conversation | null>;
   /** Contato vinculado à conversa, ou null. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
   /**
    * Envia mensagem ao cliente pela fila de entrega. `key` torna o envio
    * idempotente; `notification` usa o modelo de notificação quando a janela
-   * de 24 horas da linha oficial estiver fechada.
+   * de 24 horas da linha oficial estiver fechada. Com `purpose`, a
+   * notificação fora da janela exige o consentimento dessa finalidade
+   * (recordConsent); sem ela, vale o consentimento de protocolo.
    */
   sendMessage(
     c: Conversation,
     message: OutgoingMessage,
-    options: { key: string; actor?: string; notification?: boolean },
+    options: SendOptions,
   ): Promise<string>;
   /**
    * Mensagem interativa (botões com URL, lista, Flow, produto…; tipos em
@@ -127,8 +149,18 @@ export interface ModuleContext {
   sendInteractive(
     c: Conversation,
     spec: InteractiveSpec,
-    options: { key: string; actor?: string; notification?: boolean },
+    options: SendOptions,
   ): Promise<string>;
+  /**
+   * Registra o consentimento de notificação de uma finalidade quando o
+   * cliente contrata, agenda, pede ou reserva pelo WhatsApp (ou a equipe
+   * registra o aceite presencial), com origem e evidência. Fora da janela,
+   * as notificações com `purpose` só saem com ele. REVOGAR do cliente
+   * revoga todas.
+   */
+  recordConsent(c: Conversation, record: ConsentRecord): Promise<any>;
+  /** Último consentimento que vale para a finalidade, ou null. */
+  consent(c: Conversation, purpose: ConsentPurpose): Promise<any>;
   /** Abre um passo web em nome do módulo (web_steps.module_id). */
   openWebStep(
     c: Conversation,
@@ -171,6 +203,14 @@ export interface ModuleContext {
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
 }
 
+export interface SendOptions {
+  key: string;
+  actor?: string;
+  notification?: boolean;
+  /** Finalidade da notificação: billing, scheduling, order ou booking. */
+  purpose?: ConsentPurpose;
+}
+
 export interface HandoffRequest {
   /** Sem destino: fila geral da equipe. */
   target?: { department_id?: string | null; user_id?: string };
@@ -204,6 +244,16 @@ export interface ChargeRequest {
   receipt?: boolean;
 }
 
+/** consent_purpose no payload da fila, validado. */
+function purposeField(purpose: ConsentPurpose | undefined) {
+  if (purpose === undefined) return {};
+  requireValue(
+    CONSENT_PURPOSES.includes(purpose),
+    `Finalidade inválida: use ${CONSENT_PURPOSES.join(", ")}.`,
+  );
+  return { consent_purpose: purpose };
+}
+
 export function modulesApi(
   env: Env,
   profile: string,
@@ -224,6 +274,12 @@ export function modulesApi(
     settings: () => settings(env, profile),
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
+    conversationByPhone: (phone, options = {}) =>
+      conversationByPhone(env, profile, phone, {
+        open: options.open,
+        connectionId: options.connection_id ?? null,
+        module: moduleId,
+      }),
     async contact(c) {
       const id = typeof c === "string" ? c : c.id;
       return one<ContactSummary>(
@@ -249,6 +305,7 @@ export function modulesApi(
         {
           text: outgoing.text,
           automation: moduleId,
+          ...purposeField(options.purpose),
           ...(outgoing.content ? { content: outgoing.content } : {}),
           ...(outgoing.attachments?.length
             ? { attachments: outgoing.attachments }
@@ -272,11 +329,22 @@ export function modulesApi(
           c,
           actor,
           "notification",
-          interactivePayload(spec, official && open, { automation: moduleId }),
+          interactivePayload(spec, official && open, {
+            automation: moduleId,
+            ...purposeField(options.purpose),
+          }),
           key,
         );
       }
       return sendInteractiveMessage(env, actor, c, spec, key, moduleId);
+    },
+    recordConsent: (c, record) => {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return recordConsent(env, c, moduleId, record);
+    },
+    consent: (c, purpose) => {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return consentFor(env, c.id, purpose);
     },
     openWebStep(c, request) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");

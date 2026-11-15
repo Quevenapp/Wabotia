@@ -59,9 +59,9 @@ Estados da parcela: **aberta**, **paga**, **vencida**, **cancelada** e
   cliente pagou no mesmo instante), ele fica registrado como duplicado
   (evento `mensalidade.paid` com `duplicate: true`) para a equipe estornar.
   Estorno reabre a parcela.
-- O cliente precisa ter **uma conversa** com a área (ter escrito ao menos uma
-  vez). O módulo procura a conversa pelo telefone da assinatura; sem ela, o
-  aviso não sai e a parcela mostra "Sem conversa no WhatsApp…".
+- O módulo procura a conversa pelo telefone da assinatura (com ou sem o 9) e,
+  se o cliente nunca escreveu, abre uma na linha oficial (veja "Fora da
+  janela de 24 horas").
 
 ## No WhatsApp
 
@@ -119,13 +119,22 @@ funcionar a área precisa de:
 1. Um modelo da categoria **UTILITY** aprovado na conta WhatsApp Business
    (pela Integração Zernio), no idioma configurado (`pt_BR`), com duas
    variáveis no corpo: `{{1}}` recebe "Atendimento" e `{{2}}` o texto do
-   aviso (até 1000 caracteres). Sugestão de corpo:
+   aviso (até 1000 caracteres; o núcleo tira as quebras de linha, que a Meta
+   não aceita em parâmetros). Sugestão de corpo:
    `Mensagem sobre {{1}}: {{2}}`.
 2. Notificações ligadas na área com o nome desse modelo.
-3. **Consentimento** do cliente registrado na conversa: hoje o núcleo só
-   envia notificação fora da janela para conversas com consentimento
-   `granted` (o mesmo das notificações de protocolo). Sem ele, a mensagem
-   fica na fila até o cliente escrever.
+3. **Aceite de cobranças** (finalidade `billing`) registrado para o cliente:
+   - automático quando ele contrata um plano pela conversa (módulo Suporte);
+   - pela equipe, marcando "O cliente aceitou receber as cobranças e avisos
+     pelo WhatsApp" ao criar a assinatura ou importar (use quando houver
+     contrato, ficha ou pedido do cliente).
+   Sem o aceite, a mensagem fica na fila até o cliente escrever. REVOGAR na
+   conversa revoga todas as finalidades.
+
+O cliente que nunca escreveu para a área ganha uma conversa na linha oficial
+quando o primeiro aviso sai (ou quando a equipe registra o aceite); a resposta
+dele cai na mesma conversa. Sem linha oficial na área, o aviso não sai e a
+parcela mostra "Sem conversa no WhatsApp…".
 
 Custo: cada notificação fora da janela é uma mensagem de modelo **utilitário**
 cobrada pela Meta. No Brasil a ordem de grandeza é de US$ 0,0065 a 0,0068 por

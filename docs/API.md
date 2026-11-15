@@ -83,6 +83,10 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 
 Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
 
+### Consentimento de notificação por finalidade
+
+`GET /profiles/{perfil}/consents` traz em cada registro `purpose`: `protocol` (pergunta AUTORIZO / NÃO AUTORIZO do protocolo), `billing` (cobrança), `scheduling` (agendamento), `order` (pedido), `booking` (reserva) ou `*` (o REVOGAR do cliente, que vale para todas), além de `source` (`whatsapp`, `panel`, `contract`…) e `module_id`. Fora da janela de 24 horas da linha oficial, uma notificação de módulo marcada com finalidade só sai com o consentimento dela; as de protocolo seguem com o de protocolo. As cobranças do núcleo são `billing`. Cada registro feito por módulo publica `consent.updated` com `conversation_id`, `purpose`, `status`, `source` e `module_id`.
+
 ### Passagem feita por módulo
 
 Quando um módulo passa a conversa para a equipe (ex.: Suporte pago depois de conferir a assinatura), o detalhe `GET /profiles/{perfil}/conversations/{id}` traz `handoff`: `{"module":"suporte","summary":"…","flags":["telefone não vinculado"],"at":…}`, ou `null`. Mostre os `flags` como avisos ao atendente. Vem só para quem lê notas internas (pessoa, ou chave com `notes:read`) e some na próxima passagem sem módulo e ao encerrar a conversa. O mesmo resumo fica como nota interna.

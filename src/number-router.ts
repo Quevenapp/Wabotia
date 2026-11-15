@@ -1,4 +1,5 @@
 import { all, one, exec, batch } from "./db";
+import { consentFor } from "./consents";
 import { Env, Actor, ApiError, json, uid, now, requireValue } from "./types";
 import { access, admin, random } from "./security";
 import { numberUsage, vinkiFreeOnly } from "./number-quota";
@@ -725,11 +726,7 @@ async function routedSend(
   let payload: any;
   if (paid) {
     if (c) {
-      const consent = await one(
-        env,
-        "SELECT status FROM consents WHERE conversation_id=? ORDER BY created DESC,rowid DESC LIMIT 1",
-        c.id,
-      );
+      const consent = await consentFor(env, c.id, "protocol");
       if (["denied", "revoked", "declined"].includes(consent?.status))
         throw new ApiError(
           403,
