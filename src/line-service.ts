@@ -14,6 +14,13 @@ import { getNumberPolicy, numberPolicyError } from "./number-permissions";
 import { settings, enqueue } from "./service";
 import { sha } from "./security";
 import { departmentFor } from "./departments";
+import {
+  type InteractiveSpec,
+  buildInteractive,
+  interactiveFallbackText,
+  numberedOptions,
+  numberedReply,
+} from "./whatsapp-interactive";
 
 export function lineService(config: any) {
   const value = config?.service || {};
@@ -347,6 +354,93 @@ export function menuPayload(
           },
     },
   };
+}
+
+/**
+ * Lines that render WhatsApp interactive messages: official numbers, direct
+ * chats. QR and group chats receive the numbered text with links instead.
+ */
+export async function interactiveLine(env: Env, c: Conversation) {
+  if (!c.connection_id || c.chat_type === "group") return false;
+  const line = await one(
+    env,
+    "SELECT kind FROM connections WHERE id=?",
+    c.connection_id,
+  );
+  return ["meta", "zernio"].includes(line?.kind);
+}
+
+/**
+ * Outbox payload for an interactive message, in the shape menus and the queue
+ * already use: `text` is always the numbered fallback (sent as is by QR and
+ * kept as history); `content` carries the native element on official lines.
+ * The spec is validated on every line, so a message that works on QR does not
+ * fail later on an official number.
+ */
+export function interactivePayload(
+  spec: InteractiveSpec,
+  native: boolean,
+  extra: Record<string, unknown> = {},
+) {
+  const interactive = buildInteractive(spec),
+    text = interactiveFallbackText(spec);
+  return native
+    ? { ...extra, text, content: { type: "interactive", interactive } }
+    : { ...extra, text };
+}
+
+/**
+ * Queues an interactive message for the conversation (see interactivePayload).
+ * `key` makes the send idempotent; `automation` labels it like menus do
+ * ("menu", "queue"…). Returns the first delivery id. Long fallbacks on QR are
+ * split like menus, at 3,800 characters.
+ */
+export async function sendInteractive(
+  env: Env,
+  actor: string,
+  c: Conversation,
+  spec: InteractiveSpec,
+  key: string,
+  automation?: string,
+) {
+  const payload = interactivePayload(
+    spec,
+    await interactiveLine(env, c),
+    automation ? { automation } : {},
+  );
+  const parts =
+    "content" in payload
+      ? [payload.text]
+      : payload.text.match(/[\s\S]{1,3800}/g) || [payload.text];
+  const deliveries: string[] = [];
+  for (const [index, part] of parts.entries())
+    deliveries.push(
+      await enqueue(
+        env,
+        c,
+        actor,
+        "text",
+        { ...payload, text: part },
+        index === 0 ? key : `${key}:${index}`,
+      ),
+    );
+  return deliveries[0];
+}
+
+/**
+ * The list row chosen by a reply: the tapped row on official lines
+ * (`interactive_reply_id`), or the number/title typed on QR.
+ */
+export function interactiveChoice(
+  spec: InteractiveSpec,
+  text: string,
+  replyId?: string,
+) {
+  if (replyId)
+    return numberedOptions(spec).some((row) => row.id === replyId)
+      ? replyId
+      : null;
+  return numberedReply(spec, text);
 }
 
 export function selectedMenu(
