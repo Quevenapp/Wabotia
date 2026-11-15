@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// Endereços públicos fixos do app.
 enum AppLinks {
@@ -66,8 +67,29 @@ final class AppContainer: ObservableObject {
         if deviceLaunch == nil, let server = DemoMode.deviceServer {
             deviceLaunch = DeviceLaunch(demo: false, serverURL: server)
         }
+        // WABOTIA_LOGIN_* (só depuração): entra na conta de teste sem tocar na tela, se ainda não houver sessão.
+        if deviceLaunch == nil, !isLoggedIn, let login = DemoMode.debugLogin {
+            Task { await debugLogin(login) }
+        }
         #endif
     }
+
+    #if DEBUG
+    /// O mesmo login da tela Entrar, sem o pedido de permissão de notificações (diálogo do sistema). Nada da senha vai ao console.
+    private func debugLogin(_ login: (server: URL, email: String, password: String)) async {
+        do {
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+            let device = DeviceInfo(name: String(UIDevice.current.name.prefix(80)), app_version: version)
+            let result = try await client(for: login.server).mobileLogin(MobileLoginRequest(email: login.email.lowercased(), password: login.password, device: device))
+            session.serverURL = login.server
+            loginChosen = true
+            onLoggedIn(server: login.server, result: result)
+            print("[Wabotia] login de depuração: entrou em \(login.server.host ?? "") com \(result.user.profiles.count) área(s)")
+        } catch {
+            print("[Wabotia] login de depuração falhou: \(APIError.describe(error))")
+        }
+    }
+    #endif
 
     /// "Usar este aparelho como painel ou totem", com o servidor já informado.
     func openDeviceMode() {

@@ -49,6 +49,7 @@ struct CounterView: View {
         #if DEBUG
         .task {
             // WABOTIA_DEMO_ACTION=call (só depuração): o guichê 2 chama a próxima, para conferir por print.
+            if !container.isDemo, let script = DemoMode.counterScript { await runCounterScript(script); return }
             guard container.isDemo, DemoMode.action == "call" else { return }
             for _ in 0..<60 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
             vm.chooseCounter("dc-2")
@@ -65,6 +66,31 @@ struct CounterView: View {
             }
         }
     }
+
+    #if DEBUG
+    /// `WABOTIA_COUNTER` (só depuração, sessão de verdade): escolhe o guichê e faz os passos, registrando no console.
+    private func runCounterScript(_ script: String) async {
+        let parts = script.split(separator: ":", maxSplits: 1).map(String.init)
+        guard let wanted = parts.first else { return }
+        let steps = parts.count > 1 ? parts[1].split(separator: ",").map(String.init) : []
+        for _ in 0..<150 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        guard let chosen = vm.overview?.counters?.first(where: { $0.id == wanted || $0.name?.hasSuffix(" \(wanted)") == true }) else {
+            print("[Wabotia] guichê: \(wanted) não encontrado"); return
+        }
+        vm.chooseCounter(chosen.id)
+        print("[Wabotia] guichê: \(chosen.name ?? chosen.id) (\(chosen.state))")
+        for step in steps {
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            switch step {
+            case "open", "paused", "closed": vm.setStatus(step)
+            case "call": vm.callNext()
+            default: vm.act(step)
+            }
+            for _ in 0..<50 where vm.busy != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+            print("[Wabotia] guichê: \(step) → \(vm.notice ?? "-"); guichê \(vm.counter?.state ?? "?"), senha atual \(vm.current?.displayCode ?? "nenhuma") (\(vm.current?.state ?? "-"))")
+        }
+    }
+    #endif
 
     private var counterBody: some View {
         ScrollView {

@@ -107,8 +107,24 @@ extension DemoMode {
     static let deviceName: String? = env("WABOTIA_DEVICE_NAME")
     static let deviceRole: String? = env("WABOTIA_DEVICE_ROLE")
     static let deviceAction: String? = env("WABOTIA_DEVICE_ACTION")
+
+    /// `WABOTIA_LOGIN_SERVER`, `WABOTIA_LOGIN_EMAIL` e `WABOTIA_LOGIN_PASSWORD`: entra numa conta de teste sem tocar na
+    /// tela, pelo mesmo login da tela Entrar (sem o pedido de permissão de notificações). A senha não é registrada.
+    static var debugLogin: (server: URL, email: String, password: String)? {
+        guard let s = env("WABOTIA_LOGIN_SERVER"), let server = URL(string: s), server.scheme == "https",
+              let email = env("WABOTIA_LOGIN_EMAIL"), let password = ProcessInfo.processInfo.environment["WABOTIA_LOGIN_PASSWORD"], !password.isEmpty
+        else { return nil }
+        return (server, email, password)
+    }
+
+    /// `WABOTIA_OPEN=<tela>` (com a sessão de verdade, nada de demonstração): abre uma tela depois de entrar —
+    /// `counter`, `agenda`, `os`, `reserva`, `mensalidade`, `settings`, `os:<id>` ou `appointment:<id>`.
+    static let openScreen: String? = env("WABOTIA_OPEN")
+    /// `WABOTIA_COUNTER=<guichê>:<passos>` (sessão de verdade): escolhe o guichê pelo número do nome ou pelo id e faz os
+    /// passos, um a cada 6 s — `open`, `paused`, `closed`, `call`, `recall`, `start`, `finish`, `no-show`.
+    static let counterScript: String? = env("WABOTIA_COUNTER")
     /// Consumida uma vez pela tela inicial.
-    static var pendingScreen: String? = launchScreen
+    static var pendingScreen: String? = launchScreen ?? openScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).
     static var pendingSheet: String?
 
@@ -146,6 +162,14 @@ extension DemoMode {
         guard let screen = pendingScreen else { return nil }
         pendingScreen = nil
         var launch = Launch()
+        // Sessão de verdade: telas por id (`os:<id>`, `appointment:<id>`).
+        if let colon = screen.firstIndex(of: ":") {
+            let kind = screen[..<colon], id = String(screen[screen.index(after: colon)...])
+            launch.tab = "settings"
+            if kind == "os" { launch.route = .serviceOrder(id: id) }
+            if kind == "appointment" { launch.route = .appointment(id: id) }
+            return launch
+        }
         switch screen {
         case "conversations", "offline": break
         case "presence": launch.sheet = "presence"
