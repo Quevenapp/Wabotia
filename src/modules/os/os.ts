@@ -11,6 +11,7 @@ import {
   onCommand,
   onConversationAction,
   onConversationTurn,
+  onMcpTool,
   onMenuChoice,
   onRead,
   onRoute,
@@ -94,7 +95,8 @@ export async function sendOpenForm(
       submit_label: "Abrir ordem",
       done_text:
         "Recebemos! O número da ordem de serviço chega na conversa do WhatsApp.",
-      return_text: "Recebemos os dados da sua ordem de serviço.",
+      // O aviso com o número da ordem (createOrder) é o único retorno.
+      return_message: "module",
       ticket: "none",
     },
   });
@@ -299,4 +301,38 @@ onCommand("os", "os.decide", async (ctx, actor, data) => {
       data.note,
     ),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Ferramentas MCP para bots (núcleo: onMcpTool).
+
+onMcpTool("os", {
+  name: "os_consultar",
+  description:
+    "Ordens de serviço da área: por conversa (conversation_id), telefone (phone) ou busca (q, número da ordem). open=true só as abertas. Traz estado, orçamento e próximos passos. Requer conversations:read.",
+  input: {
+    conversation_id: { type: "string" },
+    phone: { type: "string" },
+    q: { type: "string" },
+    open: { type: "boolean" },
+  },
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/service-orders`,
+    query: {
+      conversation_id: a.conversation_id,
+      phone: a.phone,
+      q: a.q,
+      open: a.open ? "1" : undefined,
+    },
+  }),
+});
+onMcpTool("os", {
+  name: "os_detalhe",
+  description:
+    "Uma ordem de serviço com o histórico (quem mudou e quando). Requer conversations:read.",
+  input: { order_id: { type: "string" } },
+  required: ["order_id"],
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/service-orders/${a.order_id}`,
+  }),
 });

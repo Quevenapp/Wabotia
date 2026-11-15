@@ -223,12 +223,18 @@ async function publish(
   actor: string,
   extra: Record<string, unknown> = {},
 ) {
-  await ctx.publish(kind, a.id, {
-    appointment: a,
-    conversation_id: a.conversation_id,
-    actor,
-    ...extra,
-  });
+  // Chave por mudança: repetir a mesma mudança não duplica o evento.
+  await ctx.publish(
+    kind,
+    a.id,
+    {
+      appointment: a,
+      conversation_id: a.conversation_id,
+      actor,
+      ...extra,
+    },
+    { key: `${a.id}:${a.updated}` },
+  );
 }
 
 // ---------------------------------------------------------------------------

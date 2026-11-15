@@ -190,6 +190,20 @@ export const pageModules: Partial<Record<string, string>> = {
   "service-orders-settings": "os",
   payments: "payments",
 };
+/**
+ * Páginas de módulo que também aparecem no trilho principal (computador) e
+ * em Mais (celular), além de Gestão. Um módulo acrescenta UMA linha; a página
+ * precisa estar em `sections` e em `pageModules`. Abre a página de Gestão.
+ */
+export const railPages: {
+  page: PageId;
+  label: string;
+  icon: typeof Ticket;
+}[] = [
+  { page: "agenda", label: "Agenda", icon: CalendarDays },
+  { page: "service-orders", label: "Ordens", icon: Wrench },
+];
+
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
 export const moduleAllows = (page: string, modules?: ModuleStates) => {

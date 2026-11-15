@@ -76,8 +76,8 @@ export async function runDue(
       const text = fill(config.reminder_text, describe(a));
       // Botões nas linhas oficiais; opções numeradas no QR e no modelo de
       // notificação (janela fechada). A resposta chega por agendaTurn.
-      const payload = await reminderQuestion(ctx, c, a, text, now);
-      await ctx.sendMessage(c, payload, {
+      const spec = await reminderQuestion(ctx, c, a, text, now);
+      await ctx.sendInteractive(c, spec, {
         key: `reminder:${a.id}:${a.moves}`,
         notification: true,
       });

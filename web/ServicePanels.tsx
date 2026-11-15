@@ -10,6 +10,7 @@ import {
   menuSnapshot,
   menuListSnapshot,
   moveMenu,
+  menuTypeOptions,
   type MenuItem,
   type MenuTreeNode,
 } from "./menu-tree";
@@ -440,7 +441,7 @@ export function MenusPanel(props: Props) {
     [departments, setDepartments] = useState<Row[]>([]),
     [categories, setCategories] = useState<Row[]>([]),
     [forms, setForms] = useState<Row[]>([]),
-    [formsOn, setFormsOn] = useState(false),
+    [moduleList, setModuleList] = useState<Row[]>([]),
     [savedGreeting, setSavedGreeting] = useState(""),
     [greeting, setGreeting] = useState<string | null>(null),
     [draft, setDraft] = useState<Row | null>(null),
@@ -466,9 +467,13 @@ export function MenusPanel(props: Props) {
     setApps(status.settings?.apps || []);
     setDepartments(status.settings?.departments || []);
     setCategories(status.settings?.ticket_categories || []);
-    // Módulo Formulários (Gestão → Módulos): destino "Formulário".
+    // Módulo Formulários: formulários para o destino "Formulário".
     setForms(status.settings?.forms || []);
-    setFormsOn(status.modules?.forms !== false);
+    // Tipos de item declarados pelos módulos (menu_item_types).
+    setModuleList(
+      (await props.api(props.root + "/modules").catch(() => ({ data: [] })))
+        .data || [],
+    );
     setSavedGreeting(status.settings?.menu_greeting || "");
   }
   useEffect(() => {
@@ -728,7 +733,10 @@ export function MenusPanel(props: Props) {
                           queue: "Fila de senhas",
                           form: "Formulário",
                         } as Row
-                      )[m.type]}{" "}
+                      )[m.type] ||
+                      menuTypeOptions(moduleList, m.type).find(
+                        (option) => option.type === m.type,
+                      )?.label}{" "}
                   ·{" "}
                   {m.trigger === "manual"
                     ? "Chamado pela equipe"
@@ -1028,17 +1036,13 @@ export function MenusPanel(props: Props) {
                         setDraft({ ...draft, type: e.target.value })
                       }
                     >
-                      <option value="human">Equipe humana</option>
-                      <option value="bot">Bot</option>
-                      <option value="app">Aplicativo</option>
-                      <option value="link">Conteúdo com link</option>
-                      <option value="content">Mensagem informativa</option>
-                      <option value="protocols">Consultar protocolos</option>
-                      <option value="ticket">Abrir protocolo</option>
-                      <option value="survey">Avaliar atendimento</option>
-                      {(formsOn || draft.type === "form") && (
-                        <option value="form">Formulário (link)</option>
-                      )}
+                      {/* Núcleo + tipos dos módulos ligados (GET /modules) +
+                          o tipo atual, para nunca trocar o tipo sem querer. */}
+                      {menuTypeOptions(moduleList, draft.type).map((option) => (
+                        <option key={option.type} value={option.type}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 )}

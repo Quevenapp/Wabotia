@@ -10,6 +10,7 @@ import {
   onCommand,
   onConversationAction,
   onConversationTurn,
+  onMcpTool,
   onMenuChoice,
   onRead,
   onRoute,
@@ -436,4 +437,58 @@ onRoute(MODULE, {
 onCommand(MODULE, "agenda.no_show", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   return noShow(ctx, { id: data.id, actor: actor.id });
+});
+
+// ---------------------------------------------------------------------------
+// Ferramentas MCP para bots (núcleo: onMcpTool). Viram chamadas à API v1 com
+// a chave do bot; permissões e 409 module_disabled valem como na API.
+
+onMcpTool("agenda", {
+  name: "agenda_servicos",
+  description:
+    "Serviços e profissionais da Agenda da área (ids, duração, preço). Use antes de agenda_horarios_livres. Requer conversations:read.",
+  input: {},
+  call: (_a, profile) => ({ path: `/profiles/${profile}/agenda` }),
+});
+onMcpTool("agenda", {
+  name: "agenda_horarios_livres",
+  description:
+    "Horários livres de um serviço: por dia (date AAAA-MM-DD, opcional) e profissional (opcional). Horários em Brasília; use o campo starts para agendar. Requer conversations:read.",
+  input: {
+    service_id: { type: "string" },
+    professional_id: { type: "string" },
+    date: { type: "string", description: "AAAA-MM-DD" },
+  },
+  required: ["service_id"],
+  call: (a, profile) => ({
+    path: `/profiles/${profile}/agenda/availability`,
+    query: {
+      service_id: a.service_id,
+      professional_id: a.professional_id,
+      date: a.date,
+    },
+  }),
+});
+onMcpTool("agenda", {
+  name: "agenda_agendar",
+  description:
+    "Agenda o cliente da conversa num horário livre (starts de agenda_horarios_livres). O cliente recebe a confirmação no WhatsApp. Exige a conversa assumida pelo bot. Requer conversations:write; 409 slot_taken se o horário acabou de ser ocupado.",
+  input: {
+    conversation_id: { type: "string" },
+    service_id: { type: "string" },
+    starts: { type: "integer", description: "Início em ms (Unix)." },
+    professional_id: { type: "string" },
+  },
+  required: ["conversation_id", "service_id", "starts"],
+  write: true,
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: {
+      action: "agenda",
+      service_id: a.service_id,
+      starts: a.starts,
+      ...(a.professional_id ? { professional_id: a.professional_id } : {}),
+    },
+  }),
 });

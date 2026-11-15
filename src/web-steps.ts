@@ -87,6 +87,11 @@ export interface WebStepSpec {
   done_text?: string;
   /** Mensagem de retorno no WhatsApp; vazia usa a padrão. */
   return_text?: string;
+  /**
+   * "module": o núcleo não manda o retorno padrão; o texto devolvido por
+   * onWebStepCompleted vira o retorno (ou o módulo manda a sua mensagem).
+   */
+  return_message?: "default" | "module";
   /** Protocolo: anexa ao ativo da conversa, abre um se não houver, ou nada. */
   ticket?: "attach" | "open" | "none";
   ticket_category?: string | null;
@@ -175,6 +180,13 @@ export function validateSpec(value: any): WebStepSpec {
     "Protocolo: use attach, open ou none.",
   );
   spec.ticket = ticket;
+  if (value.return_message !== undefined) {
+    requireValue(
+      ["default", "module"].includes(value.return_message),
+      "Retorno: use default ou module.",
+    );
+    spec.return_message = value.return_message;
+  }
   if (value.ticket_category)
     spec.ticket_category = str(value.ticket_category, 100, "a categoria");
   return spec;
@@ -675,7 +687,7 @@ export async function completeWebStep(
     at,
   );
   if (!claimed.meta?.changes) return { ok: false, reason: "used", whatsapp };
-  if (c) await afterCompletion(env, c, row, spec, answers);
+  const after = c ? await afterCompletion(env, c, row, spec, answers) : null;
   const done = webStepView(
     await one(env, "SELECT * FROM web_steps WHERE id=?", id),
   )!;
@@ -689,9 +701,18 @@ export async function completeWebStep(
     contact_id: done.contact_id,
     answers,
   });
+  // Retorno padrão antes das mensagens do módulo. Com return_message
+  // "module", o módulo responde: a string devolvida pelo gancho vira o
+  // retorno; sem string, ele mesmo envia (ou nada é enviado).
+  const moduleReturn = spec.return_message === "module";
+  if (c && !moduleReturn) await sendReturn(env, c, row, spec, after?.ticket);
   // O módulo dono reage (src/modules/api.ts, onWebStepCompleted).
   const hook = webStepHook(row.module_id);
-  if (hook) await hook(env, row.profile_id, done, answers);
+  const reply = hook
+    ? await hook(env, row.profile_id, done, answers)
+    : undefined;
+  if (c && moduleReturn && typeof reply === "string" && reply.trim())
+    await sendReturn(env, c, row, spec, after?.ticket, reply.trim());
   return { ok: true, step: done, whatsapp };
 }
 
@@ -803,12 +824,27 @@ async function afterCompletion(
     "system",
     `${spec.title}: respondido pelo cliente.\n${summary}`.slice(0, 20000),
   );
-  // Retorno ao cliente. "notification" usa o modelo de notificação já
-  // configurado quando a janela de 24 horas da linha oficial está fechada.
-  const text =
-    (spec.return_text ||
-      `Recebemos suas respostas de "${spec.title}". Obrigado!`) +
-    (ticket ? `\n\nProtocolo: ${ticket.number}` : "");
+  return { ticket };
+}
+
+/**
+ * Retorno ao cliente. "notification" usa o modelo de notificação já
+ * configurado quando a janela de 24 horas da linha oficial está fechada.
+ * `override`: texto do módulo (onWebStepCompleted devolveu uma string).
+ */
+async function sendReturn(
+  env: Env,
+  c: Conversation,
+  row: any,
+  spec: WebStepSpec,
+  ticket: any,
+  override?: string,
+) {
+  const text = override
+    ? override
+    : (spec.return_text ||
+        `Recebemos suas respostas de "${spec.title}". Obrigado!`) +
+      (ticket ? `\n\nProtocolo: ${ticket.number}` : "");
   try {
     await enqueue(
       env,

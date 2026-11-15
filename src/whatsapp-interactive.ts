@@ -43,6 +43,16 @@ export interface ListSpec extends Common {
   button: string;
   sections: { title?: string; rows: ListRow[] }[];
 }
+/** Botões de resposta: 1 a 3, título até 20 caracteres. */
+export interface ButtonsSpec extends Common {
+  type: "button";
+  body: string;
+  /**
+   * `id` volta em `interactive_reply_id`; até 256 caracteres. `description`
+   * só aparece no texto numerado (linhas QR): botões não têm descrição.
+   */
+  buttons: { id: string; title: string; description?: string }[];
+}
 export interface MediaCard {
   media: "image" | "video";
   /** Public HTTPS address of the image or video. */
@@ -104,6 +114,7 @@ export interface FlowSpec extends Common {
 
 export type InteractiveSpec =
   | CtaUrlSpec
+  | ButtonsSpec
   | ListSpec
   | MediaCarouselSpec
   | LocationRequestSpec
@@ -177,6 +188,33 @@ export function buildInteractive(spec: InteractiveSpec): Record<string, any> {
           },
         },
       };
+    case "button": {
+      const buttons = spec.buttons;
+      if (!Array.isArray(buttons) || !buttons.length || buttons.length > 3)
+        invalid("Use de 1 a 3 botões de resposta.");
+      const ids = new Set<string>();
+      return {
+        type: "button",
+        ...textHeader(spec.header),
+        body: { text: text(spec.body, 1024, "o texto da mensagem") },
+        ...footer(spec.footer),
+        action: {
+          buttons: buttons.map((button) => {
+            const buttonId = text(button?.id, 256, "o identificador do botão");
+            if (ids.has(buttonId))
+              invalid("Os identificadores dos botões não podem se repetir.");
+            ids.add(buttonId);
+            return {
+              type: "reply",
+              reply: {
+                id: buttonId,
+                title: text(button.title, 20, "o título do botão"),
+              },
+            };
+          }),
+        },
+      };
+    }
     case "list": {
       const sections = spec.sections;
       if (!Array.isArray(sections) || !sections.length || sections.length > 10)
@@ -375,7 +413,13 @@ export function buildInteractive(spec: InteractiveSpec): Record<string, any> {
 export function numberedOptions(spec: InteractiveSpec) {
   return spec.type === "list"
     ? spec.sections.flatMap((section) => section.rows)
-    : [];
+    : spec.type === "button"
+      ? spec.buttons.map((button) => ({
+          id: button.id,
+          title: button.title,
+          description: button.description,
+        }))
+      : [];
 }
 
 const fallbackTail = (fallback?: InteractiveFallback) =>
@@ -397,6 +441,18 @@ export function interactiveFallbackText(spec: InteractiveSpec): string {
       blocks.push(
         head(spec.header, spec.body),
         `${spec.display_text}: ${spec.url}`,
+      );
+      break;
+    case "button":
+      blocks.push(
+        head(spec.header, spec.body),
+        spec.buttons
+          .map(
+            (button, i) =>
+              `${i + 1}. ${button.title}${button.description ? ` - ${button.description}` : ""}`,
+          )
+          .join("\n"),
+        "Responda com o número da opção.",
       );
       break;
     case "list": {

@@ -383,16 +383,21 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
       created: false,
     };
   const order = await loadOrder(ctx, id);
-  await ctx.publish("os.opened", id, {
-    order_id: id,
-    number: order.number,
-    source: order.source,
-    conversation_id: order.conversation_id,
-    contact_id: order.contact_id,
-    phone: order.phone,
-    item: order.item,
-    actor: input.actor,
-  });
+  await ctx.publish(
+    "os.opened",
+    id,
+    {
+      order_id: id,
+      number: order.number,
+      source: order.source,
+      conversation_id: order.conversation_id,
+      contact_id: order.contact_id,
+      phone: order.phone,
+      item: order.item,
+      actor: input.actor,
+    },
+    { key: `opened:${id}` },
+  );
   if (input.notify !== false)
     await notify(ctx, order, "opened", `opened:${id}`);
   return { order, created: true };

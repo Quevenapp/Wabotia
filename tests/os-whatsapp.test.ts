@@ -159,7 +159,11 @@ describe("ordem de serviço pelo WhatsApp", () => {
     );
     expect(order.terms_accepted_at).toBeGreaterThan(0);
     const texts = (await outbox(c.id)).map((m) => m.text);
-    expect(texts).toContain("Recebemos os dados da sua ordem de serviço.");
+    // Uma mensagem só ao concluir: o aviso com o número (return_message
+    // "module"), sem o retorno padrão do passo web.
+    expect(
+      texts.filter((t) => String(t).startsWith("Recebemos os dados")),
+    ).toHaveLength(0);
     expect(texts.at(-1)).toContain(
       "Ordem de serviço nº 1 aberta para Notebook Lenovo",
     );

@@ -15,8 +15,7 @@ import {
   now as clock,
   uid,
 } from "../../types";
-import { interactiveLine, interactivePayload } from "../../line-service";
-import type { ModuleContext } from "../api";
+import type { InteractiveSpec, ModuleContext } from "../api";
 import {
   agendaConfig,
   clockOf,
@@ -150,61 +149,44 @@ export const clearState = (ctx: ModuleContext, conversationId: string) =>
 // Envio de perguntas
 
 /**
- * Conteúdo de uma pergunta: botões de resposta (até 3 opções curtas) ou
- * lista nas linhas oficiais; o texto numerado sempre vai em `text`.
+ * Pergunta como mensagem interativa tipada (ctx.sendInteractive): botões de
+ * resposta (até 3 opções curtas) ou lista. Nas linhas QR o núcleo manda o
+ * texto numerado com "Responda com o número da opção" e o rodapé.
  */
-export function questionPayload(
+export function questionSpec(
   body: string,
   options: Option[],
   ids: string[],
-  native: boolean,
-) {
-  const text = `${body}\n${options
-    .map(
-      (o, i) =>
-        `${i + 1}. ${o.title}${o.description ? ` - ${o.description}` : ""}`,
-    )
-    .join("\n")}\nResponda com o número da opção. Envie MENU para sair.`;
-  if (!native) return { text };
+): InteractiveSpec {
   if (
     options.length <= 3 &&
     options.every((o) => Array.from(o.title).length <= 20)
   )
     return {
-      text,
-      content: {
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: cut(body, 1024) },
-          action: {
-            buttons: options.map((o, i) => ({
-              type: "reply",
-              reply: { id: ids[i], title: o.title },
-            })),
-          },
-        },
-      },
-    };
-  const payload = interactivePayload(
-    {
-      type: "list",
-      body: cut(body, 4096),
-      button: "Escolher",
+      type: "button",
+      body: cut(body, 1024),
       footer: "Envie MENU para sair.",
-      sections: [
-        {
-          rows: options.map((o, i) => ({
-            id: ids[i],
-            title: cut(o.title, 24),
-            ...(o.description ? { description: cut(o.description, 72) } : {}),
-          })),
-        },
-      ],
-    },
-    true,
-  );
-  return { text, content: (payload as any).content };
+      buttons: options.map((o, i) => ({
+        id: ids[i],
+        title: o.title,
+        ...(o.description ? { description: o.description } : {}),
+      })),
+    };
+  return {
+    type: "list",
+    body: cut(body, 4096),
+    button: "Escolher",
+    footer: "Envie MENU para sair.",
+    sections: [
+      {
+        rows: options.map((o, i) => ({
+          id: ids[i],
+          title: cut(o.title, 24),
+          ...(o.description ? { description: cut(o.description, 72) } : {}),
+        })),
+      },
+    ],
+  };
 }
 
 async function ask(
@@ -219,11 +201,10 @@ async function ask(
   expiresAt = at + CHAT_TTL_MS,
 ) {
   const token = uid().replace(/-/g, "").slice(0, 10);
-  const payload = questionPayload(
+  const spec = questionSpec(
     body,
     options,
     options.map((o) => `agenda:${token}:${o.id}`),
-    await interactiveLine(ctx.env, c),
   );
   await saveState(ctx, c, {
     step,
@@ -231,7 +212,7 @@ async function ask(
     token,
     expires_at: expiresAt,
   });
-  await ctx.sendMessage(c, payload, { key });
+  await ctx.sendInteractive(c, spec, { key });
 }
 
 async function say(
@@ -849,11 +830,10 @@ export async function reminderQuestion(
   text: string,
   at: number,
 ) {
-  const payload = questionPayload(
+  const spec = questionSpec(
     text,
     REMINDER_OPTIONS,
     REMINDER_OPTIONS.map((o) => reminderReply(a.id, o.id)),
-    await interactiveLine(ctx.env, c),
   );
   // Para responder com número nas linhas QR. Não toma o lugar de um
   // agendamento em andamento.
@@ -865,5 +845,5 @@ export async function reminderQuestion(
       token: "remind",
       expires_at: Math.min(a.starts, at + 24 * 3600000),
     });
-  return payload;
+  return spec;
 }
