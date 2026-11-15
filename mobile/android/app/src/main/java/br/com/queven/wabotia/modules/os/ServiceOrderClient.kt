@@ -214,7 +214,8 @@ object ServiceOrderRules {
 
     fun historyText(h: ServiceOrderHistory): String = when (h.kind) {
         "opened" -> "Ordem aberta"
-        "quote" -> "Orçamento salvo"
+        // O envio também é `quote`, mas leva a ordem para `quoted`.
+        "quote" -> if (h.toStatus == "quoted" && h.fromStatus != "quoted") "Orçamento enviado" else "Orçamento salvo"
         "edit" -> "Dados alterados"
         else -> h.toStatus?.let(::statusLabel) ?: h.kind ?: "Alteração"
     }

@@ -8,6 +8,7 @@ import br.com.queven.wabotia.modules.os.QuoteItem
 import br.com.queven.wabotia.modules.os.ServiceOrder
 import br.com.queven.wabotia.modules.os.ServiceOrderClient
 import br.com.queven.wabotia.modules.os.ServiceOrderCustomer
+import br.com.queven.wabotia.modules.os.ServiceOrderHistory
 import br.com.queven.wabotia.modules.os.ServiceOrderPage
 import br.com.queven.wabotia.modules.os.ServiceOrderQuote
 import br.com.queven.wabotia.modules.os.ServiceOrderRules
@@ -39,6 +40,12 @@ class ServiceOrderTest {
         assertTrue(ServiceOrderRules.canEditQuote(declined))
         assertFalse(ServiceOrderRules.canEditQuote(ServiceOrder("o", status = "in_progress")))
         assertTrue(ServiceOrderRules.quoteExpired(ServiceOrder("o", quote = ServiceOrderQuote(validUntil = 100)), now = 100))
+    }
+
+    @Test fun historicoDistingueSalvarDeEnviarOrcamento() {
+        assertEquals("Orçamento salvo", ServiceOrderRules.historyText(ServiceOrderHistory(kind = "quote", fromStatus = "analyzing", toStatus = "analyzing")))
+        assertEquals("Orçamento enviado", ServiceOrderRules.historyText(ServiceOrderHistory(kind = "quote", fromStatus = "analyzing", toStatus = "quoted")))
+        assertEquals("Aprovada", ServiceOrderRules.historyText(ServiceOrderHistory(kind = "status", fromStatus = "quoted", toStatus = "approved")))
     }
 
     @Test fun contagemComChaveAusenteEAbertas() {
