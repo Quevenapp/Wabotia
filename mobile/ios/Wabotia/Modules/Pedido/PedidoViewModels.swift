@@ -39,6 +39,9 @@ final class PedidoViewModel: ObservableObject {
     private var events: ModuleEvents?
     private var generation = 0
     private var searchTask: Task<Void, Never>?
+    #if DEBUG
+    private var lastBoardLog = ""
+    #endif
 
     init(client: PedidoClient, onFailure: @escaping (QueueError) -> Void) {
         self.client = client
@@ -100,6 +103,10 @@ final class PedidoViewModel: ObservableObject {
             case .board:
                 let result = try await client.board()
                 guard mine == generation else { return }
+                #if DEBUG
+                let text = (result.columns ?? []).map { "\($0.status)=\(($0.orders ?? []).compactMap { $0.number.map(String.init) }.joined(separator: "/"))" }.joined(separator: " ")
+                if text != lastBoardLog { lastBoardLog = text; print("[Wabotia] pedido: quadro \(text)") }
+                #endif
                 board = result
             case .list:
                 let result = try await fetch(cursor: nil)

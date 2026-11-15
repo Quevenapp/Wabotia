@@ -78,11 +78,43 @@ struct PedidoView: View {
             }
             #endif
             await vm.load()
+            #if DEBUG
+            if !AppContainer.shared.isDemo, let script = DemoMode.pedidoScript { await runScript(script) }
+            #endif
         }
         .task { await vm.tick() }
         .refreshable { await vm.load() }
         .sheet(isPresented: $pausing) { PauseStoreSheet { message in pausing = false; vm.setPaused(true, message: message) } }
     }
+
+    #if DEBUG
+    /// `WABOTIA_PEDIDO` no quadro (só depuração, sessão de verdade): os passos com o resultado no console.
+    private func runScript(_ script: String) async {
+        for step in script.split(separator: ",").map(String.init) {
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+            let arg = parts.count > 1 ? parts[1] : ""
+            switch parts.first ?? "" {
+            case "mode": vm.setMode(PedidoViewModel.Mode(rawValue: arg) ?? .board)
+            case "pause": vm.setPaused(true, message: arg)
+            case "resume": vm.setPaused(false, message: "")
+            case "off", "on":
+                if vm.mode != .menu { vm.setMode(.menu) }
+                for _ in 0..<50 where vm.menu == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+                let items = (vm.menu?.categories ?? []).flatMap { $0.items ?? [] }
+                if let item = items.first(where: { $0.id == arg || ($0.name ?? "").lowercased() == arg.lowercased() }) {
+                    vm.setItem(item, available: parts[0] == "on")
+                } else { print("[Wabotia] pedido: item \(arg) não está no cardápio") }
+            default: break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            for _ in 0..<80 where !vm.busy.isEmpty { try? await Task.sleep(nanoseconds: 100_000_000) }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let items = (vm.menu?.categories ?? []).flatMap { $0.items ?? [] }.map { "\($0.name ?? $0.id)=\($0.available == false ? "esgotado" : "ok")" }
+            print("[Wabotia] pedido: \(step) → \(vm.notice ?? vm.done ?? "-") · \(PedidoRules.storeText(vm.store))\(items.isEmpty ? "" : " · " + items.joined(separator: ", "))")
+        }
+    }
+    #endif
 
     private func storeBanner(_ store: PedidoStore) -> some View {
         let paused = store.paused == true
@@ -382,7 +414,13 @@ struct PedidoOrderView: View {
         .navigationTitle(vm.order.map { "Pedido \($0.numberText)" } ?? "Pedido")
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBarHidden(false)
-        .task { vm.observeEvents(); await vm.load() }
+        .task {
+            vm.observeEvents()
+            await vm.load()
+            #if DEBUG
+            if !AppContainer.shared.isDemo, let script = DemoMode.pedidoScript { await runScript(script) }
+            #endif
+        }
         .refreshable { await vm.load() }
         .onChange(of: vm.done) { text in if let text { Workspace.shared.show(text, style: .success) } }
         .sheet(isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } })) {
@@ -395,6 +433,32 @@ struct PedidoOrderView: View {
             Text("Use para dinheiro, maquininha ou pagamento feito por fora. Fica no histórico com o seu nome.")
         }
     }
+
+    #if DEBUG
+    /// `WABOTIA_PEDIDO` no pedido (só depuração, sessão de verdade): estados (também um que não vale), pago, forma de
+    /// pagamento e impressão, com o resultado no console. Nada é avisado ao cliente.
+    private func runScript(_ script: String) async {
+        let lines = (vm.order?.lines ?? []).map { "\($0.quantity ?? 1)x \($0.name ?? "")[\($0.slot ?? 0)] \(PedidoRules.optionsText($0) ?? "")" }
+        Swift.print("[Wabotia] pedido \(vm.order?.numberText ?? "?"): \(vm.order?.label ?? "?"), linhas: \(lines.joined(separator: " | ")), próximos: \((vm.order?.nextStatuses ?? []).joined(separator: ","))")
+        for step in script.split(separator: ",").map(String.init) {
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+            let arg = parts.count > 1 ? parts[1] : ""
+            switch parts.first ?? "" {
+            case "status": vm.perform(arg, note: nil, reason: arg == "cancelled" ? "Teste do app" : nil, notify: false)
+            case "paid": vm.markPaid(note: nil)
+            case "method": vm.setMethod(arg)
+            case "print": print(confirmed: false)
+            default: break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            for _ in 0..<80 where vm.busy != nil || printState == .printing { try? await Task.sleep(nanoseconds: 100_000_000) }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let o = vm.order
+            Swift.print("[Wabotia] pedido \(o?.numberText ?? "?"): \(step) → aviso: \(vm.notice ?? "-"); estado \(o?.label ?? "?"), pagamento \(o?.payment?.statusLabel ?? "?"), impressão: \(printMessage ?? "-")")
+        }
+    }
+    #endif
 
     private func header(_ o: PedidoOrder) -> some View {
         VStack(alignment: .leading, spacing: 8) {

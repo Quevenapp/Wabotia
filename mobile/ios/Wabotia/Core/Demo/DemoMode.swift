@@ -123,6 +123,11 @@ extension DemoMode {
     /// `WABOTIA_COUNTER=<guichê>:<passos>` (sessão de verdade): escolhe o guichê pelo número do nome ou pelo id e faz os
     /// passos, um a cada 6 s — `open`, `paused`, `closed`, `call`, `recall`, `start`, `finish`, `no-show`.
     static let counterScript: String? = env("WABOTIA_COUNTER")
+    /// `WABOTIA_PEDIDO=<passos>` (sessão de verdade): passos separados por vírgula, um a cada 6 s, registrados no console.
+    /// No quadro: `mode:menu|list|board`, `pause:<mensagem>`, `resume`, `off:<item>`, `on:<item>` (id ou nome do item).
+    /// No pedido (`WABOTIA_OPEN=pedido:<id>`): `status:<estado>` (também um que não vale, para ver a recusa), `paid`,
+    /// `method:cash|card`, `print`.
+    static let pedidoScript: String? = env("WABOTIA_PEDIDO")
     /// Consumida uma vez pela tela inicial.
     static var pendingScreen: String? = launchScreen ?? openScreen
     /// Folha a abrir sozinha na tela pedida (`transfer`, `presence`, `attach`, `actions`, `window`, `tags`…).
@@ -168,6 +173,8 @@ extension DemoMode {
             launch.tab = "settings"
             if kind == "os" { launch.route = .serviceOrder(id: id) }
             if kind == "appointment" { launch.route = .appointment(id: id) }
+            if kind == "pedido" { launch.route = .pedidoOrder(id: id) }
+            if kind == "subscription" { launch.route = .subscription(id: id) }
             return launch
         }
         switch screen {
