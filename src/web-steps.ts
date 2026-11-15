@@ -424,9 +424,16 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   );
   const spec = validateSpec(input.spec);
   const kind = await lineKind(env, c);
-  if (input.trigger !== "menu" && ["meta", "zernio"].includes(kind || ""))
-    requireValue(
-      now() - c.last_customer < 86400000,
+  // Erro próprio, como na Cobrança: o módulo pode trocar por um convite
+  // pelo modelo de notificação ("responda CHECKIN").
+  if (
+    input.trigger !== "menu" &&
+    ["meta", "zernio"].includes(kind || "") &&
+    now() - c.last_customer >= 86400000
+  )
+    throw new ApiError(
+      409,
+      "window_closed",
       "O cliente precisa ter escrito nas últimas 24 horas para receber o link.",
     );
   const origin = await publicOrigin(env);

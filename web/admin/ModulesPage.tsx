@@ -21,15 +21,43 @@ const icons: Record<string, typeof Puzzle> = {
   payments: CreditCard,
 };
 
+/** Nomes dos módulos de `ids`, na ordem da lista. */
+const names = (all: Row[], ids: string[]) =>
+  all.filter((m) => ids.includes(m.id)).map((m) => m.name);
+
+/** Ligados que dependem de `id`, direta ou indiretamente (como o servidor). */
+function dependentsOf(all: Row[], id: string) {
+  const found = new Set<string>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const m of all)
+      if (
+        m.enabled &&
+        !found.has(m.id) &&
+        (m.requires || []).some((r: string) => r === id || found.has(r))
+      ) {
+        found.add(m.id);
+        changed = true;
+      }
+  }
+  return [...found];
+}
+
 function ModuleCard({
   module,
+  all,
   busy,
   onToggle,
 }: {
   module: Row;
+  all: Row[];
   busy: boolean;
   onToggle: (next: boolean) => void;
 }) {
+  const requires: string[] = module.requires || [];
+  const missing = requires.filter(
+    (id) => !all.find((m) => m.id === id)?.enabled,
+  );
   const app = useApp();
   const Icon = icons[module.id] || Puzzle;
   const places = (module.navigation || []).map((item: Row) => item.label);
@@ -46,7 +74,7 @@ function ModuleCard({
           label={(module.enabled ? "Desligar " : "Ligar ") + module.name}
           checked={!!module.enabled}
           busy={busy}
-          disabled={!app.isAdmin}
+          disabled={!app.isAdmin || (!module.enabled && missing.length > 0)}
           onChange={onToggle}
         />
       </div>
@@ -59,8 +87,20 @@ function ModuleCard({
         <small>Versão {module.version}</small>
         {module.builtin && <small>Integrado ao Wabotia</small>}
       </div>
-      {(places.length > 0 || menuTypes.length > 0) && (
+      {!module.enabled && missing.length > 0 && (
+        <p className="muted">
+          Ligue antes {names(all, missing).join(" e ")}: este módulo depende
+          {missing.length > 1 ? " deles" : " dele"}.
+        </p>
+      )}
+      {(places.length > 0 || menuTypes.length > 0 || requires.length > 0) && (
         <dl className="module-facts">
+          {requires.length > 0 && (
+            <>
+              <dt>Depende de</dt>
+              <dd>{names(all, requires).join(" · ")}</dd>
+            </>
+          )}
           {places.length > 0 && (
             <>
               <dt>No painel</dt>
@@ -86,10 +126,14 @@ export function ModulesPage() {
   const [confirm, setConfirm] = useState<Row | null>(null);
   const modules: Row[] = list.data?.data || [];
   const change = async (module: Row, enabled: boolean) => {
+    // Desligar um módulo do qual outros dependem desliga os dependentes
+    // junto (cascade), depois da confirmação que os lista.
+    const cascade = !enabled && dependentsOf(modules, module.id).length > 0;
     await run(
       () =>
         app.api(app.root + "/modules/" + module.id, "PUT", {
           enabled,
+          ...(cascade ? { cascade: true } : {}),
         }),
       {
         key: module.id,
@@ -126,6 +170,7 @@ export function ModulesPage() {
             <ModuleCard
               key={module.id}
               module={module}
+              all={modules}
               busy={busyKey === module.id}
               onToggle={(next) =>
                 next ? void change(module, true) : setConfirm(module)
@@ -161,6 +206,19 @@ export function ModulesPage() {
             desta área. Aplicativos e aparelhos que usam o módulo passam a
             receber o aviso de módulo desligado.
           </p>
+          {dependentsOf(modules, confirm.id).length > 0 && (
+            <p>
+              <strong>
+                Também serão desligados:{" "}
+                {names(modules, dependentsOf(modules, confirm.id)).join(", ")}
+              </strong>
+              , que{" "}
+              {dependentsOf(modules, confirm.id).length > 1
+                ? "dependem"
+                : "depende"}{" "}
+              de {confirm.name}.
+            </p>
+          )}
           <p>
             As configurações e os registros ficam guardados. Para voltar, ligue
             o módulo de novo nesta tela.

@@ -54,9 +54,11 @@ Estados da parcela: **aberta**, **paga**, **vencida**, **cancelada** e
   consulta do pagamento) ou pela **baixa manual** de um administrador, que
   registra quem deu baixa, a data e a observação. Mensagem ou comprovante
   enviado pelo cliente nunca dá baixa.
-- Pagamento que chega depois de uma baixa manual fica registrado como
-  duplicado (evento `mensalidade.paid` com `duplicate: true`) para a equipe
-  estornar no Mercado Pago. Estorno reabre a parcela.
+- Baixa manual, isenção, pausa e encerramento cancelam no Mercado Pago o Pix
+  ou link que ainda estava aberto. Se mesmo assim entrar um pagamento (o
+  cliente pagou no mesmo instante), ele fica registrado como duplicado
+  (evento `mensalidade.paid` com `duplicate: true`) para a equipe estornar.
+  Estorno reabre a parcela.
 - O cliente precisa ter **uma conversa** com a área (ter escrito ao menos uma
   vez). O módulo procura a conversa pelo telefone da assinatura; sem ela, o
   aviso não sai e a parcela mostra "Sem conversa no WhatsApp…".
@@ -131,8 +133,9 @@ mensagem (com desconto por volume), e a Meta passou a faturar o Brasil em
 reais; confira a tabela atual em
 [Pricing on the WhatsApp Business Platform](https://developers.facebook.com/docs/whatsapp/pricing).
 Uma parcela típica gera até 1 (cobrança) + 1 (no dia) + 3 (atraso) + 1
-(comprovante) mensagens; a confirmação "Pagamento recebido" do núcleo soma
-mais uma. Dentro da janela aberta as mensagens não são de modelo.
+(comprovante) mensagens; o núcleo não manda o "Pagamento recebido" dele para
+as cobranças da Mensalidade (`receipt: false`), só o comprovante do módulo.
+Dentro da janela aberta as mensagens não são de modelo.
 
 ## O que só uma conta real confirma
 

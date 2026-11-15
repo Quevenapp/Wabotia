@@ -1,7 +1,9 @@
 import {
   Activity,
+  BedDouble,
   Blocks,
   BookOpen,
+  CalendarRange,
   ClipboardList,
   CreditCard,
   Bot,
@@ -52,6 +54,8 @@ export const sections = [
   ["queue-settings", "Filas e guichês", Ticket],
   ["forms", "Formulários", ClipboardList],
   ["payments", "Cobrança", CreditCard],
+  ["reserva", "Reservas", BedDouble],
+  ["reserva-settings", "Unidades e regras", CalendarRange],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
   ["connections", "Hermes e canais", Plug],
@@ -140,6 +144,12 @@ export const workspaceGroups = [
     ],
   },
   {
+    id: "reserva",
+    label: "Reservas",
+    icon: BedDouble,
+    pages: ["reserva", "reserva-settings"],
+  },
+  {
     id: "channels",
     label: "WhatsApp e canais",
     icon: Phone,
@@ -187,6 +197,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "payments",
   "mensalidade-settings",
   "establishment",
+  "reserva-settings",
 ]);
 
 /**
@@ -204,6 +215,8 @@ export const pageModules: Partial<Record<string, string>> = {
   payments: "payments",
   mensalidades: "mensalidade",
   "mensalidade-settings": "mensalidade",
+  reserva: "reserva",
+  "reserva-settings": "reserva",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -308,4 +321,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Planos, regras de cobrança e avisos de vencimento e atraso, e itens do menu.",
   establishment:
     "Nome fantasia, CPF ou CNPJ, endereço e telefone para cupons, comandas, recibos e páginas do cliente.",
+  reserva:
+    "Ocupação por unidade, reservas com sinal e check-in: crie, altere, confirme e cancele.",
+  "reserva-settings":
+    "Quartos, chalés, quadras e salões; bloqueios de datas e as regras de reserva, sinal e check-in.",
 };

@@ -37,6 +37,8 @@ import { PaymentsPage } from "./PaymentsPage";
 import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
 import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
+import { ReservaPage } from "../modules/reserva/ReservaPage";
+import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import {
   GroupsPage,
   LogsPage,
@@ -156,6 +158,10 @@ function Page({ page }: { page: PageId }) {
       return <MensalidadeSettingsPage />;
     case "establishment":
       return <EstablishmentPage />;
+    case "reserva":
+      return <ReservaPage />;
+    case "reserva-settings":
+      return <ReservaSettingsPage />;
     case "users":
       return <UsersPage />;
     case "applications":

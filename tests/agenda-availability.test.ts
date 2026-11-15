@@ -168,16 +168,25 @@ describe("agenda: cálculo de horários livres (puro)", () => {
     ).toBe(6);
   });
 
-  it("antecedência mínima e máxima; a equipe ignora as duas", () => {
+  it("antecedência mínima e máxima; a equipe ignora as duas, mas não o passado", () => {
     const now = at(DAY, "09:20");
     expect(times(freeSlots({ ...base, now }))).toEqual([
       "10:30",
       "11:00",
       "11:30",
     ]);
+    // Equipe: sem antecedência, a partir de agora; 09:00 já passou.
+    expect(times(freeSlots({ ...base, now, rules: { staff: true } }))).toEqual([
+      "09:30",
+      "10:00",
+      "10:30",
+      "11:00",
+      "11:30",
+    ]);
+    // Às 13h não sobra nenhum horário do dia, nem para a equipe.
     expect(
-      times(freeSlots({ ...base, now, rules: { staff: true } })),
-    ).toHaveLength(6);
+      freeSlots({ ...base, now: at(DAY, "13:00"), rules: { staff: true } }),
+    ).toEqual([]);
     const far = {
       ...base,
       config: { ...defaultAgendaConfig, max_days_ahead: 1 },
@@ -217,6 +226,40 @@ describe("agenda: cálculo de horários livres (puro)", () => {
     expect(
       freeSlots({ ...base, professionals: [night], now: at(DAY, "23:50") }),
     ).toEqual([]);
+  });
+});
+
+describe("agenda: horário que já passou", () => {
+  it("staff=1 não oferece nem agenda no passado; só o encaixe com force", async () => {
+    const { f, corte: service, ana } = await agendaSetup();
+    const token = await bearer(f.member);
+    const path = `/profiles/${f.profile}/agenda/appointments`;
+    // Ontem às 08:00 (todo dia é dia de trabalho no fixture).
+    const day = future(-1);
+    const starts = at(day, "08:00");
+    const free = await (
+      await api(
+        token,
+        `/profiles/${f.profile}/agenda/availability?service_id=${service.id}&professional_id=${ana.id}&date=${day}&staff=1`,
+      )
+    ).json<any>();
+    expect(free.days[0].slots).toEqual([]);
+    const body = {
+      service_id: service.id,
+      professional_id: ana.id,
+      starts,
+      customer_name: "Maria",
+    };
+    const refused = await api(token, path, "POST", body);
+    expect(refused.status).toBe(409);
+    expect((await refused.json<any>()).error.code).toBe("slot_unavailable");
+    // Encaixe explícito (registrar um atendimento que já aconteceu).
+    const forced = await api(token, path, "POST", { ...body, force: true });
+    expect(forced.status).toBe(200);
+    expect(await forced.json<any>()).toMatchObject({
+      date: day,
+      time: "08:00",
+    });
   });
 });
 

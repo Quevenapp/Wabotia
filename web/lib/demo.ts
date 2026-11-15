@@ -3,6 +3,7 @@
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
+import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -382,6 +383,7 @@ const demoModules: Row[] = [
       { type: "os_track", label: "Acompanhar ordem de serviço" },
     ],
   },
+  reservaDemoModule,
   {
     id: "mensalidade",
     name: "Mensalidade",
@@ -789,6 +791,7 @@ function read(path: string, query: URLSearchParams): any {
       footer: "Garantia de 90 dias nos serviços. Obrigado pela preferência!",
       configured: true,
     };
+  if (rest === "reserva" || rest.startsWith("reserva/")) return reservaDemo(rest, query);
   if (rest === "payments/account")
     return {
       configured: true,

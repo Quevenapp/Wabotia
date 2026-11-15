@@ -1,0 +1,183 @@
+/* Reserva e check-in (web/modules/reserva). Cores e espaços dos tokens do
+   painel (web/styles/base.css); nada aqui muda outras telas. */
+.reserva-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.reserva-nav {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.reserva-nav.reserva-filters {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+.reserva-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 16px;
+}
+.reserva-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.reserva-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 14px 0 4px;
+}
+.reserva-checks label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.reserva-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.reserva-linked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--brand-soft);
+  font-size: 13.5px;
+}
+.reserva-texts {
+  margin-top: 18px;
+}
+.reserva-texts summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.reserva-rules h3 {
+  margin: 22px 0 4px;
+  font-size: 15px;
+}
+
+/* Ocupação: uma linha por unidade, uma coluna por dia. */
+.reserva-grid-table th.today {
+  color: var(--brand);
+}
+.reserva-unit {
+  min-width: 150px;
+}
+.reserva-unit small {
+  display: block;
+}
+.reserva-cell {
+  min-width: 78px;
+  padding: 3px 2px;
+}
+.reserva-cell button {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reserva-cell.state-free button:hover {
+  background: var(--hover);
+}
+.reserva-cell.state-confirmed button,
+.reserva-legend .state-confirmed::before {
+  background: var(--ok-soft);
+  color: var(--ok-ink);
+}
+.reserva-cell.state-completed button {
+  background: var(--muted-soft);
+  color: var(--muted-ink);
+}
+.reserva-cell.state-pending_payment button,
+.reserva-legend .state-pending_payment::before {
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+}
+.reserva-cell.state-partial button,
+.reserva-legend .state-partial::before {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+.reserva-cell.state-blocked button,
+.reserva-legend .state-blocked::before {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--muted-soft) 0 6px,
+    transparent 6px 12px
+  );
+  color: var(--muted-ink);
+  cursor: default;
+}
+.reserva-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 12px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.reserva-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: -1px;
+}
+
+.reserva-row {
+  cursor: pointer;
+}
+.reserva-detail dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+  margin: 14px 0;
+}
+.reserva-detail dt {
+  color: var(--text-2);
+}
+.reserva-detail dd {
+  margin: 0;
+}
+.reserva-detail h3 {
+  margin: 18px 0 0;
+  font-size: 15px;
+}
+.reserva-pre {
+  white-space: pre-line;
+}
+@media (max-width: 560px) {
+  .reserva-detail dl {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .reserva-detail dd {
+    margin-bottom: 8px;
+  }
+}
+.reserva-list {
+  min-width: 760px;
+}

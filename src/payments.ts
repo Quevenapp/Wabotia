@@ -263,6 +263,83 @@ export interface ChargeInput {
    * configurado) em vez de recusar. Para lembretes de módulos.
    */
   notification?: boolean;
+  /**
+   * false: o módulo manda o próprio comprovante no onPaymentUpdated e o
+   * núcleo não envia o "Pagamento recebido". A nota interna continua.
+   */
+  receipt?: boolean;
+}
+
+/**
+ * Se a área pode cobrar agora: módulo Cobrança ligado e conta ativa. Não
+ * confere as credenciais no provedor (isso é Gestão → Cobrança → Testar).
+ */
+export async function paymentsReady(env: Env, profile: string) {
+  if (!(await moduleEnabled(env, profile, PAYMENTS_MODULE)))
+    return {
+      ready: false,
+      reason: "payments_disabled" as const,
+      message:
+        "O módulo Cobrança está desligado. Ligue-o em Gestão → Módulos e configure a conta em Gestão → Cobrança.",
+      methods: [] as PaymentMethod[],
+    };
+  const account = await accountRow(env, profile);
+  if (!account?.enabled)
+    return {
+      ready: false,
+      reason: "payments_not_configured" as const,
+      message:
+        "Nenhuma conta de pagamento ativa. Configure o Mercado Pago em Gestão → Cobrança.",
+      methods: [] as PaymentMethod[],
+    };
+  return {
+    ready: true,
+    reason: null,
+    message: null,
+    methods: [...providers[account.provider].methods] as PaymentMethod[],
+  };
+}
+
+/**
+ * Cancela uma cobrança aberta por um módulo (ctx.cancelCharge): a mesma
+ * mudança do "Cancelar" da equipe. Já cancelada ou expirada: devolve como
+ * está; paga ou estornada: 409 payment_closed.
+ */
+export async function cancelModulePayment(
+  env: Env,
+  profile: string,
+  module: string,
+  id: string,
+) {
+  const row = await one(
+    env,
+    "SELECT * FROM payments WHERE id=? AND profile_id=? AND module_id=?",
+    id,
+    profile,
+    module,
+  );
+  if (!row) throw new ApiError(404, "not_found", "Cobrança não encontrada.");
+  if (["cancelled", "expired"].includes(row.status)) return paymentView(row)!;
+  if (!(await transition(env, row, "cancelled"))) {
+    const current = await one(env, "SELECT * FROM payments WHERE id=?", id);
+    if (["cancelled", "expired"].includes(current.status))
+      return paymentView(current)!;
+    throw new ApiError(
+      409,
+      "payment_closed",
+      "A cobrança já foi paga ou estornada e não pode ser cancelada.",
+    );
+  }
+  if (row.provider_ref)
+    try {
+      await providers[row.provider].cancel(
+        await accountCredentials(env, row.account_id),
+        row,
+      );
+    } catch {
+      // Cancelada aqui; o provedor expira pela data.
+    }
+  return paymentView(await one(env, "SELECT * FROM payments WHERE id=?", id))!;
 }
 
 /** Cria a cobrança no provedor e envia ao cliente no WhatsApp. */
@@ -334,7 +411,7 @@ export async function createPayment(env: Env, input: ChargeInput) {
     const id = uid();
     await exec(
       env,
-      "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,currency,status,trigger,actor,source_key,expires_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,'BRL','created',?,?,?,?,?,?)",
+      "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,currency,status,trigger,actor,source_key,expires_at,receipt,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,'BRL','created',?,?,?,?,?,?,?)",
       id,
       c.profile_id,
       c.id,
@@ -349,6 +426,7 @@ export async function createPayment(env: Env, input: ChargeInput) {
       input.actor,
       input.sourceKey,
       at + ttl * 60000,
+      input.receipt === false ? 0 : 1,
       at,
       at,
     );
@@ -534,7 +612,8 @@ async function transition(
       cancelled: `Cobrança cancelada: ${fresh.description} · ${value}.`,
     };
     await message(env, c, "note", "system", notes[next]);
-    if (next === "paid")
+    // receipt: false → o módulo manda o próprio comprovante.
+    if (next === "paid" && fresh.receipt !== 0)
       try {
         await enqueue(
           env,

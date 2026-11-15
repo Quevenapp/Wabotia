@@ -60,4 +60,10 @@ export interface ModuleDefinition {
   operations: string[];
   /** Permissões de aplicação que o módulo usa (lista de service.ts). */
   scopes: string[];
+  /**
+   * Módulos dos quais este depende ("mensalidade"). Não liga sem eles; com
+   * um deles desligado, este conta como desligado. Do outro módulo, use só
+   * `src/modules/<id>/public.ts` (docs/MODULOS.md, "Dependência entre módulos").
+   */
+  requires?: string[];
 }

@@ -27,18 +27,25 @@ async function menuFor(f: Awaited<ReturnType<typeof fixture>>, phone: string) {
   return latest(c.id);
 }
 
+// Cada caso tem a própria área e no máximo dois ciclos de mensagem (receive +
+// drain, ~100 ms cada sem carga). Antes era um caso só com quatro ciclos
+// seguidos no mesmo limite de 5 s, que estourava com a máquina carregada.
 describe("saudação do menu principal", () => {
-  it("usa menu_greeting no menu principal e o título do submenu nos demais", async () => {
+  it("sem menu_greeting, abre com o texto padrão", async () => {
     const f = await fixture();
     await configure(f, { menus });
-    let sent = await menuFor(f, "5511900000001");
+    const sent = await menuFor(f, "5511900000001");
     expect(sent.text.startsWith("Como podemos ajudar?\n1. Horários")).toBe(
       true,
     );
+  });
 
+  it("usa menu_greeting no menu principal e o título do submenu nos demais", async () => {
+    const f = await fixture();
+    await configure(f, { menus });
     const saved = await configure(f, { menu_greeting: `  ${greeting}  ` });
     expect(saved.menu_greeting).toBe(greeting);
-    sent = await menuFor(f, "5511900000002");
+    const sent = await menuFor(f, "5511900000002");
     expect(sent.text.startsWith(greeting + "\n1. Horários")).toBe(true);
     expect(sent.content.interactive.body.text).toBe(
       greeting + "\nEscolha uma opção abaixo.",
@@ -50,11 +57,15 @@ describe("saudação do menu principal", () => {
     const submenu = await latest(c.id);
     expect(submenu.text.startsWith("Mais opções\n1. Endereço")).toBe(true);
     expect(submenu.text).not.toContain("assistente virtual");
+  });
 
-    // Empty restores the default opening.
+  it("saudação vazia volta ao texto padrão", async () => {
+    const f = await fixture();
+    await configure(f, { menus, menu_greeting: greeting });
     await configure(f, { menu_greeting: "" });
-    sent = await menuFor(f, "5511900000003");
+    const sent = await menuFor(f, "5511900000003");
     expect(sent.text.startsWith("Como podemos ajudar?\n")).toBe(true);
+    expect(sent.text).not.toContain("assistente virtual");
   });
 
   it("recusa saudação acima de 900 caracteres ou que não seja texto", async () => {

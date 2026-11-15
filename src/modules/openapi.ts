@@ -1,4 +1,9 @@
 // Trecho do OpenAPI dos módulos embutidos (docs/MODULOS.md).
+import {
+  describeReservaOperation,
+  reservaOperations,
+  reservaSchemas,
+} from "./reserva/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -83,7 +88,14 @@ export const moduleSchemas = {
   ModuleState: {
     type: "object",
     required: ["enabled"],
-    properties: { enabled: { type: "boolean" } },
+    properties: {
+      enabled: { type: "boolean" },
+      cascade: {
+        type: "boolean",
+        description:
+          "Ao desligar um módulo do qual outros dependem (requires), desliga os dependentes junto. Sem ele, 409 module_required.",
+      },
+    },
   },
   PaymentAccountInput: {
     type: "object",
@@ -397,6 +409,7 @@ export const moduleSchemas = {
       },
     },
   },
+  ...reservaSchemas,
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
@@ -688,6 +701,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "conversations:write",
     "ServiceOrderDecision",
   ],
+  ...reservaOperations,
   ...mensalidadeOperations(),
 ];
 
@@ -764,7 +778,10 @@ function describeAgendaOperation(
     query("date", "Dia AAAA-MM-DD; ou from_date e to_date (até 31 dias).");
     query("from_date", "Primeiro dia AAAA-MM-DD.");
     query("to_date", "Último dia AAAA-MM-DD.");
-    query("staff", "1 ignora a antecedência mínima e máxima (equipe).");
+    query(
+      "staff",
+      "1 ignora a antecedência mínima e máxima (equipe); horário que já passou nunca aparece (agendar no passado só com force).",
+    );
     entry.description +=
       " Cada slot traz starts, ends, time e os profissionais livres naquele início (professional_ids). Considera horário de trabalho, duração, intervalo entre horários, antecedência, folgas, bloqueios, feriados da área e agendamentos ativos.";
     schema({
@@ -841,6 +858,8 @@ export function describeModuleOperation(
 ) {
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Módulos"];
+  if (path.startsWith("/profiles/{profile}/reserva"))
+    return describeReservaOperation(path, method, entry, success);
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);

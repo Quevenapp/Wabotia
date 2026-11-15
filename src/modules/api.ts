@@ -5,6 +5,7 @@
 import {
   registerCommand,
   registerConversationAction,
+  registerHandoffGate,
   registerInboundHandler,
   registerMenuHandler,
   registerPaymentHook,
@@ -18,7 +19,7 @@ import {
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
-import { one } from "../db";
+import { exec, one } from "../db";
 import {
   ApiError,
   type Actor,
@@ -28,8 +29,21 @@ import {
 } from "../types";
 import { access } from "../security";
 import { event } from "../events";
-import { conversation, enqueue, settings } from "../service";
-import { createPayment, type Payment } from "../payments";
+import {
+  conversation,
+  enqueue,
+  handoff as coreHandoff,
+  handoffToPerson,
+  settings,
+  type HandoffMeta,
+  type HandoffSource,
+} from "../service";
+import {
+  cancelModulePayment,
+  createPayment,
+  paymentsReady,
+  type Payment,
+} from "../payments";
 import { establishment, type Establishment } from "../establishment";
 import {
   interactiveLine,
@@ -135,6 +149,38 @@ export interface ModuleContext {
    * (docs/COBRANCA.md). A confirmação chega em onPaymentUpdated.
    */
   charge(c: Conversation, request: ChargeRequest): Promise<Payment>;
+  /**
+   * Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes
+   * do sinal). Já cancelada ou expirada: devolve como está; paga ou
+   * estornada: 409 payment_closed. Cobrança de outro módulo: 404.
+   */
+  cancelCharge(payment: Payment | string): Promise<Payment>;
+  /**
+   * Se a área pode cobrar agora (módulo Cobrança ligado e conta ativa), para
+   * avisar o administrador antes de oferecer pagamento:
+   * `{ready, reason: "payments_disabled"|"payments_not_configured"|null, message, methods}`.
+   */
+  paymentsReady(): ReturnType<typeof paymentsReady>;
+  /**
+   * Passa a conversa para atendimento humano: um setor, a fila geral da
+   * equipe ou uma pessoa. O resumo e os marcadores ("telefone não vinculado")
+   * ficam numa nota interna e em `handoff` no detalhe da conversa. Não passa
+   * pelos ganchos onHandoffRequest: é assim que um módulo libera a conversa
+   * que segurou. Com `key`, repetir a chamada não passa de novo.
+   */
+  handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+}
+
+export interface HandoffRequest {
+  /** Sem destino: fila geral da equipe. */
+  target?: { department_id?: string | null; user_id?: string };
+  /** Até 3000 caracteres: o que o atendente precisa saber. */
+  summary?: string;
+  /** Até 10 marcadores de até 60 caracteres, ex. "telefone não vinculado". */
+  flags?: string[];
+  /** Motivo no evento conversation.updated; padrão "Encaminhado pelo módulo …". */
+  reason?: string;
+  key?: string;
 }
 
 export interface ChargeRequest {
@@ -151,6 +197,11 @@ export interface ChargeRequest {
   actor?: string;
   /** Janela de 24 h fechada: envia pelo modelo de notificação. */
   notification?: boolean;
+  /**
+   * false: o núcleo não manda o "Pagamento recebido"; o módulo envia o
+   * próprio comprovante no onPaymentUpdated. Padrão true.
+   */
+  receipt?: boolean;
 }
 
 export function modulesApi(
@@ -251,8 +302,84 @@ export function modulesApi(
           sourceKey: `module:${moduleId}:${c.id}:${request.sourceKey}`,
           expiresMinutes: request.expiresMinutes,
           notification: request.notification,
+          receipt: request.receipt,
         })
       ).payment;
+    },
+    cancelCharge: (payment) =>
+      cancelModulePayment(
+        env,
+        profile,
+        moduleId,
+        typeof payment === "string" ? payment : payment.id,
+      ),
+    paymentsReady: () => paymentsReady(env, profile),
+    async handoff(c, request = {}) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      const summary = String(request.summary ?? "").trim();
+      requireValue(
+        Array.from(summary).length <= 3000,
+        "Resumo da passagem: até 3000 caracteres.",
+      );
+      const flags = request.flags ?? [];
+      requireValue(
+        Array.isArray(flags) &&
+          flags.length <= 10 &&
+          flags.every(
+            (f) =>
+              typeof f === "string" &&
+              f.trim() &&
+              Array.from(f.trim()).length <= 60,
+          ),
+        "Marcadores da passagem: até 10, de 1 a 60 caracteres.",
+      );
+      const target = request.target || {};
+      requireValue(
+        !(target.user_id && target.department_id),
+        "Passe para um setor ou para uma pessoa, não os dois.",
+      );
+      const meta: HandoffMeta = {
+        module: moduleId,
+        summary,
+        flags: flags.map((f) => f.trim()),
+        at: Date.now(),
+      };
+      const reason =
+        request.reason?.trim() || `Encaminhado pelo módulo ${definition.name}.`;
+      // Nota interna com o resumo e os marcadores; com `key`, a mesma passagem
+      // repetida (gancho reexecutado) não passa de novo.
+      const note = [
+        `${definition.name}: ${summary || "encaminhado para a equipe."}`,
+        ...(meta.flags.length ? [`Atenção: ${meta.flags.join("; ")}`] : []),
+      ].join("\n");
+      const inserted = await exec(
+        env,
+        "INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,source_key,created) VALUES(?,?,?,'note',?,?,'[]',?,?)",
+        crypto.randomUUID(),
+        profile,
+        c.id,
+        `module:${moduleId}`,
+        note,
+        request.key
+          ? `module:${moduleId}:${c.id}:handoff:${request.key}`
+          : null,
+        Date.now(),
+      );
+      if (request.key && !inserted.meta.changes)
+        return conversation(env, c.id, profile);
+      if (target.user_id)
+        await handoffToPerson(env, c, target.user_id, reason, meta);
+      else
+        await coreHandoff(
+          env,
+          c,
+          reason,
+          target.department_id ?? null,
+          summary || null,
+          true,
+          { meta, source: "module" },
+        );
+      return conversation(env, c.id, profile);
     },
     async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))
@@ -483,6 +610,48 @@ export function onConversationTurn(
     return handler(ctx, c, turn);
   });
 }
+/**
+ * Condiciona toda passagem automática para humano: item de menu de
+ * atendimento humano ("menu", com `menu_item_id`), palavra-chave
+ * ("keyword"), bot de IA que transfere ("bot"), falha do bot ("bot_error"),
+ * anexo ("attachment"), carrinho ou Flow sem dono ("structured"). Devolva
+ * "hold" para segurar: o núcleo não muda a conversa nem avisa o cliente; o
+ * módulo assume o fluxo (oferece o pagamento, por exemplo) e libera depois
+ * com ctx.handoff, que não passa por aqui. "allow" (ou nada) deixa seguir.
+ *
+ * Não passam por aqui: a transferência feita pela equipe e o atendente que
+ * assume a conversa. Com mais de um módulo, a ordem é a de `modules` em
+ * src/modules/registry.ts; o primeiro "hold" encerra a consulta. Erro no
+ * gancho libera a passagem (o cliente nunca fica preso) e vai para o log.
+ */
+export function onHandoffRequest(
+  moduleId: string,
+  handler: (
+    ctx: ModuleContext,
+    c: Conversation,
+    request: HandoffGateRequest,
+  ) => Promise<"allow" | "hold" | void>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerHandoffGate(moduleId, async (env, c, request) => {
+    const ctx = modulesApi(env, c.profile_id, moduleId);
+    if (!(await ctx.enabled())) return "allow";
+    return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
+  });
+}
+export interface HandoffGateRequest {
+  source: Exclude<HandoffSource, "staff" | "module">;
+  /** Motivo do núcleo ("Menu: Humano (pago)", "Bot transferiu…"). */
+  reason: string;
+  /** Setor pedido (item de menu); null = fila geral. */
+  department_id: string | null;
+  /** Pedido do cliente ou resumo do bot, quando houver. */
+  summary: string | null;
+  /** Item de menu escolhido (source "menu"). */
+  menu_item_id: string | null;
+}
+
 /** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */
 export function onInboundReply(
   moduleId: string,

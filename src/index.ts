@@ -1759,6 +1759,9 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   );
   return c.json({
     conversation: conv,
+    // Passagem feita por um módulo: resumo e marcadores para o atendente
+    // (interno, como as notas).
+    handoff: notes ? json(conv.handoff, null) : null,
     connection_kind: conn?.kind || null,
     server_now: now(),
     media,

@@ -33,6 +33,35 @@ import { formatDocument } from "../../establishment";
 export const notFound = (what = "Assinatura") =>
   new ApiError(404, "not_found", `${what} não encontrada.`);
 
+/**
+ * Cancela no provedor a cobrança ainda aberta de uma parcela que deixou de
+ * ser cobrada (baixa manual, isenção, pausa, encerramento). Já paga ou
+ * vencida: nada a fazer (um pagamento que entrar depois vira duplicado).
+ */
+export async function cancelOpenCharge(
+  ctx: ModuleContext,
+  inst: {
+    id: string;
+    payment_id?: string | null;
+    payment_status?: string | null;
+  },
+) {
+  if (!inst.payment_id || inst.payment_status !== "created") return;
+  try {
+    const payment = await ctx.cancelCharge(inst.payment_id);
+    await exec(
+      ctx.env,
+      "UPDATE mensalidade_installments SET payment_status=?,updated=? WHERE id=? AND payment_id=?",
+      payment.status,
+      now(),
+      inst.id,
+      payment.id,
+    );
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+  }
+}
+
 /** Administrador (pessoa) ou integração com a permissão de escrita. */
 export function manager(actor: Actor) {
   if (actor.kind === "app") return;
@@ -708,7 +737,7 @@ export async function setSubscriptionStatus(
   if (to !== "active") {
     const rows = await all(
       ctx.env,
-      "UPDATE mensalidade_installments SET status='cancelled',cancelled_at=?,updated=? WHERE subscription_id=? AND profile_id=? AND status='open' AND due_date>=? RETURNING id",
+      "UPDATE mensalidade_installments SET status='cancelled',cancelled_at=?,updated=? WHERE subscription_id=? AND profile_id=? AND status='open' AND due_date>=? RETURNING id,payment_id,payment_status",
       at,
       at,
       sub.id,
@@ -716,6 +745,7 @@ export async function setSubscriptionStatus(
       day,
     );
     cancelled = rows.length;
+    for (const row of rows) await cancelOpenCharge(ctx, row);
   }
   await ctx.publish("mensalidade.subscription_changed", sub.id, {
     subscription_id: sub.id,
