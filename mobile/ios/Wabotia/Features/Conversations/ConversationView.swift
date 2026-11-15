@@ -28,6 +28,9 @@ struct ConversationView: View {
     @State private var newCount = 0
     @State private var highlighted: String?
     @State private var didOpen = false
+    @State private var confirmLink = false
+    @State private var confirmRelease = false
+    @State private var showCourtesy = false
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -41,6 +44,9 @@ struct ConversationView: View {
             header
             if let clock = vm.window, vm.conversation?.state != "closed" {
                 WindowBanner(clock: clock) { showWindowInfo = true }
+            }
+            if let handoff = vm.handoff, vm.conversation?.state != "closed" {
+                HandoffBanner(handoff: handoff) { push(.conversationInfo(id: conversationId)) }
             }
             messagesArea
             if vm.conversation != nil { footer }
@@ -76,6 +82,18 @@ struct ConversationView: View {
         }) { BotPickerSheet { bot in pendingBot = bot } }
         .sheet(isPresented: $showSaveContact) { SaveContactSheet(vm: vm) }
         .sheet(isPresented: $showWindowInfo) { WindowInfoSheet(clock: vm.window) }
+        .sheet(isPresented: $showCourtesy) {
+            CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
+        }
+        .confirmationDialog(SuporteRules.linkTitle(vm.suporte) + "?", isPresented: $confirmLink, titleVisibility: .visible) {
+            Button("Vincular") { Task { await vm.suporteAction("link") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("O telefone desta conversa passa a ser reconhecido como do pagador nas próximas vezes.") }
+        .confirmationDialog("Confirmar e liberar o atendimento?", isPresented: $confirmRelease, titleVisibility: .visible) {
+            Button("Confirmar e liberar") { Task { await vm.suporteAction("confirm") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("Você confirmou que este telefone é do pagador: ele é vinculado e o cliente é liberado.") }
+        .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
         .confirmationDialog("Concluir este atendimento?", isPresented: $confirmResolve, titleVisibility: .visible) {
             Button("Concluir", role: .destructive) { Task { if await vm.resolve() { dismiss() } } }
             Button("Cancelar", role: .cancel) {}
@@ -181,6 +199,18 @@ struct ConversationView: View {
             }
             if !c.isGroup, vm.isOwned, modules.isAvailable(ModuleId.pedido, container.profileId) {
                 Button { Task { await vm.sendPedidoLink() } } label: { Label("Montar pedido para este cliente", systemImage: "takeoutbag.and.cup.and.straw") }
+            }
+            // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
+            if !c.isGroup, vm.isOwned || vm.isAdmin, let s = vm.suporte {
+                if SuporteRules.canLink(s) {
+                    Button { confirmLink = true } label: { Label(SuporteRules.linkTitle(s), systemImage: "link") }
+                }
+                if SuporteRules.canConfirm(s) {
+                    Button { confirmRelease = true } label: { Label("Confirmar e liberar", systemImage: "checkmark.shield") }
+                }
+                if SuporteRules.canCourtesy(s) {
+                    Button { showCourtesy = true } label: { Label("Liberar como cortesia", systemImage: "gift") }
+                }
             }
             if vm.canTransfer {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }

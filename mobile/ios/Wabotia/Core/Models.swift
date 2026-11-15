@@ -178,6 +178,8 @@ struct ConversationDetail: Codable {
     /// Tipo da linha desta conversa (`meta`, `zernio`, …) e relógio do servidor, quando o servidor informa.
     var connection_kind: String?
     var server_now: Int64?
+    /// Passagem feita por um módulo (ex.: Suporte pago): resumo e marcadores para o atendente; `nil` sem passagem.
+    var handoff: ModuleHandoff?
     func can(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? false }
     /// Recurso de mídia básico: só some quando a linha diz explicitamente que não oferece.
     func allows(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? true }

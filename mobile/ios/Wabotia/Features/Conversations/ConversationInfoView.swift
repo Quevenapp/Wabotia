@@ -18,6 +18,9 @@ struct ConversationInfoView: View {
     @State private var confirmResolve = false
     @State private var confirmResume = false
     @State private var confirmSurvey = false
+    @State private var confirmLink = false
+    @State private var confirmRelease = false
+    @State private var showCourtesy = false
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -37,6 +40,11 @@ struct ConversationInfoView: View {
                                 if let clock = vm.window { windowCard(clock, c) }
                                 if let error = vm.actionError { InlineError(text: error) }
                                 statusCard(c)
+                                if vm.handoff != nil || vm.suporte != nil {
+                                    HandoffInfoCard(handoff: vm.handoff, suporte: vm.suporte, canAct: vm.isOwned || vm.isAdmin, busy: vm.suporteBusy,
+                                                    onLink: { confirmLink = true }, onConfirm: { confirmRelease = true }, onCourtesy: { showCourtesy = true })
+                                        .id("handoff")
+                                }
                                 tagsCard
                             }
                             .padding(.horizontal, 16)
@@ -68,6 +76,18 @@ struct ConversationInfoView: View {
         .onAppear { vm.appear() }
         .onDisappear { vm.disappear() }
         .task { await vm.loadTickets() }
+        .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
+        .sheet(isPresented: $showCourtesy) {
+            CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
+        }
+        .confirmationDialog(SuporteRules.linkTitle(vm.suporte) + "?", isPresented: $confirmLink, titleVisibility: .visible) {
+            Button("Vincular") { Task { await vm.suporteAction("link") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("O telefone desta conversa passa a ser reconhecido como do pagador nas próximas vezes.") }
+        .confirmationDialog("Confirmar e liberar o atendimento?", isPresented: $confirmRelease, titleVisibility: .visible) {
+            Button("Confirmar e liberar") { Task { await vm.suporteAction("confirm") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("Você confirmou que este telefone é do pagador: ele é vinculado e o cliente é liberado.") }
         .sheet(isPresented: $showTags) { TagsSheet(vm: vm) }
         .sheet(isPresented: $showSaveContact) { SaveContactSheet(vm: vm) }
         .sheet(isPresented: $showBots, onDismiss: {

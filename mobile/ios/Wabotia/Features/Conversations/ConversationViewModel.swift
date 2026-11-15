@@ -513,6 +513,60 @@ final class ConversationViewModel: ObservableObject {
         return true
     }
 
+    // MARK: Passagem por módulo e Suporte pago
+
+    /// Resumo e marcadores de quem passou a conversa à equipe (ex.: "telefone não vinculado ao pagador X").
+    var handoff: ModuleHandoff? { detail?.handoff.flatMap { $0.hasContent ? $0 : nil } }
+
+    @Published private(set) var suporte: SuporteStatus?
+    @Published private(set) var suporteBusy: String?
+    private let suporteKeys = IntentKeys()
+
+    /// Estado do Suporte pago nesta conversa, quando o módulo está ligado na área.
+    func loadSuporte() async {
+        guard let p = profileId, ModuleFeature.shared.isAvailable(ModuleId.suporte, p), conversation?.isGroup != true else { suporte = nil; return }
+        do {
+            suporte = try await SuporteClient(api: .current()).status(conversationId)
+        } catch let e as QueueError {
+            ModuleFailure.handler(ModuleId.suporte)(e)
+            if e.moduleDisabled || e.status == 404 { suporte = nil }
+        } catch {}
+    }
+
+    /// `link` (vincular o telefone ao pagador), `confirm` (confirmar e liberar) ou `courtesy` (com motivo e validade).
+    @discardableResult
+    func suporteAction(_ action: String, reason: String? = nil, hours: Int? = nil) async -> Bool {
+        guard suporteBusy == nil else { return false }
+        let client = SuporteClient(api: .current())
+        let key = suporteKeys.key(for: "\(action):\(conversationId):\(reason ?? ""):\(hours ?? 0)")
+        suporteBusy = action
+        actionError = nil
+        defer { suporteBusy = nil }
+        do {
+            switch action {
+            case "link": suporte = try await client.linkPhone(conversationId, key: key)
+            case "confirm": _ = try await client.confirm(conversationId, link: true, key: key)
+            default: _ = try await client.courtesy(conversationId, reason: reason ?? "", hours: hours, key: key)
+            }
+            suporteKeys.settle(nil)
+            Haptics.success()
+            let text = action == "link" ? "Telefone vinculado ao pagador" : (action == "confirm" ? "Confirmado e liberado" : "Liberado como cortesia")
+            workspace.addLocalEvent("suporte", text, to: conversationId)
+            workspace.show(text, style: .success)
+            await load(silent: true)
+            await loadSuporte()
+            return true
+        } catch {
+            suporteKeys.settle(error)
+            if let e = error as? QueueError { ModuleFailure.handler(ModuleId.suporte)(e) }
+            let retry = (error as? QueueError)?.retryable == true
+            actionError = ModuleFailure.message(error) + (retry ? " Toque de novo para repetir com segurança." : "")
+            workspace.show(actionError ?? "Não deu certo", style: .error)
+            await loadSuporte()
+            return false
+        }
+    }
+
     /// Pedido: envia ao cliente o link do carrinho ("Montar pedido para este cliente"; a conversa precisa estar assumida).
     func sendPedidoLink() async -> Bool {
         guard await act("pedido_link") else { return false }
