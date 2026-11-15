@@ -17,6 +17,7 @@ import {
   onPaymentUpdated,
   onRead,
   onRoute,
+  onSchedule,
   onSettingsSave,
   onWebStepCompleted,
   type ModuleContext,
@@ -24,7 +25,17 @@ import {
 import type { CartOrder } from "../../web-cart";
 import { validatePedidoConfig } from "./model";
 import { overview, setPause } from "./store";
-import { paymentUpdated } from "./orders";
+import { changeStatus, loadOrder, orderView, paymentUpdated } from "./orders";
+import {
+  board,
+  createFromApi,
+  listOrders,
+  markPaid,
+  orderDetail,
+  setMethod,
+  updateOrder,
+} from "./manage";
+import { runDue } from "./schedule";
 import {
   cartCompleted,
   catalogOrder,
@@ -167,6 +178,80 @@ onConversationAction(
     };
   },
 );
+
+// ---------------------------------------------------------------------------
+// Pedidos: quadro da cozinha, lista, detalhe e mudanças pela equipe.
+
+onRead(MODULE, "pedido/board", async (ctx, actor) => {
+  ctx.access(actor, "conversations:read");
+  return board(ctx, now());
+});
+onRead(MODULE, "pedido/orders", async (ctx, actor, { query }) => {
+  ctx.access(actor, "conversations:read");
+  return listOrders(ctx, query);
+});
+onRead(MODULE, "pedido/orders/:id", async (ctx, actor, { params }) => {
+  ctx.access(actor, "conversations:read");
+  return orderDetail(ctx, params.id);
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/orders",
+  op: "pedido.order.create",
+});
+onCommand(MODULE, "pedido.order.create", (ctx, actor, data, { requestId }) =>
+  createFromApi(ctx, actor, data, requestId),
+);
+
+onRoute(MODULE, {
+  method: "PATCH",
+  path: "pedido/orders/:id",
+  op: "pedido.order.update",
+});
+onCommand(MODULE, "pedido.order.update", (ctx, actor, data) =>
+  updateOrder(ctx, actor, data),
+);
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/orders/:id/status",
+  op: "pedido.status",
+});
+onCommand(MODULE, "pedido.status", async (ctx, actor, data) => {
+  ctx.access(actor, "conversations:write");
+  const order = await loadOrder(ctx, data.id);
+  return orderView(
+    await changeStatus(ctx, order, data.status, actor.id, {
+      note: data.note,
+      reason: data.reason,
+      notify: data.notify,
+    }),
+  );
+});
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/orders/:id/paid",
+  op: "pedido.payment.paid",
+});
+onCommand(MODULE, "pedido.payment.paid", (ctx, actor, data) =>
+  markPaid(ctx, actor, data),
+);
+
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/orders/:id/payment",
+  op: "pedido.payment.method",
+});
+onCommand(MODULE, "pedido.payment.method", (ctx, actor, data) =>
+  setMethod(ctx, actor, data),
+);
+
+// Pedidos sem pagamento no prazo e pedidos parados (gancho periódico).
+onSchedule(MODULE, async (ctx, { now: at }) => {
+  await runDue(ctx, at);
+});
 
 // ---------------------------------------------------------------------------
 // Regras da loja: chave "pedido" de PUT /settings (administrador) e a pausa
