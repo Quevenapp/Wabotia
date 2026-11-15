@@ -104,6 +104,13 @@ struct DeviceModeView: View {
             settings = true
             printer = true
         case "unpair": vm.unpair()
+        case "drop":
+            // Reconexão: corta o WebSocket duas vezes, 20 s depois de ele abrir.
+            for _ in 0..<2 {
+                for _ in 0..<600 where !vm.live { try? await Task.sleep(nanoseconds: 100_000_000) }
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                vm.debugDropSocket()
+            }
         default: break
         }
     }

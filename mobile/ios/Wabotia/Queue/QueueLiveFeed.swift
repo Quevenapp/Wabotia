@@ -151,6 +151,11 @@ final class QueueLiveFeed {
         if running { restartLoop() }
     }
 
+    #if DEBUG
+    /// Só depuração: corta o WebSocket como uma queda de rede, para ver a volta automática no aparelho.
+    func debugDropSocket() { socket?.cancel() }
+    #endif
+
     private func closeSocket() {
         receiver?.cancel()
         pinger?.cancel()

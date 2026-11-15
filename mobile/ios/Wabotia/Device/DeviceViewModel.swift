@@ -244,6 +244,13 @@ final class DeviceViewModel: ObservableObject {
     /// Leitura imediata (o botão "tentar de novo" e os testes).
     func refresh() async { await feed?.refresh() }
 
+    #if DEBUG
+    func debugDropSocket() {
+        print("[Wabotia] aparelho: WebSocket cortado (teste de reconexão)")
+        feed?.debugDropSocket()
+    }
+    #endif
+
     func stopLive() {
         feed?.stop()
         feed = nil
