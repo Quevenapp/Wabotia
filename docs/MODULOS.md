@@ -135,7 +135,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 
 | Gancho | Quando roda |
 |---|---|
-| `onSettingsSave(module, key, validate)` | `PUT /settings` com a chave; devolva o valor normalizado ou lance `ApiError` |
+| `onSettingsSave(module, key, validate)` | `PUT /settings` com a chave; devolva o valor normalizado ou lance `ApiError`. Objeto parcial chega já mesclado com o salvo (os campos que não vieram ficam como estavam); lista ou valor simples substitui |
 | `onMenuChoice(type, handler)` | Cliente escolhe um item do tipo no menu do WhatsApp (só com o módulo ligado e fora de grupos) |
 | `onConversationAction(module, action, handler)` | `POST /conversations/:id/actions` com `{"action":"<nome>"}`; o núcleo já conferiu `conversations:write` e a visibilidade; quem pode agir é regra do módulo |
 | `onWebStepCompleted(module, hook)` | Cliente concluiu um passo web aberto pelo módulo. Aberto com `spec.return_message: "module"`, o núcleo não manda o retorno padrão e a string devolvida pelo gancho vira o retorno |

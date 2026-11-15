@@ -1829,10 +1829,20 @@ export async function perform(
       });
     if (data.establishment !== undefined)
       next.establishment = validateEstablishment(data.establishment);
-    // Chaves declaradas pelos módulos (src/modules, onSettingsSave).
+    // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
+    // parcial mescla com o que está salvo, como queue e business_hours: os
+    // campos que não vieram ficam como estavam. Listas e valores simples
+    // substituem.
+    const plain = (v: unknown) =>
+      !!v && typeof v === "object" && !Array.isArray(v);
     for (const key of Object.keys(data)) {
       const validate = settingsValidator(key);
-      if (validate) next[key] = validate(data[key]);
+      if (validate)
+        next[key] = validate(
+          plain(data[key]) && plain(old[key])
+            ? { ...old[key], ...data[key] }
+            : data[key],
+        );
     }
     requireValue(
       JSON.stringify(next).length <= 150000,
