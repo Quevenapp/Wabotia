@@ -69,6 +69,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,6 +92,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.modules.ModuleRoutes
+import br.com.queven.wabotia.modules.ModuleShortcut
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.MediaFile
@@ -171,8 +174,12 @@ fun ConversationScreen(
     openInfo: () -> Unit,
     openTicket: (String) -> Unit,
     openBot: (botId: String) -> Unit,
+    /** Telas dos módulos ligados (Agendar, Abrir ordem de serviço…), por [ModuleRoutes]. */
+    openRoute: (String) -> Unit = {},
 ) {
     val vm: ConversationViewModel = viewModel(key = "conversation:$conversationId") { ConversationViewModel(container, conversationId) }
+    val enabledModules by container.modules.enabled.collectAsState()
+    LaunchedEffect(Unit) { container.modules.refresh() }
     val profileId = container.session.profileId ?: ""
     val snackbar = remember { SnackbarHostState() }
     val haptics = rememberHaptics()
@@ -272,6 +279,10 @@ fun ConversationScreen(
                             onPolicy = { sheet = ConversationSheet.Policy },
                             onInfo = openInfo,
                             onResolve = { confirmResolve = true },
+                            shortcuts = if (conversation.isGroup) emptyList() else ModuleRoutes.conversationShortcuts(
+                                enabledModules[profileId].orEmpty(), conversation.id, conversation.displayName,
+                            ),
+                            onShortcut = { openRoute(it.route) },
                         )
                     }
                 }
@@ -502,6 +513,8 @@ private fun ConversationMenu(
     onPolicy: () -> Unit,
     onInfo: () -> Unit,
     onResolve: () -> Unit,
+    shortcuts: List<ModuleShortcut> = emptyList(),
+    onShortcut: (ModuleShortcut) -> Unit = {},
 ) {
     val c = Wb.colors
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = if (c.isDark) c.surface else c.background, shape = RoundedCornerShape(16.dp)) {
@@ -518,6 +531,7 @@ private fun ConversationMenu(
             item("Abrir protocolo", Icons.Filled.ConfirmationNumber, action = onTicket)
             item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
+        shortcuts.forEach { shortcut -> item(shortcut.label, shortcut.icon, action = { onShortcut(shortcut) }) }
         if (own) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
         if (canHandOff && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
         item("Consultar bot", Icons.Filled.SmartToy, action = onBots)

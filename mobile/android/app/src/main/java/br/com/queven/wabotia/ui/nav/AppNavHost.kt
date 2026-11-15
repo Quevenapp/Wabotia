@@ -21,6 +21,7 @@ import androidx.navigation.navArgument
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.modules.moduleScreens
 import br.com.queven.wabotia.ui.auth.LoginScreen
 import br.com.queven.wabotia.ui.auth.ProfilePickerScreen
 import br.com.queven.wabotia.ui.auth.ServerScreen
@@ -161,8 +162,10 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openBotLines = { nav.navigate(Routes.BOT_LINES) },
                 openPrinter = { nav.navigate(Routes.PRINTER) },
                 openCounter = { nav.navigate(Routes.COUNTER) },
+                openRoute = { nav.navigate(it) },
             )
         }
+        moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) })
         composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.COUNTER) {
             CounterScreen(container, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
@@ -196,6 +199,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openInfo = { nav.navigate(Routes.conversationInfo(id)) },
                 openTicket = { nav.navigate(Routes.ticket(it)) },
                 openBot = { botId -> nav.navigate(Routes.botChat(botId, id)) },
+                openRoute = { nav.navigate(it) },
             )
         }
         composable(Routes.CONVERSATION_INFO, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->

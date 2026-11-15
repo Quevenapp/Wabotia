@@ -97,6 +97,33 @@ internal object DemoServer {
 
     private fun queueOf(s: DemoState): DemoQueue = queue ?: DemoQueue(s.t0).also { queue = it }
 
+    /** As verticais ([DemoModules]): recriadas a cada entrada, como a fila. */
+    private var agenda: DemoAgenda? = null
+
+    private fun agendaOf(s: DemoState): DemoAgenda = agenda ?: DemoAgenda(s.t0) { id -> customerOf(s, id) }.also { agenda = it }
+
+    private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
+        s.conversations[conversationId]?.let { c -> (c.str("contact_name") ?: c.str("title") ?: "Cliente") to c.str("phone") }
+
+    /** Módulos ligados na demonstração (`GET /capabilities`), no formato do contrato final. */
+    private fun capabilities(): Reply {
+        val modules = listOf(
+            j("id" to "queue", "name" to "Fila presencial", "version" to "1.0.0"),
+            j("id" to "agenda", "name" to "Agenda", "version" to "1.0.0"),
+        )
+        return ok(
+            j(
+                "capabilities_version" to 1,
+                "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
+                "features" to listOf("modules", "establishment"),
+                "profiles" to listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules)),
+                "modules" to modules,
+            ),
+        )
+    }
+
+    private fun DemoState.emitter(now: Long): DemoEmit = { kind, resourceId, payload -> emit(kind, resourceId, payload, now) }
+
     /** Ids de evento crescem sempre (inclusive entre reinícios do app), para o cursor salvo nunca "passar" dos novos. */
     private val eventSeq = AtomicLong(System.currentTimeMillis())
 
@@ -106,6 +133,7 @@ internal object DemoServer {
         fresh.seed()
         state = fresh
         queue = DemoQueue(fresh.t0)
+        agenda = null
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
         fresh
@@ -185,7 +213,7 @@ internal object DemoServer {
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
-            p == listOf("capabilities") -> queueOf(s).capabilities()
+            p == listOf("capabilities") -> capabilities()
             p.firstOrNull() == "devices" -> devices(s, method, p.drop(1), request, now)
             p == listOf("bot-runs") && method == "POST" -> startBotRun(s, bodyJson(request), now)
             p.size == 2 && p[0] == "bot-runs" && method == "GET" ->
@@ -277,7 +305,8 @@ internal object DemoServer {
             }
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
             "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
-            "capabilities" -> queueOf(s).capabilities()
+            "capabilities" -> capabilities()
+            "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())
             "people" -> ok(j("data" to s.users.map { (id, name) -> j("id" to id, "name" to name, "role" to if (id == Ids.ME) "admin" else "operator") }.sortedBy { it.str("name") }))
@@ -285,15 +314,15 @@ internal object DemoServer {
         }
     }
 
-    /** Fictício: CNPJ de exemplo com dígitos válidos, DDD 20 e endereço genérico. */
+    /** Endereço e telefone inventados (DDD 20 não existe); sem documento, para não usar o CNPJ de ninguém. */
     private fun demoEstablishment(): JsonObject = j(
         "name" to DemoMode.PROFILE_NAME,
-        "document" to "11222333000181",
-        "document_type" to "cnpj",
-        "document_display" to "11.222.333/0001-81",
-        "address" to "Rua Exemplo, 100 — Centro",
+        "document" to "",
+        "document_type" to null,
+        "document_display" to "",
+        "address" to "Rua Exemplo, 100 — Centro\nCidade Exemplo/SP",
         "phone" to "(20) 3000-0000",
-        "footer" to "Obrigado pela preferência!",
+        "footer" to "Demonstração: dados fictícios.",
         "configured" to true,
     )
 

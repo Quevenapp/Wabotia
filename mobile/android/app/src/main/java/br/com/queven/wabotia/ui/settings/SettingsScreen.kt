@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
@@ -78,6 +79,7 @@ import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.ModuleIds
+import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -115,6 +117,8 @@ fun SettingsScreen(
     openBotLines: () -> Unit,
     openPrinter: () -> Unit = {},
     openCounter: () -> Unit = {},
+    /** Telas dos módulos (Agenda, Ordens de serviço, Reservas, Mensalidades), por [br.com.queven.wabotia.modules.ModuleRoutes]. */
+    openRoute: (String) -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -179,6 +183,10 @@ fun SettingsScreen(
                             tint = c.warn,
                             onClick = openCounter,
                         )
+                        RowDivider()
+                    }
+                    if (ModuleIds.AGENDA in modules) {
+                        SettingsRow(Icons.Filled.CalendarMonth, "Agenda", subtitle = "Agendamentos do dia e da semana por profissional", tint = c.ok, onClick = { openRoute(ModuleRoutes.AGENDA) })
                         RowDivider()
                     }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)

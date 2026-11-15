@@ -166,6 +166,8 @@ object DemoMode {
             "bot-lines" -> DemoDestination(route = "bot-lines")
             "bot-runs" -> DemoDestination(route = "bot-runs")
             "counter" -> DemoDestination(route = "counter")
+            "agenda" -> DemoDestination(route = "agenda")
+            "agenda-new" -> DemoDestination(route = "agenda/book")
             // Prévia das telas de entrada (Servidor, Login, Perfil) sem sair da demonstração.
             "auth-server" -> DemoDestination(route = "preview/server")
             "auth-start" -> DemoDestination(route = "preview/start")
