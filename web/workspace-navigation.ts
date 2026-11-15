@@ -24,6 +24,7 @@ import {
   Star,
   Ticket,
   Users,
+  Wrench,
   Zap,
 } from "lucide-react";
 
@@ -63,6 +64,8 @@ export const sections = [
   ["modules", "Módulos", Blocks],
   ["agenda", "Agenda", CalendarDays],
   ["agenda-settings", "Serviços e horários", CalendarClock],
+  ["service-orders", "Ordens de serviço", Wrench],
+  ["service-orders-settings", "Ordem de serviço", Wrench],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -103,6 +106,12 @@ export const workspaceGroups = [
     label: "Agenda",
     icon: CalendarDays,
     pages: ["agenda", "agenda-settings"],
+  },
+  {
+    id: "service-orders",
+    label: "Ordens de serviço",
+    icon: Wrench,
+    pages: ["service-orders", "service-orders-settings"],
   },
   {
     id: "automation",
@@ -163,6 +172,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "system",
   "modules",
   "agenda-settings",
+  "service-orders-settings",
   "payments",
 ]);
 
@@ -176,6 +186,8 @@ export const pageModules: Partial<Record<string, string>> = {
   forms: "forms",
   agenda: "agenda",
   "agenda-settings": "agenda",
+  "service-orders": "os",
+  "service-orders-settings": "os",
   payments: "payments",
 };
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
@@ -255,6 +267,10 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Agenda do dia e da semana por profissional: marque, remarque, confirme e registre faltas.",
   "agenda-settings":
     "Serviços, profissionais, horários de trabalho, folgas e as regras do agendamento pelo WhatsApp.",
+  "service-orders":
+    "Ordens numeradas com orçamento, aprovação pelo WhatsApp, execução e retirada.",
+  "service-orders-settings":
+    "Termos, mensagens ao cliente, validade do orçamento, garantia e itens do menu.",
   payments:
     "Pix e link de pagamento pelo Mercado Pago, confirmados pelo webhook.",
 };

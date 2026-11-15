@@ -364,6 +364,102 @@ const demoModules: Row[] = [
     navigation: [{ id: "payments", label: "Cobrança", place: "admin", admin: true }],
     menu_item_types: [],
   },
+  {
+    id: "os",
+    name: "Ordem de Serviço",
+    version: "1.0.0",
+    description:
+      "Ordens de serviço numeradas com orçamento, aprovação pelo WhatsApp, acompanhamento pelo cliente e retirada.",
+    builtin: true,
+    enabled: true,
+    default_enabled: false,
+    navigation: [
+      { id: "service-orders", label: "Ordens de serviço", place: "admin", admin: false },
+      { id: "service-orders-settings", label: "Ordem de serviço", place: "admin", admin: true },
+    ],
+    menu_item_types: [
+      { type: "os_open", label: "Abrir ordem de serviço" },
+      { type: "os_track", label: "Acompanhar ordem de serviço" },
+    ],
+  },
+];
+
+// Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
+const osLabels: Row = {
+  received: "Recebida",
+  analyzing: "Em análise",
+  quoted: "Orçamento enviado",
+  approved: "Aprovada",
+  in_progress: "Em execução",
+  ready: "Pronta",
+  delivered: "Entregue",
+};
+const osNext: Row = {
+  received: ["analyzing", "in_progress", "cancelled"],
+  analyzing: ["in_progress", "cancelled", "quoted"],
+  quoted: ["analyzing", "cancelled", "quoted", "approved", "declined"],
+  approved: ["in_progress", "cancelled"],
+  in_progress: ["ready", "cancelled"],
+  ready: ["delivered", "in_progress", "cancelled"],
+  delivered: [],
+};
+const osOrder = (
+  number: number,
+  status: string,
+  name: string,
+  phone: string,
+  item: string,
+  problem: string,
+  age: number,
+  quote: [string, number][] | null = null,
+): Row => ({
+  id: "os-" + number,
+  number,
+  status,
+  status_label: osLabels[status],
+  customer: { name, phone, contact_id: null, conversation_id: number === 14 ? "demo-1" : null },
+  item,
+  problem,
+  notes: number === 14 ? "Deixou a capinha. Senha anotada na etiqueta." : "",
+  assignee: "demo-user",
+  due_at: t(-2 * 24 * H),
+  source: number === 14 ? "customer" : "panel",
+  terms: number === 14 ? { text: "Autorizo a análise do item informado.", accepted_at: t(age) } : null,
+  quote: quote
+    ? {
+        items: quote.map(([description, unit_cents]) => ({ description, quantity: 1, unit_cents })),
+        total_cents: quote.reduce((sum, [, value]) => sum + value, 0),
+        note: "",
+        valid_days: 7,
+        valid_until: t(-5 * 24 * H),
+        sent_at: status === "analyzing" ? null : t(age - H),
+        version: status === "analyzing" ? 0 : 1,
+        expired: false,
+      }
+    : null,
+  decision: ["approved", "in_progress", "ready", "delivered"].includes(status) && quote
+    ? { decision: "approved", at: t(age - 2 * H), by: "customer:" + phone, via: "whatsapp" }
+    : null,
+  ready_at: ["ready", "delivered"].includes(status) ? t(3 * H) : null,
+  delivered_at: status === "delivered" ? t(H) : null,
+  warranty_until: status === "delivered" ? t(-90 * 24 * H) : null,
+  next_statuses: osNext[status],
+  created_by: "demo-user",
+  created: t(age),
+  updated: t(Math.min(age, 3 * H)),
+});
+const osOrders: Row[] = [
+  osOrder(15, "received", "Carla Mendes", "5511987650001", "Notebook Lenovo IdeaPad", "Não liga depois de uma queda.", 2 * H),
+  osOrder(14, "quoted", "Mariana Costa", "5511987650002", "Celular Moto G84", "Tela trincada e touch falhando no canto.", 26 * H, [["Troca de tela", 38000], ["Película", 2500]]),
+  osOrder(13, "in_progress", "Rafael Lima", "5511987650003", "Bicicleta aro 29", "Freio traseiro sem pressão.", 3 * 24 * H, [["Sangria do freio", 9000], ["Pastilhas", 6500]]),
+  osOrder(12, "ready", "Patrícia Souza", "5511987650004", "Terno azul-marinho", "Ajustar barra e cintura.", 4 * 24 * H, [["Ajuste de barra", 4000], ["Ajuste de cintura", 5000]]),
+  osOrder(11, "delivered", "João Pereira", "5511987650005", "Máquina de lavar Brastemp", "Vazamento na lateral.", 9 * 24 * H, [["Mangueira", 4500], ["Mão de obra", 12000]]),
+];
+const osHistory = (order: Row): Row[] => [
+  { id: order.id + "-h1", kind: "opened", from_status: null, to_status: "received", actor: order.source === "customer" ? "customer" : "demo-user", note: "", created: order.created },
+  ...(order.status !== "received"
+    ? [{ id: order.id + "-h2", kind: "status", from_status: "received", to_status: order.status, actor: "demo-user", note: "", created: order.updated }]
+    : []),
 ];
 
 function read(path: string, query: URLSearchParams): any {
@@ -495,6 +591,29 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
+  if (rest === "service-orders") {
+    const status = (query.get("status") || "").split(",").filter(Boolean),
+      q = (query.get("q") || "").toLowerCase();
+    const counts: Row = {};
+    for (const order of osOrders) counts[order.status] = (counts[order.status] || 0) + 1;
+    return {
+      data: osOrders.filter(
+        (order) =>
+          (!status.length || status.includes(order.status)) &&
+          (query.get("open") !== "1" || !["delivered", "cancelled"].includes(order.status)) &&
+          (!q ||
+            String(order.number) === q ||
+            `${order.item} ${order.customer.name} ${order.customer.phone}`.toLowerCase().includes(q)),
+      ),
+      next_cursor: null,
+      counts,
+    };
+  }
+  const osMatch = rest.match(/^service-orders\/([^/]+)$/);
+  if (osMatch) {
+    const order = osOrders.find((item) => item.id === osMatch[1]) || osOrders[0];
+    return { ...order, history: osHistory(order) };
+  }
   if (rest === "payments/account")
     return {
       configured: true,

@@ -134,6 +134,7 @@ export const moduleSchemas = {
     required: ["conversation_id"],
     properties: { conversation_id: { type: "string" } },
   },
+  ...serviceOrderSchemas(),
   WebStep: {
     type: "object",
     description:
@@ -579,6 +580,60 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "Agenda: marcar ausência",
     "conversations:write",
   ],
+  [
+    "get",
+    "/profiles/{profile}/service-orders",
+    "Ordens de serviço: lista com filtro por estado e busca",
+    "conversations:read",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/service-orders",
+    "Abrir ordem de serviço",
+    "conversations:write",
+    "ServiceOrderCreate",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/service-orders/{id}",
+    "Ordem de serviço com histórico",
+    "conversations:read",
+  ],
+  [
+    "patch",
+    "/profiles/{profile}/service-orders/{id}",
+    "Alterar dados da ordem de serviço",
+    "conversations:write",
+    "ServiceOrderUpdate",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/service-orders/{id}/status",
+    "Mudar o estado da ordem de serviço",
+    "conversations:write",
+    "ServiceOrderStatus",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/service-orders/{id}/quote",
+    "Salvar o orçamento da ordem de serviço",
+    "conversations:write",
+    "ServiceOrderQuote",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/service-orders/{id}/quote/send",
+    "Enviar o orçamento ao cliente",
+    "conversations:write",
+    "ServiceOrderQuoteSend",
+  ],
+  [
+    "post",
+    "/profiles/{profile}/service-orders/{id}/decision",
+    "Registrar aprovação ou recusa do orçamento",
+    "conversations:write",
+    "ServiceOrderDecision",
+  ],
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -732,6 +787,8 @@ export function describeModuleOperation(
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
   entry.tags = ["Módulos"];
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  if (path.includes("/service-orders"))
+    return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("web-steps")) {
     entry.description +=
       " O cliente abre o link em /api/w/{código} (página pública, sem autenticação). Estados: sent (enviado), opened (aberto), completed (concluído, com answers), expired (venceu sem resposta) e cancelled. Cada mudança publica web_step.sent, web_step.opened, web_step.completed, web_step.expired ou web_step.cancelled com conversation_id.";
@@ -826,4 +883,256 @@ export function describeModuleOperation(
   }
   entry.description =
     "Exige administrador. Desligado, o módulo some da navegação do painel e do menu do WhatsApp (os itens ficam guardados e voltam ao religar) e suas rotas e operações respondem 409 module_disabled. Publica module.changed quando o estado muda.";
+}
+
+// --- Ordem de Serviço (módulo "os", docs/ORDEM-DE-SERVICO.md) ---------------
+function serviceOrderSchemas() {
+  const statuses = [
+    "received",
+    "analyzing",
+    "quoted",
+    "approved",
+    "declined",
+    "in_progress",
+    "ready",
+    "delivered",
+    "cancelled",
+  ];
+  const quoteItem = {
+    type: "object",
+    required: ["description", "unit_cents"],
+    properties: {
+      description: { type: "string", minLength: 1, maxLength: 200 },
+      quantity: { type: "integer", minimum: 1, maximum: 999, default: 1 },
+      unit_cents: {
+        type: "integer",
+        minimum: 0,
+        maximum: 100000000,
+        description: "Valor unitário em centavos.",
+      },
+    },
+  };
+  return {
+    ServiceOrder: {
+      type: "object",
+      description:
+        "Ordem de serviço. Valores em centavos, datas em milissegundos Unix. notes são observações internas (nunca enviadas ao cliente).",
+      properties: {
+        id: { type: "string" },
+        number: {
+          type: "integer",
+          description: "Sequencial por área de atendimento.",
+        },
+        status: { enum: statuses },
+        status_label: { type: "string", example: "Orçamento enviado" },
+        customer: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            phone: {
+              type: "string",
+              description: "Só dígitos, com DDI.",
+              example: "5511999998888",
+            },
+            contact_id: { type: ["string", "null"] },
+            conversation_id: { type: ["string", "null"] },
+          },
+        },
+        item: { type: "string" },
+        problem: { type: "string" },
+        notes: { type: "string" },
+        assignee: { type: ["string", "null"] },
+        due_at: { type: ["integer", "null"] },
+        source: { enum: ["agent", "panel", "customer", "api"] },
+        terms: {
+          type: ["object", "null"],
+          description: "Termos aceitos pelo cliente na abertura pelo WhatsApp.",
+          properties: {
+            text: { type: "string" },
+            accepted_at: { type: "integer" },
+          },
+        },
+        quote: {
+          type: ["object", "null"],
+          properties: {
+            items: { type: "array", items: quoteItem },
+            total_cents: { type: "integer" },
+            note: { type: "string" },
+            valid_days: { type: ["integer", "null"] },
+            valid_until: { type: ["integer", "null"] },
+            sent_at: { type: ["integer", "null"] },
+            version: {
+              type: "integer",
+              description:
+                "Sobe a cada envio; respostas a versões antigas não valem.",
+            },
+            expired: { type: "boolean" },
+          },
+        },
+        decision: {
+          type: ["object", "null"],
+          properties: {
+            decision: { enum: ["approved", "declined"] },
+            at: { type: "integer" },
+            by: {
+              type: "string",
+              description: "Pessoa, aplicação ou customer:<telefone>.",
+            },
+            via: { enum: ["whatsapp", "panel", "api"] },
+          },
+        },
+        ready_at: { type: ["integer", "null"] },
+        delivered_at: { type: ["integer", "null"] },
+        warranty_until: { type: ["integer", "null"] },
+        next_statuses: {
+          type: "array",
+          items: { enum: statuses },
+          description:
+            "Próximos estados possíveis. quoted só por quote/send; approved e declined só por decision.",
+        },
+        history: {
+          type: "array",
+          description: "Só no detalhe.",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              kind: { enum: ["opened", "status", "quote", "edit"] },
+              from_status: { type: ["string", "null"] },
+              to_status: { type: ["string", "null"] },
+              actor: { type: "string" },
+              note: { type: "string" },
+              created: { type: "integer" },
+            },
+          },
+        },
+        created_by: { type: "string" },
+        created: { type: "integer" },
+        updated: { type: "integer" },
+      },
+    },
+    ServiceOrderCreate: {
+      type: "object",
+      required: ["item", "problem"],
+      description: "Informe conversation_id ou phone.",
+      properties: {
+        conversation_id: { type: "string" },
+        phone: { type: "string", maxLength: 40 },
+        customer_name: { type: "string", maxLength: 120 },
+        item: { type: "string", minLength: 1, maxLength: 200 },
+        problem: { type: "string", minLength: 1, maxLength: 2000 },
+        notes: { type: "string", maxLength: 4000 },
+        assignee: { type: ["string", "null"] },
+        due_at: { type: ["integer", "null"] },
+        notify: {
+          type: "boolean",
+          default: true,
+          description: "Avisa o cliente na conversa.",
+        },
+      },
+    },
+    ServiceOrderUpdate: {
+      type: "object",
+      properties: {
+        phone: { type: "string", maxLength: 40 },
+        customer_name: { type: "string", maxLength: 120 },
+        item: { type: "string", minLength: 1, maxLength: 200 },
+        problem: { type: "string", minLength: 1, maxLength: 2000 },
+        notes: { type: "string", maxLength: 4000 },
+        assignee: { type: ["string", "null"] },
+        due_at: { type: ["integer", "null"] },
+      },
+    },
+    ServiceOrderStatus: {
+      type: "object",
+      required: ["status"],
+      properties: {
+        status: {
+          enum: ["analyzing", "in_progress", "ready", "delivered", "cancelled"],
+        },
+        note: { type: "string", maxLength: 500 },
+      },
+    },
+    ServiceOrderQuote: {
+      type: "object",
+      required: ["items"],
+      properties: {
+        items: { type: "array", minItems: 1, maxItems: 50, items: quoteItem },
+        valid_days: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 90,
+          description: "Em branco usa a validade padrão da área.",
+        },
+        note: { type: "string", maxLength: 600 },
+      },
+    },
+    ServiceOrderQuoteSend: {
+      type: "object",
+      properties: {
+        notify: {
+          type: "boolean",
+          default: true,
+          description:
+            "false: só registra o envio (orçamento passado por outro meio).",
+        },
+      },
+    },
+    ServiceOrderDecision: {
+      type: "object",
+      required: ["decision"],
+      properties: {
+        decision: { enum: ["approve", "decline"] },
+        note: { type: "string", maxLength: 500 },
+      },
+    },
+  };
+}
+
+function describeServiceOrderOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+) {
+  const ref = { $ref: "#/components/schemas/ServiceOrder" };
+  entry.description +=
+    " Módulo Ordem de Serviço (os); desligado, 409 module_disabled.";
+  if (path.endsWith("/service-orders") && method === "get") {
+    entry.description +=
+      " Ordena por número decrescente; next_cursor vai em cursor. counts traz o total por estado da área.";
+    entry.parameters.push(
+      ...[
+        "status",
+        "open",
+        "q",
+        "phone",
+        "conversation_id",
+        "limit",
+        "cursor",
+      ].map((name) => ({ in: "query", name, schema: { type: "string" } })),
+    );
+    success.content["application/json"].schema = {
+      type: "object",
+      properties: {
+        data: { type: "array", items: ref },
+        next_cursor: { type: ["string", "null"] },
+        counts: { type: "object", additionalProperties: { type: "integer" } },
+      },
+    };
+    return;
+  }
+  if (path.endsWith("/status"))
+    entry.description +=
+      " Transições: recebida → em análise, em execução ou cancelada; em análise → em execução ou cancelada; orçamento enviado → em análise ou cancelada; aprovada → em execução ou cancelada; recusada → em análise, pronta ou cancelada; em execução → pronta ou cancelada; pronta → entregue, em execução ou cancelada. Outras: 409 invalid_transition. Avisa o cliente com o texto configurado do estado.";
+  if (path.endsWith("/quote"))
+    entry.description +=
+      " Só em recebida, em análise, orçamento enviado ou recusada. Alterar um orçamento já enviado volta a ordem para em análise.";
+  if (path.endsWith("/quote/send"))
+    entry.description +=
+      " Fixa a validade (fim do dia, horário de Brasília), sobe quote.version e muda para quoted. O cliente recebe os itens e responde pelo WhatsApp; fora da janela de 24 h sai pelo modelo de notificação.";
+  if (path.endsWith("/decision"))
+    entry.description +=
+      " Resposta do cliente registrada pela equipe ou integração. 409 quote_expired com o orçamento vencido e 409 quote_not_pending fora de quoted.";
+  success.content["application/json"].schema = ref;
 }

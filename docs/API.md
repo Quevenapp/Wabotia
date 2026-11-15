@@ -77,6 +77,23 @@ Módulo `agenda` (desligado por padrão; guia de uso em [AGENDA.md](AGENDA.md)).
 - WhatsApp: itens de menu `{"type":"agenda","service_id":"opcional"}` (Agendar horário) e `{"type":"agenda_mine"}` (Meus agendamentos). O cliente escolhe na própria conversa (lista e botões nas linhas oficiais, com ids `agenda:…`; opções numeradas no QR); com `web_page: true` na chave `agenda`, numa página aberta pelo link. O lembrete traz Confirmar, Remarcar e Cancelar (ids `agenda:remind:{id}:confirm|move|cancel`).
 - Eventos (permissão `conversations:read` nos webhooks): `agenda.booked`, `agenda.rescheduled` (com `previous`), `agenda.cancelled` (com `reason`), `agenda.confirmed` e `agenda.no_show`. Todos trazem `appointment` (o agendamento completo), `conversation_id`, `actor` (`customer` quando foi o cliente) e `module_id: "agenda"`.
 
+### Ordem de serviço (módulo `os`)
+
+Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas em `/profiles/{perfil}/service-orders`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key` (repetir a chave devolve a mesma resposta, sem abrir outra ordem nem reenviar mensagem). Com o módulo desligado, todas respondem `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /service-orders` | Lista por número decrescente. Filtros: `status=a,b`, `open=1` (sem entregues e canceladas), `q` (item, cliente, problema; número da ordem; telefone a partir de 4 dígitos), `phone`, `conversation_id`, `limit` (até 200) e `cursor` (o `next_cursor` anterior). Traz `counts` por estado |
+| `GET /service-orders/{id}` | Ordem com `history` (quem mudou e quando) |
+| `POST /service-orders` | Abre: `item`, `problem` e `conversation_id` ou `phone`; opcionais `customer_name`, `notes`, `assignee` (pessoa da área), `due_at` (ms), `notify` |
+| `PATCH /service-orders/{id}` | Dados da ordem; encerrada, só `notes` |
+| `POST /service-orders/{id}/status` | `{"status":"…","note":"…"}`; transição inválida: `409 invalid_transition` |
+| `PUT /service-orders/{id}/quote` | `{"items":[{"description","quantity","unit_cents"}],"valid_days","note"}`; orçamento já enviado volta para `analyzing` |
+| `POST /service-orders/{id}/quote/send` | Envia ao cliente e passa a `quoted`; `{"notify":false}` só registra (sem conversa: `409 no_conversation`) |
+| `POST /service-orders/{id}/decision` | `{"decision":"approve"\|"decline"}` em nome do cliente; vencido: `409 quote_expired`; fora de `quoted`: `409 quote_not_pending` |
+
+Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"service_order","item":"…","problem":"…"}` abre ligada à conversa, e `{"action":"service_order","send_form":true}` manda ao cliente o link para ele preencher (conversa assumida). Estados: `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`, `delivered`, `cancelled`; cada ordem traz `next_statuses`. Valores em centavos e datas em milissegundos. Eventos: `os.opened`, `os.quoted`, `os.approved`, `os.declined` (com `by` e `via`), `os.status_changed` (`from`, `to`, `actor`), `os.delivered` (`warranty_until`) e `os.stale` (ordem parada), entregues aos webhooks com `conversations:read`.
+
 ### Cobrança
 
 Pix e link de pagamento pelo Mercado Pago (módulo `payments`, passo a passo em [COBRANCA.md](COBRANCA.md)). O administrador configura a conta em `PUT /profiles/{perfil}/payments/account` (`access_token`, `webhook_secret`, `payer_email`, `enabled`); `GET /profiles/{perfil}/payments/account` nunca devolve os segredos, só `access_token_set`, `webhook_secret_set` e o `webhook_url` a cadastrar no Mercado Pago; `GET …/payments/account/check` confere as credenciais. Cobre com `POST /profiles/{perfil}/conversations/{id}/actions` e `{"action":"charge","method":"pix","amount_cents":4990,"description":"Consulta"}` (conversa assumida). Consulte `GET /profiles/{perfil}/payments?conversation_id=…` e `GET /profiles/{perfil}/payments/{id}`; cancele com `POST /profiles/{perfil}/payments/{id}/cancel`. O detalhe da conversa traz `payments`. Estados: `created`, `paid`, `expired`, `cancelled`, `refunded`; `paid` e `refunded` vêm só do webhook assinado do provedor seguido da consulta do pagamento. Eventos `payment.created`, `payment.paid`, `payment.expired`, `payment.cancelled` e `payment.refunded`.

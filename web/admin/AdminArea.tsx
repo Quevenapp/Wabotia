@@ -31,6 +31,8 @@ import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
 import { AgendaPage } from "../modules/agenda/AgendaPage";
 import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
+import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
+import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
 import {
   GroupsPage,
@@ -139,6 +141,10 @@ function Page({ page }: { page: PageId }) {
       return <AgendaPage />;
     case "agenda-settings":
       return <AgendaSettingsPage />;
+    case "service-orders":
+      return <ServiceOrdersPage />;
+    case "service-orders-settings":
+      return <ServiceOrdersSettingsPage />;
     case "payments":
       return <PaymentsPage />;
     case "users":
