@@ -217,12 +217,15 @@ private struct PayerSummary: View {
 
 private struct InstallmentRow: View {
     let installment: Installment
+    /// Nas parcelas dentro da assinatura o servidor não repete cliente e plano: vêm da assinatura.
+    var customerName: String? = nil
+    var planName: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(installment.customer?.displayName ?? "Cliente").font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                Text([installment.planName, installment.periodLabel].compactMap { $0 }.joined(separator: " · ")).font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                Text(installment.customer?.displayName ?? customerName ?? "Cliente").font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                Text([installment.planName ?? planName, installment.periodLabel].compactMap { $0 }.joined(separator: " · ")).font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 Text("Vence \(MensalidadeRules.dueText(installment.dueDate))").font(Theme.font(12)).foregroundStyle(installment.state == "overdue" ? Theme.danger : Theme.textSecondary)
             }
             Spacer(minLength: 6)
@@ -428,7 +431,7 @@ struct SubscriptionDetailView: View {
                     if !items.isEmpty {
                         Text("PARCELAS").font(Theme.font(12, .semibold)).foregroundStyle(Theme.textSecondary)
                         ForEach(items) { i in
-                            Button { push(.installment(id: i.id)) } label: { InstallmentRow(installment: i) }.buttonStyle(.plain)
+                            Button { push(.installment(id: i.id)) } label: { InstallmentRow(installment: i, customerName: s.customer?.displayName, planName: s.planName) }.buttonStyle(.plain)
                         }
                     }
                 }
