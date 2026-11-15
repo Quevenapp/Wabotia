@@ -346,7 +346,7 @@ fun BookingScreen(
                 }
             } else {
                 vm.moving?.let { m ->
-                    InlineNotice("Hoje: ${BrasiliaTime.title(m.day)} às ${m.clock}, ${m.serviceName ?: "serviço"}.", Modifier.padding(16.dp), color = c.brand)
+                    InlineNotice("Marcado para ${BrasiliaTime.title(m.day)} às ${m.clock}, ${m.serviceName ?: "serviço"}.", Modifier.padding(16.dp), color = c.brand)
                 }
             }
             SectionLabel("Profissional")
