@@ -516,6 +516,17 @@ function RulesCard({ config, onSaved }: { config: Row; onSaved: () => void }) {
           Os feriados de Regras de atendimento → Horário fecham a agenda.
         </span>
       </div>
+      <div className="form-enabled">
+        <Switch
+          label="Escolher numa página"
+          checked={!!form.web_page}
+          onChange={set("web_page")}
+        />
+        <span>
+          Desligado: o cliente escolhe na própria conversa, com lista e botões.
+          Ligado: recebe um link para escolher numa página e volta ao WhatsApp.
+        </span>
+      </div>
       {TEXTS.map(([key, label, max]) => (
         <Field
           key={key}

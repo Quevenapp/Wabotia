@@ -1,5 +1,5 @@
-// Agenda pelo passo web: o caminho que funciona com o contrato de hoje, em
-// que o módulo não recebe a próxima mensagem do cliente (veja chat.ts).
+// Agenda pelo passo web: usada com `web_page` nas regras e no "Enviar link
+// para agendar" da equipe (o padrão é a conversa no chat, chat.ts).
 // Página 1: serviço, profissional e dia. Página 2: horário. "Meus
 // agendamentos": escolher o agendamento e remarcar ou cancelar. Cada página
 // devolve o cliente ao WhatsApp, onde chega a próxima mensagem.

@@ -19,9 +19,9 @@ profissional e horário.
      pessoa ou para todos (a casa fecha).
    - **Regras da agenda**: antecedência mínima (padrão 60 minutos) e máxima
      (30 dias), intervalo entre horários (30 minutos), lembrete (24 horas
-     antes; 0 desliga), prazo para o cliente mudar (2 horas antes) e os
-     textos. Os feriados de Regras de atendimento → Horário fecham a agenda,
-     se você deixar ligado.
+     antes; 0 desliga), prazo para o cliente mudar (2 horas antes), escolha
+     no chat ou numa página e os textos. Os feriados de Regras de atendimento
+     → Horário fecham a agenda, se você deixar ligado.
 3. **Gestão → Menus e ações**: ponha os destinos **Agendar horário** e
    **Meus agendamentos** no menu do WhatsApp.
 
@@ -38,11 +38,13 @@ Todos os horários são de Brasília.
   lembrete. Fora da janela de 24 horas da linha oficial, o lembrete sai pelo
   modelo de notificação.
 
-Nesta versão a escolha acontece numa página leve aberta pelo link que chega no
-WhatsApp (serviço, profissional e dia; depois o horário), e a confirmação
-volta para a conversa. A versão toda dentro do chat, com lista e botões nas
-linhas oficiais e números nas linhas QR, já está pronta e entra quando o
-atendimento passar a entregar à Agenda a resposta seguinte do cliente.
+Tudo acontece na conversa: lista e botões nas linhas oficiais, opções
+numeradas nas linhas QR (o cliente responde com o número ou com o nome da
+opção). Mais de nove opções viram páginas com "Mais opções". MENU sai do
+agendamento a qualquer momento, e uma pergunta sem resposta vence em 30
+minutos. Se preferir, ligue **Escolher numa página** nas regras: o cliente
+recebe um link, escolhe serviço, profissional e dia numa página leve, depois o
+horário, e a confirmação volta para a conversa.
 
 Dois clientes nunca ficam com o mesmo horário: se alguém pegar o horário
 enquanto o outro ainda escolhe, o segundo recebe os horários que sobraram.

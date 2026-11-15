@@ -6,10 +6,10 @@ import {
   type Conversation,
   requireValue,
 } from "../../types";
-import * as moduleApi from "../api";
 import {
   onCommand,
   onConversationAction,
+  onConversationTurn,
   onMenuChoice,
   onRead,
   onRoute,
@@ -18,7 +18,7 @@ import {
   onWebStepCompleted,
   type ModuleContext,
 } from "../api";
-import { agendaTurn, startBooking, startMine, type Turn } from "./chat";
+import { agendaTurn, startBooking, startMine } from "./chat";
 import { runDue } from "./reminders";
 import { sendBookingStep, sendMineStep, webStepDone } from "./webflow";
 import { agendaConfig, clockOf, DAY_MS, validateAgendaConfig } from "./config";
@@ -69,25 +69,14 @@ const read = (ctx: ModuleContext, actor: Actor) =>
 // ---------------------------------------------------------------------------
 // WhatsApp
 
+// Próxima mensagem do cliente: respostas da conversa da Agenda (chat.ts).
+onConversationTurn(MODULE, (ctx, c, turn) => agendaTurn(ctx, c, turn));
+
 /**
- * Gancho do núcleo para a próxima mensagem do cliente, pedido à sessão A
- * (onConversationTurn(module, (ctx, c, {text, replyId, rowId}) => boolean)).
- * Com ele, o agendamento acontece todo no chat (chat.ts); sem ele, pelo passo
- * web (webflow.ts).
+ * O agendamento acontece no chat (padrão) ou, com `web_page` nas regras, numa
+ * página aberta pelo link (webflow.ts).
  */
-type TurnHook = (
-  module: string,
-  handler: (
-    ctx: ModuleContext,
-    c: Conversation,
-    turn: Turn,
-  ) => Promise<boolean>,
-) => void;
-const onConversationTurn = (moduleApi as any).onConversationTurn as
-  TurnHook | undefined;
-export const chatTurns = typeof onConversationTurn === "function";
-if (onConversationTurn)
-  onConversationTurn(MODULE, (ctx, c, turn) => agendaTurn(ctx, c, turn));
+const usesWebPage = async (ctx: ModuleContext) => (await config(ctx)).web_page;
 
 async function unavailable(
   ctx: ModuleContext,
@@ -110,14 +99,13 @@ onMenuChoice("agenda", async (ctx, c, item, { rowId }) => {
   const serviceId =
     typeof item.service_id === "string" ? item.service_id : null;
   try {
-    if (chatTurns)
-      await startBooking(ctx, c, { key: `menu:${rowId}`, serviceId });
-    else
+    if (await usesWebPage(ctx))
       await sendBookingStep(ctx, c, {
         sourceKey: `menu:${rowId}`,
         trigger: "menu",
         serviceId,
       });
+    else await startBooking(ctx, c, { key: `menu:${rowId}`, serviceId });
   } catch (error) {
     await unavailable(ctx, c, error, rowId);
   }
@@ -126,12 +114,12 @@ onMenuChoice("agenda", async (ctx, c, item, { rowId }) => {
 // Item de menu "Meus agendamentos".
 onMenuChoice("agenda_mine", async (ctx, c, _item, { rowId }) => {
   try {
-    if (chatTurns) await startMine(ctx, c, { key: `menu:${rowId}` });
-    else
+    if (await usesWebPage(ctx))
       await sendMineStep(ctx, c, {
         sourceKey: `menu:${rowId}`,
         trigger: "menu",
       });
+    else await startMine(ctx, c, { key: `menu:${rowId}` });
   } catch (error) {
     await unavailable(ctx, c, error, rowId);
   }
@@ -173,7 +161,8 @@ onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
   ).appointment;
 });
 
-// "Enviar link para agendar": o cliente escolhe sozinho (passo web ou chat).
+// "Enviar link para agendar": o cliente escolhe sozinho na página do link
+// (funciona também com um atendente na conversa, que segura o chat).
 onConversationAction(
   MODULE,
   "agenda_link",
@@ -185,13 +174,6 @@ onConversationAction(
     );
     const serviceId =
       typeof data.service_id === "string" ? data.service_id : null;
-    if (chatTurns) {
-      await startBooking(ctx, c, {
-        key: `action:${request.requestId}`,
-        serviceId,
-      });
-      return { sent: true, web_step: null };
-    }
     const opened = await sendBookingStep(ctx, c, {
       sourceKey: `action:${actor.id}:${request.requestId}`,
       trigger: bot ? "module" : "agent",
@@ -208,7 +190,7 @@ onWebStepCompleted(MODULE, async (ctx, step, answers) => {
 
 // Lembretes vencidos (gancho periódico do núcleo, ao menos a cada 5 minutos).
 onSchedule(MODULE, async (ctx, { now }) => {
-  await runDue(ctx, now, { chat: chatTurns });
+  await runDue(ctx, now);
 });
 
 // ---------------------------------------------------------------------------

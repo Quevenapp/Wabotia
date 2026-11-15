@@ -10,7 +10,6 @@ import {
   startBooking,
   startMine,
 } from "../src/modules/agenda/chat";
-import { chatTurns } from "../src/modules/agenda/agenda";
 import {
   configure,
   drain,
@@ -86,10 +85,98 @@ describe("agenda no WhatsApp: módulo desligado", () => {
   });
 });
 
-describe("agenda no WhatsApp pelo passo web (contrato de hoje)", () => {
-  it("menu → serviço, profissional e dia → horário → agendado; depois cancela", async () => {
-    expect(chatTurns).toBe(false);
+describe("agenda no WhatsApp pela conversa, pelo motor de ponta a ponta", () => {
+  // Mensagens reais pelo processInbox: o núcleo entrega cada resposta à
+  // Agenda pelo gancho onConversationTurn.
+  it("linha QR: oi → menu → serviço → profissional → dia → horário → confirmar", async () => {
     const s = await setup();
+    const phone = "5511970000010";
+    const qr = s.f.qr;
+    await say(s, "oi", phone, qr);
+    let c = await say(s, "1", phone, qr);
+    expect((await latest(c.id)).text).toContain("Qual serviço você quer?");
+    c = await say(s, "2", phone, qr);
+    expect((await latest(c.id)).text).toContain("Com quem você quer Corte?");
+    c = await say(s, "Ana", phone, qr);
+    const day = future(3);
+    const days = (await loadState(s.ctx, c.id))!.data.options!;
+    c = await say(
+      s,
+      String(days.findIndex((d) => d.id === day) + 1),
+      phone,
+      qr,
+    );
+    expect((await latest(c.id)).text).toContain("Horários livres em");
+    c = await say(s, "08:30", phone, qr);
+    expect((await latest(c.id)).text).toContain("Confirma Corte com Ana");
+    c = await say(s, "1", phone, qr);
+    expect((await latest(c.id)).text).toContain("Agendado! Corte com Ana");
+    const [booked] = (await appointments(s)).filter(
+      (a) => a.conversation_id === c.id,
+    );
+    expect(booked).toMatchObject({
+      starts: at(day, "08:30"),
+      source: "whatsapp",
+      status: "booked",
+    });
+    // Sem pergunta aberta, "1" volta a ser o menu (Agendar horário).
+    c = await say(s, "menu", phone, qr);
+    c = await say(s, "2", phone, qr);
+    expect((await latest(c.id)).text).toContain("Seus agendamentos:");
+    c = await say(s, "MENU", phone, qr);
+    expect((await latest(c.id)).text).toContain("1. Agendar horário");
+  });
+
+  it("linha oficial: toques em lista e botões chegam com o replyId", async () => {
+    const s = await setup();
+    const phone = "5511970000011";
+    const line = s.f.line;
+    const tap = async (row: any) => {
+      const c = await receive(s.f, line, row.title, phone, {
+        interactive_reply_id: row.id,
+      });
+      await drain(s.f);
+      return conversation(env, c.id, s.f.profile);
+    };
+    await say(s, "oi", phone, line);
+    let c = await say(s, "1", phone, line);
+    let sent = await latest(c.id);
+    expect(sent.content.interactive.type).toBe("button");
+    const services = sent.content.interactive.action.buttons.map(
+      (b: any) => b.reply,
+    );
+    c = await tap(services.find((b: any) => b.title === "Corte"));
+    sent = await latest(c.id);
+    c = await tap(
+      sent.content.interactive.action.buttons.map((b: any) => b.reply)[0],
+    );
+    sent = await latest(c.id);
+    expect(sent.content.interactive.type).toBe("list");
+    const day = future(4);
+    c = await tap(
+      sent.content.interactive.action.sections[0].rows.find((r: any) =>
+        r.id.endsWith(":" + day),
+      ),
+    );
+    sent = await latest(c.id);
+    c = await tap(
+      sent.content.interactive.action.sections[0].rows.find(
+        (r: any) => r.title === "10:00",
+      ),
+    );
+    sent = await latest(c.id);
+    c = await tap(sent.content.interactive.action.buttons[0].reply);
+    expect((await latest(c.id)).text).toContain("Agendado! Corte com");
+    expect(
+      (await appointments(s)).filter((a) => a.conversation_id === c.id),
+    ).toHaveLength(1);
+  });
+});
+
+describe("agenda no WhatsApp pela página do link (web_page)", () => {
+  it("menu → serviço, profissional e dia → horário → agendado; depois cancela", async () => {
+    const s = await setup();
+    await configure(s.f, { agenda: { web_page: true } });
     const phone = "5511970000002";
     const day = future(3);
     await say(s, "oi", phone, s.f.line);

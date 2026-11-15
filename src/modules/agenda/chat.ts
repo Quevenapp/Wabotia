@@ -4,9 +4,9 @@
 // como texto numerado nas linhas QR; mais de 9 opções viram páginas ("Mais
 // opções"). A pergunta aberta fica em agenda_chats.
 //
-// `agendaTurn` recebe a resposta seguinte do cliente. Ela depende de um
-// gancho do núcleo para a próxima mensagem da conversa (onConversationTurn,
-// pedido à sessão A); sem ele, o item de menu usa o passo web (webflow.ts).
+// `agendaTurn` recebe a resposta seguinte do cliente pelo gancho
+// onConversationTurn do núcleo. Com `web_page` nas regras, o item de menu usa
+// a página do link (webflow.ts) em vez desta conversa.
 import { exec, one } from "../../db";
 import {
   ApiError,
@@ -83,7 +83,8 @@ export interface ChatState {
 }
 export interface Turn {
   text: string;
-  replyId?: string;
+  /** Toque em botão ou lista; null quando o cliente digitou. */
+  replyId?: string | null;
   rowId: string;
 }
 

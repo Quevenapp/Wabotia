@@ -30,7 +30,6 @@ export interface RunDueResult {
 export async function runDue(
   ctx: ModuleContext,
   now: number,
-  options: { chat?: boolean } = {},
 ): Promise<RunDueResult> {
   const result: RunDueResult = { sent: [], failed: [] };
   await exec(
@@ -75,11 +74,9 @@ export async function runDue(
     }
     try {
       const text = fill(config.reminder_text, describe(a));
-      const payload = options.chat
-        ? await reminderQuestion(ctx, c, a, text, now)
-        : {
-            text: `${text}\n\nPara confirmar, remarcar ou cancelar, envie MENU e escolha Meus agendamentos.`,
-          };
+      // Botões nas linhas oficiais; opções numeradas no QR e no modelo de
+      // notificação (janela fechada). A resposta chega por agendaTurn.
+      const payload = await reminderQuestion(ctx, c, a, text, now);
       await ctx.sendMessage(c, payload, {
         key: `reminder:${a.id}:${a.moves}`,
         notification: true,

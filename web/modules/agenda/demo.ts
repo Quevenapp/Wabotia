@@ -85,6 +85,7 @@ const config: Row = {
   reminder_hours: 24,
   customer_change_hours: 2,
   close_on_holidays: true,
+  web_page: false,
   intro_text: "Vamos agendar o seu horário. Qual serviço você quer?",
   booked_text:
     "Agendado! {servico} com {profissional}, {data} às {hora}. Para ver, remarcar ou cancelar, use Meus agendamentos no menu.",

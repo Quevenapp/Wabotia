@@ -19,6 +19,8 @@ export interface AgendaConfig {
   customer_change_hours: number;
   /** Feriados de Horário de atendimento (Configurações) fecham a agenda. */
   close_on_holidays: boolean;
+  /** O cliente escolhe numa página aberta pelo link, em vez de no chat. */
+  web_page: boolean;
   /** Textos; {servico}, {profissional}, {data}, {hora} e {nome} são trocados. */
   intro_text: string;
   booked_text: string;
@@ -33,6 +35,7 @@ export const defaultAgendaConfig: AgendaConfig = {
   reminder_hours: 24,
   customer_change_hours: 2,
   close_on_holidays: true,
+  web_page: false,
   intro_text: "Vamos agendar o seu horário. Qual serviço você quer?",
   booked_text:
     "Agendado! {servico} com {profissional}, {data} às {hora}. Para ver, remarcar ou cancelar, use Meus agendamentos no menu.",
@@ -54,6 +57,10 @@ const NUMBERS: [keyof AgendaConfig, number, number, string][] = [
     "Prazo para o cliente cancelar ou remarcar de 0 a 168 horas.",
   ],
 ];
+const FLAGS: [keyof AgendaConfig, string][] = [
+  ["close_on_holidays", "Feriados: informe verdadeiro ou falso."],
+  ["web_page", "Página do link: informe verdadeiro ou falso."],
+];
 const TEXTS: [keyof AgendaConfig, number, string][] = [
   ["intro_text", 600, "o texto de abertura"],
   ["booked_text", 900, "a mensagem de agendamento"],
@@ -68,8 +75,8 @@ export function agendaConfig(value: any): AgendaConfig {
   for (const [key, min, max] of NUMBERS)
     if (Number.isInteger(value[key]) && value[key] >= min && value[key] <= max)
       config[key] = value[key];
-  if (typeof value.close_on_holidays === "boolean")
-    config.close_on_holidays = value.close_on_holidays;
+  for (const [key] of FLAGS)
+    if (typeof value[key] === "boolean") config[key] = value[key];
   for (const [key, max] of TEXTS)
     if (
       typeof value[key] === "string" &&
@@ -96,13 +103,11 @@ export function validateAgendaConfig(value: unknown): AgendaConfig {
       );
       config[key] = raw[key];
     }
-  if (raw.close_on_holidays !== undefined) {
-    requireValue(
-      typeof raw.close_on_holidays === "boolean",
-      "Feriados: informe verdadeiro ou falso.",
-    );
-    config.close_on_holidays = raw.close_on_holidays;
-  }
+  for (const [key, message] of FLAGS)
+    if (raw[key] !== undefined) {
+      requireValue(typeof raw[key] === "boolean", message);
+      config[key] = raw[key];
+    }
   for (const [key, max, what] of TEXTS)
     if (raw[key] !== undefined && raw[key] !== "") {
       requireValue(

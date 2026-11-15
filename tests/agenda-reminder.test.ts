@@ -52,7 +52,9 @@ describe("agenda: lembrete", () => {
     expect(sent.kind).toBe("notification");
     expect(sent.payload.text).toContain("Lembrete: Corte com Ana");
     expect(sent.payload.text).toContain("às 10:00. Você confirma?");
-    expect(sent.payload.text).toContain("Meus agendamentos");
+    expect(sent.payload.text).toContain(
+      "1. Confirmar\n2. Remarcar\n3. Cancelar",
+    );
     expect(
       (
         await one(
@@ -106,8 +108,10 @@ describe("agenda: lembrete", () => {
     const { c } = await booked(s, s.f.qr, "5511960000004", at(day, "10:00"));
     await s.run("module.set", { id: "agenda", enabled: false });
     expect(
-      await runModuleSchedules(env, s.f.profile, at(day, "09:00")),
-    ).toEqual([]);
+      (await runModuleSchedules(env, s.f.profile, at(day, "09:00"))).map(
+        (o) => o.module,
+      ),
+    ).not.toContain("agenda");
     await s.run("module.set", { id: "agenda", enabled: true });
     const outcome = await runModuleSchedules(
       env,
@@ -116,6 +120,19 @@ describe("agenda: lembrete", () => {
     );
     expect(outcome).toContainEqual({ module: "agenda", ok: true });
     expect(await reminders(c.id)).toHaveLength(1);
+    // O cliente responde "1" no QR: pelo motor, a Agenda confirma.
+    await receive(s.f, s.f.qr, "1", "5511960000004");
+    await drain(s.f);
+    expect(
+      (
+        await one(
+          env,
+          "SELECT status FROM agenda_appointments WHERE conversation_id=?",
+          c.id,
+        )
+      ).status,
+    ).toBe("confirmed");
+    expect((await outbox(c.id)).at(-1).text).toContain("Confirmado!");
   });
 
   it("com o gancho de turno: botões Confirmar, Remarcar e Cancelar", async () => {
@@ -129,7 +146,7 @@ describe("agenda: lembrete", () => {
       at(day, "10:00"),
     );
     const qr = await booked(s, s.f.qr, "5511960000006", at(day, "11:00"));
-    const result = await runDue(s.ctx, at(day, "09:00"), { chat: true });
+    const result = await runDue(s.ctx, at(day, "09:00"));
     expect(result.sent.sort()).toEqual([official.a.id, qr.a.id].sort());
     const [button] = await reminders(official.c.id);
     const buttons = button.payload.content.interactive.action.buttons;

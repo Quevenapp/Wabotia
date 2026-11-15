@@ -613,7 +613,7 @@ function describeAgendaOperation(
         config: {
           type: "object",
           description:
-            "Chave agenda de PUT /settings, já com os padrões: min_notice_minutes, max_days_ahead, slot_step_minutes, reminder_hours, customer_change_hours, close_on_holidays, intro_text, booked_text, reminder_text, cancelled_text.",
+            "Chave agenda de PUT /settings, já com os padrões: min_notice_minutes, max_days_ahead, slot_step_minutes, reminder_hours, customer_change_hours, close_on_holidays, web_page, intro_text, booked_text, reminder_text, cancelled_text.",
         },
         services: { type: "array", items: ref("AgendaService") },
         professionals: { type: "array", items: ref("AgendaProfessional") },
