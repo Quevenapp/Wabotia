@@ -12,9 +12,11 @@ import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.MainActivity
 import br.com.queven.wabotia.WabotiaApp
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.core.MemoryPanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.ui.AndroidPanelCallAudio
 import br.com.queven.wabotia.device.ui.DeviceApp
+import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinAttemptStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelPinStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelSoundStore
 import br.com.queven.wabotia.device.ui.SharedPreferencesPanelTemplateStore
@@ -47,6 +49,8 @@ class DeviceActivity : ComponentActivity() {
             // Na demonstração o PIN vive só na memória, como o aparelho fictício: quem sai pelo botão Início e volta
             // não encontra um PIN esquecido de outra vez (sem ele não se sai da tela).
             pins = if (demo) MemoryPanelPinStore() else SharedPreferencesPanelPinStore(this),
+            // Os erros do PIN ficam no disco: matar o app e reabrir não zera a contagem (na demonstração, na memória).
+            pinAttempts = if (demo) MemoryPanelPinAttemptStore() else SharedPreferencesPanelPinAttemptStore(this),
             templates = SharedPreferencesPanelTemplateStore(this),
             audio = { AndroidPanelCallAudio(applicationContext) },
             serverUrl = server,

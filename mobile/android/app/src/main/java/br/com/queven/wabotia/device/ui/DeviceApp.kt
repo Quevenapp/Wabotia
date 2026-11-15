@@ -1,5 +1,6 @@
 package br.com.queven.wabotia.device.ui
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -70,9 +73,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.device.DeviceRole
+import br.com.queven.wabotia.device.core.PanelPin
 import br.com.queven.wabotia.device.DeviceState
 import br.com.queven.wabotia.device.DeviceViewModel
 import br.com.queven.wabotia.device.toRuntime
@@ -107,21 +113,88 @@ fun DeviceApp(container: AppContainer, vm: DeviceViewModel, onFinish: () -> Unit
     var settings by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.finished) { if (state.finished) onFinish() }
     val config = state.config
+    // Ajustes (e impressora) abertos com o PIN por cima da tela do papel: fecham sozinhos depois de um minuto sem toque
+    // e quando o app vai para segundo plano, para não ficarem destravados à espera de alguém tocar em "Voltar à tela".
+    val unlocked = config?.role != null && (settings || printer)
+    val idle = remember { IdleTimer() }
+    LaunchedEffect(unlocked) {
+        if (!unlocked) return@LaunchedEffect
+        idle.touch()
+        while (true) {
+            delay(1000)
+            if (idle.paused) idle.touch()
+            else if (idle.idleMillis() >= UNLOCKED_IDLE_MS) {
+                settings = false
+                printer = false
+                break
+            }
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (unlocked) {
+            settings = false
+            printer = false
+        }
+    }
+    Box(Modifier.fillMaxSize().reportTouches(idle::touch)) {
+        DeviceAppContent(container, state, vm, printer, settings, idle, onPrinter = { printer = it }, onSettings = { settings = it }, onFinish = onFinish)
+    }
+}
+
+@Composable
+private fun DeviceAppContent(
+    container: AppContainer,
+    state: DeviceState,
+    vm: DeviceViewModel,
+    printer: Boolean,
+    settings: Boolean,
+    idle: IdleTimer,
+    onPrinter: (Boolean) -> Unit,
+    onSettings: (Boolean) -> Unit,
+    onFinish: () -> Unit,
+) {
+    val config = state.config
     when {
         state.finished -> Box(Modifier.fillMaxSize().background(Wb.colors.background))
         config == null -> PairingScreen(state, vm, onBack = onFinish)
         printer -> {
-            BackHandler { printer = false }
-            PrinterScreen(container, onBack = { printer = false })
+            BackHandler { onPrinter(false) }
+            PrinterScreen(container, onBack = { onPrinter(false) })
         }
         config.role == null || settings ->
             DeviceSettingsScreen(
                 state = state,
                 vm = vm,
-                onPrinter = { printer = true },
-                onDone = if (config.role != null) ({ settings = false }) else null,
+                idle = idle,
+                onPrinter = { onPrinter(true) },
+                onDone = if (config.role != null) ({ onSettings(false) }) else null,
             )
-        else -> PanelScreen(state, vm, onSettings = { settings = true })
+        else -> PanelScreen(state, vm, onSettings = { onSettings(true) })
+    }
+}
+
+/** Um minuto sem toque fecha os ajustes destravados. */
+private const val UNLOCKED_IDLE_MS = 60_000L
+
+/** O último toque na tela; com um diálogo aberto (PIN, confirmação), o tempo não corre. Sem estado de Compose. */
+private class IdleTimer {
+    private var last = SystemClock.elapsedRealtime()
+    var paused = false
+
+    fun touch() {
+        last = SystemClock.elapsedRealtime()
+    }
+
+    fun idleMillis(): Long = SystemClock.elapsedRealtime() - last
+}
+
+/** Avisa cada toque (e arraste) na área, sem consumir: os botões e a rolagem continuam funcionando. */
+private fun Modifier.reportTouches(onTouch: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            awaitPointerEvent(PointerEventPass.Initial)
+            onTouch()
+        }
     }
 }
 
@@ -219,17 +292,28 @@ private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () ->
 // --- papel e ajustes ---------------------------------------------------------------
 
 @Composable
-private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, onPrinter: () -> Unit, onDone: (() -> Unit)?) {
+private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: IdleTimer, onPrinter: () -> Unit, onDone: (() -> Unit)?) {
     val config = state.config ?: return
     val c = Wb.colors
     var pinDialog by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
-    onDone?.let { BackHandler(onBack = it) }
+    /** O papel tocado antes de haver PIN: escolhido assim que o PIN é criado. */
+    var pendingRole by remember { mutableStateOf<DeviceRole?>(null) }
+    // Com um diálogo aberto, o minuto sem toque não corre (o teclado do PIN não conta como toque na tela).
+    LaunchedEffect(pinDialog, confirmLeave) {
+        idle.paused = pinDialog || confirmLeave
+        idle.touch()
+    }
+    // Aparelho pareado antes do PIN obrigatório: pede o PIN ao abrir os ajustes.
+    LaunchedEffect(Unit) { if (state.pinRequired && !state.pinSet && config.role != null) pinDialog = true }
+    val needsPin = state.pinRequired && !state.pinSet
+    val done: (() -> Unit)? = onDone?.let { back -> { if (needsPin) pinDialog = true else back() } }
+    done?.let { BackHandler(onBack = it) }
     Scaffold(
         containerColor = c.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (onDone != null) DetailTopBar("Ajustes deste aparelho", onBack = onDone, subtitle = config.name)
+            if (done != null) DetailTopBar("Ajustes deste aparelho", onBack = done, subtitle = config.name)
             else DetailTopBar("O que este aparelho faz?", onBack = { confirmLeave = true }, subtitle = config.name)
         },
     ) { padding ->
@@ -246,7 +330,15 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, onPrin
                 SectionLabel("Papel")
                 Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     DeviceRole.entries.forEach { role ->
-                        RoleCard(role, selected = config.role == role, enabled = !role.totem || config.canIssue()) { vm.chooseRole(role) }
+                        RoleCard(role, selected = config.role == role, enabled = !role.totem || config.canIssue()) {
+                            // Pareamento real: o papel só vale com o PIN de saída criado.
+                            if (needsPin) {
+                                pendingRole = role
+                                pinDialog = true
+                            } else {
+                                vm.chooseRole(role)
+                            }
+                        }
                     }
                 }
                 if (config.role?.panel == true || config.role?.totem == true) {
@@ -283,7 +375,8 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, onPrin
                         tint = if (state.pinSet) c.ok else c.warn,
                         onClick = { pinDialog = true },
                     )
-                    if (state.pinSet) {
+                    // Num pareamento real o PIN é obrigatório: troca-se, não se remove.
+                    if (state.pinSet && !state.pinRequired) {
                         RowDivider()
                         SettingsRow(Icons.Filled.LockOpen, "Remover o PIN", tint = c.muted, onClick = vm::removePin)
                     }
@@ -312,14 +405,27 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, onPrin
                         onClick = { confirmLeave = true },
                     )
                 }
-                onDone?.let {
+                done?.let {
                     Spacer(Modifier.height(20.dp))
                     PrimaryButton("Voltar à tela", onClick = it, modifier = Modifier.padding(horizontal = 16.dp))
                 }
             }
         }
     }
-    if (pinDialog) PinCreateDialog(onCreate = vm::createPin, onClose = { pinDialog = false })
+    if (pinDialog) {
+        PinCreateDialog(
+            required = needsPin,
+            onCreate = { pin, again ->
+                vm.createPin(pin, again).also { problem ->
+                    if (problem == null) pendingRole?.let(vm::chooseRole)
+                }
+            },
+            onClose = {
+                pinDialog = false
+                pendingRole = null
+            },
+        )
+    }
     if (confirmLeave) {
         AlertDialog(
             onDismissRequest = { confirmLeave = false },
@@ -377,17 +483,18 @@ private fun RoleCard(role: DeviceRole, selected: Boolean, enabled: Boolean, onCl
 }
 
 @Composable
-private fun PinCreateDialog(onCreate: (String, String) -> String?, onClose: () -> Unit) {
+private fun PinCreateDialog(required: Boolean, onCreate: (String, String) -> String?, onClose: () -> Unit) {
     var pin by remember { mutableStateOf("") }
     var again by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("PIN de saída") },
+        title = { Text(if (required) "Crie o PIN de saída" else "PIN de saída") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Quem passa na frente do totem ou da TV não abre os ajustes nem sai da tela sem o PIN.")
-                PinInput("PIN (4 números)", pin) { pin = it }
+                if (required) Text("Para usar este aparelho como totem ou painel, crie antes o PIN de saída.")
+                Text("Quem passa na frente do totem ou da TV não abre os ajustes sem o PIN.")
+                PinInput("PIN (4 ou 6 números)", pin) { pin = it }
                 PinInput("Repita o PIN", again) { again = it }
                 error?.let { Text(it, color = Wb.colors.danger) }
             }
@@ -406,7 +513,7 @@ private fun PinCreateDialog(onCreate: (String, String) -> String?, onClose: () -
 private fun PinInput(label: String, value: String, onChange: (String) -> Unit) =
     OutlinedTextField(
         value = value,
-        onValueChange = { onChange(it.filter(Char::isDigit).take(4)) },
+        onValueChange = { onChange(it.filter(Char::isDigit).take(PanelPin.MAX_LENGTH)) },
         label = { Text(label) },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),

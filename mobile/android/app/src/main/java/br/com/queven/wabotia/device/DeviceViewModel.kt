@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.device.core.PanelCallAnnouncer
 import br.com.queven.wabotia.device.core.PanelCallAudio
 import br.com.queven.wabotia.device.core.PanelPin
+import br.com.queven.wabotia.device.core.PanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinAttempts
 import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.core.PanelSoundStore
@@ -47,6 +48,8 @@ class DeviceServices(
     val printer: SenhaPrinter,
     val sound: PanelSoundStore,
     val pins: PanelPinStore,
+    /** Erros seguidos do PIN e a trava; no aparelho real, no disco (fechar o app não zera). */
+    val pinAttempts: PanelPinAttemptStore,
     val templates: PanelTemplateStore,
     val audio: () -> PanelCallAudio,
     /** O endereço escolhido na tela Servidor (ou o da demonstração). */
@@ -82,7 +85,10 @@ data class DeviceState(
     val revoked: Boolean = false,
     /** O pareamento terminou (desfeito ou saída da demonstração): a Activity fecha. */
     val finished: Boolean = false,
-)
+) {
+    /** Num pareamento real, o papel só é escolhido com o PIN de saída criado; a demonstração deixa opcional. */
+    val pinRequired: Boolean get() = !demo
+}
 
 /**
  * O aparelho diante do Wabotia (porta do `SenhaViewModel` do Senhapp, sem o guichê): pareamento, a fila ao vivo
@@ -107,7 +113,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private var pairingJob: Job? = null
     private var audio: PanelCallAudio = PanelCallAudio.None
     private val announcer = PanelCallAnnouncer()
-    private val pinAttempts = PanelPinAttempts()
+    private val pinAttempts = PanelPinAttempts(services.pinAttempts)
     /** O pedido de senha sem resposta definitiva, para o próximo toque repetir a mesma chave. */
     private val issueKeys = TotemIssueKeys()
 
@@ -192,6 +198,10 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
             mutable.update { it.copy(notice = "O administrador não liberou “Emitir senhas” para este aparelho: use-o como painel de chamadas.") }
             return
         }
+        if (mutable.value.pinRequired && services.pins.sealed(config.deviceId) == null) {
+            mutable.update { it.copy(notice = PIN_REQUIRED_NOTICE) }
+            return
+        }
         services.store.save(config)
         audio.shutdown()
         audio = if (role.panel) services.audio() else PanelCallAudio.None
@@ -221,6 +231,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
                 runCatching { services.pairing.disconnect(config.baseUrl, config.token) }
             }
             config?.let { services.pins.save(it.deviceId, null) }
+            pinAttempts.succeed()
             services.store.save(null)
             mutable.value = DeviceState(serverUrl = config?.baseUrl ?: services.serverUrl, demo = services.demo, finished = true)
         }
@@ -458,11 +469,13 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
         PanelPin.problem(pin)?.let { return it }
         if (pin != confirmation) return "Os dois PINs não conferem."
         services.pins.save(id, PanelPin.seal(pin))
-        mutable.update { it.copy(pinSet = true) }
+        mutable.update { it.copy(pinSet = true, notice = it.notice?.takeUnless { n -> n == PIN_REQUIRED_NOTICE }) }
         return null
     }
 
+    /** Só na demonstração: num pareamento real o PIN é obrigatório (troca-se, não se remove). */
     fun removePin() {
+        if (mutable.value.pinRequired) return
         val id = mutable.value.config?.deviceId ?: return
         services.pins.save(id, null)
         mutable.update { it.copy(pinSet = false) }
@@ -472,7 +485,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
         val id = mutable.value.config?.deviceId ?: return true
         val sealed = services.pins.sealed(id) ?: return true
         if (pinAttempts.locked()) {
-            mutable.update { it.copy(pinError = "Muitas tentativas. Aguarde 30 segundos.") }
+            mutable.update { it.copy(pinError = "Muitas tentativas. " + PanelPinAttempts.waitText(pinAttempts.remainingMillis())) }
             return false
         }
         return if (PanelPin.matches(pin, sealed)) {
@@ -480,8 +493,10 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
             mutable.update { it.copy(pinError = null) }
             true
         } else {
-            pinAttempts.fail()
-            mutable.update { it.copy(pinError = "PIN incorreto.") }
+            val locked = pinAttempts.fail() != null
+            mutable.update {
+                it.copy(pinError = if (locked) "PIN incorreto. Muitas tentativas: " + PanelPinAttempts.waitText(pinAttempts.remainingMillis()).replaceFirstChar(Char::lowercase) else "PIN incorreto.")
+            }
             false
         }
     }
@@ -501,6 +516,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
 
     companion object {
         const val REVOKED_NOTICE = "Este aparelho foi desconectado no Wabotia. Desfaça o pareamento nos ajustes e conecte de novo."
+        const val PIN_REQUIRED_NOTICE = "Crie o PIN de saída antes de escolher o papel: sem ele, qualquer pessoa diante da tela abre estes ajustes."
         const val OPERATE_NOTICE = "O administrador liberou também “Chamar e transferir senhas”, que o modo aparelho não usa. Para um totem mais seguro, revogue e aprove de novo só Ler e Emitir."
 
         fun factory(services: DeviceServices) = object : ViewModelProvider.Factory {

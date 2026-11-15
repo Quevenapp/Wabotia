@@ -26,6 +26,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import br.com.queven.wabotia.device.core.PanelCallAudio
 import br.com.queven.wabotia.device.core.PanelScreenWakePolicy
+import br.com.queven.wabotia.device.core.PanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.core.PanelSoundStore
 import java.util.Locale
@@ -303,6 +304,35 @@ class SharedPreferencesPanelPinStore(context: Context) : PanelPinStore {
 
     private companion object {
         const val PREFERENCES_NAME = "vinki_panel_pin"
+    }
+}
+
+/**
+ * Os erros seguidos do PIN e a trava, num `SharedPreferences` só deste celular: matar o app nos Recentes e reabrir
+ * não zera a contagem nem a espera.
+ */
+class SharedPreferencesPanelPinAttemptStore(context: Context) : PanelPinAttemptStore {
+    private val preferences =
+        context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    override val failures: Int get() = preferences.getInt(KEY_FAILURES, 0)
+    override val lockedUntil: Long get() = preferences.getLong(KEY_LOCKED_UNTIL, 0L)
+    override val lockouts: Int get() = preferences.getInt(KEY_LOCKOUTS, 0)
+
+    override fun save(failures: Int, lockedUntil: Long, lockouts: Int) {
+        // commit: a trava precisa estar no disco antes de o app poder ser fechado.
+        preferences.edit()
+            .putInt(KEY_FAILURES, failures)
+            .putLong(KEY_LOCKED_UNTIL, lockedUntil)
+            .putInt(KEY_LOCKOUTS, lockouts)
+            .commit()
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "vinki_panel_pin_attempts"
+        const val KEY_FAILURES = "failures"
+        const val KEY_LOCKED_UNTIL = "locked_until"
+        const val KEY_LOCKOUTS = "lockouts"
     }
 }
 
