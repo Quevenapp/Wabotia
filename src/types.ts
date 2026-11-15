@@ -37,6 +37,8 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  /** JSON {module, summary, flags, at} da passagem feita por um módulo. */
+  handoff?: string | null;
   department_id?: string | null;
   ticket_prompt_expires_at?: number | null;
   ticket_prompt_category?: string | null;

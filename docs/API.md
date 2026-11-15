@@ -83,6 +83,10 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 
 Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
 
+### Passagem feita por módulo
+
+Quando um módulo passa a conversa para a equipe (ex.: Suporte pago depois de conferir a assinatura), o detalhe `GET /profiles/{perfil}/conversations/{id}` traz `handoff`: `{"module":"suporte","summary":"…","flags":["telefone não vinculado"],"at":…}`, ou `null`. Mostre os `flags` como avisos ao atendente. Vem só para quem lê notas internas (pessoa, ou chave com `notes:read`) e some na próxima passagem sem módulo e ao encerrar a conversa. O mesmo resumo fica como nota interna.
+
 ### Passo web e formulários
 
 O que não cabe no chat sai por um **passo web**: um link curto e de uso único (`/api/w/{código}`, 16 caracteres) amarrado à conversa, que abre uma página leve no celular. O código vale até a validade definida (padrão 24 horas) e só o hash fica guardado; a API nunca devolve o código. Ao concluir, o Wabotia publica `web_step.completed` com as respostas, registra uma nota interna na conversa, anexa as respostas ao protocolo ativo (ou abre um, conforme o formulário) e envia a mensagem de retorno no WhatsApp. Se a janela de 24 horas da linha oficial estiver fechada, o retorno sai pelo modelo de notificação configurado em `notifications`, como as chamadas da fila. A página mostra **Voltar ao WhatsApp** (`wa.me` da linha). Abrir de novo um link concluído, expirado ou cancelado mostra o aviso correspondente e não aceita outra resposta.

@@ -86,6 +86,7 @@ O que o núcleo faz com cada campo:
 | `enabled()` / `requireEnabled()` | Estado do módulo na área (`409 module_disabled`) |
 | `access(actor, scope)` | Mesma regra das rotas: área do ator e permissão da chave de aplicação |
 | `settings()` | Configurações da área (já mescladas com os padrões) |
+| `handoff(c, {target?, summary?, flags?, reason?, key?})` | Passa a conversa para atendimento humano: `target: {department_id}` (setor), `{user_id}` (pessoa, como a transferência da equipe) ou nada (fila geral). `summary` (até 3000) e `flags` (até 10, de até 60 caracteres, ex. "telefone não vinculado") viram nota interna e o campo `handoff` `{module, summary, flags, at}` do detalhe da conversa, mostrado no painel; somem na próxima passagem sem módulo e ao encerrar. Com `key`, repetir não passa de novo. Não passa pelos ganchos `onHandoffRequest` (é como o módulo libera a conversa que segurou). Devolve a conversa atualizada |
 | `establishment()` | Dados do estabelecimento para cupom, comanda, recibo e mensagens: `{name, document, document_type: "cpf"\|"cnpj"\|null, document_display, address, phone, footer, configured}`. Sem cadastro, `name` é o nome da área e `configured` é falso. Os aplicativos leem o mesmo em `GET /profiles/{p}/establishment`; as páginas do passo web já mostram nome no cabeçalho e o resto no rodapé |
 | `conversation(id, actor?)` | Conversa da área, respeitando a visibilidade do ator |
 | `contact(c)` | Contato vinculado à conversa (`id, name, phone, email, company, notes`) ou `null` |

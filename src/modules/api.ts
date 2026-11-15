@@ -18,7 +18,7 @@ import {
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
-import { one } from "../db";
+import { exec, one } from "../db";
 import {
   ApiError,
   type Actor,
@@ -28,7 +28,14 @@ import {
 } from "../types";
 import { access } from "../security";
 import { event } from "../events";
-import { conversation, enqueue, settings } from "../service";
+import {
+  conversation,
+  enqueue,
+  handoff as coreHandoff,
+  handoffToPerson,
+  settings,
+  type HandoffMeta,
+} from "../service";
 import { createPayment, type Payment } from "../payments";
 import { establishment, type Establishment } from "../establishment";
 import {
@@ -135,6 +142,26 @@ export interface ModuleContext {
    * (docs/COBRANCA.md). A confirmação chega em onPaymentUpdated.
    */
   charge(c: Conversation, request: ChargeRequest): Promise<Payment>;
+  /**
+   * Passa a conversa para atendimento humano: um setor, a fila geral da
+   * equipe ou uma pessoa. O resumo e os marcadores ("telefone não vinculado")
+   * ficam numa nota interna e em `handoff` no detalhe da conversa. Não passa
+   * pelos ganchos onHandoffRequest: é assim que um módulo libera a conversa
+   * que segurou. Com `key`, repetir a chamada não passa de novo.
+   */
+  handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+}
+
+export interface HandoffRequest {
+  /** Sem destino: fila geral da equipe. */
+  target?: { department_id?: string | null; user_id?: string };
+  /** Até 3000 caracteres: o que o atendente precisa saber. */
+  summary?: string;
+  /** Até 10 marcadores de até 60 caracteres, ex. "telefone não vinculado". */
+  flags?: string[];
+  /** Motivo no evento conversation.updated; padrão "Encaminhado pelo módulo …". */
+  reason?: string;
+  key?: string;
 }
 
 export interface ChargeRequest {
@@ -253,6 +280,73 @@ export function modulesApi(
           notification: request.notification,
         })
       ).payment;
+    },
+    async handoff(c, request = {}) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      const summary = String(request.summary ?? "").trim();
+      requireValue(
+        Array.from(summary).length <= 3000,
+        "Resumo da passagem: até 3000 caracteres.",
+      );
+      const flags = request.flags ?? [];
+      requireValue(
+        Array.isArray(flags) &&
+          flags.length <= 10 &&
+          flags.every(
+            (f) =>
+              typeof f === "string" &&
+              f.trim() &&
+              Array.from(f.trim()).length <= 60,
+          ),
+        "Marcadores da passagem: até 10, de 1 a 60 caracteres.",
+      );
+      const target = request.target || {};
+      requireValue(
+        !(target.user_id && target.department_id),
+        "Passe para um setor ou para uma pessoa, não os dois.",
+      );
+      const meta: HandoffMeta = {
+        module: moduleId,
+        summary,
+        flags: flags.map((f) => f.trim()),
+        at: Date.now(),
+      };
+      const reason =
+        request.reason?.trim() || `Encaminhado pelo módulo ${definition.name}.`;
+      // Nota interna com o resumo e os marcadores; com `key`, a mesma passagem
+      // repetida (gancho reexecutado) não passa de novo.
+      const note = [
+        `${definition.name}: ${summary || "encaminhado para a equipe."}`,
+        ...(meta.flags.length ? [`Atenção: ${meta.flags.join("; ")}`] : []),
+      ].join("\n");
+      const inserted = await exec(
+        env,
+        "INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,source_key,created) VALUES(?,?,?,'note',?,?,'[]',?,?)",
+        crypto.randomUUID(),
+        profile,
+        c.id,
+        `module:${moduleId}`,
+        note,
+        request.key
+          ? `module:${moduleId}:${c.id}:handoff:${request.key}`
+          : null,
+        Date.now(),
+      );
+      if (request.key && !inserted.meta.changes)
+        return conversation(env, c.id, profile);
+      if (target.user_id)
+        await handoffToPerson(env, c, target.user_id, reason, meta);
+      else
+        await coreHandoff(
+          env,
+          c,
+          reason,
+          target.department_id ?? null,
+          summary || null,
+          true,
+          { meta },
+        );
+      return conversation(env, c.id, profile);
     },
     async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))

@@ -693,6 +693,14 @@ async function requestTitle(env: Env, c: Conversation, request?: string) {
   return line.length > 120 ? line.slice(0, 117).trimEnd() + "..." : line;
 }
 
+/** Dados de uma passagem para humano feita por um módulo (ctx.handoff). */
+export interface HandoffMeta {
+  module: string;
+  summary: string;
+  flags: string[];
+  at: number;
+}
+
 export async function handoff(
   env: Env,
   c: Conversation,
@@ -703,6 +711,11 @@ export async function handoff(
   request?: string | null,
   /** false when the bot itself failed: sending it back would fail again. */
   botMayContinue = true,
+  /**
+   * Passagem pedida por um módulo (ctx.handoff): resumo e marcadores que o
+   * atendente vê. Sem ela, os de uma passagem anterior são limpos.
+   */
+  options: { meta?: HandoffMeta | null } = {},
 ) {
   const department = await departmentFor(env, c.profile_id, departmentId);
   requireValue(
@@ -718,8 +731,13 @@ export async function handoff(
     c.state === "waiting" && (c.department_id || null) === departmentId;
   await batch(env, [
     [
-      "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
-      [departmentId, now(), c.id],
+      "UPDATE conversations SET state='waiting',owner=NULL,assigned_bot_id=NULL,department_id=?,menu_active=0,epoch=epoch+1,handoff=?,updated=? WHERE id=?",
+      [
+        departmentId,
+        options.meta ? JSON.stringify(options.meta) : null,
+        now(),
+        c.id,
+      ],
     ],
     [
       `UPDATE tickets SET owner=NULL WHERE conversation_id=? AND ${activeTicketSql()}`,
@@ -795,7 +813,7 @@ export async function handoff(
       ) {
         await exec(
           env,
-          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,updated=? WHERE id=? AND epoch=?",
+          "UPDATE conversations SET state='ai',owner=NULL,assigned_bot_id=NULL,department_id=NULL,handoff=NULL,updated=? WHERE id=? AND epoch=?",
           now(),
           c.id,
           c.epoch,
@@ -844,6 +862,70 @@ export async function handoff(
     department_id: returned ? null : departmentId,
     reason,
     ...(returned ? { returned_to_bot: true } : {}),
+  });
+}
+
+/**
+ * Passagem direta para uma pessoa (ctx.handoff com user_id): como a
+ * transferência da equipe, a conversa fica com ela em atendimento humano.
+ */
+export async function handoffToPerson(
+  env: Env,
+  c: Conversation,
+  userId: string,
+  reason: string,
+  meta: HandoffMeta | null,
+) {
+  const target = await one(
+    env,
+    "SELECT id,role,profiles FROM users WHERE id=? AND disabled=0",
+    userId,
+  );
+  requireValue(
+    target &&
+      (target.role === "admin" ||
+        json(target.profiles, []).includes(c.profile_id)),
+    "Atendente não autorizado.",
+  );
+  await assertDepartmentAccess(
+    env,
+    {
+      id: target.id,
+      kind: "user",
+      name: "",
+      role: target.role,
+      profiles: json(target.profiles, []),
+      scopes: [],
+      bots: [],
+      rate: 0,
+      runLimit: 0,
+    },
+    c,
+  );
+  await exec(
+    env,
+    "UPDATE conversations SET owner=?,state='human',assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,handoff=?,updated=? WHERE id=?",
+    target.id,
+    meta ? JSON.stringify(meta) : null,
+    now(),
+    c.id,
+  );
+  await clearTicketPrompt(env, c.id);
+  c = await conversation(env, c.id, c.profile_id);
+  const policy = await getNumberPolicy(env, c.connection_id);
+  if (policy.human && policy.service && (policy.menu || policy.bots))
+    await enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      { text: "Vou encaminhar sua solicitação para nossa equipe." },
+      `handoff:${c.id}:${c.session}:person:${c.epoch}`,
+    );
+  await event(env, c.profile_id, "conversation.updated", c.id, {
+    state: "human",
+    owner: target.id,
+    reason,
   });
 }
 
@@ -2344,7 +2426,7 @@ export async function perform(
       } else if (action === "resolve" || action === "resume") {
         await exec(
           env,
-          "UPDATE conversations SET state=?,owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=?",
+          "UPDATE conversations SET state=?,owner=NULL,assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,handoff=NULL,updated=? WHERE id=?",
           action === "resolve" ? "closed" : "ai",
           now(),
           c.id,
