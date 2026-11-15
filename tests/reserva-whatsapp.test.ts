@@ -200,8 +200,10 @@ describe("reserva no WhatsApp de ponta a ponta", () => {
     c = await say(s, "1", phone, qr); // Voltar
     c = await say(s, "2", phone, qr);
     text = (await latest(c.id)).text;
-    expect(text).toContain("1. Cancelar reserva");
-    c = await say(s, "1", phone, qr);
+    // Reserva feita pela conversa: check-in, cancelar e voltar.
+    expect(text).toContain("1. Fazer check-in");
+    expect(text).toContain("2. Cancelar reserva");
+    c = await say(s, "2", phone, qr);
     expect((await latest(c.id)).text).toContain("Cancelar a reserva #1");
     c = await say(s, "1", phone, qr);
     expect((await latest(c.id)).text).toContain("A reserva #1");

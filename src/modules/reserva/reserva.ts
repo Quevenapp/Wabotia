@@ -9,6 +9,7 @@ import {
 } from "../../types";
 import {
   onCommand,
+  onConversationAction,
   onConversationTurn,
   onMenuChoice,
   onPaymentUpdated,
@@ -16,11 +17,13 @@ import {
   onRoute,
   onSchedule,
   onSettingsSave,
+  onWebStepCompleted,
   type ModuleContext,
 } from "../api";
 import { reservaTurn, startBooking, startMine } from "./chat";
 import { depositStatus, paymentUpdated, requestDeposit } from "./deposit";
 import { runDue } from "./schedule";
+import { completeCheckin, sendCheckin } from "./checkin";
 import {
   addDays,
   brasiliaDate,
@@ -110,6 +113,49 @@ onPaymentUpdated(MODULE, async (ctx, payment, { previous }) => {
 onSchedule(MODULE, async (ctx, { now }) => {
   await runDue(ctx, now);
 });
+
+// Check-in concluído pelo cliente na página do link.
+onWebStepCompleted(MODULE, async (ctx, step, answers) => {
+  if (step.kind === "checkin" && step.ref_id)
+    await completeCheckin(ctx, step.ref_id, step.id, answers);
+});
+
+// "Enviar check-in" na conversa (equipe ou bot que atende):
+// POST /conversations/:id/actions {action:"reserva_checkin", booking_id?}.
+onConversationAction(
+  MODULE,
+  "reserva_checkin",
+  async (ctx, actor, c, data, { requestId }) => {
+    const bot = actor.id.startsWith("bot:");
+    requireValue(
+      c.owner === actor.id ||
+        (actor.kind === "user" && actor.role === "admin") ||
+        (bot && c.state === "ai"),
+      "Assuma a conversa antes de enviar o check-in.",
+    );
+    const rules = await config(ctx);
+    const booking = data.booking_id
+      ? await getBooking(ctx, data.booking_id)
+      : (
+          await listBookings(ctx, {
+            conversation_id: c.id,
+            status: "confirmed",
+            from: Date.now(),
+          })
+        ).find((b) => b.checkin_status !== "completed");
+    requireValue(
+      booking && booking.conversation_id === c.id,
+      "Nenhuma reserva confirmada desta conversa com check-in pendente.",
+    );
+    const sent = await sendCheckin(ctx, rules, booking, {
+      trigger: bot ? "module" : "agent",
+      actor: actor.id,
+      sourceKey: `action:${actor.id}:${requestId}`,
+      conversation: c,
+    });
+    return { status: sent.status, booking: sent.booking };
+  },
+);
 
 // Item de menu "Fazer reserva".
 onMenuChoice("reserva", async (ctx, c, _item, { rowId }) => {
@@ -431,6 +477,33 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
     ).booking;
   return booking;
 });
+
+// Enviar (de novo) o link do check-in: POST /reserva/bookings/:id/checkin.
+onRoute(MODULE, {
+  method: "POST",
+  path: "reserva/bookings/:id/checkin",
+  op: "reserva.checkin",
+});
+onCommand(
+  MODULE,
+  "reserva.checkin",
+  async (ctx, actor, data, { requestId }) => {
+    ctx.access(actor, "conversations:write");
+    const booking = await getBooking(ctx, data.id);
+    requireValue(
+      booking.conversation_id,
+      "Esta reserva não está ligada a uma conversa do WhatsApp.",
+    );
+    const c = await ctx.conversation(booking.conversation_id, actor);
+    const sent = await sendCheckin(ctx, await config(ctx), booking, {
+      trigger: "agent",
+      actor: actor.id,
+      sourceKey: `command:${actor.id}:${requestId}`,
+      conversation: c,
+    });
+    return sent.booking;
+  },
+);
 
 // Cobrar (de novo) o sinal de uma reserva aguardando pagamento, por exemplo
 // depois de configurar a conta em Gestão → Cobrança.

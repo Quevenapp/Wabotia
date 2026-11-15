@@ -34,6 +34,7 @@ import {
 } from "./config";
 import { getUnit, listUnits, type Unit } from "./units";
 import { depositFallbackText, requestDeposit } from "./deposit";
+import { checkinOpen, INVITE_WORDS, sendCheckin } from "./checkin";
 import {
   dailyPeriod,
   firstDay,
@@ -699,6 +700,12 @@ async function askMine(flow: Flow) {
 /** Opções da reserva escolhida em Minhas reservas. */
 async function manageOptions(flow: Flow, b: Booking): Promise<Option[]> {
   const options: Option[] = [];
+  if (checkinOpen(flow.config, b, flow.at))
+    options.push({
+      id: "checkin",
+      title:
+        b.checkin_status === "sent" ? "Reenviar check-in" : "Fazer check-in",
+    });
   if (canCancel(b, flow.config, flow.at))
     options.push({ id: "cancel", title: "Cancelar reserva" });
   options.push({ id: "back", title: "Voltar" });
@@ -856,6 +863,21 @@ export async function reservaTurn(
 ): Promise<boolean> {
   if (c.chat_type === "group") return false;
   const flow = await flowFor(ctx, c, `turn:${turn.rowId}`, at);
+  // Pedido de check-in (convite do lembrete): vale sem pergunta aberta.
+  const invite = /^reserva:checkin:(.+)$/.exec(turn.replyId || "");
+  if (
+    invite ||
+    (!turn.replyId && INVITE_WORDS.includes(plain(turn.text || "")))
+  ) {
+    if (await checkinRequest(flow, invite?.[1] || null)) {
+      await clearState(ctx, c.id);
+      return true;
+    }
+    if (invite) {
+      await say(flow, "Esta reserva não tem check-in pendente.");
+      return true;
+    }
+  }
   const state = await loadState(ctx, c.id);
   if (!state) return false;
   if (state.expires_at <= at) {
@@ -956,7 +978,47 @@ export async function reservaTurn(
   return true;
 }
 
-/** Outras opções da reserva escolhida (Voltar e as do check-in). */
-async function manageChoice(flow: Flow, _data: ChatData, _choice: string) {
-  await askMine(flow);
+/** Outras opções da reserva escolhida (Voltar e o check-in). */
+async function manageChoice(flow: Flow, data: ChatData, choice: string) {
+  if (choice !== "checkin") return askMine(flow);
+  await clearState(flow.ctx, flow.c.id);
+  if (!(await checkinRequest(flow, data.booking_id!)))
+    await say(flow, "O check-in desta reserva não está disponível.");
+}
+
+/**
+ * Cliente pediu o check-in (CHECKIN, botão do convite ou Minhas reservas):
+ * envia o link da reserva pedida ou da próxima com check-in pendente.
+ * false: nenhuma reserva com check-in pendente nesta conversa.
+ */
+async function checkinRequest(flow: Flow, id: string | null) {
+  let target: Booking | null = null;
+  if (id) {
+    try {
+      target = await getBooking(flow.ctx, id);
+    } catch {
+      return false;
+    }
+    if (target.conversation_id !== flow.c.id) return false;
+  } else
+    target =
+      (await upcomingFor(flow.ctx, flow.c, flow.at)).find(
+        (b) =>
+          b.conversation_id === flow.c.id &&
+          checkinOpen(flow.config, b, flow.at),
+      ) || null;
+  if (!target || !checkinOpen(flow.config, target, flow.at)) return false;
+  try {
+    await sendCheckin(flow.ctx, flow.config, target, {
+      trigger: "module",
+      actor: "customer",
+      sourceKey: flow.key,
+      at: flow.at,
+      conversation: flow.c,
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    await say(flow, error.message);
+  }
+  return true;
 }

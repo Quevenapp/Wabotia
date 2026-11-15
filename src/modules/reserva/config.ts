@@ -122,7 +122,7 @@ export const defaultReservaConfig: ReservaConfig = {
   reminder_text:
     "Lembrete da sua reserva {numero}: {unidade}, entrada {entrada}. Até breve!",
   checkout_text:
-    "Sua saída de {unidade} é {saida}. Obrigado pela estadia e volte sempre!",
+    "Sua saída de {unidade} é {saida}. Obrigado pela preferência e volte sempre!",
 };
 
 const NUMBERS: [keyof ReservaConfig, number, number, string][] = [
