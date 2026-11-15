@@ -47,7 +47,17 @@ const duration = 10 * 60_000;
 const interval = 5;
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const publicColumns =
-  "id,client,instance_name,status,expires,profile_id,app_id,key_id,grants,approved_by,created,updated";
+  "id,client,instance_name,status,expires,profile_id,app_id,key_id,grants,approved_by,created,updated,requested_scopes";
+/**
+ * Permissões que o aprovador pode conceder: as que o aparelho pediu em
+ * /api/pairing/start ou, num pedido sem scopes, todas as do cliente.
+ */
+function grantableScopes(row: any): readonly string[] {
+  const requested = json(row.requested_scopes, null);
+  return Array.isArray(requested)
+    ? requested
+    : pairingClients[row.client as Client].scopes;
+}
 const badCode = () =>
   new ApiError(
     404,
@@ -67,7 +77,8 @@ function expose(row: any) {
         ? "expired"
         : row.status,
     grants: json(row.grants, {}),
-    allowed_scopes: pairingClients[row.client as Client].scopes,
+    allowed_scopes: grantableScopes(row),
+    requested_scopes: json(row.requested_scopes, null),
   };
 }
 function ids(value: unknown, label: string) {
@@ -99,8 +110,24 @@ export async function pairingStart(
       body.instance_name.length <= 80,
     "Informe o nome desta instalação (até 80 caracteres).",
   );
-  const client = body.client as Client,
-    device = random(),
+  const client = body.client as Client;
+  // O aparelho pode pedir menos do que o cliente permite (o Senhapp como totem
+  // ou painel pede só queue:read e queue:issue). Sem scopes, como antes.
+  let requested: string[] | null = null;
+  if (body.scopes !== undefined && body.scopes !== null) {
+    const allowed: readonly string[] = pairingClients[client].scopes;
+    requireValue(
+      Array.isArray(body.scopes) &&
+        body.scopes.length > 0 &&
+        body.scopes.every(
+          (scope: unknown) =>
+            typeof scope === "string" && allowed.includes(scope),
+        ),
+      `Permissões pedidas inválidas para ${pairingClients[client].name}.`,
+    );
+    requested = allowed.filter((scope) => body.scopes.includes(scope));
+  }
+  const device = random(),
     id = uid(),
     created = now();
   // 256 is divisible by this 32-symbol alphabet, so modulo has no bias.
@@ -110,7 +137,7 @@ export async function pairingStart(
   ).join("");
   await exec(
     env,
-    "INSERT INTO pairing_requests(id,client,instance_name,device_hash,user_hash,expires,created,updated) VALUES(?,?,?,?,?,?,?,?)",
+    "INSERT INTO pairing_requests(id,client,instance_name,device_hash,user_hash,expires,created,updated,requested_scopes) VALUES(?,?,?,?,?,?,?,?,?)",
     id,
     client,
     body.instance_name.trim(),
@@ -119,6 +146,7 @@ export async function pairingStart(
     created + duration,
     created,
     created,
+    requested ? JSON.stringify(requested) : null,
   );
   return {
     device_code: device,
@@ -127,6 +155,7 @@ export async function pairingStart(
     expires_in: duration / 1000,
     interval,
     client,
+    ...(requested ? { scopes: requested } : {}),
   };
 }
 
@@ -183,8 +212,7 @@ export async function pairingApprove(
     numbers = ids(body.number_ids || [], "números"),
     pools = ids(body.pool_ids || [], "grupos"),
     bots = ids(body.bot_ids || [], "bots");
-  const allowed: readonly string[] =
-    pairingClients[request.client as Client].scopes;
+  const allowed = grantableScopes(request);
   requireValue(
     scopes.length > 0 && scopes.every((scope) => allowed.includes(scope)),
     "A permissão pedida não faz parte deste pareamento.",

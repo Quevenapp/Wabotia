@@ -76,6 +76,28 @@ describe("GET /api/v1/capabilities", () => {
     );
   });
 
+  it("caminhos que o app Android consulta: por área e profile_id", async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const device = await application(f, ["queue:read", "queue:issue"]);
+    const byPath = await api(
+      device.token,
+      `/profiles/${f.profile}/capabilities`,
+    );
+    expect(byPath.status).toBe(200);
+    const body = await byPath.json<any>();
+    expect(body.profiles.map((p: any) => p.id)).toEqual([f.profile]);
+    expect(body.modules.map((m: any) => m.id)).toContain("queue");
+    expect(
+      (await api(device.token, `/profiles/${other.profile}/capabilities`))
+        .status,
+    ).toBe(404);
+    const byQuery = await read(device.token, "?profile_id=" + f.profile);
+    expect(byQuery.body.profiles[0].modules.map((m: any) => m.id)).toContain(
+      "queue",
+    );
+  });
+
   it("exige autenticação e está no contrato OpenAPI", async () => {
     const response = await SELF.fetch("https://test/api/v1/capabilities");
     expect(response.status).toBe(401);

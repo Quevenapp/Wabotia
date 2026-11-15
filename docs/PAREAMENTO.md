@@ -23,7 +23,9 @@ Validação dos clientes em 09/11/2026: Vinki Worker com D1 real (56 testes), fr
 
 ## API
 
-Públicas: `POST /api/pairing/start` com `client` (`vinki` ou `fagoo`) e `instance_name`; retorna `device_code`, `user_code`, `verification_uri`, `expires_in`, `interval`. `POST /api/pairing/token` usa `client` e `device_code`; pode retornar `authorization_pending`, `connected` ou erro `slow_down`, `expired_token`, `access_denied`, `invalid_grant`. Respeite o intervalo mínimo de cinco segundos.
+Públicas: `POST /api/pairing/start` com `client` (`vinki`, `fagoo` ou `senhapp`), `instance_name` e, opcionalmente, `scopes`; retorna `device_code`, `user_code`, `verification_uri`, `expires_in`, `interval` e, quando pedidas, as `scopes` aceitas.
+
+**Permissões pedidas pelo aparelho.** `scopes` é uma lista não vazia, contida nas permissões do cliente (Senhapp: `queue:read`, `queue:issue`, `queue:operate`, `events:read`); fora disso a resposta é `400`. Com `scopes`, a consulta do código (`lookup`) devolve `requested_scopes` e `allowed_scopes` iguais ao pedido, o painel vem marcado só com elas e a aprovação recusa (`400`) qualquer permissão a mais. O Senhapp como Totem, Painel de chamadas ou Híbrido pede `["queue:read","queue:issue"]`: o aparelho pareado não opera a fila; o guichê usa login de pessoa. Um pedido sem `scopes` (versões anteriores) continua como antes: todas as permissões do cliente ficam disponíveis e o painel marca as da fila. `POST /api/pairing/token` usa `client` e `device_code`; pode retornar `authorization_pending`, `connected` ou erro `slow_down`, `expired_token`, `access_denied`, `invalid_grant`. Respeite o intervalo mínimo de cinco segundos.
 
 Administrativas: `GET /api/v1/pairings`; `POST /api/v1/pairings/lookup` com `user_code`; `POST /api/v1/pairings/{id}/approve` com `profile_id`, `scopes`, `number_ids`, `pool_ids`, `bot_ids`; `POST /api/v1/pairings/{id}/deny`; `DELETE /api/v1/pairings/{id}`. A aplicação autenticada pode chamar `POST /api/v1/pairings/disconnect` para revogar seu próprio vínculo.
 

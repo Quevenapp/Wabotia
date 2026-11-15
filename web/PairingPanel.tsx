@@ -134,8 +134,12 @@ export function PairingPanel({
               );
             setRequest(value);
             setScopes(
-              // Senhapp (totem/painel) needs only the queue: all of it by default.
-              value.client === "senhapp"
+              // O aparelho disse o que precisa (scopes em /api/pairing/start):
+              // só isso vem marcado e só isso pode ser concedido.
+              Array.isArray(value.requested_scopes)
+                ? value.requested_scopes
+                : // Senhapp (totem/painel) needs only the queue: all of it by default.
+                  value.client === "senhapp"
                 ? value.allowed_scopes
                 : value.allowed_scopes.filter((scope: string) =>
                     [

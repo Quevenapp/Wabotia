@@ -239,6 +239,26 @@ const { step, url, created } = await ctx.openWebStep(c, {
   recursos do núcleo em `features` (`modules`, `web_steps`). O app só mostra a
   tela de um módulo presente na lista; um 409 `module_disabled` numa rota do
   módulo deve esconder a tela até a próxima consulta.
+- Caminhos aceitos, todos com a mesma resposta:
+  `GET /api/v1/profiles/{p}/capabilities` (também traz `modules` no topo, com
+  os módulos ligados daquela área), `GET /api/v1/capabilities?profile={p}` e
+  `GET /api/v1/capabilities?profile_id={p}`. A área fora do alcance da
+  credencial responde `404`.
+
+  ```json
+  {
+    "capabilities_version": 1,
+    "server": { "service": "wabotia", "version": "0.19.3", "commit": "…" },
+    "features": ["modules", "web_steps"],
+    "actor": { "id": "app:…", "kind": "app", "role": "service" },
+    "profiles": [{ "id": "…", "name": "…", "enabled": true,
+                   "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }] }],
+    "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }]
+  }
+  ```
+
+  (`modules` no topo só existe no caminho por área.) O id da fila é `queue`;
+  o dos formulários, `forms`.
 - O evento `module.changed` (`{module_id, enabled, version}`) avisa quando um
   administrador liga ou desliga; aplicações da área o recebem em
   `GET /events` independentemente das permissões.

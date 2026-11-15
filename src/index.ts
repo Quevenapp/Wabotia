@@ -672,10 +672,20 @@ app.get("/api/v1/capabilities", async (c) =>
     await serverCapabilities(
       c.env,
       c.get("actor"),
-      c.req.query("profile") || null,
+      c.req.query("profile") || c.req.query("profile_id") || null,
     ),
   ),
 );
+// Mesma resposta para uma área, com `modules` também no topo: é o primeiro
+// caminho que o app Android consulta.
+app.get("/api/v1/profiles/:profile/capabilities", async (c) => {
+  const result = await serverCapabilities(
+    c.env,
+    c.get("actor"),
+    c.req.param("profile"),
+  );
+  return c.json({ ...result, modules: result.profiles[0].modules });
+});
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
   if (c.get("actor").kind !== "user")

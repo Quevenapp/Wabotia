@@ -145,6 +145,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/capabilities",
+    "Capacidades de uma área (mesma resposta, com modules no topo)",
+    "",
+  ],
+  [
+    "get",
     "/profiles/{profile}/modules",
     "Módulos da área e estado ligado/desligado",
     "",
@@ -223,14 +229,34 @@ export function describeModuleOperation(
       ' Lista os formulários ativos com ID, título e campos (sem textos internos). Envie com POST /conversations/{id}/actions e {"action":"form","form_id":"..."}. Com o módulo Formulários desligado, responde 409 module_disabled.';
     return;
   }
+  if (path === "/profiles/{profile}/capabilities") {
+    entry.description =
+      "Igual a GET /capabilities?profile={profile}, com a lista de módulos ligados repetida em modules no topo da resposta. Aceita sessão de pessoa e chave de aplicação (aparelho pareado); 404 se a credencial não alcançar a área.";
+    success.content["application/json"].schema = {
+      allOf: [
+        ref("Capabilities"),
+        {
+          type: "object",
+          properties: {
+            modules: { type: "array", items: ref("ModuleSummary") },
+          },
+        },
+      ],
+    };
+    return;
+  }
   if (path === "/capabilities") {
     entry.description =
       "Aceita qualquer credencial válida: sessão de pessoa (cookie ou token wabu_) e chave de aplicação, inclusive a de um aparelho pareado. Lista só as áreas que a credencial alcança; profile=<id> restringe a uma área (404 se não alcançar). Os aplicativos consultam antes de mostrar telas de módulo.";
-    entry.parameters.push({
-      in: "query",
-      name: "profile",
-      schema: { type: "string" },
-    });
+    entry.parameters.push(
+      { in: "query", name: "profile", schema: { type: "string" } },
+      {
+        in: "query",
+        name: "profile_id",
+        schema: { type: "string" },
+        description: "Sinônimo de profile.",
+      },
+    );
     success.content["application/json"].schema = ref("Capabilities");
     return;
   }
