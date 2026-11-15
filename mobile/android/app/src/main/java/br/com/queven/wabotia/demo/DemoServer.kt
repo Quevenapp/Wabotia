@@ -278,9 +278,24 @@ internal object DemoServer {
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
             "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
             "capabilities" -> queueOf(s).capabilities()
+            // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
+            "establishment" -> ok(demoEstablishment())
+            "people" -> ok(j("data" to s.users.map { (id, name) -> j("id" to id, "name" to name, "role" to if (id == Ids.ME) "admin" else "operator") }.sortedBy { it.str("name") }))
             else -> notFound()
         }
     }
+
+    /** Fictício: CNPJ de exemplo com dígitos válidos, DDD 20 e endereço genérico. */
+    private fun demoEstablishment(): JsonObject = j(
+        "name" to DemoMode.PROFILE_NAME,
+        "document" to "11222333000181",
+        "document_type" to "cnpj",
+        "document_display" to "11.222.333/0001-81",
+        "address" to "Rua Exemplo, 100 — Centro",
+        "phone" to "(20) 3000-0000",
+        "footer" to "Obrigado pela preferência!",
+        "configured" to true,
+    )
 
     // -----------------------------------------------------------------------------------------------------------
     // Perfil, equipe

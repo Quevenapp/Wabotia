@@ -72,6 +72,10 @@ class QueueClient(
 
     suspend fun ticket(ticketId: String): QueueTicket = get("/queue/tickets/$ticketId", QueueTicket.serializer())
 
+    /** Cabeçalho e rodapé do cupom (`GET /establishment`, aceita o aparelho pareado sem escopo próprio). */
+    suspend fun establishment(): br.com.queven.wabotia.modules.Establishment =
+        get("/establishment", br.com.queven.wabotia.modules.Establishment.serializer())
+
     /** Emite uma senha (totem: `source` omitido vira `kiosk` no servidor pareado; equipe manda `staff`). */
     suspend fun issue(queueId: String, preferential: Boolean, key: String = newKey(), source: String? = null): QueueTicket =
         post(

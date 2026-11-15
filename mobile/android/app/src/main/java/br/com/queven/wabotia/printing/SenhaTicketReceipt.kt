@@ -1,5 +1,6 @@
 package br.com.queven.wabotia.printing
 
+import br.com.queven.wabotia.modules.Establishment
 import br.com.queven.wabotia.queue.QueueTicket
 import br.com.thermalprinterkit.ReceiptLayout
 import br.com.thermalprinterkit.ThermalPrinter
@@ -25,11 +26,19 @@ data class CouponData(
     val waitMinutes: Int?,
     /** `https://wa.me/...?text=SENHA N023 AB12CD`; liga a senha ao WhatsApp do cliente. */
     val whatsappLink: String?,
+    /** Documento, endereço e telefone do estabelecimento, abaixo do nome. */
+    val headerLines: List<String> = emptyList(),
+    /** Rodapé do estabelecimento, no fim do cupom. */
+    val footerLines: List<String> = emptyList(),
 ) {
     companion object {
-        fun of(ticket: QueueTicket, header: String) =
+        /**
+         * `header` é o nome do aparelho; com o estabelecimento lido do servidor vale o nome dele (o nome da área quando
+         * não há cadastro) e entram documento, endereço, telefone e rodapé.
+         */
+        fun of(ticket: QueueTicket, header: String, establishment: Establishment? = null) =
             CouponData(
-                header = header,
+                header = establishment?.displayName ?: header,
                 queueName = ticket.queueName.orEmpty(),
                 code = ticket.code,
                 preferential = ticket.preferential,
@@ -37,6 +46,8 @@ data class CouponData(
                 ahead = ticket.ahead ?: 0,
                 waitMinutes = ticket.waitMinutes,
                 whatsappLink = ticket.whatsappLink?.takeIf { it.startsWith("https://") },
+                headerLines = establishment?.headerLines.orEmpty(),
+                footerLines = establishment?.footerLines.orEmpty(),
             )
     }
 }
@@ -72,6 +83,7 @@ class SenhaTicketReceipt(private var data: CouponData?) : ThermalReceiptPayload 
         val parts =
             buildList {
                 add(layout.text(layout.wrap(d.header) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
+                d.headerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 if (d.queueName.isNotBlank()) {
                     add(layout.text(layout.wrap(d.queueName) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
@@ -84,6 +96,7 @@ class SenhaTicketReceipt(private var data: CouponData?) : ThermalReceiptPayload 
                     add(requireNotNull(layout.qrRaster(link)) { "QR da senha inválido." })
                     add(layout.text(layout.wrap(CouponText.WHATSAPP) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
+                d.footerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 add(layout.finish())
             }
         return receiptBytes(parts)

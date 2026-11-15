@@ -77,6 +77,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
+import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -127,10 +128,11 @@ fun SettingsScreen(
     // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
     val demo = container.isDemo
     val c = Wb.colors
-    // Guichê e impressora só aparecem quando o servidor oferece a fila de senhas a este perfil.
-    val queueProfiles by container.queueFeature.available.collectAsState()
-    val queueAvailable = queueProfiles[container.session.profileId] == true
-    LaunchedEffect(container.session.profileId) { container.queueFeature.refresh() }
+    // Guichê, impressora e as telas das verticais só aparecem quando o servidor liga o módulo neste perfil.
+    val enabledModules by container.modules.enabled.collectAsState()
+    val modules = enabledModules[container.session.profileId].orEmpty()
+    val queueAvailable = ModuleIds.QUEUE in modules
+    LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
     LifecycleResumeEffect(Unit) {

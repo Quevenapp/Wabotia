@@ -41,6 +41,30 @@ object ModuleCapabilities {
         }
     }
 
+    /**
+     * Os ids dos módulos ligados (docs/MODULOS.md, seção 6): `profiles[].modules` da área pedida ou, sem ela, `modules`
+     * no topo (a rota por área) ou dentro de `data`. `null` quando a resposta não fala de módulos.
+     */
+    fun enabledModules(json: JsonElement, profileId: String? = null): Set<String>? {
+        val root = json as? JsonObject ?: return null
+        val profiles = root["profiles"] as? JsonArray
+        val profile = profiles?.firstOrNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull == profileId } as? JsonObject
+        val modules = profile?.get("modules") ?: root["modules"] ?: (root["data"] as? JsonObject)?.get("modules") ?: return null
+        val ids = when (modules) {
+            is JsonArray -> modules.mapNotNull { entry ->
+                when (entry) {
+                    is JsonPrimitive -> entry.contentOrNull
+                    is JsonObject -> (entry["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { entry.enabledFlag() }
+                    else -> null
+                }
+            }
+            is JsonObject -> modules.entries.filter { (_, value) -> (value as? JsonObject)?.enabledFlag() ?: (value as? JsonPrimitive)?.booleanOrNull ?: true }.map { it.key }
+            else -> return null
+        }
+        // A fila já teve outros nomes nas versões de teste do contrato.
+        return ids.map { if (it in QUEUE_IDS) "queue" else it }.toSet()
+    }
+
     private fun JsonObject.enabledFlag(): Boolean {
         val flag = (this["enabled"] ?: this["active"]) as? JsonPrimitive ?: return true
         return flag.booleanOrNull ?: (flag.contentOrNull?.toLongOrNull()?.let { it != 0L } ?: true)
@@ -61,19 +85,29 @@ class QueueAvailabilityProbe(
 ) {
     private val base = normalizeBaseUrl(baseUrl)
 
-    suspend fun check(): QueueAvailability = withContext(Dispatchers.IO) {
+    suspend fun check(): QueueAvailability =
+        when (val found = modules()) {
+            null -> QueueAvailability.UNKNOWN
+            else -> if ("queue" in found) QueueAvailability.AVAILABLE else QueueAvailability.UNAVAILABLE
+        }
+
+    /**
+     * Os módulos ligados nesta área; `null` sem resposta (rede, 5xx: quem chama mantém o que sabia). Servidor sem rota de
+     * capacidades: só a fila pode aparecer, se `GET /queue` responder.
+     */
+    suspend fun modules(): Set<String>? = withContext(Dispatchers.IO) {
         for (path in listOf("/api/v1/profiles/$profileId/capabilities", "/api/v1/capabilities?profile_id=$profileId")) {
             when (val answer = get(path)) {
-                is Answer.Ok -> ModuleCapabilities.hasModule(answer.json)?.let { return@withContext if (it) QueueAvailability.AVAILABLE else QueueAvailability.UNAVAILABLE }
-                is Answer.Failed -> if (answer.status == 0) return@withContext QueueAvailability.UNKNOWN
+                is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let { return@withContext it }
+                is Answer.Failed -> if (answer.status == 0) return@withContext null
                 // 401 da pessoa: a sessão caiu; a tela que chamou cuida disso na próxima chamada da API.
             }
         }
         when (val answer = get("/api/v1/profiles/$profileId/queue")) {
-            is Answer.Ok -> QueueAvailability.AVAILABLE
+            is Answer.Ok -> setOf("queue")
             is Answer.Failed -> when {
-                answer.status == 0 || answer.status >= 500 || answer.status == 429 -> QueueAvailability.UNKNOWN
-                else -> QueueAvailability.UNAVAILABLE
+                answer.status == 0 || answer.status >= 500 || answer.status == 429 -> null
+                else -> emptySet()
             }
         }
     }

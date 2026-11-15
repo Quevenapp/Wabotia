@@ -51,8 +51,8 @@ class AppContainer(context: Context) {
     /** Consulta única de eventos em primeiro plano, compartilhada por todas as telas. */
     val events = EventHub(this)
 
-    /** A fila de senhas existe no servidor para o perfil aberto (capacidades ou `GET /queue`). */
-    val queueFeature = QueueFeature(this)
+    /** Os módulos ligados no servidor para o perfil aberto (capacidades; sem elas, a fila por `GET /queue`). */
+    val modules = ModuleFeature(this)
 
     /** A credencial do modo aparelho (totem/painel), cifrada e separada da sessão de pessoa. */
     val deviceStore: DeviceConfigStore by lazy { KeystoreDeviceConfigStore(appContext) }
@@ -118,7 +118,7 @@ class AppContainer(context: Context) {
         profileData.clear()
         conversationCache.clear()
         internalChats.clear()
-        queueFeature.clear()
+        modules.clear()
         wipeLocalData()
         _auth.value = AuthState.from(session)
     }

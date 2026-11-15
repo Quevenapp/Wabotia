@@ -12,6 +12,7 @@ import br.com.queven.wabotia.device.core.PanelSoundStore
 import br.com.queven.wabotia.device.core.PanelTemplate
 import br.com.queven.wabotia.device.core.PanelTemplateStore
 import br.com.queven.wabotia.device.core.StationCall
+import br.com.queven.wabotia.modules.Establishment
 import br.com.queven.wabotia.printing.CouponData
 import br.com.queven.wabotia.printing.SenhaPrinter
 import br.com.queven.wabotia.printing.TicketPrint
@@ -95,6 +96,8 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     val state: StateFlow<DeviceState> = mutable.asStateFlow()
 
     private var client: QueueClient? = null
+    /** Nome, documento, endereço, telefone e rodapé do cupom, lidos do servidor ao conectar. */
+    private var establishment: Establishment? = null
     private var socket: WebSocket? = null
     private var loop: Job? = null
     /** Acorda o laço da conexão quando o WebSocket cai. */
@@ -232,6 +235,12 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
                 pinSet = services.pins.sealed(config.deviceId) != null,
                 template = services.templates.template(config.deviceId),
             )
+        }
+        // Cabeçalho do cupom: o estabelecimento da área (servidor antigo sem a rota: fica o nome do aparelho).
+        establishment = null
+        viewModelScope.launch {
+            val c = client ?: return@launch
+            runCatching { c.establishment() }.getOrNull()?.let { establishment = it }
         }
         loop?.cancel()
         loop = viewModelScope.launch {
@@ -395,7 +404,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private suspend fun printIssued() {
         val ticket = mutable.value.issued ?: return
         val header = mutable.value.config?.name.orEmpty().ifBlank { "Wabotia" }
-        val result = services.printer.print(CouponData.of(ticket, header))
+        val result = services.printer.print(CouponData.of(ticket, header, establishment))
         mutable.update { it.copy(print = result) }
     }
 

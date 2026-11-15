@@ -1,0 +1,57 @@
+package br.com.queven.wabotia.core
+
+import br.com.queven.wabotia.queue.QueueAvailabilityProbe
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
+/** Ids dos módulos no contrato (`GET /api/v1/capabilities`, docs/MODULOS.md). */
+object ModuleIds {
+    const val QUEUE = "queue"
+    const val AGENDA = "agenda"
+    const val SERVICE_ORDERS = "os"
+    const val RESERVA = "reserva"
+    const val MENSALIDADE = "mensalidade"
+}
+
+/**
+ * Os módulos ligados no servidor para cada área (fila, agenda, ordem de serviço, reserva, mensalidade). As telas e os
+ * atalhos de um módulo só aparecem quando ele está na lista; servidor antigo, módulo desligado ou sem permissão escondem.
+ * Consulta no máximo a cada minuto por área; um `409 module_disabled` vindo de qualquer tela esconde o módulo na hora.
+ */
+class ModuleFeature(private val container: AppContainer) {
+    private val _enabled = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val enabled: StateFlow<Map<String, Set<String>>> = _enabled.asStateFlow()
+    private val checkedAt = mutableMapOf<String, Long>()
+
+    fun has(module: String, profileId: String? = container.session.profileId): Boolean =
+        profileId != null && _enabled.value[profileId]?.contains(module) == true
+
+    suspend fun refresh(force: Boolean = false) {
+        val server = container.session.serverUrl ?: return
+        val profile = container.session.profileId ?: return
+        val now = System.currentTimeMillis()
+        if (!force && now - (checkedAt[profile] ?: 0L) < 60_000) return
+        checkedAt[profile] = now
+        val found = QueueAvailabilityProbe(server, profile, { container.session.token }).modules()
+        // Sem rede: fica o que já se sabia, e a próxima consulta tenta de novo.
+        if (found == null) checkedAt.remove(profile) else _enabled.update { it + (profile to found) }
+    }
+
+    /** `409 module_disabled`: o administrador desligou o módulo; a entrada some até a próxima consulta dizer outra coisa. */
+    fun markDisabled(module: String, profileId: String? = container.session.profileId) {
+        val profile = profileId ?: return
+        _enabled.update { map -> map + (profile to (map[profile].orEmpty() - module)) }
+    }
+
+    /** Evento `module.changed`: relê na próxima oportunidade. */
+    fun invalidate() {
+        checkedAt.clear()
+    }
+
+    fun clear() {
+        checkedAt.clear()
+        _enabled.value = emptyMap()
+    }
+}
