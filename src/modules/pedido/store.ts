@@ -1,11 +1,8 @@
 // Pedido: estado da loja (aberta, pausada, fora do horário) e se a Cobrança
-// do núcleo está pronta para cobrar online. Lê payment_accounts e o estado do
-// módulo Cobrança (tabelas do núcleo, só leitura): o contrato ainda não tem
-// ctx.paymentsReady().
+// do núcleo está pronta para cobrar online (ctx.paymentsReady).
 import { exec, one } from "../../db";
 import { type Actor, now, requireValue } from "../../types";
 import type { ModuleContext } from "../api";
-import { moduleEnabled } from "../registry";
 import {
   ONLINE_METHODS,
   PAYMENT_METHODS,
@@ -37,15 +34,9 @@ export async function loadPause(ctx: ModuleContext) {
   };
 }
 
-/** Cobrança ligada na área e conta do provedor configurada. */
+/** Cobrança ligada na área e conta do provedor ativa (ctx.paymentsReady). */
 export async function paymentsReady(ctx: ModuleContext) {
-  if (!(await moduleEnabled(ctx.env, ctx.profile, "payments"))) return false;
-  const account = await one(
-    ctx.env,
-    "SELECT enabled FROM payment_accounts WHERE profile_id=?",
-    ctx.profile,
-  );
-  return !!account?.enabled;
+  return (await ctx.paymentsReady()).ready;
 }
 
 /** Formas de pagamento oferecidas agora (online só com a Cobrança pronta). */

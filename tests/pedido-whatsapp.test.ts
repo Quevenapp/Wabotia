@@ -6,6 +6,8 @@ import { json, now, uid } from "../src/types";
 import { expirePayments } from "../src/payments";
 import { createOrder } from "../src/modules/pedido/orders";
 import {
+  api,
+  bearer,
   drain,
   latest,
   outbox,
@@ -527,6 +529,23 @@ describe("pedido no WhatsApp: pagamento", () => {
     expect(
       (await texts(c.id)).filter((t) => t.startsWith("Pedido nº 1 recebido!")),
     ).toHaveLength(1);
+    // O aviso do módulo é o comprovante: sem o "Pagamento recebido" do núcleo.
+    expect(
+      (await texts(c.id)).some((t) => t.startsWith("Pagamento recebido")),
+    ).toBe(false);
+    // Pedido pelo WhatsApp: consentimento de avisos do pedido registrado.
+    expect(
+      await one(
+        env,
+        "SELECT purpose,source,module_id,status FROM consents WHERE conversation_id=?",
+        c.id,
+      ),
+    ).toEqual({
+      purpose: "order",
+      source: "whatsapp",
+      module_id: "pedido",
+      status: "granted",
+    });
     // Repetido: nada novo.
     await webhook(account.id, payment.provider_ref);
     await webhook(account.id, payment.provider_ref);
@@ -542,6 +561,93 @@ describe("pedido no WhatsApp: pagamento", () => {
     expect(
       mp.calls.filter((call) => call.path === "/v1/payments"),
     ).toHaveLength(1);
+  });
+
+  it("cancelar o pedido com o Pix aberto cancela a cobrança", async () => {
+    stubMercadoPago();
+    const { f, menu } = await setup({
+      payments: { pix: true, cash: false, card: false },
+    });
+    await paymentAccount(f);
+    const { code } = await openCart(f, "5511970000027");
+    await submitCart(code, { ...cartFields(menu), confirm: "1" });
+    const [order] = await orders(f);
+    expect(order.payment_status).toBe("awaiting");
+    await perform(
+      env,
+      f.member,
+      f.profile,
+      "pedido.status",
+      { id: order.id, status: "cancelled", reason: "Cliente desistiu." },
+      uid(),
+    );
+    expect(
+      (
+        await one(
+          env,
+          "SELECT status FROM payments WHERE id=?",
+          order.payment_id,
+        )
+      ).status,
+    ).toBe("cancelled");
+    const [after] = await orders(f);
+    expect(after).toMatchObject({
+      status: "cancelled",
+      payment_status: "cancelled",
+      needs_refund: 0,
+    });
+  });
+
+  it("balcão só com telefone: com whatsapp_notices abre a conversa e registra o consentimento", async () => {
+    const { f, menu } = await setup();
+    const admin = await bearer(f.admin);
+    const body = (phone: string, extra: any = {}) => ({
+      customer_name: "Davi no balcão",
+      phone,
+      fulfillment: "pickup",
+      payment_method: "cash",
+      items: [{ item_id: menu.suco.id, quantity: 1 }],
+      ...extra,
+    });
+    // Sem o aceite e sem conversa: nenhum aviso pelo WhatsApp.
+    const plain = await (
+      await api(
+        admin,
+        `/profiles/${f.profile}/pedido/orders`,
+        "POST",
+        body("5511966661111"),
+      )
+    ).json<any>();
+    expect(plain.customer.conversation_id).toBeNull();
+    // Com o aceite no balcão: conversa aberta na linha oficial.
+    const noticed = await (
+      await api(
+        admin,
+        `/profiles/${f.profile}/pedido/orders`,
+        "POST",
+        body("(11) 96666-2222", { whatsapp_notices: true }),
+      )
+    ).json<any>();
+    const c = await one(
+      env,
+      "SELECT * FROM conversations WHERE id=?",
+      noticed.customer.conversation_id,
+    );
+    expect(c).toMatchObject({
+      connection_id: f.line,
+      phone: "5511966662222",
+      last_customer: 0,
+    });
+    expect(
+      await one(
+        env,
+        "SELECT purpose,source FROM consents WHERE conversation_id=?",
+        c.id,
+      ),
+    ).toEqual({ purpose: "order", source: "panel" });
+    // O resumo do pedido sai como notificação de pedido (fora da janela).
+    const sent = await outbox(c.id);
+    expect(sent.at(-1)).toMatchObject({ consent_purpose: "order" });
   });
 
   it("cobrança vencida cancela o pedido que esperava o pagamento; paga depois, marca estorno", async () => {

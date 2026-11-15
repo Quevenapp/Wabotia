@@ -456,11 +456,28 @@ export async function createFromApi(
       "invalid_request",
       Object.values(checked.errors).join(" "),
     );
-  const c =
+  let c =
     data.conversation_id !== undefined && data.conversation_id !== null
       ? await ctx.conversation(String(data.conversation_id), actor)
       : null;
   const phone = clipText(data.phone, 40, "Telefone");
+  // Balcão só com telefone: usa a conversa desse telefone; com
+  // whatsapp_notices (o cliente aceitou no balcão), abre uma na linha
+  // oficial e registra o consentimento de avisos do pedido.
+  const notices = data.whatsapp_notices === true;
+  if (!c && phoneDigits(phone).length >= 10)
+    try {
+      c = await ctx.conversationByPhone(phone, { open: notices });
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+    }
+  if (c && notices && !data.conversation_id)
+    await ctx.recordConsent(c, {
+      purpose: "order",
+      source: "panel",
+      evidence: { actor: actor.id, via: "balcão" },
+      key: `counter:${actor.id}:${requestId}`,
+    });
   requireValue(
     c || phoneDigits(phone).length >= 8 || data.customer_name,
     "Informe a conversa, o telefone ou o nome do cliente.",

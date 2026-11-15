@@ -276,7 +276,8 @@ async function say(
     return await ctx.sendMessage(
       c,
       { text: clip(text, 3800) },
-      { key, notification: true },
+      // Fora da janela, exige o consentimento de pedido (createOrder).
+      { key, notification: true, purpose: "order" },
     );
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -450,6 +451,15 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
       created: false,
     };
   const order = await loadOrder(ctx, id);
+  // O cliente pediu pelo WhatsApp (carrinho ou catálogo): consentimento para
+  // os avisos deste pedido fora da janela de 24 horas.
+  if (c && (input.source === "cart" || input.source === "catalog"))
+    await ctx.recordConsent(c, {
+      purpose: "order",
+      source: "whatsapp",
+      evidence: { order_id: id, number: order.number, via: input.source },
+      key: `order:${id}`,
+    });
   await ctx.publish(
     "pedido.created",
     id,
@@ -508,9 +518,9 @@ export async function moveOrder(
   if (stamp) sets[stamp] = at;
   if (to === "cancelled") {
     sets.cancelled_by = actor;
-    // Pago: a loja estorna pelo painel do provedor. Cobrança online aberta
-    // continua "awaiting" (o contrato não cancela cobrança pelo módulo): se
-    // for paga depois, vira pedido.payment_late.
+    // Pago: a loja estorna pelo painel do provedor. Cobrança online aberta é
+    // cancelada logo abaixo (ctx.cancelCharge); se o cliente pagar mesmo
+    // assim, vira pedido.payment_late.
     if (order.payment_status === "paid") sets.needs_refund = 1;
     if (["choosing", "pending", "failed"].includes(order.payment_status))
       sets.payment_status = "cancelled";
@@ -534,6 +544,16 @@ export async function moveOrder(
     ],
   ]);
   if (!update.meta.changes) throw conflict();
+  if (
+    to === "cancelled" &&
+    order.payment_status === "awaiting" &&
+    order.payment_id
+  )
+    try {
+      await ctx.cancelCharge(order.payment_id);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+    }
   const next = await loadOrder(ctx, order.id);
   await ctx.publish(
     "pedido.status_changed",
@@ -667,6 +687,7 @@ async function askPayment(
     await ctx.sendInteractive(c, paymentSpec(order, methods), {
       key,
       notification: true,
+      purpose: "order",
     });
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -889,6 +910,9 @@ export async function applyMethod(
       expiresMinutes: cfg.payment_minutes,
       notification: true,
       actor: "system",
+      // Pagar antes do preparo: o aviso "pedido recebido" do módulo já é o
+      // comprovante. Sem isso, o "Pagamento recebido" do núcleo é o único.
+      receipt: !cfg.pay_before_prepare,
     });
   } catch (error) {
     const reason =

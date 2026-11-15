@@ -94,5 +94,16 @@ Os apps leem o quadro em `GET /profiles/{p}/pedido/board` e a comanda em
 - Nota fiscal fica fora.
 - A forma de pagamento é escolhida no WhatsApp depois do carrinho (a página
   do carrinho ainda não tem esse campo).
-- Uma cobrança online aberta não é cancelada quando o pedido é cancelado:
-  se for paga depois, o pedido fica marcado para estorno pelo Mercado Pago.
+
+## Avisos fora da janela de 24 horas
+
+Quem pede pelo WhatsApp (carrinho ou catálogo) fica com o consentimento de
+avisos do pedido registrado: os avisos de estado saem pelo modelo de
+notificação mesmo depois de 24 horas (encomenda para outro dia). No balcão,
+com só o telefone, marque `whatsapp_notices` quando o cliente aceitar
+receber os avisos: o Wabotia abre a conversa na linha oficial.
+
+Cancelar um pedido com o Pix ou o link ainda abertos cancela a cobrança. Se
+o cliente pagar mesmo assim, o pedido fica marcado para estorno. Com
+"pagar antes do preparo", o aviso "Pedido nº X recebido" é o comprovante e o
+"Pagamento recebido" do núcleo não é enviado.

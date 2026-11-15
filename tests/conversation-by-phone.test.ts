@@ -17,6 +17,12 @@ describe("conversa pelo telefone", () => {
       "5511999990000",
     ]);
     expect(phoneVariants("14155550100")).toEqual(["14155550100"]);
+    // Sem DDI, no formato brasileiro: 55 na frente.
+    expect(phoneVariants("(11) 96666-2222")).toEqual([
+      "5511966662222",
+      "551166662222",
+    ]);
+    expect(phoneVariants("1133334444")).toEqual(["551133334444"]);
     expect(() => phoneVariants("123")).toThrow(/Telefone inválido/);
   });
 

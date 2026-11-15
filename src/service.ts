@@ -1022,7 +1022,11 @@ async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
  * WhatsApp às vezes identifica o mesmo número das duas formas.
  */
 export function phoneVariants(phone: unknown) {
-  const digits = String(phone ?? "").replace(/\D/g, "");
+  let digits = String(phone ?? "").replace(/\D/g, "");
+  // Sem DDI, no formato brasileiro (DDD + celular com 9, ou DDD + 8
+  // dígitos): é do Brasil. O WhatsApp sempre usa o número com o DDI.
+  if (/^[1-9]{2}9\d{8}$/.test(digits) || /^[1-9]{2}[2-9]\d{7}$/.test(digits))
+    digits = "55" + digits;
   requireValue(
     /^\d{10,15}$/.test(digits),
     "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).",
