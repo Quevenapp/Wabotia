@@ -51,6 +51,7 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   deliveries: "entregas",
   "webhook-deliveries": "eventos",
   system: "sistema",
+  modules: "modulos",
 };
 /** Segmentos de Equipe aceitos no endereço. */
 export const teamSegments = ["conversas", "pessoas", "bots", "setores"] as const;

@@ -304,6 +304,25 @@ const menus: Row[] = [
 
 const page = (data: Row[]) => ({ data, next_cursor: null });
 
+// Gestão → Módulos (src/modules: a mesma declaração do servidor, resumida).
+const demoModules: Row[] = [
+  {
+    id: "queue",
+    name: "Fila presencial",
+    version: "1.0.0",
+    description:
+      "Senhas com guichês, painel de TV, totem Senhapp e entrada na fila pelo WhatsApp.",
+    builtin: true,
+    enabled: true,
+    default_enabled: true,
+    navigation: [
+      { id: "queue", label: "Fila", place: "rail", admin: false },
+      { id: "queue-settings", label: "Filas e guichês", place: "admin", admin: true },
+    ],
+    menu_item_types: [{ type: "queue", label: "Entrar na fila de espera" }],
+  },
+];
+
 function read(path: string, query: URLSearchParams): any {
   if (path === "v1/me") return demoMe;
   if (path === "v1/profiles") return [demoProfile];
@@ -431,6 +450,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest.startsWith("internal-chats/"))
     return { id: "demo-chat", peer: team[1], messages: internalMessages };
   if (rest === "menus") return { data: menus, revision: "demo" };
+  if (rest === "modules") return { data: demoModules };
   if (rest === "lines") return { data: [] };
   if (rest === "calls")
     return page([

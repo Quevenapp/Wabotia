@@ -63,6 +63,15 @@ function Areas() {
                   ? "A fila de senhas está desligada nesta área de atendimento. Ligue-a em Gestão → Módulos."
                   : "A fila de senhas está desligada nesta área de atendimento. Fale com o administrador."
               }
+              action={
+                app.isAdmin ? (
+                  <Button
+                    onClick={() => navigate({ area: "admin", page: "modules" })}
+                  >
+                    Abrir Módulos
+                  </Button>
+                ) : undefined
+              }
             />
           </div>
         )

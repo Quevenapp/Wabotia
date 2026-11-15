@@ -797,3 +797,32 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ---------- Módulos ---------- */
+.module-card.off h2,
+.module-card.off > p {
+  color: var(--text-2);
+}
+.module-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+.module-meta small {
+  color: var(--text-2);
+}
+.module-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+.module-facts dt {
+  color: var(--text-2);
+}
+.module-facts dd {
+  margin: 0;
+}

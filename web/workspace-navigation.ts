@@ -1,5 +1,6 @@
 import {
   Activity,
+  Blocks,
   BookOpen,
   Bot,
   Cloud,
@@ -53,6 +54,7 @@ export const sections = [
   ["deliveries", "Entregas de mensagens", Send],
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
+  ["modules", "Módulos", Blocks],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -119,7 +121,12 @@ export const workspaceGroups = [
     icon: Code2,
     pages: ["applications", "bot-runs", "deliveries", "webhook-deliveries"],
   },
-  { id: "system", label: "Sistema", icon: Cloud, pages: ["system"] },
+  {
+    id: "system",
+    label: "Sistema",
+    icon: Cloud,
+    pages: ["modules", "system"],
+  },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
 ] as const;
@@ -137,6 +144,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "applications",
   "webhook-deliveries",
   "system",
+  "modules",
 ]);
 
 /**
@@ -216,4 +224,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   deliveries: "Confira o envio de cada mensagem ao canal.",
   "webhook-deliveries": "Acompanhe os eventos enviados aos seus sistemas.",
   system: "Verifique versões, instale atualizações e mantenha sua instalação.",
+  modules:
+    "Ligue e desligue as funções desta área, como a fila presencial.",
 };
