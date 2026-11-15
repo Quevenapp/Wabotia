@@ -111,6 +111,12 @@ export class Coordinator extends DurableObject<Env> {
         );
         let status = 200,
           value: any;
+        // Identificador da operação para as chaves derivadas (sourceKey, ids
+        // de registro): único por credencial, área, operação e
+        // Idempotency-Key, estável nas repetições e só com hexadecimais. A
+        // chave do cliente nunca vira id direto: outra credencial ou outra
+        // área com a mesma chave é outra operação, e "/" não quebra URL.
+        const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
         try {
           value = await perform(
             this.env,
@@ -118,7 +124,7 @@ export class Coordinator extends DurableObject<Env> {
             this.profile,
             body.operation,
             body.data,
-            body.key,
+            operationId,
           );
           await audit(
             this.env,

@@ -140,7 +140,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onConversationAction(module, action, handler)` | `POST /conversations/:id/actions` com `{"action":"<nome>"}`; o núcleo já conferiu `conversations:write` e a visibilidade; quem pode agir é regra do módulo |
 | `onWebStepCompleted(module, hook)` | Cliente concluiu um passo web aberto pelo módulo. Aberto com `spec.return_message: "module"`, o núcleo não manda o retorno padrão e a string devolvida pelo gancho vira o retorno |
 | `onMcpTool(module, tool)` | Ferramenta para bots (MCP), traduzida para uma rota da API v1; veja "Ferramentas para bots" |
-| `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria |
+| `onCommand(module, op, handler)` | Comando de escrita do módulo, executado no `Coordinator` da área com idempotência e auditoria. O `requestId` (também em `onConversationAction`) é opaco: 32 hexadecimais únicos por credencial, área, operação e Idempotency-Key, iguais nas repetições. Use-o em `sourceKey` e ids derivados; nunca use a chave do cliente diretamente |
 | `onRoute(module, {method, path, op})` | Liga `POST/PUT/PATCH/DELETE /profiles/:profile/<path>` ao comando `op` (corpo + `:id` viram `data`; exige `Idempotency-Key`) |
 | `onRead(module, path, handler)` | `GET /profiles/:profile/<path>` sem passar pelo `Coordinator` |
 | `onConversationTurn(module, handler)` (apelido `onInboundReply`) | Próxima mensagem do cliente numa conversa individual: `handler(ctx, c, {text, replyId, rowId})`; devolva `true` quando é do módulo. Veja "Conversa no chat" abaixo |

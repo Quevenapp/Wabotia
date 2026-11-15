@@ -28,7 +28,7 @@ Atendimento exige janela real de 24 horas desde a última mensagem recebida do c
 
 ## Repetição e erros
 
-Toda operação de escrita recebe `Idempotency-Key`, com até 200 caracteres ASCII visíveis. Gere uma chave para cada intenção e mantenha a mesma chave, método, caminho e corpo se precisar repetir por falha de rede. O resultado registrado é devolvido com `Idempotency-Replayed: true`. Outro conteúdo sob a mesma chave retorna `409 idempotency_conflict`. Nunca gere outra chave automaticamente após timeout: a operação pode já ter sido aceita.
+Toda operação de escrita recebe `Idempotency-Key`, com até 200 caracteres ASCII visíveis. Gere uma chave para cada intenção e mantenha a mesma chave, método, caminho e corpo se precisar repetir por falha de rede. O resultado registrado é devolvido com `Idempotency-Replayed: true`. Outro conteúdo sob a mesma chave retorna `409 idempotency_conflict`. A chave vale por credencial, área de atendimento e operação: outra credencial ou outra área com a mesma chave é outra operação, e a chave nunca vira id de registro. Nunca gere outra chave automaticamente após timeout: a operação pode já ter sido aceita.
 
 Respostas de erro usam `{"error":{"code":"...","message":"...","request_id":"..."}}` e cabeçalho `X-Request-Id`. `401` indica chave expirada/revogada, `403` permissão, `404` recurso fora do acesso, `409` conflito e `429` limite. Respeite `Retry-After`. IDs são opacos; datas são Unix em milissegundos.
 

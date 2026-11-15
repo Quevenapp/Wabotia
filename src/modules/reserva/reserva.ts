@@ -457,6 +457,8 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
   const rules = await config(ctx);
   const { booking, created } = await createBooking(ctx, rules, {
     ...data,
+    // requestId: único por credencial, área, operação e Idempotency-Key, só
+    // hexadecimais (nunca a chave do cliente).
     id: `cmd-${requestId}`,
     conversation,
     source: sourceOf(actor),
