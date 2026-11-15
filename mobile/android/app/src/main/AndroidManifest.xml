@@ -77,7 +77,16 @@
             android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.Wabotia" />
+            android:theme="@style/Theme.Wabotia">
+            <!--
+                Android 16 ignora a orientação fixa em telas grandes (sw600dp+) de apps com targetSdk 36: no Galaxy
+                Tab X230 o totem girava com o tablet em pé. Esta exceção temporária mantém a paisagem só no modo
+                aparelho; com targetSdk 37 ela deixa de valer e os quadros precisam caber em retrato.
+            -->
+            <property
+                android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+                android:value="true" />
+        </activity>
 
         <service
             android:name=".core.push.WabotiaMessagingService"
