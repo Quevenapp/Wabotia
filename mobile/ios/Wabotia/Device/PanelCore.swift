@@ -258,6 +258,21 @@ final class PanelPinAttempts {
     }
 }
 
+/// Emissão do totem sem resposta definitiva (rede, 5xx, depois da repetição automática): o servidor pode ter gravado a
+/// senha. O próximo toque na mesma fila e no mesmo tipo, dentro de `window`, repete com a mesma chave e recebe essa
+/// senha, em vez de criar outra e deixar a primeira na fila sem dono (o painel chamaria uma senha que ninguém tem).
+struct PendingIssue: Equatable {
+    static let window: TimeInterval = 5 * 60
+    var queueId: String
+    var preferential: Bool
+    var key: String
+    var since: Date
+
+    func reusable(queueId: String, preferential: Bool, now: Date) -> Bool {
+        self.queueId == queueId && self.preferential == preferential && now.timeIntervalSince(since) < Self.window
+    }
+}
+
 /// O destino da chamada em duas partes: o rótulo pequeno ("Guichê") e o valor grande ("3"). O número curto no fim é o
 /// que a pessoa procura na sala; sem ele, o destino inteiro vira o valor e o rótulo diz a direção.
 enum PanelDestination {

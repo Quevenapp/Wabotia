@@ -78,7 +78,8 @@ final class DeviceViewModelTests: XCTestCase {
         return #"{"queues":[{"id":"q1","name":"Geral","prefix_normal":"N","channels":["whatsapp","kiosk"],"waiting":{"normal":2,"preferential":0}}],"counters":[],"recent_calls":[\#(frames.joined(separator: ","))]}"#
     }
 
-    private func model(role: DeviceRole?, scopes: [String]? = DeviceScopes.requested, handler: @escaping (StubURLProtocol.Seen) -> StubURLProtocol.Answer) -> DeviceViewModel {
+    private func model(role: DeviceRole?, scopes: [String]? = DeviceScopes.requested, issueRetryPause: UInt64 = 1_500_000_000,
+                       handler: @escaping (StubURLProtocol.Seen) -> StubURLProtocol.Answer) -> DeviceViewModel {
         StubURLProtocol.reset(handler)
         audio = RecordingAudio()
         printer = FakePrinter()
@@ -86,7 +87,8 @@ final class DeviceViewModelTests: XCTestCase {
         store = MemoryDeviceConfigStore(DeviceConfig(deviceId: "dev", baseUrl: "https://w.example", token: "wab_t", profileId: "p1", name: "Totem da entrada", role: role, scopes: scopes))
         let session = StubURLProtocol.session()
         let services = DeviceServices(store: store, pairing: QueuePairing(session: session), session: session, printer: printer, settings: settings,
-                                      audio: { [unowned self] in self.audio }, serverURL: "https://w.example", demo: false, pollInterval: 0.05, spotlightSeconds: 0.2)
+                                      audio: { [unowned self] in self.audio }, serverURL: "https://w.example", demo: false, pollInterval: 0.05, spotlightSeconds: 0.2,
+                                      issueRetryPause: issueRetryPause)
         return DeviceViewModel(services: services)
     }
 
@@ -148,6 +150,48 @@ final class DeviceViewModelTests: XCTestCase {
         let issueBody = StubURLProtocol.seen.first { $0.method == "POST" }?.json
         XCTAssertEqual(issueBody?["queue_id"] as? String, "q1")
         XCTAssertEqual(issueBody?["preferential"] as? Bool, false)
+    }
+
+    func testUncertainIssueReusesTheKeyOnTheNextSameTap() async {
+        var posts: [String?] = []
+        let vm = model(role: .totem, issueRetryPause: 1_000_000) { seen in
+            guard seen.method == "POST" else { return .json(200, self.overview(calls: [])) }
+            posts.append(seen.header("Idempotency-Key"))
+            // As duas primeiras (a do toque e a repetição automática) ficam sem resposta definitiva.
+            return posts.count <= 2 ? .json(503, #"{"error":{"code":"unavailable","message":"Fora do ar"}}"#)
+                                    : .json(200, #"{"id":"tn","code":"N003","status":"waiting"}"#)
+        }
+        await waitUntil { vm.overview != nil }
+        vm.chooseQueue("q1")
+        vm.issue(preferential: false)
+        await waitUntil { !vm.busy && posts.count == 2 }
+        XCTAssertNotNil(vm.pendingIssue, "sem resposta definitiva, o pedido fica guardado")
+        vm.chooseQueue("q1")
+        vm.issue(preferential: false)
+        await waitUntil { vm.issued != nil }
+        vm.close()
+        XCTAssertEqual(posts.count, 3)
+        XCTAssertEqual(Set(posts.compactMap { $0 }).count, 1, "o toque seguinte, na mesma fila e tipo, repete a mesma chave")
+        XCTAssertNil(vm.pendingIssue)
+    }
+
+    func testDefinitiveRefusalStartsANewIssue() async {
+        var posts: [String?] = []
+        let vm = model(role: .totem, issueRetryPause: 1_000_000) { seen in
+            guard seen.method == "POST" else { return .json(200, self.overview(calls: [])) }
+            posts.append(seen.header("Idempotency-Key"))
+            return .json(422, #"{"error":{"code":"queue_closed","message":"Fila fechada"}}"#)
+        }
+        await waitUntil { vm.overview != nil }
+        vm.chooseQueue("q1")
+        vm.issue(preferential: false)
+        await waitUntil { !vm.busy && posts.count == 1 }
+        XCTAssertNil(vm.pendingIssue, "recusa definitiva: nada foi gravado")
+        vm.chooseQueue("q1")
+        vm.issue(preferential: true)
+        await waitUntil { !vm.busy && posts.count == 2 }
+        vm.close()
+        XCTAssertNotEqual(posts[0], posts[1])
     }
 
     func testIndeterminatePrintAsksBeforeReprinting() async {

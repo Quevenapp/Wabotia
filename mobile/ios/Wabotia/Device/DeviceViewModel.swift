@@ -16,6 +16,8 @@ struct DeviceServices {
     var pollInterval: TimeInterval
     /// Quanto o destaque da chamada fica na tela.
     var spotlightSeconds: TimeInterval = 8
+    /// Espera antes da repetição automática da emissão (nanossegundos).
+    var issueRetryPause: UInt64 = 1_500_000_000
 
     @MainActor
     static func live(serverURL: String?) -> DeviceServices {
@@ -307,16 +309,28 @@ final class DeviceViewModel: ObservableObject {
 
     func cancelChoice() { choosing = nil }
 
+    /// Emissão que ficou sem resposta definitiva (AMB-1): a chave volta no próximo toque igual.
+    private(set) var pendingIssue: PendingIssue?
+
     func issue(preferential: Bool) {
         guard let queue = choosing, let client else { return }
-        let key = QueueClient.newKey()
+        let now = Date()
+        let key: String
+        if let pending = pendingIssue, pending.reusable(queueId: queue.id, preferential: preferential, now: now) {
+            key = pending.key
+        } else {
+            key = QueueClient.newKey()
+            pendingIssue = PendingIssue(queueId: queue.id, preferential: preferential, key: key, since: now)
+        }
         choosing = nil
         busy = true
         notice = nil
+        let pause = services.issueRetryPause
         Task { [weak self] in
             do {
-                let ticket = try await issueOnce(client, queueId: queue.id, preferential: preferential, key: key)
+                let ticket = try await issueOnce(client, queueId: queue.id, preferential: preferential, key: key, pause: pause)
                 guard let self else { return }
+                if self.pendingIssue?.key == key { self.pendingIssue = nil }
                 self.busy = false
                 self.issued = ticket
                 self.couponPrint = .printing
@@ -333,6 +347,8 @@ final class DeviceViewModel: ObservableObject {
                 self.busy = false
                 self.notice = QueueError.describe(error)
                 if (error as? QueueError)?.status == 0 { self.offline = true }
+                // Recusa definitiva (4xx): nada foi gravado, o próximo toque é um pedido novo. Rede e 5xx guardam a chave.
+                if (error as? QueueError)?.retryable != true, self.pendingIssue?.key == key { self.pendingIssue = nil }
             }
         }
     }
