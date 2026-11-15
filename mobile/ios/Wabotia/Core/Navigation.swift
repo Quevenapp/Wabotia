@@ -29,6 +29,9 @@ enum Route: Hashable {
     case mensalidade
     case installment(id: String)
     case subscription(id: String)
+    /// Pedido (módulo `pedido`): quadro da cozinha, lista e cardápio.
+    case pedido
+    case pedidoOrder(id: String)
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -165,6 +168,8 @@ struct RouteDestination: View {
             case .mensalidade: MensalidadeView()
             case .installment(let id): InstallmentDetailView(id: id)
             case .subscription(let id): SubscriptionDetailView(id: id)
+            case .pedido: PedidoView()
+            case .pedidoOrder(let id): PedidoOrderView(id: id)
             }
         }
         .id(route)

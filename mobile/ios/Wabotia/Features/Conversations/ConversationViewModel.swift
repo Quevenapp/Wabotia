@@ -513,6 +513,15 @@ final class ConversationViewModel: ObservableObject {
         return true
     }
 
+    /// Pedido: envia ao cliente o link do carrinho ("Montar pedido para este cliente"; a conversa precisa estar assumida).
+    func sendPedidoLink() async -> Bool {
+        guard await act("pedido_link") else { return false }
+        workspace.addLocalEvent("pedido", "Link do pedido enviado ao cliente", to: conversationId)
+        workspace.show("Link do pedido enviado", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
     func sendSurvey() async -> Bool {
         guard await act("survey") else { return false }
         workspace.addLocalEvent("survey", "Pesquisa de satisfação enviada", to: conversationId)
