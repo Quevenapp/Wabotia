@@ -744,7 +744,7 @@ export async function processInbox(env: Env, profile: string) {
           choice.department_id || null,
           undefined,
           true,
-          { source: "menu", menuItemId: choice.id },
+          { source: "menu", menuItemId: choice.id, rowId: row.id },
         );
         return;
       }
@@ -860,7 +860,7 @@ export async function processInbox(env: Env, profile: string) {
         null,
         undefined,
         true,
-        { source: "keyword" },
+        { source: "keyword", rowId: row.id },
       );
       return;
     }
@@ -942,7 +942,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           undefined,
           true,
-          { source: "line" },
+          { source: "line", rowId: row.id },
         );
       return;
     }
@@ -959,7 +959,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           value,
           true,
-          { source: "bot_error" },
+          { source: "bot_error", rowId: row.id },
         );
       return;
     }
@@ -1052,7 +1052,7 @@ export async function processInbox(env: Env, profile: string) {
             null,
             undefined,
             true,
-            { source: "attachment" },
+            { source: "attachment", rowId: row.id },
           );
           return;
         }
@@ -1101,7 +1101,7 @@ export async function processInbox(env: Env, profile: string) {
       null,
       undefined,
       true,
-      { source: "bot_error" },
+      { source: "bot_error", rowId: row.id },
     );
   } finally {
     await exec(env, "UPDATE inbox SET status='done' WHERE id=?", row.id);
@@ -1714,7 +1714,7 @@ export async function processRun(env: Env, run: Run) {
               null,
               context.request ?? null,
               true,
-              { source: "bot" },
+              { source: "bot", rowId: run.id },
             );
           } else {
             const source = {
@@ -1759,7 +1759,7 @@ export async function processRun(env: Env, run: Run) {
               null,
               context.request ?? null,
               true,
-              { source: "bot" },
+              { source: "bot", rowId: run.id },
             );
           else
             await createRun(
@@ -1867,7 +1867,7 @@ export async function processRun(env: Env, run: Run) {
             null,
             summary ?? context.request ?? null,
             true,
-            { source: "bot" },
+            { source: "bot", rowId: run.id },
           );
         }
       }
@@ -2009,7 +2009,7 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
         null,
         json(run.context).request ?? null,
         false,
-        { source: "bot_error" },
+        { source: "bot_error", rowId: run.id },
       );
     else if (
       c.epoch === run.epoch &&

@@ -81,6 +81,7 @@ import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
 import {
   hiddenMenuTypes,
+  moduleById,
   moduleCommand,
   moduleForMenuType,
   moduleMenuTypes,
@@ -91,6 +92,7 @@ import {
 } from "./modules/registry";
 import {
   conversationAction,
+  gateFailsClosed,
   handoffGatesList,
   moduleCommandHandler,
   settingsValidator,
@@ -744,6 +746,7 @@ async function handoffHeld(
     department_id: string | null;
     summary: string | null;
     menu_item_id: string | null;
+    row_id: string | null;
   },
 ) {
   const gates = handoffGatesList();
@@ -761,6 +764,18 @@ async function handoffHeld(
           error: error instanceof ApiError ? error.code : String(error),
         }),
       );
+      // Módulo que vende acesso à equipe (failClosed): o erro segura a
+      // conversa e avisa a equipe numa nota interna (revisão B1).
+      if (gateFailsClosed(module)) {
+        await message(
+          env,
+          c,
+          "note",
+          "system",
+          `Passagem para a equipe segurada: o módulo ${moduleById(module)?.name || module} não conseguiu decidir (${error instanceof ApiError ? error.message : "erro interno"}). Confira a conversa e transfira se for o caso.`,
+        );
+        return module;
+      }
     }
   }
   return null;
@@ -792,6 +807,8 @@ export async function handoff(
     meta?: HandoffMeta | null;
     source?: HandoffSource;
     menuItemId?: string | null;
+    /** Mensagem da caixa de entrada (ou execução do bot) que pediu. */
+    rowId?: string | null;
   } = {},
 ) {
   const source = options.source || "system";
@@ -804,6 +821,7 @@ export async function handoff(
       department_id: departmentId,
       summary: request ?? null,
       menu_item_id: options.menuItemId ?? null,
+      row_id: options.rowId ?? null,
     });
     if (held) {
       await event(env, c.profile_id, "conversation.updated", c.id, {

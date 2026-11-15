@@ -834,7 +834,10 @@ export function onConversationTurn(
  * Não passam por aqui: a transferência feita pela equipe e o atendente que
  * assume a conversa. Com mais de um módulo, a ordem é a de `modules` em
  * src/modules/registry.ts; o primeiro "hold" encerra a consulta. Erro no
- * gancho libera a passagem (o cliente nunca fica preso) e vai para o log.
+ * gancho libera a passagem (o cliente nunca fica preso) e vai para o log,
+ * a menos que o módulo declare `{failClosed: true}` (quem vende acesso à
+ * equipe): aí o erro segura a conversa e deixa uma nota interna para a
+ * equipe conferir.
  */
 export function onHandoffRequest(
   moduleId: string,
@@ -843,14 +846,19 @@ export function onHandoffRequest(
     c: Conversation,
     request: HandoffGateRequest,
   ) => Promise<"allow" | "hold" | void>,
+  options: { failClosed?: boolean } = {},
 ) {
   if (!moduleById(moduleId))
     throw new Error(`Módulo não registrado: ${moduleId}`);
-  registerHandoffGate(moduleId, async (env, c, request) => {
-    const ctx = modulesApi(env, c.profile_id, moduleId);
-    if (!(await ctx.enabled())) return "allow";
-    return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
-  });
+  registerHandoffGate(
+    moduleId,
+    async (env, c, request) => {
+      const ctx = modulesApi(env, c.profile_id, moduleId);
+      if (!(await ctx.enabled())) return "allow";
+      return (await handler(ctx, c, request)) === "hold" ? "hold" : "allow";
+    },
+    options,
+  );
 }
 export interface HandoffGateRequest {
   source: Exclude<HandoffSource, "staff" | "module">;
@@ -862,6 +870,12 @@ export interface HandoffGateRequest {
   summary: string | null;
   /** Item de menu escolhido (source "menu"). */
   menu_item_id: string | null;
+  /**
+   * Evento que pediu a passagem: a mensagem da caixa de entrada (ou a
+   * execução do bot). Estável quando a mesma mensagem é reprocessada; use
+   * nas chaves (`gate:${rowId}`) no lugar do relógio. Null fora de mensagem.
+   */
+  row_id: string | null;
 }
 
 /** Mesmo gancho, com o nome pedido pela sessão da Ordem de Serviço. */

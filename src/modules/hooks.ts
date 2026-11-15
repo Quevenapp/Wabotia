@@ -132,15 +132,21 @@ export const turnHandlersList = () => [...turnHandlers];
  * O núcleo consulta na ordem de `modules` (registry.ts).
  */
 const handoffGates: [string, Hook][] = [];
+/** Módulos cujo gancho segura a passagem quando falha (revisão B1). */
+const failClosedGates = new Set<string>();
 export function registerHandoffGate(
   module: string,
   gate: (env: any, c: any, request: any) => Promise<"allow" | "hold">,
+  options: { failClosed?: boolean } = {},
 ) {
   const index = handoffGates.findIndex(([id]) => id === module);
   if (index >= 0) handoffGates[index] = [module, gate];
   else handoffGates.push([module, gate]);
+  if (options.failClosed) failClosedGates.add(module);
+  else failClosedGates.delete(module);
 }
 export const handoffGatesList = () => [...handoffGates];
+export const gateFailsClosed = (module: string) => failClosedGates.has(module);
 
 /** Ferramenta MCP declarada por um módulo (traduzida para a API v1). */
 export interface ModuleMcpTool {

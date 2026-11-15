@@ -287,6 +287,13 @@ onPaymentUpdated("suporte", async (ctx, payment) => {
   gancho. Sem módulo de gancho ligado, a linha põe na fila como antes.
 - **Não passam**: a transferência feita pela equipe, o atendente que assume a
   conversa e o próprio `ctx.handoff`.
+- **`request.row_id`**: a mensagem da caixa de entrada (ou a execução do bot)
+  que pediu a passagem. É a mesma quando a mensagem é reprocessada; use nas
+  chaves (`gate:${row_id}`) no lugar do relógio, para não abrir outra sessão.
+- **Erro no gancho**: por padrão libera a passagem (o cliente nunca fica
+  preso). Módulo que vende acesso à equipe declara
+  `onHandoffRequest(module, handler, {failClosed: true})`: o erro segura a
+  conversa e deixa uma nota interna para a equipe conferir.
 - **Segurar** (`"hold"`): o núcleo não muda a conversa nem avisa o cliente;
   publica `conversation.updated` com `handoff_held: {module, source, reason}`.
   O módulo conduz pelo `onConversationTurn` e chama `ctx.handoff` quando
