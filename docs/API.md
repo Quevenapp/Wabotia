@@ -58,7 +58,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 }
 ```
 
-`GET /profiles/{perfil}/modules` lista todos os módulos da versão instalada com `enabled`, `default_enabled`, a navegação do painel, os tipos de item de menu, os eventos e as chaves de configuração. `PUT /profiles/{perfil}/modules/{id}` com `{"enabled":false}` e `Idempotency-Key` liga ou desliga (somente administrador) e publica o evento `module.changed`. Com o módulo desligado, suas rotas e operações respondem `409 module_disabled` e seus itens de menu somem do WhatsApp e do editor de menus, sem serem apagados: voltam ao religar.
+`GET /profiles/{perfil}/modules` lista todos os módulos da versão instalada com `enabled`, `default_enabled`, a navegação do painel, os tipos de item de menu, os eventos e as chaves de configuração. `PUT /profiles/{perfil}/modules/{id}` com `{"enabled":false}` e `Idempotency-Key` liga ou desliga (somente administrador) e publica o evento `module.changed`. Com o módulo desligado, suas rotas e operações respondem `409 module_disabled` e seus itens de menu somem do WhatsApp e do editor de menus, sem serem apagados: voltam ao religar. Um módulo pode depender de outro (`requires` em `GET /modules`): ligar sem o requerido responde `409 module_requires`; desligar um requerido com dependentes ligados responde `409 module_required`, e com `{"enabled":false,"cascade":true}` desliga todos juntos (resposta com `also_disabled`; `module.changed` dos dependentes com `because`).
 
 ### Dados do estabelecimento
 

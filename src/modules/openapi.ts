@@ -88,7 +88,14 @@ export const moduleSchemas = {
   ModuleState: {
     type: "object",
     required: ["enabled"],
-    properties: { enabled: { type: "boolean" } },
+    properties: {
+      enabled: { type: "boolean" },
+      cascade: {
+        type: "boolean",
+        description:
+          "Ao desligar um módulo do qual outros dependem (requires), desliga os dependentes junto. Sem ele, 409 module_required.",
+      },
+    },
   },
   PaymentAccountInput: {
     type: "object",

@@ -76,6 +76,35 @@ O que o núcleo faz com cada campo:
 | `settings` | Chaves das configurações da área que o módulo valida (`onSettingsSave`) |
 | `routes` | Com o módulo desligado, `/profiles/:profile/<rota>/…` responde `409 module_disabled` |
 | `operations` | Com o módulo desligado, os comandos com esses prefixos respondem `409 module_disabled` |
+| `requires` | Opcional: ids dos módulos dos quais este depende (veja abaixo) |
+
+### Dependência entre módulos (`requires`)
+
+```ts
+export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mensalidade"], … };
+```
+
+- **Ligar**: o dependente só liga com todos os requeridos ligados; senão
+  `PUT /modules/suporte` responde `409 module_requires` ("Suporte pago depende
+  de Mensalidade. Ligue esse módulo antes."). A tela Módulos mostra "Depende
+  de" e trava o botão até o requerido ligar.
+- **Desligar o requerido** com dependentes ligados responde
+  `409 module_required` listando os dependentes. Com `{"enabled":false,
+  "cascade":true}` (a tela Módulos pede confirmação e envia), o requerido e os
+  dependentes desligam juntos; cada um publica `module.changed`, os
+  dependentes com `because`. A resposta traz `also_disabled`. Religar o
+  requerido não religa os dependentes.
+- **Estado efetivo**: com um requerido desligado, o dependente conta como
+  desligado em todo lugar (`GET /modules`, capacidades, rotas, menus,
+  ganchos), mesmo que a linha salva diga ligado.
+- **Só `public.ts`**: um módulo usa do outro apenas `src/modules/<id>/public.ts`,
+  que o requerido mantém como contrato estável (funções que recebem
+  `ModuleContext`, tipos de leitura). Nunca importe outros arquivos do
+  requerido nem leia ou grave as tabelas dele (`mensalidade_`…). Mudança que
+  quebre `public.ts` exige subir a `version` do requerido e ajustar os
+  dependentes na mesma entrega.
+- Declare em `requires` todo módulo cujo `public.ts` você importa: é assim
+  que o núcleo garante que ele está ligado quando o seu código roda.
 
 ## 2. Interface interna (`src/modules/api.ts`)
 
