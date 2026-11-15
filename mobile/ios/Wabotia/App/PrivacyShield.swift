@@ -27,6 +27,8 @@ final class PrivacyShield {
         if let window = windows[key] { window.isHidden = false; return }
         let window = UIWindow(windowScene: scene)
         window.windowLevel = .alert + 1
+        // A mesma aparência (clara, escura ou do sistema) escolhida no app.
+        window.overrideUserInterfaceStyle = scene.windows.first { $0.windowLevel == .normal }?.overrideUserInterfaceStyle ?? .unspecified
         let host = UIHostingController(rootView: PrivacyCover())
         host.view.backgroundColor = .clear
         window.rootViewController = host
