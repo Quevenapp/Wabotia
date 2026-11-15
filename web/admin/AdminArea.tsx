@@ -35,6 +35,8 @@ import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
 import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
+import { OrdersPage } from "../modules/pedido/OrdersPage";
+import { MenuPage } from "../modules/pedido/MenuPage";
 import {
   GroupsPage,
   LogsPage,
@@ -150,6 +152,10 @@ function Page({ page }: { page: PageId }) {
       return <PaymentsPage />;
     case "establishment":
       return <EstablishmentPage />;
+    case "pedidos":
+      return <OrdersPage />;
+    case "pedidos-cardapio":
+      return <MenuPage />;
     case "users":
       return <UsersPage />;
     case "applications":

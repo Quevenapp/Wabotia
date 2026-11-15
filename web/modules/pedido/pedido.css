@@ -1,0 +1,247 @@
+/* Pedido (web/modules/pedido): quadro da cozinha, detalhe e cardápio. */
+.pedido-store {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pedido-store .spacer {
+  flex: 1;
+}
+.pedido-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: start;
+}
+.pedido-column {
+  background: var(--panel);
+  border-radius: var(--radius-card);
+  padding: 10px;
+  min-height: 160px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.pedido-column > h3 {
+  margin: 2px 4px 4px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.pedido-column > h3 b {
+  margin-left: auto;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.pedido-card {
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+.pedido-card:hover {
+  background: var(--hover);
+}
+.pedido-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.pedido-card.late {
+  border-color: var(--danger);
+}
+.pedido-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pedido-card-top strong {
+  font-size: 16px;
+}
+.pedido-card-top .time {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pedido-card.late .time {
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+.pedido-card ul {
+  margin: 2px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.pedido-card .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.pedido-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+}
+.pedido-facts dt {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.pedido-facts dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.pedido-lines {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 12px;
+}
+.pedido-lines td {
+  padding: 8px 0;
+  border-top: 1px solid var(--divider);
+  vertical-align: top;
+}
+.pedido-lines td:last-child {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 12px;
+}
+.pedido-lines small {
+  display: block;
+  color: var(--text-2);
+}
+.pedido-lines tr.total td {
+  font-weight: 700;
+}
+.pedido-history {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.pedido-history li {
+  border-left: 3px solid var(--divider);
+  padding: 2px 0 2px 10px;
+}
+.pedido-history li div {
+  margin-top: 2px;
+  color: var(--text-2);
+}
+.pedido-ticket {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre;
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0;
+}
+.pedido-menu-items {
+  display: grid;
+  gap: 8px;
+}
+.pedido-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--divider);
+}
+.pedido-menu-item:first-child {
+  border-top: 0;
+}
+.pedido-menu-item img,
+.pedido-menu-item .no-photo {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
+  background: var(--panel);
+}
+.pedido-menu-item .info {
+  flex: 1;
+  min-width: 0;
+}
+.pedido-menu-item .info small {
+  display: block;
+  color: var(--text-2);
+}
+.pedido-menu-item .price {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pedido-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.pedido-hours {
+  display: grid;
+  gap: 8px;
+}
+.pedido-hours-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+.pedido-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.pedido-images figure {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.pedido-images img,
+.pedido-images .doc {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+@media (max-width: 759px) {
+  .pedido-board {
+    grid-template-columns: repeat(5, minmax(240px, 82vw));
+  }
+  .pedido-facts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .pedido-facts dd {
+    margin-bottom: 8px;
+  }
+  .pedido-hours-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}

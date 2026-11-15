@@ -36,6 +36,7 @@ import {
   updateOrder,
 } from "./manage";
 import { runDue } from "./schedule";
+import { orderTicket } from "./ticket";
 import {
   cartCompleted,
   catalogOrder,
@@ -194,6 +195,15 @@ onRead(MODULE, "pedido/orders/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   return orderDetail(ctx, params.id);
 });
+// Comanda: dados do estabelecimento e do pedido, e o texto em colunas.
+onRead(
+  MODULE,
+  "pedido/orders/:id/ticket",
+  async (ctx, actor, { params, query }) => {
+    ctx.access(actor, "conversations:read");
+    return orderTicket(ctx, params.id, query);
+  },
+);
 
 onRoute(MODULE, {
   method: "POST",
