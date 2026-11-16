@@ -14,6 +14,7 @@ import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
+import { pgHasCntrl, pgLower as enginePgLower } from "../../engine/text.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
@@ -22,13 +23,14 @@ import * as sync from "../sync/public.ts";
 // ---------------------------------------------------------------------------
 // Texto, ordem e tipos
 
-export const CNTRL = /[\u0000-\u001f\u007f-\u009f]/;
+/** [[:cntrl:]] do oráculo (engine/text.ts, provado em todo o Unicode). */
+export const CNTRL = pgHasCntrl;
 export const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 export const btrim = (s: string) => s.replace(/^ +| +$/g, "");
 /** length() do Postgres: caracteres (pontos de código). */
 export const charLength = (s: string) => [...s].length;
-/** lower() do oráculo: Unicode, sem sigma final. */
-export const pgLower = (s: string) => s.replace(/Σ/g, "σ").toLowerCase();
+/** lower() do oráculo (engine/text.ts). */
+export const pgLower = enginePgLower;
 /** Ordem de texto na collation "C": pontos de código. */
 export function cmpText(a: string, b: string) {
   if (a === b) return 0;
