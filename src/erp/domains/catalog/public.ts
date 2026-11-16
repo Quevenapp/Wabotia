@@ -59,6 +59,8 @@ export { sellerAccessAllowed } from "./seller.ts";
 // Listas de preço (sessão G): erp_pricing.list_price, require, rule_text, valid_now.
 export { listPrice, requirePricing as require, ruleText, validNow } from "./pricing/pricing.ts";
 export { erpPricingProductLists } from "./pricing/rpc/erp_pricing_product_lists.ts";
+export { erpCatalogProductSave } from "./rpc/erp_catalog_product_save.ts";
+export { erpCatalogProductPricesUpdate } from "./rpc/erp_catalog_product_prices.ts";
 
 const KINDS = ["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 const btrim = (s: string) => s.replace(/^ +| +$/g, "");

@@ -33,4 +33,8 @@ import "./rpc/erp_catalog_product_form_context.ts";
 import "./rpc/erp_catalog_product_purchase_info.ts";
 import "./rpc/erp_catalog_product_variations.ts";
 import "./rpc/erp_catalog_product_price_preview.ts";
+import "./rpc/erp_catalog_product_set_deleted.ts";
+import "./rpc/erp_catalog_product_save.ts";
+import "./rpc/erp_catalog_product_variation_add.ts";
+import "./rpc/erp_catalog_product_prices.ts";
 import "./pricing/index.ts";
