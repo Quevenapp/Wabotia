@@ -17,6 +17,7 @@ datastore = "1.1.1"
 firebaseBom = "33.7.0"
 googleServices = "4.4.2"
 playLocation = "21.3.0"
+camerax = "1.4.2"
 splashscreen = "1.0.1"
 junit = "4.13.2"
 
@@ -59,6 +60,9 @@ okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver",
 # ThermalPrinterKit por includeBuild (settings.gradle.kts): sem versão, a coordenada é substituída pelo projeto local.
 thermalprinterkit = { module = "br.com.thermalprinterkit:thermalprinterkit" }
 thermalprinterkit-printher = { module = "br.com.thermalprinterkit:printher" }
+camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 zxing-core = { group = "com.google.zxing", name = "core", version = "3.5.3" }
 
 [plugins]

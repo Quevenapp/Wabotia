@@ -39,6 +39,10 @@ import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.SessionStore
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.demo.DemoMode
+import androidx.compose.material.icons.filled.DeliveryDining
+import androidx.compose.material.icons.filled.QrCodeScanner
+import br.com.queven.wabotia.courier.CourierTexts
+import br.com.queven.wabotia.courier.ui.CourierActivity
 import br.com.queven.wabotia.device.DeviceActivity
 import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.PrimaryButton
@@ -163,6 +167,19 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Ver o modo painel ou totem (demonstração)", style = MaterialTheme.typography.bodyMedium, color = c.brand, fontWeight = FontWeight.SemiBold)
         }
+        TextButton(onClick = { if (!busy) context.startActivity(CourierActivity.demoIntent(context)) }) {
+            Icon(Icons.Filled.DeliveryDining, contentDescription = null, tint = c.brand, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Ver o modo entregador (demonstração)", style = MaterialTheme.typography.bodyMedium, color = c.brand, fontWeight = FontWeight.SemiBold)
+        }
+        Spacer(Modifier.height(18.dp))
+        OrDivider()
+        Spacer(Modifier.height(18.dp))
+        // O entregador não precisa saber o endereço do servidor: o QR do pedido já traz.
+        SecondaryButton("Escanear pedido", onClick = { if (!busy) context.startActivity(CourierActivity.intent(context)) }, enabled = !busy, icon = Icons.Filled.QrCodeScanner)
+        Spacer(Modifier.height(10.dp))
+        AuthHelp(CourierTexts.ENTRY_HELP)
+        Spacer(Modifier.height(6.dp))
         TextButton(onClick = { Links.open(context, Links.PRIVACY_POLICY) }) {
             Text("Política de privacidade", style = MaterialTheme.typography.bodySmall, color = c.brand, fontWeight = FontWeight.SemiBold)
         }

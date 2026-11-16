@@ -15,6 +15,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import br.com.queven.wabotia.core.AppContainer
+import androidx.compose.material.icons.filled.QrCodeScanner
+import br.com.queven.wabotia.courier.CourierTexts
+import br.com.queven.wabotia.courier.ui.CourierActivity
 import br.com.queven.wabotia.device.DeviceActivity
 import br.com.queven.wabotia.ui.components.PrimaryButton
 import br.com.queven.wabotia.ui.components.SecondaryButton
@@ -42,6 +45,15 @@ fun StartScreen(container: AppContainer, onLogin: () -> Unit, onChangeServer: ()
         )
         Spacer(Modifier.height(10.dp))
         AuthHelp("Para um tablet ou TV na recepção: retirar senha e imprimir o cupom, mostrar as chamadas com voz, ou os dois. Sem conta de pessoa: um administrador aprova o aparelho por um código.")
+        Spacer(Modifier.height(24.dp))
+        SecondaryButton(
+            "Escanear pedido",
+            onClick = { context.startActivity(CourierActivity.intent(context)) },
+            icon = Icons.Filled.QrCodeScanner,
+            modifier = Modifier.testTag("start.courier"),
+        )
+        Spacer(Modifier.height(10.dp))
+        AuthHelp(CourierTexts.ENTRY_HELP)
         Spacer(Modifier.height(18.dp))
         TextButton(onClick = onChangeServer) {
             Text("Trocar servidor", style = MaterialTheme.typography.bodyMedium, color = c.brand, fontWeight = FontWeight.SemiBold)

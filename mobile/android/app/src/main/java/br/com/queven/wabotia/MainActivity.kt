@@ -30,6 +30,7 @@ import androidx.navigation.compose.rememberNavController
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.courier.ui.CourierActivity
 import br.com.queven.wabotia.device.DeviceActivity
 import br.com.queven.wabotia.device.withDebugCommand
 import br.com.queven.wabotia.ui.components.DemoBanner
@@ -55,6 +56,12 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
         val container = (application as WabotiaApp).container
         // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
+        // Entrega em andamento (modo entregador): reabre nela.
+        if (savedInstanceState == null && intent?.getStringExtra("demo") == null && CourierActivity.hasDeliveries(this)) {
+            startActivity(CourierActivity.withDebug(CourierActivity.intent(this), intent))
+            finish()
+            return
+        }
         if (savedInstanceState == null && intent?.getStringExtra("demo") == null && DeviceActivity.isPaired(container.deviceStore)) {
             startActivity(DeviceActivity.intent(this).withDebugCommand(intent))
             finish()
@@ -125,6 +132,11 @@ class MainActivity : ComponentActivity() {
             // `--es demo device[-totem|-panel|-hybrid]`: a demonstração do modo aparelho, fora da sessão de pessoa.
             DemoMode.deviceRoleFor(link.demoScreen)?.let { role ->
                 startActivity(DeviceActivity.demoIntent(this, role.getOrNull()))
+                return null
+            }
+            // `--es demo courier`: a demonstração do modo entregador (`--es courier claim:0` já abre o pedido nº 12).
+            if (link.demoScreen == "courier") {
+                startActivity(CourierActivity.withDebug(CourierActivity.demoIntent(this), intent))
                 return null
             }
             if (link.demoScreen == "signout") {

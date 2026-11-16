@@ -89,6 +89,17 @@
         </activity>
 
         <!--
+            Modo entregador: fora do login, aberto por "Escanear pedido". A localização só é lida com esta tela em uso
+            (sem serviço em primeiro plano e sem ACCESS_BACKGROUND_LOCATION).
+        -->
+        <activity
+            android:name=".courier.ui.CourierActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Wabotia" />
+
+        <!--
             Administrador do aparelho, só para o modo quiosque do totem e do painel: `adb shell dpm set-device-owner`
             aponta para ele e setLockTaskPackages exige o ComponentName dele. Nenhuma política pedida, e o app nunca
             pede para ser ativado; protegido por BIND_DEVICE_ADMIN (só o sistema se liga a ele). Ver

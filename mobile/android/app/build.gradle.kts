@@ -120,6 +120,10 @@ dependencies {
     implementation(libs.thermalprinterkit.printher)
     // QR do cupom na tela do totem (o kit usa o zxing por dentro, sem exportá-lo).
     implementation(libs.zxing.core)
+    // Escanear o QR do pedido no modo entregador (a câmera lê; o zxing decodifica no aparelho, sem serviço do Google).
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
