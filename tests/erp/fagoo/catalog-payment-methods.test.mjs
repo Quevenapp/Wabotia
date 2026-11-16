@@ -16,6 +16,10 @@ const METHOD = {
   auto_settle: false, pix_integration: null, pix_cnpj: null, fee_type: "aliquota", fee_rate: null, fee_fixed: null,
   settlement_days: null,
 };
+/** Erro do domínio (código do Postgres) segue; divergência do diferencial ou erro sem código sobe. */
+const domainError = (e) => {
+  if (!e.code || e.code === "ERR_ASSERTION") throw e;
+};
 const fails = (promise, code) => assert.rejects(promise, (e) => e.code === code || e.message === code);
 
 let f;
@@ -195,19 +199,19 @@ test("diferencial aleatório: formulário, ações e listas", async () => {
           p_user_id: user, p_id: it.id, p_expected_version: it.version, p_command_id: randomUUID(),
           p_action: pick(["default", "default_recebimentos", "default_pagamentos", "default_devolucoes", "clear_devolucoes", "activate", "inactivate", "delete"]),
         })
-        .catch((e) => (assert.ok(e.code, String(e)), null));
+        .catch((e) => (domainError(e), null));
       if (out?.item) Object.assign(it, out.item);
       else if (out) items.splice(items.indexOf(it), 1);
     } else if (items.length && r() < 0.3) {
       const it = pick(items);
       const out = await f
         .rpc("erp_catalog_payment_method_save", { p_user_id: user, p_id: it.id, p_expected_version: it.version, p_command_id: randomUUID(), p_data: data })
-        .catch((e) => (assert.ok(e.code, String(e)), null));
+        .catch((e) => (domainError(e), null));
       if (out) Object.assign(it, out.item);
     } else {
       const out = await f
         .rpc("erp_catalog_payment_method_save", { p_user_id: user, p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: data })
-        .catch((e) => (assert.ok(e.code, String(e)), null));
+        .catch((e) => (domainError(e), null));
       if (out) items.push(out.item);
     }
   }

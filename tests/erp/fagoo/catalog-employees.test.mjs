@@ -15,6 +15,10 @@ const EMPLOYEE = {
   city: "Piracicaba", district: null, street: null, number: null, complement: null, birth_date: "1990-01-02",
   admission_date: "2026-01-05", salary: "3500.5", notes: null,
 };
+/** Erro do domínio (código do Postgres) segue; divergência do diferencial ou erro sem código sobe. */
+const domainError = (e) => {
+  if (!e.code || e.code === "ERR_ASSERTION") throw e;
+};
 const fails = (promise, code) => assert.rejects(promise, (e) => e.code === code || e.message === code);
 
 let f;
@@ -133,14 +137,14 @@ test("diferencial aleatório: formulário, situação, busca e páginas", async 
         const out = await save(r() < 0.3 ? null : data, { id, version, situation: pick([null, "ativo", "desligado"]) });
         ids[ids.findIndex((x) => x[0] === id)] = [id, out.item.version];
       } catch (e) {
-        assert.ok(e.code, String(e));
+        domainError(e);
       }
     } else {
       try {
         const out = await save(data);
         ids.push([out.item.id, out.item.version]);
       } catch (e) {
-        assert.ok(e.code, String(e));
+        domainError(e);
       }
     }
   }
