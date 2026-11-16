@@ -285,3 +285,9 @@
   font-size: 12px;
   color: var(--text-2);
 }
+
+.pedido-qr {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
