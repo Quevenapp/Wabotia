@@ -20,11 +20,10 @@ export const ProductExport = lazy(pick(cadastros, 'ProductExport'));
 export const PriceLists = lazy(pick(cadastros, 'PriceLists'));
 // Campos customizados de produtos (202610200156).
 export const CustomFields = lazy(pick(cadastros, 'CustomFields'));
-export const HistoryView = lazy(pick(fiscal, 'HistoryView'));
 export const RealDocuments = lazy(pick(documentos, 'RealDocuments'));
 export const RealStock = lazy(pick(estoque, 'RealStock'));
 export const RealFinance = lazy(pick(financeiro, 'RealFinance'));
-export const FinanceBorderos = lazy(pick(cobranca, 'FinanceBorderos'));
+export const FinanceBorderos = lazy(pick(financeiro, 'FinanceBorderos'));
 export const FinanceScreens = lazy(pick(financeiro, 'FinanceScreens'));
 export const RealCnab = lazy(pick(cobranca, 'RealCnab'));
 export const CompanySettings = lazy(pick(preferencias, 'CompanySettings'));
@@ -50,7 +49,7 @@ export const RealStockOpening = lazy(pick(estoque, 'RealStockOpening'));
 export const StockWarehouses = lazy(pick(estoque, 'StockWarehouses'));
 export const StockCount = lazy(pick(estoque, 'StockCount'));
 export const StockDashboards = lazy(pick(estoque, 'StockDashboards'));
-export const ReceiptCheckin = lazy(pick(estoque, 'ReceiptCheckin'));
+export const ReceiptCheckin = lazy(pick(fiscal, 'ReceiptCheckin'));
 export const StockReports = lazy(pick(estoque, 'StockReports'));
 
 // Notas fiscais no padrão Origin (202610200111-114).

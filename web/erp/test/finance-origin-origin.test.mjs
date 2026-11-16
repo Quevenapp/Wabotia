@@ -14,51 +14,10 @@ test('039 provenance binds exact title and direction, preserves large versions a
  assert.equal(financeOriginOrigin(envelope(false),id,'receivable'),null);
  for(const mutate of[v=>v.title_id=other,v=>v.origin.entity='payables',v=>v.read_only=false,v=>v.origin.core_fields_locked=false,v=>v.origin.cnab_reservation_blocked=false,v=>v.origin.source_version=9007199254740993,v=>v.origin.source_version='9223372036854775808',v=>v.origin.source_id='0',v=>v.origin.imported_at='invalid',v=>delete v.origin]){const v=envelope();mutate(v);assert.throws(()=>financeOriginOrigin(v,id,'receivable'));}
 });
-async function editor(controller){return mountComponent('RealFinance.tsx',{controller,mode:'title_update',record:title,kind:'receivable',onClose(){},onSaved(){}},{componentName:'FinanceEditor',expandChildren:['Field','Confirmation','TitleOriginNotice']});}
-test('039 imported title editor preserves core fields even if a queued field handler changes their local values',async()=>{
- const writes=[],controller={async financialImportOrigin(){return envelope();},async finance(path,options){writes.push({path,...options});return{record:title};}},ui=await editor(controller);
- try{assert.match(ui.text(),/Importado do Origin/);assert.equal(field(ui,'Valor (R$) *').props.readOnly,true);assert.equal(field(ui,'Referência / documento').props.readOnly,true);
-  await ui.change(field(ui,'Valor (R$) *').props.id,'999,99');await ui.change(field(ui,'Referência / documento').props.id,'alterada');await ui.change(field(ui,'Histórico *').props.id,'Descrição revisada');await ui.submit();await ui.click('Salvar título');
-  assert.equal(writes.length,1);assert.equal(writes[0].body.data.source_reference,'0000123');assert.equal(Object.hasOwn(writes[0].body.data,'amount_cents'),false);assert.equal(writes[0].body.data.description,'Descrição revisada');
- }finally{ui.unmount();}
-});
-test('039 origin failure never falls back to an editable unlinked title; retry resolves without losing description',async()=>{
- let reads=0;const writes=[],controller={async financialImportOrigin(){if(++reads===1)throw new AccessError(503);return envelope(false);},async finance(path,options){writes.push({path,...options});return{record:title};}},ui=await editor(controller);
- try{assert.equal(ui.button('Salvar').disabled,true);await ui.change(field(ui,'Histórico *').props.id,'Preservada');await ui.submit();assert.equal(writes.length,0);assert.equal(ui.nodes().filter(n=>n.type==='dialog').length,0);
-  await ui.click('Conferir origem novamente');assert.equal(field(ui,'Histórico *').props.value,'Preservada');assert.equal(ui.button('Salvar').disabled,false);assert.equal(field(ui,'Valor (R$) *').props.readOnly,false);
-  await ui.change(field(ui,'Valor (R$) *').props.id,'2,01');await ui.submit();await ui.click('Salvar título');assert.equal(writes[0].body.data.amount_cents,'201');
- }finally{ui.unmount();}
-});
-test('039 late provenance cannot unlock a newly opened title and old edit handlers check current readiness',async()=>{
- const late=deferred(),calls=[],edits=[];const controller={async financialImportOrigin(path,options){calls.push({path,...options});return calls.length===1?envelope(false):late.promise;}};
- const ui=await mountComponent('RealFinance.tsx',{controller,entity:'titles',record:title,writable:true,onClose(){},onEdit:mode=>edits.push(mode)},{componentName:'FinanceDetail',expandChildren:['TitleOriginNotice']});
- try{const stale=ui.button('Editar título').props.onClick;await ui.updateProps({record:{...title,id:other}});assert.equal(calls[0].signal.aborted,true);assert.equal(ui.button('Editar título').disabled,true);stale();assert.equal(edits.length,0);
-  late.resolve(envelope(true,other));await ui.flush();assert.equal(ui.button('Editar título').disabled,false);assert.match(ui.text(),/Importado do Origin/);
- }finally{ui.unmount();}
-});
-test('039 an aborted late imported origin cannot relabel a newer native title',async()=>{
- const late=deferred(),calls=[];const controller={async financialImportOrigin(path,options){calls.push({path,...options});return calls.length===1?late.promise:envelope(false,other);}};
- const ui=await mountComponent('RealFinance.tsx',{controller,entity:'titles',record:title,writable:true,onClose(){},onEdit(){}},{componentName:'FinanceDetail',expandChildren:['TitleOriginNotice']});
- try{
-  assert.equal(ui.button('Editar título').disabled,true);
-  await ui.updateProps({record:{...title,id:other,description:'Outro título nativo'}});
-  assert.equal(calls[0].signal.aborted,true);
-  assert.equal(ui.button('Editar título').disabled,false);
-  late.resolve(envelope());await ui.flush();
-  assert.doesNotMatch(ui.text(),/Importado do Origin|000000123/);
-  assert.match(ui.text(),/Outro título nativo/);
-  assert.equal(ui.button('Editar título').disabled,false);
- }finally{ui.unmount();}
-});
-test('039 failed provenance blocks core editing without blocking unrelated explicit cancellation review',async()=>{
- const writes=[];const controller={async financialImportOrigin(){throw new AccessError(503);},async finance(path,options){writes.push({path,...options});return{record:title};}};
- const ui=await mountComponent('RealFinance.tsx',{controller,mode:'title_cancel',record:title,kind:'receivable',onClose(){},onSaved(){}},{componentName:'FinanceEditor',expandChildren:['Field','Confirmation','TitleOriginNotice']});
- try{
-  assert.match(ui.text(),/Não foi possível conferir a origem/);
-  assert.equal(ui.button('Conferir operação').disabled,false);
-  await ui.change(field(ui,'Justificativa *').props.id,'Conferência exclusivamente sintética');
-  await ui.submit();
-  assert.equal(ui.nodes().filter(n=>n.type==='dialog').length,1);
-  assert.equal(writes.length,0);
- }finally{ui.unmount();}
+// Wabotia: a importação financeira do Origin saiu (item 17) e o motor responde 404 em /v1/importacao-financeira-origin;
+// a conferência de origem do título fica desligada (RealFinance, ORIGIN_FINANCE_IMPORT). Os testes 039 da tela saíram com ela.
+test('Wabotia: o título abre sem pedir a origem do Origin e a edição fica liberada',async()=>{
+ let reads=0;const controller={async financialImportOrigin(){reads++;return envelope();},async finance(){throw Error('No mutation');}};
+ const ui=await mountComponent('RealFinance.tsx',{controller,entity:'titles',record:title,writable:true,onClose(){},onEdit(){}},{componentName:'FinanceDetail'});
+ try{assert.equal(reads,0);assert.equal(ui.button('Editar título').disabled,false);assert.doesNotMatch(ui.text(),/Importado do Origin|Conferindo a origem/);}finally{ui.unmount();}
 });

@@ -19,6 +19,7 @@ import { FREIGHT_MODES } from '../lib/document-commercial-model';
 import { Link } from 'react-router-dom';
 import { CatalogPicker } from './DocumentCatalogPicker';
 import './document-reports.css';
+import { blockEnabled } from '../../blocks';
 
 // 202610200238 (wave E): CRIAR RELATÓRIO and Configurar open the gerenciador de relatórios customizados of Preferências › Sistema
 // (bases Ordens de Serviço, Pedidos de Venda, Propostas, Compras and the notas), like the Origin gerenciador.relatorio.php.
@@ -61,7 +62,7 @@ function ReportPrint({ title, subtitle, children, onClose }: { title: string; su
 
 function Catalog({ kind, onOpen }: { kind: 'sales_orders' | 'service_orders'; onOpen: (id: ReportId) => void }) {
   const groups = REPORT_CATALOG[kind], [tab, setTab] = useState(kind === 'service_orders' ? 'Customizáveis' : '');
-  const shown = kind === 'service_orders' ? groups.filter(group => group.title === tab) : groups;
+  const shown = (kind === 'service_orders' ? groups.filter(group => group.title === tab) : groups).filter(group => blockEnabled('erp-fiscal') || !group.cards.some(card => card.id?.startsWith('nf-')));
   return <div className="document-reports-catalog">
     {kind === 'service_orders' && <div className="document-reports-tabs" role="tablist">{groups.map(group => <button key={group.title} type="button" role="tab" aria-selected={tab === group.title} className={tab === group.title ? 'is-active' : undefined} onClick={() => setTab(group.title)}>{group.title}</button>)}</div>}
     {shown.map(group => <section key={group.title} className="document-reports-group"><h2>{group.title}</h2><div className="document-reports-cards">{group.cards.map(card => card.id

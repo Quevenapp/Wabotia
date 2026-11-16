@@ -11,6 +11,7 @@ import {OriginListHeader} from './OriginList';
 import {Modal} from './Modal';
 import {Icon} from './Icon';
 import './reports-labels.css';
+import { blockEnabled } from '../../blocks';
 
 const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const statusOf=(e:unknown)=>e&&typeof e==='object'&&Number.isInteger((e as {status?:unknown}).status)?(e as {status:number}).status:null;
@@ -187,7 +188,7 @@ export default function RealLabels({controller}:{controller:ReportsController}){
  return <div className="real-labels">
   <OriginListHeader title="Etiquetas customizadas"/>
   <div className="reports-inline reports-toolbar"><input type="search" id="labels-search" aria-label="Pesquisar etiquetas" placeholder="Pesquisar" maxLength={80} value={search} onChange={e=>setSearch(e.target.value)}/>
-   <label className="form-field">Tipo de etiqueta<select id="labels-type" value={typeFilter} onChange={e=>setTypeFilter(e.target.value as LabelType|'')}><option value="">Todos</option>{LABEL_TYPES.map(t=><option key={t} value={t}>{LABEL_TYPE_LABELS[t]}</option>)}</select></label></div>
+   <label className="form-field">Tipo de etiqueta<select id="labels-type" value={typeFilter} onChange={e=>setTypeFilter(e.target.value as LabelType|'')}><option value="">Todos</option>{LABEL_TYPES.filter(t=>blockEnabled('erp-fiscal')||t!=='nota_fiscal').map(t=><option key={t} value={t}>{LABEL_TYPE_LABELS[t]}</option>)}</select></label></div>
   {loadError&&<p className="real-alert" role="alert">{loadError}</p>}{error&&<p className="real-alert" role="alert">{error}</p>}{notice&&<p className="real-success" role="status">{notice}</p>}{loading&&<p role="status" className="real-help">Carregando etiquetas…</p>}
   {pending&&attempt.current&&<section className="real-notice" aria-label="Confirmação pendente"><p>Comando {attempt.current.body.command_id}: o resultado precisa ser confirmado antes de alterar de novo.</p>
    <div className="real-editor-actions"><button type="button" className="primary-button" disabled={busy} onClick={()=>void runCommand(attempt.current!)}>Conferir resultado</button></div></section>}

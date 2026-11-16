@@ -28,7 +28,6 @@ export const EMBEDDED = new Set([
   "DocumentMirrorView",
   "DocumentOriginTotals",
   "PdvOrderOrigin",
-  "InvoiceStock",
   "StockOriginMirror",
   "FinanceReturns",
   "FinanceRemittances",
@@ -44,11 +43,11 @@ export const EMBEDDED = new Set([
  */
 const groups: [string, RegExp][] = [
   ["pdv", /pdv|(^|[-_/])pos([-_.]|$)|cash-register/i],
-  ["cobranca", /cnab|boleto|remittance|bordero|net-credit|FinanceReturns/i],
+  ["cobranca", /cnab|boleto|remittance|net-credit|FinanceReturns/i],
   ["financeiro", /^finance/i],
   [
     "fiscal",
-    /fiscal|danfe|nfe|nfce|sefaz|(^|[-_/])a1[-_.]|wsdl|dfe|operation-?nature|invoice|xml/i,
+    /fiscal|ReceiptCheckin|receipt-checkin|InvoiceStock|invoice-stock|danfe|nfe|nfce|sefaz|(^|[-_/])a1[-_.]|wsdl|dfe|operation-?nature|invoice|xml/i,
   ],
   [
     "financeiro",

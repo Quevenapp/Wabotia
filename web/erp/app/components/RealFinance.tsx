@@ -39,6 +39,7 @@ import { remittancePath } from '../lib/finance-cnab-lists-model';
 import { bankShortName, bankTitle } from '../lib/finance-banks';
 import { financePermitted, titlePermission } from '../lib/real-finance-model';
 import { BATCH_PERMISSION, originNumber } from '../lib/finance-title-list';
+import { blockEnabled } from '../../blocks';
 
 // Without the per-user list preferences port (or before the access is known) the list keeps the browser choice.
 const LIST_PREFERENCES_IDLE = { phase: 'loading' } as unknown as AccessState;
@@ -72,11 +73,14 @@ function OriginLink({ title }: { title: FinanceTitle }) {
   if (!title.origin) return null; const text = originText(title.origin);
   return <p className="finance-origin-line">{text.field}: <Link to={originPath(title.origin)} title={text.menu}>{originNumber(title.origin)}</Link></p>;
 }
+// Wabotia: a importação financeira do Origin saiu com ele (item 17) e o motor responde 404 em
+// /v1/importacao-financeira-origin; nenhum título tem origem a conferir.
+const ORIGIN_FINANCE_IMPORT = false;
 function useTitleOrigin(controller: AccessController, title: FinanceTitle | null) {
   const [state, setState] = useState<{ key: string; ready: boolean; origin: FinanceOriginOrigin | null; error: string }>({ key: '', ready: false, origin: null, error: '' });
   const [retry, setRetry] = useState(0), key = title ? `${title.id}:${title.kind}` : '';
   useEffect(() => {
-    if (!title) return;
+    if (!title || !ORIGIN_FINANCE_IMPORT) return;
     const request = new AbortController(); setState({ key, ready: false, origin: null, error: '' });
     void (async () => {
       try {
@@ -87,7 +91,7 @@ function useTitleOrigin(controller: AccessController, title: FinanceTitle | null
     })();
     return () => request.abort();
   }, [controller, key, retry]);
-  const current = state.key === key ? state : { key, ready: false, origin: null, error: '' };
+  const current = state.key === key ? state : { key, ready: !ORIGIN_FINANCE_IMPORT, origin: null, error: '' };
   return { ...current, retry: () => setRetry(value => value + 1) };
 }
 function TitleOriginNotice({ state }: { state: ReturnType<typeof useTitleOrigin> }) {
@@ -537,7 +541,8 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
     if (shareableCharge(title as FinanceTitleRow)) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, { label: 'Enviar por whatsapp', icon: 'comments', onClick: () => void sendWhatsapp(title) }); }
     // Leva H (FIN-052): the boleto entries by the real situation of the conta and of its cobrança.
-    { const boleto = boletoMenu(title as FinanceTitleRow, Boolean(permissions?.write) && financePermitted(permissions, 'financas.remessas.ie')); if (boleto.length) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
+    // Wabotia: boletos e remessas são do bloco Cobrança bancária (web/erp/blocks.ts); desligado, os itens somem.
+    if (blockEnabled('erp-cobranca')) { const boleto = boletoMenu(title as FinanceTitleRow, Boolean(permissions?.write) && financePermitted(permissions, 'financas.remessas.ie')); if (boleto.length) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, ...boleto); } }
     // Origin order: the print item comes after the baixas and Cancelar, before Clonar and Excluir.
     // A cancelled (or excluded) conta never gets a recibo; a conta a pagar gets the comprovante only after a baixa.
@@ -548,7 +553,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
       items.splice(at < 0 ? items.length : at, 0, { label: 'Imprimir duplicata', icon: 'file-invoice', onClick: () => startPrint({ mode: 'credit', models: creditModels(financePreferences.values['financas.receber_titulo_credito']), source: { kind: 'rows', rows: [title as FinanceTitleRow] } }) }); }
     // "Acessar remessa" (SQL 213): the remessa of the boleto of this conta, in the Origin list of Remessas.
     const remittance = (title as FinanceTitleRow).remittance;
-    if (remittance) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir'); items.splice(at < 0 ? items.length : at, 0, { label: 'Acessar remessa', icon: 'file-export', to: remittancePath(remittance.id) }); }
+    if (remittance && blockEnabled('erp-cobranca')) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir'); items.splice(at < 0 ? items.length : at, 0, { label: 'Acessar remessa', icon: 'file-export', to: remittancePath(remittance.id) }); }
     // Recebida/Paga (or with a baixa): "Gerenciar recebimentos / pagamentos" shows the borderôs of this conta.
     if (title.settled_cents !== '0') items.unshift({ label: borderoMenuLabel(title.kind), icon: 'eye', to: borderoPath(title.kind, title.id) });
     if (title.origin) items.push({ label: originText(title.origin).menu, icon: 'arrow-up-right-from-square', to: originPath(title.origin), separatorBefore: items.length > 0 });
@@ -614,10 +619,10 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
         {entity === 'accounts' && permissions?.read && <button type="button" className="action-button" onClick={showTransfers}><Icon name="comments-dollar" size={15}/>Transferência entre contas</button>}
         {canBatch && <div className="finance-batch-actions">{panelActions(filterDraft.option).filter(action => financePermitted(permissions, titlePermission(kind, BATCH_PERMISSION[action]))).map(action => <button key={action} type="button" className="action-button" disabled={!selectedTitles.length || Boolean(pendingVisible) || Boolean(batchVisible) || loading} title={!selectedTitles.length ? 'Selecione contas na listagem.' : pendingVisible ? 'Confira antes o resultado pendente.' : TITLE_BATCH_LABEL[action]} onClick={() => startBatch(action)}><Icon name={BATCH_ICON[action]} size={15}/>{TITLE_BATCH_LABEL[action]}</button>)}{kind === 'payable' && <button type="button" className="action-button" disabled={!selectedTitles.length} title={selectedTitles.length ? 'Imprimir agrupado por fornecedor' : 'Selecione contas na listagem.'} onClick={() => startPrint({ mode: 'listing', grouped: true, source: { kind: 'rows', rows: selectedTitles as FinanceTitleRow[] } })}><Icon name="print" size={15}/>Imprimir agrupado por fornecedor</button>}
           {/* FIN-054: Gerar remessa (Em aberto) takes the contas chosen here to Incluir Remessa of the cobrança Itaú, up to 30. */}
-          {kind === 'receivable' && filterDraft.option === 'open' && route.value.option === 'open' && financePermitted(permissions, 'financas.remessas.ie') && <button type="button" className="action-button" disabled={!selectedTitles.length || selectedTitles.length > 30 || selectedTitles.some(title => (title as FinanceTitleRow).remittance)} title={!selectedTitles.length ? 'Selecione contas na listagem.' : selectedTitles.length > 30 ? 'Uma remessa tem até 30 contas.' : selectedTitles.some(title => (title as FinanceTitleRow).remittance) ? 'Há contas já incluídas em remessa.' : 'Gerar remessa com as contas selecionadas'}
+          {kind === 'receivable' && blockEnabled('erp-cobranca') && filterDraft.option === 'open' && route.value.option === 'open' && financePermitted(permissions, 'financas.remessas.ie') && <button type="button" className="action-button" disabled={!selectedTitles.length || selectedTitles.length > 30 || selectedTitles.some(title => (title as FinanceTitleRow).remittance)} title={!selectedTitles.length ? 'Selecione contas na listagem.' : selectedTitles.length > 30 ? 'Uma remessa tem até 30 contas.' : selectedTitles.some(title => (title as FinanceTitleRow).remittance) ? 'Há contas já incluídas em remessa.' : 'Gerar remessa com as contas selecionadas'}
             onClick={() => { if (!mayWrite() || !selectedTitles.length || selectedTitles.length > 30) return; navigate(`/cobranca-operacional?${new URLSearchParams({ titulos: selectedTitles.map(title => title.id).join(',') })}`); }}><Icon name="file-export" size={15}/>Gerar remessa</button>}
           {/* FIN-176/FIN-059 (leva H): the contas of one remessa reopen it by its id: resume a reservation, or the NÃO PAGAR preview of its file. */}
-          {kind === 'receivable' && financePermitted(permissions, 'financas.remessas') && (() => { const remittance = sameRemittance(selectedTitles as FinanceTitleRow[]); return remittance && <button type="button" className="action-button"
+          {kind === 'receivable' && blockEnabled('erp-cobranca') && financePermitted(permissions, 'financas.remessas') && (() => { const remittance = sameRemittance(selectedTitles as FinanceTitleRow[]); return remittance && <button type="button" className="action-button"
             title={remittance.state === 'reserved' ? `Retomar a reserva da remessa ${remittance.sequence}` : `Prévia dos boletos da remessa ${remittance.sequence}, marcada NÃO PAGAR`}
             onClick={() => { if (mayRead()) navigate(`/cobranca-operacional?${new URLSearchParams({ remessa: remittance.id })}`); }}><Icon name="file-export" size={15}/>{remittance.state === 'reserved' ? 'Retomar remessa' : 'Prévia dos boletos'}</button>; })()}
           <button type="button" className="action-button" disabled={!selectedTitles.length} title={selectedTitles.length ? 'Recibos agrupados por contato' : 'Selecione contas na listagem.'} onClick={() => startPrint({ mode: 'receipts', source: { kind: 'rows', rows: selectedTitles as FinanceTitleRow[] } })}><Icon name="file-lines" size={15}/>Gerar recibos</button>

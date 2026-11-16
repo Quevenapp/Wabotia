@@ -7,7 +7,7 @@ import { registerAuthClient } from '../lib/auth-client';
 import { createAccessController, decimalMoney, RESOURCE_LABELS, ROLE_LABELS, type AccessController, type AccessState, type Entity, type ListQuery, type Summary } from '../lib/real-access';
 import './real-access.css';
 import { ProductTaxonomy, ProductExport, PriceLists, CustomFields } from './native-modules';
-import { CompanyPreferences, Catalog, HistoryView, RealDocuments, RealStock, RealFinance, FinanceBorderos, FinanceScreens, RealCnab, RealCnabOperational, RealCnabOperationalReturns, RealReceivedDfe, RealFiscalNumbering, CertificateA1, SefazConnection, CompanySettings, RealStockOpening, RealHome, RealFiscalDrafts, DueDateReport, StockWarehouses, StockCount, StockDashboards, ReceiptCheckin, StockReports } from './native-modules';
+import { CompanyPreferences, Catalog, RealDocuments, RealStock, RealFinance, FinanceBorderos, FinanceScreens, RealCnab, RealCnabOperational, RealCnabOperationalReturns, RealReceivedDfe, RealFiscalNumbering, CertificateA1, SefazConnection, CompanySettings, RealStockOpening, RealHome, RealFiscalDrafts, DueDateReport, StockWarehouses, StockCount, StockDashboards, ReceiptCheckin, StockReports } from './native-modules';
 import { contactModuleRoute } from '../lib/contact-routes';
 import { financeScreen, type FinanceScreen } from '../lib/finance-screens';
 import { RealFiscalInvoices, RealOperationNatures, FiscalEventList, RealPdv } from './native-modules';
@@ -73,7 +73,7 @@ function FiscalInvoiceRoutes({ controller, pathname, model, role }: { controller
   if (pathname === '/naturezas-operacao') return <RealOperationNatures controller={controller} />;
   const screen = pathname === '/notas-entrada' ? 'entrada' : model === '65' ? 'nfce' : 'nfe';
   // /historico-fiscal keeps the menu and home-shortcut address of "Notas fiscais de saída" and NFC-e; the backup archive is a tab there.
-  return <RealFiscalInvoices key={screen} controller={controller} screen={screen} backup={screen !== 'entrada' ? <HistoryView key={model} controller={controller} initialModel={model} canIssue={writer} /> : undefined} />;
+  return <RealFiscalInvoices key={screen} controller={controller} screen={screen} backup={undefined /* Wabotia: o arquivo histórico (backups e XMLs do Origin, /v1/history e /v1/backup-import) saiu com o Origin (item 17). */} />;
 }
 
 function ConnectedArea() {

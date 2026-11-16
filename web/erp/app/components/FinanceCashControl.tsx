@@ -14,6 +14,7 @@ import { AppliedChips, OriginPagination, PeriodPicker, RowMenu, ToolButton, type
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 import { PdvCashGroups, PdvCashMethods, usePdvCashSummary } from './PdvCashSummary';
+import { blockEnabled } from '../../blocks';
 import './real-finance.css';
 import './finance-statement.css';
 import './finance-commissions.css';
@@ -146,7 +147,9 @@ function CashSessionDetail({ controller, record, methods, writable, send, mayWri
   onMove: (move: 'withdrawal' | 'supply') => void; onConfirm: (action: Extract<Panel, { kind: 'confirm' }>['action'], title: string, text: string, moveId?: string) => void }) {
   const open = record.state === 'open';
   // Frente de caixa (202610200206): vendas registradas neste caixa por forma e por grupo de produtos.
-  const pdv = usePdvCashSummary(controller, record.id), cashSales = (pdv?.summary?.methods ?? []).filter(item => item.payment_type === '01').reduce((sum, item) => sum + BigInt(item.registered_cents), 0n) - BigInt(pdv?.summary?.returns_cents ?? '0');
+  // Wabotia: sem o bloco Caixa / PDV (web/erp/blocks.ts) o resumo da Frente de caixa não é pedido: registrado zero.
+  const pdvOn = blockEnabled('erp-pdv'), pdvPort = pdvOn ? controller : {};
+  const pdv = usePdvCashSummary(pdvPort, record.id), cashSales = (pdv?.summary?.methods ?? []).filter(item => item.payment_type === '01').reduce((sum, item) => sum + BigInt(item.registered_cents), 0n) - BigInt(pdv?.summary?.returns_cents ?? '0');
   const [values, setValues] = useState(() => (record.values ?? []).map(item => ({ method: item.payment_method_id, amount: centsInput(item.amount_cents) })));
   const [checked, setChecked] = useState(record.checked);
   const command = useFinanceCommand(send, mayWrite, failureText), guard = useUnsavedForm({ values, checked }, command.locked);
@@ -172,13 +175,13 @@ function CashSessionDetail({ controller, record, methods, writable, send, mayWri
           <label className="real-sr-only" htmlFor={`cash-value-amount-${index}`}>Valor</label><input id={`cash-value-amount-${index}`} inputMode="decimal" placeholder="0,00" maxLength={17} value={item.amount} onChange={event => { const amount = event.target.value; setValues(previous => previous.map((row, i) => i === index ? { ...row, amount } : row)); }} />
           <button type="button" className="icon-button" aria-label="Remover valor" title="Remover valor" onClick={() => setValues(previous => previous.filter((_, i) => i !== index))}><Icon name="trash-can" size={14} /></button></div>)}
         {open && writable && <button type="button" className="text-button" disabled={values.length >= 50} onClick={() => setValues(previous => [...previous, { method: '', amount: '' }])}>Adicionar valor</button>}</fieldset></section>
-    <section className="finance-commission-section" aria-label="Formas de pagamento"><h3>Formas de pagamento</h3><PdvCashMethods controller={controller} sessionId={record.id} informed={record.methods ?? []} summary={pdv} /></section>
+    <section className="finance-commission-section" aria-label="Formas de pagamento"><h3>Formas de pagamento</h3><PdvCashMethods controller={pdvPort} sessionId={record.id} informed={record.methods ?? []} summary={pdv} /></section>
     <section className="finance-commission-section" aria-label="Sangrias/Suprimentos"><h3>Sangrias/Suprimentos {open && writable && <><button type="button" className="secondary-button" disabled={command.locked} onClick={() => onMove('withdrawal')}>Sangria</button><button type="button" className="secondary-button" disabled={command.locked} onClick={() => onMove('supply')}>Suprimento</button></>}</h3>
       {!(record.moves ?? []).length ? <p className="real-help">Nenhuma sangria ou suprimento.</p> : <div className="table-scroll"><table className="data-table finance-table"><thead><tr><th>Data</th><th>Observação</th><th>Tipo</th><th className="numeric">Valor</th><th className="row-actions"><span className="real-sr-only">Ações</span></th></tr></thead>
         <tbody>{(record.moves ?? []).map(item => <tr key={item.id}><td>{financeDate(item.posted_on)}</td><td>{item.note ?? '—'}</td><td>{item.kind === 'supply' ? 'Suprimento' : 'Sangria'}</td><td className={`numeric ${item.kind === 'supply' ? 'finance-positive' : 'finance-negative'}`}>{financeMoney(item.amount_cents)}</td>
           <td className="row-actions">{open && writable && <button type="button" className="icon-button" aria-label="Excluir movimento" title="Excluir" disabled={command.locked} onClick={() => onConfirm('session_move_delete', item.kind === 'supply' ? 'Excluir suprimento' : 'Excluir sangria', `Excluir ${item.kind === 'supply' ? 'o suprimento' : 'a sangria'} de ${financeMoney(item.amount_cents)}? O lançamento é desfeito na mesma data em Caixas e bancos.`, item.id)}><Icon name="trash-can" size={14} /></button>}</td></tr>)}</tbody>
         <tfoot><tr><td colSpan={3}>Total</td><td className="numeric">{signedMoney(supplies.toString())}</td><td /></tr></tfoot></table></div>}</section>
-    <PdvCashGroups summary={pdv} />
+    {pdvOn && <PdvCashGroups summary={pdv} />}
     {command.error && <p className="real-alert" role="alert">{command.error}</p>}
     <div className="real-editor-actions"><button type="button" className="secondary-button" onClick={() => globalThis.window?.print()}>Imprimir</button><button type="button" className="secondary-button" disabled={command.busy} onClick={() => guard.confirmLeave(onBack)}>Cancelar</button>
       {writable && <button type="button" className="primary-button" disabled={command.busy} onClick={save}>{command.busy ? 'Salvando…' : command.uncertain ? 'Conferir resultado' : 'Salvar'}</button>}

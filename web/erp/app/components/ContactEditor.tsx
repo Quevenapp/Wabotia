@@ -26,6 +26,7 @@ import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
 import OriginMirrorPanel from './OriginMirrorPanel';
 import './contacts.css';
+import { blockEnabled } from '../../blocks';
 
 // Formulário de Cliente ou Fornecedor no padrão do Origin (lane contatos, CF-00 a CF-50): página única com Dados
 // cadastrais, Endereço (Geral | Cobrança), Contato, Dados adicionais (recolhível), Financeiro, Observações e Anexos
@@ -107,7 +108,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved }: Catalog
   }, [controller]);
   // Categoria (Origin CF-42): the árvore com busca of the receitas and the despesas (Financeiro > Categorias, SQL 135).
   const categories = useOptions<CategoryNode[]>(async signal => (await Promise.all((['receivable', 'payable'] as const).map(async kind => categoryTree(await controller.finance(`/v1/financeiro/categorias-arvore?kind=${kind}`, { signal }), kind).items))).flat(), [controller]);
-  const natures = useOptions<Nature[]>(async signal => ((await controller.fiscalInvoices('/v1/notas-fiscais/naturezas?active=true&limit=100', { signal })) as { items: Nature[] }).items, [controller]);
+  const natures = useOptions<Nature[]>(async signal => !blockEnabled('erp-fiscal') ? [] : ((await controller.fiscalInvoices('/v1/notas-fiscais/naturezas?active=true&limit=100', { signal })) as { items: Nature[] }).items, [controller]);
   useEffect(() => {
     if (!personQuery.trim()) { setPersonOptions([]); return; }
     const request = new AbortController();
@@ -205,12 +206,12 @@ function ContactForm({ controller, record, writable, onClose, onSaved }: Catalog
             <ContactTagsField controller={controller} record={record} writable={writable} />
             <div className="form-field"><label htmlFor="contact-situation">Situação</label><select id="contact-situation" value={values.situation} disabled={locked} onChange={event => change('situation', event.target.value)}>{FORM_SITUATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
             <SellerPicker controller={controller} id="contact-seller_id" label="Vendedor" value={seller} disabled={locked} onChange={next => { setSeller(next); saver.setWarnings(null); }} />
-            <div className="form-field"><label htmlFor="contact-operation_nature_id">Natureza de Operação Padrão{isRequired('operation_nature_id') ? ' *' : ''}</label>
+            {blockEnabled('erp-fiscal')&&<div className="form-field"><label htmlFor="contact-operation_nature_id">Natureza de Operação Padrão{isRequired('operation_nature_id') ? ' *' : ''}</label>
               {natures.error ? <input id="contact-operation_nature_id" value={record?.operation_nature_name ?? ''} readOnly disabled title="Seu perfil não consulta as naturezas de operação." />
                 : <select id="contact-operation_nature_id" value={values.operation_nature_id ?? ''} disabled={locked} onChange={event => change('operation_nature_id', event.target.value)}><option value="">Selecione</option>
                   {values.operation_nature_id && !natureList.some(n => n.id === values.operation_nature_id) && <option value={values.operation_nature_id}>{record?.operation_nature_name ?? 'Natureza atual'}</option>}
                   {natureList.map(nature => <option key={nature.id} value={nature.id}>{nature.description}</option>)}</select>}
-              <small className="real-help">Usada como sugestão nas notas do cliente quando a emissão adotar o cadastro.</small></div>
+              <small className="real-help">Usada como sugestão nas notas do cliente quando a emissão adotar o cadastro.</small></div>}
             {field(SECTION_FIELDS.adicionais.find(spec => spec.key === 'suframa')!)}
             {/* 202610200170 (documentos lane): Foto in the private attachment storage. */}
             <ContactPhoto controller={controller} contactId={record?.id ?? null} writable={writable && !excluded} />

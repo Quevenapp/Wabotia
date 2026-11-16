@@ -11,5 +11,5 @@ test('account detail composes one movement reader and keeps its original account
 test('title detail keeps the existing settlement history and offers no movement period reader', async () => {
   const f = createDocumentFinanceLinkFixture();
   const v = await mountComponent('RealFinance.tsx', { controller: f.controller, entity: 'titles', record: f.title, writable: false, onClose() {}, onEdit() { throw Error('No mutation'); } }, { componentName: 'FinanceDetail' });
-  try { assert.ok(child(v, 'FinancialHistory')); assert.equal(child(v, 'FinanceMovementHistory'), undefined); assert.equal(f.counts.rejected, 0); assert.equal(f.counts.origin, 1); } finally { v.unmount(); }
+  try { assert.ok(child(v, 'FinancialHistory')); assert.equal(child(v, 'FinanceMovementHistory'), undefined); assert.equal(f.counts.rejected, 0); assert.equal(f.counts.origin, 0 /* Wabotia: sem a conferência de origem do Origin (item 17) */); } finally { v.unmount(); }
 });

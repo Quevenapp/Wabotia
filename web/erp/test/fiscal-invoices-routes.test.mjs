@@ -22,7 +22,8 @@ async function mountRoute(location, role) {
 }
 
 test('Notas fiscais de saída, NFC-e and entrada keep their menu addresses and open the Origin lists for the fiscal readers', async () => {
-  for (const [location, role, expected] of [['/historico-fiscal?modelo=55', 'consulta', 'LIST:nfe:backup'], ['/historico-fiscal?modelo=65', 'fiscal', 'LIST:nfce:backup'], ['/historico-fiscal', 'admin', 'LIST:nfe:backup'],
+  // Wabotia: sem a aba do arquivo histórico (saiu com o Origin, item 17).
+  for (const [location, role, expected] of [['/historico-fiscal?modelo=55', 'consulta', 'LIST:nfe'], ['/historico-fiscal?modelo=65', 'fiscal', 'LIST:nfce'], ['/historico-fiscal', 'admin', 'LIST:nfe'],
     ['/notas-entrada', 'fiscal', 'LIST:entrada'], ['/naturezas-operacao', 'consulta', 'NATURES'], ['/inutilizacoes-nfe', 'fiscal', 'EVENTS:inutilization'], ['/cartas-correcao', 'admin', 'EVENTS:correction']]) {
     const view = await mountRoute(location, role);
     try { assert.ok(view.text().includes(expected), `${location} ${role}: ${view.text().slice(0, 120)}`); } finally { view.unmount(); }

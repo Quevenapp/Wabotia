@@ -1,5 +1,5 @@
 // Telas do módulo "fiscal" do ERP (bloco erp-fiscal), carregadas juntas (web/erp/app/components/native-modules.ts).
-export { default as HistoryView } from "../app/components/HistoryView";
+export { default as ReceiptCheckin } from "../app/components/ReceiptCheckin";
 export { default as RealFiscalDrafts } from "../app/components/RealFiscalDrafts";
 export { default as CertificateA1 } from "../app/components/CertificateA1";
 export { default as RealReceivedDfe } from "../app/components/RealReceivedDfe";

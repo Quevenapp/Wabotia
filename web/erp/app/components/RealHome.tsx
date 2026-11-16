@@ -20,6 +20,7 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
+import { blockEnabled } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
@@ -130,7 +131,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados.</p>
           </article>}
           {/* Leva H (PRF-252): real NF-es synced from Origin or received from SEFAZ since the last view, never drafts or homologation. */}
-          {role&&['admin','consulta','fiscal'].includes(role)&&<HomeNewInvoices controller={controller as unknown as Partial<PlatformPort>}/>}
+          {role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role)&&<HomeNewInvoices controller={controller as unknown as Partial<PlatformPort>}/>}
         </div></details></>}
       </section>
       {summary?.finance&&<section className="home-section" aria-labelledby="home-due-title"><h2 id="home-due-title">Contas em aberto por vencimento</h2><div className="home-cards">

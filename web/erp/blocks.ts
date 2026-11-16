@@ -14,6 +14,8 @@ export const ERP_BLOCK_LABELS: Record<ErpBlock, string> = {
 
 const FISCAL = new Set([
   "/historico-fiscal",
+  // O check-in sempre parte de uma nota de entrada; o recebimento pelo pedido de compra é do núcleo.
+  "/checkin-recebimentos",
   "/notas-recebidas",
   "/numeracao-fiscal",
   "/notas-entrada",
@@ -30,7 +32,8 @@ const COBRANCA = new Set([
   "/cobranca-operacional",
   "/retornos-operacionais",
 ]);
-const COBRANCA_AREAS = new Set(["remessas", "retornos", "borderos"]);
+// Borderôs são baixas em lote do financeiro (erp_finance_bordero_*), sem CNAB: núcleo.
+const COBRANCA_AREAS = new Set(["remessas", "retornos"]);
 const PDV = new Set([
   "/frente-caixa-empresa",
   "/preferencias/vendas/frente-caixa",
