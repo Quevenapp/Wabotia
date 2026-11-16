@@ -20,6 +20,9 @@ export const coreFeatures: string[] = [
   "module_grants",
   // `access` em cada área: o que a pessoa acessa (docs/API.md).
   "person_access",
+  // Segundo fator: login em duas etapas e elevação (403 mfa_required),
+  // docs/API.md, "Login e segundo fator".
+  "mfa",
 ];
 
 export async function capabilities(

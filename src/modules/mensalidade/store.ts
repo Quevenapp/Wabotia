@@ -1,6 +1,7 @@
 // Mensalidade: cadastros (planos e assinaturas) e importação. Fala com o
 // núcleo pela interface de src/modules/api.ts; só lê tabelas do núcleo
 // (conversas pelo telefone, para avisar o cliente).
+import { requireFinancialAal } from "../../mfa";
 import { all, exec, one } from "../../db";
 import {
   ApiError,
@@ -75,7 +76,8 @@ export const isManager = (actor: Actor) =>
     : actor.kind === "user" && actor.role === "admin";
 
 export function manager(actor: Actor, message?: string) {
-  if (isManager(actor)) return;
+  // Política do segundo fator (src/mfa.ts): pessoa precisa da sessão em aal2.
+  if (isManager(actor)) return requireFinancialAal(actor);
   if (actor.kind === "app")
     throw new ApiError(
       403,

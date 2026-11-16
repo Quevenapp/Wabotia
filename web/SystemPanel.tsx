@@ -11,6 +11,7 @@ import {
   Smartphone,
   X,
 } from "lucide-react";
+import { EmailSection } from "./EmailSection";
 
 type Api = (
   path: string,
@@ -775,6 +776,11 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
         refresh={system.refresh}
       />
       <PushSection api={api} demo={demo} />
+      <EmailSection
+        api={api}
+        demo={demo}
+        accountId={data.cloudflare?.account_id}
+      />
     </div>
   );
 }
