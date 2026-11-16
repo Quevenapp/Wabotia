@@ -195,7 +195,7 @@ struct IssuedTicketCard: View {
                 .accessibilityIdentifier("device.issued.code")
             Text(ticket.queueName ?? "").font(s.text(base * 1.1)).foregroundStyle(s.fg)
             if data.showPosition {
-                Text(CouponText.position(data)).font(s.text(base * 1.05)).foregroundStyle(s.fg)
+                Text(CouponText.position(data, separator: " · ")).font(s.text(base * 1.05)).foregroundStyle(s.fg)
             }
             Text(printText).font(s.text(base * 0.95)).foregroundStyle(print?.isFailure == true ? Color.red : s.muted)
                 .multilineTextAlignment(.center)

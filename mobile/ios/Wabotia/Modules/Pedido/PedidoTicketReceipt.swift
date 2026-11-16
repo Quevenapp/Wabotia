@@ -20,7 +20,8 @@ final class PedidoTicketReceipt: ThermalReceiptPayload {
         guard let text = Self.text(for: layout.columns, in: texts) else { return nil }
         var out = Data()
         let left: UInt8 = 0
-        for (index, line) in text.components(separatedBy: "\n").enumerated() {
+        // A comanda vem do servidor com texto livre (nomes, observações): nada fora da página de código vira "?".
+        for (index, line) in PaperText.clean(text).components(separatedBy: "\n").enumerated() {
             let fits = line.count <= layout.columns
             // A primeira linha é o nome do estabelecimento; a do número do pedido sai em negrito.
             let bold = index == 0 || line.hasPrefix("PEDIDO Nº")

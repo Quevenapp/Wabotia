@@ -68,8 +68,10 @@ enum CouponText {
         "Emitida em \(clock.string(from: Date(timeIntervalSince1970: TimeInterval(data.issuedAt) / 1000)))"
     }
 
-    static func position(_ data: CouponData) -> String {
-        let wait = data.waitMinutes.map { " · cerca de \($0) min" } ?? ""
+    /// No papel o separador é o hífen: o ponto médio não existe na página de código da impressora e saía "?". A tela usa
+    /// " · ".
+    static func position(_ data: CouponData, separator: String = " - ") -> String {
+        let wait = data.waitMinutes.map { "\(separator)cerca de \($0) min" } ?? ""
         switch data.ahead {
         case ...0: return "Você é o próximo"
         case 1: return "1 pessoa à sua frente\(wait)"
@@ -92,27 +94,27 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
         guard let d = data, let big = ThermalTextSize(widthMultiplier: 3, heightMultiplier: 3) else { return nil }
         let center: UInt8 = 1
         var out = Data()
-        if !d.header.trimmingCharacters(in: .whitespaces).isEmpty {
-            out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
+        // Todo texto passa pelo `PaperText` antes de quebrar: nada fora da página de código vira "?".
+        func line(_ text: String, bold: Bool = false) {
+            let clean = PaperText.clean(text)
+            guard !clean.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            out.append(layout.text(layout.wrap(clean) + "\n", alignment: center, bold: bold, size: .normal))
         }
-        for line in d.headerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
-        if !d.queueName.trimmingCharacters(in: .whitespaces).isEmpty {
-            out.append(layout.text(layout.wrap(d.queueName) + "\n", alignment: center, bold: false, size: .normal))
-        }
-        out.append(layout.text("SENHA \(CouponText.type(d))\n", alignment: center, bold: true, size: .normal))
+        line(d.header, bold: true)
+        d.headerLines.forEach { line($0) }
+        line(d.queueName)
+        line("SENHA \(CouponText.type(d))", bold: true)
         // Corpo triplo: a senha se lê de longe e é o que a pessoa compara com o painel.
-        out.append(layout.text(layout.wrap(d.code, size: big) + "\n", alignment: center, bold: true, size: big))
-        out.append(layout.text(CouponText.issued(d) + "\n", alignment: center, bold: false, size: .normal))
-        if d.showPosition {
-            out.append(layout.text(layout.wrap(CouponText.position(d)) + "\n", alignment: center, bold: false, size: .normal))
-        }
+        out.append(layout.text(layout.wrap(PaperText.clean(d.code), size: big) + "\n", alignment: center, bold: true, size: big))
+        line(CouponText.issued(d))
+        if d.showPosition { line(CouponText.position(d)) }
         // Um link longo demais para a largura do papel (texto do wa.me comprido) não vira QR: a senha sai mesmo assim,
         // sem o QR, em vez de o cupom inteiro falhar.
         if let link = d.whatsappLink, let qr = layout.qr(payload: link) {
             out.append(qr)
-            out.append(layout.text(layout.wrap(CouponText.whatsapp) + "\n", alignment: center, bold: false, size: .normal))
+            line(CouponText.whatsapp)
         }
-        for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
+        d.footerLines.forEach { line($0) }
         out.append(layout.finish())
         return out
     }

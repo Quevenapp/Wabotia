@@ -59,7 +59,8 @@ final class TotemCouponTests: XCTestCase {
     func testCouponText() {
         let data = CouponData.of(ticket, header: "Totem da entrada")
         XCTAssertEqual(CouponText.type(data), "PREFERENCIAL")
-        XCTAssertEqual(CouponText.position(data), "3 pessoas à sua frente · cerca de 12 min")
+        XCTAssertEqual(CouponText.position(data), "3 pessoas à sua frente - cerca de 12 min", "no papel, hífen: o ponto médio saía \"?\"")
+        XCTAssertEqual(CouponText.position(data, separator: " · "), "3 pessoas à sua frente · cerca de 12 min", "na tela")
         XCTAssertEqual(CouponText.issued(data), "Emitida em 15/11/2025 11:00", "hora de Brasília")
         var next = data
         next.ahead = 0
@@ -144,6 +145,43 @@ final class TotemCouponTests: XCTestCase {
         XCTAssertEqual(legacy.footerLines, ["Volte"])
         XCTAssertTrue(legacy.showPosition)
         XCTAssertNil(try QueueJSON.decoder.decode(QueueOverview.self, from: Data(#"{"queues":[]}"#.utf8)).coupon)
+    }
+
+    func testPaperTextKeepsPortugueseAndNeverLeavesAQuestionMark() {
+        // O texto exato que saiu "2 pessoas à sua frente ? cerca de 8 min" no cupom real (16/11, N004).
+        XCTAssertEqual(PaperText.clean("2 pessoas à sua frente · cerca de 8 min"), "2 pessoas à sua frente - cerca de 8 min")
+        XCTAssertEqual(PaperText.clean("Ação, Atenção, Nº 5, 1ª via, é á à â ã ê í ó ô õ ú ü ç"), "Ação, Atenção, Nº 5, 1ª via, é á à â ã ê í ó ô õ ú ü ç",
+                       "acentos do português, ç, ª e º ficam")
+        XCTAssertEqual(PaperText.clean("“Obrigado” — ‘volte’… sempre"), "\"Obrigado\" - 'volte'... sempre")
+        XCTAssertEqual(PaperText.clean("Obrigado pela visita! 😊🎉"), "Obrigado pela visita!", "emoji sai, sem espaço sobrando")
+        XCTAssertEqual(PaperText.clean("Café 👍 da manhã"), "Café da manhã")
+        XCTAssertEqual(PaperText.clean("Ñandú Straße 中"), "Nandú Strae", "Ñ vira N, ú fica (português), ß e 中 saem")
+        XCTAssertEqual(PaperText.clean("R$\u{00A0}12,50\nLinha 2"), "R$ 12,50\nLinha 2", "espaço fixo vira espaço; quebras ficam")
+        XCTAssertEqual(PaperText.clean("   recuo"), "   recuo", "recuo de coluna da comanda fica")
+        XCTAssertEqual(PaperText.clean("Tem dúvida?"), "Tem dúvida?", "\"?\" que já estava no texto continua")
+    }
+
+    func testCouponWithEmojiFooterPrintsNoQuestionMark() throws {
+        var shortWait = ticket
+        shortWait.ahead = 2
+        shortWait.waitMinutes = 8
+        shortWait.whatsappLink = nil
+        var data = CouponData.of(shortWait, header: "Clínica “Bem-Estar” 🏥")
+        data.footerLines = ["Obrigado pela visita! 😊", "Volte sempre — até logo…"]
+        let layout = ReceiptLayout.portable58mm
+        let bytes = try XCTUnwrap(SenhaTicketReceipt(data).receiptBytes(layout: layout))
+        // O kit troca por "?" o que a página de código não tem: o cupom não pode ter nenhum.
+        XCTAssertFalse(bytes.contains(UInt8(ascii: "?")), "nenhum caractere virou \"?\"")
+        let text = String(decoding: bytes, as: UTF8.self)
+        XCTAssertTrue(text.contains("2 pessoas") && text.contains("- cerca"), "a linha passa de 32 colunas e quebra depois do hífen")
+        XCTAssertTrue(text.contains("Obrigado pela visita!"))
+        XCTAssertTrue(text.contains("Volte sempre - at"))
+        // Sem o saneamento, o mesmo rodapé sairia com "?".
+        XCTAssertTrue(layout.text("Obrigado pela visita! 😊", alignment: 1).contains(UInt8(ascii: "?")))
+        // Na de balcão (CP850, acentos de verdade) também nenhum "?".
+        let counter = try XCTUnwrap(SenhaTicketReceipt(data).receiptBytes(layout: .counter))
+        XCTAssertFalse(counter.contains(UInt8(ascii: "?")))
+        XCTAssertTrue(ReceiptLayout.counter.text("frente · cerca", alignment: 1).contains(UInt8(ascii: "?")), "o ponto médio não existe na CP850")
     }
 
     func testPrintResultMapping() {

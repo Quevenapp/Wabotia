@@ -94,29 +94,31 @@ final class ServiceOrderReceipt: ThermalReceiptPayload {
         guard let d = data, let big = ThermalTextSize(widthMultiplier: 2, heightMultiplier: 2) else { return nil }
         let center: UInt8 = 1, left: UInt8 = 0
         var out = Data()
-        out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
-        for line in d.headerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center)) }
+        // Cliente, aparelho, defeito, orçamento e rodapé vêm livres do servidor: tudo passa pelo `PaperText`.
+        let clean = PaperText.clean
+        out.append(layout.text(layout.wrap(clean(d.header)) + "\n", alignment: center, bold: true, size: .normal))
+        for line in d.headerLines { out.append(layout.text(layout.wrap(clean(line)) + "\n", alignment: center)) }
         out.append(layout.text("ORDEM DE SERVIÇO\n", alignment: center, bold: true, size: .normal))
-        out.append(layout.text(layout.wrap("Nº \(d.number)", size: big) + "\n", alignment: center, bold: true, size: big))
+        out.append(layout.text(layout.wrap(clean("Nº \(d.number)"), size: big) + "\n", alignment: center, bold: true, size: big))
         out.append(layout.text(String(repeating: "-", count: layout.columns) + "\n", alignment: left))
         for (label, value) in ServiceOrderReceiptText.fields(d) {
-            out.append(layout.text(layout.wrap("\(label): \(value)") + "\n", alignment: left))
+            out.append(layout.text(layout.wrap(clean("\(label): \(value)")) + "\n", alignment: left))
         }
         if !d.quote.isEmpty {
             out.append(layout.text(String(repeating: "-", count: layout.columns) + "\n", alignment: left))
             out.append(layout.text("ORÇAMENTO\n", alignment: left, bold: true))
             for (description, value) in ServiceOrderReceiptText.quoteLines(d) {
-                out.append(layout.text(layout.valueLine(description, value: value) + "\n", alignment: left))
+                out.append(layout.text(layout.valueLine(clean(description), value: clean(value)) + "\n", alignment: left))
             }
             if let total = d.total {
-                out.append(layout.text(layout.valueLine("TOTAL", value: Money.format(total)) + "\n", alignment: left, bold: true))
+                out.append(layout.text(layout.valueLine("TOTAL", value: clean(Money.format(total))) + "\n", alignment: left, bold: true))
             }
         }
         out.append(layout.text(String(repeating: "-", count: layout.columns) + "\n", alignment: left))
         for line in ServiceOrderReceiptText.footer(d) {
-            out.append(layout.text(layout.wrap(line) + "\n", alignment: center))
+            out.append(layout.text(layout.wrap(clean(line)) + "\n", alignment: center))
         }
-        for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center)) }
+        for line in d.footerLines { out.append(layout.text(layout.wrap(clean(line)) + "\n", alignment: center)) }
         out.append(layout.finish())
         return out
     }

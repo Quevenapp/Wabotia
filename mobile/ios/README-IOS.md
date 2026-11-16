@@ -65,6 +65,10 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
   senha trouxer `whatsapp_link`. Servidor sem `coupon`: o cupom de antes, com `GET /establishment`. O motivo de o QR não
   sair (`whatsapp_qr_notice`) aparece nos ajustes do totem, nunca no papel. Um QR que não cabe na largura do papel é
   deixado de fora e a senha sai mesmo assim.
+- **Texto no papel** (`Device/PaperText.swift`): cupom da senha, comprovante da OS e comanda passam por `PaperText.clean`
+  antes de quebrar em linhas. Ficam ASCII, os acentos do português, ç, ª e º; aspas curvas, travessão, reticências e
+  ponto médio viram ASCII; emoji e o que não tem equivalente saem. O kit trocaria esses por "?" (o ponto médio da
+  posição saiu assim num cupom real em 16/11; no papel o separador agora é " - ").
 - **Tudo nativo**, iOS 15 ou superior, iPhone e iPad (`TARGETED_DEVICE_FAMILY` 1,2; retrato no iPhone, exceto o modo
   aparelho).
 
