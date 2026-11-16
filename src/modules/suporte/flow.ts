@@ -666,13 +666,31 @@ async function onDocument(
   }
   // Documentos digitados só valem para o limite do dia: os mais antigos saem
   // aqui mesmo, sem rodada periódica (conferência N-5).
-  if (stale)
+  if (stale) {
     await exec(
       ctx.env,
       "DELETE FROM suporte_lookups WHERE id IN (SELECT id FROM suporte_lookups WHERE profile_id=? AND created<=? LIMIT 50)",
       ctx.profile,
       since,
     );
+    // O mesmo documento fica na sessão e na compra (segunda conferência,
+    // N-5): sai da sessão encerrada há um dia, de qualquer sessão depois dos
+    // 7 dias da confirmação pela equipe, e da compra não paga depois de 30.
+    await exec(
+      ctx.env,
+      "UPDATE suporte_sessions SET document=NULL WHERE id IN (SELECT id FROM suporte_sessions WHERE profile_id=? AND document IS NOT NULL AND ((status IN ('closed','released') AND updated<=?) OR updated<=?) LIMIT 50)",
+      ctx.profile,
+      since,
+      now() - 7 * 86_400_000,
+    );
+    await exec(
+      ctx.env,
+      "UPDATE suporte_purchases SET document=NULL,name='',pix_code=NULL WHERE id IN (SELECT id FROM suporte_purchases WHERE profile_id=? AND status<>'paid' AND document IS NOT NULL AND created<=? AND (payment_expires_at IS NULL OR payment_expires_at<?) LIMIT 50)",
+      ctx.profile,
+      now() - 30 * 86_400_000,
+      now(),
+    );
+  }
   await exec(
     ctx.env,
     "INSERT INTO suporte_lookups(id,profile_id,phone,conversation_id,document,created) VALUES(?,?,?,?,?,?)",

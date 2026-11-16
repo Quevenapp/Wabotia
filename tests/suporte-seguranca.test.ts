@@ -463,6 +463,41 @@ describe("conferência N-5: documentos digitados têm prazo", () => {
       );
     await contract("contrato-antigo", "expired", 40 * day);
     await contract("contrato-recente", "cancelled", 5 * day);
+    // Segunda conferência N-5: o documento também fica na sessão e na compra.
+    const session = (id: string, status: string, age: number) =>
+      exec(
+        env,
+        "INSERT INTO suporte_sessions(id,profile_id,conversation_id,phone,status,step,document,expires_at,created,updated) VALUES(?,?,?,?,?,'ask_document',?,?,?,?)",
+        id,
+        f.profile,
+        "conversa-antiga",
+        "5511982000001",
+        status,
+        CPF_EM_DIA,
+        now() - age,
+        now() - age,
+        now() - age,
+      );
+    await session("sessao-encerrada", "closed", 2 * day);
+    await session("sessao-aguardando", "awaiting_team", 2 * day);
+    await session("sessao-velha", "awaiting_team", 8 * day);
+    await exec(
+      env,
+      "INSERT INTO suporte_purchases(id,profile_id,conversation_id,document,name,package_id,package_name,price_cents,mode,method,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "compra-antiga",
+      f.profile,
+      "conversa-antiga",
+      CPF_EM_DIA,
+      "Terceiro",
+      "avulso",
+      "Avulso",
+      5000,
+      "ticket",
+      "pix",
+      "expired",
+      now() - 40 * day,
+      now() - 40 * day,
+    );
     const phone = "5511982000009";
     const c = await talk(f, "oi", phone);
     await startFlow(s.sctx, c, uid());
@@ -492,6 +527,26 @@ describe("conferência N-5: documentos digitados têm prazo", () => {
       id: "contrato-recente",
       document: "52998224725",
     });
+    const docs = Object.fromEntries(
+      (
+        await all(
+          env,
+          "SELECT id,document FROM suporte_sessions WHERE id LIKE 'sessao-%'",
+        )
+      ).map((r) => [r.id, r.document]),
+    );
+    expect(docs).toEqual({
+      "sessao-encerrada": null,
+      // Ainda dentro dos 7 dias da confirmação pela equipe.
+      "sessao-aguardando": CPF_EM_DIA,
+      "sessao-velha": null,
+    });
+    expect(
+      await one(
+        env,
+        "SELECT document,name FROM suporte_purchases WHERE id='compra-antiga'",
+      ),
+    ).toEqual({ document: null, name: "" });
   });
 });
 
