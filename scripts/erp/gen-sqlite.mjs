@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { overrides } from "./overrides.mjs";
-import { pgSelect, pgToLite, scaled } from "./gen-sqlite-lib.mjs";
+import { decText, pgSelect, pgToLite, scaled } from "./gen-sqlite-lib.mjs";
 
 const catalog = JSON.parse(readFileSync("src/erp/schema/catalog.json", "utf8"));
 const MAX_SAFE = "9007199254740991";
@@ -58,11 +58,20 @@ function columnSpec(table, col) {
       throw new Unsupported(`numeric sem escala em ${key}: declare a escala em overrides.columns`);
     out.sql = "INTEGER";
     out.scale = scale;
-    // Até 15 dígitos o valor escalado cabe no número do JS. Acima, i64 lido
+    // Até 15 dígitos o valor escalado cabe no número do JS. Até 18, i64 lido
     // por CAST(… AS TEXT): numeric(18,6) chega a 999999999999.999999
     // (10^18 escalado), muito acima de 2^53 — o Fagoo testa esse teto.
+    // Acima de 18 dígitos (numeric(30,10), preços de 24 dígitos) o i64
+    // estoura: decimal exato em TEXT, conta em TS.
     if (precision !== null && precision <= 15) out.codec = "dec";
-    else out.codec = "dec_i64";
+    else if (precision !== null && precision <= 18) out.codec = "dec_i64";
+    else {
+      out.sql = "TEXT";
+      out.codec = "dec_text";
+      // numeric(p,s) arredonda para s casas; numeric puro guarda a escala de entrada.
+      out.fixed = col.typmod >= 0;
+      out.checks.push(`${q(col.name)} <> '' AND ltrim(${q(col.name)}, '-0123456789.') = ''`);
+    }
   } else if (["timestamptz", "timestamp"].includes(base)) {
     out.sql = "INTEGER";
     out.codec = "timestamp_us";
@@ -78,7 +87,7 @@ function columnSpec(table, col) {
     out.codec = "bytes";
   } else if (base === "inet") out.codec = "text";
   else throw new Unsupported(`tipo ${col.type} em ${key}`);
-  if (forced?.codec) out.codec = forced.codec;
+  if (forced?.codec && forced.codec !== out.codec) throw Error(`override ${key}: codec ${forced.codec}, gerador deu ${out.codec}`);
   return out;
 }
 
@@ -92,6 +101,7 @@ function defaultSpec(col, spec) {
   if (d === "true" || d === "false") return { sql: d === "true" ? "1" : "0", ts: null };
   let m = /^\(?(-?\d+(?:\.\d+)?)\)?(?:::\w+)?$/.exec(d);
   if (m) {
+    if (spec.codec === "dec_text") return { sql: lit(decText(m[1], spec.scale, spec.fixed)), ts: null };
     if (spec.scale !== undefined) return { sql: scaled(m[1], spec.scale), ts: null };
     return { sql: m[1], ts: null };
   }
@@ -172,6 +182,18 @@ export function translate(expr, cols, { prefix = "" } = {}) {
     if (!mention.test(s)) continue;
     if (spec.codec === "timestamp_us") {
       if (new RegExp(`(${col})\\s*(=|<>|<|<=|>|>=)\\s*'`).test(s)) bad("tempo comparado com literal");
+      continue;
+    }
+    if (spec.codec === "dec_text") {
+      // Texto canônico (sem "-0", sem zeros à esquerda): o sinal com zero
+      // traduz para texto; outra comparação fica para o TS.
+      const at = (op) => new RegExp(`(^|[^a-z0-9_.])(${col})\\s*${op}\\s*0(?![0-9.])`, "g");
+      s = s.replace(at(">="), (_m, pre, c) => `${pre}(substr(${c},1,1) <> '-')`);
+      s = s.replace(at(">"), (_m, pre, c) => `${pre}(substr(${c},1,1) <> '-' AND ltrim(${c},'0.') <> '')`);
+      const rest = s
+        .replace(/\((substr|ltrim)\(([^()]*)\)/g, "")
+        .replace(new RegExp(`(${col}) IS (NOT )?NULL`, "g"), "");
+      if (new RegExp(`(^|[^a-z0-9_.])(${col})(?![a-z0-9_])`).test(rest)) bad("decimal em TEXT (comparação em TS)");
       continue;
     }
     if (spec.scale === undefined) continue;
@@ -255,6 +277,7 @@ for (const table of catalog.tables) {
     cols[col.name] = {
       codec: spec.codec,
       ...(spec.scale !== undefined ? { scale: spec.scale } : {}),
+      ...(spec.fixed !== undefined ? { fixed: spec.fixed } : {}),
       nullable: !col.not_null,
       ...(def.ts ? { default: def.ts } : {}),
       ...(col.identity ? { identity: true } : {}),
@@ -513,7 +536,7 @@ writeFileSync(
 writeFileSync(
   "src/erp/schema/columns.generated.ts",
   banner +
-    `export type Codec = string;\nexport interface ColumnSpec { codec: Codec; scale?: number; nullable: boolean; default?: string; identity?: boolean; of?: string; generated_by?: string }\nexport const ERP_TABLES: Record<string, { schema: string; table: string; columns: Record<string, ColumnSpec> }> = ${JSON.stringify(columnsOut)};\n`,
+    `export type Codec = string;\nexport interface ColumnSpec { codec: Codec; scale?: number; fixed?: boolean; nullable: boolean; default?: string; identity?: boolean; of?: string; generated_by?: string }\nexport const ERP_TABLES: Record<string, { schema: string; table: string; columns: Record<string, ColumnSpec> }> = ${JSON.stringify(columnsOut)};\n`,
 );
 writeFileSync(
   "src/erp/schema/validators.generated.ts",

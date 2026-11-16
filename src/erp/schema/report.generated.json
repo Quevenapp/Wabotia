@@ -2,7 +2,7 @@
  "tables": 430,
  "columns": 3784,
  "checks": {
-  "translated": 991,
+  "translated": 996,
   "regex": 233,
   "pending": [
    {
@@ -169,12 +169,6 @@
    },
    {
     "table": "erp_catalog.product",
-    "constraint": "product_price_check",
-    "why": "não prepara no SQLite: near \"FROM\": syntax error",
-    "def": "CHECK ((price >= (0)::numeric))"
-   },
-   {
-    "table": "erp_catalog.product",
     "constraint": "product_price_exact_10",
     "why": "conversão de tipo",
     "def": "CHECK (((price IS NULL) OR ((price >= (0)::numeric) AND (price < ('100000000000000'::bigint)::numeric) AND (price = trunc(price, 10)))))"
@@ -196,18 +190,6 @@
     "constraint": "product_width_check",
     "why": "não prepara no SQLite: near \"FROM\": syntax error",
     "def": "CHECK ((width >= (0)::numeric))"
-   },
-   {
-    "table": "erp_catalog.product_cost_history",
-    "constraint": "product_cost_history_cost_price_check",
-    "why": "não prepara no SQLite: near \"FROM\": syntax error",
-    "def": "CHECK (((cost_price IS NULL) OR (cost_price >= (0)::numeric)))"
-   },
-   {
-    "table": "erp_catalog.product_cost_history",
-    "constraint": "product_cost_history_purchase_price_check",
-    "why": "não prepara no SQLite: near \"FROM\": syntax error",
-    "def": "CHECK (((purchase_price IS NULL) OR (purchase_price >= (0)::numeric)))"
    },
    {
     "table": "erp_catalog.product_detail",
@@ -445,21 +427,9 @@
    },
    {
     "table": "erp_documents.item",
-    "constraint": "item_unit_price_check",
-    "why": "não prepara no SQLite: near \"FROM\": syntax error",
-    "def": "CHECK ((unit_price >= (0)::numeric))"
-   },
-   {
-    "table": "erp_documents.item",
     "constraint": "item_unit_price_exact_10",
     "why": "conversão de tipo",
     "def": "CHECK (((unit_price >= (0)::numeric) AND (unit_price < ('10000000000'::bigint)::numeric) AND (unit_price = trunc(unit_price, 10))))"
-   },
-   {
-    "table": "erp_documents.item_cost_applied",
-    "constraint": "item_cost_applied_unit_cost_check",
-    "why": "não prepara no SQLite: near \"FROM\": syntax error",
-    "def": "CHECK ((unit_cost >= (0)::numeric))"
    },
    {
     "table": "erp_documents.numbering",
@@ -1685,5 +1655,5 @@
   "rows": 7586
  },
  "statements": 973,
- "hash": "f925dabe58f0"
+ "hash": "d492bbd25c82"
 }

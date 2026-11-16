@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { oracleDb } from "../../scripts/erp/oracle-db.mjs";
-import { scaled } from "../../scripts/erp/gen-sqlite-lib.mjs";
+import { decText, scaled } from "../../scripts/erp/gen-sqlite-lib.mjs";
 import { ERP_DDL_GENERATED } from "../../src/erp/schema/ddl.generated.ts";
 import { ERP_TABLES } from "../../src/erp/schema/columns.generated.ts";
 import { ERP_REGEX_CHECKS } from "../../src/erp/schema/validators.generated.ts";
@@ -25,7 +25,7 @@ const sqlName = (t) => `${t.schema}__${t.name}`;
 const q = (id) => `"${id.replace(/"/g, '""')}"`;
 
 // Tetos das pendências: subir exige rever o gerador (ou declarar por quê).
-const LIMITS = { checks_pending: 227, triggers_pending: 240, indexes_dropped: 1 };
+const LIMITS = { checks_pending: 222, triggers_pending: 240, indexes_dropped: 1 };
 
 const lite = new DatabaseSync(":memory:");
 lite.exec("PRAGMA foreign_keys=ON");
@@ -150,6 +150,8 @@ function samplesFor(col, pgType, body) {
   if (codec === "bool") out.push(true, false);
   else if (codec === "int" || codec === "int53") out.push(-1, 0, 1, 2, ...nums.flatMap((n) => [Number(n) - 1, Number(n), Number(n) + 1].map(Math.trunc)));
   else if (codec === "dec" || codec === "dec_i64") out.push("0", "-1", "1", "0.5", ...nums.flatMap((n) => [n, String(Number(n) + 1), String(Number(n) - 1), String(Number(n) + 0.0001)]));
+  else if (codec === "dec_text")
+    out.push("0", "0.0", "-0.0", "-1", "1", "0.5", "-0.5", "007.50", "0.0000000001", "99999999999999.9999999999", "-99999999999999.9999999999");
   else if (codec === "uuid") out.push(UUID);
   else if (codec === "json") out.push("{}", "[]", '"x"', "1", "null", '{"a":1}', ...lits.filter((l) => /^[{["\d]/.test(l)));
   else if (codec.startsWith("array:")) out.push("{}", "{a}", "{a,b}");
@@ -163,6 +165,7 @@ function toLite(v, col) {
   if (col.codec === "bool") return v ? 1 : 0;
   // Inteiro, como fica na coluna STRICT (texto compararia em ordem alfabética).
   if (col.codec === "dec" || col.codec === "dec_i64") return BigInt(scaled(String(v), col.scale));
+  if (col.codec === "dec_text") return decText(String(v), col.scale, col.fixed);
   if (col.codec === "timestamp_us") return BigInt(Date.parse(v)) * 1000n;
   if (col.codec.startsWith("array:")) return JSON.stringify(v === "{}" ? [] : v.slice(1, -1).split(","));
   return v;

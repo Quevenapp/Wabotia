@@ -31,3 +31,26 @@ export const toParam = (value: bigint): string => value.toString();
 
 /** numeric sem escala fixa, só para comparar com zero e somar: escala 30. */
 export const exact = (text: string) => toScaled(text, 30);
+
+/**
+ * Coluna dec_text (decimal acima do i64, em TEXT): o mesmo texto que
+ * numeric::text do Postgres. Com escala fixa (numeric(p,s)) arredonda e
+ * completa até s casas; sem ela (numeric puro) conserva as casas de entrada.
+ * Mesma regra de scripts/erp/gen-sqlite-lib.mjs decText.
+ */
+export function decText(text: string, scale: number, fixed: boolean): string {
+  const m = /^\s*([-+])?(\d*)(?:\.(\d*))?\s*$/.exec(text);
+  if (!m || (m[2] === "" && !m[3])) throw new RangeError(`Decimal inválido: ${text}`);
+  if (fixed) return formatScaled(toScaled(text.trim().replace(/^\+/, "").replace(/^(-?)\./, "$10."), scale), scale);
+  const int = m[2].replace(/^0+(?=\d)/, "") || "0";
+  const frac = m[3] ?? "";
+  const zero = /^0*$/.test(int + frac);
+  return (m[1] === "-" && !zero ? "-" : "") + int + (frac ? "." + frac : "");
+}
+
+/** Compara dois decimais em texto (dec_text): -1, 0 ou 1. */
+export function compareDec(a: string, b: string): number {
+  const x = exact(a),
+    y = exact(b);
+  return x < y ? -1 : x > y ? 1 : 0;
+}

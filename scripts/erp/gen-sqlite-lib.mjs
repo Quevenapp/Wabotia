@@ -13,6 +13,27 @@ export function scaled(text, scale) {
 }
 
 /**
+ * Texto canônico de um numeric do Postgres (o mesmo que numeric::text):
+ * zeros à esquerda fora, sem "-0". Com escala fixa (numeric(p,s)) arredonda e
+ * completa até s casas; sem ela conserva as casas de entrada. Mesma regra de
+ * src/erp/engine/dec.ts decText.
+ */
+export function decText(text, scale, fixed) {
+  const m = /^\s*([-+])?(\d*)(?:\.(\d*))?\s*$/.exec(String(text));
+  if (!m || (m[2] === "" && !m[3])) throw new RangeError(`Decimal inválido: ${text}`);
+  if (fixed) {
+    const v = scaled(String(text).trim().replace(/^\+/, ""), scale);
+    const neg = v.startsWith("-");
+    const digits = v.replace("-", "").padStart(scale + 1, "0");
+    return (neg ? "-" : "") + (scale ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}` : digits);
+  }
+  const int = m[2].replace(/^0+(?=\d)/, "") || "0";
+  const frac = m[3] ?? "";
+  const zero = /^0*$/.test(int + frac);
+  return (m[1] === "-" && !zero ? "-" : "") + int + (frac ? "." + frac : "");
+}
+
+/**
  * SELECT do Postgres que já devolve cada coluna na forma do SQLite: tempo em
  * microssegundos (texto exato), decimais e inteiros como texto. ±infinity
  * viram os extremos do i64.
@@ -24,7 +45,7 @@ export function pgSelect(info) {
       const col = q(name);
       if (c.codec === "timestamp_us")
         return `case when ${col} = 'infinity' then '9223372036854775807' when ${col} = '-infinity' then '-9223372036854775808' else (extract(epoch from ${col} - 'epoch'::timestamptz)::numeric * 1000000)::bigint::text end as ${col}`;
-      if (["dec", "dec_i64", "int53", "int"].includes(c.codec)) return `${col}::text as ${col}`;
+      if (["dec", "dec_i64", "dec_text", "int53", "int"].includes(c.codec)) return `${col}::text as ${col}`;
       if (c.codec === "date") return `${col}::text as ${col}`;
       return col;
     });
@@ -46,6 +67,8 @@ export function pgToLite(v, col) {
     case "dec":
     case "dec_i64":
       return scaled(String(v), col.scale);
+    case "dec_text":
+      return String(v);
     case "int53":
     case "int":
       return String(v);

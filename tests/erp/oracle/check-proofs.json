@@ -940,6 +940,13 @@
  {
   "table": "erp_catalog__product",
   "source": "erp_catalog.product",
+  "constraint": "product_price_check",
+  "pg": "(price >= (0)::numeric)",
+  "sqlite": "((substr(price,1,1) <> '-'))"
+ },
+ {
+  "table": "erp_catalog__product",
+  "source": "erp_catalog.product",
   "constraint": "product_production_check",
   "pg": "(production = ANY (ARRAY['own'::text, 'third_party'::text]))",
   "sqlite": "(production  IN ('own', 'third_party'))"
@@ -957,6 +964,20 @@
   "constraint": "product_volumes_check",
   "pg": "((volumes >= 0) AND (volumes <= 999999))",
   "sqlite": "((volumes >= 0) AND (volumes <= 999999))"
+ },
+ {
+  "table": "erp_catalog__product_cost_history",
+  "source": "erp_catalog.product_cost_history",
+  "constraint": "product_cost_history_cost_price_check",
+  "pg": "((cost_price IS NULL) OR (cost_price >= (0)::numeric))",
+  "sqlite": "((cost_price IS NULL) OR ((substr(cost_price,1,1) <> '-')))"
+ },
+ {
+  "table": "erp_catalog__product_cost_history",
+  "source": "erp_catalog.product_cost_history",
+  "constraint": "product_cost_history_purchase_price_check",
+  "pg": "((purchase_price IS NULL) OR (purchase_price >= (0)::numeric))",
+  "sqlite": "((purchase_price IS NULL) OR ((substr(purchase_price,1,1) <> '-')))"
  },
  {
   "table": "erp_catalog__product_cost_history",
@@ -2002,6 +2023,13 @@
   "sqlite": "((\"position\" >= 1) AND (\"position\" <= 250))"
  },
  {
+  "table": "erp_documents__item",
+  "source": "erp_documents.item",
+  "constraint": "item_unit_price_check",
+  "pg": "(unit_price >= (0)::numeric)",
+  "sqlite": "((substr(unit_price,1,1) <> '-'))"
+ },
+ {
   "table": "erp_documents__item_cost_applied",
   "source": "erp_documents.item_cost_applied",
   "constraint": "item_cost_applied_applied_on_check",
@@ -2014,6 +2042,13 @@
   "constraint": "item_cost_applied_basis_check",
   "pg": "(basis = ANY (ARRAY['custo_medio'::text, 'preco_custo'::text, 'ultimo_pedido_compra'::text]))",
   "sqlite": "(basis  IN ('custo_medio', 'preco_custo', 'ultimo_pedido_compra'))"
+ },
+ {
+  "table": "erp_documents__item_cost_applied",
+  "source": "erp_documents.item_cost_applied",
+  "constraint": "item_cost_applied_unit_cost_check",
+  "pg": "(unit_cost >= (0)::numeric)",
+  "sqlite": "((substr(unit_cost,1,1) <> '-'))"
  },
  {
   "table": "erp_documents__list_view",
