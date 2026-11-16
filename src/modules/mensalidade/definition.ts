@@ -63,4 +63,8 @@ export const mensalidadeModule: ModuleDefinition = {
   routes: ["mensalidade"],
   operations: ["mensalidade."],
   scopes: [],
+  // Bot da conversa interna: toda escrita da Mensalidade mexe em quanto e de
+  // quem se cobra (baixa, isenção, cobrança, valor, plano, assinatura,
+  // telefones e documento do pagador), então confirmar exige segundo fator.
+  bot: { sensitive: ["mensalidade."] },
 };

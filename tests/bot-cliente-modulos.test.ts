@@ -10,6 +10,7 @@ import { conversation, perform } from "../src/service";
 import { now, uid } from "../src/types";
 import { moduleMcpTools } from "../src/modules/hooks";
 import { newToolState } from "../src/bot-actions/actions";
+import { fullCatalog } from "../src/bot-actions/catalog";
 import {
   customerToolContext,
   customerToolDefs,
@@ -137,6 +138,25 @@ describe("ferramentas de cliente: Mensalidade, Suporte e Fila", () => {
       );
       expect(Object.keys(def.schema.properties)).not.toContain("document");
     }
+  });
+
+  it("bot da equipe: toda escrita da Mensalidade e do Suporte pede segundo fator", () => {
+    const writes = fullCatalog().filter(
+      (op) =>
+        op.kind === "write" && ["mensalidade", "suporte"].includes(op.module),
+    );
+    expect(writes.map((op) => op.name)).toEqual(
+      expect.arrayContaining([
+        "mensalidade.installment.waive",
+        "mensalidade.installment.pay",
+        "mensalidade.subscription.update",
+        "mensalidade.payer.phone_add",
+        "suporte.courtesy",
+      ]),
+    );
+    expect(writes.filter((op) => !op.sensitive).map((op) => op.name)).toEqual(
+      [],
+    );
   });
 
   it("segunda via sai sem botão e só da mensalidade do próprio cliente", async () => {

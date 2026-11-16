@@ -109,6 +109,9 @@ comprovante não mudam nada: só o webhook do Mercado Pago dá baixa.
 - Pedir de novo a mesma coisa para a mesma parcela devolve o mesmo pedido
   (com o estado dele), sem cartão novo.
 
+No bot da conversa interna (modo equipe), toda escrita da Mensalidade é
+`sensitive` (`definition.bot`): confirmar exige segundo fator.
+
 ## Pagadores
 
 Cada assinatura pertence a um **pagador**: quem paga, com CPF ou CNPJ (os

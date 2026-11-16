@@ -161,6 +161,10 @@ consultado, e "já paguei" não libera. Rota:
 `GET /profiles/{p}/suporte/conversations/{id}/situation`
 (`conversations:read`; liberada para a chave do Hermes presa à conversa).
 
+No bot da conversa interna (modo equipe), toda escrita do Suporte (cortesia,
+confirmação, vínculo, fim de liberação) é `sensitive`: confirmar exige
+segundo fator.
+
 ## O que só uma conta real confirma
 
 Os testes simulam o Mercado Pago e não enviam nada ao WhatsApp. Antes de

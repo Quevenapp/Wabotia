@@ -219,6 +219,10 @@ export async function validateRequest(
   approval: any,
   decision: ApprovalDecision,
 ) {
+  // Segundo fator: a decisão é financeira. Na junção com feat/login-mfa,
+  // `requireFinancialAal(decision.actor)` (src/mfa.ts) entra aqui, ou no
+  // decideApproval do núcleo (revisão da A, item 5); o ator da rota de
+  // decisão é a sessão da pessoa, com o aal dela. Nesta base não há aal.
   if (!decision.actor || !isManager(decision.actor))
     throw moduleError(
       403,

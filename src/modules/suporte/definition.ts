@@ -55,4 +55,7 @@ export const suporteModule: ModuleDefinition = {
   routes: ["suporte"],
   operations: ["suporte."],
   scopes: [],
+  // Bot da conversa interna: cortesia, confirmação, vínculo de telefone e fim
+  // de liberação dão (ou tiram) atendimento sem pagamento: segundo fator.
+  bot: { sensitive: ["suporte."] },
 };

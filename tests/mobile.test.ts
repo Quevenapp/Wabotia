@@ -371,18 +371,29 @@ it("registra, lista, migra e remove dispositivos", async () => {
 it("limita dispositivos por pessoa e a cadência de registros", async () => {
   const u = await user("operator");
   const t = (await (await login(u.email)).json<any>()).token;
-  for (let i = 1; i <= 31; i++) {
-    const r = await api(
-      t,
-      `/devices/device-${String(i).padStart(4, "0")}`,
-      "PUT",
-      {
-        platform: "android",
-        token: `fcm-token-${i}`,
-        name: "Aparelho " + i,
-      },
-    );
-    expect(r.status, `registro ${i}`).toBe(i <= 30 ? 200 : 429);
+  // O limite (rate, src/security.ts) conta por janela fixa de 1 minuto: com
+  // a suíte lenta, os 31 registros atravessavam a virada do minuto e o 31º
+  // caía numa janela nova (200). Durante o laço o relógio começa no início
+  // de uma janela e anda 1 ms por leitura: a ordem dos registros se mantém e
+  // todos ficam na mesma janela.
+  let tick = Math.floor(Date.now() / 60_000) * 60_000 + 60_000;
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => tick++);
+  try {
+    for (let i = 1; i <= 31; i++) {
+      const r = await api(
+        t,
+        `/devices/device-${String(i).padStart(4, "0")}`,
+        "PUT",
+        {
+          platform: "android",
+          token: `fcm-token-${i}`,
+          name: "Aparelho " + i,
+        },
+      );
+      expect(r.status, `registro ${i}`).toBe(i <= 30 ? 200 : 429);
+    }
+  } finally {
+    clock.mockRestore();
   }
   const list = (await (await api(t, "/devices")).json<any>()).data;
   expect(list).toHaveLength(MAX_DEVICES_PER_USER);
