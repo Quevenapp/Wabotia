@@ -123,6 +123,10 @@ export async function probe(ctx: DurableObjectState, name: string, body: Body): 
       const depth = (n: number) => attempt(() => sql.exec(`SELECT ${"(".repeat(n)}1${")".repeat(n)} v`).toArray()[0].v);
       const chain = (n: number) => attempt(() => sql.exec(`SELECT ${Array(n).fill("1").join("+")} v`).toArray()[0].v);
       const like = (n: number) => attempt(() => sql.exec(`SELECT 'a' LIKE ? v`, "%".repeat(n)).toArray()[0].v);
+      // Argumentos de função (SQLITE_MAX_FUNCTION_ARG): max() e json_object(), que os relatórios usam.
+      const fnArgs = (n: number) => attempt(() => sql.exec(`SELECT max(${Array.from({ length: n }, (_, i) => i).join(",")}) v`).toArray()[0].v);
+      const jsonPairs = (pairs: number) =>
+        attempt(() => String(sql.exec(`SELECT json_object(${Array.from({ length: pairs }, (_, i) => `'k${i}',${i}`).join(",")}) v`).toArray()[0].v).length);
       return {
         params: { 100: params(100), 101: params(101), 999: params(999), 32766: params(32766) },
         statement_bytes: {
@@ -135,6 +139,8 @@ export async function probe(ctx: DurableObjectState, name: string, body: Body): 
         parentheses_depth: { 99: depth(99), 100: depth(100), 1000: depth(1000) },
         plus_chain: { 100: chain(100), 1000: chain(1000) },
         like_pattern_bytes: { 50: like(50), 51: like(51) },
+        function_args: { 100: fnArgs(100), 127: fnArgs(127), 128: fnArgs(128), 1000: fnArgs(1000) },
+        json_object_pairs: { 63: jsonPairs(63), 64: jsonPairs(64), 500: jsonPairs(500) },
       };
     }
     // Recuperação no tempo: marcas, bookmark de um instante e restauração.

@@ -86,7 +86,9 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
         .toArray().length,
     }));
     expect(areaKeys).toEqual({ kind: undefined, tables: 0 });
-  });
+    // Esquema, semeadura e alarme no objeto: 5 a 14,5 s no Dell com a suíte
+    // inteira (conferência da K, 16/11); o padrão de 5 s estourava.
+  }, 60_000);
 
   it("causa da falha intermitente: o alarme de 1 ms do /erp-wake roda sozinho; o agendado longe, não", async () => {
     const f = await fixture();

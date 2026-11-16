@@ -75,7 +75,25 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 1. **Fecho:** `node --no-warnings scripts/erp/call-graph.mjs <rpc> --source`. Corpos isolados: `node --no-warnings output/fnsrc.mjs schema.função`.
 2. **Código:**
    - Escreva `rpc/<rpc>.ts` com `registerRpc("<rpc>", fn)` e importe em `index.ts`.
-   - Tipos de argumento primeiro (uuid 22P02, date 22007/22008), como o Postgres.
+   - **Argumentos: o motor já trata, não repita no corpo.** O `callRpc` aplica `engine/args.ts` antes do corpo, com as assinaturas do oráculo (`engine/signatures.generated.ts`, gerado por `scripts/erp/gen-signatures.mjs`):
+     - argumento desconhecido ou obrigatório faltando → 42883;
+     - tipos, na ordem em que os argumentos vieram:
+       - uuid → 22P02;
+       - integer e bigint → 22P02 e 22003 (leitura do PG 17, com espaço, sinal, `0x`/`0o`/`0b` e `_`);
+       - boolean → 22P02;
+       - date → 22007/22008;
+       - `uuid[]`/`text[]` (`malformed array literal`);
+     - DEFAULT do argumento omitido; `null` explícito continua `null`.
+
+     O corpo recebe:
+     - uuid canônico em minúsculas;
+     - integer como `number`;
+     - bigint como `number`, ou `bigint` além de 2^53;
+     - boolean como `boolean`;
+     - text sempre texto.
+
+     jsonb e timestamptz passam como vieram. Tire os auxiliares locais (`argOr`, `uuidArg`, `?? 25`…). `tests/erp/signatures.test.mjs` confere tudo contra o oráculo.
+   - Diferença conhecida: date só no formato `AAAA-MM-DD`. O Postgres aceita outros formatos, como `2026-11-16T10:00Z`; a erp-api manda ISO.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:
@@ -128,6 +146,14 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - Objeto conferido dentro do RPC: declare as chaves em `registerRpc(nome, fn, { objects: (args) => ["erp-attachments/…"] })` e leia com `ctx.objects(chave)`. Ele devolve `{size, mimetype}` ou null; o objeto `erp:` lê do R2 antes da transação.
   - No teste, `f.putObject(bucket, nome, tamanho, tipo)` grava o objeto nos dois lados.
   - Exemplo: `company/rpc/files.ts`.
+- **Identidade** (`auth.*` do Supabase): use a porta `ctx.identity` (`src/erp/engine/identity.ts`), nunca uma tabela `auth`.
+  - **Envelope.** O Worker o preenche e o manda no cabeçalho `x-erp-identity` (JSON em base64url). Traz:
+    - `actor`: `user_id`, `name`, `email`, `erp_role` (`admin|consulta|vendas|financeiro|estoque|fiscal` ou null), `session_id`, `aal` (`aal1`/`aal2`), `verified_factor`, `is_agent`;
+    - `people`: as pessoas da área, com os mesmos campos menos a sessão, ou null.
+  - **Projeção.** Com `people`, o Acesso atualiza `erp_access.membership` e `profile` antes de cada RPC (`access/identity.ts`). Por isso o `activeRole(db, user)` de todo domínio continua valendo, e nenhum RPC grava papel.
+  - **Ajudantes:** `personExists`, `personEmail`, `hasVerifiedFactor` e `sessionAal2` (`access/identity.ts`).
+  - **No teste:** `tests/erp/access/identity-helper.mjs` (`rpcAs`) monta o envelope do `auth.*` do oráculo, para os dois motores verem as mesmas pessoas, sessões e fatores.
+  - **Diferenças estruturais.** O que do oráculo não existe no motor por decisão (`auth`, os 8 RPCs de usuários, agentes, storage, Origin) está em `src/erp/schema/structural.ts`, com o motivo e o substituto.
 - **Segundo fator** (fase 3, `erp_access_gate_v2`): é por pessoa e por sessão, não por RPC.
   - Com a política ligada (`mfaPolicyOn`), quem está no escopo (`mfaInScope`) só usa o ERP inteiro numa sessão aal2.
   - O escopo é o papel admin, o papel financeiro ou quem tem alguma das `MFA_SENSITIVE` (`access/internal.ts`).

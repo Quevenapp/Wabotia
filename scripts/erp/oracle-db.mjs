@@ -7,7 +7,7 @@
 //   node scripts/erp/oracle-db.mjs    (constrói e mede)
 import { PGlite } from "@electric-sql/pglite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -67,7 +67,18 @@ export async function oracleDb() {
     const { db } = await buildOracle();
     const dump = await db.dumpDataDir("gzip");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(file, Buffer.from(await dump.arrayBuffer()));
+    // Os arquivos de teste rodam em processos paralelos: sem cache, vários
+    // constroem ao mesmo tempo. Escrita em arquivo próprio e troca de nome
+    // atômica; antes, um lia o .tgz pela metade (Z_BUF_ERROR).
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(temp, Buffer.from(await dump.arrayBuffer()));
+    try {
+      renameSync(temp, file);
+    } catch (error) {
+      // Outro processo já pôs o seu (e pode estar lendo): fica o dele.
+      rmSync(temp, { force: true });
+      if (!existsSync(file)) throw error;
+    }
     await db.close();
   }
   const blob = new Blob([readFileSync(file)]);
