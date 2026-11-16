@@ -5,6 +5,7 @@ import type { SqlDriver } from "./driver.ts";
 import { ErpError, fromSqlite } from "./errors.ts";
 import { Clock } from "./time.ts";
 import { NO_IDENTITY, type IdentityPort } from "./identity.ts";
+import { prepareArgs } from "./args.ts";
 
 /** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Wabotia, o R2). */
 export interface StoredObject {
@@ -91,11 +92,14 @@ export const isPorted = (name: string) => registry.has(name);
 export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new Clock(), env: ObjectLookup | RpcEnvironment = {}) {
   const fn = registry.get(name);
   if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
+  // Resolução, tipos e DEFAULTs dos argumentos (engine/args.ts): no Postgres,
+  // antes do corpo e antes de qualquer escrita.
+  const prepared = prepareArgs(name, args);
   return inTransaction(
     db,
     (ctx) => {
       for (const step of before) step(ctx);
-      return fn(ctx, args);
+      return fn(ctx, prepared);
     },
     clock,
     env,

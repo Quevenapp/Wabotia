@@ -367,7 +367,12 @@ test("item 4: semeadura com uuid aleatório alinha; desalinhada de propósito pa
   try {
     const fresh = await check();
     assert.deepEqual(fresh.diffs, []);
-    for (const t of ["erp_catalog__contact_type", "erp_a1__installation"]) assert.ok(fresh.align.includes(t), `${t} alinhada`);
+    // Se o cache do oráculo é do mesmo build que gerou a semeadura, os uuids
+    // aleatórios já coincidem e não há o que alinhar; o alinhamento é provado
+    // trocando o uuid de propósito (N, ao juntar: dependia do ambiente).
+    const moved = await check(`UPDATE erp_a1__installation SET vault_id='${U()}'`);
+    assert.deepEqual(moved.diffs, []);
+    assert.ok(moved.align.includes("erp_a1__installation"), "erp_a1__installation alinhada");
     // A lacuna conhecida da semeadura (SEED_LEAVES_NORMALIZED_NULL): quando a
     // semeadura passar a preencher __fold, este teste manda pôr false.
     if (SEED_LEAVES_NORMALIZED_NULL)

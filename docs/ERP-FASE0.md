@@ -889,19 +889,57 @@ npm run test:erp
    - O resultado sai em `output/staging-check-<instante>.json`.
 3. **Comparar com o local:**
 
-| Medida | Local (workerd) | Em produção |
+| Medida | Local (workerd) | Em produção (K, 16/11, `e5d6db1` + `a39dc06`) |
 |---|---|---|
-| CPU do `erp_stock_post` com 100 itens | 36–61 ms | ? |
-| CPU do relatório de saldo (100 mil linhas) | 1,6–1,8 s | ? |
-| Parâmetros por instrução | 100 (101 recusa) | ? |
-| Profundidade de expressão | 100 | ? |
-| Padrão LIKE | 50 bytes | ? |
-| Tamanho de instrução | < 100.000 bytes | ? |
-| `getBookmarkForTime` | não implementado no local | restaura A e não B? |
-| Colo do objeto com `locationHint: "sam"` | — | GRU ou outro? |
-| Costura (GET referências, p50/p95) | 9/12 ms | ? |
+| CPU do `erp_stock_post` com 100 itens | 36–61 ms | até 39 ms |
+| CPU do relatório de saldo (100 mil linhas) | 1,6–1,8 s | 299–437 ms |
+| Primeira chamada (esquema + semeadura) | 0,86–0,95 s | 427 ms de CPU |
+| Partida do Worker / pacote minificado | — | 62 ms / 7,8 MB (2,1 MB gzip) |
+| Parâmetros por instrução | 100 (101 recusa) | igual |
+| Profundidade de expressão | 100 | igual |
+| Padrão LIKE | 50 bytes | igual |
+| Tamanho de instrução | < 100.000 bytes | igual |
+| Argumentos de função | — | não medido; a sonda `limits` passou a medir (`function_args`, `json_object_pairs`) |
+| `getBookmarkForTime` | não implementado no local | atrasa 45–90 s (abaixo) |
+| Colo do objeto com `locationHint: "sam"` | — | IAD (abaixo) |
+| Costura (GET referências, p50/p95) | 9/12 ms | 573/659 ms no cliente (rede do Dell; rpc no objeto 5–14 ms) |
 
 4. **Fim:** novo deploy **sem** `ERP_PROBES`, ou volta ao `feat/cupom-senha`, para as sondas sumirem.
+
+### Achados da conferência na Cloudflare
+
+1. **Dois 500 no roteiro** (marca B do bookmark, `37f1c34c-506c-44e0-8256-a0a95fa0c17e`; desligar o módulo na limpeza, `8336a4a1-f261-4e4c-b3ed-6be7b73b321b`). Não reproduziram com tail. O que o código diz:
+   - **A marca B.** A sonda devolve 502 quando o objeto responde com erro. Um 500 na marca B quer dizer que o `erpFetch` lançou: a exceção veio do stub, sem resposta do objeto.
+     - Segundo a documentação, o stub lança em erro transitório da infraestrutura (`.retryable`), em sobrecarga (`.overloaded`) e no reinício do objeto. Depois de uma exceção, o stub fica "quebrado".
+     - Na hora da marca B, o objeto vinha de 80 mil linhas escritas e de instruções de 1 MB recusadas pela sonda de limites. O primeiro campo do bookmark (a geração do objeto) avançou por ociosidade.
+     - Hipótese mais provável: um reinício do objeto entre as duas marcas, e a chamada pegou o objeto no meio do reinício.
+   - **O desligamento.** O comando passa pelo objeto da área, não pelo `erp:`: é o `mutate` do `module.set`, que grava no D1 e emite o `module.changed`. Quase certamente não é o ERP. Uma corrida com o `wipe` (`deleteAll` no `erp:`) não se sustenta, porque são objetos diferentes.
+   - **Para fechar a causa:** os dois `request_id` na Observabilidade (Workers → Logs) da instalação de teste, com a exceção e o `$workers.outcome`. É com a K, dona da instalação.
+   - **Proposta, independente da causa:** a costura (`erpFetch`) tenta de novo **uma vez**, com stub novo, quando a exceção tem `.retryable` e não `.overloaded`.
+     - Só para leitura, ou para RPC com `p_command_id`: o recibo do comando torna o repetir idempotente.
+     - Todo o resto, inclusive sobrecarga, sai como 503 `erp_unavailable` com `Retry-After`, e não como 500.
+     - São ~40 linhas e um teste. Fica para quando a orquestração aprovar.
+2. **`locationHint: "sam"` não põe o objeto no Brasil.** A documentação diz duas coisas:
+   - "sam" é aceito, mas Durable Objects ainda não nascem na América do Sul. O objeto nasce no **leste da América do Norte**, o que bate com o IAD e com os tempos da K.
+   - Só o primeiro `get()` de um objeto respeita o hint, e o objeto não muda de lugar depois de criado. O `erpStub` passa o hint em toda chamada, o que é inofensivo.
+
+   A latência do Brasil ao IAD (~120–150 ms por ida e volta) é piso de toda chamada do ERP, enquanto a Cloudflare não abrir DO na América do Sul. Atenuantes do nosso lado:
+   - uma chamada ao objeto por pedido da erp-api (já é assim);
+   - o painel junta leituras.
+
+   **Como medir de verdade:**
+   - a sonda `location` já devolve o colo da saída do objeto (`cdn-cgi/trace`) e o `worker_colo`;
+   - acrescentar a medida de uma chamada vazia ao objeto, com o tempo dentro do objeto e no Worker, vinda de um Worker em GRU, dá o RTT Worker → objeto;
+   - repetir em áreas novas, porque o lugar é escolhido na criação de cada objeto.
+3. **`getBookmarkForTime` atrasa de 45 a 90 s.**
+   - A restauração por tempo leva a um estado consistente, mas **anterior** ao instante pedido. A recuperação "no minuto" é aproximada e para trás.
+   - Para um ponto exato, o comando de administrador guarda **bookmarks nomeados** (`getCurrentBookmark`) antes das operações de risco: atualização de esquema, importação em massa, restauração de backup. A restauração usa o nome.
+   - A recuperação por tempo fica para acidente sem marca, com o aviso do atraso na tela.
+4. **Acabamento (feito):**
+   - a sonda `limits` mede argumentos de função (`max` com 100/127/128/1000 e `json_object` com 63/64/500 pares);
+   - o `staging-check.mjs` faz logout no fim e, no Windows, encerra a árvore do `wrangler tail` (`taskkill /T /F`);
+   - o teste de alarme do `erp-do-instance` tem tempo-limite de 60 s;
+   - o cache do oráculo (`output/erp-oracle/*.tgz`) é escrito num arquivo próprio e troca de nome de forma atômica, sem `Z_BUF_ERROR` entre testes paralelos.
 
 ## Divisão em sessões (opinião)
 
