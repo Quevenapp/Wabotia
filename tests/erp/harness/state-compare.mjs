@@ -28,7 +28,7 @@
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { pgSelect, pgToLite } from "../../../scripts/erp/gen-sqlite-lib.mjs";
-import { derivedIds, derivedUuid } from "./derived-ids.mjs";
+import { derivedIds, derivedUuid, orderFor } from "./derived-ids.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+00:00$/;
@@ -70,51 +70,43 @@ export class IdMap {
   }
 }
 
-const freshId = (v, ids) => typeof v === "string" && UUID.test(v) && !ids.known.has(v.toLowerCase());
-
 /**
- * Array da resposta ordenado por id gerado na chamada (por exemplo os
- * borderôs novos do settle_batch, "order by id"): cada motor gera os seus
- * ids, então a ordem muda ao acaso. Só nesse caso a ordem é ignorada: os
- * dois lados precisam estar ordenados (no mesmo sentido) por uma chave que
- * é id novo em cada elemento (ou o próprio elemento), e os elementos
- * precisam casar um a um, ligando os ids. Ordem diferente por outro motivo
- * continua divergência. Devolve o IdMap com as ligações, ou null.
+ * O array está na ordem declarada (derived-ids.mjs, registerNewIdOrder)
+ * pelos ids novos deste lado? Ordem do uuid no Postgres: bytes, a mesma do
+ * texto em minúsculas.
  */
-function matchByFreshOrder(pg, lite, ids, path, specs, key) {
-  const n = pg.length;
-  const keyOf = (k) => (x) => (k === null ? x : x && typeof x === "object" && !Array.isArray(x) ? x[k] : undefined);
-  const candidates = [null, ...new Set(pg.flatMap((x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.keys(x) : [])))];
-  for (const k of candidates) {
-    const get = keyOf(k);
-    if (!pg.every((x) => freshId(get(x), ids)) || !lite.every((x) => freshId(get(x), ids))) continue;
-    // Ordem do uuid no Postgres: bytes, a mesma do texto em minúsculas.
-    const lc = (s) => String(s).toLowerCase();
-    const ordered = (arr, dir) => arr.every((x, i) => i === 0 || dir * (lc(get(arr[i - 1])) < lc(get(x)) ? -1 : 1) < 0);
-    for (const dir of [1, -1]) {
-      if (!ordered(pg, dir) || !ordered(lite, dir)) continue;
-      let budget = 20000;
-      const used = new Array(n).fill(false);
-      const search = (i, state) => {
-        if (i === n) return state;
-        for (let j = 0; j < n; j++) {
-          if (used[j] || --budget < 0) continue;
-          const trial = state.clone();
-          if (diffValues(pg[i], lite[j], trial, `${path}.${i}`, [], specs, key).length) continue;
-          used[j] = true;
-          const r = search(i + 1, trial);
-          used[j] = false;
-          if (r) return r;
-        }
-        return null;
-      };
-      const r = search(0, ids);
-      if (r) return r;
-    }
-  }
-  return null;
+function inNewIdOrder(arr, order, isNew) {
+  const obj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  const vals = arr.map((x) => (order.by === null ? x : obj(x) ? x[order.by] : undefined));
+  if (!vals.every((s) => typeof s === "string" && UUID.test(s) && isNew(s.toLowerCase()))) return false;
+  const lc = vals.map((s) => s.toLowerCase());
+  return lc.every((s, i) => i === 0 || (order.dir === "asc" ? lc[i - 1] < s : lc[i - 1] > s));
 }
 
+/**
+ * Array declarado como ordenado por id novo, nos dois lados nessa ordem:
+ * casa elemento a elemento, ligando os ids. Devolve o IdMap com as
+ * ligações, ou null.
+ */
+function matchUnordered(pg, lite, ids, path, specs, key) {
+  const n = pg.length;
+  let budget = 20000;
+  const used = new Array(n).fill(false);
+  const search = (i, state) => {
+    if (i === n) return state;
+    for (let j = 0; j < n; j++) {
+      if (used[j] || --budget < 0) continue;
+      const trial = state.clone();
+      if (diffValues(pg[i], lite[j], trial, `${path}.${i}`, [], specs, key).length) continue;
+      used[j] = true;
+      const r = search(i + 1, trial);
+      used[j] = false;
+      if (r) return r;
+    }
+    return null;
+  };
+  return search(0, ids);
+}
 /** Liga um par vindo da resposta; id que já existia só vale igual. */
 function linkPair(pg, lite, ids, path, out, what) {
   const p = pg.toLowerCase(),
@@ -155,13 +147,22 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
     out.push({ path, pg, lite, why: "tipo" });
     return out;
   }
-  if (!positional && Array.isArray(pg) && pg.length === lite.length && pg.length > 1) {
+  // Array declarado como ordenado por id novo (registerNewIdOrder): a ordem
+  // vem dos uuids aleatórios de cada lado. Cada lado tem de estar nessa
+  // ordem; aí os elementos casam um a um. Fora da declaração, ordem é ordem.
+  const order = !positional && Array.isArray(pg) && key !== undefined ? orderFor(key) : null;
+  if (order && pg.length === lite.length && pg.length > 1) {
     const trial = ids.clone();
     if (!diffValues(pg, lite, trial, path, [], specs, key, true).length) {
       ids.assign(trial);
       return out;
     }
-    const r = matchByFreshOrder(pg, lite, ids, path, specs, key);
+    const isNew = (u) => !ids.known.has(u);
+    if (!inNewIdOrder(pg, order, isNew) || !inNewIdOrder(lite, order, isNew)) {
+      out.push({ path, pg, lite, why: `array fora da ordem declarada (${order.id})` });
+      return out;
+    }
+    const r = matchUnordered(pg, lite, ids, path, specs, key);
     if (r) {
       ids.assign(r);
       return out;
@@ -224,7 +225,17 @@ function encodeString(s, table, column, key, specs, leaf, inJson) {
 
 function encodeJson(v, table, column, key, specs, leaf) {
   if (typeof v === "string") return encodeString(v, table, column, key, specs, leaf, true);
-  if (Array.isArray(v)) return "[" + v.map((x) => encodeJson(x, table, column, key, specs, leaf)).join(",") + "]";
+  if (Array.isArray(v)) {
+    const parts = v.map((x) => encodeJson(x, table, column, key, specs, leaf));
+    // Array declarado como ordenado por id novo (registerNewIdOrder) nesta
+    // coluna: na ordem declarada, os elementos (já com os ids ligados) são
+    // comparados pelo conteúdo, sem a ordem; fora dela, marcado à parte,
+    // nunca igual ao ordenado (o motor que não ordena diverge sempre).
+    const order = leaf.isNew && key !== undefined ? orderFor(key, `${table}.${column}`) : null;
+    if (order && inNewIdOrder(v, order, leaf.isNew)) return "\u0002[" + parts.join("\u0003") + "\u0002]";
+    if (order) return "[!" + parts.join(",") + "]";
+    return "[" + parts.join(",") + "]";
+  }
   if (v && typeof v === "object")
     return (
       "{" +
@@ -266,7 +277,13 @@ export function collectIds(row, table, specs, into) {
 
 // Marcador de id livre no texto: \0<spec>\1<n>\0 (o JSON nunca tem \0 cru).
 const SLOT = /\u0000([^\u0001]*)\u0001(\d+)\u0000/g;
-const render = (row, f) => row.text.replace(SLOT, (_, spec, k) => f(row.slots[+k], spec));
+// Array marcado (encodeJson, ordem declarada): \2[ e1 \3 e2 … \2]; o mais interno primeiro.
+const MARKED = /\u0002\[([^\u0002]*)\u0002\]/;
+function canonical(s) {
+  for (let m; (m = MARKED.exec(s)); ) s = s.slice(0, m.index) + "[" + m[1].split("\u0003").sort().join(",") + "]" + s.slice(m.index + m[0].length);
+  return s;
+}
+const render = (row, f) => canonical(row.text.replace(SLOT, (_, spec, k) => f(row.slots[+k], spec, +k)));
 const hash = (s) => createHash("sha1").update(s).digest("base64").slice(0, 20);
 
 function encodeAll(data, ids, specs) {
@@ -279,7 +296,7 @@ function encodeAll(data, ids, specs) {
       const other = side === "pg" ? raw.lite : raw.pg;
       for (const r of d[side]) {
         const slots = [];
-        const text = encodeRow(r, table, specs, (kind, u, sp) => {
+        const leaf = (kind, u, sp) => {
           let lit = null;
           if (side === "pg") {
             if (ids.pgToLite.has(u) || ids.known.has(u) || other.has(u)) lit = u;
@@ -291,7 +308,10 @@ function encodeAll(data, ids, specs) {
           if (lit !== null) return JSON.stringify(kind === "derived" ? sp.fromUuid(lit) : lit);
           slots.push(`${side}:${u}`);
           return `\u0000${kind === "derived" ? sp.id : ""}\u0001${slots.length - 1}\u0000`;
-        });
+        };
+        // Gerado nesta chamada: não existia e só aparece deste lado (ligado ou não).
+        leaf.isNew = (u) => !ids.known.has(u) && !other.has(u);
+        const text = encodeRow(r, table, specs, leaf);
         rows.push({ table, side, text, slots });
       }
     }
@@ -341,8 +361,11 @@ function refine(rows, color) {
   for (;;) {
     const contrib = new Map([...color.keys()].map((k) => [k, []]));
     for (const r of rows) {
-      const sig = r.table + "\u0002" + render(r, (k, spec) => `${spec}#${color.get(k)}`);
-      r.slots.forEach((k, i) => contrib.get(k).push(i + "\u0003" + sig));
+      // A posição do id é a da forma canônica (arrays marcados ordenados),
+      // não a ordem de leitura: a linha com este slot marcado.
+      r.slots.forEach((k, i) =>
+        contrib.get(k).push(r.table + "\u0004" + render(r, (key, spec, j) => (j === i ? `${spec}@` : `${spec}#${color.get(key)}`))),
+      );
     }
     const next = new Map();
     for (const [k, list] of contrib) next.set(k, hash(color.get(k) + "\u0004" + list.sort().join("\u0005")));

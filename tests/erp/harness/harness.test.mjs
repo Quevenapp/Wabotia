@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { oracleDb } from "../../../scripts/erp/oracle-db.mjs";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
-import { derivedIds, registerDerivedId } from "./derived-ids.mjs";
+import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
 import { dualFixture } from "./dual-fixture.mjs";
 import { freshLite } from "./node-driver.mjs";
 import { SEED_LEAVES_NORMALIZED_NULL, applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
@@ -188,6 +188,63 @@ test("item 1: array da resposta ordenado por id novo (settle_batch sem agrupamen
   assert.notDeepEqual(diffValues({ v: [1, 2] }, { v: [2, 1] }, new IdMap(new Set(KNOWN))), []);
   // Elemento a mais: acusado.
   assert.notDeepEqual(diffValues({ borderos: p }, { borderos: [...l, l[0]] }, new IdMap(new Set(KNOWN))), []);
+});
+
+test("item 1: o mesmo array gravado em json nas tabelas (auditoria e recibo)", () => {
+  const ordered = (arr) => [...arr].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const elems = (ids, amounts) => ids.map((id, i) => ({ id, amount_cents: amounts[i] }));
+  const audit = (borderos) =>
+    row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "settle_batch", after_data: JSON.stringify({ borderos }), created_at: "1" });
+  const data = (pIds, lArr) => ({
+    erp_finance__bordero: { pg: pIds.map((i) => bor(i)), lite: lArr.map((x) => bor(x.id)) },
+    erp_finance__audit: { pg: [audit(ordered(elems(pIds, [100, 250, 400])))], lite: [audit(lArr)] },
+  });
+  for (let n = 0; n < 20; n++) {
+    const pIds = [U(), U(), U()],
+      lIds = [U(), U(), U()];
+    const l = ordered(elems(lIds, [100, 250, 400]));
+    equal(data(pIds, l), KNOWN);
+    // Valor diferente num elemento do json.
+    differs(data(pIds, l.map((x, i) => (i === 1 ? { ...x, amount_cents: 251 } : x))), KNOWN);
+    // Elemento a menos.
+    differs(data(pIds, l.slice(0, 2)), KNOWN);
+    // O motor fora da ordem declarada (sempre acusado, mesmo que coincida).
+    differs(data(pIds, [l[1], l[0], l[2]]), KNOWN);
+    differs(data(pIds, [...l].reverse()), KNOWN);
+  }
+  // Array sem id novo como chave: ordem é ordem.
+  const fixed = (v) => row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "x", after_data: JSON.stringify({ v }), created_at: "1" });
+  differs({ erp_finance__audit: { pg: [fixed([{ id: A }, { id: A2 }])], lite: [fixed([{ id: A2 }, { id: A }])] } }, KNOWN);
+  // Array não declarado com ids novos: dois elementos estão sempre "em
+  // ordem" num sentido; a ordem tem de valer mesmo assim.
+  const [p1, p2, l1, l2] = [U(), U(), U(), U()];
+  const items = (a, b) => row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "x", after_data: JSON.stringify({ items: [{ id: a, n: 1 }, { id: b, n: 2 }] }), created_at: "1" });
+  equal({ erp_finance__bordero: { pg: [bor(p1), bor(p2)], lite: [bor(l1), bor(l2)] }, erp_finance__audit: { pg: [items(p1, p2)], lite: [items(l1, l2)] } }, KNOWN);
+  const swapped = row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "x", after_data: JSON.stringify({ items: [{ id: l2, n: 2 }, { id: l1, n: 1 }] }), created_at: "1" });
+  differs({ erp_finance__bordero: { pg: [bor(p1), bor(p2)], lite: [bor(l1), bor(l2)] }, erp_finance__audit: { pg: [items(p1, p2)], lite: [swapped] } }, KNOWN);
+});
+
+test("item 1: a declaração de ordem por id novo é conferida", () => {
+  assert.throws(() => registerNewIdOrder({ id: "teste.sem_chave", by: "id" }), /chaves/);
+  assert.throws(() => registerNewIdOrder({ id: "teste.dir", keys: ["x"], dir: "acima" }), /asc ou desc/);
+  assert.throws(() => registerNewIdOrder({ id: "teste.coluna", keys: ["x"], columns: ["erp_finance__bordero.note"] }), /não é json/);
+  assert.throws(() => registerNewIdOrder({ id: "finance.settle_batch_borderos", keys: ["x"] }), /já registrada/);
+  // Ids em ordem crescente nos dois lados: só a declaração separa os casos.
+  const two = () => [U(), U()].sort();
+  const [p1, p2] = two(),
+    [l1, l2] = two();
+  // Na resposta, array não declarado com ids novos: a ordem vale.
+  assert.notDeepEqual(diffValues({ items: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { items: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, new IdMap(new Set(KNOWN))), []);
+  // Declarado: a mesma troca passa.
+  assert.deepEqual(diffValues({ borderos: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { borderos: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, new IdMap(new Set(KNOWN))), []);
+  // Na tabela, a chave declarada numa coluna não declarada (before_data): a ordem vale.
+  const at = (col, borderos) => row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "x", [col]: JSON.stringify({ borderos }), created_at: "1" });
+  const data = (col) => ({
+    erp_finance__bordero: { pg: [bor(p1), bor(p2)], lite: [bor(l1), bor(l2)] },
+    erp_finance__audit: { pg: [at(col, [{ id: p1, n: 1 }, { id: p2, n: 2 }])], lite: [at(col, [{ id: l1, n: 2 }, { id: l2, n: 1 }])] },
+  });
+  equal(data("after_data"), KNOWN);
+  differs(data("before_data"), KNOWN);
 });
 
 // ---------------------------------------------------------------------------
