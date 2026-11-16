@@ -7,9 +7,7 @@ import "./rpc/erp_finance_category_execute.ts";
 import "./rpc/erp_finance_execute.ts";
 import "./rpc/erp_finance_bordero_execute.ts";
 import "./rpc/erp_finance_cash_execute.ts";
-// Aguarda o harness ligar uuid embutido em texto (cash_entry.source_key
-// 'cash_session:<id do movimento>'); até lá roda só no Postgres.
-// import "./rpc/erp_finance_cash_session_execute.ts";
+import "./rpc/erp_finance_cash_session_execute.ts";
 import "./rpc/erp_finance_payment_methods.ts";
 import "./rpc/erp_finance_statement_page.ts";
 import "./rpc/erp_finance_title_detail.ts";

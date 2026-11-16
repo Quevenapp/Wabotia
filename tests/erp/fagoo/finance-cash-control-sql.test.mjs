@@ -8,17 +8,12 @@
 // existe na fixture.
 // Descartado, declarado: a metade de grants/security definer do primeiro
 // teste (PLANO-FAGOO-MOTOR.md, seção 2); as conferências de papel ficam.
-// Todos como todo até o harness ligar uuid embutido em texto: a sangria e o
-// suprimento gravam cash_entry.source_key = 'cash_session:<id do movimento>',
-// e a linha de cash_entry e a de cash_session_move não se ligam (divergem só
-// nesse texto). Com o mapa de ids aplicado ao texto, 3 de 3 nos dois motores.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { parseFinanceRoute, executeFinanceRoute } from '../../../src/erp/fagoo/workers/erp-api/src/finance.mjs';
 import { dualFixture } from '../harness/dual-fixture.mjs';
 
-const HARNESS = process.env.ERP_HARNESS_IDS === '1' ? false : "harness: uuid embutido em texto (cash_entry.source_key 'cash_session:<id>')";
 let F; let db; let users; let caixa; let banco; let dinheiro; let cartao;
 const scalar = async (sql, args = []) => (await db.query(sql, args)).rows[0].value;
 const rpc = (name, args) => F.rpc(name, args);
@@ -41,12 +36,12 @@ before(async () => {
 });
 after(async () => F?.close());
 
-test('173 roles: consulta reads and cannot write (the grants half is discarded)', { todo: HARNESS }, async () => {
+test('173 roles: consulta reads and cannot write (the grants half is discarded)', async () => {
   await assert.rejects(() => act('session_open', { account_id: caixa.id, change_cents: '0' }, users.consulta), http(403));
   for (const role of ['vendas', 'estoque', 'inactive']) await assert.rejects(() => call('/v1/financeiro/controle-caixa', {}, users[role]), http(403));
 });
 
-test('173 Abrir Caixa, sangria and suprimento in the conta of the caixa, Valores informados, Fechar, Reabrir and Conferido, with the version as CAS', { todo: HARNESS }, async () => {
+test('173 Abrir Caixa, sangria and suprimento in the conta of the caixa, Valores informados, Fechar, Reabrir and Conferido, with the version as CAS', async () => {
   await assert.rejects(() => act('session_open', { account_id: banco.id, change_cents: '0' }), http(400), 'only a conta do tipo Caixa');
   const command = randomUUID();
   const opened = await act('session_open', { account_id: caixa.id, change_cents: '5000' }, users.financeiro, command);
@@ -87,7 +82,7 @@ test('173 Abrir Caixa, sangria and suprimento in the conta of the caixa, Valores
   assert.equal((await rpc('erp_finance_account_detail', { p_user_id: users.consulta, p_id: caixa.id })).record.in_use, true);
 });
 
-test('173 Excluir a caixa without movements; the Worker refuses unknown keys and filters', { todo: HARNESS }, async () => {
+test('173 Excluir a caixa without movements; the Worker refuses unknown keys and filters', async () => {
   const other = await act('session_open', { account_id: caixa.id, change_cents: '0' }, users.admin);
   const gone = await act('session_delete', { id: other.record.id, expected_version: other.record.version }, users.admin);
   assert.equal(gone.record.deleted, true);

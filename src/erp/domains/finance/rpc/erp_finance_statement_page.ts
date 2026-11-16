@@ -7,7 +7,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { dateArgError } from "../../../engine/time.ts";
 import { permitted } from "../../access/public.ts";
-import { argOr, btrim, charLength, cmpText, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
+import { btrim, charLength, cmpText, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
 import { cashEntryView } from "../cash.ts";
 
 const UUID_I = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -170,17 +170,17 @@ export function erpFinanceStatementPage(ctx: RpcContext, a: RpcArgs) {
   const account = uuidArg(a.p_account);
   const from = dateArg(a.p_from);
   const to = dateArg(a.p_to);
-  const tab = argOr<string>(a, "p_tab", "all");
-  const deleted = argOr<boolean>(a, "p_deleted", false);
+  const tab = (a.p_tab as string | null);
+  const deleted = (a.p_deleted as boolean | null);
   const categories = (a.p_categories as string[] | null) ?? null;
   const amount = (a.p_amount_cents as number | string | null) ?? null;
   const amountN = amount === null ? null : Number(amount);
   const query = (a.p_query as string | null) ?? null;
-  const order = argOr<string>(a, "p_order", "asc");
-  const page = argOr<number>(a, "p_page", 1);
-  const limit = argOr<number>(a, "p_limit", 100);
+  const order = (a.p_order as string | null);
+  const page = (a.p_page as number | null);
+  const limit = (a.p_limit as number | null);
   const reconciliation = (a.p_reconciliation as string | null) ?? null;
-  const cancelled = argOr<boolean>(a, "p_cancelled", false);
+  const cancelled = (a.p_cancelled as boolean | null);
   const needle = query === null || btrim(query) === "" ? null : pgLower(btrim(query));
   requireAccess(db, user, false);
   if (

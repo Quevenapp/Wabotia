@@ -4,7 +4,7 @@ import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { dateArgError } from "../../../engine/time.ts";
-import { argOr, btrim, charLength, cmpText, pgLower, requireAccess, uuidArg } from "../internal.ts";
+import { btrim, charLength, cmpText, pgLower, requireAccess, uuidArg } from "../internal.ts";
 import { dto } from "../titles.ts";
 
 const TABLES: Record<string, string> = {
@@ -30,7 +30,7 @@ export function erpFinanceList(ctx: RpcContext, a: RpcArgs) {
   const to = dateArg(a.p_to);
   const parent = uuidArg(a.p_parent_id);
   const entity = (a.p_entity as string | null) ?? null;
-  const limit = argOr<number>(a, "p_limit", 25);
+  const limit = (a.p_limit as number | null);
   const query = (a.p_query as string | null) ?? null;
   const status = (a.p_status as string | null) ?? null;
   const kind = (a.p_kind as string | null) ?? null;

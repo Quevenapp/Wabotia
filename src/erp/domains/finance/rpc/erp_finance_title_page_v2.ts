@@ -6,7 +6,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { dateArgError, todaySaoPaulo } from "../../../engine/time.ts";
 import { permitted } from "../../access/public.ts";
-import { argOr, btrim, charLength, cmpText, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
+import { btrim, charLength, cmpText, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
 import { dto, left, titleOrigin, titleSeller } from "../titles.ts";
 
 const UUID_I = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,13 +53,13 @@ export function erpFinanceTitlePageV2(ctx: RpcContext, a: RpcArgs) {
   const paymentMethod = uuidArg(a.p_payment_method);
   const seller = uuidArg(a.p_seller);
   const kind = (a.p_kind as string | null) ?? null;
-  const page = argOr<number>(a, "p_page", 1);
-  const limit = argOr<number>(a, "p_limit", 100);
-  const order = argOr<string>(a, "p_order", "due_asc");
+  const page = (a.p_page as number | null);
+  const limit = (a.p_limit as number | null);
+  const order = (a.p_order as string | null);
   const query = (a.p_query as string | null) ?? null;
-  const option = argOr<string>(a, "p_option", "issued");
+  const option = (a.p_option as string | null);
   const statuses = (a.p_statuses as string[] | null) ?? null;
-  const dateField = argOr<string>(a, "p_date_field", "due");
+  const dateField = (a.p_date_field as string | null);
   const account = (a.p_account as string | null) ?? null;
   const categories = (a.p_categories as string[] | null) ?? null;
   const remittance = (a.p_remittance as string | null) ?? null;

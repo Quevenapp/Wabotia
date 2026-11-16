@@ -68,16 +68,6 @@ export function uuidArg(value: unknown): string | null {
  * Argumento com DEFAULT na assinatura do Postgres: ausente vale o padrão;
  * null explícito continua null (pg_get_function_arguments do oráculo).
  */
-export const argOr = <T>(a: Record<string, unknown>, key: string, fallback: T): T | null =>
-  a[key] === undefined ? fallback : ((a[key] as T | null) ?? null);
-
-/**
- * Violação de CHECK com a mensagem do Postgres (o SQLite diz "CHECK
- * constraint failed: <tabela>_<nome>"; o diferencial compara a mensagem).
- */
-export const checkViolation = (table: string, constraint: string): never =>
-  raise("23514", `new row for relation "${table}" violates check constraint "${constraint}"`);
-
 /** Argumento jsonb do RPC (a API manda objeto; o texto também vale). */
 export const jsonArg = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value);
 
@@ -736,7 +726,6 @@ export function insertCategory(
 ) {
   const id = crypto.randomUUID();
   categoryTreeGuard(ctx.db, null, { id, ...c });
-  categoryChecks(c.kind);
   const now = ctx.clock.next().toString();
   ctx.db.exec(
     'INSERT INTO "erp_finance__category"(id, name, kind, parent_id, dre_group, active, version, created_at, updated_at) VALUES(?,?,?,?,?,?,1,?,?)',
@@ -752,17 +741,11 @@ export function insertCategory(
   return id;
 }
 
-/** CHECKs de category que um escritor alcança, com a mensagem do Postgres (depois dos gatilhos BEFORE). */
-function categoryChecks(kind: unknown) {
-  if (kind === "both") checkViolation("category", "category_kind_split");
-}
-
 /** UPDATE de uma categoria com o category_tree_guard; sobe a versão. */
 export function updateCategory(ctx: RpcContext, id: string, set: Record<string, unknown>) {
   const old = categoryRow(ctx.db, id);
   if (!old) return;
   categoryTreeGuard(ctx.db, old, { ...old, ...set });
-  categoryChecks("kind" in set ? set.kind : old.kind);
   writeRow(ctx, "erp_finance__category", "id", id, {
     ...set,
     version: Number(old.version) + 1,

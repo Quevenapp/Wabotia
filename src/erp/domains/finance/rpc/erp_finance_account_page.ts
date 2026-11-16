@@ -2,15 +2,15 @@
 // lista paginada e detalhe das Contas Financeiras.
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { accountView, argOr, byLowerThenId, btrim, charLength, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
+import { accountView, byLowerThenId, btrim, charLength, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
 
 const TYPES = ["checking", "savings", "cash", "receiving", "other", "integration"];
 
 export function erpFinanceAccountPage(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   const user = uuidArg(a.p_user_id)!;
-  const page = argOr<number>(a, "p_page", 1);
-  const limit = argOr<number>(a, "p_limit", 100);
+  const page = (a.p_page as number | null);
+  const limit = (a.p_limit as number | null);
   const query = (a.p_query as string | null) ?? null;
   const active = (a.p_active as boolean | null) ?? null;
   const types = (a.p_types as string[] | null) ?? null;

@@ -8,7 +8,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { dateArgError, todaySaoPaulo } from "../../../engine/time.ts";
 import { actorLabel } from "../../access/public.ts";
 import {
-  argOr,
+  
   bool,
   btrim,
   charLength,
@@ -274,11 +274,11 @@ export function erpFinanceCashSessionPage(ctx: RpcContext, a: RpcArgs) {
   const user = uuidArg(a.p_user_id)!;
   const from = dateArg(a.p_from);
   const to = dateArg(a.p_to);
-  const state = argOr<string>(a, "p_state", "all");
-  const all = argOr<boolean>(a, "p_all", false);
+  const state = (a.p_state as string | null);
+  const all = (a.p_all as boolean | null);
   const query = (a.p_query as string | null) ?? null;
-  const page = argOr<number>(a, "p_page", 1);
-  const limit = argOr<number>(a, "p_limit", 100);
+  const page = (a.p_page as number | null);
+  const limit = (a.p_limit as number | null);
   const needle = query === null || btrim(query) === "" ? null : pgLower(btrim(query));
   requireAccess(db, user, false);
   if (

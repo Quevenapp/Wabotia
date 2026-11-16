@@ -8,7 +8,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { dateArgError } from "../../../engine/time.ts";
 import {
   accountRow,
-  argOr,
+  
   bool,
   btrim,
   charLength,
@@ -250,8 +250,8 @@ export function erpFinanceBorderoPage(ctx: RpcContext, a: RpcArgs) {
   const to = dateArg(a.p_to);
   const titleId = uuidArg(a.p_title);
   const kind = (a.p_kind as string | null) ?? null;
-  const page = argOr<number>(a, "p_page", 1);
-  const limit = argOr<number>(a, "p_limit", 100);
+  const page = (a.p_page as number | null);
+  const limit = (a.p_limit as number | null);
   const query = (a.p_query as string | null) ?? null;
   const categories = (a.p_categories as string[] | null) ?? null;
   const amount = (a.p_amount_cents as number | string | null) ?? null;
