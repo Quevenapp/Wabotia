@@ -74,6 +74,8 @@ struct HomeView: View {
             if phase == .active {
                 workspace.activate()
                 AppAppearance.apply()
+                // O acesso da pessoa pode ter mudado enquanto o app estava fora: relê as capacidades.
+                Task { await ModuleFeature.shared.refresh(container: container, force: true) }
             } else if phase == .background {
                 workspace.deactivate()
             }

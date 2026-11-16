@@ -87,6 +87,7 @@ enum QueueHTTP {
             }
             let code = info?.code.isEmpty == false ? info!.code : "http_\(http.statusCode)"
             let message = info?.message.isEmpty == false ? info!.message : fallback
+            AccessDenial.report(status: http.statusCode, code: code)
             throw QueueError(status: http.statusCode, code: code, message: message)
         }
         return data

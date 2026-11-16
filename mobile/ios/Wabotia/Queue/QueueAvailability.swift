@@ -179,6 +179,15 @@ final class ModuleFeature: ObservableObject {
         accessByProfile[profile] = access
     }
 
+    private var deniedAt: Date?
+
+    /// `403 access_denied` em qualquer rota: relê `/capabilities` já (a lista nova esconde a tela).
+    func accessDenied() {
+        if let last = deniedAt, Date().timeIntervalSince(last) < 5 { return }
+        deniedAt = Date()
+        Task { await refresh(container: .shared, force: true) }
+    }
+
     /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.
     func markDisabled(_ module: String, profile: String) {
         modules[profile]?.remove(module)

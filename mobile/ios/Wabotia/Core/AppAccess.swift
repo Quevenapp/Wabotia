@@ -1,41 +1,43 @@
 import Foundation
 
-/// O que esta pessoa acessa no app (lista por usuário em `/capabilities`: "só caixa", "só garçom"…). A barra inferior e
-/// as telas são montadas só com o que a lista deixa. Sem lista (servidor antigo, ou acesso a tudo), tudo aparece, como
-/// antes. O contrato ainda está sendo fechado no servidor: as chaves lidas e os nomes das áreas ficam todos aqui.
+/// O que esta pessoa acessa no app (docs/API.md, "Acesso por pessoa"; recurso `person_access` em `/capabilities`).
+/// Cada área de `profiles` traz `access`, já expandido e só com módulos ligados: áreas do atendimento
+/// (`conversations`, `tickets`, `contacts`, `calls`, `team`, `reports`), módulos (`queue`, `agenda`, `os`…) e papéis de
+/// módulo (`os:technician`, `mesas:waiter`, `entrega:courier`, `caixa:cashier`). A barra inferior e as telas são
+/// montadas só com o que vier. `access: null` (aparelho pareado, aplicação) ou servidor sem o recurso: sem restrição,
+/// como antes (valem `modules` e os escopos). `["*"]` é o atendente completo: tudo, menos os papéis.
 struct AppAccess: Equatable {
     /// `nil`: sem restrição.
     var areas: Set<String>?
 
     static let all = AppAccess(areas: nil)
 
-    /// Nomes das áreas (provisórios). Os módulos usam o próprio id (`queue`, `agenda`, `os`, `pedido`…).
     enum Area {
         static let conversations = "conversations"
         static let tickets = "tickets"
+        static let contacts = "contacts"
         static let team = "team"
         static let calls = "calls"
-        static let lines = "lines"
+        static let reports = "reports"
+        /// Linhas de atendimento, menus e linhas dos bots: vão com as conversas (não há item próprio).
+        static let lines = "conversations"
     }
-
-    /// Outros nomes que o servidor pode usar para a mesma área.
-    static let aliases: [String: String] = [
-        "conversas": Area.conversations, "inbox": Area.conversations, "atendimento": Area.conversations,
-        "protocolos": Area.tickets, "equipe": Area.team, "ligacoes": Area.calls, "linhas": Area.lines,
-        "fila": ModuleId.queue, "guiche": ModuleId.queue, "ordem_servico": ModuleId.serviceOrders,
-        "garcom": "mesas", "waiter": "mesas", "cashier": "caixa", "delivery": "entrega",
-    ]
 
     /// As áreas que moram na aba Atendimento.
-    static let attendanceAreas: Set<String> = [Area.tickets, Area.lines, ModuleId.queue, ModuleId.agenda, ModuleId.serviceOrders,
+    static let attendanceAreas: Set<String> = [Area.tickets, ModuleId.queue, ModuleId.agenda, ModuleId.serviceOrders,
                                                ModuleId.reserva, ModuleId.pedido, ModuleId.mensalidade]
 
+    /// Itens do atendimento que não têm tela própria no app (ficam no painel), sem pedir explicação.
+    static let panelOnly: Set<String> = [Area.contacts, Area.reports]
+
+    /// `area` é um item (`tickets`, `os`) ou um papel (`os:technician`). `*` dá tudo menos os papéis.
     func allows(_ area: String) -> Bool {
         guard let areas else { return true }
-        return areas.contains(area) || areas.contains("*") || areas.contains("all")
+        if areas.contains(area) { return true }
+        return !area.contains(":") && (areas.contains("*") || areas.contains("all"))
     }
 
-    var restricted: Bool { areas != nil && !allows("*") }
+    var restricted: Bool { areas != nil && !(areas?.contains("*") ?? false) }
 
     /// As abas, na ordem de sempre. Ajustes sempre; Atendimento também quando nada mais sobra, para explicar.
     var tabs: [HomeTab] {
@@ -49,56 +51,54 @@ struct AppAccess: Equatable {
         return out
     }
 
-    /// Áreas da lista que ainda não têm tela no app (caixa, garçom…): a aba Atendimento diz que ficam no painel.
+    /// Módulos e papéis da lista que ainda não têm tela neste app (caixa, garçom, entregador com login…), um por módulo:
+    /// a aba Atendimento diz que ficam no painel.
     var withoutScreen: [String] {
         guard let areas else { return [] }
-        let known = Self.attendanceAreas.union([Area.conversations, Area.team, Area.calls, "*", "all"])
-        return areas.subtracting(known).sorted()
+        let known = Self.attendanceAreas.union([Area.conversations, Area.team, Area.calls, "*", "all"]).union(Self.panelOnly)
+        return Set(areas.map { String($0.split(separator: ":").first ?? Substring($0)) }).subtracting(known).sorted()
     }
 
     // MARK: - Leitura
 
-    /// Chaves aceitas para a lista, por ordem: na área da pessoa, em `actor`, no topo.
-    static let keys = ["access", "app_access", "areas", "screens"]
-
-    /// `nil` quando a resposta não traz lista nenhuma (sem restrição).
+    /// `nil` quando a resposta não restringe (sem `access`, ou `access: null`).
     static func parse(_ json: Any, profileId: String?) -> AppAccess? {
         guard let root = json as? [String: Any] else { return nil }
         var places: [[String: Any]] = []
         if let profiles = root["profiles"] as? [[String: Any]] {
             if let area = profiles.first(where: { ($0["id"] as? String) == profileId }) ?? (profiles.count == 1 ? profiles.first : nil) { places.append(area) }
         }
-        if let actor = root["actor"] as? [String: Any] { places.append(actor) }
         places.append(root)
         for place in places {
-            for key in keys {
-                guard let value = place[key] else { continue }
-                if let list = value as? [String] { return AppAccess(areas: normalize(list)) }
-                if let list = value as? [[String: Any]] { return AppAccess(areas: normalize(list.compactMap { $0["id"] as? String })) }
-                if let map = value as? [String: Any] {
-                    return AppAccess(areas: normalize(map.compactMap { key, flag in (flag as? Bool ?? true) ? key : nil }))
-                }
-            }
+            guard let value = place["access"] else { continue }
+            // `null`: aparelho pareado ou aplicação, sem restrição por pessoa.
+            if value is NSNull { return nil }
+            if let list = value as? [String] { return AppAccess(areas: normalize(list)) }
+            if let list = value as? [[String: Any]] { return AppAccess(areas: normalize(list.compactMap { $0["id"] as? String })) }
         }
         return nil
     }
 
     static func normalize(_ list: [String]) -> Set<String> {
-        Set(list.map { item in
-            let id = item.trimmingCharacters(in: .whitespaces).lowercased()
-                .folding(options: .diacriticInsensitive, locale: Locale(identifier: "pt_BR"))
-            return aliases[id] ?? id
-        }.filter { !$0.isEmpty })
+        Set(list.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
     }
 
-    /// Nome legível de uma área sem tela no app.
+    /// Nome legível de um módulo sem tela no app.
     static func title(_ area: String) -> String {
         switch area {
         case "caixa": return "Caixa"
         case "mesas": return "Garçom e mesas"
-        case "vendas": return "Vendas e orçamento"
         case "entrega": return "Entregas"
         default: return area.capitalized
         }
+    }
+}
+
+/// `403 access_denied`: a pessoa não acessa mais aquilo (o administrador mudou o acesso). A tela some e o app relê
+/// `/capabilities` (no máximo uma vez a cada poucos segundos).
+enum AccessDenial {
+    static func report(status: Int, code: String) {
+        guard status == 403, code == "access_denied" else { return }
+        Task { @MainActor in ModuleFeature.shared.accessDenied() }
     }
 }

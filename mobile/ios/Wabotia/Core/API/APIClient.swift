@@ -74,6 +74,7 @@ final class APIClient {
             case 429: fallback = "Muitas requisições. Aguarde um instante."
             default: fallback = "Não foi possível concluir a operação (HTTP \(http.statusCode))."
             }
+            AccessDenial.report(status: http.statusCode, code: parsed?.code ?? "")
             throw APIError(status: http.statusCode, code: parsed?.code ?? "http_\(http.statusCode)", message: parsed?.message ?? fallback, requestId: parsed?.request_id)
         }
         return data
