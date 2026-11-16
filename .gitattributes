@@ -1,2 +1,7 @@
 *.pdf binary
 public/hermes-plugin/* text eol=lf
+# Cópia do Fagoo: bytes exatos, conferidos pelo SHA-256 de web/erp/ORIGEM.json.
+web/erp/app/** -text
+web/erp/test/** -text
+web/erp/qa/** -text
+packages/** -text
