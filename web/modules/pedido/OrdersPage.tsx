@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   Printer,
+  QrCode,
   ShoppingBag,
 } from "lucide-react";
 import { useApp } from "../../app/AppContext";
@@ -47,6 +48,7 @@ import {
   statusOrder,
   statusTones,
 } from "./shared";
+import { qrEncode, qrPath } from "../../lib/qr-code";
 import "./pedido.css";
 
 const StatusPill = ({ status }: { status: string }) => (
@@ -54,6 +56,16 @@ const StatusPill = ({ status }: { status: string }) => (
     {statusLabels[status] || status}
   </Pill>
 );
+
+/** "Ana · a caminho · chega 19:40" (módulo Entrega). */
+const deliveryText = (d: Row) =>
+  [
+    d.courier_name || "Sem entregador",
+    d.status_label,
+    d.eta_at ? `chega ${clock(d.eta_at)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
 function usePedidoWrite() {
   const app = useApp();
@@ -80,6 +92,31 @@ function printTicket(text: string, title: string) {
   }
   win.document.write(
     `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;padding:8px}pre{font:12px/1.35 monospace;white-space:pre;margin:0}@page{margin:4mm}</style></head><body><pre>${escapeHtml(text)}</pre></body></html>`,
+  );
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+/**
+ * QR da via de entrega desenhado aqui mesmo (web/lib/qr-code.ts, sem rede):
+ * o conteúdo é um acesso de uso único e não pode ir a serviço de terceiros.
+ */
+function qrSvg(text: string, px = 180) {
+  const matrix = qrEncode(text);
+  const view = matrix.size + 8;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${view} ${view}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="QR da entrega"><rect width="${view}" height="${view}" fill="#fff"/><path d="${qrPath(matrix)}" fill="#000"/></svg>`;
+}
+
+/** Via de entrega: comanda, título, QR do entregador e as linhas de uso. */
+function printDeliverySlip(slip: Row, title: string) {
+  const win = window.open("", "_blank", "width=420,height=760");
+  if (!win) {
+    toast("Permita janelas pop-up neste endereço para imprimir a via.");
+    return;
+  }
+  win.document.write(
+    `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{margin:0;padding:8px}pre{font:12px/1.35 monospace;white-space:pre;margin:0}.qr{text-align:center;margin:6px 0}@page{margin:4mm}</style></head><body><pre>${escapeHtml(slip.text)}\n\n${escapeHtml(slip.slip_text.title)}</pre><div class="qr">${qrSvg(slip.slip.qr)}</div><pre>${escapeHtml(slip.slip_text.lines)}</pre></body></html>`,
   );
   win.document.close();
   win.focus();
@@ -144,6 +181,7 @@ export function OrderDetail({
   const resource = useResource(`${app.root}/pedido/orders/${id}`);
   const [cancelling, setCancelling] = useState(false);
   const [ticket, setTicket] = useState<string | null>(null);
+  const [slip, setSlip] = useState<Row | null>(null);
   const order: Row | null = resource.data;
   const after = async (promise: () => Promise<any>, success: string) =>
     run(
@@ -210,6 +248,29 @@ export function OrderDetail({
             >
               Comanda
             </Button>
+            {order.fulfillment === "delivery" &&
+              order.next_statuses.length > 0 &&
+              app.moduleOn("entrega") && (
+                <Button
+                  secondary
+                  icon={<QrCode size={16} />}
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      // Escrita: gerar de novo revoga o QR anterior.
+                      const result = await write(
+                        `/orders/${order.id}/delivery-slip`,
+                        "POST",
+                        { columns: 32 },
+                      );
+                      setSlip(result);
+                      await resource.reload();
+                    }, {})
+                  }
+                >
+                  Via de entrega
+                </Button>
+              )}
             {order.next_statuses.includes("cancelled") && (
               <Button variant="danger" onClick={() => setCancelling(true)}>
                 Cancelar
@@ -301,6 +362,12 @@ export function OrderDetail({
               ? order.address_text || "—"
               : "No balcão"}
           </dd>
+          {order.delivery && (
+            <>
+              <dt>Entrega</dt>
+              <dd>{deliveryText(order.delivery)}</dd>
+            </>
+          )}
           {order.note && (
             <>
               <dt>Observação do cliente</dt>
@@ -387,6 +454,40 @@ export function OrderDetail({
               </Button>
             </div>
             <pre className="pedido-ticket">{ticket}</pre>
+          </section>
+        )}
+        {slip !== null && (
+          <section className="card">
+            <div className="section-heading">
+              <h3>Via de entrega</h3>
+              <Button
+                size="sm"
+                icon={<Printer size={16} />}
+                onClick={() =>
+                  printDeliverySlip(slip, `Entrega ${order.number}`)
+                }
+              >
+                Imprimir
+              </Button>
+            </div>
+            <p className="muted">
+              O entregador lê o QR no app Wabotia (Escanear pedido). Vale uma
+              leitura
+              {slip.slip.expires_at
+                ? `, até ${clock(slip.slip.expires_at)}`
+                : ""}
+              ; gerar de novo invalida este.
+            </p>
+            <div
+              className="pedido-qr"
+              // SVG gerado aqui a partir do texto do QR (sem HTML externo).
+              dangerouslySetInnerHTML={{ __html: qrSvg(slip.slip.qr, 200) }}
+            />
+            <pre className="pedido-ticket">
+              {slip.slip_text.title}
+              {"\n"}
+              {slip.slip_text.lines}
+            </pre>
           </section>
         )}
         <h3>Histórico</h3>
@@ -522,6 +623,11 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
                     <li>+ {order.lines.length - 4} itens</li>
                   )}
                 </ul>
+                {order.delivery && (
+                  <span className="pedido-delivery">
+                    {deliveryText(order.delivery)}
+                  </span>
+                )}
                 <span className="meta">
                   <span>{order.fulfillment_label}</span>
                   <span>{money(order.total_cents)}</span>
