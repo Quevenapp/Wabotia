@@ -199,9 +199,13 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
   );
   if (existing) {
     // Repetição (gancho repetido pelo núcleo depois de uma falha no meio):
-    // completa o aviso e a passagem que podem ter ficado para trás.
-    if (input.pass !== false && existing.status === "active")
-      await deliverRelease(ctx, existing);
+    // completa a sessão, o evento, o aviso e a passagem que podem ter ficado
+    // para trás, todos com chave pela liberação (conferência N-4).
+    if (existing.status === "active") {
+      if (input.session) await markSession(ctx, input.session.id, existing);
+      await publishRelease(ctx, existing);
+      if (input.pass !== false) await deliverRelease(ctx, existing);
+    }
     return { release: existing, created: false };
   }
   const at = now();
@@ -281,38 +285,47 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
       ),
       created: false,
     };
-  if (input.session)
-    await exec(
-      ctx.env,
-      "UPDATE suporte_sessions SET status='released',release_id=?,updated=? WHERE id=?",
-      id,
-      at,
-      input.session.id,
-    );
   const row = await one(
     ctx.env,
     "SELECT * FROM suporte_releases WHERE id=?",
     id,
   );
-  await ctx.publish(
-    "suporte.released",
-    id,
-    {
-      release_id: id,
-      conversation_id: c.id,
-      kind: input.kind,
-      ref_id: input.ref ?? null,
-      payer_id: input.payer?.id ?? null,
-      phone_linked: linked,
-      valid_until: validUntil,
-      ticket_id: ticket.id,
-      expires_at: expiresAt,
-      actor: input.actor,
-    },
-    { key: id },
-  );
+  if (input.session) await markSession(ctx, input.session.id, row);
+  await publishRelease(ctx, row);
   if (input.pass !== false) await deliverRelease(ctx, row);
   return { release: row, created: true };
+}
+
+/** Sessão que levou à liberação deixa de esperar pagamento. */
+async function markSession(ctx: ModuleContext, sessionId: string, row: any) {
+  await exec(
+    ctx.env,
+    "UPDATE suporte_sessions SET status='released',release_id=?,updated=? WHERE id=? AND status<>'released'",
+    row.id,
+    now(),
+    sessionId,
+  );
+}
+
+/** Evento da liberação, com chave pela liberação (repetir não duplica). */
+async function publishRelease(ctx: ModuleContext, row: any) {
+  await ctx.publish(
+    "suporte.released",
+    row.id,
+    {
+      release_id: row.id,
+      conversation_id: row.conversation_id,
+      kind: row.kind,
+      ref_id: row.ref_id ?? null,
+      payer_id: row.payer_id ?? null,
+      phone_linked: !!row.phone_linked,
+      valid_until: row.valid_until ?? null,
+      ticket_id: row.ticket_id,
+      expires_at: row.expires_at,
+      actor: row.actor,
+    },
+    { key: row.id },
+  );
 }
 
 /**

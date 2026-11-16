@@ -868,9 +868,12 @@ export async function installmentPaid(
   const ctx = modulesApi(env, profile, "suporte");
   if (!(await ctx.enabled())) return;
   const at = now();
+  // Também as já liberadas por este pagamento: o núcleo repete o gancho
+  // quando o aviso ou a passagem falhou depois de gravar a liberação, e a
+  // repetição precisa concluir (conferência N-4).
   const sessions = await all(
     env,
-    "SELECT * FROM suporte_sessions WHERE profile_id=? AND status='active' AND (installment_id=? OR (contract_id IS NOT NULL AND contract_id=?))",
+    "SELECT s.*,r.id AS repeat_release FROM suporte_sessions s LEFT JOIN suporte_releases r ON r.id=s.release_id AND r.source_key='sessao:'||s.id AND r.status='active' WHERE s.profile_id=? AND (s.status='active' OR (s.status='released' AND r.id IS NOT NULL)) AND (s.installment_id=? OR (s.contract_id IS NOT NULL AND s.contract_id=?))",
     profile,
     inst.id,
     inst.contract_id ?? "",
@@ -880,6 +883,18 @@ export async function installmentPaid(
     try {
       c = await ctx.conversation(session.conversation_id);
     } catch {
+      continue;
+    }
+    if (session.repeat_release) {
+      await release(ctx, {
+        c,
+        session,
+        kind: session.offer_kind === "plan" ? "subscription" : "installment",
+        ref: inst.id,
+        payer: null,
+        actor: inst.paid_via === "manual" ? inst.paid_by : "provider",
+        sourceKey: `sessao:${session.id}`,
+      });
       continue;
     }
     const situation = inst.payer_id

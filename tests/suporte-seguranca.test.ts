@@ -685,6 +685,72 @@ describe("conferência M5 e N-2", () => {
   });
 });
 
+describe("conferência N-4: repetição do gancho conclui a liberação", () => {
+  it("falha depois de gravar a liberação: a repetição publica, avisa e passa uma vez", async () => {
+    const s = await setupSuporte();
+    const { f, account } = s;
+    const phone = "5511973000044";
+    await payerEmAtraso(s, phone);
+    let c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    c = await tap(f, phone, "suporte:method:pix", "Pix");
+    const session = await one(
+      env,
+      "SELECT * FROM suporte_sessions WHERE conversation_id=?",
+      c.id,
+    );
+    const payment = await paymentFor(session.installment_id);
+    // O evento da liberação falha uma vez: sessão já "released", sem aviso.
+    await exec(
+      env,
+      "CREATE TRIGGER IF NOT EXISTS falha_teste BEFORE INSERT ON events WHEN NEW.kind='suporte.released' BEGIN SELECT RAISE(ABORT,'falha simulada'); END",
+    );
+    try {
+      await approve(account.id, payment.id);
+    } finally {
+      await exec(env, "DROP TRIGGER IF EXISTS falha_teste");
+    }
+    expect(
+      (
+        await one(
+          env,
+          "SELECT status FROM suporte_sessions WHERE id=?",
+          session.id,
+        )
+      ).status,
+    ).toBe("released");
+    expect((await conversation(env, c.id, f.profile)).state).not.toBe(
+      "waiting",
+    );
+    // Reenvio do webhook: o núcleo repete o gancho e a passagem conclui.
+    await approve(account.id, payment.id);
+    const released = await releases(c.id);
+    expect(released).toHaveLength(1);
+    expect(
+      (
+        await one(
+          env,
+          "SELECT COUNT(*) AS n FROM events WHERE profile_id=? AND kind='suporte.released'",
+          f.profile,
+        )
+      ).n,
+    ).toBe(1);
+    expect(["waiting", "human"]).toContain(
+      (await conversation(env, c.id, f.profile)).state,
+    );
+    expect(
+      (
+        await one(
+          env,
+          "SELECT COUNT(*) AS n FROM outbox WHERE conversation_id=? AND instr(dedupe,?)>0",
+          c.id,
+          `liberado:${released[0].id}`,
+        )
+      ).n,
+    ).toBe(1);
+  });
+});
+
 describe("B1: portão fail-closed e chave pela mensagem", () => {
   it("o Suporte declara failClosed e reprocessar a mesma mensagem não repete a pergunta", async () => {
     expect(gateFailsClosed("suporte")).toBe(true);
