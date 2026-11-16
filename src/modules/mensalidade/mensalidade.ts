@@ -575,7 +575,9 @@ onRead(
   "mensalidade/subscriptions",
   async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
-    const list = await listSubscriptions(ctx, ctx.safeQuery(actor, query));
+    const list = await listSubscriptions(ctx, ctx.safeQuery(actor, query), {
+      notes: ctx.mayRead(actor, "notes"),
+    });
     // Na listagem, atendente vê o documento do pagador mascarado, como na
     // lista de pagadores (conferência M6); completo no detalhe.
     if (actor.kind === "user" && actor.role !== "admin")

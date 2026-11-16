@@ -112,9 +112,9 @@ import {
   publicOrigin,
   rememberOrigin,
   statePage,
+  stepFor,
   touchWebStep,
   webStepByCode,
-  webStepView,
   whatsappReturnLink,
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
@@ -2022,14 +2022,15 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
         conv.id,
       )
     ).map(paymentView),
-    // Passos web da conversa (enviado, aberto, concluído, expirado).
+    // Passos web da conversa (enviado, aberto, concluído, expirado). Respostas
+    // só com contacts:read (segunda conferência, M6), como em /web-steps.
     web_steps: (
       await all(
         c.env,
         "SELECT * FROM web_steps WHERE conversation_id=? ORDER BY created DESC,id DESC LIMIT 20",
         conv.id,
       )
-    ).map(webStepView),
+    ).map((row) => stepFor(c.get("actor"), row)),
   });
 });
 app.get("/api/v1/profiles/:profile/conversations/:id/web-steps", async (c) =>

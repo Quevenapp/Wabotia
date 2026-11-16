@@ -503,7 +503,15 @@ onRead(MODULE, "reserva/calendar", async (ctx, actor, { query }) => {
         };
       }),
     })),
-    bookings,
+    // Como na listagem: atendente não recebe os documentos do check-in de
+    // até 1000 reservas (segunda conferência, M6); vê no detalhe.
+    bookings:
+      actor.kind === "user" && actor.role !== "admin"
+        ? bookings.map(({ checkin_answers: _a, ...b }) => ({
+            ...b,
+            checkin_answers: null,
+          }))
+        : bookings,
   };
 });
 

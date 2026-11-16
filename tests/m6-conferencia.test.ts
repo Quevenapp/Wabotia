@@ -10,6 +10,7 @@ import { api, application, bearer, receive } from "./service-center-fixture";
 import { useMercadoPago } from "./mensalidade-mp";
 import { CPF_EM_DIA, payerEmDia, setupSuporte } from "./suporte-fixture";
 import { future, reservaSetup } from "./reserva-fixture";
+import { tool } from "./mcp-fixture";
 
 useMercadoPago();
 
@@ -117,5 +118,90 @@ describe("conferência M6: resíduos", () => {
       await api(member, `/profiles/${p}/reserva/bookings/${b.id}`),
     );
     expect(detail.checkin_answers).toEqual(answers);
+  });
+
+  it("segunda conferência M6: detalhe da conversa, get_conversation, calendário, eventos com nota e busca nas observações", async () => {
+    const s = await reservaSetup();
+    const c = await receive(s.f, s.f.line, "oi", "5511986100003");
+    const b = await s.run("reserva.book", {
+      unit_id: s.jardim.id,
+      start_date: future(10),
+      nights: 1,
+      conversation_id: c.id,
+      notes: "hóspede caloteiro",
+    });
+    const answers = { documento: "987.654.321-00" };
+    await exec(
+      env,
+      "INSERT INTO web_steps(id,profile_id,conversation_id,module_id,kind,ref_id,code_hash,status,title,spec,trigger,actor,source_key,expires_at,result,completed_at,created,updated) VALUES(?,?,?,'reserva','checkin',?,?,'completed','Check-in','{}','agent','x',?,?,?,?,?,?)",
+      uid(),
+      s.f.profile,
+      c.id,
+      b.id,
+      uid(),
+      uid(),
+      now() + 86400000,
+      JSON.stringify(answers),
+      now(),
+      now(),
+      now(),
+    );
+    await exec(
+      env,
+      "UPDATE reserva_bookings SET checkin_answers=? WHERE id=?",
+      JSON.stringify(answers),
+      b.id,
+    );
+    const p = s.f.profile;
+    // Só conversations:read (padrão do Vinki e do Fagoo): sem as respostas.
+    const reader = (await application(s.f, READ)).token;
+    const detail = await json(
+      await api(reader, `/profiles/${p}/conversations/${c.id}`),
+    );
+    expect(detail.web_steps).toHaveLength(1);
+    expect(detail.web_steps[0].answers).toBeNull();
+    const viaMcp = await tool(reader, "get_conversation", {
+      conversation_id: c.id,
+    });
+    expect(viaMcp.ok).toBe(true);
+    expect(JSON.stringify(viaMcp.data)).not.toContain("987.654.321-00");
+    // Com contacts:read, vê.
+    const full = (await application(s.f, FULL)).token;
+    const fullDetail = await json(
+      await api(full, `/profiles/${p}/conversations/${c.id}`),
+    );
+    expect(fullDetail.web_steps[0].answers).toEqual(answers);
+    // Eventos da Reserva com nota interna: só com notes:read.
+    const noNotes = (await application(s.f, [...READ, "contacts:read"])).token;
+    const events = await json(await api(noNotes, `/profiles/${p}/events`));
+    expect(JSON.stringify(events)).not.toContain("caloteiro");
+    const withNotes = await json(await api(full, `/profiles/${p}/events`));
+    expect(JSON.stringify(withNotes)).toContain("caloteiro");
+    // Calendário do atendente: sem os documentos do check-in.
+    const calendar = await json(
+      await api(
+        await bearer(s.f.member),
+        `/profiles/${p}/reserva/calendar?from_date=${future(9)}`,
+      ),
+    );
+    expect(calendar.bookings.map((x: any) => x.id)).toContain(b.id);
+    expect(JSON.stringify(calendar)).not.toContain("987.654.321-00");
+  });
+
+  it("segunda conferência M6: busca de assinaturas não casa com as observações sem notes:read", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const sub = await payerEmDia(s, "5511986100004", CPF_EM_DIA);
+    await exec(
+      env,
+      "UPDATE mensalidade_subscriptions SET notes='caloteiro' WHERE id=?",
+      sub.id,
+    );
+    const root = `/profiles/${f.profile}/mensalidade/subscriptions?q=caloteiro`;
+    const blind = (await application(f, ["conversations:read"])).token;
+    expect((await json(await api(blind, root))).data).toHaveLength(0);
+    const seer = (await application(f, ["conversations:read", "notes:read"]))
+      .token;
+    expect((await json(await api(seer, root))).data).toHaveLength(1);
   });
 });

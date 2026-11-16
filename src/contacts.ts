@@ -15,7 +15,7 @@ import {
   type ContactValues,
 } from "./contact-csv";
 import { visibleConversation } from "./visibility";
-import { webStepView } from "./web-steps";
+import { stepFor } from "./web-steps";
 
 export const contactNamespace = (actor: Actor) =>
   actor.kind === "app" ? `app:${actor.id}` : "team";
@@ -144,7 +144,7 @@ export async function contactDetail(
           profile,
           JSON.stringify(conversations.map((c) => c.id)),
         )
-      ).map(webStepView)
+      ).map((row) => stepFor(actor, row))
     : [];
   return { contact, conversations, web_steps: answers };
 }

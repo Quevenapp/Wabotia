@@ -54,6 +54,22 @@ export function visibleConversation(actor: Actor, c: any) {
     c.external_namespace === `app:${actor.id}`
   );
 }
+/** Nota interna preenchida no evento (até dois níveis: o registro dentro). */
+function carriesNotes(value: any, depth = 0): boolean {
+  if (!value || typeof value !== "object" || depth > 2) return false;
+  for (const [key, inner] of Object.entries(value)) {
+    if (
+      ["notes", "paid_note"].includes(key) &&
+      typeof inner === "string" &&
+      inner.trim()
+    )
+      return true;
+    if (inner && typeof inner === "object" && carriesNotes(inner, depth + 1))
+      return true;
+  }
+  return false;
+}
+
 export async function visibleEvent(env: Env, actor: Actor, e: any) {
   if (e.kind.startsWith("internal.")) {
     if (actor.kind !== "user") return false;
@@ -126,7 +142,11 @@ export async function visibleEvent(env: Env, actor: Actor, e: any) {
   )
     return false;
   if (
-    (payload.module_id === "os" || payload.module_id === "pedido") &&
+    (payload.module_id === "os" ||
+      payload.module_id === "pedido" ||
+      // Agenda, Reserva e os demais: quando o registro leva nota interna
+      // (segunda conferência, M6).
+      (payload.module_id && carriesNotes(payload))) &&
     !actor.scopes.includes("notes:read")
   )
     return false;

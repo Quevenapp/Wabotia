@@ -363,6 +363,9 @@ const subscriptionCounts =
 export async function listSubscriptions(
   ctx: ModuleContext,
   query: Record<string, string>,
+  // Sem notes:read, a busca não casa com as observações internas (segunda
+  // conferência, M6: "q=caloteiro" virava oráculo).
+  options: { notes?: boolean } = {},
 ) {
   const where = ["s.profile_id=?"],
     args: any[] = [ctx.profile];
@@ -397,12 +400,15 @@ export async function listSubscriptions(
     const like =
       "%" + q.toLowerCase().replace(/[%_\\]/g, (m) => "\\" + m) + "%";
     const digits = /^[\d\s()+-]+$/.test(q) ? q.replace(/\D/g, "") : "";
+    const notes = options.notes !== false;
     where.push(
-      "(lower(s.customer_name) LIKE ? ESCAPE '\\' OR lower(s.notes) LIKE ? ESCAPE '\\' OR lower(y.name) LIKE ? ESCAPE '\\'" +
+      "(lower(s.customer_name) LIKE ? ESCAPE '\\'" +
+        (notes ? " OR lower(s.notes) LIKE ? ESCAPE '\\'" : "") +
+        " OR lower(y.name) LIKE ? ESCAPE '\\'" +
         (digits.length >= 4 ? " OR s.phone LIKE ? OR y.document LIKE ?" : "") +
         ")",
     );
-    args.push(like, like, like);
+    args.push(...(notes ? [like, like, like] : [like, like]));
     if (digits.length >= 4) args.push("%" + digits + "%", "%" + digits + "%");
   }
   if (query.cursor) {
