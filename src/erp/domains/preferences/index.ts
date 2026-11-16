@@ -11,3 +11,6 @@ import "./rpc/erp_preferences_situations.ts";
 import "./rpc/erp_preferences_labels.ts";
 import "./rpc/erp_attachment_employee.ts";
 import "./rpc/erp_home_settings.ts";
+import "./rpc/erp_preferences_framework_delete.ts";
+import "./rpc/erp_preferences_reports.ts";
+import "./rpc/erp_preferences_reads.ts";
