@@ -69,6 +69,13 @@ export function uuidArg(value: unknown): string | null {
 export const argOr = <T>(a: Record<string, unknown>, key: string, fallback: T): T | null =>
   a[key] === undefined ? fallback : ((a[key] as T | null) ?? null);
 
+/**
+ * Violação de CHECK com a mensagem do Postgres (o SQLite diz "CHECK
+ * constraint failed: <tabela>_<nome>"; o diferencial compara a mensagem).
+ */
+export const checkViolation = (table: string, constraint: string): never =>
+  raise("23514", `new row for relation "${table}" violates check constraint "${constraint}"`);
+
 /** Argumento jsonb do RPC (a API manda objeto; o texto também vale). */
 export const jsonArg = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value);
 
@@ -178,7 +185,7 @@ export function day(value: unknown, past = false): string {
 }
 
 /** erp_finance.cents (bigint em centavos; o Fagoo limita a 15 dígitos, cabe em number) */
-export function cents(value: unknown, zero: boolean, signed: boolean): number {
+export function cents(value: unknown, zero = true, signed = false): number {
   const re = signed ? /^-?[0-9]{1,15}$/ : /^[0-9]{1,15}$/;
   if (jsonType(value) !== "string" || !re.test(value as string)) raise("22023", "erp_finance_invalid_cents");
   const v = Number(value as string);
@@ -696,22 +703,29 @@ function categoryTreeGuard(db: SqlDriver, old: Row | null, next: Row) {
 
 export function insertCategory(
   ctx: RpcContext,
-  c: { name: string; kind: string; parent_id: string | null; dre_group: string | null },
+  c: { name: string; kind: string; parent_id: string | null; dre_group: string | null; active?: boolean },
 ) {
   const id = crypto.randomUUID();
   categoryTreeGuard(ctx.db, null, { id, ...c });
+  categoryChecks(c.kind);
   const now = ctx.clock.next().toString();
   ctx.db.exec(
-    'INSERT INTO "erp_finance__category"(id, name, kind, parent_id, dre_group, active, version, created_at, updated_at) VALUES(?,?,?,?,?,1,1,?,?)',
+    'INSERT INTO "erp_finance__category"(id, name, kind, parent_id, dre_group, active, version, created_at, updated_at) VALUES(?,?,?,?,?,?,1,?,?)',
     id,
     c.name,
     c.kind,
     c.parent_id,
     c.dre_group,
+    c.active === false ? 0 : 1,
     now,
     now,
   );
   return id;
+}
+
+/** CHECKs de category que um escritor alcança, com a mensagem do Postgres (depois dos gatilhos BEFORE). */
+function categoryChecks(kind: unknown) {
+  if (kind === "both") checkViolation("category", "category_kind_split");
 }
 
 /** UPDATE de uma categoria com o category_tree_guard; sobe a versão. */
@@ -719,6 +733,7 @@ export function updateCategory(ctx: RpcContext, id: string, set: Record<string, 
   const old = categoryRow(ctx.db, id);
   if (!old) return;
   categoryTreeGuard(ctx.db, old, { ...old, ...set });
+  categoryChecks("kind" in set ? set.kind : old.kind);
   writeRow(ctx, "erp_finance__category", "id", id, {
     ...set,
     version: Number(old.version) + 1,
