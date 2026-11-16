@@ -292,7 +292,7 @@ private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () ->
 
 // --- papel e ajustes ---------------------------------------------------------------
 
-/** Volume de alarme do aparelho (atual, máximo), relido a cada 2 s enquanto os ajustes estão abertos. */
+/** Volume de alarme do aparelho (atual, máximo), relido a cada meio segundo enquanto a tela está aberta. */
 @Composable
 private fun rememberAlarmVolume(): Pair<Int, Int>? {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -301,7 +301,7 @@ private fun rememberAlarmVolume(): Pair<Int, Int>? {
     LaunchedEffect(audio) {
         while (audio != null) {
             value = audio.getStreamVolume(android.media.AudioManager.STREAM_ALARM) to audio.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)
-            kotlinx.coroutines.delay(2000)
+            kotlinx.coroutines.delay(500)
         }
     }
     return value
@@ -394,6 +394,26 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                             },
                         )
                         RowDivider()
+                        // O volume do alarme do aparelho, aqui dentro: com o app fixado, quem cuida do painel não chega às
+                        // Configurações do sistema, e os botões físicos às vezes mexem em outro canal.
+                        if (alarm != null) {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text("Volume do painel: ${alarm.first} de ${alarm.second}", color = c.textPrimary, style = MaterialTheme.typography.bodyLarge)
+                                androidx.compose.material3.Slider(
+                                    value = alarm.first.toFloat(),
+                                    onValueChange = { v ->
+                                        (context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager)
+                                            ?.setStreamVolume(android.media.AudioManager.STREAM_ALARM, v.toInt().coerceIn(1, alarm.second), 0)
+                                    },
+                                    valueRange = 1f..alarm.second.toFloat(),
+                                    steps = (alarm.second - 2).coerceAtLeast(0),
+                                    modifier = Modifier.testTag("device.volume"),
+                                )
+                                Text("É o volume de alarme do aparelho: o painel toca mesmo com o aparelho no silencioso.", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                            RowDivider()
+                        }
                         SettingsRow(Icons.AutoMirrored.Filled.VolumeUp, "Testar som", subtitle = "“Senha N 1. Guichê 1.”", tint = c.ticket, onClick = vm::testSound)
                         RowDivider()
                     }
@@ -706,6 +726,14 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
                                 color = if (state.offline || state.revoked) MaterialTheme.colorScheme.error else s.headerFg,
                                 modifier = Modifier.testTag("device.connection"),
                             )
+                            // Aviso discreto para quem cuida do painel: o volume do alarme (o canal em que ele fala) está
+                            // baixo demais para a recepção ouvir. Sobe com os botões de volume ou na engrenagem.
+                            if (role.panel && state.soundEnabled) {
+                                val alarm = rememberAlarmVolume()
+                                if (alarm != null && alarm.first * 3 < alarm.second) {
+                                    Text("  🔈 som baixo", color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("device.lowVolume"))
+                                }
+                            }
                             IconButton(onClick = { guarded(onSettings) }, modifier = Modifier.testTag("device.settings")) {
                                 Icon(Icons.Outlined.Settings, contentDescription = "Ajustes deste aparelho")
                             }
