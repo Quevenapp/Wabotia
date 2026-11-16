@@ -1896,10 +1896,13 @@ export async function perform(
     );
     next.menu_greeting = next.menu_greeting.trim();
     if (data.queue !== undefined)
-      next.queue = validateQueueSettings({
-        ...(old.queue || {}),
-        ...data.queue,
-      });
+      next.queue = validateQueueSettings(
+        {
+          ...(old.queue || {}),
+          ...data.queue,
+        },
+        old.queue,
+      );
     if (data.establishment !== undefined)
       next.establishment = validateEstablishment(data.establishment);
     // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
@@ -2105,6 +2108,9 @@ export async function perform(
       ),
       profile,
     );
+    // O cupom da senha vem no snapshot da fila: avisa os aparelhos pareados.
+    if (data.queue !== undefined || data.establishment !== undefined)
+      await event(env, profile, "queue.changed", profile, { settings: true });
     if (removedDepartments.length && keep_department_conversations !== true)
       await exec(
         env,

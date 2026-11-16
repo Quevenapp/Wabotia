@@ -79,7 +79,9 @@ const CEILINGS: Record<string, number> = {
   // 28: inclui a fila durável do gancho do módulo (revisão A3).
   "webhook do Mercado Pago: Coordinator": 30,
   "rodada periódica dos módulos": 24,
-  "fila: emitir senha (comando no Coordinator)": 16,
+  // 17: o QR do cupom lê a configuração da área (QR ligado) e o endereço
+  // público (link da imagem no texto).
+  "fila: emitir senha (comando no Coordinator)": 17,
   "fila: chamar a próxima (comando no Coordinator)": 18,
   // Passa de 50: manutenção, rodada dos módulos e motor na mesma invocação;
   // aqui as duas entregas são canceladas (época antiga), o caminho barato.

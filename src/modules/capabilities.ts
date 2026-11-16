@@ -10,7 +10,13 @@ import { modules, resolveStates } from "./registry";
 export const CAPABILITIES_VERSION = 1;
 
 /** Recursos do núcleo que um aplicativo pode precisar conferir. */
-export const coreFeatures: string[] = ["modules", "web_steps", "establishment"];
+export const coreFeatures: string[] = [
+  "modules",
+  "web_steps",
+  "establishment",
+  // `coupon` no snapshot da fila (GET /queue e WebSocket): docs/FILA-SENHAS.md.
+  "queue_coupon",
+];
 
 export async function capabilities(
   env: Env,
