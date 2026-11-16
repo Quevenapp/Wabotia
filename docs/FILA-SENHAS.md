@@ -249,6 +249,17 @@ Botões só nas linhas Zernio/Meta; nas linhas QR o mesmo conteúdo vai como tex
 numerado e as respostas digitadas (sim, não, normal, preferencial, 1, 2, 3)
 funcionam em todas.
 
+### Bot de IA: "minha senha"
+
+A ferramenta de cliente `queue_minha_senha` (só leitura, sem botão;
+`src/modules/queue-tools.ts`) responde ao cliente da conversa a senha ativa de
+hoje, emitida para esta conversa ou, como o `SENHA`, para o telefone
+verificado pelo canal: código, fila, estado (aguardando, chamada, em
+atendimento), pessoas à frente, espera estimada em minutos e guichê. Sem
+telefone, token público nem link. Rota:
+`GET /profiles/{p}/queue/conversations/{id}` (`conversations:read`; liberada
+para a chave do Hermes presa à conversa).
+
 ## Lista negra
 
 - 1 senha ativa por telefone por fila; `max_daily_per_contact` por dia.

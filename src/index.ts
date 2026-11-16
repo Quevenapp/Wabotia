@@ -844,7 +844,8 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["PATCH", /^tickets\/[^/]+$/],
   ["GET", /^(bots|knowledge|forms)$/],
   ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu)$/],
-  ["GET", /^(agenda|reserva|pedido|mensalidade)\/conversations\/[^/]+$/],
+  ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
+  ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],
 ];
 app.use("/api/v1/profiles/*", async (c, next) => {

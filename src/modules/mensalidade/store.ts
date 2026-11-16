@@ -317,6 +317,8 @@ export function installmentView(row: any) {
     /** Primeira parcela cobrada na contratação pelo WhatsApp. */
     upfront: !!row.upfront,
     amount_cents: row.amount_cents,
+    /** Desconto aprovado pela equipe (já descontado de amount_cents). */
+    discount_cents: row.discount_cents ?? 0,
     status,
     status_label: INSTALLMENT_LABELS[status] || status,
     ...(row.customer_name !== undefined

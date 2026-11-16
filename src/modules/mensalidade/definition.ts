@@ -46,6 +46,7 @@ export const mensalidadeModule: ModuleDefinition = {
     "mensalidade.overdue",
     "mensalidade.paid",
     "mensalidade.waived",
+    "mensalidade.discounted",
     "mensalidade.refunded",
     "mensalidade.notice_failed",
     "mensalidade.setup_needed",
