@@ -61,6 +61,9 @@ export async function loadContract(ctx: ModuleContext, id: unknown) {
   return row;
 }
 
+/** Contratação não paga guarda o documento digitado por até 30 dias. */
+export const CONTRACT_DOCUMENT_RETENTION_MS = 30 * 86_400_000;
+
 /** Grava o contrato pendente (repetir a chave devolve o mesmo). */
 export async function createContract(
   ctx: ModuleContext,
@@ -110,6 +113,17 @@ export async function createContract(
     input.sourceKey,
   );
   if (row.id === id) {
+    // Contratações que não foram pagas: passado o prazo, o documento e o nome
+    // digitados saem (a linha fica para o histórico da sessão), aqui mesmo,
+    // sem rodada periódica (conferência N-5).
+    await exec(
+      ctx.env,
+      "UPDATE mensalidade_contracts SET document=NULL,document_type=NULL,name='',pix_code=NULL WHERE id IN (SELECT id FROM mensalidade_contracts WHERE profile_id=? AND status IN ('pending','expired','cancelled') AND created<? AND updated<? AND document IS NOT NULL AND (payment_expires_at IS NULL OR payment_expires_at<?) LIMIT 50)",
+      ctx.profile,
+      at - CONTRACT_DOCUMENT_RETENTION_MS,
+      at - CONTRACT_DOCUMENT_RETENTION_MS,
+      at,
+    );
     // Outra contratação aberta nesta conversa (outra sessão ou plano): a
     // cobrança dela é cancelada, para o cliente não pagar as duas.
     const others = await all(

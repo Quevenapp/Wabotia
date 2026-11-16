@@ -29,7 +29,9 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
    autorizados dos pagadores (Mensalidades → Pagadores). Se não achar, pede o
    CPF ou CNPJ de quem paga, com os dígitos conferidos (aceita o CNPJ com
    letras), em até 3 tentativas por vez (configurável). Por telefone e por
-   dia: no máximo 3 documentos diferentes e 10 tentativas.
+   dia: no máximo 3 documentos diferentes e 10 tentativas. Os documentos
+   digitados ficam guardados só um dia (para esse limite), e a contratação de
+   plano não paga perde o documento e o nome depois de 30 dias.
 2. **CPF/CNPJ de um cadastro, vindo de telefone que ele não autorizou.**
    Documento não é prova de identidade (CNPJ é público, CPF vaza). O cliente
    recebe sempre a mesma resposta ("vamos confirmar com a nossa equipe"), sem

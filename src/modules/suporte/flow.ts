@@ -658,6 +658,14 @@ async function onDocument(
     );
     return;
   }
+  // Documentos digitados só valem para o limite do dia: os mais antigos saem
+  // aqui mesmo, sem rodada periódica (conferência N-5).
+  await exec(
+    ctx.env,
+    "DELETE FROM suporte_lookups WHERE id IN (SELECT id FROM suporte_lookups WHERE profile_id=? AND created<=? LIMIT 50)",
+    ctx.profile,
+    since,
+  );
   await exec(
     ctx.env,
     "INSERT INTO suporte_lookups(id,profile_id,phone,conversation_id,document,created) VALUES(?,?,?,?,?,?)",

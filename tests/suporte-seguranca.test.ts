@@ -2,7 +2,7 @@
 // cada teste refaz o ataque e prova que ele não funciona mais.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { exec, one } from "../src/db";
+import { all, exec, one } from "../src/db";
 import { now, uid, type Actor, type Conversation } from "../src/types";
 import { conversation, handoff, perform } from "../src/service";
 import { gateFailsClosed, handoffGatesList } from "../src/modules/hooks";
@@ -421,6 +421,75 @@ describe("A4/M1: documento digitado não identifica nem vincula", () => {
     await startFlow(s.sctx, c, uid());
     c = await talk(f, CPF_NOVO, phone);
     expect(await lastText(c.id)).not.toContain("hoje");
+  });
+});
+
+describe("conferência N-5: documentos digitados têm prazo", () => {
+  it("consultas de mais de um dia e contratos não pagos de mais de 30 dias perdem o documento", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    await configure(f, { menus: paidMenu });
+    const day = 86_400_000;
+    const old = now() - 2 * day;
+    await exec(
+      env,
+      "INSERT INTO suporte_lookups(id,profile_id,phone,conversation_id,document,created) VALUES(?,?,?,?,?,?)",
+      "consulta-antiga",
+      f.profile,
+      "5511982000001",
+      "conversa-antiga",
+      CPF_EM_DIA,
+      old,
+    );
+    const contract = (id: string, status: string, age: number) =>
+      exec(
+        env,
+        "INSERT INTO mensalidade_contracts(id,profile_id,plan_id,conversation_id,phone,document,document_type,name,amount_cents,status,actor,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        f.profile,
+        s.plan.id,
+        "conversa-antiga",
+        "5511982000001",
+        "52998224725",
+        "cpf",
+        "Terceiro",
+        9900,
+        status,
+        "suporte",
+        now() - age,
+        now() - age,
+      );
+    await contract("contrato-antigo", "expired", 40 * day);
+    await contract("contrato-recente", "cancelled", 5 * day);
+    const phone = "5511982000009";
+    const c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    await talk(f, CPF_NOVO, phone);
+    await tap(f, phone, `suporte:plan:${s.plan.id}`, "Suporte Mensal");
+    await talk(f, "Maria Souza", phone);
+    await tap(f, phone, "suporte:method:pix", "Pix");
+    expect(
+      await one(
+        env,
+        "SELECT id FROM suporte_lookups WHERE id='consulta-antiga'",
+      ),
+    ).toBeNull();
+    const rows = await all(
+      env,
+      "SELECT id,document,name FROM mensalidade_contracts WHERE profile_id=? ORDER BY created",
+      f.profile,
+    );
+    // O contrato novo nasceu (e foi ele que limpou os antigos).
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual({
+      id: "contrato-antigo",
+      document: null,
+      name: "",
+    });
+    expect(rows[1]).toMatchObject({
+      id: "contrato-recente",
+      document: "52998224725",
+    });
   });
 });
 
