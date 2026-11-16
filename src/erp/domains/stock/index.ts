@@ -3,4 +3,5 @@
 import "./rpc/erp_stock_post.ts";
 import "./rpc/policy.ts";
 import "./rpc/warehouses.ts";
+import "./rpc/balances.ts";
 export {};
