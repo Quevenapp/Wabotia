@@ -89,7 +89,8 @@ test("guardas de papel: admin, histórico, permissão; gate e MFA", async () => 
 });
 
 test("actor_label: nome do perfil; sem auth.users, o rótulo genérico", async () => {
-  await f.db.query("insert into erp_access.profile(user_id, name, version, updated_by, updated_at) values($1, 'Ana Sintética', 1, $1, now())", [users.admin]);
+  // A fixture já dá um perfil a cada pessoa; aqui o nome muda.
+  await f.db.query("update erp_access.profile set name='Ana Sintética', version=version+1 where user_id=$1", [users.admin]);
   await f.sync();
   await both("actor_label", "select erp_activity.actor_label($1) v", [users.admin], (db) => access.actorLabel(db, users.admin));
   const stranger = randomUUID();
