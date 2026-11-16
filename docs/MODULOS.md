@@ -140,6 +140,10 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `consent(c, purpose)` | Último registro que vale para a finalidade (o dela ou o REVOGAR geral), ou null |
 | `cancelCharge(payment \| id)` | Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes do sinal), no provedor também. Já cancelada ou expirada: devolve como está; paga ou estornada: `409 payment_closed`; de outro módulo: 404 |
 | `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
+| `read(actor, path, query?)` | Lê a rota pública (`onRead`) de **outro módulo** dentro do Worker, com o mesmo ator: permissões, filtros de dado pessoal e estado do módulo valem como numa chamada HTTP. `null` quando a rota não existe, o dono está desligado na área ou responde 404; outros erros sobem. Não cria dependência (`requires`) nem importa código do outro. Ex.: `ctx.read(actor, "agenda/conversations/" + id)` (linha do tempo do Cadastro de clientes) |
+| `customerConversations(phones, {limit?})` | Conversas individuais da área com algum dos telefones, só as autenticadas pelo canal, mais recentes primeiro: `{id, connection_id, state, created, updated, last_customer}` |
+| `customerTickets(conversationIds)` | Protocolos dessas conversas: `{id, number, status, title, conversation_id, created, updated}` |
+| `eraseConversations(ids, phones, {releaseIdentity?, force?})` | Exclusão a pedido do titular (LGPD), usada pelo Cadastro de clientes: apaga o conteúdo pessoal das conversas no núcleo (mensagens e anexos recebidos, textos de protocolo, respostas de passo web, evidência de consentimentos, contatos, eventos, entradas de bots, telefone das senhas) e guarda só as linhas de conversa e protocolo. `releaseIdentity` tira o telefone da conversa quando não há envio pendente (`force`: mesmo com envio preso, que é cancelado). Idempotente. Detalhes em `src/customer-erasure.ts` |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
@@ -159,6 +163,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
 | `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
+| `onCustomerErase(module, hook)` | O titular confirmou a exclusão dos dados no Cadastro de clientes: `hook(ctx, {erasure_id, customer_id, phones, document, conversation_ids, fiscal_retention_until})` apaga ou anonimiza o que o módulo guarda desse cliente e devolve `{erased?, kept?, note?}` sem dado pessoal. Roda com o módulo ligado ou não. Erro: o Cadastro repete na rodada periódica (1 min dobrando até 1 h), então seja idempotente. Registro ligado a nota fiscal emitida guarda só o que a nota exige até `fiscal_retention_until`. Não mande mensagem ao cliente. Veja [CLIENTES.md](CLIENTES.md#para-os-outros-módulos-oncustomererase) |
 
 Exemplo mínimo (do módulo Formulários):
 
@@ -514,6 +519,13 @@ const { step, url, created } = await ctx.openWebStep(c, {
   Wabotia; use Flows de navegação.
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
+- **Respostas com dado pessoal** (`spec.private_answers: true`, ex. o
+  autocadastro do Cadastro de clientes): o núcleo não grava as respostas em
+  `web_steps.result`, na nota interna, no protocolo nem no evento
+  `web_step.completed` (`answers: null`); só `onWebStepValidate` e
+  `onWebStepCompleted` as recebem, e o módulo guarda o que precisar. O passo
+  nunca sai como Flow (a resposta do Flow ficaria na conversa). Não vale na
+  página de carrinho.
 
 ### Página de carrinho (`spec.page: "cart"`)
 
