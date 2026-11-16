@@ -24,6 +24,22 @@ describe("limites de consulta nos módulos (revisão B10)", () => {
       expect((await api(token, path)).status, path).toBe(200);
   });
 
+  it("conferência B10: status repetido muitas vezes não estoura o D1", async () => {
+    const s = await reservaSetup();
+    for (const id of ["os", "pedido", "agenda"])
+      await s.run("module.set", { id, enabled: true });
+    const token = await bearer(s.f.admin);
+    const many = (status: string) => Array(120).fill(status).join(",");
+    const p = s.f.profile;
+    for (const path of [
+      `/profiles/${p}/service-orders?status=${many("received")}`,
+      `/profiles/${p}/pedido/orders?status=${many("received")}`,
+      `/profiles/${p}/reserva/bookings?status=${many("confirmed")}`,
+      `/profiles/${p}/agenda/appointments?status=${many("booked")}&from=${Date.now()}&to=${Date.now() + 86400000}`,
+    ])
+      expect((await api(token, path)).status, path.split("?")[0]).toBe(200);
+  });
+
   it("muitos retailer_id não estouram o limite de parâmetros", async () => {
     const { f } = await pedidoSetup({ menus: MENUS });
     await seedMenu(f);

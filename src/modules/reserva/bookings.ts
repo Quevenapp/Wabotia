@@ -216,7 +216,8 @@ export async function listBookings(
     args.push(filter.to);
   }
   if (filter.status) {
-    const statuses = filter.status.split(",").filter(Boolean);
+    // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
+    const statuses = [...new Set(filter.status.split(",").filter(Boolean))];
     requireValue(
       statuses.every((s) => STATUSES.includes(s as BookingStatus)),
       `status: ${STATUSES.join(", ")} (separados por vírgula).`,

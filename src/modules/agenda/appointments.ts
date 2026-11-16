@@ -139,7 +139,8 @@ export async function listAppointments(
     args.push(filter.professional_id);
   }
   if (filter.status) {
-    const statuses = filter.status.split(",").filter(Boolean);
+    // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
+    const statuses = [...new Set(filter.status.split(",").filter(Boolean))];
     requireValue(
       statuses.every((s) =>
         ["booked", "confirmed", "cancelled", "no_show"].includes(s),

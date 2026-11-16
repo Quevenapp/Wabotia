@@ -62,7 +62,10 @@ export async function listOrders(
 ) {
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
-  const statuses = (query.status || "").split(",").filter(Boolean);
+  // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
+  const statuses = [
+    ...new Set((query.status || "").split(",").filter(Boolean)),
+  ];
   for (const s of statuses)
     requireValue(isStatus(s), `Estado desconhecido: ${s}.`);
   if (statuses.length) {
