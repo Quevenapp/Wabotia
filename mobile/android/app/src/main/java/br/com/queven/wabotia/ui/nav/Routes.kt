@@ -18,6 +18,8 @@ object Routes {
     const val BOT_LINES = "bot-lines"
     const val BOT_RUNS = "bot-runs"
     const val PRINTER = "printer"
+    /** Ajustes → Sobre → Licenças de código aberto. */
+    const val LICENSES = "licenses"
     /** Guichê da fila de senhas (com o token da pessoa). */
     const val COUNTER = "counter"
     const val CONVERSATION = "conversation/{id}?sheet={sheet}&arg={arg}"

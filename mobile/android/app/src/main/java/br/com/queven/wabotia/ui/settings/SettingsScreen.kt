@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -107,6 +108,7 @@ fun SettingsScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
     openPrinter: () -> Unit = {},
+    openLicenses: () -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -367,6 +369,14 @@ fun SettingsScreen(
                         subtitle = "Como o aplicativo trata os dados",
                         tint = c.textSecondary,
                         onClick = { Links.open(context, Links.PRIVACY_POLICY) },
+                    )
+                    RowDivider()
+                    SettingsRow(
+                        Icons.Filled.Gavel,
+                        "Licenças de código aberto",
+                        subtitle = "Fontes e bibliotecas de terceiros incluídas no app",
+                        tint = c.textSecondary,
+                        onClick = openLicenses,
                     )
                 }
             }

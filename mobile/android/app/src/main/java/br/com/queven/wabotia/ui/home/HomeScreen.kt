@@ -270,7 +270,7 @@ fun HomeScreen(
                 )
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
-                HomeTab.Settings -> SettingsScreen(container, modifier, openPrinter = openPrinter)
+                HomeTab.Settings -> SettingsScreen(container, modifier, openPrinter = openPrinter, openLicenses = { openRoute(br.com.queven.wabotia.ui.nav.Routes.LICENSES) })
             }
             }
         }
