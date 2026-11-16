@@ -6,6 +6,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { activityRequireAdmin, actorLabel, clean, period } from "../public.ts";
 import { ENTRIES_SQL } from "../activity.ts";
+import { pgLower } from "../../../engine/text.ts";
 
 const s = (v: unknown) => (v === undefined ? null : (v as string | null));
 const MODULES = [
@@ -34,7 +35,7 @@ registerRpc("erp_activity_list", (ctx: RpcContext, a: RpcArgs) => {
     (query !== null && ([...query].length > 120 || /[\u0001-\u001f\u007f]/.test(query)))
   )
     raise("22023", "erp_activity_input_invalid");
-  const q = query === null ? null : btrim(query).toLowerCase() || null;
+  const q = query === null ? null : pgLower(btrim(query)) || null;
   const rows = db
     .exec(
       `SELECT * FROM (${ENTRIES_SQL}) WHERE (?3 IS NULL OR module=?3) AND (?4 IS NULL OR operation=?4) AND (?5 IS NULL OR actor=?5)`,
@@ -56,8 +57,8 @@ registerRpc("erp_activity_list", (ctx: RpcContext, a: RpcArgs) => {
     .filter(
       (r) =>
         q === null ||
-        String(r.code ?? "").toLowerCase().includes(q) ||
-        String(r.description ?? "").toLowerCase().includes(q),
+        pgLower(String(r.code ?? "")).includes(q) ||
+        pgLower(String(r.description ?? "")).includes(q),
     );
   rows.sort((x, y) => {
     const t = BigInt(y.created_at as number) - BigInt(x.created_at as number);

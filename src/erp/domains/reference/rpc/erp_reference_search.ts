@@ -6,6 +6,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
+import { pgLower } from "../../../engine/text.ts";
 import { memberRole } from "../../access/public.ts";
 
 const CNTRL = /[\u0000-\u001f\u007f-\u009f]/;
@@ -15,7 +16,7 @@ const TO = "aaaaaeeeeiiiiooooouuuucn";
 /** erp_reference.key: minúsculas, sem acento (translate) e só [a-z0-9]. */
 export function referenceKey(value: string | null) {
   let out = "";
-  for (const ch of (value ?? "").toLowerCase()) {
+  for (const ch of pgLower(value ?? "")) {
     const i = FROM.indexOf(ch);
     out += i >= 0 ? TO[i] : ch;
   }

@@ -6,6 +6,7 @@ import { raise } from "../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
+import { pgLower, pgUpper } from "../../engine/text.ts";
 import { activeRole } from "../access/public.ts";
 
 export const CNTRL = /[\u0000-\u001f\u007f-\u009f]/;
@@ -58,7 +59,7 @@ export function cpf(input: string | null): string {
 
 /** erp_company.cnpj: alfanumérico (regra de 2026), dígitos verificadores pelo código ASCII − 48. */
 export function cnpj(input: string | null): string {
-  const raw = input === null ? null : btrim(input).toUpperCase();
+  const raw = input === null ? null : pgUpper(btrim(input));
   if (raw === null || !/^([A-Z0-9]{12}[0-9]{2}|[A-Z0-9]{2}\.[A-Z0-9]{3}\.[A-Z0-9]{3}\/[A-Z0-9]{4}-[0-9]{2})$/.test(raw))
     raise("22023", "erp_company_cnpj_invalid");
   const v = raw.replace(/[./-]/g, "");
@@ -124,7 +125,7 @@ export function normalizeIdentity(data: unknown, kind: string): Record<string, s
     v[k] = t;
   }
   v.cnpj = document(v.cnpj, kind);
-  const state = (v.state ?? "").toUpperCase();
+  const state = pgUpper(v.state ?? "");
   if (!(state in STATES)) raise("22023", "erp_company_state_invalid");
   const postal = v.postal_code!;
   if (!/^[0-9]{5}-?[0-9]{3}$/.test(postal) || postal.replace("-", "") === "00000000") raise("22023", "erp_company_address_invalid");
@@ -252,7 +253,7 @@ export function partnersNormalize(p: unknown): Record<string, unknown>[] {
       cpf: c,
       share: cents === null ? null : `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`,
       role,
-      email: email === null ? null : email.toLowerCase(),
+      email: email === null ? null : pgLower(email),
       phone,
     };
     out.push(row);

@@ -8,17 +8,31 @@ export const discardTables = {};
 
 /**
  * Pendências do esquema gerado (CHECK sem tradução, gatilho em PL/pgSQL) que o
- * domínio já cumpre em TS, com onde. tests/erp/schema-parity.test.mjs só conta
- * o que ninguém cobre; ao fechar o domínio, baixe os tetos de lá.
- * checks: "schema.tabela.restrição"; triggers: "schema__tabela.gatilho".
+ * domínio cumpre em TS. Cada item diz onde (where) e qual teste prova (test,
+ * caminho do arquivo; o teste precisa exercitar a recusa nos dois motores).
+ * tests/erp/schema-parity.test.mjs só conta o que ninguém cobre, recusa item
+ * que não está pendente e item sem arquivo de teste; ao cobrir, baixe os tetos
+ * de lá. Chaves: checks "schema.tabela.restrição"; triggers "schema__tabela.gatilho".
  */
 export const covered = {
   "checks": {
-    "erp_company.file.file_check": "src/erp/domains/company/rpc/files.ts reserve (extensão pelo tipo)"
+    "erp_company.file.file_check": {
+      "where": "src/erp/domains/company/rpc/files.ts reserve (extensão pelo tipo)",
+      "test": "tests/erp/company/company.test.mjs"
+    }
   },
   "triggers": {
-    "erp_company__extra.extra_cnae_official": "src/erp/domains/reference/public.ts companyExtraCnae",
-    "erp_company__file.file_identity": "src/erp/domains/company/rpc/files.ts update",
-    "erp_company__logo.logo_identity": "src/erp/domains/company/rpc/files.ts update"
+    "erp_company__extra.extra_cnae_official": {
+      "where": "src/erp/domains/reference/public.ts companyExtraCnae",
+      "test": "tests/erp/company/company.test.mjs"
+    },
+    "erp_company__file.file_identity": {
+      "where": "src/erp/domains/company/rpc/files.ts update",
+      "test": "tests/erp/company/company.test.mjs"
+    },
+    "erp_company__logo.logo_identity": {
+      "where": "src/erp/domains/company/rpc/files.ts update",
+      "test": "tests/erp/company/company.test.mjs"
+    }
   }
 };
