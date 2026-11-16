@@ -458,6 +458,12 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/access",
+    "Catálogo do que se marca no acesso de uma pessoa (áreas, módulos ligados e papéis) e atalhos de perfil",
+    "",
+  ],
+  [
+    "get",
     "/profiles/{profile}/modules",
     "Módulos da área e estado ligado/desligado",
     "",
@@ -982,7 +988,7 @@ export function describeModuleOperation(
   }
   if (path === "/profiles/{profile}/grants") {
     entry.description =
-      'Papéis que esta área pode conceder (declarados pelos módulos ligados) e as pessoas com cada um. id é "<módulo>:<papel>". O administrador concede com PUT /settings e {"module_grants": {"os:technician": ["<id da pessoa>"]}} (cada papel enviado substitui a lista dele; lista vazia retira). Aceita sessão de pessoa da área e chave de aplicação com conversations:read.';
+      'Papéis que esta área pode conceder (declarados pelos módulos ligados) e as pessoas com cada um. id é "<módulo>:<papel>". O administrador marca o papel no acesso da pessoa: PATCH /users/{id} com {"access": ["*", "os:technician"]} (docs/API.md, Acesso por pessoa). Aceita sessão de pessoa da área e chave de aplicação com conversations:read.';
     return;
   }
   if (path === "/profiles/{profile}/establishment") {

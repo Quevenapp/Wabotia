@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec } from "../src/db";
-import { perform, settings } from "../src/service";
+import { perform } from "../src/service";
 import { uid, type Actor } from "../src/types";
 import { modulesApi } from "../src/modules/api";
 import { capabilities } from "../src/modules/capabilities";
@@ -17,6 +17,11 @@ async function setup() {
   await run(f, f.admin, "module.set", { id: "os", enabled: true });
   return f;
 }
+/** Grava o acesso da pessoa e devolve o ator como o login montaria. */
+async function withAccess(f: F, person: Actor, access: string[] | null) {
+  await run(f, f.admin, "user.update", { id: person.id, access });
+  return { ...person, access };
+}
 const app = (f: F): Actor => ({
   id: "app-" + uid(),
   name: "App",
@@ -29,98 +34,62 @@ const app = (f: F): Actor => ({
   runLimit: 10,
 });
 
-describe("papéis por pessoa nos módulos", () => {
-  it("o administrador concede; o módulo confere e lista quem tem o papel", async () => {
+describe("papéis dos módulos no acesso da pessoa", () => {
+  it("o módulo confere o papel e lista quem tem", async () => {
     const f = await setup();
-    await run(f, f.admin, "settings", {
-      module_grants: { "os:technician": [f.member.id] },
-    });
+    const tech = await withAccess(f, f.member, ["*", "os:technician"]);
     const ctx = modulesApi(env, f.profile, "os");
-    expect(await ctx.granted(f.member, "technician")).toBe(true);
-    expect(await ctx.granted(f.other, "technician")).toBe(false);
-    // O administrador não ganha o papel sozinho; aplicação nunca tem papel.
+    expect(await ctx.granted(tech, "technician")).toBe(true);
+    // O "*" do atendente completo e o administrador não dão papel.
+    expect(await ctx.granted({ ...f.other, access: ["*"] }, "technician")).toBe(
+      false,
+    );
     expect(await ctx.granted(f.admin, "technician")).toBe(false);
     expect(await ctx.granted(app(f), "technician")).toBe(false);
     expect(await ctx.grantees("technician")).toEqual([
       { id: f.member.id, name: f.member.name },
     ]);
-    await expect(ctx.granted(f.member, "courier")).rejects.toThrow(
-      "não declarado",
-    );
+    await expect(ctx.granted(tech, "courier")).rejects.toThrow("não declarado");
   });
 
-  it("cada papel enviado substitui a lista dele; lista vazia retira", async () => {
-    const f = await setup();
-    await run(f, f.admin, "settings", {
-      module_grants: { "os:technician": [f.member.id, f.other.id] },
-    });
-    // Salvar outra configuração não mexe nos papéis.
-    await run(f, f.admin, "settings", { menu_greeting: "Olá!" });
-    expect((await settings(env, f.profile)).module_grants).toEqual({
-      "os:technician": [f.member.id, f.other.id],
-    });
-    await run(f, f.admin, "settings", {
-      module_grants: { "os:technician": [] },
-    });
-    expect((await settings(env, f.profile)).module_grants).toEqual({});
-  });
-
-  it("recusa papel desconhecido, pessoa fora da área e atendente gravando", async () => {
+  it("recusa acesso desconhecido e atendente gravando", async () => {
     const f = await setup();
     await expect(
-      run(f, f.admin, "settings", {
-        // A Entrega declara entrega:courier; um papel que ninguém declara:
-        module_grants: { "entrega:dispatcher": [f.member.id] },
+      run(f, f.admin, "user.update", {
+        id: f.member.id,
+        access: ["entrega:dispatcher"],
       }),
-    ).rejects.toThrow("Papel desconhecido");
-    const outsider = uid();
-    await exec(
-      env,
-      "INSERT INTO users(id,email,name,password,role,profiles,created) VALUES(?,?,?,?,?,?,?)",
-      outsider,
-      `${outsider}@example.test`,
-      "Fora",
-      "test",
-      "operator",
-      JSON.stringify([uid()]),
-      Date.now(),
-    );
+    ).rejects.toThrow("Acesso desconhecido");
     await expect(
-      run(f, f.admin, "settings", {
-        module_grants: { "os:technician": [outsider] },
-      }),
-    ).rejects.toThrow("acesso a esta área");
+      run(f, f.admin, "user.update", { id: f.member.id, access: "tudo" }),
+    ).rejects.toThrow("lista");
     await expect(
-      run(f, f.member, "settings", {
-        module_grants: { "os:technician": [f.member.id] },
-      }),
+      run(f, f.member, "user.update", { id: f.member.id, access: ["*"] }),
     ).rejects.toThrow();
   });
 
-  it("os apps leem os papéis da pessoa em capabilities; módulo desligado some", async () => {
+  it("capabilities, /people e /grants trazem os papéis; módulo desligado some", async () => {
     const f = await setup();
-    await run(f, f.admin, "settings", {
-      module_grants: { "os:technician": [f.member.id] },
-    });
-    const mine = await capabilities(env, f.member, f.profile);
-    expect(mine.features).toContain("module_grants");
+    const tech = await withAccess(f, f.member, ["os:technician"]);
+    const mine = await capabilities(env, tech, f.profile);
+    expect(mine.features).toEqual(
+      expect.arrayContaining(["module_grants", "person_access"]),
+    );
     expect(mine.profiles[0].grants).toEqual(["os:technician"]);
+    // Só o papel: o módulo vem junto, o atendimento não.
+    expect(mine.profiles[0].access).toEqual(["os", "os:technician"]);
     expect(
       (await capabilities(env, f.other, f.profile)).profiles[0].grants,
     ).toEqual([]);
     expect(
-      (await capabilities(env, app(f), f.profile)).profiles[0].grants,
-    ).toEqual([]);
+      (await capabilities(env, app(f), f.profile)).profiles[0].access,
+    ).toBe(null);
 
     const people = await areaPeople(env, app(f), f.profile, "os:technician");
     expect(people.data.map((p) => p.id)).toEqual([f.member.id]);
-    expect(people.data[0].grants).toEqual(["os:technician"]);
-    const grants = await areaGrants(env, f.admin, f.profile);
-    expect(grants.data).toEqual([
+    expect((await areaGrants(env, f.admin, f.profile)).data).toEqual([
       expect.objectContaining({
         id: "os:technician",
-        module_id: "os",
-        role: "technician",
         label: "Técnico",
         people: [{ id: f.member.id, name: f.member.name }],
       }),
@@ -128,11 +97,35 @@ describe("papéis por pessoa nos módulos", () => {
 
     await run(f, f.admin, "module.set", { id: "os", enabled: false });
     expect(
-      (await capabilities(env, f.member, f.profile)).profiles[0].grants,
+      (await capabilities(env, tech, f.profile)).profiles[0].grants,
     ).toEqual([]);
-    expect((await areaGrants(env, f.admin, f.profile)).data).toEqual([]);
     await expect(
       areaPeople(env, f.admin, f.profile, "os:technician"),
     ).rejects.toThrow("Papel desconhecido");
+    // A marca fica guardada e volta ao religar.
+    await run(f, f.admin, "module.set", { id: "os", enabled: true });
+    expect(
+      (await capabilities(env, tech, f.profile)).profiles[0].grants,
+    ).toEqual(["os:technician"]);
+  });
+
+  it("pessoa sem acesso à área não aparece em grantees", async () => {
+    const f = await setup();
+    const outsider = uid();
+    await exec(
+      env,
+      "INSERT INTO users(id,email,name,password,role,profiles,access,created) VALUES(?,?,?,?,?,?,?,?)",
+      outsider,
+      `${outsider}@example.test`,
+      "Fora",
+      "test",
+      "operator",
+      JSON.stringify([uid()]),
+      JSON.stringify(["os:technician"]),
+      Date.now(),
+    );
+    expect(
+      await modulesApi(env, f.profile, "os").grantees("technician"),
+    ).toEqual([]);
   });
 });

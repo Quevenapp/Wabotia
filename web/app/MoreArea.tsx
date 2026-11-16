@@ -53,7 +53,7 @@ export function MoreArea() {
           </a>
         )}
         {railPages
-          .filter((item) => canOpenPage(item.page, app.me.role, app.modules))
+          .filter((item) => canOpenPage(item.page, app.me.role, app.modules, app.me.access))
           .map((item) => (
             <a
               key={item.page}

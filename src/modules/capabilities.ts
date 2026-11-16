@@ -1,8 +1,9 @@
 // GET /api/v1/capabilities: o que este servidor oferece a quem pergunta. Os
 // aplicativos consultam antes de mostrar telas de módulo (docs/MODULOS.md).
 import { all } from "../db";
-import { ApiError, json, type Actor, type Env } from "../types";
+import { ApiError, type Actor, type Env } from "../types";
 import { grantsFor } from "../module-grants";
+import { accessCatalog, effectiveAccess } from "../access";
 import { canProfile } from "../security";
 import { buildInfo } from "../build-info.generated";
 import { modules, resolveStates } from "./registry";
@@ -17,6 +18,8 @@ export const coreFeatures: string[] = [
   "establishment",
   // `grants` em cada área: papéis da pessoa nos módulos (docs/MODULOS.md).
   "module_grants",
+  // `access` em cada área: o que a pessoa acessa (docs/API.md).
+  "person_access",
 ];
 
 export async function capabilities(
@@ -25,10 +28,7 @@ export async function capabilities(
   only?: string | null,
 ) {
   const areas = (
-    await all(
-      env,
-      "SELECT id,name,enabled,settings FROM profiles ORDER BY created,id",
-    )
+    await all(env, "SELECT id,name,enabled FROM profiles ORDER BY created,id")
   ).filter((p) => canProfile(actor, p.id) && (!only || p.id === only));
   if (only && !areas.length)
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
@@ -63,9 +63,15 @@ export async function capabilities(
         modules: modules
           .filter((m) => states[m.id])
           .map((m) => ({ id: m.id, name: m.name, version: m.version })),
-        // Papéis da pessoa nesta área ("os:technician"), só de módulos
-        // ligados; vazio para aplicações e aparelhos pareados.
-        grants: grantsFor(json(p.settings), actor, states),
+        // Papéis da pessoa ("os:technician"), só de módulos ligados; vazio
+        // para aplicações e aparelhos pareados.
+        grants: grantsFor(actor, states),
+        // O que a pessoa acessa nesta área (áreas do núcleo, módulos e
+        // papéis), já expandido; null para aplicações e aparelhos (escopos).
+        access:
+          actor.kind === "user"
+            ? effectiveAccess(actor, accessCatalog(states))
+            : null,
       };
     }),
   };

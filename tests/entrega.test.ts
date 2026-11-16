@@ -60,10 +60,16 @@ async function setup(entrega: any = {}, enabled = true) {
         ...MENUS,
         { id: "onde", label: "Onde está minha entrega", type: "entrega_onde" },
       ],
-      // Entregador com login: papel entrega:courier (Gestão → Pessoas).
-      module_grants: { "entrega:courier": [f.member.id] },
       entrega,
     });
+    // Entregador com login: papel entrega:courier no acesso da pessoa
+    // (Gestão → Pessoas e acessos). O ator do teste leva o acesso, como o
+    // login montaria.
+    await run(f, f.admin, "user.update", {
+      id: f.member.id,
+      access: ["*", "entrega:courier"],
+    });
+    (f.member as any).access = ["*", "entrega:courier"];
   }
   const menu = await seedMenu(f);
   return { f, menu, ctx: modulesApi(env, f.profile, "entrega") };
