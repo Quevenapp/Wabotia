@@ -1158,6 +1158,19 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
   );
   return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });
+// Emissor fiscal do ERP (cliente do cofre NFapi; src/erp/emissor/README.md):
+// pessoa da área, módulos erp e erp-fiscal ligados (409 module_disabled),
+// escrita só de administrador. Fora de /erp/*, que é a erp-api do Fagoo.
+// Import dinâmico: o cliente e o contrato só carregam no primeiro uso.
+const erpEmissor = async (c: any) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  const { erpEmissorRoute } = await import("./erp/emissor/routes");
+  return erpEmissorRoute(c.env, c.req.raw, profile, c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-emissor", erpEmissor);
+app.all("/api/v1/profiles/:profile/erp-emissor/*", erpEmissor);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

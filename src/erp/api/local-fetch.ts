@@ -143,6 +143,10 @@ export async function erpProbe(env: Env, request: Request, profile: string, acto
  * só pessoas com acesso à área; o motor confere o vínculo (erp_access) como
  * no Fagoo. Papéis erp:<papel> e escopos de aplicação vêm na fase 3.
  */
+/**
+ * `identity`: o envelope montado pelo núcleo (papel erp:<papel>, sessão e aal,
+ * fator, agente, pessoas da área). Sem ele, o envelope mínimo do identityFor.
+ */
 export async function erpApi(env: Env, request: Request, profile: string, actor: Actor, identity: IdentityPort = identityFor(actor)) {
   if (actor.kind !== "user")
     throw new ApiError(403, "erp_user_required", "O ERP atende só pessoas nesta fase.");
@@ -156,13 +160,14 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   if (block === "externo")
     throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
   if (block !== "erp") await requireModule(env, profile, block);
-  // A erp-api lê session_id e aal das claims do token (tokenSession) para
-  // perguntar ao motor sobre a sessão (erp_access_gate_v2, política de
-  // segurança): vão as do envelope. O token nunca é conferido como JWT — o
-  // /auth/v1/user responde pela costura — e o motor só aceita a sessão que
-  // bate com o envelope (sessionAal2).
+  // Token em forma de JWT, sem assinatura (alg none), com sessão e aal do
+  // envelope: o accessGate e a rota de segurança da erp-api leem session_id e
+  // aal das claims (tokenSession). Nunca é conferido como JWT: o /auth/v1/user
+  // responde pela costura, e o motor só aceita a sessão que bate com o
+  // envelope (sessionAal2). Achado da sessão A: com "Bearer wabotia-session" o
+  // session_id ia null e o aal2 nunca passava.
   const claims = { sub: identity.actor?.user_id ?? actor.id, session_id: identity.actor?.session_id ?? null, aal: identity.actor?.aal ?? "aal1" };
-  const part = (value: unknown) => btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const part = (v: unknown) => btoa(JSON.stringify(v)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const headers = new Headers({ Authorization: `Bearer ${part({ alg: "none", typ: "JWT" })}.${part(claims)}.wabotia` });
   const type = request.headers.get("Content-Type");
   if (type) headers.set("Content-Type", type);

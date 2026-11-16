@@ -7,7 +7,9 @@ import { after, before, test } from "node:test";
 import { contactsFixture } from "../fagoo/helpers/catalog-contacts-fixture.mjs";
 import { inTransaction } from "../../../src/erp/engine/registry.ts";
 import {
+  contactRequireVisible,
   contactScope,
+  contactVisibleTo,
   contactSituation,
   contactSituationOf,
   contactSourceSituation,
@@ -69,5 +71,42 @@ test("contact_situation_of e contact_source_situation: perfil nativo, sem Origin
       })
     ).record.version;
     await check();
+  }
+});
+
+test("contact_visible_to e contact_require_visible: carteira do vendedor com a preferência", async () => {
+  const seller = await f.rpc("erp_catalog_seller_save", {
+    p_user_id: f.users.admin, p_command_id: randomUUID(), p_acknowledged: null, p_id: null, p_expected_version: 0,
+    p_contact_expected_version: 0, p_contact: { name: "Vendedor da carteira" }, p_settings: { ...SETTINGS, user_id: f.users.vendedor },
+  });
+  const mine = (await f.save({ name: "Cliente da carteira" })).record;
+  const other = (await f.save({ name: "Cliente de ninguém" })).record;
+  await f.rpc("erp_catalog_contact_set_seller", {
+    p_user_id: f.users.admin, p_id: mine.id, p_expected_version: mine.version, p_command_id: randomUUID(), p_seller_id: seller.seller.id,
+  });
+  const ids = [mine.id, other.id, randomUUID(), null];
+  for (const scope of [null, seller.seller.id, randomUUID()])
+    for (const id of ids)
+      await f.dual("contact_visible_to", pg("select erp_catalog.contact_visible_to($1,$2) v", [scope, id]), lite((db) => contactVisibleTo(db, scope, id)));
+  const require = (user, id) =>
+    f.dual(
+      "contact_require_visible",
+      async () => (await f.db.query("select erp_catalog.contact_require_visible($1,$2)::text v", [user, id])).rows[0].v,
+      lite((db) => (contactRequireVisible(db, user, id), "")), // void::text é ""
+    );
+  const check = async (blocked) => {
+    for (const user of [f.users.vendedor, f.users.admin, f.users.consulta, null])
+      for (const id of ids) {
+        const outcome = await require(user, id).then(() => "ok", (e) => (e.code === "42501" ? e.message : Promise.reject(e)));
+        if (blocked && user === f.users.vendedor && id !== mine.id) assert.equal(outcome, "erp_catalog_contact_not_visible");
+        else assert.equal(outcome, "ok");
+      }
+  };
+  await check(false);
+  await f.preference("contatos.acesso_vendedor", true);
+  try {
+    await check(true);
+  } finally {
+    await f.preference("contatos.acesso_vendedor", false);
   }
 });
