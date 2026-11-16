@@ -1,0 +1,59 @@
+/* Cadastro de clientes (web/modules/clientes): ficha, linha do tempo. */
+.clientes-facts {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 12px 0;
+}
+.clientes-facts dt {
+  color: var(--muted);
+}
+.clientes-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.clientes-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.clientes-fields {
+  border: 0;
+  padding: 0;
+  margin: 12px 0 0;
+}
+.clientes-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+.clientes-timeline li {
+  display: grid;
+  grid-template-columns: 140px 130px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--divider);
+}
+.clientes-timeline time,
+.clientes-timeline-module {
+  color: var(--muted);
+  font-size: 0.875em;
+}
+@media (max-width: 640px) {
+  .clientes-facts {
+    grid-template-columns: 1fr;
+  }
+  .clientes-facts dd {
+    margin-bottom: 8px;
+  }
+  .clientes-timeline li {
+    grid-template-columns: 1fr auto;
+  }
+  .clientes-timeline-module {
+    grid-column: 1 / -1;
+  }
+}

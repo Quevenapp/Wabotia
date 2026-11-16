@@ -13,6 +13,7 @@ import {
   Code2,
   FileText,
   Headphones,
+  IdCard,
   LayoutDashboard,
   LayoutTemplate,
   Link2,
@@ -82,6 +83,8 @@ export const sections = [
   ["establishment", "Estabelecimento", Store],
   ["pedidos", "Pedidos", ShoppingBag],
   ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
+  ["clientes", "Clientes", IdCard],
+  ["clientes-settings", "Cadastro e privacidade", ShieldCheck],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -146,6 +149,12 @@ export const workspaceGroups = [
     label: "Pedidos",
     icon: ShoppingBag,
     pages: ["pedidos", "pedidos-cardapio"],
+  },
+  {
+    id: "clientes",
+    label: "Clientes",
+    icon: IdCard,
+    pages: ["clientes", "clientes-settings"],
   },
   {
     id: "automation",
@@ -219,6 +228,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "suporte-settings",
   "reserva-settings",
   "pedidos-cardapio",
+  "clientes-settings",
 ]);
 
 /**
@@ -242,6 +252,8 @@ export const pageModules: Partial<Record<string, string>> = {
   "reserva-settings": "reserva",
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
+  clientes: "clientes",
+  "clientes-settings": "clientes",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -359,4 +371,8 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Quadro da cozinha com os pedidos em andamento: mude o estado, registre o pagamento e imprima a comanda.",
   "pedidos-cardapio":
     "Cardápio com fotos e adicionais, imagens do WhatsApp, horário, entrega, pagamento e mensagens ao cliente.",
+  clientes:
+    "Fichas para nota fiscal preenchidas pelo cliente, com dados mascarados, relacionamento e pedidos de exclusão.",
+  "clientes-settings":
+    "Quem vê dados sem máscara, texto do aceite, campos obrigatórios, palavras de exclusão e guarda fiscal.",
 };

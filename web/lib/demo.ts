@@ -4,6 +4,7 @@
 import type { Api, Row } from "./api";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
+import { clientesDemo, clientesDemoModule } from "../modules/clientes/demo";
 import {
   pedidoDemo,
   pedidoDemoConfig,
@@ -424,6 +425,7 @@ const demoModules: Row[] = [
     ],
     menu_item_types: [{ type: "suporte_humano", label: "Atendimento humano (pago)" }],
   },
+  clientesDemoModule,
 ];
 
 // Suporte pago (módulo "suporte"): empresa de suporte técnico de TI, nos
@@ -863,6 +865,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
   if (rest === "pedido" || rest.startsWith("pedido/")) return pedidoDemo(rest, query);
+  if (rest.startsWith("clientes/")) return clientesDemo(rest, query);
   if (rest === "service-orders") {
     const status = (query.get("status") || "").split(",").filter(Boolean),
       q = (query.get("q") || "").toLowerCase();

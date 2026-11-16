@@ -8,6 +8,7 @@ import { ConversationAgenda } from "./agenda/ConversationAgenda";
 import { ConversationServiceOrders } from "./os/ConversationServiceOrders";
 import { ConversationPedido } from "./pedido/ConversationPedido";
 import { ConversationSuporte } from "./suporte/ConversationSuporte";
+import { ConversationClientes } from "./clientes/ConversationClientes";
 
 export interface ConversationExtensionProps {
   /** A conversa (detail.conversation). */
@@ -24,4 +25,5 @@ export const conversationExtensions: {
   { module: "os", Component: ConversationServiceOrders },
   { module: "pedido", Component: ConversationPedido },
   { module: "suporte", Component: ConversationSuporte },
+  { module: "clientes", Component: ConversationClientes },
 ];
