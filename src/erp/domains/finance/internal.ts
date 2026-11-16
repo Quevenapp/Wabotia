@@ -9,7 +9,9 @@
 // - [[:cntrl:]] pega C0, DEL e C1 (CNTRL);
 // - btrim() sem segundo argumento tira só espaços.
 import { createHash } from "node:crypto";
+import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
+import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
@@ -62,6 +64,32 @@ export function uuidArg(value: unknown): string | null {
 
 /** Argumento jsonb do RPC (a API manda objeto; o texto também vale). */
 export const jsonArg = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value);
+
+/**
+ * to_jsonb(linha) do Postgres a partir da linha do SQLite, pelo codec de cada
+ * coluna: tempo no texto do jsonb, date como texto, bool, números, json e
+ * arrays decodificados; decimais escalados viram número, como o numeric do
+ * jsonb chega ao cliente (pglite e erp-api fazem JSON.parse).
+ */
+export function toJsonb(table: string, row: Row): Record<string, unknown> {
+  const info = ERP_TABLES[table as keyof typeof ERP_TABLES] as {
+    columns: Record<string, { codec: string; scale?: number }>;
+  };
+  const out: Record<string, unknown> = {};
+  for (const [name, c] of Object.entries(info.columns)) {
+    if (c.codec === "fold" || c.codec === "computed") continue;
+    const v = row[name];
+    if (v === undefined || v === null) out[name] = null;
+    else if (c.codec === "timestamp_us") out[name] = jsonTimestamp(v as number);
+    else if (c.codec === "bool") out[name] = bool(v);
+    else if (c.codec === "json" || c.codec.startsWith("array:")) out[name] = JSON.parse(String(v));
+    else if (c.codec === "dec" || c.codec === "dec_i64") out[name] = Number(formatScaled(fromColumn(v), c.scale ?? 0));
+    else if (c.codec === "dec_text") out[name] = Number(v);
+    else if (c.codec === "int" || c.codec === "int53") out[name] = Number(v);
+    else out[name] = v;
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Validadores de p_data (erp_finance.keys, uuid_value, expected, txt, …)
