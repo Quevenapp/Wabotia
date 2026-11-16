@@ -246,27 +246,39 @@ async function firstRows(
   main: [string, any[]],
   profile: string | null | undefined,
   extra: [string, any[]][] = [],
+  prefetch: [string, any[]][] = [],
 ) {
   const items: [string, any[]][] = [main, ...extra];
-  const withStates = !!profile && hasReadCache(env);
-  if (withStates) items.push([MODULE_STATES_SQL, [profile]]);
+  // Leituras adiantadas para o cache da requisição: o estado dos módulos da
+  // área e o que a rota pedir (as pessoas do ERP, src/modules/erp/identity.ts).
+  const reads: [string, any[]][] = hasReadCache(env)
+    ? [
+        ...(profile ? [[MODULE_STATES_SQL, [profile]] as [string, any[]]] : []),
+        ...prefetch,
+      ]
+    : [];
+  items.push(...reads);
   // Repetível mesmo com o +1 do contador por minuto da chave (extra): contar
   // a mesma requisição duas vezes num erro transitório não faz mal, e a
   // leitura da credencial não perde a nova tentativa que tinha sozinha.
   const results = await batch(env, items, { retry: true });
-  if (withStates)
-    seedAll(env, MODULE_STATES_SQL, [profile], results.at(-1)!.results);
+  reads.forEach(([sql, args], i) =>
+    seedAll(env, sql, args, results[items.length - reads.length + i].results),
+  );
   return results.map((r) => r.results as any[]);
 }
 export const MOBILE_TOKEN_PREFIX = "wabu_";
 /**
  * Ator da requisição. `profile` (a área de uma rota /profiles/:profile/…)
- * só adianta a leitura do estado dos módulos na mesma ida ao D1.
+ * só adianta a leitura do estado dos módulos na mesma ida ao D1; `prefetch`
+ * são leituras da rota que vão no mesmo lote para uma sessão de pessoa (as
+ * pessoas do ERP), lidas depois do cache da requisição.
  */
 export async function authenticate(
   env: Env,
   request: Request,
   profile?: string | null,
+  prefetch: [string, any[]][] = [],
 ): Promise<Actor> {
   const bearer = request.headers
     .get("Authorization")
@@ -281,6 +293,8 @@ export async function authenticate(
         [hash, now()],
       ],
       profile,
+      [],
+      prefetch,
     );
     if (!row)
       throw new ApiError(
@@ -363,6 +377,8 @@ export async function authenticate(
             [cookieHash, now()],
           ],
           profile,
+          [],
+          prefetch,
         )
       )[0][0]
     : null;

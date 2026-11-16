@@ -41,6 +41,46 @@ export const erpModule: ModuleDefinition = {
   routes: ["erp"],
   operations: [],
   scopes: [],
+  // Papéis do ERP (os seis do Fagoo) no acesso por pessoa: no máximo um por
+  // pessoa (src/access.ts, validateAccess). O administrador do Wabotia vale
+  // erp:admin; o "*" dá o módulo, nunca o papel. O motor recebe o papel no
+  // envelope de identidade (src/modules/erp/identity.ts).
+  grants: [
+    {
+      id: "admin",
+      label: "ERP: administrador",
+      description:
+        "Tudo no ERP, inclusive empresa, usuários do ERP, preferências e política de segurança.",
+    },
+    {
+      id: "consulta",
+      label: "ERP: consulta",
+      description: "Só leitura: cadastros, documentos, estoque e relatórios.",
+    },
+    {
+      id: "vendas",
+      label: "ERP: vendas",
+      description:
+        "Clientes, produtos, propostas e pedidos de venda, e o caixa quando ligado.",
+    },
+    {
+      id: "financeiro",
+      label: "ERP: financeiro",
+      description: "Contas a pagar e a receber, caixa, conciliação e cobrança.",
+    },
+    {
+      id: "estoque",
+      label: "ERP: estoque",
+      description:
+        "Entradas, saídas, transferências, inventário e pedidos de compra.",
+    },
+    {
+      id: "fiscal",
+      label: "ERP: fiscal",
+      description:
+        "Notas fiscais, naturezas de operação e numeração, quando o Fiscal está ligado.",
+    },
+  ],
 };
 
 export const erpFiscalModule: ModuleDefinition = {

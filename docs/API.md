@@ -231,6 +231,20 @@ naquela área, já expandida e só com módulos ligados:
   `["*"]`).
 - `GET /users` traz `access` como texto JSON (ou `null`). Item desconhecido:
   `400`.
+
+**Papéis do ERP** (módulo `erp`, desligado de fábrica):
+- Os seis papéis do ERP são `erp:admin`, `erp:consulta`, `erp:vendas`, `erp:financeiro`, `erp:estoque` e `erp:fiscal`.
+  - É no máximo um por pessoa; dois dão `400`.
+  - Atalhos "ERP · Vendas" e outros, só com o ERP ligado.
+- O administrador do Wabotia vale `erp:admin`.
+- O `"*"` dá o módulo, mas nunca o papel. Atendente completo sem papel recebe `403 erp_role_required` em `/profiles/{perfil}/erp/…`.
+- A cada requisição o núcleo manda ao ERP o papel, a sessão (id e nível do segundo fator), se a pessoa tem fator ativo e as pessoas da área com papel.
+  - Trocar o papel em Pessoas vale na próxima requisição.
+  - Quem perde o papel fica inativo no ERP.
+- A política de segundo fator do ERP (Sistema → Segurança, dentro do ERP) usa a mesma sessão do Wabotia.
+  - Com ela ligada, quem está no escopo e está numa sessão sem o código recebe `403 ERP_MFA_REQUIRED`.
+  - O app pede o código com `POST /api/v1/account/mfa/challenge`, como em "Elevação sob demanda", e repete.
+
 ### Consentimento de notificação por finalidade
 
 `GET /profiles/{perfil}/consents` traz em cada registro `purpose`: `protocol` (pergunta AUTORIZO / NÃO AUTORIZO do protocolo), `billing` (cobrança), `scheduling` (agendamento), `order` (pedido), `booking` (reserva) ou `*` (o REVOGAR do cliente, que vale para todas), além de `source` (`whatsapp`, `panel`, `contract`…) e `module_id`. Fora da janela de 24 horas da linha oficial, uma notificação de módulo marcada com finalidade só sai com o consentimento dela; as de protocolo seguem com o de protocolo. As cobranças do núcleo são `billing`. Cada registro feito por módulo publica `consent.updated` com `conversation_id`, `purpose`, `status`, `source` e `module_id`.

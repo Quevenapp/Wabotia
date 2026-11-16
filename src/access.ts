@@ -110,7 +110,21 @@ export const accessPresets = [
     access: ["entrega:courier"],
   },
   { id: "technician", label: "Técnico", access: ["os:technician"] },
+  // ERP: só o papel (que já dá o módulo); some com o ERP desligado.
+  { id: "erp-admin", label: "ERP · Administração", access: ["erp:admin"] },
+  { id: "erp-consulta", label: "ERP · Consulta", access: ["erp:consulta"] },
+  { id: "erp-vendas", label: "ERP · Vendas", access: ["erp:vendas"] },
+  {
+    id: "erp-financeiro",
+    label: "ERP · Financeiro",
+    access: ["erp:financeiro"],
+  },
+  { id: "erp-estoque", label: "ERP · Estoque", access: ["erp:estoque"] },
+  { id: "erp-fiscal", label: "ERP · Fiscal", access: ["erp:fiscal"] },
 ] as const;
+
+/** Módulos com papel exclusivo: no máximo um papel dele por pessoa. */
+const ONE_ROLE = ["erp"];
 
 export function presetsFor(catalog: AccessItem[]) {
   const ids = new Set(catalog.map((i) => i.id));
@@ -301,6 +315,13 @@ export function validateAccess(value: unknown): string[] | null {
         400,
         "invalid_request",
         `Acesso desconhecido: ${String(item)}.`,
+      );
+  for (const module of ONE_ROLE)
+    if (out.filter((item) => item.startsWith(module + ":")).length > 1)
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "Escolha um só papel do ERP para a pessoa.",
       );
   return out as string[];
 }

@@ -162,6 +162,7 @@ import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
+import { ERP_PEOPLE_SQL, erpIdentity, isErpPath } from "./modules/erp/identity";
 import {
   appProfiles,
   closeSockets,
@@ -987,8 +988,17 @@ app.use("/api/v1/*", async (c, next) => {
   const pre = withReadCache(c.env);
   if (["GET", "HEAD"].includes(c.req.method)) c.env = pre;
   c.set("pre", pre);
+  const area = profileOfPath(c.req.path);
   const actor =
-    internal || (await authenticate(pre, c.req.raw, profileOfPath(c.req.path)));
+    internal ||
+    (await authenticate(
+      pre,
+      c.req.raw,
+      area,
+      // ERP: as pessoas da área com papel erp:* vão no mesmo lote, para o
+      // envelope de identidade (src/modules/erp/identity.ts).
+      area && isErpPath(c.req.path) ? [[ERP_PEOPLE_SQL, [area]]] : [],
+    ));
   c.set("actor", actor);
   // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
   // cadastro do fator (src/mfa.ts).
@@ -1139,14 +1149,27 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
   const profile = c.req.param("profile");
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  return erpApi(c.env, c.req.raw, profile, c.get("actor"));
+  // Envelope de identidade montado pelo núcleo (papel, sessão, fator e as
+  // pessoas da área, já lidas no lote antes da rota).
+  const identity = await erpIdentity(
+    c.get("pre") ?? c.env,
+    c.get("actor"),
+    profile,
+  );
+  return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  return erpProbe(c.env, c.req.raw, profile, c.get("actor"), c.req.param("name"));
+  return erpProbe(
+    c.env,
+    c.req.raw,
+    profile,
+    c.get("actor"),
+    c.req.param("name"),
+  );
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
