@@ -171,7 +171,9 @@ export function AppProvider({
     const [nextStatus, nextBots, nextTeam, nextPresence] = await Promise.all([
       api(root + "/status"),
       api(root + "/bots"),
-      api(root + "/team").catch(() => ({ data: [] })),
+      accessAllows("team", me.role, me.access)
+        ? api(root + "/team").catch(() => ({ data: [] }))
+        : { data: [] },
       api(root + "/presence").catch(() => []),
     ]);
     if (scope.current !== current) return;

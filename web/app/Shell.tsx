@@ -365,7 +365,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         )}
-        <div className="app-area">{children}</div>
+        <div className="app-area">{blocked ? null : children}</div>
       </div>
       <nav className="tabbar" aria-label="Áreas do painel">
         {items.slice(0, 4).map((item) => (
