@@ -151,7 +151,6 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Emissor de NFC-e · rascunhos', to: '/emissor-fiscal?modelo=65', roles: ['admin', 'fiscal'] },
       { label: 'Séries fiscais · homologação', to: '/numeracao-fiscal', roles: ['admin', 'fiscal'] },
       { label: 'Conexão com a SEFAZ', to: '/conexao-sefaz', roles: ['admin', 'fiscal'] },
-      { label: 'XMLs sincronizados do Origin', to: '/xmls-sincronizados', roles: ['admin', 'fiscal', 'consulta'] },
     ] },
   ] },
   { id: 'certificado', label: 'Certificado Digital', icon: 'certificate', sections: [
@@ -169,21 +168,12 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Retornos operacionais', to: '/retornos-operacionais', roles: FINANCE },
       { label: 'Relatório de vencimentos', to: '/relatorio-vencimentos', roles: FINANCE },
       { label: 'Ficha financeira', to: '/financeiro-empresa?area=ficha', roles: FINANCE },
-      { label: 'Conferir boletos antigos', to: '/cobrancas-legadas-itau', roles: ADMIN },
     ] },
   ] },
   { id: 'servicos', label: 'Serviços', icon: 'screwdriver-wrench', sections: [
     { title: 'Configurações de serviços', entries: [page('servicos-os')] },
   ] },
-  { id: 'integracoes', label: 'Integrações', icon: 'plug', sections: [
-    { title: TOOLS, entries: [
-      { label: 'Dados sincronizados do Origin', to: '/dados-origin' },
-      { label: 'Andamento da integração Origin', to: '/integracao-origin', roles: ADMIN },
-      { label: 'Histórico de vendas do Origin', to: '/historico-vendas-origin', roles: ADMIN },
-      { label: 'Conferir vendas do Origin', to: '/conferir-vendas-origin', roles: ADMIN },
-      { label: 'Conferir compras do Origin', to: '/conferir-compras-origin', roles: ADMIN },
-    ] },
-  ] },
+  // Wabotia: a categoria Integrações (telas do Origin) saiu; a migração do Bling é um componente à parte (PLANO-FAGOO.md, item 17).
   { id: 'contabilidade', label: 'Contabilidade', icon: 'calculator', sections: [
     { title: 'Configurações de contabilidade', entries: [page('contabilidade-contador')] },
   ] },
@@ -203,15 +193,12 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Importar notas fiscais em Lote', to: '/preferencias/importacoes/notas-fiscais', roles: ADMIN, description: 'Rascunhos de NF-e de saída em homologação, um por número da planilha.' }, { label: 'Importar contas a receber/pagar', to: '/preferencias/importacoes/contas-receber', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
       { label: 'Importar vendas', to: '/preferencias/importacoes/vendas', roles: ADMIN, description: 'Pedidos de venda em aberto, sem lançar estoque nem contas.' }] },
     { title: TOOLS, entries: [
-      { label: 'Importar cadastros', to: '/importar-cadastros', roles: ADMIN },
-      { label: 'Importar orçamentos', to: '/importar-orcamentos', roles: ADMIN },
       { label: 'Importar contatos (somente inclusão)', to: '/importar-contatos', roles: ADMIN, description: 'Tela de Clientes e fornecedores que inclui contatos sem atualizar os existentes.' },
     ] },
   ] },
   { id: 'backup', label: 'Backup e Exportação de Dados', icon: 'database', sections: [
     { title: 'Backup e exportação', entries: [{ label: 'Backup', to: '/preferencias/backup/exportacao', roles: ADMIN, description: 'Pacote ZIP com os dados e os arquivos da empresa, gerado no servidor.' }, soon('Gerar arquivo auxiliar do SPED PIS/COFINS (Contribuições)', NOT_YET, ADMIN),
       soon('Gerar arquivo auxiliar do SPED ICMS/IPI (Fiscal)', NOT_YET, ADMIN), soon('Exportar dados para Sintegra', NOT_YET, ADMIN)] },
-    { title: TOOLS, entries: [{ label: 'Preparação da virada', to: '/preparacao-virada', roles: ADMIN }] },
   ] },
 ];
 

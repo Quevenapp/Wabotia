@@ -3,15 +3,13 @@
 // pertence a um bloco; menu, rotas e divisão em arquivos seguem esta regra.
 // Mapa comentado: sessao-M-erp-painel.md (notas da orquestração).
 
-export type ErpBlock =
-  "erp" | "erp-fiscal" | "erp-cobranca" | "erp-pdv" | "erp-origin";
+export type ErpBlock = "erp" | "erp-fiscal" | "erp-cobranca" | "erp-pdv";
 
 export const ERP_BLOCK_LABELS: Record<ErpBlock, string> = {
   erp: "ERP",
   "erp-fiscal": "Fiscal",
   "erp-cobranca": "Cobrança bancária",
   "erp-pdv": "Caixa / PDV",
-  "erp-origin": "Origin",
 };
 
 const FISCAL = new Set([
@@ -37,19 +35,6 @@ const PDV = new Set([
   "/frente-caixa-empresa",
   "/preferencias/vendas/frente-caixa",
 ]);
-const ORIGIN = new Set([
-  "/dados-origin",
-  "/integracao-origin",
-  "/historico-vendas-origin",
-  "/conferir-vendas-origin",
-  "/conferir-compras-origin",
-  "/preparacao-virada",
-  "/ajuda/convivencia",
-  "/xmls-sincronizados",
-  "/importar-cadastros",
-  "/importar-orcamentos",
-  "/cobrancas-legadas-itau",
-]);
 
 /** Bloco de um endereço do ERP (caminho sem o /app/erp, com ou sem ?consulta). */
 export function blockOf(target: string): ErpBlock {
@@ -69,12 +54,6 @@ export function blockOf(target: string): ErpBlock {
   )
     return "erp-cobranca";
   if (PDV.has(path)) return "erp-pdv";
-  if (
-    ORIGIN.has(path) ||
-    under("/preparacao-virada") ||
-    under("/preferencias/integracoes")
-  )
-    return "erp-origin";
   return "erp";
 }
 

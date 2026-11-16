@@ -58,12 +58,14 @@ test('location matching compares path and every query value of the target', () =
 test('preferences expose FAGOO-only pages by role, with the configured integration destinations', () => {
   assert.deepEqual(resolvePreferences({}), []);
   const admin = resolvePreferences({ role: 'admin', capabilities: { originHistory: true } }).flatMap(category => category.entries.map(entry => entry.to));
-  for (const to of ['/empresa-configuracoes', '/dados-origin', '/certificado-a1', '/conexao-sefaz', '/numeracao-fiscal', '/importar-cadastros', '/importar-orcamentos', '/conferir-compras-origin', '/conferir-vendas-origin', '/preparacao-virada', '/integracao-origin', '/historico-vendas-origin', '/emissor-fiscal?modelo=55', '/emissor-fiscal?modelo=65', '/xmls-sincronizados', '/cobranca-empresa', '/retornos-operacionais', '/relatorio-vencimentos', '/cobrancas-legadas-itau']) assert.ok(admin.includes(to), to);
+  for (const to of ['/empresa-configuracoes', '/certificado-a1', '/conexao-sefaz', '/numeracao-fiscal', '/emissor-fiscal?modelo=55', '/emissor-fiscal?modelo=65', '/cobranca-empresa', '/retornos-operacionais', '/relatorio-vencimentos']) assert.ok(admin.includes(to), to);
+  // Wabotia: as telas do Origin saíram (PLANO-FAGOO.md, item 17), mesmo com a capacidade do histórico.
+  for (const to of ['/dados-origin', '/importar-cadastros', '/importar-orcamentos', '/conferir-compras-origin', '/conferir-vendas-origin', '/preparacao-virada', '/integracao-origin', '/historico-vendas-origin', '/xmls-sincronizados', '/cobrancas-legadas-itau']) assert.ok(!admin.includes(to), to);
   const sales = resolvePreferences({ role: 'vendas', capabilities: { originHistory: true } });
   // A role sees a category only when it can read one of its pages or tools.
-  assert.deepEqual(sales.map(category => category.id), ['empresa', 'sistema', 'cadastros', 'suprimentos', 'vendas', 'servicos', 'integracoes']);
+  assert.deepEqual(sales.map(category => category.id), ['empresa', 'sistema', 'cadastros', 'suprimentos', 'vendas', 'servicos']);
   assert.equal(sales.some(category => category.entries.some(entry => ['/preferencias/notas-fiscais/nfe', '/preferencias/financas/contas-receber', '/estoque-abertura'].includes(entry.to))), false);
-  assert.deepEqual(COMPANY_PREFERENCES.map(category => category.label), ['Empresa', 'Sistema', 'Cadastros', 'Suprimentos', 'Vendas', 'Notas Fiscais', 'Certificado Digital', 'Finanças', 'Serviços', 'Integrações', 'Contabilidade', 'Importações de Dados', 'Backup e Exportação de Dados']);
+  assert.deepEqual(COMPANY_PREFERENCES.map(category => category.label), ['Empresa', 'Sistema', 'Cadastros', 'Suprimentos', 'Vendas', 'Notas Fiscais', 'Certificado Digital', 'Finanças', 'Serviços', 'Contabilidade', 'Importações de Dados', 'Backup e Exportação de Dados']);
   assert.equal(COMPANY_PREFERENCES.every(category => category.sections.length > 0 && category.sections.every(section => section.entries.length > 0)), true);
   assert.equal(COMPANY_PREFERENCES.flatMap(category => category.sections.flatMap(section => section.entries)).every(entry => entry.to || entry.disabledReason), true);
 });

@@ -40,15 +40,11 @@ export const EMBEDDED = new Set([
 
 /**
  * Grupo pelo nome do arquivo: primeira regra que casar. Os blocos opcionais
- * (pdv, origin, cobranca, fiscal; PLANO-FAGOO.md, item 16) vêm antes, para
+ * (pdv, cobranca, fiscal; PLANO-FAGOO.md, itens 16 e 17) vêm antes, para
  * que quem não liga um bloco nunca baixe as telas dele.
  */
 const groups: [string, RegExp][] = [
   ["pdv", /pdv|(^|[-_/])pos([-_.]|$)|cash-register/i],
-  [
-    "origin",
-    /origin|cutover|itau-legacy|integration|mirror|synced-xml|backup-import|warehouse-import|stock-opening|proposal-import|financial-import|import-failure|RealImportCatalog|RealImportProposals|SyncedXml/i,
-  ],
   ["cobranca", /cnab|boleto|remittance|bordero|net-credit|FinanceReturns/i],
   ["financeiro", /^finance/i],
   [

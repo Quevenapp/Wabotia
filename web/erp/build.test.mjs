@@ -116,7 +116,7 @@ test("o núcleo do ERP não baixa telas dos blocos opcionais (Fiscal, Cobrança,
     const entry = chunk.moduleIds.map(norm).find((id) => core.test(id));
     if (!entry) continue;
     const blocks = closure(chunk).filter((name) =>
-      /erp-(fiscal|cobranca|pdv|origin)-/.test(name),
+      /erp-(fiscal|cobranca|pdv)-/.test(name),
     );
     report.push(
       `${entry.replace(/^.*\/web\/erp\//, "")}: ${blocks.join(", ") || "nenhum"}`,

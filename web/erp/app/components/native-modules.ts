@@ -1,6 +1,6 @@
 import { lazy, type ComponentType } from 'react';
 
-// Wabotia: cada módulo do menu carrega as suas telas juntas, e os blocos opcionais (Fiscal, Cobrança, PDV, Origin) em arquivos próprios (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
+// Wabotia: cada módulo do menu carrega as suas telas juntas, e os blocos opcionais (Fiscal, Cobrança, PDV) em arquivos próprios; as telas do Origin saíram (PLANO-FAGOO.md, item 17) (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
 // o ERP fica em 30 a 50 arquivos (web/erp/chunks.ts). Original do Fagoo em web/erp/ORIGEM.json.
 const cadastros = () => import('../../screens/cadastros');
 const documentos = () => import('../../screens/documentos');
@@ -9,7 +9,6 @@ const estoque = () => import('../../screens/estoque');
 const financeiro = () => import('../../screens/financeiro');
 const cobranca = () => import('../../screens/cobranca');
 const fiscal = () => import('../../screens/fiscal');
-const origin = () => import('../../screens/origin');
 const preferencias = () => import('../../screens/preferencias');
 const pick = <M extends Record<K, ComponentType<any>>, K extends string>(load: () => Promise<M>, name: K) => () => load().then(module => ({ default: module[name] as M[K] }));
 
@@ -29,13 +28,9 @@ export const FinanceBorderos = lazy(pick(cobranca, 'FinanceBorderos'));
 export const FinanceScreens = lazy(pick(financeiro, 'FinanceScreens'));
 export const RealCnab = lazy(pick(cobranca, 'RealCnab'));
 export const CompanySettings = lazy(pick(preferencias, 'CompanySettings'));
-export const RealImportCatalog = lazy(pick(origin, 'RealImportCatalog'));
 export const RealHome = lazy(pick(preferencias, 'RealHome'));
-export const CutoverReadiness = lazy(pick(origin, 'CutoverReadiness'));
 export const RealFiscalDrafts = lazy(pick(fiscal, 'RealFiscalDrafts'));
 export const DueDateReport = lazy(pick(financeiro, 'DueDateReport'));
-export const SyncedXmlHistory = lazy(pick(origin, 'SyncedXmlHistory'));
-export const IntegrationProgress = lazy(pick(origin, 'IntegrationProgress'));
 
 export const RealCnabOperational = lazy(pick(cobranca, 'RealCnabOperational'));
 export const RealCnabOperationalReturns = lazy(pick(cobranca, 'RealCnabOperationalReturns'));
@@ -46,15 +41,8 @@ export const RealFiscalNumbering = lazy(pick(fiscal, 'RealFiscalNumbering'));
 
 export const SefazConnection = lazy(pick(fiscal, 'SefazConnection'));
 
-export const OriginPurchaseReadiness = lazy(pick(origin, 'OriginPurchaseReadiness'));
-export const OriginSalesReadiness = lazy(pick(origin, 'OriginSalesReadiness'));
-export const OriginSalesHistory = lazy(pick(origin, 'OriginSalesHistory'));
-export const ItauLegacyReadiness = lazy(pick(origin, 'ItauLegacyReadiness'));
-export const RealImportProposals = lazy(pick(origin, 'RealImportProposals'));
 
-export const OriginWarehouseImport = lazy(pick(origin, 'OriginWarehouseImport'));
 
-export const OriginStockObservations = lazy(pick(origin, 'OriginStockObservations'));
 
 export const RealStockOpening = lazy(pick(estoque, 'RealStockOpening'));
 

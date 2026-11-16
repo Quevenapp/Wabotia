@@ -749,8 +749,7 @@ function read(path: string, query: URLSearchParams): any {
         erp: true,
         "erp-pdv": true,
         "erp-fiscal": false,
-        "erp-cobranca": false,
-        "erp-origin": false,
+        "erp-cobranca": false,
       },
       conversations: ["waiting", "ai", "human", "closed"].map((state) => ({
         state,

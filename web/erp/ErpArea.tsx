@@ -30,13 +30,8 @@ class LoadBoundary extends React.Component<
   }
 }
 
-/** Opcionais do ERP com chave própria em Gestão → Módulos (PLANO-FAGOO.md, item 16). */
-const OPTIONAL = [
-  "erp-fiscal",
-  "erp-cobranca",
-  "erp-pdv",
-  "erp-origin",
-] as const;
+/** Opcionais do ERP com chave própria em Gestão → Módulos (PLANO-FAGOO.md, itens 16 e 17; o Origin saiu). */
+const OPTIONAL = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
 
 export function ErpArea() {
   const app = useApp();

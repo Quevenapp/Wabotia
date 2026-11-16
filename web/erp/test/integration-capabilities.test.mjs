@@ -34,9 +34,10 @@ test('native preferences remain available while historical routes use their inde
  const paths=capabilities=>resolvePreferences({role:'admin',resources:['contacts','products'],capabilities}).flatMap(category=>category.entries.map(entry=>entry.to));
  const fresh=paths(undefined),historical=paths({originHistory:true,originIntegration:false});
  for(const path of ['/dados-origin','/preparacao-virada','/historico-vendas-origin']){
-  assert.equal(isOriginIntegrationRoute(path),true);assert.ok(!fresh.includes(path));assert.ok(historical.includes(path));
+  // Wabotia: as telas do Origin saíram (PLANO-FAGOO.md, item 17); nem a capacidade do histórico as traz de volta.
+  assert.equal(isOriginIntegrationRoute(path),true);assert.ok(!fresh.includes(path));assert.ok(!historical.includes(path));
  }
- for(const path of ['/empresa-configuracoes','/preferencias/backup/exportacao','/estoque-abertura','/xmls-sincronizados'])assert.ok(fresh.includes(path),path);
+ for(const path of ['/empresa-configuracoes','/preferencias/backup/exportacao','/estoque-abertura'])assert.ok(fresh.includes(path),path);
  assert.equal(originHistoryAvailable({capabilities:{originHistory:true,originIntegration:false}}),true);
  assert.equal(isOriginIntegrationRoute('/estoque-empresa'),false);
  assert.equal(isOriginIntegrationRoute('/historico-fiscal'),false);
