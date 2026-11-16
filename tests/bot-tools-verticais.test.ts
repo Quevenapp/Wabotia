@@ -9,7 +9,7 @@ import {
   createSubscription,
 } from "../src/modules/mensalidade/store";
 import { addDays, today } from "../src/modules/mensalidade/model";
-import { exec } from "../src/db";
+import { exec, one } from "../src/db";
 import {
   application,
   drain,
@@ -98,6 +98,51 @@ describe("conferência N-8: leituras do bot sem dado pessoal, seja qual for o es
     expect(JSON.stringify(mine.data)).not.toContain("123.456.789-09");
     expect(JSON.stringify(mine.data)).not.toContain(phone);
     expect(mine.data.data.map((x: any) => x.id)).toEqual([b.id]);
+  });
+
+  it("conferência N-13: mensalidade_situacao (GET) não revincula a assinatura", async () => {
+    const f = await fixture();
+    await turnOn(f, "mensalidade");
+    const phone = "5511974449902";
+    const r = await receive(f, f.line, "oi", phone);
+    await drain(f);
+    const c = await conversation(env, r.id, f.profile);
+    const key = (await application(f, ["conversations:read"])).token;
+    const ctx = modulesApi(env, f.profile, "mensalidade");
+    const plan = await createPlan(
+      ctx,
+      { name: "Plano", amount_cents: 9900 },
+      f.admin.id,
+    );
+    const sub = await createSubscription(
+      ctx,
+      {
+        plan_id: plan.id,
+        customer_name: "Cliente",
+        phone,
+        start_date: today(now()),
+      },
+      f.admin.id,
+    );
+    await runDue(ctx, now());
+    await exec(
+      env,
+      "UPDATE mensalidade_subscriptions SET conversation_id=NULL WHERE id=?",
+      sub.id,
+    );
+    const situation = await tool(key, "mensalidade_situacao", {
+      conversation_id: c.id,
+    });
+    expect(situation.ok).toBe(true);
+    // A leitura já casa pelo telefone…
+    expect(situation.data.open).toHaveLength(1);
+    // …e não grava a conversa na assinatura.
+    const row = await one(
+      env,
+      "SELECT conversation_id FROM mensalidade_subscriptions WHERE id=?",
+      sub.id,
+    );
+    expect(row.conversation_id).toBeNull();
   });
 });
 

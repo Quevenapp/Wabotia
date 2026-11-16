@@ -32,10 +32,16 @@ const normalize = (value: string) =>
  * Assinaturas do telefone da conversa (ou ligadas a ela). As cadastradas só
  * com o telefone passam a ser desta conversa.
  */
-async function customerScope(ctx: ModuleContext, c: Conversation) {
+async function customerScope(
+  ctx: ModuleContext,
+  c: Conversation,
+  options: { link?: boolean } = {},
+) {
   // Só o telefone autenticado pelo canal (nulo em conversa de integração).
   const phone = phoneDigits(ctx.verifiedPhone(c) ?? "");
-  if (phone.length >= 10)
+  // Leitura (GET pela API ou ferramenta do bot) não grava (conferência
+  // N-13): a busca já casa pelo telefone; a revinculação fica com a conversa.
+  if (phone.length >= 10 && options.link !== false)
     await exec(
       ctx.env,
       "UPDATE mensalidade_subscriptions SET conversation_id=? WHERE profile_id=? AND phone=? AND conversation_id IS NULL",
@@ -50,8 +56,12 @@ const SELECT =
   "SELECT i.*,p.name AS plan_name,s.customer_name FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE i.profile_id=? AND (s.conversation_id=? OR (s.phone<>'' AND s.phone=?))";
 
 /** Parcelas em aberto do cliente da conversa (desta conversa ou do telefone). */
-export async function openInstallments(ctx: ModuleContext, c: Conversation) {
-  const { phone } = await customerScope(ctx, c);
+export async function openInstallments(
+  ctx: ModuleContext,
+  c: Conversation,
+  options: { link?: boolean } = {},
+) {
+  const { phone } = await customerScope(ctx, c, options);
   return all(
     ctx.env,
     `${SELECT} AND i.status IN ('open','overdue') ORDER BY i.due_date,i.id LIMIT 30`,

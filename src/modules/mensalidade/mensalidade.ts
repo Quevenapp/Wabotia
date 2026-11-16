@@ -391,7 +391,7 @@ onRead(
       situation: phone
         ? await situationByPhone(ctx.env, ctx.profile, phone)
         : null,
-      open: (await openInstallments(ctx, c)).map((inst) => ({
+      open: (await openInstallments(ctx, c, { link: false })).map((inst) => ({
         id: inst.id,
         plan_name: inst.plan_name,
         period_key: inst.period_key,
