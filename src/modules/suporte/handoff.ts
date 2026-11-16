@@ -14,6 +14,7 @@ import {
   situationByPhone,
 } from "../mensalidade/public";
 import { phoneDigits, releaseDeadline, suporteSettings } from "./model";
+import { today } from "../mensalidade/model";
 
 /**
  * Por que uma liberação gravada como ativa não vale mais, ou null se vale:
@@ -167,13 +168,15 @@ export async function settleByRef(
 export async function trustedStanding(ctx: ModuleContext, payerId: string) {
   return !!(await one(
     ctx.env,
-    `SELECT 1 FROM mensalidade_subscriptions s WHERE s.profile_id=? AND s.payer_id=? AND s.status='active' AND (
+    `SELECT 1 FROM mensalidade_subscriptions s WHERE s.profile_id=? AND s.payer_id=? AND s.status='active' AND (s.end_date IS NULL OR s.end_date>=?) AND (
        EXISTS (SELECT 1 FROM mensalidade_installments i WHERE i.subscription_id=s.id AND i.status='paid')
        OR s.created_by IN (SELECT id FROM users WHERE role='admin')
        OR s.created_by IN (SELECT 'app:'||a.id FROM applications a WHERE EXISTS (SELECT 1 FROM json_each(a.scopes) WHERE value='billing:write'))
      ) LIMIT 1`,
     ctx.profile,
     payerId,
+    // Fim já passado não conta (segunda conferência, M5).
+    today(now()),
   ));
 }
 

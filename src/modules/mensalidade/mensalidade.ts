@@ -18,6 +18,7 @@ import {
   maskDocument,
   parseDocument,
   phoneDigits,
+  today,
   validateMensalidadeSettings,
   withoutKeys,
 } from "./model";
@@ -627,6 +628,21 @@ onCommand(
         data.discount_cents !== 0)
     )
       manager(actor, "Somente administradores definem valor ou desconto.");
+    // Datas mudam quem fica em dia ou em atraso: início fora de hoje e fim,
+    // só administrador (segunda conferência, M5 e N2-5).
+    if (
+      (data.start_date !== undefined &&
+        data.start_date !== null &&
+        data.start_date !== "" &&
+        data.start_date !== today(now())) ||
+      (data.end_date !== undefined &&
+        data.end_date !== null &&
+        data.end_date !== "")
+    )
+      manager(
+        actor,
+        "Somente administradores definem início fora de hoje ou fim da assinatura.",
+      );
     // Documento de um pagador existente autoriza o telefone da assinatura
     // nele (vincular telefone): só administrador, se ainda não autorizado.
     if (!isManager(actor) && typeof data.document === "string") {
@@ -718,15 +734,20 @@ onCommand(
   "mensalidade.subscription.update",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
-    // Valor, desconto e plano mudam quanto se cobra: só administrador.
+    // Valor, desconto, plano e datas mudam quanto e até quando se cobra: só
+    // administrador (datas: segunda conferência, M5).
     if (
-      ["amount_cents", "discount_cents", "plan_id"].some((key) =>
-        Object.hasOwn(data || {}, key),
-      )
+      [
+        "amount_cents",
+        "discount_cents",
+        "plan_id",
+        "start_date",
+        "end_date",
+      ].some((key) => Object.hasOwn(data || {}, key))
     )
       manager(
         actor,
-        "Somente administradores mudam valor, desconto ou plano da assinatura.",
+        "Somente administradores mudam valor, desconto, plano ou datas da assinatura.",
       );
     const sub = await loadSubscription(ctx, data.id);
     return subscriptionView(await updateSubscription(ctx, sub, data, actor.id));

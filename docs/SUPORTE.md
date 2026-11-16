@@ -44,7 +44,10 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
    vincula telefone nem contrata em nome de um cadastro que já existe.
 3. **Situação** (Mensalidade, com a carência das regras), só para o pagador
    que autorizou o telefone:
-   - **em dia**: liberado;
+   - **em dia**: liberado, se a assinatura já tem uma parcela paga ou foi
+     cadastrada por um administrador (ou integração com `billing:write`).
+     Assinatura nova de atendente, sem parcela paga, não libera sozinha; e
+     assinatura com o fim já passado não conta;
    - **em atraso**: o cliente paga a parcela em aberto (Pix ou link) e é
      liberado quando o pagamento é confirmado;
    - **sem assinatura**: escolhe **Suporte avulso** (pacotes) ou **Plano
