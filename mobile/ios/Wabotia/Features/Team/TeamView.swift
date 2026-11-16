@@ -428,6 +428,7 @@ struct InternalChatView: View {
             SecondFactorSheet(verifier: secondFactor) {
                 let retry = secondFactorRetry
                 secondFactorRetry = nil
+                MFAGate.shared.confirmed()
                 Task { await retry?() }
             } onClose: { secondFactorRetry = nil }
         }

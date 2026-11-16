@@ -65,8 +65,21 @@ enum JSONValue: Codable, Equatable {
 struct HealthInfo: Codable { var service: String = ""; var version: String = ""; var commit: String? }
 struct AuthStatus: Codable { var initialized: Bool = false; var configured: Bool = false }
 struct DeviceInfo: Codable { var platform = "ios"; var name: String; var app_version: String }
-struct MobileLoginRequest: Codable { var email: String; var password: String; var device: DeviceInfo }
-struct MobileSession: Codable { var token: String; var expires: Int64; var user: User }
+struct MobileLoginRequest: Codable {
+    var email: String; var password: String; var device: DeviceInfo
+    /// Segunda etapa do login: os 6 números do autenticador, ou um código de recuperação (docs/API.md, "Login e segundo fator").
+    var totp: String? = nil
+    var recovery_code: String? = nil
+}
+/// Situação do segundo fator: `policy` (`off`, `financial`, `all`), `factor` (a pessoa tem um cadastrado) e `next`
+/// (`enroll`: a instalação exige e a pessoa ainda não cadastrou).
+struct MFAState: Codable, Equatable { var policy: String?; var factor: Bool?; var next: String? }
+struct MobileSession: Codable {
+    var token: String; var expires: Int64; var user: User
+    /// 1 só senha, 2 com o código (a confirmação vale 7 dias no `wabu_`, contados do código).
+    var aal: Int? = nil
+    var mfa: MFAState? = nil
+}
 struct User: Codable, Equatable {
     var id: String
     var name: String = ""
@@ -75,7 +88,12 @@ struct User: Codable, Equatable {
     var profiles: [String] = []
     var isAdmin: Bool { role == "admin" }
 }
-struct Me: Codable { var id: String; var kind: String = "user"; var name: String = ""; var role: String = "operator"; var profiles: [String] = [] }
+struct Me: Codable {
+    var id: String; var kind: String = "user"; var name: String = ""; var role: String = "operator"; var profiles: [String] = []
+    /// O nível efetivo, já com o prazo da confirmação.
+    var aal: Int? = nil
+    var mfa: MFAState? = nil
+}
 struct Profile: Codable, Identifiable { var id: String; var name: String; var enabled: Int? = 0 }
 struct Page<T: Codable>: Codable { var data: [T] = []; var next_cursor: String? }
 struct APIErrorBody: Codable { var error: APIErrorInfo? }

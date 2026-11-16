@@ -532,11 +532,26 @@ final class DemoServer {
         if get, m("api/auth/status") != nil { return ok(["initialized": true, "configured": true]) }
         if post, m("api/auth/mobile/login") != nil {
             guard (body["password"] as? String)?.isEmpty == false else { return fail(401, "invalid_credentials", "E-mail ou senha incorretos.") }
-            return ok(session)
+            // Senha "mfa": a conta tem segundo fator e o login pede o código (123456) na segunda etapa.
+            if body["password"] as? String == "mfa" {
+                let code = (body["totp"] as? String) ?? (body["recovery_code"] as? String)
+                guard let code else { return fail(401, "mfa_required", "Digite o código do aplicativo autenticador.") }
+                guard code == DemoBotActions.mfaCode else { return fail(401, "invalid_code", "Código incorreto. Na demonstração, use \(DemoBotActions.mfaCode).") }
+                var withCode = session
+                withCode["aal"] = 2
+                withCode["mfa"] = ["policy": "off", "factor": true, "next": NSNull()] as Row
+                return ok(withCode)
+            }
+            var plain = session
+            plain["aal"] = botActions.aal
+            plain["mfa"] = botActions.mfaState
+            return ok(plain)
         }
         if post, m("api/v1/auth/mobile/refresh") != nil { return ok(session) }
         if post, m("api/v1/logout") != nil { return ok(["ok": true]) }
-        if get, m("api/v1/me") != nil { return ok(["id": me, "kind": "user", "name": DemoMode.meName, "role": "admin", "profiles": ["demo"]]) }
+        if get, m("api/v1/me") != nil {
+            return ok(["id": me, "kind": "user", "name": DemoMode.meName, "role": "admin", "profiles": ["demo"], "aal": botActions.aal, "mfa": botActions.mfaState])
+        }
         if get, m("api/v1/profiles") != nil {
             var list: [Row] = [["id": "demo", "name": DemoMode.profileName, "enabled": 1]]
             if extraProfile { list.append(["id": "demo2", "name": "\(DemoMode.profileName) · Filial", "enabled": 0]) }

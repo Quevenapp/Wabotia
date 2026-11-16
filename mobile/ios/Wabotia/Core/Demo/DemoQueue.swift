@@ -227,7 +227,7 @@ final class DemoQueue {
         var answer: Row = [
             "capabilities_version": 1,
             "server": ["service": "wabotia", "version": "demonstração", "commit": ""],
-            "features": ["modules"],
+            "features": ["modules", "person_access", "mfa"],
             "profiles": [area],
         ]
         if perArea { answer["modules"] = modules }

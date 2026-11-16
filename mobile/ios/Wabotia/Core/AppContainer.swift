@@ -59,7 +59,7 @@ final class AppContainer: ObservableObject {
         var debugLaunch = false
         #if DEBUG
         debugLaunch = DemoMode.launchScreen != nil
-        if DemoMode.launchScreen == "login" { loginChosen = true }
+        if DemoMode.launchScreen == "login" || DemoMode.launchScreen == "login-mfa" { loginChosen = true }
         // WABOTIA_DEMO=device | device-totem | device-panel | device-hybrid: o modo aparelho da demonstração.
         if let screen = DemoMode.launchScreen, screen.hasPrefix("device") {
             deviceLaunch = DeviceLaunch(demo: true, serverURL: DemoMode.serverURL.absoluteString, role: DeviceRole(rawValue: String(screen.dropFirst("device-".count))))
@@ -157,6 +157,8 @@ final class AppContainer: ObservableObject {
         if result.user.profiles.count == 1 { profileId = result.user.profiles[0] } else { profileId = session.profileId }
         client = nil
         isLoggedIn = true
+        // Segundo fator: o nível da sessão e, com a política `all` sem fator cadastrado, o cadastro logo de cara.
+        MFAGate.shared.remember(result.mfa, aal: result.aal)
         // A demonstração não tem servidor: nada de token de push nem de registro do aparelho.
         if !DemoMode.isDemo(server) { PushManager.shared.registerIfNeeded(force: true) }
     }
@@ -176,6 +178,7 @@ final class AppContainer: ObservableObject {
         // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
         Workspace.shared.reset()
         ModuleFeature.shared.clear()
+        MFAGate.shared.reset()
         session.clearSession(keepServer: keepServer)
         // Anexos em memória (os arquivos em disco já foram removidos por `clearSession`).
         Task { await MediaLoader.shared.clear() }
@@ -192,6 +195,8 @@ final class AppContainer: ObservableObject {
         if let result = try? await api.refresh() {
             session.token = result.token
             session.tokenExpires = Date(timeIntervalSince1970: Double(result.expires) / 1000)
+            // O refresh leva o nível e o horário do código, sem reiniciar o prazo de 7 dias.
+            MFAGate.shared.remember(result.mfa, aal: result.aal)
         }
     }
 

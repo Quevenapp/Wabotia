@@ -151,7 +151,7 @@ extension DemoMode {
         if forceDark { AppAppearance.override = .dark }
         switch launchScreen {
         case "server", "typed": return
-        case "login":
+        case "login", "login-mfa":
             store.serverURL = serverURL
             return
         default: break
@@ -241,6 +241,8 @@ extension DemoMode {
         case "calls": launch.tab = "calls"
         case "settings": launch.tab = "settings"
         case "licenses": launch.tab = "settings"; launch.sheet = "licenses"
+        // Segundo fator: Ajustes → Segurança e o cadastro do autenticador (código 123456).
+        case "mfa": launch.tab = "settings"; launch.sheet = "mfa-enroll"
         case "lines": launch.tab = "attendance"; launch.route = .lines
         case "counter": launch.tab = "attendance"; launch.route = .counter
         // Agenda e Ordem de Serviço (WABOTIA_DEMO_ACTION=week abre a agenda na semana).

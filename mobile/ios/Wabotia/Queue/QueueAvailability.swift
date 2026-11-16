@@ -85,22 +85,26 @@ struct ModulesProbe {
 
     func check() async -> Set<String>? { await probe().modules }
 
-    /// Os módulos e, quando o servidor manda, a lista do que a pessoa acessa (`AppAccess`; `nil` = sem restrição).
-    func probe() async -> (modules: Set<String>?, access: AppAccess?) {
+    /// Os módulos, a lista do que a pessoa acessa (`AppAccess`; `nil` = sem restrição) e os recursos do servidor
+    /// (`features`: `mfa`, `person_access`…).
+    func probe() async -> (modules: Set<String>?, access: AppAccess?, features: Set<String>?) {
         let base = QueueHTTP.normalize(baseURL)
         let p = profileId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? profileId
         for path in ["/api/v1/profiles/\(p)/capabilities", "/api/v1/capabilities?profile_id=\(p)"] {
             switch await get(base + path) {
             case .ok(let json):
-                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) { return (ids, AppAccess.parse(json, profileId: profileId)) }
+                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) {
+                    let features = ((json as? [String: Any])?["features"] as? [String]).map(Set.init)
+                    return (ids, AppAccess.parse(json, profileId: profileId), features)
+                }
             case .failed(let status):
-                if status == 0 { return (nil, nil) }
+                if status == 0 { return (nil, nil, nil) }
                 // 404/405 (servidor antigo), 401/403: tenta o próximo sinal.
             }
         }
         switch await get(base + "/api/v1/profiles/\(p)/queue") {
-        case .ok: return ([ModuleId.queue], nil)
-        case .failed(let status): return (status == 0 || status >= 500 || status == 429 ? nil : [], nil)
+        case .ok: return ([ModuleId.queue], nil, nil)
+        case .failed(let status): return (status == 0 || status >= 500 || status == 429 ? nil : [], nil, nil)
         }
     }
 
@@ -170,7 +174,12 @@ final class ModuleFeature: ObservableObject {
         let session = container.session
         let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).probe()
         apply(result.modules, profile: profile, access: result.access)
+        if let features = result.features { self.features = features }
     }
+
+    /// Recursos que o servidor anuncia em `/capabilities` (`mfa`, `person_access`…). Sem o recurso, o app age como antes.
+    @Published private(set) var features: Set<String> = []
+    func has(_ feature: String) -> Bool { features.contains(feature) }
 
     /// `nil` (sem rede): fica o que já se sabia, e a próxima consulta tenta de novo.
     func apply(_ result: Set<String>?, profile: String, access: AppAccess? = nil) {
@@ -197,6 +206,7 @@ final class ModuleFeature: ObservableObject {
     func clear() {
         modules = [:]
         accessByProfile = [:]
+        features = []
         checkedAt = [:]
     }
 }

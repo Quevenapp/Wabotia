@@ -33,6 +33,7 @@ struct HomeView: View {
     @StateObject private var conversations = ConversationsViewModel()
     @ObservedObject private var workspace = Workspace.shared
     @ObservedObject private var moduleFeature = ModuleFeature.shared
+    @ObservedObject private var mfa = MFAGate.shared
     @State private var tab: HomeTab = .conversations
     @State private var visited: Set<HomeTab> = [.conversations]
 
@@ -63,6 +64,16 @@ struct HomeView: View {
         }
         .animation(.quick, value: workspace.offline)
         .overlay { ToastOverlay(workspace: workspace, bottomPadding: 64) }
+        // Segundo fator pedido por uma tela qualquer (403 mfa_required), ou exigido pela instalação: o código ou o
+        // cadastro, sem deslogar.
+        .sheet(item: Binding(get: { mfa.prompt }, set: { if $0 == nil, mfa.prompt != nil { mfa.dismissed() } })) { prompt in
+            switch prompt {
+            case .challenge:
+                SecondFactorSheet(verifier: LiveSecondFactor(api: container.api)) { mfa.confirmed() } onClose: { mfa.dismissed() }
+            case .enroll:
+                MFAEnrollView(account: LiveSecondFactor(api: container.api)) { mfa.confirmed() } onClose: { mfa.dismissed() }
+            }
+        }
         .onChange(of: tab) { visited.insert($0) }
         .onChange(of: tabs) { _ in keepTabAllowed() }
         .onChange(of: container.pendingLink) { link in

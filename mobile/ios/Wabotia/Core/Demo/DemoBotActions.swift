@@ -88,7 +88,37 @@ final class DemoBotActions {
 
     // MARK: - Rotas
 
+    /// Segundo fator na demonstração: começa sem fator (Ajustes → Segurança mostra o cadastro); o código é sempre 123456.
+    private(set) var hasFactor = false
+    var aal: Int { mfaVerified ? 2 : 1 }
+    var mfaState: Row { ["policy": "off", "factor": hasFactor, "next": NSNull()] }
+
+    private func recoveryCodes() -> [String] {
+        (1...10).map { i in String(format: "DEMO-%04d-%04d", (i * 7919) % 10_000, (i * 104_729) % 10_000) }
+    }
+
     func route(method: String, parts: [String], body: Row, query: [String: String], now: Int64) -> DemoServer.Reply? {
+        if parts.count >= 4, Array(parts.prefix(4)) == ["api", "v1", "account", "mfa"] {
+            let rest = Array(parts.dropFirst(4))
+            if method == "GET", rest.isEmpty { return ok(["aal": aal, "mfa": mfaState]) }
+            if method == "POST", rest == ["enroll"] {
+                guard (body["password"] as? String)?.isEmpty == false else { return fail(400, "invalid", "Digite a sua senha.") }
+                if hasFactor, !mfaVerified { return fail(403, "mfa_required", "Confirme que é você para trocar o fator.") }
+                let secret = "JBSWY3DPEHPK3PXP"
+                return ok(["factor_id": "fa_demo", "secret": secret,
+                           "otpauth_url": "otpauth://totp/Wabotia%20(demonstra%C3%A7%C3%A3o):\(DemoMode.meEmail)?secret=\(secret)&issuer=Wabotia"])
+            }
+            if method == "POST", rest == ["verify"] {
+                guard body["code"] as? String == Self.mfaCode else { return fail(401, "invalid_code", "Código incorreto. Na demonstração, use \(Self.mfaCode).") }
+                hasFactor = true
+                mfaVerified = true
+                return ok(["aal": 2, "recovery_codes": recoveryCodes()])
+            }
+            if method == "POST", rest == ["recovery-codes"] {
+                guard mfaVerified else { return fail(403, "mfa_required", "Confirme que é você.") }
+                return ok(["aal": 2, "recovery_codes": Array(recoveryCodes().reversed())])
+            }
+        }
         // POST /api/v1/account/mfa/challenge {code | recovery_code}
         if method == "POST", parts == ["api", "v1", "account", "mfa", "challenge"] {
             let code = (body["code"] as? String) ?? (body["recovery_code"] as? String) ?? ""

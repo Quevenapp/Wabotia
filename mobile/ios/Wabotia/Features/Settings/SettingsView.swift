@@ -18,6 +18,9 @@ struct SettingsView: View {
     @State private var appearance = AppAppearance.current
     @State private var showPrinter = false
     @State private var showLicenses = false
+    @State private var showEnroll = false
+    @State private var showRecovery = false
+    @ObservedObject private var mfa = MFAGate.shared
     @ObservedObject private var moduleFeature = ModuleFeature.shared
 
     /// Na demonstração não há push nem servidor de verdade: essas seções dão lugar a explicações e à saída.
@@ -30,6 +33,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         userCard.padding(.horizontal, 16)
+                        securitySection.padding(.horizontal, 16).id("security")
                         printerSection.padding(.horizontal, 16)
                         Group { if demo { demoNotificationsSection } else { notificationsSection } }.padding(.horizontal, 16).id("notifications")
                         appearanceSection.padding(.horizontal, 16).id("appearance")
@@ -48,6 +52,9 @@ struct SettingsView: View {
                     }
                     if DemoMode.takeSheet("licenses") != nil {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { showLicenses = true }
+                    }
+                    if DemoMode.takeSheet("mfa-enroll") != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { showEnroll = true }
                     }
                 }
                 #endif
@@ -116,6 +123,43 @@ struct SettingsView: View {
             Spacer(minLength: 4)
         }
         .card(padding: 16)
+    }
+
+    // MARK: - Segurança
+
+    /// Minha conta → segundo fator: só com o recurso `mfa` em `/capabilities` (servidor antigo: nada muda).
+    @ViewBuilder private var securitySection: some View {
+        if moduleFeature.has("mfa") {
+            let factor = mfa.state?.factor == true
+            SectionCard(title: "Segurança", footer: factor
+                        ? "Entrar e as ações protegidas pedem o código do aplicativo autenticador. A confirmação vale 7 dias neste aparelho."
+                        : (mfa.state?.policy == "all" ? "Esta instalação exige o segundo fator: cadastre o aplicativo autenticador para continuar usando o app."
+                                                      : "Proteja a conta com um aplicativo autenticador: além da senha, entrar passa a pedir um código de 6 números.")) {
+                if factor {
+                    CardRow(icon: "checkmark.shield.fill", iconColor: Theme.ok, title: "Aplicativo autenticador", value: "Ativado")
+                    Button { showRecovery = true } label: {
+                        CardRow(icon: "key.fill", iconColor: Theme.muted, title: "Novos códigos de recuperação", chevron: true, divider: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.mfa.recovery")
+                } else {
+                    Button { showEnroll = true } label: {
+                        CardRow(icon: "lock.shield.fill", iconColor: Theme.warn, title: "Ativar o segundo fator", subtitle: "Aplicativo autenticador", chevron: true, divider: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.mfa.enroll")
+                }
+            }
+            .task(id: active) {
+                // A situação do fator vem de /me (responde mesmo em aal1).
+                guard active, let me = try? await container.api.me() else { return }
+                mfa.remember(me.mfa, aal: me.aal)
+            }
+            .sheet(isPresented: $showEnroll) {
+                MFAEnrollView(account: LiveSecondFactor(api: container.api)) { showEnroll = false; mfa.confirmed() } onClose: { showEnroll = false }
+            }
+            .sheet(isPresented: $showRecovery) { MFARecoveryCodesSheet(account: LiveSecondFactor(api: container.api)) { showRecovery = false } }
+        }
     }
 
     // MARK: - Impressora

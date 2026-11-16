@@ -232,7 +232,9 @@ struct BotActions {
     /// `decision`: `approve`, `decline` ou `handoff`. A chave repete a mesma decisão sem decidir duas vezes.
     func decide(_ a: BotApproval, decision: String, value: Double? = nil, reason: String? = nil) async -> BotActionOutcome {
         do {
-            return .approval(try await api.decide(a.id, decision: decision, value: value, reason: reason, key: "decide:\(a.id):\(decision)"))
+            return .approval(try await MFAGate.$handledLocally.withValue(true) {
+                try await api.decide(a.id, decision: decision, value: value, reason: reason, key: "decide:\(a.id):\(decision)")
+            })
         } catch {
             let outcome = Self.map(error)
             // Outra pessoa decidiu antes: o cartão relido mostra quem foi.
@@ -242,8 +244,9 @@ struct BotActions {
         }
     }
 
+    /// O cartão pede o código ele mesmo e repete o toque: a porta central do segundo fator fica de fora.
     private func run(_ call: () async throws -> BotProposal) async -> BotActionOutcome {
-        do { return .proposal(try await call()) } catch { return Self.map(error) }
+        do { return .proposal(try await MFAGate.$handledLocally.withValue(true) { try await call() }) } catch { return Self.map(error) }
     }
 
     nonisolated static func map(_ error: Error) -> BotActionOutcome {
