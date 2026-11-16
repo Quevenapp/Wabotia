@@ -1,8 +1,22 @@
 Wabotia - Copyright (c) 2026 Quevenapp contributors.
-Regras de atendimento e extensão de entrada exclusiva derivadas do WABABOTAI (MIT).
-Hermes Agent é um projeto independente da NousResearch (MIT), usado como serviço externo.
-As extensões em connectors/hermes foram preparadas para a revisão Hermes
-0e427d788d253630d38a3a51cd76849e73cd6925; atualizações exigem revalidação.
-Baileys, Hono, React, Lucide, Mammoth, unpdf e ferramentas Cloudflare preservam
-suas respectivas licenças distribuídas nos pacotes npm.
-Wabotia não é afiliado à Cloudflare, Meta, Telegram ou NousResearch.
+
+Servidor e painel web: GNU Affero General Public License, versão 3 (LICENSE).
+Quem oferece o Wabotia pela rede, modificado ou não, oferece também o
+código-fonte da versão em execução (seção 13): o link fica em /api/health,
+/api/v1/capabilities, no rodapé do painel, do login e das páginas que o
+cliente final abre. Quem modificar aponta o próprio repositório em
+WABOTIA_SOURCE_URL.
+
+Exceções, sob MIT:
+- mobile/ (apps Android e iOS): mobile/LICENSE.
+- connectors/ (plugin do Hermes e conector QR): connectors/LICENSE.
+
+As versões até a 0.20.0 foram publicadas sob MIT e continuam sob MIT.
+
+Regras de atendimento e extensão de entrada exclusiva derivadas do WABABOTAI,
+sob MIT; o aviso original está em LICENSES/MIT-WABABOTAI.txt.
+
+Hermes Agent é um projeto independente da NousResearch (MIT), usado como
+serviço externo.
+
+Materiais e bibliotecas de terceiros: THIRD_PARTY_NOTICES.md.
