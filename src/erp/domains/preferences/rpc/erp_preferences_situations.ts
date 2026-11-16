@@ -4,7 +4,8 @@
 // no motor: o próximo valor é o maior já emitido mais um, lido da trilha
 // (framework_audit, imutável; cada transition_save grava a versão emitida em
 // after_data). Os dois só divergiriam se o Postgres consumisse um valor numa
-// transação desfeita depois do nextval, o que o corpo não faz.
+// transação desfeita depois do nextval, o que o corpo não faz. Declarado em
+// src/erp/schema/structural.ts, diferença "sequencias".
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
