@@ -51,8 +51,8 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 ² 25 com o cache; mais 3 da entrega durável do gancho do módulo (fila de
 pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
 
-³ Só o módulo (`tests/entrega.test.ts`); a requisição soma a sessão do app e o
-estado do módulo. Um lote a cada minuto por entregador em rota, não uma
+³ Só o módulo (`tests/entrega.test.ts`); a requisição soma a sessão do app, o
+estado do módulo e o contador do limite por credencial (mais uma escrita). Um lote a cada minuto por entregador em rota, não uma
 escrita por ponto; detalhes em [ENTREGA.md](ENTREGA.md#limites-do-cloudflare).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e

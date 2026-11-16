@@ -512,6 +512,96 @@ describe("entrega: avulsa, localização do cliente e privacidade", () => {
   });
 });
 
+describe("entrega: travas do núcleo (revisão A)", () => {
+  const boundApp = (f: Fixture): Actor => ({
+    id: "app:presa",
+    kind: "app",
+    name: "Bot",
+    role: "service",
+    profiles: [f.profile],
+    scopes: ["conversations:read", "conversations:write", "conversations:bound"],
+    bots: [],
+    rate: 100,
+    runLimit: 10,
+  });
+
+  it("ctx.read e ctx.run recusam a chave presa à conversa", async () => {
+    const { f, ctx } = await setup();
+    for (const call of [
+      () => ctx.read(boundApp(f), "pedido/menu"),
+      () => ctx.run(boundApp(f), "pedido.store.pause", { paused: true }, uid()),
+    ]) {
+      const error = await call().catch((e) => e);
+      expect(error.status).toBe(403);
+      expect(error.code).toBe("bound_key");
+    }
+    // Pessoa da equipe lê normalmente.
+    expect(await ctx.read(f.member, "pedido/menu")).toBeTruthy();
+  });
+
+  it("ctx.run é recusado no contexto do Worker (telemetria, página)", async () => {
+    const { f } = await setup();
+    const worker = modulesApi(env, f.profile, "entrega", { worker: true });
+    const error = await worker
+      .run(f.admin, "pedido.store.pause", { paused: true }, uid())
+      .catch((e) => e);
+    expect(String(error.message)).toMatch(/fora do Coordinator/);
+    const paused = await one(
+      env,
+      "SELECT paused FROM pedido_store WHERE profile_id=?",
+      f.profile,
+    );
+    expect(paused?.paused ?? 0).toBe(0);
+  });
+
+  it("telemetria tem limite por credencial no núcleo", async () => {
+    const { f, delivery } = await started();
+    const member = await bearer(f.member);
+    const route = "entrega/deliveries/:id/positions";
+    const bucket = Math.floor(now() / 60000);
+    for (const b of [bucket, bucket + 1])
+      await exec(
+        env,
+        "INSERT OR REPLACE INTO rate_limits(key,count,expires) VALUES(?,?,?)",
+        `telemetry:${f.member.id}:${f.profile}:${route}:${b}`,
+        60,
+        now() + 120000,
+      );
+    const res = await positions(member, f, delivery.id, {
+      points: [{ t: now(), ...FAR }],
+    });
+    expect(res.status).toBe(429);
+  });
+
+  it("blocos do mapa configuráveis, com crédito obrigatório", async () => {
+    const bad = await setup().then(({ f }) =>
+      perform(env, f.admin, f.profile, "settings", {
+        entrega: { map: { tiles_url: "http://mapa.example.com/{z}/{x}/{y}.png" } },
+      }, uid()).catch((e) => e),
+    );
+    expect(bad.status).toBe(400);
+    const { f, c, delivery } = await started({
+      map: {
+        tiles_url: "https://mapas.example.com/{z}/{x}/{y}.png",
+        attribution: "Mapa © Provedor de Exemplo",
+      },
+    });
+    const member = await bearer(f.member);
+    await positions(member, f, delivery.id, { points: [{ t: now(), ...FAR }] });
+    const link = (await outbox(c.id))
+      .filter(
+        (m) =>
+          JSON.stringify(m).includes('"display_text":"Acompanhar"') &&
+          codeIn(JSON.stringify(m)),
+      )
+      .at(-1);
+    const html = await (await track(codeIn(JSON.stringify(link)))).text();
+    expect(html).toContain("https://mapas.example.com/");
+    expect(html).toContain("Provedor de Exemplo");
+    expect(html).not.toContain("tile.openstreetmap.org");
+  });
+});
+
 describe("entrega: custo no D1 (docs/LIMITES.md)", () => {
   it("um lote de posições: poucas leituras e uma escrita, sem recibo", async () => {
     const { f, ctx, delivery } = await started();

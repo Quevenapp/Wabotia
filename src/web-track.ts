@@ -29,10 +29,33 @@ export interface TrackView {
   } | null;
   /** Segundos até a página recarregar; null ou 0 não recarrega (encerrada). */
   refresh_seconds?: number | null;
+  /**
+   * Blocos do mapa: endereço HTTPS com {z}, {x} e {y} e o crédito exigido
+   * pelo provedor. Sem isso (ou inválido), o OpenStreetMap público.
+   */
+  tiles?: { url: string; attribution: string } | null;
 }
 
-/** Blocos do mapa. Troque por um servidor próprio se o uso crescer. */
+/**
+ * Blocos padrão do mapa: o servidor público do OpenStreetMap, sujeito à
+ * política de uso dele (uso leve). Com muitas instalações ou muito acesso,
+ * configure um provedor próprio ou contratado (docs/ENTREGA.md).
+ */
 export const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+/** Endereço de blocos aceito: HTTPS, sem credencial, com {z}, {x} e {y}. */
+export function validTileUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 300) return false;
+  if (!["{z}", "{x}", "{y}"].every((p) => value.includes(p))) return false;
+  try {
+    const url = new URL(
+      value.replace("{z}", "1").replace("{x}", "1").replace("{y}", "1"),
+    );
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 /** Posição fracionária do ponto em blocos (Web Mercator). */
@@ -104,13 +127,19 @@ function mapHtml(view: TrackView) {
   const points = [courier, dest].filter(valid);
   if (!points.length) return "";
   const grid = mapGrid(points);
+  const custom = view.tiles && validTileUrl(view.tiles.url) ? view.tiles : null;
+  const template = custom ? custom.url : TILE_URL;
+  const credit = custom
+    ? escape(String(custom.attribution || "").slice(0, 200))
+    : 'Mapa © <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">colaboradores do OpenStreetMap</a>';
   const tiles = grid.tiles
     .map(
       (t) =>
         // Só a origem vai como Referer (política de uso do OpenStreetMap); o
         // código do link nunca sai da página.
         `<img src="${escape(
-          TILE_URL.replace("{z}", String(grid.zoom))
+          template
+            .replace("{z}", String(grid.zoom))
             .replace("{x}", String(t.x))
             .replace("{y}", String(t.y)),
         )}" alt="" loading="lazy" referrerpolicy="strict-origin">`,
@@ -120,7 +149,7 @@ function mapHtml(view: TrackView) {
     const at = grid.place(p);
     return `<div class="pin ${cls}" style="left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%" role="img" aria-label="${escape(label)}"></div>`;
   };
-  return `<div class="map"><div class="grid">${tiles}</div>${dest ? pin(dest, "dest", "Destino") : ""}${courier ? pin(courier, "courier", "Entregador") : ""}</div><div class="legend">${courier ? '<span class="c">Entregador</span>' : ""}${dest ? '<span class="d">Destino</span>' : ""}</div><div class="attribution">Mapa © <a href="https://www.openstreetmap.org/copyright" rel="noreferrer">colaboradores do OpenStreetMap</a></div>`;
+  return `<div class="map"><div class="grid">${tiles}</div>${dest ? pin(dest, "dest", "Destino") : ""}${courier ? pin(courier, "courier", "Entregador") : ""}</div><div class="legend">${courier ? '<span class="c">Entregador</span>' : ""}${dest ? '<span class="d">Destino</span>' : ""}</div><div class="attribution">${credit}</div>`;
 }
 
 /** Página de acompanhamento montada a partir da visão do módulo. */

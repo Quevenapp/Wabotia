@@ -471,6 +471,9 @@ export async function trackView(
         row.last_lat !== null ? { lat: row.last_lat, lng: row.last_lng } : null,
       destination,
     },
+    tiles: cfg.map.tiles_url
+      ? { url: cfg.map.tiles_url, attribution: cfg.map.attribution }
+      : null,
     refresh_seconds: 30,
   };
 }

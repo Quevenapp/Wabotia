@@ -31,6 +31,9 @@ Contrato das rotas em [API.md](API.md#entrega-módulo-entrega).
    - `app`: `sample_seconds` (15), `upload_seconds` (60),
      `near_upload_seconds` (30), `stale_minutes` (5).
    - `retention_hours` (padrão 24): quando a posição é apagada.
+   - `map`: `tiles_url` (blocos do mapa: endereço HTTPS com `{z}`, `{x}` e
+     `{y}`) e `attribution` (o crédito que o provedor exige). Vazio usa o
+     OpenStreetMap público; veja "Mapa da página" abaixo.
    - `texts`: `started`, `eta`, `location`, `arriving`, `delivered`,
      `cancelled`, com `{rotulo}`, `{entregador}`, `{minutos}`, `{horario}`,
      `{distancia}` e `{hora_posicao}`.
@@ -138,6 +141,13 @@ Sem destino não há previsão: o modo `eta` manda a localização no lugar.
   `link_hours`, fecha quando a posição é apagada e é trocado se o cliente
   pedir de novo (o anterior é cancelado). O código do link fica só como hash
   e a página não envia Referer (os blocos do mapa recebem só a origem).
+- **Mapa da página.** Por padrão, os blocos vêm do servidor público do
+  OpenStreetMap (`tile.openstreetmap.org`), cuja política de uso aceita só uso
+  leve e pode bloquear quem passar disso. Várias instalações do Wabotia, com
+  páginas que recarregam a cada 30 s, podem passar. Para produção com volume,
+  configure `map.tiles_url` com um servidor próprio ou um provedor contratado
+  (a escolha e o custo são decisão do responsável pela instalação) e o crédito
+  em `map.attribution`.
 - **Atualização periódica** (previsão, localização ou as duas) a cada
   `every_minutes`, no máximo `max` por entrega, **só com a janela de 24 h
   aberta**, só com posição recente e nunca depois de "chegando". A rodada que
@@ -193,13 +203,16 @@ lote). Medido em `tests/entrega.test.ts` como em [LIMITES.md](LIMITES.md):
 | Fluxo | Instruções no D1 | Escritas |
 |---|---|---|
 | Lote de posições (módulo: estado, entrega, área, gravação) | 4 | 1 |
-| Mesma chamada pela HTTP (mais a sessão do app e o estado do módulo; estimado pela leitura do código) | ~6 | 1 (mais 1 por hora: `last_used` da sessão) |
+| Mesma chamada pela HTTP (mais a sessão do app, o estado do módulo e o limite por credencial; estimado pela leitura do código) | ~7 | 2 (o lote e o contador do limite; mais 1 por hora: `last_used` da sessão) |
 | Rodada periódica com uma entrega a caminho, nada vencido | 4 | 0 |
 
-Com o padrão (lote a cada 60 s), cada entregador em rota faz cerca de 60
-escritas por hora, não uma por ponto (seriam 240). Dez entregadores
-rodando 8 horas: ~4.800 escritas por dia, bem abaixo das 100 mil diárias do
-plano gratuito. O Coordinator só é acordado quando há aviso a mandar
+O núcleo limita a telemetria a 60 chamadas por minuto por credencial, área e
+rota (`429 rate_limited`) e recusa conectores; o app manda 1 a 2 por minuto.
+
+Com o padrão (lote a cada 60 s), cada entregador em rota faz cerca de 120
+escritas por hora (o lote e o contador do limite), não duas por ponto (seriam
+480). Dez entregadores rodando 8 horas: ~9.600 escritas por dia, abaixo das
+100 mil diárias do plano gratuito. O Coordinator só é acordado quando há aviso a mandar
 (chegada, atualização vencida, sinal que voltou).
 
 Avaliado e não usado: guardar a posição no armazenamento do Durable Object

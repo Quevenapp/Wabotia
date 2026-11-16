@@ -4,6 +4,7 @@
 // minuto. Uso em docs/ENTREGA.md.
 import { requireValue } from "../../types";
 import { routeProviderIds } from "./geo";
+import { validTileUrl } from "../../web-track";
 
 export const UPDATE_MODES = [
   "eta",
@@ -48,6 +49,12 @@ export interface EntregaConfig {
   ask_location: boolean;
   /** Validade do link de acompanhamento (horas). */
   link_hours: number;
+  /**
+   * Blocos do mapa da página: vazio usa o OpenStreetMap público (uso leve,
+   * política da OSM). Provedor próprio ou contratado: endereço HTTPS com
+   * {z}, {x} e {y} e o crédito que ele exige.
+   */
+  map: { tiles_url: string; attribution: string };
   /** Raio do aviso "chegando" (metros). */
   arriving_radius_m: number;
   notices: { started: boolean; arriving: boolean; delivered: boolean };
@@ -89,6 +96,7 @@ export const DEFAULT_CONFIG: EntregaConfig = {
   tracking_link: true,
   ask_location: true,
   link_hours: 4,
+  map: { tiles_url: "", attribution: "" },
   arriving_radius_m: 500,
   notices: { started: true, arriving: true, delivered: true },
   outside_window: "milestones",
@@ -198,6 +206,32 @@ function normalize(raw: unknown, strict: boolean): EntregaConfig {
     near_upload_seconds: int(app.near_upload_seconds, d.app.near_upload_seconds, 15, 300, "Envio perto do destino (s)", strict),
     stale_minutes: int(app.stale_minutes, d.app.stale_minutes, 2, 30, "Minutos sem posição até avisar a equipe", strict),
   };
+  const map = obj(v.map);
+  let tilesUrl = "",
+    attribution = "";
+  if (map.tiles_url !== undefined && map.tiles_url !== null && map.tiles_url !== "") {
+    if (strict)
+      requireValue(
+        validTileUrl(map.tiles_url),
+        "Blocos do mapa: endereço HTTPS com {z}, {x} e {y}, até 300 caracteres.",
+      );
+    if (validTileUrl(map.tiles_url)) tilesUrl = map.tiles_url;
+  }
+  if (map.attribution !== undefined && map.attribution !== null) {
+    if (strict)
+      requireValue(
+        typeof map.attribution === "string" &&
+          Array.from(map.attribution.trim()).length <= 200,
+        "Crédito do mapa: até 200 caracteres.",
+      );
+    if (typeof map.attribution === "string")
+      attribution = map.attribution.trim().slice(0, 200);
+  }
+  if (strict)
+    requireValue(
+      !tilesUrl || attribution,
+      "Informe o crédito exigido pelo provedor do mapa (map.attribution).",
+    );
   if (strict)
     requireValue(
       appCfg.sample_seconds <= appCfg.upload_seconds,
@@ -225,6 +259,7 @@ function normalize(raw: unknown, strict: boolean): EntregaConfig {
     tracking_link: bool(v.tracking_link, d.tracking_link, "Link de acompanhamento", strict),
     ask_location: bool(v.ask_location, d.ask_location, "Pedir a localização ao cliente", strict),
     link_hours: int(v.link_hours, d.link_hours, 1, 24, "Validade do link (h)", strict),
+    map: { tiles_url: tilesUrl, attribution },
     arriving_radius_m: int(v.arriving_radius_m, d.arriving_radius_m, 100, 5000, "Raio do aviso de chegada (m)", strict),
     notices: {
       started: bool(notices.started, d.notices.started, "Aviso de saída", strict),
