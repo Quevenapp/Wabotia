@@ -276,7 +276,7 @@
    },
    "erp_catalog.contact_require_visible": {
     "name": "contactRequireVisible",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_required_field": {
     "name": "contactRequiredField",
@@ -320,7 +320,7 @@
    },
    "erp_catalog.contact_visible_to": {
     "name": "contactVisibleTo",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_warnings": {
     "name": "contactWarnings",
