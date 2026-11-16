@@ -27,8 +27,6 @@ export const compositionDto = (..._args: unknown[]): never => notPorted("erp_sto
 export const compositionLines = (..._args: unknown[]): never => notPorted("erp_stock.composition_lines");
 /** erp_stock.composition_own_stock(p_product uuid) → boolean */
 export const compositionOwnStock = (..._args: unknown[]): never => notPorted("erp_stock.composition_own_stock");
-/** erp_stock.composition_settings() → jsonb */
-export const compositionSettings = (..._args: unknown[]): never => notPorted("erp_stock.composition_settings");
 /** erp_stock.composition_totals(p_product uuid, p_items jsonb) → jsonb */
 export const compositionTotals = (..._args: unknown[]): never => notPorted("erp_stock.composition_totals");
 /** erp_stock.cost_visible(p_actor uuid) → boolean */
@@ -141,10 +139,6 @@ export const post = (..._args: unknown[]): never => notPorted("erp_stock.post");
 export const postDocumentLots = (..._args: unknown[]): never => notPorted("erp_stock.post_document_lots");
 /** erp_stock.post_physical_025(p_user_id uuid, p_command_id uuid, p_kind text, p_occurred_on date, p_reason text, p_reference text, p_items jsonb, p_reverses_id uuid) → jsonb */
 export const postPhysical025 = (..._args: unknown[]): never => notPorted("erp_stock.post_physical_025");
-/** erp_stock.protect_default_warehouse() → trigger */
-export const protectDefaultWarehouse = (..._args: unknown[]): never => notPorted("erp_stock.protect_default_warehouse");
-/** erp_stock.protect_product_unit() → trigger */
-export const protectProductUnit = (..._args: unknown[]): never => notPorted("erp_stock.protect_product_unit");
 /** erp_stock.reservation_write_access(p_actor uuid) → void */
 export const reservationWriteAccess = (..._args: unknown[]): never => notPorted("erp_stock.reservation_write_access");
 /** erp_stock.reserve_statuses() → text[] */

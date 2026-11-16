@@ -212,7 +212,7 @@
    },
    "erp_catalog.allowed": {
     "name": "allowed",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.can_read_stock": {
     "name": "canReadStock",
@@ -252,7 +252,7 @@
    },
    "erp_catalog.contact_date": {
     "name": "contactDate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_dto": {
     "name": "contactDto",
@@ -260,7 +260,7 @@
    },
    "erp_catalog.contact_email_list": {
     "name": "contactEmailList",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_field_person_type": {
     "name": "contactFieldPersonType",
@@ -308,7 +308,7 @@
    },
    "erp_catalog.contact_text": {
     "name": "contactText",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_type_slugs": {
     "name": "contactTypeSlugs",
@@ -316,7 +316,7 @@
    },
    "erp_catalog.contact_uf": {
     "name": "contactUf",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_visible_to": {
     "name": "contactVisibleTo",
@@ -356,7 +356,7 @@
    },
    "erp_catalog.detail_uuid": {
     "name": "detailUuid",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.document_issue": {
     "name": "documentIssue",
@@ -372,7 +372,7 @@
    },
    "erp_catalog.employee_admin": {
     "name": "employeeAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.fold": {
     "name": "fold",
@@ -396,7 +396,7 @@
    },
    "erp_catalog.matches": {
     "name": "matches",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.mutate": {
     "name": "mutate",
@@ -432,7 +432,7 @@
    },
    "erp_catalog.payment_condition_valid": {
     "name": "paymentConditionValid",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_cost_at": {
     "name": "productCostAt",
@@ -476,15 +476,15 @@
    },
    "erp_catalog.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.search_terms": {
     "name": "searchTerms",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.seller_access_allowed": {
     "name": "sellerAccessAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.unit_price": {
     "name": "unitPrice",
@@ -496,11 +496,11 @@
    },
    "erp_catalog.valid_cnpj": {
     "name": "validCnpj",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.valid_cpf": {
     "name": "validCpf",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.validate_data": {
     "name": "validateData",
@@ -3407,7 +3407,7 @@
    },
    "erp_stock.composition_settings": {
     "name": "compositionSettings",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_totals": {
     "name": "compositionTotals",
@@ -3639,11 +3639,11 @@
    },
    "erp_stock.protect_default_warehouse": {
     "name": "protectDefaultWarehouse",
-    "ported": false
+    "ported": true
    },
    "erp_stock.protect_product_unit": {
     "name": "protectProductUnit",
-    "ported": false
+    "ported": true
    },
    "erp_stock.require_access": {
     "name": "requireAccess",
