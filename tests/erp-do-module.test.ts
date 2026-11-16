@@ -59,4 +59,33 @@ describe("ERP como módulo da área", () => {
     expect((await get("/v1/plataforma/referencias/cnae?q=4744")).status).toBe(409);
     expect(await erpExists(f.profile)).toBe(true);
   }, 120_000);
+
+  it("opcional desligado responde 409 antes do objeto; rota do Origin responde 404", async () => {
+    const f = await fixture();
+    const token = await bearer(f.admin);
+    const get = (path: string) =>
+      SELF.fetch(`https://test/api/v1/profiles/${f.profile}/erp${path}`, { headers: { Authorization: "Bearer " + token } });
+    await setModule(f.profile, "erp", true, f.admin.id);
+    for (const [path, module] of [
+      ["/v1/notas-fiscais", "erp-fiscal"],
+      ["/v1/estoque/checkin", "erp-fiscal"],
+      ["/v1/financeiro/remessas", "erp-cobranca"],
+      ["/v1/frente-caixa/contexto", "erp-pdv"],
+    ]) {
+      const r = await get(path);
+      expect(r.status, path).toBe(409);
+      expect((await r.json<any>()).error.code).toBe("module_disabled");
+      // O opcional ligado passa do portão (a resposta vem da erp-api).
+      await setModule(f.profile, module, true, f.admin.id);
+      expect((await get(path)).status, path).not.toBe(409);
+      await setModule(f.profile, module, false, f.admin.id);
+    }
+    const origin = await get("/v1/preparacao-virada");
+    expect(origin.status).toBe(404);
+    expect((await origin.json<any>()).error.code).toBe("erp_route_removed");
+    // Opcional ligado com o erp desligado conta como desligado (requires).
+    await setModule(f.profile, "erp-fiscal", true, f.admin.id);
+    await setModule(f.profile, "erp", false, f.admin.id);
+    expect((await get("/v1/notas-fiscais")).status).toBe(409);
+  }, 120_000);
 });

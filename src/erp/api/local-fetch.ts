@@ -9,6 +9,7 @@
 import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
 import { requireModule } from "../../modules/registry";
+import { erpBlockOf } from "../blocks.ts";
 import { erpFetch } from "../hub.ts";
 
 let erpApiModule: Promise<any> | null = null;
@@ -82,6 +83,13 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const url = new URL(request.url);
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
   const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
+  // Portão dos blocos (src/erp/blocks.ts): opcional desligado → 409 antes do
+  // objeto; o que saiu da instalação principal (Origin, MCP, autoatualização
+  // do Fagoo) → 404. O módulo `erp` em si já passou pelo portão comum.
+  const block = erpBlockOf(path);
+  if (block === "externo")
+    throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
+  if (block !== "erp") await requireModule(env, profile, block);
   const headers = new Headers({ Authorization: "Bearer wabotia-session" });
   const type = request.headers.get("Content-Type");
   if (type) headers.set("Content-Type", type);
