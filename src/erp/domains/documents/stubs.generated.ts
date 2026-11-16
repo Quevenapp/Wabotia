@@ -157,8 +157,6 @@ export const transitionAction = (..._args: unknown[]): never => notPorted("erp_d
 export const transitionCommand = (..._args: unknown[]): never => notPorted("erp_documents.transition_command");
 /** erp_documents.transition_reason_required(p_kind text, p_from text, p_to text) → boolean */
 export const transitionReasonRequired = (..._args: unknown[]): never => notPorted("erp_documents.transition_reason_required");
-/** erp_documents.transitions() → jsonb */
-export const transitions = (..._args: unknown[]): never => notPorted("erp_documents.transitions");
 /** erp_documents.uuid_value(p_value jsonb, p_required boolean) → uuid */
 export const uuidValue = (..._args: unknown[]): never => notPorted("erp_documents.uuid_value");
 /** public.erp_document_save(p_user_id uuid, p_kind text, p_id uuid, p_expected_version integer, p_command_id uuid, p_body jsonb) → jsonb */
