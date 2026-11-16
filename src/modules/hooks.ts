@@ -56,6 +56,19 @@ export function registerWebStepPage(
 }
 export const webStepPageHook = (module: string) => webStepPages.get(module);
 
+/**
+ * QR do módulo lido pelo app (credencial por QR, src/module-credentials.ts):
+ * (env, profile, credential) → dados da resposta ao app; lançar recusa.
+ */
+const credentialHooks = new Map<string, Hook>();
+export function registerCredentialHook(
+  module: string,
+  hook: (env: any, profile: string, credential: any) => Promise<any>,
+) {
+  credentialHooks.set(module, hook);
+}
+export const credentialHook = (module: string) => credentialHooks.get(module);
+
 /** Item de menu do WhatsApp escolhido: (env, conversation, item, rowId). */
 export function registerMenuHandler(
   type: string,

@@ -26,6 +26,11 @@ export interface Actor {
   expiresAt?: number;
   rate: number;
   runLimit: number;
+  /**
+   * Credencial de módulo trocada por QR (src/module-credentials.ts): só as
+   * rotas do módulo, só o registro `subject` (a entrega). Sem escopos.
+   */
+  credential?: { id: string; module: string; subject: string };
 }
 export type Bindings = {
   Bindings: Env;

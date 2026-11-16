@@ -120,6 +120,7 @@ import {
   whatsappReturnLink,
 } from "./web-steps";
 import { trackPage } from "./web-track";
+import { claimOwner } from "./module-credentials";
 import { moduleRoutes, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
@@ -285,6 +286,45 @@ app.get("/api/public/queue/:token", async (c) => {
   );
   if (owner) await requireModule(c.env, owner.profile_id, "queue");
   return c.json(await publicTicket(c.env, c.req.param("token")));
+});
+// Credencial por QR (src/module-credentials.ts): o app sem login troca o
+// código do QR por um token que só alcança as rotas do módulo. Uso único,
+// limite por IP; a leitura e o gancho do módulo rodam no Coordinator da área.
+app.post(
+  "/api/credentials/claim",
+  bodyLimit({ maxSize: 4 * 1024 }),
+  async (c) => {
+    const ip = c.req.header("CF-Connecting-IP") || "local";
+    await rate(c.env, "credential-claim:" + (await sha(ip)), 10, 600000);
+    const body = await c.req.json<any>().catch(() => ({}));
+    const code = String(body?.code ?? "").replace(/^.*\/c\//, "");
+    const owner = await claimOwner(c.env, code);
+    if (!owner) throw new ApiError(404, "claim_not_found", "QR inválido.");
+    return c.env.COORDINATOR.get(
+      c.env.COORDINATOR.idFromName(owner.profile_id),
+    ).fetch("https://coordinator/credential-claim", {
+      method: "POST",
+      body: JSON.stringify({
+        profile: owner.profile_id,
+        code,
+        name: body?.name,
+        device: body?.device,
+        ip,
+      }),
+    });
+  },
+);
+// O QR aberto pela câmera do celular, fora do app: só orienta, nunca lê
+// (prévias de link não gastam o QR).
+app.get("/c/:code", async (c) => {
+  await webStepRate(c);
+  return webStepHtml(
+    c,
+    statePage("not_found", appName(c.env), {
+      title: "Abra no app Wabotia",
+      text: "Este QR é de uma entrega. Abra o app Wabotia, toque em Escanear pedido e aponte para o QR.",
+    }),
+  );
 });
 // Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
@@ -823,6 +863,21 @@ app.use("/api/v1/*", async (c, next) => {
   const internal = takeInternalActor(c.req.raw);
   const actor = internal || (await authenticate(c.env, c.req.raw));
   c.set("actor", actor);
+  // Credencial por QR: só as rotas do módulo dela, na área dela.
+  if (actor.credential) {
+    const [, , , segment, profile, route] = c.req.path.split("/");
+    const owner = route ? moduleForRoute(route) : null;
+    if (
+      segment !== "profiles" ||
+      profile !== actor.profiles[0] ||
+      owner?.id !== actor.credential.module
+    )
+      throw new ApiError(
+        403,
+        "credential_scope",
+        "Este acesso vale só para a entrega do QR.",
+      );
+  }
   // Endereço público visto por quem usa o painel e os aplicativos: o passo
   // web monta com ele os links enviados ao cliente (src/web-steps.ts). Chaves
   // de integração podem chamar por outro domínio e não contam.

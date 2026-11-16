@@ -6,6 +6,7 @@ import {
   moduleRoutes,
   registerCommand,
   registerConversationAction,
+  registerCredentialHook,
   registerHandoffGate,
   registerInboundHandler,
   registerMenuHandler,
@@ -35,6 +36,12 @@ import {
 import { isBound } from "../visibility";
 import { access, canProfile } from "../security";
 import { grantId, savedGrants } from "../module-grants";
+import {
+  credentialsFor,
+  issueClaim,
+  revokeCredentials as revokeModuleCredentials,
+  type CredentialView,
+} from "../module-credentials";
 import { activeTicketSql } from "../protocols";
 import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
@@ -350,6 +357,21 @@ export interface ModuleContext {
   granted(actor: Actor, role: string): Promise<boolean>;
   /** Pessoas ativas da área com o papel, em ordem de nome. */
   grantees(role: string): Promise<{ id: string; name: string }[]>;
+  /**
+   * QR de acesso sem login a um registro do módulo (`subject`): devolve
+   * `{id, url, claim_expires_at}`; o QR leva `url`. O app troca uma vez só
+   * por uma credencial que alcança só as rotas deste módulo, com
+   * `actor.credential.subject`. Um QR novo revoga o anterior e a credencial
+   * ativa do mesmo registro (docs/MODULOS.md, "Credencial por QR").
+   */
+  issueCredential(
+    subject: string,
+    options: { actor: string; claimMinutes: number; ttlMinutes: number },
+  ): Promise<{ id: string; url: string; claim_expires_at: number }>;
+  /** Revoga o QR e a credencial do registro: o app recebe 401. */
+  revokeCredentials(subject: string, reason: string): Promise<number>;
+  /** QRs e credenciais do registro (quem leu, quando), sem segredo. */
+  credentials(subject: string): Promise<CredentialView[]>;
 }
 
 /** Caminho de rota de módulo ("pedido/orders/:id") contra um caminho real. */
@@ -808,6 +830,18 @@ export function modulesApi(
         throw new Error(`run: ${op} não é comando de outro módulo.`);
       return perform(env, actor, profile, op, data, requestId);
     },
+    issueCredential: (subject, o) =>
+      issueClaim(env, {
+        profile,
+        module: moduleId,
+        subject,
+        actor: o.actor,
+        claimMinutes: o.claimMinutes,
+        ttlMinutes: o.ttlMinutes,
+      }),
+    revokeCredentials: (subject, reason) =>
+      revokeModuleCredentials(env, profile, moduleId, subject, reason),
+    credentials: (subject) => credentialsFor(env, profile, moduleId, subject),
     async wake() {
       const response = await env.COORDINATOR.get(
         env.COORDINATOR.idFromName(profile),
@@ -1039,6 +1073,27 @@ export function onWebStepPage(
   );
 }
 export type { TrackView } from "../web-track";
+
+/**
+ * O app leu o QR do módulo (ctx.issueCredential). Roda no Coordinator da
+ * área, depois de gravar a leitura: confira se o registro ainda aceita
+ * (lance ApiError para recusar; a leitura é desfeita e o QR segue valendo) e
+ * devolva o que o app precisa. `credential`: `{id, subject, label (nome
+ * digitado no app), device, claimed_at, expires}`; o ator dele nas rotas é
+ * `cred:<id>`.
+ */
+export function onCredentialClaim(
+  moduleId: string,
+  handler: (ctx: ModuleContext, credential: any) => Promise<any>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerCredentialHook(moduleId, async (env, profile, credential) => {
+    const ctx = modulesApi(env, profile, moduleId);
+    await ctx.requireEnabled();
+    return handler(ctx, credential);
+  });
+}
 
 /**
  * onRead, onCommand e onConversationAction que passam toda resposta por

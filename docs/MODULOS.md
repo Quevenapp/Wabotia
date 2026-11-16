@@ -143,6 +143,7 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
 | `read(actor, path, query?)` | Lê uma rota GET de outro módulo em nome do ator, como `GET /profiles/:profile/<path>` (mesma permissão, 409 `module_disabled`, campos ocultos). Usar a API pública de um módulo sem `requires` nem `public.ts`: a Entrega lê `pedido/orders/:id` assim. Chave presa à conversa (`conversations:bound`): `403 bound_key` |
 | `run(actor, op, data, requestId)` | Executa um comando público de outro módulo (`pedido.status`) em nome do ator, dentro do comando ou da rodada em andamento no Coordinator; sem recibo próprio. Só comandos de outro módulo. Recusado no contexto criado no Worker (`onTelemetry`, `onWebStepPage`), que está fora da fila serializada da área, e para chave presa (`403 bound_key`) |
+| `issueCredential(subject, {actor, claimMinutes, ttlMinutes})` / `revokeCredentials(subject, reason)` / `credentials(subject)` | QR de acesso sem login a um registro do módulo; veja "Credencial por QR" na seção 3 |
 | `wake()` | Acorda o Coordinator da área (alarme em seguida; a rodada dos módulos no máximo uma vez por minuto). Para rotas de telemetria que gravaram algo a avisar |
 
 Ganchos registrados no carregamento do arquivo do módulo:
@@ -163,6 +164,7 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
 | `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`), `"flow_reply"` sem passo web correspondente (`content.flow_reply`) ou `"location"` (localização, `content.location {latitude, longitude, name, address}`; sem módulo que trate, segue o caminho de sempre). Roda antes do menu e do bot; devolva `true` quando tratou |
 | `onTelemetry(module, path, handler)` | `POST /profiles/:profile/<path>` **fora do Coordinator**, sem `Idempotency-Key`, recibo nem auditoria (corpo até 64 KB): só para dados idempotentes por natureza, como posições com horário. `handler(ctx, actor, {params, body})`; o núcleo já conferiu a área e o módulo ligado, recusa conectores (403) e limita a 60 chamadas por minuto por credencial, área e rota (`429 rate_limited`); a permissão fica com o módulo. Poupa as 4 instruções do recibo por chamada. O contexto não executa `ctx.run`. Para mandar mensagens, `ctx.wake()` e a rodada do módulo |
+| `onCredentialClaim(module, handler)` | O app leu o QR do módulo (`ctx.issueCredential`): `handler(ctx, credential)` no Coordinator, depois de gravar a leitura; lance `ApiError` para recusar (a leitura é desfeita) ou devolva os dados da resposta ao app. Veja "Credencial por QR" |
 | `onWebStepPage(module, handler)` | Página de acompanhamento: passo web com `spec.page: "track"` (sem campos, nunca conclui). A cada abertura o núcleo chama `handler(ctx, step)` e monta a página sem script com o `TrackView` devolvido (`title`, `status_label`, `headline`, `lines`, `notice`, `map {courier, destination}`, `tiles {url, attribution}`, `refresh_seconds`; `src/web-track.ts`), mapa em blocos do OpenStreetMap público ou do provedor em `tiles` (HTTPS com `{z}`, `{x}`, `{y}`). `null` ou erro no gancho (registrado no log): "Acompanhamento encerrado" (410). O contexto não executa `ctx.run` |
 | `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
 
@@ -496,6 +498,52 @@ Regras do núcleo:
   - `GET /profiles/{p}/people` traz `grants` em cada pessoa e aceita
     `?grant=entrega:courier` para listar só quem tem o papel (`400` se o papel
     não existir ou o módulo estiver desligado).
+
+### Credencial por QR (acesso sem login a um registro)
+
+Para quem trabalha num registro do módulo sem ser da equipe (o entregador
+avulso da Entrega): a equipe gera um QR, o app lê **fora do login** e recebe
+um token que só alcança aquele registro. Núcleo em
+`src/module-credentials.ts` (migração `0076_module_credentials`).
+
+```ts
+// Equipe gera (num comando): revoga o QR e a credencial anteriores do registro.
+const qr = await ctx.issueCredential(entrega.id, {
+  actor: actor.id, claimMinutes: 180, ttlMinutes: 8 * 60,
+}); // {id, url: "<origem>/c/<código>", claim_expires_at}
+
+// O app leu o QR (roda no Coordinator, depois de gravar a leitura):
+onCredentialClaim("entrega", async (ctx, credential) => {
+  // credential: {id, subject, label (nome digitado), device, claimed_at, expires}
+  // Lance ApiError para recusar: a leitura é desfeita e o QR segue valendo.
+  return { delivery: … }; // vai em `data` na resposta ao app
+});
+
+// Nas rotas do módulo: ator `cred:<id>`, kind "app", sem escopos.
+if (actor.credential?.subject !== entrega.id) throw new ApiError(403, …);
+
+// Fim do registro: o app recebe 401 na próxima chamada.
+await ctx.revokeCredentials(entrega.id, "Entrega concluída.");
+await ctx.credentials(entrega.id); // quem leu, quando, de que aparelho
+```
+
+- **Troca:** `POST /api/credentials/claim` `{code, name, device}`, fora de
+  `/api/v1`, sem autenticação, 10 por IP a cada 10 minutos, uso único
+  (`410 claim_used`, `410 claim_expired`, `404 claim_not_found`). Responde
+  `{token: "wabx_…", expires_at, profile, module, subject, credential_id,
+  data}`. `GET /c/<código>` (câmera comum) só orienta e não gasta o QR.
+- **Escopo:** o middleware de `/api/v1` recusa (`403 credential_scope`)
+  qualquer caminho fora de `/api/v1/profiles/<área>/<rota do módulo>/…`. O
+  ator não tem escopos (`ctx.access` recusa), `ctx.granted` é falso e
+  `ctx.mayRead` é falso: **o módulo confere `actor.credential.subject` em cada
+  rota** e decide a visão (a Entrega devolve só o necessário para entregar).
+- **Prazo:** o QR vale `claimMinutes` até ser lido; o token, `ttlMinutes`
+  depois da leitura, e é revogado antes pelo módulo. Só os hashes do código e
+  do token ficam guardados, com o nome digitado, o aparelho e o hash do IP.
+- **Para revisar (sessão A):** o tipo `Actor.credential`, o caminho
+  `wabx_` em `authenticate`, o filtro no middleware de `/api/v1`, a rota
+  pública de troca, o caminho `/credential-claim` do Coordinator e a tabela
+  `module_credentials` (faixa 0076 da Entrega).
 
 ## 4. Passo web
 

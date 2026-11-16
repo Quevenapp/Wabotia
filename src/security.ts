@@ -1,6 +1,7 @@
 import { scryptSync, timingSafeEqual } from "node:crypto";
 import { one, exec } from "./db";
 import { ApiError, type Env, type Actor, uid, now, json } from "./types";
+import { CREDENTIAL_PREFIX, credentialActor } from "./module-credentials";
 const enc = new TextEncoder();
 export const hex = (b: ArrayBuffer | Uint8Array) =>
   Array.from(new Uint8Array(b))
@@ -184,6 +185,17 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
         hash,
       );
     return userActor(row);
+  }
+  if (bearer && bearer.startsWith(CREDENTIAL_PREFIX)) {
+    // Credencial de módulo trocada por QR (src/module-credentials.ts).
+    const actor = await credentialActor(env, bearer);
+    if (!actor)
+      throw new ApiError(
+        401,
+        "invalid_token",
+        "Acesso encerrado. Escaneie um QR novo.",
+      );
+    return actor;
   }
   if (bearer) {
     const row = await one(
