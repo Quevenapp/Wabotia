@@ -43,11 +43,17 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 15     |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
+| Entrega: lote de posições (1 escrita, sem recibo)        | Worker (telemetria)      | —     | 4³     |
+| Entrega: rodada com uma entrega a caminho, nada vencido  | alarme (parte da rodada) | —     | 4      |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
 
 ² 25 com o cache; mais 3 da entrega durável do gancho do módulo (fila de
 pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
+
+³ Só o módulo (`tests/entrega.test.ts`); a requisição soma a sessão do app e o
+estado do módulo. Um lote a cada minuto por entregador em rota, não uma
+escrita por ponto; detalhes em [ENTREGA.md](ENTREGA.md#limites-do-cloudflare).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
 gravação do recibo de idempotência, auditoria e fechamento do recibo).
