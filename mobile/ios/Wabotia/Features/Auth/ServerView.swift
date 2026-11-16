@@ -70,6 +70,7 @@ struct ServerView: View {
 
     var body: some View {
         AuthScaffold(title: "Wabotia", subtitle: "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
+            if let notice = container.startNotice { DeviceNotice(text: notice, color: Theme.brand) }
             AuthField(label: "Endereço do seu servidor", error: error != nil) {
                 Text("https://").foregroundStyle(Theme.textSecondary)
                 TextField("wabotia.suaempresa.com.br", text: $input)
@@ -94,6 +95,20 @@ struct ServerView: View {
                     .frame(maxWidth: .infinity, minHeight: Theme.touch)
             }
             .accessibilityIdentifier("server.deviceDemo")
+            OrDivider().padding(.top, 4)
+            SecondaryButton(title: "Escanear pedido (entregador)", icon: "qrcode.viewfinder", disabled: busy) {
+                focused = false
+                container.openCourierMode()
+            }
+            .accessibilityIdentifier("server.courier")
+            Text("Vai entregar um pedido? Escaneie o QR da comanda: sem conta e sem senha, só enquanto a entrega durar.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Button { if !busy { focused = false; container.openCourierMode(demo: true) } } label: {
+                Label("Ver o modo entregador (demonstração)", systemImage: "bicycle")
+                    .font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand)
+                    .frame(maxWidth: .infinity, minHeight: Theme.touch)
+            }
+            .accessibilityIdentifier("server.courierDemo")
             Button("Política de privacidade") { openURL(AppLinks.privacyPolicy) }
                 .font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
                 .frame(maxWidth: .infinity, minHeight: Theme.touch)

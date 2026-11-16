@@ -26,6 +26,10 @@ final class AppContainer: ObservableObject {
     @Published var deviceLaunch: DeviceLaunch?
     /// Na tela depois do servidor, a pessoa escolheu "Entrar" (e não o modo aparelho).
     @Published var loginChosen = false
+    /// Modo entregador aberto (sem login): ocupa o app inteiro, como o modo aparelho.
+    @Published var courierLaunch: CourierLaunch?
+    /// Aviso para a primeira tela (o fim da última entrega, por exemplo).
+    @Published var startNotice: String?
 
     private var client: APIClient?
 
@@ -64,6 +68,14 @@ final class AppContainer: ObservableObject {
         if !debugLaunch, KeychainDeviceConfigStore().load() != nil {
             deviceLaunch = DeviceLaunch(demo: false, serverURL: nil)
         }
+        // Entrega aberta neste aparelho: o entregador volta direto para ela.
+        if !debugLaunch, deviceLaunch == nil, !KeychainCourierGrantStore().load().isEmpty {
+            courierLaunch = CourierLaunch(demo: false)
+        }
+        #if DEBUG
+        // WABOTIA_DEMO=courier: o modo entregador da demonstração (WABOTIA_DEMO_ACTION=scan|two|route|chat|deliver).
+        if DemoMode.launchScreen == "courier" { courierLaunch = CourierLaunch(demo: true) }
+        #endif
         #if DEBUG
         // WABOTIA_DEVICE_SERVER (só depuração): o modo aparelho contra esse servidor, para parear sem tocar na tela.
         if deviceLaunch == nil, let server = DemoMode.deviceServer {
@@ -105,6 +117,18 @@ final class AppContainer: ObservableObject {
 
     func closeDeviceMode() {
         deviceLaunch = nil
+    }
+
+    /// "Escanear pedido": o modo entregador, sem login (o servidor vem no QR).
+    func openCourierMode(demo: Bool = false) {
+        startNotice = nil
+        courierLaunch = CourierLaunch(demo: demo)
+    }
+
+    /// A última entrega saiu do aparelho (ou o entregador saiu): volta à primeira tela, com o aviso.
+    func closeCourierMode(notice: String?) {
+        courierLaunch = nil
+        startNotice = notice
     }
 
     /// Sessão atual é a demonstração (servidor fictício em memória).

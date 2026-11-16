@@ -43,6 +43,16 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > o Acesso Guiado (**Travar na tela**); num iPad supervisionado cujo perfil MDM libera o app, ele inicia o Modo de App
 > Único por `UIAccessibility.requestGuidedAccessSession`, e nos demais aparelhos nada acontece.
 >
+> **Modo entregador.** Na primeira tela, **Ver o modo entregador (demonstração)** abre o que o entregador vê depois de
+> escanear o QR de um pedido, sem conta: toque em **Ler o pedido de demonstração** (leia mais de um para ver várias
+> entregas), abra a entrega, toque em **Iniciar rota** e leia o aviso de compartilhamento da localização antes de
+> **Continuar**. A tela mostra o destino no mapa, **Abrir rota no Mapas**, a previsão de chegada, **Falar com a loja** e
+> **Falar com o cliente** (as respostas fictícias chegam sozinhas) e **Entreguei**, que encerra o acesso àquela entrega;
+> sem nenhuma entrega aberta, o app volta à primeira tela. A localização usa só a permissão **Durante o uso do app**
+> (sem segundo plano, sem "Sempre"), é compartilhada só com o estabelecimento e o cliente daquele pedido, só depois de
+> **Iniciar rota** e até a entrega terminar. Na demonstração a posição é simulada: o app não lê o GPS nem pede a
+> permissão.
+>
 > Bluetooth e rede local são pedidos só quando a pessoa procura uma impressora térmica para o cupom.
 
 ## English
@@ -87,5 +97,16 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > returns to the first screen. To keep visitors inside the app, the settings explain how to turn on Guided Access
 > (**Travar na tela**); on a supervised iPad whose MDM profile allows the app, it starts Single App Mode with
 > `UIAccessibility.requestGuidedAccessSession`, and on other devices nothing happens.
+>
+> **Courier mode.** On the first screen, **Ver o modo entregador (demonstração)** opens what a courier sees after
+> scanning an order's QR code, with no account: tap **Ler o pedido de demonstração** (read more than one to see several
+> deliveries at once), open the delivery, tap **Iniciar rota** (start route) and read the location-sharing notice before
+> **Continuar**. The screen shows the destination on a map, **Abrir rota no Mapas** (directions in Maps), the estimated
+> arrival, **Falar com a loja** and **Falar com o cliente** (chat with the store and the customer; fictitious replies
+> arrive by themselves) and **Entreguei** (delivered), which ends access to that delivery; with no open delivery left,
+> the app returns to the first screen. Location uses only the **While Using the App** permission (no background
+> location, never "Always"), is shared only with the business and the customer of that order, only after **Iniciar
+> rota** and until the delivery ends. In the demo the position is simulated: the app neither reads GPS nor asks for
+> the permission.
 >
 > Bluetooth and local network access are requested only when the user searches for a thermal receipt printer.

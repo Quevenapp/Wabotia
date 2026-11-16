@@ -54,10 +54,10 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIBackgroundModes: [remote-notification]
         NSMicrophoneUsageDescription: "O microfone é usado para gravar mensagens de voz."
-        NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente."
+        NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente e, no modo entregador, para ler o QR do pedido."
         NSPhotoLibraryUsageDescription: "A galeria é usada para escolher fotos e vídeos para enviar ao cliente."
         NSPhotoLibraryAddUsageDescription: "A galeria é usada para salvar fotos e vídeos recebidos quando você escolhe salvar."
-        NSLocationWhenInUseUsageDescription: "A localização é usada apenas quando você escolhe compartilhá-la com o cliente."
+        NSLocationWhenInUseUsageDescription: "A localização é usada quando você escolhe compartilhá-la com o cliente numa conversa e, no modo entregador, só durante a entrega que você iniciou: ela é compartilhada com o estabelecimento e com o cliente do pedido, para mostrar a previsão de chegada, e apagada em até 24 horas."
         NSContactsUsageDescription: "Os contatos são usados apenas quando você escolhe compartilhar um cartão de contato ou salvar um contato recebido."
         NSBluetoothAlwaysUsageDescription: "O Bluetooth é usado para imprimir o cupom da senha numa impressora térmica, quando este aparelho é um totem."
         NSLocalNetworkUsageDescription: "A rede local é usada para encontrar e usar a impressora térmica Wi-Fi que imprime o cupom da senha no totem."

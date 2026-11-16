@@ -9,6 +9,9 @@ struct RootView: View {
             if let launch = container.deviceLaunch {
                 DeviceModeView(launch: launch) { container.closeDeviceMode() }
                     .id(launch.id)
+            } else if let launch = container.courierLaunch {
+                CourierModeView(launch: launch) { container.closeCourierMode(notice: $0) }
+                    .id(launch.id)
             } else if container.session.serverURL == nil {
                 ServerView()
             } else if !container.isLoggedIn {

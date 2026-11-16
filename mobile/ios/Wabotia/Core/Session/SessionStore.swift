@@ -103,7 +103,8 @@ final class SessionStore {
     /// pareado. Numa atualização (preferências já existem), só grava a marca e a origem do token que veio de versões
     /// que não a guardavam.
     static func resetKeychainAfterReinstall(defaults: UserDefaults = .standard, domain: String? = Bundle.main.bundleIdentifier,
-                                            services: [String] = [sessionService, KeychainDeviceConfigStore.productionService]) {
+                                            services: [String] = [sessionService, KeychainDeviceConfigStore.productionService,
+                                                                  KeychainCourierGrantStore.productionService]) {
         guard !defaults.bool(forKey: Keys.installMarker) else { return }
         let existing = domain.flatMap { defaults.persistentDomain(forName: $0) } ?? [:]
         if existing.isEmpty {
