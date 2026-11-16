@@ -502,12 +502,14 @@ for (const s of statements) {
   }
 }
 
-// Semeadura: dados de referência das migrações (lidos do oráculo).
+// Semeadura: dados de referência das migrações (lidos do oráculo), com as
+// colunas normalizadas (__fold) e calculadas preenchidas como a escrita do
+// motor as grava (tests/erp/seed-normalized.test.mjs confere).
 const { oracleDb } = await import("./oracle-db.mjs");
 const db = await oracleDb();
 const seed = [];
 for (const [name, info] of Object.entries(columnsOut)) {
-  const rows = (await db.query(pgSelect(info))).rows;
+  const rows = (await db.query(pgSelect(info, { normalized: true }))).rows;
   if (!rows.length) continue;
   const names = Object.keys(rows[0]).filter((c) => info.columns[c]);
   seed.push({

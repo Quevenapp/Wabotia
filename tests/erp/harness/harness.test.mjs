@@ -373,11 +373,17 @@ test("item 4: semeadura com uuid aleatório alinha; desalinhada de propósito pa
     const moved = await check(`UPDATE erp_a1__installation SET vault_id='${U()}'`);
     assert.deepEqual(moved.diffs, []);
     assert.ok(moved.align.includes("erp_a1__installation"), "erp_a1__installation alinhada");
-    // A lacuna conhecida da semeadura (SEED_LEAVES_NORMALIZED_NULL): quando a
-    // semeadura passar a preencher __fold, este teste manda pôr false.
-    if (SEED_LEAVES_NORMALIZED_NULL)
-      assert.ok(fresh.gaps.includes("erp_catalog__contact_type.label__fold"), "a semeadura já preenche __fold: ponha SEED_LEAVES_NORMALIZED_NULL=false");
-    assert.notDeepEqual((await check(null, { allowNormalizedGap: false })).diffs, [], "sem a exceção, a lacuna é divergência");
+    // A semeadura preenche __fold desde a versão 6 do esquema
+    // (SEED_LEAVES_NORMALIZED_NULL=false): sem lacuna, e coluna normalizada
+    // apagada na semeadura do SQLite é divergência.
+    assert.equal(SEED_LEAVES_NORMALIZED_NULL, false);
+    assert.deepEqual(fresh.gaps, []);
+    assert.deepEqual((await check(null, { allowNormalizedGap: false })).diffs, []);
+    assert.notDeepEqual(
+      (await check(`UPDATE erp_catalog__contact_type SET label__fold=NULL WHERE slug='customer'`, { allowNormalizedGap: false })).diffs,
+      [],
+      "coluna normalizada NULL na semeadura é divergência",
+    );
 
     const tamper = async (sql) => (await check(sql)).diffs;
     assert.notDeepEqual(await tamper(`UPDATE erp_catalog__contact_type SET label='Freguês' WHERE slug='customer'`), []);
