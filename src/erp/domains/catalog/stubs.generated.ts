@@ -3,16 +3,6 @@ import { notPorted } from "../../engine/errors.ts";
 
 /** erp_catalog.acknowledged_valid(p_acknowledged jsonb) → boolean */
 export const acknowledgedValid = (..._args: unknown[]): never => notPorted("erp_catalog.acknowledged_valid");
-/** erp_catalog.can_read_stock(p_user_id uuid) → boolean */
-export const canReadStock = (..._args: unknown[]): never => notPorted("erp_catalog.can_read_stock");
-/** erp_catalog.compact(p_value text) → text */
-export const compact = (..._args: unknown[]): never => notPorted("erp_catalog.compact");
-/** erp_catalog.composition_kits(p_products uuid[]) → uuid[] */
-export const compositionKits = (..._args: unknown[]): never => notPorted("erp_catalog.composition_kits");
-/** erp_catalog.composition_sync(p_user_id uuid, p_command_id uuid, p_kits uuid[]) → integer */
-export const compositionSync = (..._args: unknown[]): never => notPorted("erp_catalog.composition_sync");
-/** erp_catalog.composition_sync_on() → boolean */
-export const compositionSyncOn = (..._args: unknown[]): never => notPorted("erp_catalog.composition_sync_on");
 /** erp_catalog.contact_apply(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb, p_audit text, p_required text[]) → jsonb */
 export const contactApply = (..._args: unknown[]): never => notPorted("erp_catalog.contact_apply");
 /** erp_catalog.contact_check_full(p_id uuid, p jsonb, p_before jsonb, p_required text[]) → void */
@@ -41,14 +31,6 @@ export const contactWarnings = (..._args: unknown[]): never => notPorted("erp_ca
 export const contactWrite = (..._args: unknown[]): never => notPorted("erp_catalog.contact_write");
 /** erp_catalog.document_issue(p_person_type text, p_document text) → text */
 export const documentIssue = (..._args: unknown[]): never => notPorted("erp_catalog.document_issue");
-/** erp_catalog.guard_deleted_product() → trigger */
-export const guardDeletedProduct = (..._args: unknown[]): never => notPorted("erp_catalog.guard_deleted_product");
-/** erp_catalog.guard_variation_parent() → trigger */
-export const guardVariationParent = (..._args: unknown[]): never => notPorted("erp_catalog.guard_variation_parent");
-/** erp_catalog.items_per_box_follow() → trigger */
-export const itemsPerBoxFollow = (..._args: unknown[]): never => notPorted("erp_catalog.items_per_box_follow");
-/** erp_catalog.mutate(p_user_id uuid, p_entity text, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_set_active boolean, p_active boolean) → jsonb */
-export const mutate = (..._args: unknown[]): never => notPorted("erp_catalog.mutate");
 /** erp_catalog.origin_contact_roles(p_payload jsonb) → jsonb */
 export const originContactRoles = (..._args: unknown[]): never => notPorted("erp_catalog.origin_contact_roles");
 /** erp_catalog.origin_count(p_value jsonb) → text */
@@ -61,11 +43,7 @@ export const originMirrorFields = (..._args: unknown[]): never => notPorted("erp
 export const originMirrorRefresh = (..._args: unknown[]): never => notPorted("erp_catalog.origin_mirror_refresh");
 /** erp_catalog.origin_text(p_value jsonb, p_max integer) → text */
 export const originText = (..._args: unknown[]): never => notPorted("erp_catalog.origin_text");
-/** erp_catalog.product_cost_at(p_product uuid, p_day date) → numeric */
-export const productCostAt = (..._args: unknown[]): never => notPorted("erp_catalog.product_cost_at");
 /** erp_catalog.warnings(p_entity text, p_id uuid, p_data jsonb) → jsonb */
 export const warnings = (..._args: unknown[]): never => notPorted("erp_catalog.warnings");
-/** erp_catalog.write_fields(p_id uuid, p_entity text, p_data jsonb) → void */
-export const writeFields = (..._args: unknown[]): never => notPorted("erp_catalog.write_fields");
 /** public.erp_catalog_contact_save(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb) → jsonb */
 export const erpCatalogContactSave = (..._args: unknown[]): never => notPorted("public.erp_catalog_contact_save");

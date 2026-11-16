@@ -31,8 +31,6 @@ export const compositionOwnStock = (..._args: unknown[]): never => notPorted("er
 export const compositionTotals = (..._args: unknown[]): never => notPorted("erp_stock.composition_totals");
 /** erp_stock.cost_visible(p_actor uuid) → boolean */
 export const costVisible = (..._args: unknown[]): never => notPorted("erp_stock.cost_visible");
-/** erp_stock.count_physical(p_product uuid, p_warehouse uuid) → numeric */
-export const countPhysical = (..._args: unknown[]): never => notPorted("erp_stock.count_physical");
 /** erp_stock.default_supplier(p_product uuid) → TABLE(supplier_id uuid, supplier_name text, code text, purchase_price numeric, cost_price numeric) */
 export const defaultSupplier = (..._args: unknown[]): never => notPorted("erp_stock.default_supplier");
 /** erp_stock.derived_command(p_command uuid, p_part text) → uuid */
@@ -97,8 +95,6 @@ export const guardReservedDocument = (..._args: unknown[]): never => notPorted("
 export const guardReservedItem = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_item");
 /** erp_stock.guard_reserved_posting() → trigger */
 export const guardReservedPosting = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_posting");
-/** erp_stock.ignored_warehouse(p_id uuid) → boolean */
-export const ignoredWarehouse = (..._args: unknown[]): never => notPorted("erp_stock.ignored_warehouse");
 /** erp_stock.invoice_posted_for_document(p_document uuid) → boolean */
 export const invoicePostedForDocument = (..._args: unknown[]): never => notPorted("erp_stock.invoice_posted_for_document");
 /** erp_stock.invoice_screen(p_model text, p_direction text) → text */
@@ -125,12 +121,8 @@ export const lotDto = (..._args: unknown[]): never => notPorted("erp_stock.lot_d
 export const lotExpiryState = (..._args: unknown[]): never => notPorted("erp_stock.lot_expiry_state");
 /** erp_stock.lot_product_problem(p_product uuid) → text */
 export const lotProductProblem = (..._args: unknown[]): never => notPorted("erp_stock.lot_product_problem");
-/** erp_stock.lot_quantity(p_lot uuid, p_warehouse uuid) → numeric */
-export const lotQuantity = (..._args: unknown[]): never => notPorted("erp_stock.lot_quantity");
 /** erp_stock.lot_settings() → jsonb */
 export const lotSettings = (..._args: unknown[]): never => notPorted("erp_stock.lot_settings");
-/** erp_stock.lots_expiring(p_from date, p_until date) → TABLE(product_id uuid, lot_id uuid, code text, expires_on date, quantity numeric) */
-export const lotsExpiring = (..._args: unknown[]): never => notPorted("erp_stock.lots_expiring");
 /** erp_stock.negative_allowed() → boolean */
 export const negativeAllowed = (..._args: unknown[]): never => notPorted("erp_stock.negative_allowed");
 /** erp_stock.post(p_user_id uuid, p_command_id uuid, p_kind text, p_occurred_on date, p_reason text, p_reference text, p_items jsonb, p_reverses_id uuid) → jsonb */

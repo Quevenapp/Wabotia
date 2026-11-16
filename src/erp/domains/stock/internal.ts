@@ -191,4 +191,19 @@ export function movementDto(db: SqlDriver, id: string) {
 }
 
 export const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+
+/**
+ * erp_stock.command_taken: o id de comando já foi usado em alguma tabela de
+ * comando do Estoque (ou dos recebimentos). O opening_command sai com o
+ * Origin, mas a tabela continua no esquema.
+ */
+const COMMAND_TABLES = [
+  "erp_stock__command", "erp_stock__document_command", "erp_stock__reservation_command", "erp_purchase_receipts__command",
+  "erp_stock__policy_command", "erp_stock__opening_command", "erp_stock__warehouse_command", "erp_stock__ledger_command",
+  "erp_stock__count_command", "erp_stock__dashboard_command", "erp_stock__checkin_command", "erp_stock__supply_command",
+  "erp_stock__composition_command", "erp_stock__lot_command", "erp_stock__invoice_command", "erp_stock__item_component_command",
+  "erp_stock__unit_conversion_command",
+];
+export const commandTaken = (db: SqlDriver, id: string) =>
+  !!one(db, COMMAND_TABLES.map((t) => `SELECT 1 x FROM "${t}" WHERE id=?`).join(" UNION ALL ") + " LIMIT 1", ...COMMAND_TABLES.map(() => id));
 export { MAX as QTY_MAX };

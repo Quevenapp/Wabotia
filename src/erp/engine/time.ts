@@ -70,6 +70,14 @@ export function saoPauloParts(micros: bigint): { date: string; hm: string; dow: 
   return { date, hm: `${p.hour}:${p.minute}`, dow: new Date(date + "T00:00:00Z").getUTCDay() };
 }
 
+/** to_char(instante at time zone 'America/Sao_Paulo', 'YYYY-MM-DD"T"HH24:MI:SS') */
+export function saoPauloStamp(micros: bigint | number | string): string {
+  const v = BigInt(micros);
+  const ms = (v - (((v % 1000n) + 1000n) % 1000n)) / 1000n;
+  const p = Object.fromEntries(partsFormat.formatToParts(new Date(Number(ms))).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
+}
+
 /** Data válida AAAA-MM-DD (o tipo date do Postgres). */
 export function validDate(text: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);

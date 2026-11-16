@@ -29,6 +29,20 @@ export const fromColumn = (value: unknown): bigint =>
 /** BigInt → parâmetro do SQLite (texto; a coluna STRICT vira inteiro). */
 export const toParam = (value: bigint): string => value.toString();
 
+/**
+ * Muda a escala de um valor escalado, arredondando metade para longe do zero
+ * (round/::numeric(p,s) do Postgres): 1234567n na escala 6 → escala 2 = 123n.
+ */
+export function rescale(v: bigint, from: number, to: number): bigint {
+  if (to >= from) return v * 10n ** BigInt(to - from);
+  const d = 10n ** BigInt(from - to);
+  const neg = v < 0n;
+  const a = neg ? -v : v;
+  let q = a / d;
+  if ((a % d) * 2n >= d) q += 1n;
+  return neg ? -q : q;
+}
+
 /** numeric sem escala fixa, só para comparar com zero e somar: escala 30. */
 export const exact = (text: string) => toScaled(text, 30);
 

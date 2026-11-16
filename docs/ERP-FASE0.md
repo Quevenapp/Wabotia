@@ -1003,6 +1003,26 @@ Prioridade para o painel:
 - o atualizador do `feat/pacote-v2` já preserva `placement`;
 - o ensaio é com a K.
 
+### Emissor fiscal: rotas e flag de compatibilidade
+
+- **Rotas `/api/v1/profiles/:p/erp-emissor[/*]`** montadas no `src/index.ts`, com import dinâmico (o cliente e o contrato só carregam no primeiro uso). Teste em `tests/erp-do-emissor-route.test.ts`. Hoje valem:
+  - pessoa com acesso à área (404 fora dela);
+  - módulos `erp` e `erp-fiscal` ligados (409 `module_disabled`);
+  - configurar, trocar a chave, remover e testar a conexão: só administrador do Wabotia, que vale `erp:admin`.
+- **Pendências da fase 3** (o núcleo ainda não tem os dados):
+  - leitura do estado só para quem tem papel `erp:*`;
+  - sessão elevada (aal2) para configurar com a política de segundo fator ligada.
+
+  Hoje lê quem tem acesso à área, e a escrita não confere o aal. O papel por pessoa e o aal da sessão vêm com o preenchimento do envelope de identidade (`identityFor`, `src/erp/api/local-fetch.ts`), e a mesma guarda entra no `erpEmissorRoute`.
+- **Flag `global_fetch_strictly_public`** no `wrangler.jsonc` (`compatibility_flags`), para alcançar um cofre na mesma zona (erro 1042). O que a documentação diz:
+  - o `fetch` global para a própria zona passa pela "porta da frente", como tráfego da internet, com as regras de segurança da zona;
+  - sem a flag, vai direto à origem e pula os Workers da URL;
+  - a flag não vem ligada em nenhuma data de compatibilidade ([compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/)).
+
+  O que foi conferido:
+  - nenhum `fetch` do Wabotia vai à própria instalação (busca no `src/`);
+  - `scripts/release.mjs`, o `src/release.ts` do tronco e o do `feat/pacote-v2`, o `src/web-install.ts` e o `scripts/install-release.ts` copiam e validam as flags como lista de texto, sem lista fixa, e aceitam a nova sem mudança no núcleo.
+
 ## Divisão em sessões (opinião)
 
 Concordo com a proposta:

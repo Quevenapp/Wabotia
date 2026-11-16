@@ -40,3 +40,17 @@ export const pgBtrim = (s: string) => s.replace(/^ +| +$/g, "");
 export const pgLength = (s: string) => [...s].length;
 /** left(x, n) do Postgres. */
 export const pgLeft = (s: string, n: number) => [...s].slice(0, Math.max(n, 0)).join("");
+
+const utf8 = new TextEncoder();
+/**
+ * Ordem do texto no oráculo (collation C): bytes UTF-8, a mesma do BINARY do
+ * SQLite. null por último na ordem crescente (ORDER BY … ASC do Postgres).
+ */
+export function pgCompareText(a: string | null, b: string | null): number {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  const x = utf8.encode(a),
+    y = utf8.encode(b);
+  const n = Math.min(x.length, y.length);
+  for (let i = 0; i < n; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return x.length - y.length;
+}

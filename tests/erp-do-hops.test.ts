@@ -10,6 +10,7 @@ import { erpFetch, erpStub } from "../src/erp/hub";
 import { bearer, fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 import { measure } from "./d1-counter";
+import { erpApi } from "../src/erp/api/local-fetch";
 
 const hopsOf = (r: Response) => {
   const timing = r.headers.get("Server-Timing") ?? "";
@@ -105,5 +106,21 @@ describe("ERP: uma ida ao objeto por requisição", () => {
       state.storage.sql.exec(`SELECT version FROM "erp_stock__balance" WHERE product_id=?`, ids.product).toArray(),
     );
     expect(version).toEqual([{ version: 1 }]);
+
+    // Envelope do núcleo (erpApi com identity): aal2 na sessão passa no /v1/me
+    // (accessGate da erp-api lê session_id e aal do token) e numa leitura; aal1 não.
+    const session = crypto.randomUUID();
+    const envelope = (aal: "aal1" | "aal2") => ({
+      actor: { user_id: f.admin.id, name: "Admin", email: null, erp_role: "admin" as const, verified_factor: true, session_id: session, aal, is_agent: false },
+      people: [{ user_id: f.admin.id, name: "Admin", email: null, erp_role: "admin" as const, verified_factor: true }],
+    });
+    const viaEnvelope = async (path: string, aal: "aal1" | "aal2") => {
+      const r = await erpApi(env, new Request(base + path, { headers: { Authorization: "Bearer " + token } }), f.profile, f.admin as any, envelope(aal));
+      return { status: r.status, body: await r.json<any>() };
+    };
+    expect((await viaEnvelope("/v1/me", "aal1")).body.error?.code).toBe("ERP_MFA_REQUIRED");
+    const me2 = await viaEnvelope("/v1/me", "aal2");
+    expect(me2.status, JSON.stringify(me2.body)).toBe(200);
+    expect((await viaEnvelope("/v1/plataforma/referencias/cnae?q=4744", "aal2")).status).toBe(200);
   }, 120_000);
 });
