@@ -280,3 +280,8 @@
     margin-bottom: 16px;
   }
 }
+
+.pedido-delivery {
+  font-size: 12px;
+  color: var(--text-2);
+}

@@ -200,10 +200,10 @@ Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão;
 | `GET /pedido/menu` | Categorias com itens, grupos de adicionais e imagens do cardápio |
 | `POST`/`PUT`/`DELETE /pedido/categories[/{id}]`, `/pedido/items[/{id}]`, `/pedido/groups[/{id}]`; `PUT /pedido/menu-images` | Cadastro do cardápio (só administrador). Item: `category_id`, `name`, `price_cents`, `description`, `photo_media_id` (de `POST /media`), `image_url` (HTTPS, para o carrinho), `available`, `max_quantity`, `retailer_id` (catálogo da Meta, único: `409 retailer_id_taken`), `group_ids`. Grupo: `name`, `min`, `max`, `options [{id?, name, price_cents, available}]` |
 | `POST /pedido/items/{id}/availability`, `/pedido/groups/{id}/availability` | `{"available":false}` (com `option_id` no grupo): esgotado pela equipe |
-| `GET /pedido/board` | Quadro da cozinha: `columns` por estado em andamento com `minutes_in_status` e `late`, `store` e `today` |
+| `GET /pedido/board` | Quadro da cozinha: `columns` por estado em andamento com `minutes_in_status`, `late` e `delivery` (entregador e previsão do módulo Entrega: `{status, status_label, courier_id, courier_name, eta_at, eta_minutes, position_at}`, ou null), `store` e `today` |
 | `GET /pedido/orders` | `status=a,b`, `open=1`, `q` (cliente, número, telefone), `phone`, `conversation_id`, `from`, `to`, `limit`, `cursor`; traz `counts` por estado |
 | `POST /pedido/orders` | Pedido de balcão ou integração: `items [{item_id, quantity, options {"<group_id>":["<option_id>"]}, note}]` (repetir `item_id` = outra montagem), `fulfillment`, `address`, `customer_name`, `phone`, `conversation_id`, `payment_method`, `note`, `notes`, `whatsapp_notices`. Só com `phone`, o pedido usa a conversa desse telefone; com `whatsapp_notices: true` (o cliente aceitou no balcão; só administrador, com `notices_evidence` dizendo como ele aceitou), abre uma na linha oficial e registra o consentimento de avisos do pedido |
-| `GET /pedido/orders/{id}` | Pedido com `history` |
+| `GET /pedido/orders/{id}` | Pedido com `history` e `delivery` (como no quadro) |
 | `PATCH /pedido/orders/{id}` | `notes` (internas), `customer_name`, `eta_minutes` |
 | `POST /pedido/orders/{id}/status` | `{"status":"…","note":"…","reason":"…","notify":true}`; transição inválida: `409 invalid_transition` |
 | `POST /pedido/orders/{id}/paid` | Baixa do pagamento feito na hora; cobrança online aberta: `409 payment_online` |

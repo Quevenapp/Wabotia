@@ -55,6 +55,16 @@ const StatusPill = ({ status }: { status: string }) => (
   </Pill>
 );
 
+/** "Ana · a caminho · chega 19:40" (módulo Entrega). */
+const deliveryText = (d: Row) =>
+  [
+    d.courier_name || "Sem entregador",
+    d.status_label,
+    d.eta_at ? `chega ${clock(d.eta_at)}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
 function usePedidoWrite() {
   const app = useApp();
   const write = useIntents(app.api);
@@ -301,6 +311,12 @@ export function OrderDetail({
               ? order.address_text || "—"
               : "No balcão"}
           </dd>
+          {order.delivery && (
+            <>
+              <dt>Entrega</dt>
+              <dd>{deliveryText(order.delivery)}</dd>
+            </>
+          )}
           {order.note && (
             <>
               <dt>Observação do cliente</dt>
@@ -522,6 +538,11 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
                     <li>+ {order.lines.length - 4} itens</li>
                   )}
                 </ul>
+                {order.delivery && (
+                  <span className="pedido-delivery">
+                    {deliveryText(order.delivery)}
+                  </span>
+                )}
                 <span className="meta">
                   <span>{order.fulfillment_label}</span>
                   <span>{money(order.total_cents)}</span>
