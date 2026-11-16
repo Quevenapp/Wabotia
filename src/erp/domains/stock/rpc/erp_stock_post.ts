@@ -8,7 +8,7 @@ import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { replay } from "../../../engine/receipt.ts";
-import { dateArgError, todaySaoPaulo, validDate } from "../../../engine/time.ts";
+import { todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import * as sync from "../../sync/public.ts";
 import {
   QTY,
@@ -30,20 +30,10 @@ const LINE_KEYS = new Set(["product_id", "warehouse_id", "quantity", "expected_v
 const btrim = (s: string) => s.replace(/^ +| +$/g, "");
 const lower = (u: string) => u.toLowerCase();
 
-/** Argumento uuid do Postgres: canônico em minúsculas; inválido → 22P02. */
-function uuidArg(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "string" || !UUID.test(value)) raise("22P02", `invalid input syntax for type uuid: "${String(value)}"`);
-  return lower(value);
-}
-
 export function erpStockPost(ctx: RpcContext, a: RpcArgs) {
-  // Tipos dos argumentos, na ordem dos parâmetros: no Postgres falham antes
-  // do corpo da função (antes até da conferência de acesso).
-  const user = uuidArg(a.p_user_id)!;
-  const command = uuidArg(a.p_command_id);
-  const badDate = typeof a.p_occurred_on === "string" ? dateArgError(a.p_occurred_on) : null;
-  if (badDate) raise(badDate.code, badDate.message);
+  // Tipos e DEFAULTs dos argumentos já vêm do callRpc (engine/args.ts).
+  const user = a.p_user_id as string;
+  const command = (a.p_command_id as string | null) ?? null;
   const kind = (a.p_kind as string | null) ?? null;
   if (kind === "reversal") raise("22023", "erp_stock_use_reversal_command");
   return post(ctx, {
