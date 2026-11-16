@@ -7,4 +7,5 @@ import "./rpc/balances.ts";
 import "./rpc/totals.ts";
 import "./rpc/ledger.ts";
 import "./rpc/reports.ts";
+import "./rpc/dashboards.ts";
 export {};

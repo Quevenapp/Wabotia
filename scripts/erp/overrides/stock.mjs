@@ -86,6 +86,10 @@ export const covered = {
       "where": "src/erp/domains/stock/rpc/warehouses.ts erp_stock_warehouse_set_default: único escritor; só por comando 'default', versão +1, recibo gravado antes",
       "test": "tests/erp/stock/warehouses.test.mjs"
     },
+    "erp_stock__dashboard_preference.guard_stock_dashboard_preference": {
+      "where": "src/erp/domains/stock/rpc/dashboards.ts erp_stock_dashboard_preference_set: único escritor; inserção na versão 1 e atualização +1, só por comando gravado antes",
+      "test": "tests/erp/stock/dashboards.test.mjs"
+    },
     "erp_stock__policy.guard_stock_policy": {
       "where": "src/erp/domains/stock/rpc/policy.ts erp_stock_policy_set: único escritor; só por comando, versão +1, valor diferente, recibo gravado antes",
       "test": "tests/erp/stock/policy.test.mjs"
