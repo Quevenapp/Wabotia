@@ -191,7 +191,10 @@ async function setup(
   );
   return { f, ctx, c, sub, due, account, phone, plan };
 }
-const at = (days: number, hours = 0) => now() + days * DAY + hours * 3600_000;
+// Ao meio-dia de Brasília do dia de hoje: "+1 h" depois das 23 h não pode
+// virar o dia seguinte (a rodada do vencimento mandaria também o atraso).
+const NOON = Date.parse(`${today(now())}T12:00:00-03:00`);
+const at = (days: number, hours = 0) => NOON + days * DAY + hours * 3600_000;
 
 describe("mensalidade: aviso antes do vencimento com cobrança", () => {
   it("cria a cobrança Pix pela interface do núcleo uma vez, mesmo com rodadas repetidas", async () => {
