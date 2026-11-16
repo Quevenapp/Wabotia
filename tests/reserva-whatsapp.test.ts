@@ -158,7 +158,9 @@ describe("reserva no WhatsApp de ponta a ponta", () => {
 
   it("dois clientes escolhem as mesmas datas: o segundo recebe outras", async () => {
     const s = await chatSetup();
-    const start = future(9);
+    // Na primeira página (9 datas) a qualquer hora: antes do horário de
+    // entrada a lista começa hoje, depois começa amanhã.
+    const start = future(7);
     const a = await qrToSummary(s, "5511971000021", start);
     const b = await qrToSummary(s, "5511971000022", start);
     let ca = await say(s, "1", "5511971000021", s.f.qr);
