@@ -24,6 +24,19 @@ O tronco comum do ERP é **`feat/erp-motor`**. Só a sessão N faz push nele (de
 - **`feat/erp-base`** é só um apelido, igual ao tronco. Não use: a base é `feat/erp-motor`.
 - **Conflito de tetos** (`LIMITS` no `schema-parity`): na junção vale o menor número que passa.
 
+## Testes na máquina compartilhada
+
+O Dell tem 6 núcleos (12 threads), e várias sessões rodam suítes ao mesmo tempo. Em 16/11 havia 41 processos `node` e 6 `workerd`, com a CPU a 100%. Resultado: estouros de 5 s em testes que passam sozinhos e suítes que travam sem saída. Regras (orquestração, 16/11/2026):
+1. **No desenvolvimento, rode só o que você mexeu**: o arquivo ou o domínio. A suíte completa (`npm test`, `npm run test:erp`) fica para antes do push.
+   - `npm run test:erp:domain -- <domínio>`, por exemplo `catalog`, `finance` ou `stock`, roda `tests/erp/<domínio>/`, `tests/erp/fagoo/<domínio>-*` e `tests/erp/<domínio>-*`.
+   - `--harness` acrescenta os testes do harness, e `--base` os do motor: paridade do esquema, assinaturas, erros de CHECK e UNIQUE, desvios e texto.
+2. **No máximo 3 trabalhadores na suíte completa.** O `npm run test:erp` e o comando por domínio já usam `--test-concurrency=3`; no vitest, `--maxWorkers=3`.
+3. **Tempo-limite estourado sob carga não é falha de lógica, mas também não é "passou".**
+   - Rode o arquivo sozinho. Se passar, registre como "tempo-limite sob carga".
+   - Teste que depende de tempo real ganha tempo-limite próprio no teste.
+   - Nunca aumente o tempo-limite global.
+4. **Não deixe processos órfãos** (`wrangler tail`, `workerd`, suítes abandonadas). Confira e encerre os seus ao fim de cada bloco.
+
 ## Quem é dono de quê
 
 | Pasta | Domínio | Sessão |
@@ -117,6 +130,16 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 
      jsonb e timestamptz passam como vieram. Tire os auxiliares locais (`argOr`, `uuidArg`, `?? 25`…). `tests/erp/signatures.test.mjs` confere tudo contra o oráculo.
    - Diferença conhecida: date só no formato `AAAA-MM-DD`. O Postgres aceita outros formatos, como `2026-11-16T10:00Z`; a erp-api manda ISO.
+   - **Erros de restrição: o motor já traduz.** O `fromSqlite` devolve a mensagem do Postgres:
+     - CHECK: 23514 `new row for relation "<tabela>" violates check constraint "<restrição>"`;
+     - UNIQUE e PK: 23505 `duplicate key value violates unique constraint "<restrição ou índice>"`.
+
+     Os nomes vêm do DDL gerado e são conferidos contra o oráculo (`tests/erp/check-errors.test.mjs`). Exceção: `erp_finance.movement(settlement_id)` tem dois índices parciais nas mesmas colunas, e a mensagem do SQLite não diz qual. Ali sai o código 23505 com a mensagem do SQLite. Não traduza à mão no domínio.
+   - **Dois campos inválidos na mesma linha: a ordem das recusas no Postgres muda com o cache de planos** (achado da O na conciliação, `statement_import`).
+     - Vale para comando SQL do PL/pgSQL: INSERT, UPDATE ou SELECT com subconsulta.
+     - Nas 5 primeiras execuções na sessão, o plano é custom. As funções IMMUTABLE com argumentos de variável (`cents`, `txt`, `ofx_text`, `uuid_value`) são dobradas no planejamento e recusam antes das STABLE e VOLATILE, como a `day`.
+     - Da sexta em diante, o plano é genérico e segue a ordem das colunas.
+     - O motor segue a ordem das colunas. Nos geradores do diferencial, estrague **um campo por linha**; teste de dois campos inválidos na mesma linha não é estável no oráculo.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:
