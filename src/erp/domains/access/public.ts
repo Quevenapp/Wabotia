@@ -7,6 +7,9 @@ import { saoPauloMidnight } from "../../engine/time.ts";
 import { PERMISSION_KEYS } from "./permission-keys.generated.ts";
 
 export * from "./stubs.generated.ts";
+// Reexportada pela P (Catálogo) para erp_catalog.seller_access_allowed, com o
+// combinado da orquestração; nada muda no Acesso.
+export { windowOpen } from "./internal.ts";
 
 const KEYS = new Set(PERMISSION_KEYS);
 
