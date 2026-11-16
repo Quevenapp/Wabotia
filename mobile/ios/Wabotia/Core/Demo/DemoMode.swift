@@ -96,6 +96,9 @@ extension DemoMode {
     /// Tela pedida por `WABOTIA_DEMO` (nil = abertura normal).
     static let launchScreen: String? = env("WABOTIA_DEMO")?.lowercased()
     static let forceDark: Bool = env("WABOTIA_DEMO_DARK") == "1"
+    /// `WABOTIA_DEMO_ACCESS=caixa` ou `conversations,tickets`: a lista de acessos da pessoa na demonstração
+    /// (`AppAccess`), para ver a barra e as telas montadas só com ela.
+    static let accessOverride: [String]? = env("WABOTIA_DEMO_ACCESS")?.split(separator: ",").map { String($0) }
     static let anchor: String? = env("WABOTIA_DEMO_ANCHOR")
     /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`,
     /// `printer`, `pin`, `unpair` (aparelho), `call` (guichê 2 chama a próxima), `week` (agenda) e `quote` (ordem).

@@ -83,21 +83,24 @@ struct ModulesProbe {
     let token: () -> String?
     var session: URLSession = QueueHTTP.shared
 
-    func check() async -> Set<String>? {
+    func check() async -> Set<String>? { await probe().modules }
+
+    /// Os módulos e, quando o servidor manda, a lista do que a pessoa acessa (`AppAccess`; `nil` = sem restrição).
+    func probe() async -> (modules: Set<String>?, access: AppAccess?) {
         let base = QueueHTTP.normalize(baseURL)
         let p = profileId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? profileId
         for path in ["/api/v1/profiles/\(p)/capabilities", "/api/v1/capabilities?profile_id=\(p)"] {
             switch await get(base + path) {
             case .ok(let json):
-                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) { return ids }
+                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) { return (ids, AppAccess.parse(json, profileId: profileId)) }
             case .failed(let status):
-                if status == 0 { return nil }
+                if status == 0 { return (nil, nil) }
                 // 404/405 (servidor antigo), 401/403: tenta o próximo sinal.
             }
         }
         switch await get(base + "/api/v1/profiles/\(p)/queue") {
-        case .ok: return [ModuleId.queue]
-        case .failed(let status): return status == 0 || status >= 500 || status == 429 ? nil : []
+        case .ok: return ([ModuleId.queue], nil)
+        case .failed(let status): return (status == 0 || status >= 500 || status == 429 ? nil : [], nil)
         }
     }
 
@@ -145,12 +148,19 @@ final class ModuleFeature: ObservableObject {
     }()
 
     @Published private(set) var modules: [String: Set<String>] = [:]
+    /// O que a pessoa acessa em cada área (sem entrada = sem restrição).
+    @Published private(set) var accessByProfile: [String: AppAccess] = [:]
     private var checkedAt: [String: Date] = [:]
     private var subscription: AnyCancellable?
 
+    /// O módulo está ligado na área E a pessoa o acessa.
     func isAvailable(_ module: String, _ profileId: String?) -> Bool {
         guard let profileId else { return false }
-        return modules[profileId]?.contains(module) ?? false
+        return (modules[profileId]?.contains(module) ?? false) && access(profileId).allows(module)
+    }
+
+    func access(_ profileId: String?) -> AppAccess {
+        profileId.flatMap { accessByProfile[$0] } ?? .all
     }
 
     func refresh(container: AppContainer, force: Bool = false) async {
@@ -158,14 +168,15 @@ final class ModuleFeature: ObservableObject {
         if !force, let last = checkedAt[profile], Date().timeIntervalSince(last) < 60 { return }
         checkedAt[profile] = Date()
         let session = container.session
-        let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).check()
-        apply(result, profile: profile)
+        let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).probe()
+        apply(result.modules, profile: profile, access: result.access)
     }
 
     /// `nil` (sem rede): fica o que já se sabia, e a próxima consulta tenta de novo.
-    func apply(_ result: Set<String>?, profile: String) {
+    func apply(_ result: Set<String>?, profile: String, access: AppAccess? = nil) {
         guard let result else { checkedAt[profile] = nil; return }
         modules[profile] = result
+        accessByProfile[profile] = access
     }
 
     /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.
@@ -176,6 +187,7 @@ final class ModuleFeature: ObservableObject {
 
     func clear() {
         modules = [:]
+        accessByProfile = [:]
         checkedAt = [:]
     }
 }

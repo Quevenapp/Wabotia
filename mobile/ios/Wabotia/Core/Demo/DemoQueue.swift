@@ -220,11 +220,15 @@ final class DemoQueue {
             ["id": "forms", "name": "Formulários", "version": "1.0.0"],
             ["id": "payments", "name": "Cobrança", "version": "1.0.0"],
         ]
+        var area: Row = ["id": DemoMode.profileId, "name": DemoMode.profileName, "enabled": true, "modules": modules]
+        #if DEBUG
+        if let access = DemoMode.accessOverride { area["access"] = access }
+        #endif
         var answer: Row = [
             "capabilities_version": 1,
             "server": ["service": "wabotia", "version": "demonstração", "commit": ""],
             "features": ["modules"],
-            "profiles": [["id": DemoMode.profileId, "name": DemoMode.profileName, "enabled": true, "modules": modules]],
+            "profiles": [area],
         ]
         if perArea { answer["modules"] = modules }
         return ok(answer)

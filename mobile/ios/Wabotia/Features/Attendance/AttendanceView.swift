@@ -13,16 +13,29 @@ struct AttendanceView: View {
     @State private var presenceError: String?
 
     private var isAdmin: Bool { container.user?.isAdmin ?? false }
+    private var access: AppAccess { moduleFeature.access(container.profileId) }
+
+    /// Áreas do acesso desta pessoa que ainda não têm tela no app (caixa, garçom…).
+    private var elsewhereSection: some View {
+        SectionCard(title: "No painel do Wabotia", footer: "Estas áreas do seu acesso ainda não têm tela neste app: use o painel do Wabotia no navegador.") {
+            ForEach(Array(access.withoutScreen.enumerated()), id: \.element) { index, area in
+                CardRow(icon: "safari", iconColor: Theme.muted, title: AppAccess.title(area), divider: index < access.withoutScreen.count - 1)
+            }
+        }
+        .accessibilityIdentifier("attendance.elsewhere")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScreenHeader(title: "Atendimento", subtitle: workspace.profileName.isEmpty ? nil : workspace.profileName) { EmptyView() }
             ScrollView {
                 VStack(spacing: 20) {
-                    presenceSection
-                    ticketsSection
+                    // Só o que a pessoa acessa (lista em /capabilities; sem lista, tudo).
+                    if access.allows(AppAccess.Area.conversations) { presenceSection }
+                    if access.allows(AppAccess.Area.tickets) { ticketsSection }
                     modulesSection
-                    linesSection
+                    if access.allows(AppAccess.Area.lines) || access.allows(AppAccess.Area.conversations) { linesSection }
+                    if !access.withoutScreen.isEmpty { elsewhereSection }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
