@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dualFixture } from "./harness/dual-fixture.mjs";
-import { pgToLite } from "../../scripts/erp/gen-sqlite-lib.mjs";
+import { pgSelect, pgToLite } from "../../scripts/erp/gen-sqlite-lib.mjs";
 import { ERP_TABLES } from "../../src/erp/schema/columns.generated.ts";
 import { ERP_SEED } from "../../src/erp/schema/seed.generated.ts";
 import { rowJson, rowJsonSelect, valueJson } from "../../src/erp/engine/row-json.ts";
@@ -18,19 +18,41 @@ const canon = (v) =>
       ? "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}"
       : JSON.stringify(v);
 
-test("linhas das tabelas semeadas: to_jsonb igual nos dois motores", async () => {
+test("linhas das tabelas semeadas: rowJson da mesma linha igual ao to_jsonb do oráculo", async () => {
+  // A mesma linha do oráculo nas duas formas: to_jsonb(t) e a forma guardada
+  // no SQLite (pgSelect + pgToLite). Não depende da semeadura do SQLite, que
+  // pode ter sido gerada com outro now() (erp_a1.head.updated_at).
   let rows = 0;
   for (const { table } of ERP_SEED) {
     const info = ERP_TABLES[table];
-    const pg = (await f.db.query(`select to_jsonb(t) v from "${info.schema}"."${info.table}" t`)).rows.map((r) => canon(r.v)).sort();
-    const lite = f.driver
-      .exec(`SELECT ${rowJsonSelect(table)} FROM "${table}"`)
-      .rows.map((r) => canon(rowJson(table, r)))
-      .sort();
-    assert.deepEqual(lite, pg, table);
-    rows += pg.length;
+    const select = pgSelect(info);
+    const list = select.slice("select ".length, select.lastIndexOf(" from "));
+    const cols = Object.entries(info.columns).filter(([, c]) => !["fold", "computed"].includes(c.codec));
+    for (const r of (await f.db.query(`select to_jsonb(t) "__json", ${list} from "${info.schema}"."${info.table}" t`)).rows) {
+      const stored = Object.fromEntries(cols.map(([n, c]) => [n, pgToLite(r[n], c)]));
+      assert.equal(canon(rowJson(table, stored)), canon(r.__json), table);
+      rows++;
+    }
   }
   assert.ok(rows > 7000, `linhas conferidas: ${rows}`);
+});
+
+test("leitura pelo SQLite (rowJsonSelect): semeadura igual ao oráculo, a menos dos instantes", async () => {
+  // Instantes semeados com now() na montagem do oráculo diferem do gerado (achado da P).
+  const masked = (table, row) => {
+    const out = { ...row };
+    for (const [n, c] of Object.entries(ERP_TABLES[table].columns)) if (c.codec === "timestamp_us" && out[n] !== null && n in out) out[n] = "<tempo>";
+    return canon(out);
+  };
+  for (const { table } of ERP_SEED) {
+    const info = ERP_TABLES[table];
+    const pg = (await f.db.query(`select to_jsonb(t) v from "${info.schema}"."${info.table}" t`)).rows.map((r) => masked(table, r.v)).sort();
+    const lite = f.driver
+      .exec(`SELECT ${rowJsonSelect(table)} FROM "${table}"`)
+      .rows.map((r) => masked(table, rowJson(table, r)))
+      .sort();
+    assert.deepEqual(lite, pg, table);
+  }
 });
 
 // Valor no tipo do Postgres → forma guardada no SQLite (como pgSelect + pgToLite) → valueJson.
