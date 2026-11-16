@@ -110,7 +110,7 @@ final class TotemCouponTests: XCTestCase {
     }
 
     func testCouponFromTheAreaDecidesTheParts() throws {
-        let full = try coupon(#"{"establishment":{"name":"Clínica Exemplo","document_display":"11.222.333/0001-81","address":"Rua A, 1\nCentro","phone":"(11) 3000-0000"},"position":true,"footer":"Obrigado pela visita!\nVolte sempre","whatsapp_qr":true,"whatsapp_qr_issue":null,"whatsapp_qr_notice":null}"#)
+        let full = try coupon(#"{"establishment":{"name":"Clínica Exemplo","document_type":"cnpj","document_display":"11.222.333/0001-81","address":"Rua A, 1\nCentro","phone":"(11) 3000-0000"},"position":true,"footer":"Obrigado pela visita!\nVolte sempre","whatsapp_qr":true,"whatsapp_qr_issue":null,"whatsapp_qr_notice":null}"#)
         XCTAssertNil(full.qrNotice)
         let data = CouponData.of(ticket, header: "Totem da entrada", coupon: full)
         XCTAssertEqual(data.header, "Clínica Exemplo")
@@ -136,8 +136,8 @@ final class TotemCouponTests: XCTestCase {
     }
 
     func testCouponCpfIsMaskedAndOldServersKeepTheOldCoupon() throws {
-        let cpf = try coupon(#"{"establishment":{"name":"Maria MEI","document_display":"123.456.789-09","address":"","phone":""},"position":true,"footer":null,"whatsapp_qr":true,"whatsapp_qr_issue":"no_line","whatsapp_qr_notice":""}"#)
-        XCTAssertEqual(CouponData.of(ticket, header: "x", coupon: cpf).headerLines, ["CPF ***.456.789-**"], "CPF de quem cadastrou o próprio sai mascarado")
+        let cpf = try coupon(#"{"establishment":{"name":"Maria MEI","document_type":"cpf","document_display":"***.456.789-**","address":"","phone":""},"position":true,"footer":null,"whatsapp_qr":true,"whatsapp_qr_issue":"no_line","whatsapp_qr_notice":""}"#)
+        XCTAssertEqual(CouponData.of(ticket, header: "x", coupon: cpf).headerLines, ["CPF ***.456.789-**"], "o CPF já vem mascarado do servidor e sai como veio")
         XCTAssertNotNil(cpf.qrNotice, "motivo sem texto ainda avisa")
         let legacy = CouponData.of(ticket, header: "Totem da entrada", establishment: Establishment(name: "Centro", footer: "Volte"))
         XCTAssertEqual(legacy.header, "Centro")

@@ -21,8 +21,12 @@ struct DeviceServices {
 
     @MainActor
     static func live(serverURL: String?) -> DeviceServices {
-        DeviceServices(store: KeychainDeviceConfigStore(), pairing: QueuePairing(), session: QueueHTTP.shared, printer: WabotiaPrinting.shared,
-                       settings: DefaultsPanelSettingsStore(), audio: { SpeechPanelAudio() }, serverURL: serverURL, demo: false, pollInterval: 5)
+        var printer: CouponPrinting = WabotiaPrinting.shared
+        #if DEBUG
+        if DemoMode.devicePrintOff { printer = NoCouponPrinter() }
+        #endif
+        return DeviceServices(store: KeychainDeviceConfigStore(), pairing: QueuePairing(), session: QueueHTTP.shared, printer: printer,
+                              settings: DefaultsPanelSettingsStore(), audio: { SpeechPanelAudio() }, serverURL: serverURL, demo: false, pollInterval: 5)
     }
 
     /// Demonstração: nada vai para o Keychain nem sai do aparelho; o painel fala de verdade. Com `role` (atalhos de

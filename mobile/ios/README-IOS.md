@@ -61,7 +61,7 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
   Ajustes → Impressão → Impressora do cupom; resultado incerto pede confirmação antes da segunda via. No modo aparelho, a linha
   aparece na engrenagem em todos os papéis, mas só o Totem e o Painel híbrido imprimem; no Painel de chamadas ela diz isso.
 - **Cupom da senha.** Segue `QueueOverview.coupon` (docs/FILA-SENHAS.md, "Cupom da senha"): cabeçalho do
-  estabelecimento só quando vier (CPF de 11 dígitos sai mascarado), posição se ligada, rodapé se vier, QR sempre que a
+  estabelecimento só quando vier (documento como o servidor manda, já com o CPF mascarado), posição se ligada, rodapé se vier, QR sempre que a
   senha trouxer `whatsapp_link`. Servidor sem `coupon`: o cupom de antes, com `GET /establishment`. O motivo de o QR não
   sair (`whatsapp_qr_notice`) aparece nos ajustes do totem, nunca no papel. Um QR que não cabe na largura do papel é
   deixado de fora e a senha sai mesmo assim.
@@ -125,9 +125,10 @@ Só no build de depuração (`#if DEBUG`); o release não os tem. Passe como var
 ### Servidor de verdade (teste em aparelho sem tocar na tela)
 
 - `WABOTIA_DEVICE_SERVER`, `WABOTIA_DEVICE_NAME`, `WABOTIA_DEVICE_ROLE` (`totem`, `panel`, `hybrid`) e
-  `WABOTIA_DEVICE_ACTION` (`issue`, `settings`, `printer`, `unpair`, `drop`): pareia o modo aparelho (o código sai no
-  console; quem administra o servidor aprova), escolhe o papel e faz uma ação; `drop` corta o WebSocket duas vezes para
-  ver a volta automática.
+  `WABOTIA_DEVICE_ACTION` (`issue`, `settings`, `sound`, `printer`, `unpair`, `drop`): pareia o modo aparelho (o código
+  sai no console; quem administra o servidor aprova), escolhe o papel e faz uma ação; `sound` abre os ajustes e toca o
+  "Testar som"; `drop` corta o WebSocket duas vezes para ver a volta automática. `WABOTIA_DEVICE_PRINT=off` emite
+  sem mandar nada à impressora (o cupom sai no console), para testar a emissão sem imprimir.
 - `WABOTIA_LOGIN_SERVER`, `WABOTIA_LOGIN_EMAIL` e `WABOTIA_LOGIN_PASSWORD`: entra numa **conta de teste** pelo mesmo
   login da tela Entrar, sem o pedido de permissão de notificações. A senha nunca vai ao console. Use só com conta de
   teste autorizada e nunca grave a senha em script, log ou commit.

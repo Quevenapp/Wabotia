@@ -151,17 +151,31 @@ struct QueueCoupon: Codable, Equatable {
 
 struct CouponEstablishment: Codable, Equatable {
     var name: String?
+    /// `cpf` ou `cnpj`.
+    var documentType: String?
+    /// Como deve sair no papel: o servidor já mascara o CPF (`***.456.789-**`).
     var documentDisplay: String?
     var address: String?
     var phone: String?
 
-    /// No formato do cadastro, para reaproveitar o cabeçalho do cupom. O cupom não diz o tipo do documento: 11 dígitos
-    /// é CPF (sai mascarado, o cupom vai para desconhecidos); o resto é CNPJ, que também pode ter letras.
-    var establishment: Establishment {
-        let digits = (documentDisplay ?? "").filter { $0.isASCII && $0.isNumber }
-        let letters = (documentDisplay ?? "").contains { $0.isLetter }
-        return Establishment(name: name, document: nil, documentType: digits.count == 11 && !letters ? "cpf" : "cnpj",
-                             documentDisplay: documentDisplay, address: address, phone: phone, footer: nil, configured: true)
+    var displayName: String? { name?.trimmingCharacters(in: .whitespaces).isEmpty == false ? name : nil }
+
+    /// Depois do nome: documento como veio (com "CPF" ou "CNPJ" na frente), endereço (pode ter quebras) e telefone.
+    var headerLines: [String] {
+        var out: [String] = []
+        if let doc = documentDisplay?.trimmingCharacters(in: .whitespaces), !doc.isEmpty {
+            switch documentType {
+            case "cpf": out.append("CPF " + doc)
+            case "cnpj": out.append("CNPJ " + doc)
+            default: out.append(doc)
+            }
+        }
+        for line in (address ?? "").split(whereSeparator: \.isNewline) {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { out.append(text) }
+        }
+        if let phone = phone?.trimmingCharacters(in: .whitespaces), !phone.isEmpty { out.append(phone) }
+        return out
     }
 }
 

@@ -127,6 +127,7 @@ struct DeviceModeView: View {
             print("[Wabotia] aparelho: papel \(role.rawValue)")
         }
         for _ in 0..<100 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        print("[Wabotia] aparelho: cupom da área \(vm.overview?.coupon == nil ? "ausente" : "presente"), aviso do QR: \(vm.couponQrNotice ?? "nenhum")")
         switch DemoMode.deviceAction {
         case "issue":
             if let queue = vm.overview?.kioskQueues.first {
@@ -134,6 +135,12 @@ struct DeviceModeView: View {
                 vm.issue(preferential: false)
             }
         case "settings": settings = true
+        case "sound":
+            // Os ajustes abertos (volume) e o "Testar som" tocado sozinho.
+            settings = true
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            print("[Wabotia] aparelho: testar som (volume do painel \(PanelVolume.percent(vm.panelVolume)))")
+            vm.testSound()
         case "printer":
             settings = true
             printer = true

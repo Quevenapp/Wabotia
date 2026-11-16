@@ -107,6 +107,9 @@ extension DemoMode {
     static let deviceName: String? = env("WABOTIA_DEVICE_NAME")
     static let deviceRole: String? = env("WABOTIA_DEVICE_ROLE")
     static let deviceAction: String? = env("WABOTIA_DEVICE_ACTION")
+    /// `WABOTIA_DEVICE_PRINT=off`: o totem emite sem mandar nada à impressora escolhida (a senha fica na tela), para
+    /// testar a emissão sem gastar papel nem imprimir sem o OK de quem está com a impressora.
+    static let devicePrintOff = env("WABOTIA_DEVICE_PRINT")?.lowercased() == "off"
 
     /// `WABOTIA_LOGIN_SERVER`, `WABOTIA_LOGIN_EMAIL` e `WABOTIA_LOGIN_PASSWORD`: entra numa conta de teste sem tocar na
     /// tela, pelo mesmo login da tela Entrar (sem o pedido de permissão de notificações). A senha não é registrada.

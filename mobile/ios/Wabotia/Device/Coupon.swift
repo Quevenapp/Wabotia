@@ -42,7 +42,7 @@ struct CouponData: Equatable {
             footerLines: establishment?.footerLines ?? []
         )
         if let coupon {
-            let shop = coupon.establishment?.establishment
+            let shop = coupon.establishment
             data.header = shop?.displayName ?? ""
             data.headerLines = shop?.headerLines ?? []
             data.footerLines = Establishment(footer: coupon.footer).footerLines
@@ -146,6 +146,18 @@ protocol CouponPrinting: AnyObject {
     var hasPrinter: Bool { get }
     func print(_ data: CouponData) async -> TicketPrint
 }
+
+#if DEBUG
+/// Atalho de depuração `WABOTIA_DEVICE_PRINT=off`: nada vai à impressora; o cupom é registrado no console.
+@MainActor
+final class NoCouponPrinter: CouponPrinting {
+    var hasPrinter: Bool { false }
+    func print(_ data: CouponData) async -> TicketPrint {
+        Swift.print("[Wabotia] aparelho: cupom sem imprimir (WABOTIA_DEVICE_PRINT=off): cabeçalho \"\(data.header)\" \(data.headerLines), posição \(data.showPosition ? CouponText.position(data) : "desligada"), rodapé \(data.footerLines), QR \(data.whatsappLink == nil ? "não" : "sim")")
+        return .noPrinter
+    }
+}
+#endif
 
 /// A impressora térmica deste aparelho: uma só configuração do kit para o app inteiro (a escolhida fica no Keychain do
 /// kit, só neste aparelho). Resultado incerto nunca reimprime sozinho.
