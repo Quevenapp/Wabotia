@@ -716,16 +716,39 @@ export async function cancelBooking(
       if (!(error instanceof ApiError)) throw error;
     }
   const after = await getBooking(ctx, before.id);
-  await publish(ctx, "reserva.cancelled", after, input.actor, { reason });
-  if (input.notify ?? true)
+  await announceCancel(ctx, config, after, input.actor, reason, input.notify);
+  return after;
+}
+
+/**
+ * Evento e aviso do cancelamento, com chave pela reserva: o gancho de
+ * pagamento repetido refaz o que uma falha depois da gravação deixou para
+ * trás (segunda conferência, A3), sem duplicar.
+ */
+export async function announceCancel(
+  ctx: ModuleContext,
+  config: ReservaConfig,
+  after: Booking,
+  actor: string,
+  reason: string,
+  notify?: boolean,
+) {
+  await publish(
+    ctx,
+    "reserva.cancelled",
+    after,
+    actor,
+    { reason },
+    `cancelled:${after.id}`,
+  );
+  if (notify ?? true)
     await notifyCustomer(
       ctx,
       after,
       fill(config.cancelled_text, describe(after)),
       `cancelled:${after.id}`,
-      input.actor,
+      actor,
     );
-  return after;
 }
 
 /**

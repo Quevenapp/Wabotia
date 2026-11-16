@@ -10,6 +10,7 @@ import type { ModuleContext } from "../api";
 import { fill, money, type ReservaConfig } from "./config";
 import { ACTIVE_SQL } from "./availability";
 import {
+  announceCancel,
   cancelBooking,
   describe,
   getBooking,
@@ -17,6 +18,8 @@ import {
   publish,
   type Booking,
 } from "./bookings";
+
+const REFUND_REASON = "Sinal estornado pelo provedor de pagamento";
 
 export interface DepositStatus {
   /** O sinal pode ser cobrado nesta área. */
@@ -134,6 +137,12 @@ export async function expireBooking(
     reason: "deadline" | "payment_expired" | "payment_cancelled";
     paymentStatus?: string;
     at?: number;
+    /**
+     * Gancho de pagamento repetido (segunda conferência, A3): a reserva já
+     * liberada por esta cobrança refaz o evento e o aviso (com chave), que a
+     * primeira vez pode ter perdido numa falha depois da gravação.
+     */
+    repeat?: boolean;
   },
 ) {
   const at = options.at ?? clock();
@@ -149,11 +158,21 @@ export async function expireBooking(
     id,
     ctx.profile,
   );
-  if (!done.meta?.changes) return null;
+  if (!done.meta?.changes) {
+    if (!options.repeat) return null;
+    const already = await getBooking(ctx, id);
+    if (already.status !== "expired" || already.cancelled_by !== "system")
+      return null;
+  }
   const b = await getBooking(ctx, id);
-  await publish(ctx, "reserva.expired", b, "system", {
-    reason: options.reason,
-  });
+  await publish(
+    ctx,
+    "reserva.expired",
+    b,
+    "system",
+    { reason: options.reason },
+    `expired:${b.id}`,
+  );
   await notifyCustomer(
     ctx,
     b,
@@ -245,6 +264,7 @@ export async function paymentUpdated(
         payment.status === "expired" ? "payment_expired" : "payment_cancelled",
       paymentStatus: payment.status,
       at,
+      repeat: true,
     });
     return;
   }
@@ -263,6 +283,14 @@ export async function paymentUpdated(
     // começou é cancelada e a unidade volta a ficar livre; com o hóspede já
     // na casa (ou o check-in feito), vira pendência para a equipe.
     const b = await getBooking(ctx, row.id);
+    // Já cancelada por este estorno: refaz evento e aviso (com chave), que
+    // uma falha depois da gravação pode ter perdido (segunda conferência, A3).
+    if (
+      b.status === "cancelled" &&
+      b.cancelled_by === "system" &&
+      b.cancel_reason === REFUND_REASON
+    )
+      return announceCancel(ctx, config, b, "system", REFUND_REASON);
     if (["cancelled", "expired"].includes(b.status)) return;
     const notStarted =
       ["pending_payment", "confirmed"].includes(b.status) &&
@@ -272,7 +300,7 @@ export async function paymentUpdated(
       await cancelBooking(ctx, config, {
         id: b.id,
         actor: "system",
-        reason: "Sinal estornado pelo provedor de pagamento",
+        reason: REFUND_REASON,
       });
       return;
     }
