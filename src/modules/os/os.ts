@@ -243,7 +243,8 @@ onCommand("os", "os.create", async (ctx, actor, data, { requestId }) => {
     notes: data.notes,
     assignee: data.assignee,
     due_at: data.due_at,
-    notify: data.notify,
+    // Quem não atende a conversa abre a OS sem avisar o cliente (B9).
+    notify: c && !ctx.mayMessage(actor, c) ? false : data.notify,
     source:
       actor.kind === "user" && !actor.id.startsWith("bot:") ? "panel" : "api",
     sourceKey: `command:${actor.id}:${requestId}`,

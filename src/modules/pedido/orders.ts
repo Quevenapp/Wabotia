@@ -907,6 +907,8 @@ export async function applyMethod(
       `Pagamento: ${PAYMENT_LABELS[method]}.`,
     );
     let next = await loadOrder(ctx, order.id);
+    // Sem conversa para falar (ou quem pediu não atende a conversa, B9):
+    // muda o estado sem avisar o cliente.
     if (next.status === "awaiting_payment")
       next = await moveOrder(
         ctx,
@@ -914,6 +916,8 @@ export async function applyMethod(
         "received",
         actor,
         `Pagamento na ${order.fulfillment === "delivery" ? "entrega" : "retirada"}.`,
+        {},
+        c ? {} : { notify: false },
       );
     if (method === "cash" && change !== undefined) {
       // Já respondido na página do carrinho.

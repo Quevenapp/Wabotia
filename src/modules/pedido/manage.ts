@@ -337,7 +337,16 @@ export async function setMethod(ctx: ModuleContext, actor: Actor, data: any) {
     "Forma de pagamento: pix, link, cash ou card.",
   );
   const order = await loadOrder(ctx, data.id);
-  const c = await conversationOf(ctx, order);
+  const conv = await conversationOf(ctx, order);
+  // Cobrança online vai ao cliente só por quem atende a conversa (B9);
+  // dinheiro ou cartão na entrega só confirma o pedido que ele já fez.
+  const online = data.method === "pix" || data.method === "link";
+  if (online && conv)
+    requireValue(
+      ctx.mayMessage(actor, conv),
+      "Assuma a conversa antes de enviar a cobrança ao cliente.",
+    );
+  const c = conv;
   return orderView(
     await applyMethod(ctx, order, c, data.method as PaymentMethod, actor.id),
   );
@@ -533,9 +542,12 @@ export async function createFromApi(
     actor: actor.id,
   });
   if (!fresh) return orderView(created);
-  if (c && data.notify !== false) await sendSummary(ctx, c, created);
+  // Resumo e cobrança vão ao cliente só por quem atende a conversa
+  // (conferência B9); os demais registram o pedido sem falar com ele.
+  const talk = c && ctx.mayMessage(actor, c) ? c : null;
+  if (talk && data.notify !== false) await sendSummary(ctx, talk, created);
   const next = method
-    ? await applyMethod(ctx, created, c, method as PaymentMethod, actor.id)
+    ? await applyMethod(ctx, created, talk, method as PaymentMethod, actor.id)
     : created;
   return orderView(await loadOrder(ctx, next.id));
 }

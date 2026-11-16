@@ -605,11 +605,21 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
     staff: true,
     force: bool(data.force, "force"),
     deposit: bool(data.deposit, "deposit") ?? false,
-    notify: bool(data.notify, "notify"),
+    // Quem não atende a conversa reserva sem avisar nem cobrar (B9); quem
+    // atende cobra o sinal depois (POST …/deposit).
+    notify:
+      conversation && !ctx.mayMessage(actor, conversation)
+        ? false
+        : bool(data.notify, "notify"),
   });
   // Sinal pedido pela equipe: cobra pela conversa (modelo de notificação se
   // a janela de 24 horas estiver fechada).
-  if (created && conversation && booking.status === "pending_payment")
+  if (
+    created &&
+    conversation &&
+    ctx.mayMessage(actor, conversation) &&
+    booking.status === "pending_payment"
+  )
     return (
       await requestDeposit(ctx, rules, booking, conversation, {
         actor: actor.id,
@@ -668,6 +678,10 @@ onCommand(MODULE, "reserva.deposit", async (ctx, actor, data) => {
     "Esta reserva não está ligada a uma conversa do WhatsApp.",
   );
   const c = await ctx.conversation(booking.conversation_id, actor);
+  requireValue(
+    ctx.mayMessage(actor, c),
+    "Assuma a conversa antes de cobrar o sinal do cliente.",
+  );
   const result = await requestDeposit(ctx, await config(ctx), booking, c, {
     actor: actor.id,
     notification: true,

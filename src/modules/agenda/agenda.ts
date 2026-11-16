@@ -433,7 +433,12 @@ onCommand(MODULE, "agenda.book", async (ctx, actor, data) => {
       actor: actor.id,
       rules: { staff: true },
       force: staffFlag(data.force),
-      notify: data.notify === false ? false : undefined,
+      // Quem não atende a conversa agenda sem avisar o cliente (B9).
+      notify:
+        data.notify === false ||
+        (conversation && !ctx.mayMessage(actor, conversation))
+          ? false
+          : undefined,
     })
   ).appointment;
 });

@@ -123,6 +123,12 @@ export interface ModuleContext {
    */
   mayRead(actor: Actor, kind: SensitiveKind): boolean;
   /**
+   * Quem pode falar com o cliente da conversa em nome da equipe: o dono da
+   * conversa, um administrador ou o bot que está atendendo (estado `ai`).
+   * Quem não pode cria o registro sem avisar nem cobrar (conferência B9).
+   */
+  mayMessage(actor: Actor, c: Conversation): boolean;
+  /**
    * Filtros de busca seguros para o ator (conferência M6): sem contacts:read,
    * a busca `q` perde os dígitos e somem os filtros `phone` e `document`, para
    * a lista não virar oráculo (documento ou telefone → cliente).
@@ -350,6 +356,10 @@ export function modulesApi(
     },
     access: (actor, scope) => access(actor, profile, scope),
     mayRead: (actor, kind) => mayRead(actor, kind),
+    mayMessage: (actor, c) =>
+      c.owner === actor.id ||
+      (actor.kind === "user" && actor.role === "admin") ||
+      (actor.id.startsWith("bot:") && c.state === "ai"),
     safeQuery(actor, query) {
       if (mayRead(actor, "contacts")) return query;
       const { phone: _p, document: _d, ...rest } = query;
