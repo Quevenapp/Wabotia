@@ -14,7 +14,7 @@ instalação de teste (sessão K).
 | 2 | Instância `erp:` sem afetar a área | **passou** |
 | 3 | Pacote candidato | **passou** (alerta: 18,3 MB sem o ERP) |
 | 4 | Esquema completo gerado, paridade, aplicado no objeto | **passou** |
-| 5 | Motor mínimo e diferencial | **passou** para `erp_reference_search` e `erp_stock_post`; **`erp_document_save` não portado** (190 funções, 180 KB: tamanho de domínio, não de prova) |
+| 5 | Motor mínimo e diferencial | **passou** para `erp_reference_search` e `erp_stock_post`; **`erp_document_save` não portado** (190 funções, 180 KB: tamanho de domínio, não de prova). Complemento do portão: chamada entre domínios com o mesmo `command_id` e validação pesada de jsonb (**passou**, zero divergência), mapa de fechos dos 612 RPCs e produtividade medida (abaixo) |
 | 6 | Costura (`createHandler` sem alteração, rota real) | **passou** |
 | 7 | Medições | **passou** com ressalvas: `erp_document_save` não medido (proxy: `erp_stock_post` com 100 itens); CPU de produção só na instalação de teste |
 | 8 | Backup | **passou** (dump e restauração); recuperação por bookmark **não deu para provar** no local |
@@ -26,6 +26,11 @@ versão ponte), relatórios pesados fora da transação de escrita (teto de
 linhas lidas e jobs em fatias), o `erp_document_save` como primeira tarefa do
 domínio Documentos sobre o harness pronto, e a confirmação na instalação de
 teste (CPU real, limites e bookmark).
+
+Portão aprovado com `erp_reference_search` + `erp_stock_post`;
+`erp_document_save` é a primeira tarefa de Documentos. Os três complementos
+pedidos para manter o portão válido estão em "Portão: o que o
+`erp_stock_post` não exercita", "Mapa de fechos" e "Produtividade medida".
 
 ## Prova 1 — sonda de dialeto (`tests/erp-do-dialect.test.ts`)
 
@@ -224,9 +229,12 @@ tempo e identity mascarados; erros por código e mensagem), `node-driver.mjs`
 como parâmetro, como o objeto). RPC não portado roda só no Postgres e o
 estado é espelhado; RPC portado roda nos dois, compara e realinha.
 
-| Teste (`npm run test:erp`, 15 de 15) | Resultado |
+| Teste (`npm run test:erp`, 35 de 35) | Resultado |
 |---|---|
-| `tests/erp/fagoo/stock-adversarial.test.mjs` (cópia de `tools/migration/test_stock_adversarial.mjs`, 5 asserções originais) | **passa nos dois motores**, estado igual tabela a tabela depois de cada `erp_stock_post` |
+| `tests/erp/fagoo/stock-adversarial.test.mjs` (cópia de `tools/migration/test_stock_adversarial.mjs`, 5 testes originais) | **passa nos dois motores**, estado igual tabela a tabela depois de cada `erp_stock_post` |
+| `tests/erp/fagoo/stock-sql.test.mjs` (cópia de `tools/migration/test_stock_sql.mjs`, 11 testes; só os auxiliares trocados) | **11 de 11** nos dois motores; 1 com asserções adaptadas (abaixo) |
+| `tests/erp/cross-domain.test.mjs` | chamada entre domínios com o mesmo `command_id` e `validate_data` aleatório (abaixo) |
+| `tests/erp/numeric-boundary.test.mjs`, `tests/erp/deviations.test.mjs` | as 20 colunas `numeric`; desvios deliberados |
 | `tests/erp/fagoo/reference-search.test.mjs` (consultas do teste "PRF-296, CTT-045, VND-042" do `plataforma-h-sql`) | passa nos dois motores, mais 13 buscas com acento, prefixo, dígitos e limites |
 | `tests/erp/stock-post-diff.test.mjs` (aleatório, semente fixa) | 200 chamadas: 138 aceitas, 62 recusadas em 12 erros diferentes; 680 tabelas comparadas; zero divergência. ~3,8 ms por chamada no motor contra ~10,9 ms no PGlite (Node local) |
 
@@ -243,6 +251,154 @@ em 25 tabelas; só o núcleo (`normalize`, `normalize_core`, `permission_keys`,
 `validate_data`, `document_product`, `extension_data`, `write_fields`,
 `transitions`) passa de 70 KB. É o domínio Documentos, não uma prova. Fica
 como a primeira tarefa da sessão de Documentos, sobre o harness pronto.
+
+### Portão: o que o `erp_stock_post` não exercita (`tests/erp/cross-domain.test.mjs`)
+
+Caso real e pequeno do oráculo: `erp_documents.auto_products` (a parte do
+`erp_document_save` que cadastra produto a partir do item livre) chama
+`erp_catalog.document_product` com o comando **do documento**. Portados com
+o fecho (24 funções, 22 KB, 13 em PL/pgSQL): `catalog/public.ts`
+(`documentProduct`), `catalog/internal.ts` (`validate_data` inteiro, das
+três entidades; `unit_price`; `next_product_code` com EAN; camada de tabela
+de `record` e `product` com os gatilhos `zz_origin_sync` e
+`items_per_box_follow`; `dto`, `data`, `product_detail_data`),
+`documents/internal.ts` (`autoProducts`), `documents/public.ts` (`allowed`),
+`preferences/public.ts` (`get`). O harness ganhou `f.dual(nome, pg, motor)`
+(qualquer função, não só RPC) e `inTransaction` no motor.
+
+**Por que o recibo precisa de escopo.** O catálogo grava o recibo em
+`erp_catalog.command`, a mesma tabela do `erp_catalog_save`, com id
+`md5('document-auto-product:' || comando || ':' || posição)`. O teste usa
+o mesmo id primeiro num `erp_catalog_save` e depois como comando do
+documento com três itens novos: ficam quatro recibos, sem colisão. Sem o
+escopo, o segundo item acharia o recibo do primeiro (hash diferente → 40001)
+e o `erp_catalog_save` anterior seria tomado por repetição. Regra para o
+porte: **recibo de comando vindo de outro domínio leva escopo** (`scopedCommand`
+em `catalog/public.ts`; o Fagoo também usa coluna `scope` em
+`erp_fiscal_invoices.command` e `erp_pos.command`).
+
+| Caso (nos dois motores, resposta e tabelas comparadas) | Resultado |
+|---|---|
+| 5 itens: 3 novos (um com preço `99999999999999.9999999999`, um serviço com preço numérico), 1 pelo código sem caixa, 1 já com produto | iguais; 3 produtos, auditoria, recibos, fila do Origin |
+| Repetição do mesmo documento | mesmos produtos, nada novo |
+| Mesmo comando e posição com outro conteúdo | 40001 `erp_catalog_command_conflict` nos dois |
+| Compra (preço fora do cadastro); vendas tentando compra | iguais; 42501 nos dois |
+| 10 itens inválidos (nome, texto, controle, preço com 11 casas, negativo, zero à esquerda, 15 inteiros, tipo, código) | mesma recusa e mensagem |
+| `validate_data` isolado: 400 objetos aleatórios (contatos, produtos, depósitos; metade só com valores válidos) | **zero divergência**: 145 aceitos, 12 recusas diferentes |
+
+Primeira execução já verde (a única falha foi do próprio teste). Uma
+mutação proposital (tirar o `btrim`) é pegue pelo diferencial em 60 objetos.
+
+## Mapa de fechos (`scripts/erp/closure-map.mjs`, `docs/erp-closure-map.json`)
+
+612 RPCs que a erp-api chama (581 por nome literal, o resto pelos 8
+prefixos montados em tempo de execução, como `erp_stock_reservation_${…}`).
+Domínio do RPC pelo prefixo do nome (9 sem prefixo conhecido: pelo schema
+dominante do fecho). Dono de função interna: o domínio do seu schema.
+
+| Domínio | RPCs | Código alcançável (KB) | Maiores fechos (funções, KB) |
+|---|---|---|---|
+| Referências | 1 | 3 | `erp_reference_search` (5, 3) |
+| Empresa | 21 | 42 | `erp_company_save_identity` (10, 9) |
+| Acesso | 20 | 88 | `erp_activity_list` (15, 34); `erp_access_user_controls_save` (10, 15) |
+| Catálogo | 101 | 421 | `erp_catalog_product_price_adjust` (79, 107); `erp_catalog_product_variation_add` (67, 93); `erp_catalog_save` (65, 88) |
+| Documentos | 63 | 296 | `erp_document_proposal_version` (182, 173); `erp_document_save` (181, 170); `erp_document_checkout_save` (186, 163) |
+| Estoque | 108 | 419 | `erp_stock_product_create` (82, 102); `erp_stock_product_compose` (70, 95); `erp_stock_reservation_apply` (102, 90) |
+| Financeiro | 63 | 414 | `erp_finance_reconciliation_execute` (58, 67); `erp_document_finance_post` (94, 66) |
+| PDV | 9 | 64 | `erp_pos_sale_execute` (290, 312); `erp_pos_return_execute` (97, 105) |
+| CNAB | 55 | 169 | `erp_cnab_itau_net_credit_settle` (64, 76); `erp_cnab_operational_settle` (61, 71) |
+| Fiscal | 59 | 334 | `erp_fiscal_invoice_import` (122, 152); `erp_fiscal_invoice_partial_create` (98, 102) |
+| Preferências, home, plataforma, anexos | 73 | 318 | `erp_preferences_import_batch` (371, 429); `erp_home_business_panel` (69, 66) |
+| Origin | 39 | 210 | `erp_sync_pull` (191, 208); `erp_sync_remote_deleted` (76, 47) |
+| **Total** | **612** | **2.782** (1.895 funções; de 3.226 KB de funções `erp`) | |
+
+Distribuição: 237 RPCs com fecho ≤ 10 KB, 525 ≤ 30 KB, 599 ≤ 100 KB; só 3
+passam de 200 KB (`import_batch`, `pos_sale_execute`, `sync_pull`), e são
+despachantes que alcançam vários domínios.
+
+**Funções compartilhadas (dono único).** 1.317 funções internas alcançadas;
+500 usadas por RPCs de dois ou mais domínios, 381 sem contar os
+despachantes (Preferências e Origin). As mais usadas:
+
+| Função | Dono | Domínios | RPCs |
+|---|---|---|---|
+| `erp_access.permission_keys`, `permission_parent`, `permitted` | Acesso | 10–11 | 359–362 |
+| `erp_preferences.get` | Preferências | 9 | 201 |
+| `erp_sync.enabled`, `applying`, `enqueue` | Origin (núcleo da fila) | 9 | 78–81 |
+| `erp_catalog.contact_scope`, `contact_visible_to`, `fold`, `unit_price`, `data`, `dto`, `validate_data`, `write_fields` | Catálogo | 7–8 | 20–142 |
+| `erp_documents.allowed`, `require_access`, `require_role`, `contact_usable`, `os_permitted` | Documentos | 8 | 75–114 |
+| `erp_finance.require_access`, `keys`, `permission_key`, `document_seller`, `commission_seller` | Financeiro | 7 | 32–127 |
+| `erp_access.resources_for_role` | Acesso | 7 | 122 |
+| `erp_document_mirror.visible`, `require_visible`, `guard_effect` | Origin (guardas do espelho) | 7 | 44–74 |
+| `erp_sync.capture_catalog`, `capture_finance`, `origin_effects`, `guard_zero_title` | Origin (gatilhos de captura) | 7 | 29–42 |
+| `erp_stock.require_access` | Estoque | 6 | 95 |
+| `erp_documents.normalize` (12 KB), `normalize_core` (8,5 KB) | Documentos | 4 | 6 |
+
+**Onde a heurística erra:**
+- **Superestima:**
+  - Gatilhos de toda tabela escrita. A versão refinada já só conta o gatilho cujo evento bate. Mesmo assim, `insert … on conflict do update` puxa os gatilhos de UPDATE: no `document_product`, 4 das 24 funções (17%) nunca rodam, porque o id é novo.
+  - Funções genéricas contam inteiras: `validate_data`, `data` e `write_fields` servem três entidades, e o produto usa ~60%.
+  - Ramos mortos para a chamada: o estorno e a importação do espelho no `stock_post`.
+  - Despachantes: `import_batch`, `sync_pull` e `home_business_panel` somam todos os ramos.
+  - Nomes sobrecarregados entram todos (3 nomes).
+  - Ingênuo contra refinado: 12.313 contra 11.801 funções somadas, só −4%. O excesso grande está nos ramos, não nos gatilhos.
+- **Subestima:**
+  - SQL dinâmico (`execute`), em 26 funções.
+  - Funções em expressão de índice (`erp_catalog.fold`, nas colunas `__fold`).
+  - Padrões de coluna e CHECKs que chamam funções.
+  - Código das RLS (sai do porte).
+
+**Ordem dos domínios.** O mapa confirma o começo, Referências → Empresa →
+Acesso → Catálogo: Empresa e Acesso só dependem do núcleo; Catálogo usa de
+Fiscal só listas de leitura (aba fiscal do contato, 17 KB) e de Estoque a
+composição (`composition_apply_values`). Mas **depois do Catálogo a ordem do
+plano (Documentos antes de Estoque e Financeiro) não se mantém**: Documentos
+usa 63 KB de Estoque (lançamento e prévia de estoque do documento) e 42 KB
+de Financeiro, enquanto Estoque usa 6 KB de Documentos e Financeiro 9 KB.
+Proposta:
+
+0. **Núcleo transversal, um dono, antes dos domínios**:
+   - De Acesso: `permission_keys`, `permitted`, `resources_for_role`.
+   - `erp_preferences.get`.
+   - A fila do Origin: `enabled`, `applying`, `enqueue`. Cada `capture_*` vai com o domínio da sua tabela.
+   - As guardas do espelho de documentos: `visible`, `require_visible`, `guard_effect`.
+   - Já começado: `access/public.ts`, `sync/public.ts`, `preferences/public.ts`.
+1. Referências → Empresa → Acesso.
+2. Catálogo e preços.
+3. **Estoque e Financeiro**, em paralelo. A ligação entre eles é a comissão no documento lançado: 13 funções.
+4. **Documentos**, com `erp_document_save` e `normalize` como primeira tarefa.
+5. Fiscal (depende de Catálogo e Financeiro) e CNAB (depende de Financeiro), em paralelo.
+6. PDV (depende de Financeiro, Documentos e Estoque).
+7. Preferências (importações, relatórios, painel da home) e Origin (`sync_pull`, importações): os despachantes que alcançam todos.
+
+## Produtividade medida
+
+| Medida | `erp_stock_post` | `document_product` + `auto_products` |
+|---|---|---|
+| Fecho | 27 funções, 13 em PL/pgSQL, 28 KB (21 KB sem a lista constante de permissões, que virou arquivo gerado) | 24 funções, 13 em PL/pgSQL, 22 KB |
+| TS do domínio (linhas de código, sem comentário) | 468 (`stock_post.ts`, `stock/internal.ts`, `access/public.ts`, `sync/public.ts`) | 517 (`catalog/*`, `documents/*`, `preferences/public.ts`) |
+| Densidade | **22 linhas por KB** | **23,5 linhas por KB** (inclui ramos de contatos e depósitos de `validate_data`) |
+| Motor comum (uma vez) | 226 linhas (`engine/`) | +15 (`inTransaction`, `arrow`, `jsonbKeys`) |
+| Linhas de dialeto (decimal, `CAST`, tipo de argumento, jsonb canônico, ordem, tempo) | 49 (10%) | 69 (13%) |
+| Divergências achadas pelo diferencial até ficar verde | 4 (regra do `numeric(18,6)`, fuso, 22008 × 22007, ordem das conferências) | 0 na primeira execução |
+
+**Testes originais (os do Fagoo que exercitam o `erp_stock_post`):**
+- `test_stock_adversarial.mjs`: 6 testes. 5 passam sem mudar asserção; 1 descartado (grants).
+- `test_stock_sql.mjs`: 12 testes.
+  - 10 passam sem mudar asserção.
+  - 1 adaptado: o contrato HTTP esperava a projeção só da migração 009, que o próprio Fagoo diz para conferir em outro teste.
+  - 1 descartado (RLS e grants).
+- **Total: 15 de 18 passam com as asserções originais, 1 adaptado e 2 descartados por não existirem no motor.**
+- A adaptação é mecânica e só nos auxiliares:
+  - criar o banco → `dualFixture()`;
+  - `select public.rpc(...)` → `f.rpc`;
+  - SQL direto de escrita → `db.query` + `f.sync()`.
+- Os outros 34 arquivos de teste do Fagoo que citam `erp_stock_post` o usam como preparo de outros domínios e entram com eles.
+
+**Quanto foi mecânico.**
+- **Por linha:** ~87–90% é tradução um para um (cada `if`, `insert`, `select` do PL/pgSQL vira uma linha de TS); 10–13% é dialeto.
+- **Por tempo:** o que custou foram os pontos de julgamento. No `stock_post` eles viraram regras do motor e ajudantes (`dec.ts`, `dateArgError`, `jsonbText`). O `document_product` já saiu verde na primeira execução, com 400 objetos aleatórios.
+- O tempo do porte agora é dominado por ler o fecho e preparar os testes (quase todos dependem de `erp_catalog_save` e de SQL direto), não pelo dialeto.
 
 ## Prova 6 — costura (`tests/erp-do-api.test.ts`)
 
@@ -337,32 +493,84 @@ ligada (escritas 503).
 
 ## Estimativa revisada por domínio
 
-Medida do porte: `erp_stock_post` (21 KB de PL/pgSQL sem a lista constante de
-permissões) virou ~450 linhas de TS: **~21 linhas por KB**, contra as ~35 que
-a estimativa do plano supunha (115 mil linhas para 3,3 MB). Somam-se ao porte
-das funções: os 240 gatilhos pendentes (guardas em TS), os 222 CHECKs
-pendentes e a adaptação dos testes que usam SQL direto.
+Base, agora medida:
+- **Densidade:** dois portes, 22 e 23,5 linhas de TS por KB de PL/pgSQL; a conta usa 23 (22–24). O plano supunha ~35.
+- **Volume:** o código **alcançável** pelos 612 RPCs da erp-api, por domínio dono (mapa de fechos): união dos fechos, cada função contada uma vez. São 2.782 KB, não os 3,3 MB de todas as funções; o resto não é alcançado pela API.
+- **Por que superestima pouco:** a união não conta duas vezes, e um ramo "morto" para um RPC costuma ser usado por outro (por exemplo, o ramo de contatos do `validate_data`).
+- **Por que subestima:** fica de fora o SQL dinâmico de 26 funções.
+- **Fora da conta:**
+  - os 222 CHECKs pendentes (~1–2 mil linhas de validação);
+  - a adaptação dos testes;
+  - as listas constantes, que viram arquivos gerados.
 
-| # | Domínio | Plano (mil linhas) | Revisado (mil linhas) | Observação |
-|---|---|---|---|---|
-| 1 | Referências | 0,1 | 0,1 | `erp_reference_search` já portado |
-| 2 | Empresa | 1,7 | 1,2 | |
-| 3 | Acesso e atividade | 3,4 | 2,5 | `access/public.ts` começado |
-| 4 | Catálogo, contatos, preços | 16 | 11 | `erp_catalog_save` é pré-requisito de quase todo teste |
-| 5 | Documentos | 13 | 10–13 | `erp_document_save` sozinho é ~3–5 mil |
-| 6 | Estoque | 15 | 10 | `erp_stock_post` já portado |
-| 7 | Financeiro | 16 | 11 | |
-| 8 | PDV | 2,4 | 1,8 | |
-| 9 | CNAB e boleto | 6,4 | 4,5 | |
-| 10 | Fiscal do lado ERP | 12 | 8 | sem o bloco A1/SEFAZ (decisão 7) |
-| 11 | Preferências, home, plataforma, anexos | 12 | 8,5 | |
-| 12 | Origin | 16 | 11 | |
-| | **Total** | **~115 (90–140)** | **~80 (65–100)** | mais ~5 mil de guardas e validações pendentes |
+| # | Domínio | Plano (mil linhas) | Revisão anterior | **Medido (mil linhas)** | Observação |
+|---|---|---|---|---|---|
+| 0 | Núcleo transversal | — | — | (dentro de Acesso, Preferências e Origin) | acesso, `preferences.get`, fila e guardas do espelho; já começado |
+| 1 | Referências | 0,1 | 0,1 | 0,1 | `erp_reference_search` portado |
+| 2 | Empresa | 1,7 | 1,2 | 1,0 | 42 KB |
+| 3 | Acesso e atividade | 3,4 | 2,5 | 1,9 | 88 KB, menos a lista de permissões gerada |
+| 4 | Catálogo, contatos, preços | 16 | 11 | 9,7 | 421 KB; `document_product` e `validate_data` portados |
+| 5 | Estoque | 15 | 10 | 9,6 | 419 KB; `erp_stock_post` portado |
+| 6 | Financeiro | 16 | 11 | 9,5 | 414 KB |
+| 7 | Documentos | 13 | 10–13 | 6,8 | 296 KB: o fecho do `erp_document_save` é em boa parte de Estoque, Financeiro e Catálogo |
+| 8 | Fiscal do lado ERP | 12 | 8 | 7,7 (~5 sem A1/SEFAZ) | 334 KB, dos quais ~120 KB são do bloco A1/SEFAZ (decisão 7) |
+| 9 | CNAB e boleto | 6,4 | 4,5 | 3,9 | 169 KB |
+| 10 | PDV | 2,4 | 1,8 | 1,5 | 64 KB próprios; o `pos_sale_execute` (312 KB de fecho) reúsa os outros |
+| 11 | Preferências, home, plataforma, anexos | 12 | 8,5 | 7,3 | 318 KB |
+| 12 | Origin | 16 | 11 | 4,8 | 210 KB |
+| | **Total** | **~115 (90–140)** | **~80 (65–100)** | **~64 (61–67); com CHECKs e folga, 60–75** | |
 
-Ritmo observado com o harness pronto: um RPC difícil de ~30 KB com o fecho
-inteiro, teste original e diferencial aleatório verdes, em poucas horas de
-uma sessão. O gargalo é a preparação dos testes: quase todos usam
-`erp_catalog_save` e SQL direto, então Catálogo (4) é o caminho crítico.
+Ritmo com o harness pronto: o `document_product` (22 KB, 24 funções) saiu
+com o fecho inteiro e diferencial verde na primeira execução, numa fração
+de sessão. O gargalo é o caminho crítico de dependências (núcleo →
+Catálogo → Estoque/Financeiro → Documentos) e a preparação dos testes
+(quase todos usam `erp_catalog_save` e SQL direto).
+
+## Casas decimais nas telas e desvios deliberados do oráculo
+
+Decisão do usuário: banco e motor com a precisão do Fagoo; nas telas,
+padrão de 2 casas para preço e quantidade, configurável por empresa.
+
+**Onde ficam hoje os padrões no Fagoo.** Existe preferência para a
+quantidade **e** para o preço. São preferências da empresa, página
+"Empresa › Geral":
+
+| Chave | Padrão | Faixa |
+|---|---|---|
+| `empresa.decimais_quantidade` | 6 | 0–10; acima de 6 vale 6 |
+| `empresa.decimais_preco_saida` | 10 | 0–10 |
+| `empresa.decimais_preco_entrada` | 10 | 0–10 |
+| `empresa.decimais_peso` | 3 | 0–5 |
+
+O padrão está escrito em três lugares:
+1. **Banco:** `erp_preferences.definition.default_value`, semeado por `202610200115_erp_preferences.sql` (linhas 206–208). Nossa semeadura (`seed.generated.ts`) vem daí.
+2. **Definição da tela:** `packages/erp-domain/src/preferences/pages/empresa-geral.mjs`, com os mesmos padrões e a nota de onde cada uma se aplica.
+3. **Recuos quando a preferência falta:**
+   - preço: `coalesce(…, 10)` nas funções das migrações 164, 199, 239, 287 e 277;
+   - quantidade: `least(greatest(coalesce(…, 6), 0), 6)` na 287;
+   - frontend: `settings?.quantity_decimals ?? 6` em `apps/erp/src/lib/document-seller-rules.ts`.
+
+Duas coisas não guardam padrão:
+- A migração `202610160057_unit_price_precision.sql` não define preferência: ela só alarga a escala do preço (`numeric` + CHECK de 10 casas).
+- `standalone-defaults.sql` não cita casas.
+
+**Atenção — não é só exibição.**
+- No Fagoo essas preferências **limitam a entrada também no servidor**:
+  - o `erp_document_save` recusa preço com mais casas que a preferência (164/287);
+  - a quantidade, idem (287);
+  - o lançamento de estoque, o preço de entrada (277).
+- O editor confere igual.
+- A exibição só compacta o decimal (tira zeros à direita, `compactDocumentDecimal`); não existe "mostrar com N casas" para preço e quantidade. Só o peso usa `roundedDecimal` com as casas da preferência.
+
+Mudar o padrão para 2 faz o servidor recusar 3 casas ou mais até a empresa subir o valor. Se a intenção é só a tela, o caminho é outro: uma preferência nova, só de exibição. As duas opções estão no aviso à orquestração.
+
+**Mecanismo registrado (`src/erp/schema/deviations.ts`).**
+- **O que entra na lista:** só valores iniciais semeados (referência e preferências), cada um com motivo e decisão.
+- **Gerador:** confere cada item contra o oráculo e para se o Fagoo mudar o valor. Só os itens com `applied: true` trocam a semeadura.
+- **Diferencial:** `dualFixture` aplica os mesmos itens no Postgres antes de começar. Os dois motores rodam com o valor do Wabotia, e a semeadura diferente não vira divergência.
+- **Prova:** `tests/erp/deviations.test.mjs`.
+- **Primeiro item:** `telas-2-casas`, com `decimais_preco_saida` 10 → 2, `decimais_preco_entrada` 10 → 2 e `decimais_quantidade` 6 → 2.
+- **Situação:** **registrado, não aplicado.** Ele não atrapalha as provas 7 e 8, que não leem essas preferências, mas o efeito na entrada pede confirmação antes.
 
 ## Para as sessões de domínio
 
@@ -380,10 +588,23 @@ uma sessão. O gargalo é a preparação dos testes: quase todos usam
   da camada de tabela chamadas por quem escreve (`stock/internal.ts`:
   `ensureBalance`, `updateBalance`, `insertEntry`); os que só lançam erro já
   estão em SQL gerado.
+- **Antes de portar, o mapa:** `docs/erp-closure-map.json` diz o domínio de
+  cada RPC, o fecho e as funções compartilhadas com dono. Função de outro
+  domínio se usa pelo `public.ts` do dono; se ainda não existe, porte-a lá
+  (não copie). Recibo de comando vindo de outro domínio leva escopo
+  (`scopedCommand`).
 - **Testes originais:** copie para `tests/erp/fagoo/`, troque a criação do
-  banco por `dualFixture()` e as chamadas SQL de RPC por `f.rpc`; asserções
-  iguais; testes de `grant`/RLS saem (declare no cabeçalho). Acrescente um
-  diferencial aleatório com mutações de um campo (`stock-post-diff`).
+  banco por `dualFixture()`, as chamadas SQL de RPC por `f.rpc` e o SQL
+  direto de escrita por `db.query` + `f.sync()`; asserções iguais; testes de
+  `grant`/RLS saem (declare no cabeçalho). Função interna (não RPC) se
+  compara com `f.dual(nome, pg, () => inTransaction(f.driver, ctx => …))`.
+  Acrescente um diferencial aleatório (`stock-post-diff`,
+  `cross-domain.test.mjs`).
+- **Decimais:** escala por coluna em `columns.generated.ts`; `dec_text`
+  (decimal em TEXT, acima de 18 dígitos) compara e soma em TS
+  (`compareDec`, `exact`, `decText`), nunca no SQL.
+- **Desvios do Fagoo:** só valores semeados, em
+  `src/erp/schema/deviations.ts`, com motivo; nunca regra de negócio.
 - **Esquema:** `scripts/erp/gen-sqlite.mjs` (decisões em
   `scripts/erp/overrides.mjs`, por domínio); `tests/erp/schema-parity.test.mjs`
   tem tetos para pendências (CHECK 222, gatilhos 240): baixe ao portar.
