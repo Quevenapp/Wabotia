@@ -2,7 +2,7 @@
 // regra e o preço da lista.
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { uuidArg } from "../../args.ts";
+import { uuidArg } from "../args.ts";
 import { byFoldedName, listPrice, loadList, requirePricing, ruleText } from "../pricing.ts";
 
 export function erpPricingProductLists(ctx: RpcContext, a: RpcArgs) {

@@ -2,7 +2,7 @@
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc } from "../../../engine/registry.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { productFull } from "../internal.ts";
 import { requireAccess } from "../pricing/deps.ts";
 

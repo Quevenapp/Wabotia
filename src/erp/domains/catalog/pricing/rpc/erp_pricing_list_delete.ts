@@ -2,7 +2,7 @@
 // junto pela cascata), com a versão esperada e a trilha.
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { intArg, uuidArg } from "../../args.ts";
+import { intArg, uuidArg } from "../args.ts";
 import { requestHash } from "../../command.ts";
 import { audit, header, loadList, replay, requirePricing, storeCommand } from "../pricing.ts";
 

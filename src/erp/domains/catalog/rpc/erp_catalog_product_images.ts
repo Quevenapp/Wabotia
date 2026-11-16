@@ -1,7 +1,7 @@
 // public.erp_catalog_product_images: as imagens prontas do produto (na
 // ordem), as reservadas e o total em bytes. Produto excluído ainda lista.
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { imageAuthorize, imagesData } from "../product-images.ts";
 
 export function erpCatalogProductImages(ctx: RpcContext, a: RpcArgs) {

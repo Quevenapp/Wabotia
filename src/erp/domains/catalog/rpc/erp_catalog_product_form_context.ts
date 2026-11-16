@@ -1,7 +1,7 @@
 // public.erp_catalog_product_form_context: o CRT confirmado da empresa (campos fiscais do formulário).
 import { one } from "../../../engine/driver.ts";
 import { registerRpc } from "../../../engine/registry.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { requireAccess } from "../pricing/deps.ts";
 
 registerRpc("erp_catalog_product_form_context", (ctx, a) => {

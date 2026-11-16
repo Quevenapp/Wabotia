@@ -3,7 +3,7 @@
 import { one } from "../../../../engine/driver.ts";
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { textArg, uuidArg } from "../../args.ts";
+import { textArg, uuidArg } from "../args.ts";
 import { CNTRL, chars, matches, searchTerms } from "../../fields.ts";
 import { fold } from "../../internal.ts";
 import { dateOrInfinity } from "../args.ts";

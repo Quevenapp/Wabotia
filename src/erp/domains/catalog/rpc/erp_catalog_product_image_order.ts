@@ -9,7 +9,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { requestHash } from "../command.ts";
 import { compareText } from "../fields.ts";
 import { uuidArrayArg } from "../pricing/args.ts";

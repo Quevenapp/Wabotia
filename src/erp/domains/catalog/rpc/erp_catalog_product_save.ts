@@ -8,7 +8,8 @@ import { jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import * as preferences from "../../preferences/public.ts";
 import { requireAccess } from "../access.ts";
-import { intArg, jsonArg, uuidArg } from "../args.ts";
+import { jsonArg } from "../args.ts";
+import { intArg, uuidArg } from "../pricing/args.ts";
 import { replayCommand, requestHash, storeCommand } from "../command.ts";
 import {
   data,
@@ -40,7 +41,7 @@ export function erpCatalogProductSave(ctx: RpcContext, a: RpcArgs) {
   const expected = intArg(a, "p_expected_version");
   const command = uuidArg(a, "p_command_id");
   const input = jsonArg(a, "p_data") as Record<string, unknown> | null;
-  const acknowledged = jsonArg(a, "p_acknowledged", null);
+  const acknowledged = jsonArg(a, "p_acknowledged");
   const db = ctx.db;
   requireAccess(db, user, "products", true);
   if (

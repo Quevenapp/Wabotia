@@ -2,7 +2,7 @@
 // código e GTIN), o preço do produto, o customizado e o da lista.
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { intArg, textArg, uuidArg } from "../../args.ts";
+import { intArg, textArg, uuidArg } from "../args.ts";
 import { CNTRL, chars, matches, searchTerms } from "../../fields.ts";
 import { fold, unitPriceNumeric } from "../../internal.ts";
 import { byFoldedName, header, listPrice, loadList, requirePricing } from "../pricing.ts";

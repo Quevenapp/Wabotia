@@ -2,7 +2,7 @@
 // para integrações (MCP e API).
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc } from "../../../engine/registry.ts";
-import { boolArg, intArg, textArg, uuidArg } from "../args.ts";
+import { boolArg, intArg, textArg, uuidArg } from "../pricing/args.ts";
 import { CNTRL, btrim, chars, compareText, searchTerms } from "../fields.ts";
 import { dto } from "../internal.ts";
 import { requireAccess } from "../pricing/deps.ts";

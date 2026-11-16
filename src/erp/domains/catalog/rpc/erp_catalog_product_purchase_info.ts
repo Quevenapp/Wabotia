@@ -7,7 +7,7 @@ import { registerRpc } from "../../../engine/registry.ts";
 import { activeRole } from "../../access/public.ts";
 import { allowed } from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { unitPriceNumeric } from "../internal.ts";
 import { uuidArrayArg } from "../pricing/args.ts";
 import { requireAccess } from "../pricing/deps.ts";

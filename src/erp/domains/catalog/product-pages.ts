@@ -4,7 +4,8 @@
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import type { RpcArgs } from "../../engine/registry.ts";
-import { boolArg, intArg, jsonArg, textArg, uuidArg } from "./args.ts";
+import { jsonArg } from "./args.ts";
+import { boolArg, intArg, textArg, uuidArg } from "./pricing/args.ts";
 import { CNTRL, btrim, chars, compareText, searchTerms } from "./fields.ts";
 import { dto, fold, productDetailData, unitPriceNumeric } from "./internal.ts";
 import { dateOrInfinity } from "./pricing/args.ts";

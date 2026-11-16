@@ -6,7 +6,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { boolArg, intArg, uuidArg } from "../args.ts";
+import { boolArg, intArg, uuidArg } from "../pricing/args.ts";
 import { replayCommand, requestHash, storeCommand } from "../command.ts";
 import { capture, productFull } from "../internal.ts";
 import { requireAccess } from "../pricing/deps.ts";

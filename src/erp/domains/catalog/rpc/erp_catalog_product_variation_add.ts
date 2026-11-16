@@ -9,7 +9,8 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgLeft, pgLower } from "../../../engine/text.ts";
 import { permitted } from "../../access/public.ts";
 import { requireAccess } from "../access.ts";
-import { jsonArg, uuidArg } from "../args.ts";
+import { jsonArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { CNTRL, btrim, chars, compareText } from "../fields.ts";
 import { dto } from "../internal.ts";
 import { variationDto } from "../product-variations.ts";

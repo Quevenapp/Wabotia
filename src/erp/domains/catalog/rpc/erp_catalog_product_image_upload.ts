@@ -7,7 +7,7 @@
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { boolArg, intArg, textArg, uuidArg } from "../args.ts";
+import { boolArg, intArg, textArg, uuidArg } from "../pricing/args.ts";
 import { requestHash } from "../command.ts";
 import { imageAudit, imageAuthorize, imageDto, imageRow, nowMicros } from "../product-images.ts";
 

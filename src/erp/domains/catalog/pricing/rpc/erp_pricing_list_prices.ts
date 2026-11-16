@@ -2,7 +2,7 @@
 // produtos (até 100), na ordem pedida, para os documentos.
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { uuidArg } from "../../args.ts";
+import { uuidArg } from "../args.ts";
 import { one } from "../../../../engine/driver.ts";
 import { uuidArrayArg } from "../args.ts";
 import { listPrice, loadList, requirePricing, ruleText, validNow } from "../pricing.ts";

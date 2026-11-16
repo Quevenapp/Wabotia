@@ -3,7 +3,7 @@
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { uuidArg } from "../args.ts";
+import { uuidArg } from "../pricing/args.ts";
 import { imageAudit, imageAuthorize, imageDto, imageRow } from "../product-images.ts";
 
 export function erpCatalogProductImageDelete(ctx: RpcContext, a: RpcArgs) {

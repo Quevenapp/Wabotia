@@ -2,7 +2,7 @@
 // só solta a posse do envio (lease) de quem a tem.
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { boolArg, uuidArg } from "../args.ts";
+import { boolArg, uuidArg } from "../pricing/args.ts";
 import { imageAudit, imageAuthorize, imageDto, imageRow, nowMicros } from "../product-images.ts";
 
 export function erpCatalogProductImageStop(ctx: RpcContext, a: RpcArgs) {

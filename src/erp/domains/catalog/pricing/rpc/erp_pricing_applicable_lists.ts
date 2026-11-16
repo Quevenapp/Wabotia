@@ -3,7 +3,7 @@
 // ou várias formas de pagamento).
 import { raise } from "../../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
-import { textArg, uuidArg } from "../../args.ts";
+import { textArg, uuidArg } from "../args.ts";
 import { compareText } from "../../fields.ts";
 import { uuidArrayArg } from "../args.ts";
 import {
