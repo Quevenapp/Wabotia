@@ -4,7 +4,9 @@
 import { one } from "../../engine/driver.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 
-export const enabled = (ctx: RpcContext) =>
+export * from "./stubs.generated.ts";
+
+export const enabled =(ctx: RpcContext) =>
   !!one(ctx.db, 'SELECT enabled FROM "erp_sync__settings" WHERE singleton=1')?.enabled;
 
 /** current_setting('erp_sync.applying') = 'on' */

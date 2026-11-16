@@ -17,8 +17,8 @@ export interface Deviation {
   id: string;
   /** Tabela do SQLite (schema__tabela). */
   table: string;
-  /** Chave primária da linha alterada. */
-  key: Record<string, string>;
+  /** Chave primária da linha alterada (valores JSON: texto, número, booleano). */
+  key: Record<string, string | number | boolean>;
   column: string;
   /** Valor no Fagoo (JSON, como o Postgres devolve). */
   oracle: unknown;
@@ -31,13 +31,29 @@ export interface Deviation {
 }
 
 const TELAS_2_CASAS =
-  "Decisão do usuário: nas telas, padrão de 2 casas para preço e quantidade, configurável por empresa. " +
-  "O banco e o motor continuam com a precisão do Fagoo (preço até 10, quantidade 6, custo 10, alíquotas 4). " +
-  "Atenção: no Fagoo estas preferências também limitam a ENTRADA no servidor (preço: migrações 164/287, " +
-  "lançamento de estoque 277; quantidade: 287), não só a exibição. Com 2, o servidor recusa 3 casas ou mais " +
-  "até a empresa subir o valor. Aplicar só depois de confirmar esse efeito.";
+  'Usuário (16/11): "casas decimais usamos apenas 02" e "pode deixar padrão 02 casas". Opção (a): o padrão ' +
+  "das preferências vai a 2, com o limite de entrada no servidor valendo; quem precisar de mais sobe a " +
+  "preferência. O banco e o motor seguem com a precisão do Fagoo (preço até 10, quantidade 6, custo 10). " +
+  "decimais_peso fica em 3. Conferido para o preço de entrada: o limite só vale no que se digita (preço do " +
+  "pedido de compra, erp_documents.check_preference_rules; preço e custo do lançamento e do balanço de " +
+  "estoque, erp_stock.entry_price_check). A importação de XML de nota de entrada (erp_fiscal_invoice_import, " +
+  "vUnCom com até 10 casas), o recebimento de compra e o custo médio não passam por ele.";
 
 export const ERP_DEVIATIONS: readonly Deviation[] = [
+  {
+    id: "origin-fora",
+    table: "erp_sync__settings",
+    key: { singleton: true },
+    column: "enabled",
+    oracle: true,
+    value: false,
+    reason:
+      "O Origin sai da instalação principal (PLANO-FAGOO.md, item 17): o ERP é portado com o Origin desligado. " +
+      "No Fagoo a migração 202610220009 liga a sincronização de fábrica (enabled=true); aqui ela nasce desligada, " +
+      "e erp_sync.enqueue não grava a fila. O contrato genérico de integração vem na última etapa.",
+    decided: "usuário, 16/11/2026 (item 17)",
+    applied: true,
+  },
   {
     id: "telas-2-casas",
     table: "erp_preferences__definition",
@@ -47,7 +63,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
   {
     id: "telas-2-casas",
@@ -58,7 +74,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
   {
     id: "telas-2-casas",
@@ -69,7 +85,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
 ];
 
@@ -79,9 +95,24 @@ interface SeedTable {
   rows: unknown[][];
 }
 
-/** Valor JSON → forma da coluna no SQLite (json: texto; o resto como está). */
+/** Valor JSON → forma da coluna no SQLite (json: texto; booleano: 0/1; o resto como está). */
 export const liteValue = (codec: string, value: unknown) =>
-  codec === "json" || codec.startsWith("array:") ? JSON.stringify(value) : value;
+  codec === "json" || codec.startsWith("array:")
+    ? JSON.stringify(value)
+    : codec === "bool" && typeof value === "boolean"
+      ? value
+        ? 1
+        : 0
+      : value;
+
+/** Linhas da semeadura que casam com a chave do desvio. */
+function matching(t: SeedTable | undefined, d: Deviation, codecOf: (table: string, column: string) => string) {
+  if (!t) return { col: -1, hits: [] as unknown[][] };
+  const col = t.columns.indexOf(d.column);
+  const keys = Object.entries(d.key).map(([k, v]) => [t.columns.indexOf(k), liteValue(codecOf(d.table, k), v)] as const);
+  const hits = col >= 0 && keys.every(([i]) => i >= 0) ? t.rows.filter((r) => keys.every(([i, v]) => r[i] === v)) : [];
+  return { col, hits };
+}
 
 /** Confere cada desvio contra a semeadura do oráculo: linha única e valor do Fagoo igual a `oracle`. */
 export function checkDeviations(
@@ -91,10 +122,11 @@ export function checkDeviations(
 ) {
   const problems: string[] = [];
   for (const d of deviations) {
-    const t = seed.find((x) => x.table === d.table);
-    const col = t?.columns.indexOf(d.column) ?? -1;
-    const keys = Object.entries(d.key).map(([k, v]) => [t?.columns.indexOf(k) ?? -1, v] as const);
-    const hits = t && col >= 0 && keys.every(([i]) => i >= 0) ? t.rows.filter((r) => keys.every(([i, v]) => r[i] === v)) : [];
+    const { col, hits } = matching(
+      seed.find((x) => x.table === d.table),
+      d,
+      codecOf,
+    );
     if (hits.length !== 1) problems.push(`${d.id} ${d.table} ${JSON.stringify(d.key)}: ${hits.length} linhas`);
     else if (hits[0][col] !== liteValue(codecOf(d.table, d.column), d.oracle))
       problems.push(`${d.id} ${d.table} ${JSON.stringify(d.key)}: o Fagoo tem ${String(hits[0][col])}, o desvio espera ${JSON.stringify(d.oracle)}`);
@@ -113,10 +145,11 @@ export function applyDeviations<T extends SeedTable>(
 ): T[] {
   const out = seed.map((t) => ({ ...t, rows: t.rows.map((r) => [...r]) }));
   for (const d of deviations) {
-    const t = out.find((x) => x.table === d.table);
-    const col = t?.columns.indexOf(d.column) ?? -1;
-    const keys = Object.entries(d.key).map(([k, v]) => [t?.columns.indexOf(k) ?? -1, v] as const);
-    const hits = t && col >= 0 && keys.every(([i]) => i >= 0) ? t.rows.filter((r) => keys.every(([i, v]) => r[i] === v)) : [];
+    const { col, hits } = matching(
+      out.find((x) => x.table === d.table),
+      d,
+      codecOf,
+    );
     if (hits.length !== 1) throw new Error(`Desvio ${d.id} (${d.table} ${JSON.stringify(d.key)}): ${hits.length} linhas na semeadura.`);
     hits[0][col] = liteValue(codecOf(d.table, d.column), d.value);
   }

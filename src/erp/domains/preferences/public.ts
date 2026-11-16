@@ -2,6 +2,8 @@
 // erp_preferences.get(p_key, p_user_id default null).
 import { one, type SqlDriver } from "../../engine/driver.ts";
 
+export * from "./stubs.generated.ts";
+
 /** Valor da preferência (JSON) ou null quando a chave não existe. */
 export function get(db: SqlDriver, key: string, user: string | null = null): unknown {
   const row = one(
