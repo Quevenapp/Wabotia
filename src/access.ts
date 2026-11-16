@@ -193,6 +193,9 @@ const SEGMENTS: Record<string, string | null> = {
   calls: "calls",
   team: "team",
   "internal-chats": "team",
+  // Pedidos de aprovação: quem vê e decide é a audiência de cada pedido,
+  // declarada pelo módulo (src/approvals.ts).
+  approvals: null,
   reports: "reports",
   surveys: "reports",
   // Apoio, sem dado de cliente.

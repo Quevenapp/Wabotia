@@ -5,6 +5,8 @@ import type { Env } from "../types";
 import { withReadCache } from "../db";
 import { scheduledModules } from "./hooks";
 import { moduleStates } from "./registry";
+import { expireApprovals } from "../approvals";
+import { expireProposals } from "../bot-actions/actions";
 
 /** Intervalo mínimo entre rodadas da mesma área. */
 export const SCHEDULE_INTERVAL_MS = 60_000;
@@ -24,6 +26,20 @@ export async function runModuleSchedules(
   profile: string,
   now: number,
 ): Promise<ScheduleOutcome[]> {
+  // Prazos do núcleo na mesma rodada: pedidos de aprovação e propostas do
+  // bot vencidos (src/approvals.ts, src/bot-actions).
+  try {
+    await expireApprovals(env, profile);
+    await expireProposals(env, profile);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        component: "module-schedule",
+        profile,
+        error: String((error as Error)?.message || error).slice(0, 300),
+      }),
+    );
+  }
   const registered = scheduledModules();
   if (!registered.length) return [];
   env = withReadCache(env);

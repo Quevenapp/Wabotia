@@ -3,6 +3,7 @@
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
 import {
+  registerApprovalHook,
   registerCommand,
   registerConversationAction,
   registerHandoffGate,
@@ -52,6 +53,12 @@ import {
   type Payment,
 } from "../payments";
 import { establishment, type Establishment } from "../establishment";
+import {
+  requestApproval,
+  type ApprovalDecision,
+  type ApprovalRequest,
+} from "../approvals";
+export type { ApprovalDecision, ApprovalRequest, ApprovalField } from "../approvals";
 import {
   CONSENT_PURPOSES,
   consentFor,
@@ -325,6 +332,14 @@ export interface ModuleContext {
   granted(actor: Actor, role: string): Promise<boolean>;
   /** Pessoas ativas da área com o papel, em ordem de nome. */
   grantees(role: string): Promise<{ id: string; name: string }[]>;
+  /**
+   * Pedido de aprovação à equipe a partir da conversa do cliente (desconto,
+   * isenção): o cartão (`fields`) é montado aqui, com dados lidos por código,
+   * nunca com números do modelo. Quem pode decidir: `approvers`. A decisão
+   * chega em onApproval. Repetir `key` devolve o mesmo pedido. Veja
+   * docs/MODULOS.md "Pedido de aprovação".
+   */
+  requestApproval(c: Conversation, request: ApprovalRequest): Promise<any>;
 }
 
 /** Id completo do papel; papel que o módulo não declarou é erro de código. */
@@ -706,6 +721,10 @@ export function modulesApi(
         );
       return conversation(env, c.id, profile);
     },
+    requestApproval: (c, request) => {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return requestApproval(env, moduleId, c, request);
+    },
     async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))
         throw new Error(
@@ -1072,6 +1091,33 @@ export function onMcpTool(
   )
     throw new Error(`Ferramenta ${tool.name}: use o prefixo ${moduleId}_.`);
   registerMcpTool({ ...tool, module: moduleId });
+}
+
+/**
+ * Decisão de um pedido de aprovação do módulo (ctx.requestApproval).
+ * `validate` (só ao aprovar): confira o ajuste e o limite de quem decide
+ * (`decision.actor`), lance ApiError para recusar; o pedido volta a pendente.
+ * `decided`: aplique o efeito; roda também no vencimento (status
+ * "expired", actor null): sem `decided`, o núcleo avisa o cliente e passa
+ * a conversa para a equipe. Erro em `decided` devolve o pedido a pendente.
+ */
+export function onApproval(
+  moduleId: string,
+  kind: string,
+  hook: {
+    validate?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
+    decided?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
+  },
+) {
+  if (!moduleById(moduleId)) throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerApprovalHook(moduleId, kind, {
+    ...(hook.validate
+      ? { validate: (env, profile, approval, decision) => hook.validate!(modulesApi(env, profile, moduleId), approval, decision) }
+      : {}),
+    ...(hook.decided
+      ? { decided: (env, profile, approval, decision) => hook.decided!(modulesApi(env, profile, moduleId), approval, decision) }
+      : {}),
+  });
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */

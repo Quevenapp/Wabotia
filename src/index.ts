@@ -77,6 +77,12 @@ import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
 import { mountMcp, takeInternalActor } from "./mcp";
 import {
+  approvalView,
+  decideApproval,
+  listApprovals,
+  loadApproval,
+} from "./approvals";
+import {
   cancelProposal,
   confirmProposal,
   fullPersonalData,
@@ -1660,6 +1666,41 @@ app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
     await listInternalChats(c.env, c.get("actor"), c.req.param("profile")),
   ),
 );
+// Pedidos de aprovação à equipe (src/approvals.ts): lista e decisão, só com
+// sessão de pessoa que pode decidir. O primeiro a decidir vence.
+app.get("/api/v1/profiles/:profile/approvals", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(await listApprovals(c.env, actor, profile, c.req.query()));
+});
+app.get("/api/v1/profiles/:profile/approvals/:id", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile) || actor.kind !== "user")
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(
+    approvalView(await loadApproval(c.env, profile, c.req.param("id")), actor),
+  );
+});
+app.post("/api/v1/profiles/:profile/approvals/:id/decide", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  const data = await c.req.json<any>().catch(() => ({}));
+  return c.json(
+    await decideApproval(
+      c.env,
+      actor,
+      profile,
+      c.req.param("id"),
+      data,
+      c.get("requestId"),
+    ),
+  );
+});
 // Proposta de ação do bot na conversa interna (src/bot-actions): só a pessoa
 // que pediu confirma ou cancela, pela sessão dela. Idempotente pelo estado da
 // proposta (confirmar de novo devolve o mesmo resultado).

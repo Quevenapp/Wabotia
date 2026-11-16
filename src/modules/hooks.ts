@@ -229,6 +229,21 @@ export const moduleRoutes = () => ({
   read: [...readRoutes],
 });
 
+/**
+ * Pedido de aprovação à equipe (src/approvals.ts): o módulo confere o ajuste
+ * e aplica o efeito da decisão. (env, profile, approval, decision).
+ */
+export interface ApprovalHook {
+  validate?: (env: any, profile: string, approval: any, decision: any) => Promise<void>;
+  decided?: (env: any, profile: string, approval: any, decision: any) => Promise<void>;
+}
+const approvalHooks = new Map<string, ApprovalHook>();
+export function registerApprovalHook(module: string, kind: string, hook: ApprovalHook) {
+  approvalHooks.set(`${module}:${kind}`, hook);
+}
+export const approvalHook = (module: string, kind: string) =>
+  approvalHooks.get(`${module}:${kind}`);
+
 /** Validação estrita de uma chave das configurações (PUT /settings). */
 export function registerSettingsValidator(
   key: string,

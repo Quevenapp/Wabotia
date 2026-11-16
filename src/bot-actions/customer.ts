@@ -11,6 +11,7 @@
 //   modelo; "já paguei" não muda nada (só o webhook do provedor).
 import { exec, one } from "../db";
 import { internalCall } from "../mcp";
+import { sha } from "../security";
 import { moduleMcpTools, type ModuleMcpTool } from "../modules/hooks";
 import { moduleStates } from "../modules/registry";
 import { enqueue } from "../service";
@@ -85,6 +86,8 @@ export async function customerToolContext(
       bots: [run.bot_id],
       rate: 120,
       runLimit: 3,
+      // Auditoria e o cartão de aprovação sabem de qual execução veio.
+      via: { kind: "bot", bot_id: run.bot_id, run_id: run.id, masked: true },
     },
   };
 }
@@ -178,7 +181,9 @@ export async function runCustomerTool(
         aviso: "O cliente recebeu um botão para confirmar. Não diga que foi feito.",
       });
     }
-    const response = await internalCall(ctx.env, ctx.bound, call, `bot:${ctx.run.id}:${state.calls}`);
+    // Mesma chamada na mesma execução (provedor repetido): a mesma chave.
+    const key = `bot:${ctx.run.id}:${await sha(JSON.stringify([name, call]))}`;
+    const response = await internalCall(ctx.env, ctx.bound, call, key.slice(0, 200));
     const body = await response.json<any>().catch(() => null);
     if (!response.ok) return err(body?.error?.message || `Falha HTTP ${response.status}.`);
     const text = JSON.stringify(sanitize(body, true));

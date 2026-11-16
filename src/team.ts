@@ -14,6 +14,7 @@ import { createRun } from "./service";
 import { declaredGrants, grantsFor } from "./module-grants";
 import { moduleStates } from "./modules/registry";
 import { hermesRequest } from "./integrations";
+import { approvalView } from "./approvals";
 
 function teamAccess(actor: Actor, profile: string) {
   access(actor, profile, "presence:read");
@@ -237,6 +238,27 @@ export async function internalChatDetail(
       // proposta, sempre atual; `text` é a reserva para apps antigos.
       payload: m.payload ? json(m.payload, null) : null,
     }));
+  // Pedido de aprovação (src/approvals.ts): o cartão como esta pessoa vê,
+  // sempre atual (quem decidiu, campos restritos só para quem pode).
+  const approvalIds = messages
+    .filter((m) => m.kind === "approval" && m.payload?.approval?.id)
+    .map((m) => m.payload.approval.id);
+  if (approvalIds.length) {
+    const rows = await all(
+      env,
+      "SELECT * FROM approvals WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))",
+      profile,
+      JSON.stringify(approvalIds),
+    );
+    for (const m of messages)
+      if (m.kind === "approval")
+        m.payload = {
+          approval: approvalView(
+            rows.find((r) => r.id === m.payload?.approval?.id),
+            actor,
+          ),
+        };
+  }
   // Estado atual das propostas mostradas (confirmada, vencida…).
   const ids = messages
     .filter((m) => m.kind === "proposal" && m.payload?.proposal?.id)
