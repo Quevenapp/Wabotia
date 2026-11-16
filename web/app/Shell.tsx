@@ -8,6 +8,7 @@ import {
   Contact,
   Ellipsis,
   FileText,
+  Info,
   Keyboard,
   LogOut,
   MessageCircle,
@@ -30,6 +31,7 @@ import {
   type Route,
 } from "../lib/routes";
 import { useTheme } from "../lib/theme";
+import { sourceLinkLabel, useSourceLink } from "../lib/source";
 import {
   canOpenPage,
   moduleAllows,
@@ -154,6 +156,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const route = useRoute();
   const items = useItems();
   const { mode, theme, setMode } = useTheme();
+  const source = useSourceLink();
   const [dialog, setDialog] = useState<"" | "prefs" | "keys" | "presence">("");
   // Abaixo de 760 px a conversa, o protocolo ou a página aberta ocupa a tela
   // toda, sem a barra de abas (como no aplicativo).
@@ -305,6 +308,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 icon: <SlidersHorizontal size={17} />,
                 separator: true,
                 onSelect: () => setDialog("prefs"),
+              },
+              {
+                // AGPL-3.0, §13: o código do commit em execução, para
+                // qualquer pessoa logada (a tela de conversas não tem rodapé).
+                label: sourceLinkLabel(source),
+                icon: <Info size={17} />,
+                onSelect: () => window.open(source.url, "_blank", "noopener"),
               },
               {
                 label: "Sair",

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Code2,
   Contact,
+  Info,
   LogOut,
   Settings,
   SlidersHorizontal,
@@ -17,10 +18,12 @@ import { linkProps } from "../lib/routes";
 import { canOpenPage, railPages } from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
+import { sourceLinkLabel, useSourceLink } from "../lib/source";
 
 export function MoreArea() {
   const app = useApp();
   const [prefs, setPrefs] = useState(false);
+  const source = useSourceLink();
   return (
     <div className="more-area">
       <header className="more-user">
@@ -131,6 +134,16 @@ export function MoreArea() {
         >
           <Code2 size={21} />
           <span>Documentação da API</span>
+          <ChevronRight size={18} />
+        </a>
+        <a
+          className="more-link"
+          href={source.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Info size={21} />
+          <span>{sourceLinkLabel(source)}</span>
           <ChevronRight size={18} />
         </a>
       </section>

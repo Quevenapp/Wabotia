@@ -13,7 +13,12 @@ const fallback: SourceLink = {
 };
 let pending: Promise<SourceLink> | null = null;
 
-function load(): Promise<SourceLink> {
+/**
+ * Endereço do código-fonte em execução, sem React: para qualquer tela que
+ * monte o link por conta própria (a casca do ERP, por exemplo). Uma consulta
+ * por carregamento da página; sem rede, o repositório oficial.
+ */
+export function loadSourceLink(): Promise<SourceLink> {
   pending ||= fetch("/api/health", { credentials: "omit" })
     .then((r) => (r.ok ? r.json() : null))
     .then((info: any) =>
@@ -29,10 +34,14 @@ export function useSourceLink(): SourceLink {
   const [link, setLink] = useState(fallback);
   useEffect(() => {
     let alive = true;
-    void load().then((value) => alive && setLink(value));
+    void loadSourceLink().then((value) => alive && setLink(value));
     return () => {
       alive = false;
     };
   }, []);
   return link;
 }
+
+/** Texto do item de menu e do rodapé. */
+export const sourceLinkLabel = (link: SourceLink) =>
+  `Sobre / Código-fonte (${link.license})`;

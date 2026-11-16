@@ -31,7 +31,7 @@ Informe Account ID, token Cloudflare e nome novo. O instalador baixa um pacote o
 
 As próximas versões são instaladas em **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. [Instalação, Windows, retomada e reinstalação](docs/INSTALACAO.md) · [Atualizações e publicação de versões](docs/ATUALIZACOES.md).
 
-O repositório oficial continua público (AGPL-3.0 no servidor e no painel; apps e conectores sob MIT), com Actions desativado. Sua instalação recebe versões oficiais publicadas e mantém banco, mídias e secrets na sua própria Cloudflare.
+O repositório oficial continua público (AGPL-3.0 no servidor e no painel; apps, conectores e gateway de push sob MIT), com Actions desativado. Sua instalação recebe versões oficiais publicadas e mantém banco, mídias e secrets na sua própria Cloudflare.
 
 ## Conectar serviços
 
@@ -110,7 +110,7 @@ Uma organização por implantação; fuso America/Sao_Paulo. R2 é privado. O hi
 
 O repositório tem duas licenças:
 
-- **Servidor e painel web** (tudo fora de `mobile/` e `connectors/`): [GNU AGPL-3.0](LICENSE). Quem oferece o Wabotia pela rede, modificado ou não, oferece também o código-fonte da versão em execução: o link fica em `/api/health`, em `/api/v1/capabilities`, no rodapé do painel e do login e nas páginas que o cliente final abre. Se você modificar o Wabotia, aponte o seu repositório na variável `WABOTIA_SOURCE_URL` (endereço HTTPS; `{commit}` no texto é trocado pelo commit em execução, senão acrescenta-se `/tree/<commit>`).
-- **Apps Android e iOS** ([`mobile/`](mobile/LICENSE)) e **conectores** ([`connectors/`](connectors/LICENSE)): MIT, cada pasta com o próprio `LICENSE`.
+- **Servidor e painel web** (tudo fora de `mobile/`, `connectors/` e `push-gateway/`): [GNU AGPL-3.0](LICENSE). Quem oferece o Wabotia pela rede, modificado ou não, oferece também o código-fonte da versão em execução: o link fica em `/api/health`, em `/api/v1/capabilities`, no menu da conta e no rodapé do painel, no login e nas páginas que o cliente final abre. Se você modificar o Wabotia, aponte o seu repositório na variável `WABOTIA_SOURCE_URL` (endereço HTTPS; `{commit}` no texto é trocado pelo commit em execução, senão acrescenta-se `/tree/<commit>`).
+- **Apps Android e iOS** ([`mobile/`](mobile/LICENSE)), **conectores** ([`connectors/`](connectors/LICENSE)) e **gateway de push** ([`push-gateway/`](push-gateway/LICENSE)): MIT, cada pasta com o próprio `LICENSE`.
 
 As versões até a 0.20.0 foram publicadas sob MIT e continuam sob MIT. O código derivado do WABABOTAI (regras e extensão genérica de entrada exclusiva) mantém o aviso MIT original em [LICENSES/MIT-WABABOTAI.txt](LICENSES/MIT-WABABOTAI.txt); veja [NOTICE](NOTICE) e [atribuições de terceiros](THIRD_PARTY_NOTICES.md). Não inclua credenciais, arquivos de clientes ou bancos em contribuições. Não há workflows GitHub Actions; execute as verificações manualmente.
