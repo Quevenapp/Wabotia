@@ -31,7 +31,7 @@ class CourierActivity : ComponentActivity() {
         if (demo && savedInstanceState == null) demoBackend = DemoCourierBackend()
         val backend = if (demo) demoBackend ?: DemoCourierBackend().also { demoBackend = it } else HttpCourierBackend()
         val store = if (demo) MemoryCourierSessionStore() else SecureCourierSessionStore(this)
-        val vm = ViewModelProvider(this, CourierViewModel.factory(backend, store))[CourierViewModel::class.java]
+        val vm = ViewModelProvider(this, CourierViewModel.factory(backend, store, device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE})"))[CourierViewModel::class.java]
         this.vm = vm
         if (savedInstanceState == null) {
             vm.restore()
@@ -50,7 +50,7 @@ class CourierActivity : ComponentActivity() {
         handle(intent)
     }
 
-    /** Link do pedido aberto de fora (câmera do sistema) e, no build de depuração, `--es courier revoke`. */
+    /** Link do pedido (`https://<servidor>/c/<código>`) e, no build de depuração, `--es courier revoke|claim:0`. */
     private fun handle(intent: Intent?) {
         intent?.getStringExtra(EXTRA_LINK)?.let(CourierLinks::parse)?.let { vm?.claim(it) }
         if (BuildConfig.DEBUG && intent?.getStringExtra(EXTRA_DEBUG) == "revoke") demoBackend?.revokeAll()

@@ -1,81 +1,72 @@
 package br.com.queven.wabotia.courier
 
+import br.com.queven.wabotia.modules.Money
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.net.URI
-import java.net.URLDecoder
 
 /*
  * Modo entregador, fora do login: a pessoa escaneia o QR do pedido, o app mostra destino, rota e previsão, manda a
  * posição só enquanto está em uso, conversa com a loja e com o cliente, e o acesso some quando a entrega termina.
  *
- * O contrato do servidor ainda não fechou (sessão O, docs/ENTREGA.md em feat/modulo-entrega descreve a versão com
- * login). Os nomes de campo e de rota estão só em [HttpCourierBackend] e nos `@SerialName` deste arquivo.
+ * Contrato: docs/ENTREGA.md, "Contrato do app do entregador", e docs/API.md, "Entrega" (feat/modulo-entrega,
+ * c8d65f2). As rotas ficam só em [HttpCourierBackend]; os campos, nos `@SerialName` deste arquivo.
  */
 
-/** O que o QR do pedido traz: a instalação e o código de uso único que vira a credencial da entrega. */
+/** O que o QR do pedido traz: `https://<servidor>/c/<código>`. */
 data class CourierLink(val server: String, val code: String)
 
 object CourierLinks {
-    private val CODE = Regex("^[A-Za-z0-9_-]{6,128}$")
+    private val CODE = Regex("^[A-Za-z0-9_-]{4,200}$")
 
     /**
-     * Aceita `https://<instalação>/entrega/<código>` (o endereço que a câmera comum também abre),
-     * `https://<instalação>/...?entrega=<código>` e `wabotia://entrega?server=<instalação>&code=<código>`. Só https:
-     * a credencial não viaja em texto aberto. Qualquer outra coisa é `null` ("este QR não é de um pedido").
+     * Só `https://<servidor>/c/<código>` (a câmera comum que abrir esse endereço vê uma página que só orienta). Sem
+     * https, outro caminho ou sem código: `null` ("este QR não é de um pedido").
      */
     fun parse(raw: String): CourierLink? {
         val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
-        val query = query(uri.rawQuery)
-        return when (uri.scheme?.lowercase()) {
-            "https" -> {
-                val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
-                val server = "https://$host" + (if (uri.port > 0 && uri.port != 443) ":${uri.port}" else "")
-                val segments = uri.path.orEmpty().split('/').filter { it.isNotEmpty() }
-                val index = segments.indexOfFirst { it == "entrega" || it == "e" }
-                val code = query["entrega"] ?: segments.getOrNull(index + 1)?.takeIf { index >= 0 }
-                code?.takeIf { CODE.matches(it) }?.let { CourierLink(server, it) }
-            }
-            "wabotia" -> {
-                if (uri.host != "entrega") return null
-                val host = query["server"]?.removePrefix("https://")?.trimEnd('/')?.takeIf { it.isNotBlank() && !it.contains("://") } ?: return null
-                val code = query["code"]?.takeIf { CODE.matches(it) } ?: return null
-                CourierLink("https://$host", code)
-            }
-            else -> null
-        }
+        if (uri.scheme?.lowercase() != "https") return null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        val server = "https://$host" + (if (uri.port > 0 && uri.port != 443) ":${uri.port}" else "")
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotEmpty() }
+        if (segments.size != 2 || segments[0] != "c") return null
+        val code = segments[1].takeIf { CODE.matches(it) } ?: return null
+        return CourierLink(server, code)
     }
-
-    private fun query(raw: String?): Map<String, String> =
-        raw.orEmpty().split('&').mapNotNull { pair ->
-            val i = pair.indexOf('=')
-            if (i <= 0) null else URLDecoder.decode(pair.substring(0, i), "UTF-8") to URLDecoder.decode(pair.substring(i + 1), "UTF-8")
-        }.toMap()
 }
 
-/** Uma entrega na mão do entregador, como o servidor descreve. */
+/** Ponto no mapa. */
 @Serializable
-data class CourierDelivery(
-    val id: String,
-    /** "Pedido nº 12". */
-    val label: String = "Entrega",
-    @SerialName("store_name") val storeName: String = "",
-    @SerialName("customer_name") val customerName: String = "",
-    val address: String = "",
-    @SerialName("dest_lat") val destLat: Double? = null,
-    @SerialName("dest_lng") val destLng: Double? = null,
-    val items: List<String> = emptyList(),
-    val payment: String? = null,
-    /** "Troco para R$ 50,00". */
-    val change: String? = null,
-    val notes: String? = null,
-    @SerialName("eta_minutes") val etaMinutes: Int? = null,
-    @SerialName("distance_m") val distanceM: Int? = null,
-    val status: String = "en_route",
-    val app: CourierPace? = null,
+data class LatLng(val lat: Double, val lng: Double)
+
+@Serializable
+data class CourierEta(val minutes: Int? = null, val at: Long? = null, @SerialName("distance_m") val distanceM: Int? = null)
+
+@Serializable
+data class CourierOrderLine(val name: String = "", val quantity: Int = 1, val options: List<String> = emptyList(), val note: String = "")
+
+@Serializable
+data class CourierPayment(
+    @SerialName("method_label") val methodLabel: String? = null,
+    val status: String? = null,
+    @SerialName("status_label") val statusLabel: String? = null,
+    val paid: Boolean = false,
+    @SerialName("change_for_cents") val changeForCents: Long? = null,
 )
 
-/** O ritmo que o servidor pede (docs/ENTREGA.md, "API do app do entregador"). Siga sempre o último recebido. */
+@Serializable
+data class CourierOrder(
+    val number: Int? = null,
+    val lines: List<CourierOrderLine> = emptyList(),
+    @SerialName("total_cents") val totalCents: Long? = null,
+    @SerialName("customer_note") val customerNote: String = "",
+    val payment: CourierPayment? = null,
+)
+
+@Serializable
+data class CourierChat(@SerialName("last_seq") val lastSeq: Long = 0, @SerialName("customer_open") val customerOpen: Boolean? = null)
+
+/** O ritmo que o servidor pede. Siga sempre o último recebido. */
 @Serializable
 data class CourierPace(
     @SerialName("sample_seconds") val sampleSeconds: Int = 15,
@@ -84,22 +75,74 @@ data class CourierPace(
     @SerialName("stale_minutes") val staleMinutes: Int = 5,
 )
 
+/** `GET …/deliveries/{id}/courier`: o que o entregador vê (sem telefone, conversa do WhatsApp nem notas). */
+@Serializable
+data class CourierDelivery(
+    val id: String,
+    /** "Pedido nº 12". */
+    val label: String = "Entrega",
+    /** Só o primeiro nome. */
+    @SerialName("customer_name") val customerName: String = "",
+    @SerialName("address_text") val address: String = "",
+    val destination: LatLng? = null,
+    /** `assigned` (falta Iniciar rota), `en_route`, `delivered`, `cancelled`. */
+    val status: String = "assigned",
+    @SerialName("status_label") val statusLabel: String? = null,
+    val eta: CourierEta? = null,
+    val arriving: Boolean = false,
+    val order: CourierOrder? = null,
+    val chat: CourierChat? = null,
+    val app: CourierPace? = null,
+) {
+    val enRoute: Boolean get() = status == "en_route"
+
+    /** "2x X-Burger (sem cebola) — bem passado". */
+    val items: List<String>
+        get() = order?.lines.orEmpty().map { l ->
+            buildString {
+                append("${l.quantity}x ${l.name}")
+                if (l.options.isNotEmpty()) append(" (${l.options.joinToString(", ")})")
+                if (l.note.isNotBlank()) append(" — ${l.note}")
+            }
+        }
+
+    /** "Dinheiro na entrega · R$ 57,00" ou "Pix · pago". */
+    val paymentText: String?
+        get() {
+            val p = order?.payment
+            val total = order?.totalCents?.let(Money::format)
+            val method = p?.methodLabel?.takeIf { it.isNotBlank() }
+            return when {
+                p?.paid == true -> listOfNotNull(method, "pago").joinToString(" · ")
+                method != null -> listOfNotNull(method, total?.let { "cobrar $it" }).joinToString(" · ")
+                total != null -> "Total $total"
+                else -> null
+            }
+        }
+
+    val changeText: String? get() = order?.payment?.changeForCents?.takeIf { it > 0 }?.let { "Troco para ${Money.format(it)}" }
+}
+
 /** Uma leitura do GPS. `t` em ms Unix do aparelho. */
 @Serializable
 data class PositionPoint(val t: Long, val lat: Double, val lng: Double, val accuracy: Float? = null, val speed: Float? = null)
 
-/** Resposta do lote: `active: false` encerra (entregue, cancelada, acesso revogado). */
+/** Resposta do lote: `active: false` encerra (pare o GPS e descarte a fila). */
 @Serializable
 data class PositionsReply(
     val active: Boolean = true,
+    val status: String? = null,
     @SerialName("last_at") val lastAt: Long? = null,
-    val near: Boolean = false,
-    @SerialName("eta_minutes") val etaMinutes: Int? = null,
-    @SerialName("distance_m") val distanceM: Int? = null,
+    val eta: CourierEta? = null,
+    val arriving: Boolean = false,
     val app: CourierPace? = null,
-)
+    val chat: CourierChat? = null,
+) {
+    /** Perto do destino: envio mais curto e GPS de alta precisão. */
+    val near: Boolean get() = arriving || (eta?.distanceM?.let { it < 1000 } ?: false)
+}
 
-/** Com quem o entregador conversa pelo app. */
+/** Com quem o entregador conversa pelo app (`channel`). */
 enum class CourierParty(val wire: String, val label: String) {
     STORE("store", "Loja"),
     CUSTOMER("customer", "Cliente"),
@@ -107,22 +150,36 @@ enum class CourierParty(val wire: String, val label: String) {
 
 @Serializable
 data class CourierMessage(
-    val id: String,
-    /** `me` (o entregador), `store` ou `customer`. */
-    val from: String,
+    val seq: Long,
+    /** `store` ou `customer`. */
+    val channel: String,
+    /** `courier`, `store` ou `customer`. */
+    val sender: String,
+    @SerialName("author_name") val authorName: String = "",
     val text: String,
-    val at: Long,
+    val created: Long,
 ) {
-    val mine: Boolean get() = from == "me"
+    val mine: Boolean get() = sender == "courier"
 }
 
-/** A credencial de uma entrega: vale só para ela e some quando o servidor revoga. */
+/** `GET …/messages?after=<seq>`. */
+@Serializable
+data class CourierMessagesPage(
+    val data: List<CourierMessage> = emptyList(),
+    @SerialName("last_seq") val lastSeq: Long = 0,
+    @SerialName("customer_open") val customerOpen: Boolean? = null,
+    val open: Boolean = true,
+)
+
+/** A credencial de uma entrega (`wabx_…`, uma por entrega): vale só para ela e some quando o servidor revoga. */
 @Serializable
 data class CourierSession(
     val server: String,
     val token: String,
+    val profile: String,
     @SerialName("delivery_id") val deliveryId: String,
+    @SerialName("expires_at") val expiresAt: Long? = null,
 )
 
-/** O servidor revogou o acesso a esta entrega (entregue, cancelada, outra pessoa assumiu): o app esquece a entrega. */
+/** `401`: entrega concluída ou cancelada, QR substituído ou prazo vencido. O app esquece a entrega. */
 class CourierRevoked(message: String = "Esta entrega não está mais com você.") : Exception(message)

@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Looper
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -80,6 +82,7 @@ import br.com.queven.wabotia.courier.CourierParty
 import br.com.queven.wabotia.courier.CourierTexts
 import br.com.queven.wabotia.courier.CourierViewModel
 import br.com.queven.wabotia.courier.DemoCourierBackend
+import br.com.queven.wabotia.courier.LatLng
 import br.com.queven.wabotia.courier.PositionPoint
 import br.com.queven.wabotia.ui.components.DetailTopBar
 import br.com.queven.wabotia.ui.components.EmptyState
@@ -98,16 +101,18 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
  * O modo entregador: escanear o pedido, a lista quando há mais de uma entrega, e a tela da entrega com destino, rota,
- * previsão, conversa com a loja e com o cliente e "Entreguei". Sem entregas depois de ter tido alguma (acesso
- * revogado ou tudo entregue), [onExit] leva de volta à primeira tela do app.
+ * previsão, conversa com a loja e com o cliente, Iniciar rota, Entreguei e Não consegui entregar. Sem entregas depois de
+ * ter tido alguma (acesso revogado ou tudo concluído), [onExit] leva de volta à primeira tela do app.
  */
 @Composable
 fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
@@ -131,9 +136,10 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
     }
     LaunchedEffect(state.deliveries.size) { if (state.deliveries.isNotEmpty()) scanning = false }
 
-    // A posição só é lida e enviada com a tela em uso (ciclo de vida STARTED): sem serviço em segundo plano.
-    CourierLocationEffect(vm, enabled = located && state.deliveries.isNotEmpty())
-    CourierUploadEffect(vm, active = state.deliveries.isNotEmpty())
+    // A posição só é lida e enviada com a tela em uso (ciclo de vida STARTED), e só com alguma entrega a caminho.
+    val enRoute = state.deliveries.any { it.enRoute }
+    CourierLocationEffect(vm, enabled = located && enRoute)
+    CourierUploadEffect(vm, active = enRoute)
 
     val showScanner = scanning || (state.deliveries.isEmpty() && !state.restoring && !state.ended)
     val open = state.deliveries.firstOrNull { it.id == state.open } ?: state.deliveries.singleOrNull()
@@ -145,7 +151,7 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 state.restoring -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = c.brand) }
-                state.ended && state.deliveries.isEmpty() -> EmptyState(Icons.Filled.CheckCircle, "Entregas concluídas", subtitle = "O acesso às entregas terminou. Voltando à tela inicial…")
+                state.ended && state.deliveries.isEmpty() -> EmptyState(Icons.Filled.CheckCircle, "Entregas encerradas", subtitle = "O acesso às entregas terminou. Voltando à tela inicial…")
                 showScanner -> ScanScreen(
                     demo = demo,
                     claiming = state.claiming,
@@ -161,11 +167,13 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
                 open != null -> DeliveryScreen(
                     vm = vm,
                     delivery = open,
+                    demo = demo,
                     located = located,
                     lastFixAt = state.lastFixAt,
                     messages = state.messages[open.id].orEmpty(),
+                    customerOpen = state.customerOpen[open.id] ?: false,
                     sending = state.sending,
-                    finishing = state.finishing == open.id,
+                    busy = state.busy == open.id,
                     // Com uma entrega só, voltar sai do modo entregador; a entrega continua e o app reabre nela.
                     onBack = if (state.deliveries.size > 1) ({ vm.open(null) }) else onExit,
                     onScan = { scanning = true },
@@ -174,6 +182,36 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
             }
         }
     }
+
+    state.pendingLink?.let { NameDialog(initial = state.name.orEmpty(), onConfirm = vm::claimWithName, onDismiss = vm::dismissName) }
+}
+
+/** O servidor exige o nome na troca do QR: o cliente vê "Carlos - Entregador" nas mensagens. Pergunta uma vez só. */
+@Composable
+private fun NameDialog(initial: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.TwoWheeler, contentDescription = null, tint = Wb.colors.brand) },
+        title = { Text("Seu nome") },
+        text = {
+            Column {
+                Text(CourierTexts.NAME_HELP, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(60) },
+                    singleLine = true,
+                    label = { Text("Nome") },
+                    modifier = Modifier.fillMaxWidth().testTag("courier.name"),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { if (name.trim().length >= 2) onConfirm(name) }),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(name) }, enabled = name.trim().length >= 2) { Text("Continuar", fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
 }
 
 // --- escanear -------------------------------------------------------------------------------------------------------
@@ -206,7 +244,7 @@ private fun ScanScreen(
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("help") {
                 Text(
-                    "Aponte a câmera para o QR do pedido que a loja entregou. O acesso vale só para esta entrega e termina quando você tocar em Entreguei.",
+                    "Aponte a câmera para o QR do pedido que a loja entregou. O acesso vale só para esta entrega e termina quando ela é concluída.",
                     color = c.textSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -222,7 +260,7 @@ private fun ScanScreen(
                             Text("Na demonstração, escolha um pedido de exemplo abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
                         }
                         else -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                            Text("Sem acesso à câmera. Libere para ler o QR, ou digite o código abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            Text("Sem acesso à câmera. Libere para ler o QR, ou cole o link abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = { askCamera.launch(Manifest.permission.CAMERA) }) { Text("Liberar a câmera") }
                         }
                     }
@@ -230,12 +268,12 @@ private fun ScanScreen(
             }
             if (wrong) item("wrong") { InlineNotice("Este QR não é de um pedido do Wabotia.", onDismiss = { wrong = false }) }
             if (demo) {
-                item("demo-label") { SectionLabel("Pedidos de demonstração", Modifier.padding(start = 0.dp)) }
+                item("demo-label") { SectionLabel("Pedidos de demonstração") }
                 item("demo") {
                     WbCard {
-                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 12 · Lanchonete Exemplo", subtitle = "Mariana Souza · dinheiro com troco", enabled = !claiming, onClick = { onDemo(0) })
+                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 12 · Lanchonete Exemplo", subtitle = "Mariana · dinheiro com troco", enabled = !claiming, onClick = { onDemo(0) })
                         RowDivider()
-                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 15 · Lanchonete Exemplo", subtitle = "Rafael Lima · pago pelo link", enabled = !claiming, onClick = { onDemo(1) })
+                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 15 · Lanchonete Exemplo", subtitle = "Rafael · pago pelo link", enabled = !claiming, onClick = { onDemo(1) })
                     }
                 }
             }
@@ -268,9 +306,9 @@ private fun DeliveryList(deliveries: List<CourierDelivery>, onOpen: (String) -> 
                         Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(d.label, style = MaterialTheme.typography.titleMedium, color = Wb.colors.textPrimary, modifier = Modifier.weight(1f))
-                                CourierTexts.eta(d)?.let { Pill(it, Wb.colors.ok) }
+                                (CourierTexts.eta(d) ?: d.statusLabel)?.let { Pill(it, if (d.enRoute) Wb.colors.ok else Wb.colors.warn) }
                             }
-                            Text(listOf(d.customerName, d.storeName).filter { it.isNotBlank() }.joinToString(" · "), color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            Text(d.customerName, color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
                             Text(d.address.lines().firstOrNull().orEmpty(), color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -287,11 +325,13 @@ private fun DeliveryList(deliveries: List<CourierDelivery>, onOpen: (String) -> 
 private fun DeliveryScreen(
     vm: CourierViewModel,
     delivery: CourierDelivery,
+    demo: Boolean,
     located: Boolean,
     lastFixAt: Long?,
-    messages: Map<CourierParty, List<CourierMessage>>,
+    messages: List<CourierMessage>,
+    customerOpen: Boolean,
     sending: Boolean,
-    finishing: Boolean,
+    busy: Boolean,
     onBack: () -> Unit,
     onScan: () -> Unit,
     onLocationGranted: () -> Unit,
@@ -301,33 +341,43 @@ private fun DeliveryScreen(
     var party by rememberSaveable(delivery.id) { mutableStateOf(CourierParty.CUSTOMER) }
     var draft by rememberSaveable(delivery.id) { mutableStateOf("") }
     var consent by remember { mutableStateOf(false) }
+    var startAfterConsent by remember { mutableStateOf(false) }
     var confirmDone by remember { mutableStateOf(false) }
-    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { onLocationGranted() }
+    var cancelling by remember { mutableStateOf(false) }
+    // Na demonstração o endereço é fictício: não geocodifica (o servidor de exemplo põe o destino perto de você).
+    val geocode: suspend (String) -> LatLng? = { address -> if (demo) null else geocode(context, address) }
+    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        onLocationGranted()
+        if (startAfterConsent) {
+            startAfterConsent = false
+            vm.start(delivery.id, geocode)
+        }
+    }
 
-    // A conversa aberta é relida de tempos em tempos enquanto a tela está à vista.
+    // A conversa é sondada a cada 15 s enquanto a tela da entrega está à vista (sem WebSocket nesta versão).
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(delivery.id, party, lifecycle) {
+    LaunchedEffect(delivery.id, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (isActive) {
-                vm.loadMessages(delivery.id, party)
+                vm.refreshMessages(delivery.id)
                 delay(15_000)
             }
         }
     }
 
     Column(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
-        DetailTopBar(delivery.label, onBack = onBack, subtitle = delivery.storeName.ifBlank { null }) {
+        DetailTopBar(delivery.label, onBack = onBack, subtitle = delivery.statusLabel) {
             IconButton(onClick = onScan) { Icon(Icons.Filled.QrCodeScanner, contentDescription = "Escanear outro pedido", tint = c.textPrimary) }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("sharing") {
-                if (located) {
-                    InlineNotice(
+                when {
+                    !delivery.enRoute -> InlineNotice("Toque em Iniciar rota quando sair com o pedido. A loja e o cliente passam a ver a previsão de chegada.", color = c.ticket)
+                    located -> InlineNotice(
                         CourierTexts.sharing(delivery) + (lastFixAt?.let { " · última posição às ${clock(it)}" } ?: " · procurando o GPS…"),
                         color = c.ok,
                     )
-                } else {
-                    InlineNotice(
+                    else -> InlineNotice(
                         "A loja e o cliente não veem onde você está. Ative a localização para mandar a previsão de chegada.",
                         color = c.warn,
                         actionLabel = "Ativar",
@@ -346,30 +396,33 @@ private fun DeliveryScreen(
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(delivery.address, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                        delivery.notes?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.warn) }
+                        delivery.order?.customerNote?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.warn) }
                         Spacer(Modifier.height(12.dp))
                         SecondaryButton("Abrir a rota no mapa", onClick = { openRoute(context, delivery) }, icon = Icons.Filled.Directions)
                     }
                 }
             }
-            if (delivery.items.isNotEmpty() || delivery.payment != null) item("order") {
+            if (delivery.items.isNotEmpty() || delivery.paymentText != null) item("order") {
                 WbCard {
                     Column(Modifier.padding(16.dp)) {
                         delivery.items.forEach { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.textPrimary) }
-                        delivery.payment?.let { Spacer(Modifier.height(6.dp)); Text(it, style = MaterialTheme.typography.bodyMedium, color = c.textSecondary) }
-                        delivery.change?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = c.textPrimary) }
+                        delivery.paymentText?.let { Spacer(Modifier.height(6.dp)); Text(it, style = MaterialTheme.typography.bodyMedium, color = c.textSecondary) }
+                        delivery.changeText?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = c.textPrimary) }
                     }
                 }
             }
             item("chat-tabs") {
-                SegmentedTabs(CourierParty.entries.reversed().map { it to "Conversa com ${it.label.lowercase()}" }, party, { party = it })
+                SegmentedTabs(listOf(CourierParty.CUSTOMER to "Conversa com cliente", CourierParty.STORE to "Conversa com loja"), party, { party = it })
             }
-            val list = messages[party].orEmpty()
+            if (party == CourierParty.CUSTOMER && !customerOpen) item("closed") {
+                InlineNotice(CourierTexts.CUSTOMER_CLOSED, color = c.warn, actionLabel = "Falar com a loja", onAction = { party = CourierParty.STORE })
+            }
+            val list = messages.filter { it.channel == party.wire }
             if (list.isEmpty()) item("chat-empty") {
                 Text("Nenhuma mensagem ainda.", color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
             }
-            list.takeLast(30).forEach { m ->
-                item("m-${m.id}") {
+            list.takeLast(40).forEach { m ->
+                item("m-${m.seq}") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start) {
                         Column(
                             Modifier
@@ -378,41 +431,60 @@ private fun DeliveryScreen(
                                 .background(if (m.mine) c.soft(c.brand, 0.18f) else c.surface)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
+                            if (!m.mine && m.authorName.isNotBlank()) Text(m.authorName, color = c.textSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                             Text(m.text, color = c.textPrimary, style = MaterialTheme.typography.bodyMedium)
-                            Text(clock(m.at), color = c.textSecondary, style = MaterialTheme.typography.labelSmall)
+                            Text(clock(m.created), color = c.textSecondary, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
             }
         }
+        val canWrite = party == CourierParty.STORE || customerOpen
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = draft,
-                onValueChange = { draft = it },
+                onValueChange = { draft = it.take(1000) },
                 modifier = Modifier.weight(1f).testTag("courier.message"),
-                placeholder = { Text("Mensagem para ${if (party == CourierParty.STORE) "a loja" else "o cliente"}") },
+                enabled = canWrite,
+                placeholder = { Text(if (party == CourierParty.STORE) "Mensagem para a loja" else "Mensagem para o cliente") },
                 maxLines = 3,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { vm.send(delivery.id, party, draft); draft = "" }),
             )
-            IconButton(onClick = { vm.send(delivery.id, party, draft); draft = "" }, enabled = draft.isNotBlank() && !sending) {
+            IconButton(onClick = { vm.send(delivery.id, party, draft); draft = "" }, enabled = canWrite && draft.isNotBlank() && !sending) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Enviar", tint = c.brand)
             }
         }
-        PrimaryButton(
-            "Entreguei",
-            onClick = { confirmDone = true },
-            loading = finishing,
-            icon = Icons.Filled.CheckCircle,
-            color = c.ok,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).testTag("courier.delivered"),
-        )
+        if (!delivery.enRoute) {
+            PrimaryButton(
+                "Iniciar rota",
+                onClick = {
+                    // Aviso em destaque antes da permissão; sem ela a rota começa assim mesmo, só sem a previsão.
+                    if (hasLocation(context)) vm.start(delivery.id, geocode) else { startAfterConsent = true; consent = true }
+                },
+                loading = busy,
+                icon = Icons.Filled.TwoWheeler,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).testTag("courier.start"),
+            )
+        } else {
+            PrimaryButton(
+                "Entreguei",
+                onClick = { confirmDone = true },
+                loading = busy,
+                icon = Icons.Filled.CheckCircle,
+                color = c.ok,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp).testTag("courier.delivered"),
+            )
+            TextButton(onClick = { cancelling = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                Text("Não consegui entregar", color = c.danger)
+            }
+        }
     }
 
     if (consent) {
         // Aviso em destaque antes da permissão (Política de Dados do Usuário do Google Play; LGPD).
         AlertDialog(
-            onDismissRequest = { consent = false },
+            onDismissRequest = { consent = false; if (startAfterConsent) { startAfterConsent = false; vm.start(delivery.id, geocode) } },
             icon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = c.brand) },
             title = { Text("Compartilhar sua localização") },
             text = { Text(CourierTexts.CONSENT) },
@@ -422,7 +494,12 @@ private fun DeliveryScreen(
                     askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                 }) { Text("Continuar", fontWeight = FontWeight.SemiBold) }
             },
-            dismissButton = { TextButton(onClick = { consent = false }) { Text("Agora não") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    consent = false
+                    if (startAfterConsent) { startAfterConsent = false; vm.start(delivery.id, geocode) }
+                }) { Text("Agora não") }
+            },
         )
     }
     if (confirmDone) {
@@ -432,6 +509,22 @@ private fun DeliveryScreen(
             text = { Text("A loja e o cliente recebem o aviso, a localização para de ser enviada e o acesso a esta entrega termina.") },
             confirmButton = { TextButton(onClick = { confirmDone = false; vm.delivered(delivery.id, battery(context)) }) { Text("Entreguei", fontWeight = FontWeight.SemiBold, color = c.ok) } },
             dismissButton = { TextButton(onClick = { confirmDone = false }) { Text("Ainda não") } },
+        )
+    }
+    if (cancelling) {
+        var reason by rememberSaveable { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { cancelling = false },
+            title = { Text("Não conseguiu entregar?") },
+            text = {
+                Column {
+                    Text("A loja recebe o motivo e decide o que fazer com o pedido. O acesso a esta entrega termina.", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(value = reason, onValueChange = { reason = it.take(300) }, label = { Text("Motivo") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                }
+            },
+            confirmButton = { TextButton(onClick = { cancelling = false; vm.cancel(delivery.id, reason) }, enabled = reason.isNotBlank()) { Text("Avisar a loja", fontWeight = FontWeight.SemiBold, color = c.danger) } },
+            dismissButton = { TextButton(onClick = { cancelling = false }) { Text("Voltar") } },
         )
     }
 }
@@ -488,7 +581,10 @@ private fun CourierLocationEffect(vm: CourierViewModel, enabled: Boolean) {
     }
 }
 
-/** Manda os lotes no ritmo do servidor enquanto a tela está em uso; sem rede, a fila guarda. */
+/**
+ * Manda os lotes no ritmo do servidor enquanto a tela está em uso. Ao sair da tela, manda o que está na fila (o
+ * contrato pede) e para; sem rede, a fila guarda.
+ */
 @Composable
 private fun CourierUploadEffect(vm: CourierViewModel, active: Boolean) {
     val context = LocalContext.current
@@ -496,12 +592,27 @@ private fun CourierUploadEffect(vm: CourierViewModel, active: Boolean) {
     LaunchedEffect(active, lifecycle) {
         if (!active) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (isActive) {
-                delay(vm.uploadMillis(battery(context)))
-                vm.flush(battery(context))
+            try {
+                while (isActive) {
+                    delay(vm.uploadMillis(battery(context)))
+                    vm.flush(battery(context))
+                }
+            } finally {
+                // Indo para segundo plano: o último lote sai antes de o GPS parar.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { vm.flush(battery(context)) } }
             }
         }
     }
+}
+
+/** O destino pelo endereço, no próprio aparelho (gratuito). Sem Geocoder (aparelho sem serviços do Google): null. */
+@Suppress("DEPRECATION")
+private suspend fun geocode(context: Context, address: String): LatLng? = withContext(Dispatchers.IO) {
+    if (!Geocoder.isPresent()) return@withContext null
+    runCatching {
+        Geocoder(context, java.util.Locale.forLanguageTag("pt-BR")).getFromLocationName(address.replace('\n', ' '), 1)
+            ?.firstOrNull()?.let { LatLng(it.latitude, it.longitude) }
+    }.getOrNull()
 }
 
 private fun hasLocation(context: Context) =
@@ -517,11 +628,11 @@ private fun clock(at: Long) = HOUR.format(Instant.ofEpochMilli(at))
 
 /** A rota no app de mapas do aparelho: com coordenadas, navegação; sem elas, a busca pelo endereço. */
 private fun openRoute(context: Context, d: CourierDelivery) {
-    val uri = if (d.destLat != null && d.destLng != null) Uri.parse("google.navigation:q=${d.destLat},${d.destLng}")
-    else Uri.parse("geo:0,0?q=" + Uri.encode(d.address.replace('\n', ' ')))
+    val byAddress = Uri.parse("geo:0,0?q=" + Uri.encode(d.address.replace('\n', ' ')))
+    val uri = d.destination?.let { Uri.parse("google.navigation:q=${it.lat},${it.lng}") } ?: byAddress
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (_: ActivityNotFoundException) {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(d.address.replace('\n', ' ')))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, byAddress).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 }

@@ -78,8 +78,9 @@ object CourierPacing {
 /** Textos da tela da entrega, sem Android, para testar. */
 object CourierTexts {
     fun eta(delivery: CourierDelivery): String? {
-        val minutes = delivery.etaMinutes ?: return null
-        val distance = delivery.distanceM?.let { if (it >= 1000) " · %.1f km".format(java.util.Locale.forLanguageTag("pt-BR"), it / 1000.0) else " · $it m" }.orEmpty()
+        val minutes = delivery.eta?.minutes ?: return null
+        if (delivery.arriving) return "Chegando"
+        val distance = delivery.eta.distanceM?.let { if (it >= 1000) " · %.1f km".format(java.util.Locale.forLanguageTag("pt-BR"), it / 1000.0) else " · $it m" }.orEmpty()
         return (if (minutes <= 1) "Chegando" else "Cerca de $minutes min") + distance
     }
 
@@ -89,6 +90,10 @@ object CourierTexts {
 
     const val CONSENT =
         "Durante a entrega, o Wabotia compartilha a sua localização com o estabelecimento e com o cliente deste pedido, " +
-            "para mostrar a previsão de chegada. A localização só é lida com o app aberto nesta entrega e para quando a " +
-            "entrega é concluída. A posição é apagada em até 24 horas."
+            "para mostrar a previsão de chegada. O compartilhamento começa quando você toca em Iniciar rota, só acontece " +
+            "com o app aberto e para quando a entrega é concluída ou cancelada. A posição é apagada em até 24 horas."
+
+    const val NAME_HELP = "O cliente vê este nome nas mensagens que você manda (\"Carlos - Entregador\"). Fica guardado neste aparelho."
+
+    const val CUSTOMER_CLOSED = "O cliente não falou com a loja nas últimas 24 horas, então mensagens para ele não podem ir pelo WhatsApp. Fale com a loja."
 }

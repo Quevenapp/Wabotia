@@ -11,11 +11,15 @@ import kotlinx.serialization.builtins.ListSerializer
 interface CourierSessionStore {
     fun load(): List<CourierSession>
     fun save(sessions: List<CourierSession>)
+
+    /** O nome que o entregador digitou na primeira leitura (o cliente vê "Carlos - Entregador"). */
+    var name: String?
 }
 
 /** Na demonstração (e nos testes): só na memória. */
 class MemoryCourierSessionStore : CourierSessionStore {
     private var sessions = emptyList<CourierSession>()
+    override var name: String? = null
     override fun load() = sessions
     override fun save(sessions: List<CourierSession>) {
         this.sessions = sessions
@@ -53,7 +57,15 @@ class SecureCourierSessionStore(context: Context) : CourierSessionStore {
         if (sessions.isEmpty()) p.edit().remove(KEY).apply() else p.edit().putString(KEY, WabotiaJson.encodeToString(serializer, sessions)).apply()
     }
 
+    override var name: String?
+        get() = prefs?.getString(NAME, null) ?: memory.name
+        set(value) {
+            val p = prefs ?: run { memory.name = value; return }
+            p.edit().putString(NAME, value?.trim()?.takeIf { it.isNotEmpty() }).apply()
+        }
+
     private companion object {
         const val KEY = "sessions"
+        const val NAME = "name"
     }
 }
