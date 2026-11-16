@@ -836,6 +836,11 @@ export async function deliverPaymentHooks(env: Env, paymentId: string) {
           error: "hook_failed",
         }),
       );
+      // Última tentativa automática (conferência N-10): avisa a equipe uma
+      // vez; o efeito no módulo ficou pendente e só o reenvio do webhook (ou
+      // a equipe) resolve.
+      if ((row.hook_attempts || 0) + 1 === HOOK_MAX_ATTEMPTS)
+        await hookExhausted(env, row, entry.status, message);
       return false;
     }
     await exec(
@@ -846,6 +851,38 @@ export async function deliverPaymentHooks(env: Env, paymentId: string) {
     );
   }
   return false;
+}
+
+async function hookExhausted(
+  env: Env,
+  row: any,
+  status: string,
+  error: string,
+) {
+  await event(
+    env,
+    row.profile_id,
+    "payment.hook_failed",
+    row.id,
+    paymentEvent(row, {
+      hook_status: status,
+      error,
+      attempts: HOOK_MAX_ATTEMPTS,
+    }),
+    `payment.hook_failed:${row.id}:${status}`,
+  );
+  try {
+    const c = await conversation(env, row.conversation_id, row.profile_id);
+    await message(
+      env,
+      c,
+      "note",
+      "system",
+      `O módulo não concluiu o efeito da cobrança ${row.description} (${status === "paid" ? "pagamento" : status}) depois de ${HOOK_MAX_ATTEMPTS} tentativas: ${error}. Confira o pedido, a reserva ou a mensalidade e conclua à mão.`,
+    );
+  } catch {
+    // Cobrança sem conversa: fica o evento.
+  }
 }
 
 /** Alarme da área: repete os ganchos de pagamento que ficaram pendentes. */

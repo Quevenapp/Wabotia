@@ -3,7 +3,7 @@
 // "já paga" e não chamava o gancho: o cliente pagava e a parcela seguia aberta.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { exec, one } from "../src/db";
+import { all, exec, one } from "../src/db";
 import { paymentHook, registerPaymentHook } from "../src/modules/hooks";
 import { retryPaymentHooks } from "../src/payments";
 import { configure } from "./service-center-fixture";
@@ -126,6 +126,39 @@ describe("gancho de pagamento durável (revisão A3)", () => {
       status: "refunded",
       hook_pending: null,
     });
+  });
+
+  it("conferência N-10: esgotadas as tentativas, avisa a equipe uma vez", async () => {
+    const { f, pay, account } = await pixDaParcela();
+    const restore = failing(1000);
+    try {
+      await approve(account, pay.id);
+      // Perto do limite: a próxima é a última tentativa automática.
+      await exec(
+        env,
+        "UPDATE payments SET hook_attempts=29,hook_next_at=0 WHERE id=?",
+        pay.id,
+      );
+      await retryPaymentHooks(env, f.profile);
+      await exec(env, "UPDATE payments SET hook_next_at=0 WHERE id=?", pay.id);
+      await retryPaymentHooks(env, f.profile);
+    } finally {
+      restore();
+    }
+    const failed = await all(
+      env,
+      "SELECT payload FROM events WHERE profile_id=? AND kind='payment.hook_failed'",
+      f.profile,
+    );
+    expect(failed).toHaveLength(1);
+    const notes = await all(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note'",
+      pay.conversation_id,
+    );
+    expect(
+      notes.filter((n) => String(n.text).includes("não concluiu o efeito")),
+    ).toHaveLength(1);
   });
 
   it("sem falha, nada fica pendente e o gancho roda uma vez", async () => {

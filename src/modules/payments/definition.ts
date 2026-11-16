@@ -23,6 +23,7 @@ export const paymentsModule: ModuleDefinition = {
     "payment.refunded",
     "payment.duplicate",
     "payment.duplicate_refunded",
+    "payment.hook_failed",
   ],
   settings: [],
   routes: ["payments"],
