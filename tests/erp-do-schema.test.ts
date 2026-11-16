@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { migrate } from "../src/erp/schema/migrate";
+import { ERP_DDL_VERSION } from "../src/erp/schema/ddl";
 
 describe("ERP fase 0: esquema gerado no objeto", () => {
   it("aplica DDL e semeadura numa instância nova; regras geradas valem", async () => {
@@ -44,7 +45,7 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    expect(result.first).toMatchObject({ status: "applied", version: 2, statements: 973, seedRows: 7586 });
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 973, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
     expect(result.tables).toBe(430);
     expect(result.triggers).toBeGreaterThan(148);
@@ -69,7 +70,7 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       "ERP_PING " +
         JSON.stringify({ first_ms: t1 - t0, p50_ms: times[10], p95_ms: times[18], max_ms: times[19], bytes: body.database_size }),
     );
-    expect(body.schema_version).toBe(2);
+    expect(body.schema_version).toBe(ERP_DDL_VERSION);
     // Gatilho gerado no objeto: imutabilidade com código e mensagem.
     const raised = await runInDurableObject(erpStub(env, profile), (_i: any, state: DurableObjectState) => {
       const sql = state.storage.sql;
