@@ -10,7 +10,15 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "web", "vite.config.ts"]
+  "include": ["src", "web", "packages", "vite.config.ts"],
+  "exclude": [
+    "web/erp/test",
+    "web/erp/qa",
+    "web/erp/app/qa",
+    "web/erp/app/qa.tsx",
+    "web/erp/app/qa-*.tsx"
+  ]
 }

@@ -39,7 +39,8 @@
   "web/erp/test/invite-activation-adversarial.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-activation-component.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-activation.test.mjs": "removido: testa a ativação por convite, que saiu",
-  "web/erp/test/invite-auth-client.test.mjs": "removido: testa o cliente do supabase-js da ativação, que saiu"
+  "web/erp/test/invite-auth-client.test.mjs": "removido: testa o cliente do supabase-js da ativação, que saiu",
+  "web/erp/app/components/native-modules.ts": "alterado: as telas de cada módulo do menu carregam juntas (web/erp/screens), para o ERP caber em 30 a 50 arquivos"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
