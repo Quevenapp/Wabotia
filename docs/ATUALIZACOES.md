@@ -150,9 +150,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
-## Próxima atualização (rascunho, número a definir): módulos, cobrança e verticais
-
-> Rascunho das notas da próxima versão do servidor, escrito sobre o branch `release/verticais`. O número da versão e a publicação ainda não foram decididos.
+## Atualização 0.20.0: módulos, cobrança e verticais
 
 Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz as migrações aditivas `0020` a `0058`, aplicadas pelo próprio atualizador. Elas criam as tabelas dos módulos e nenhum dado existente é apagado ou convertido. Não há Worker, banco, bucket nem Durable Object novos; nada muda na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
