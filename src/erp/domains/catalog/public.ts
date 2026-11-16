@@ -61,6 +61,22 @@ export { listPrice, requirePricing as require, ruleText, validNow } from "./pric
 export { erpPricingProductLists } from "./pricing/rpc/erp_pricing_product_lists.ts";
 export { erpCatalogProductSave } from "./rpc/erp_catalog_product_save.ts";
 export { erpCatalogProductPricesUpdate } from "./rpc/erp_catalog_product_prices.ts";
+// Detalhe do produto (sessão G).
+export {
+  categoryLineage,
+  customFieldApplies,
+  customValue,
+  detailDate,
+  detailDecimal,
+  detailText,
+  productCostCapture,
+  productCustomResolve,
+  productCustomValues,
+  productDetailReferences,
+  productDetailKeys,
+  productDetailValidate,
+  productDetailWrite,
+} from "./product-detail.ts";
 
 const KINDS = ["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 const btrim = (s: string) => s.replace(/^ +| +$/g, "");

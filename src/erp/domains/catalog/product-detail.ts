@@ -26,6 +26,9 @@ export const PRODUCT_DETAIL_KEYS = [
   "lot_control",
 ];
 
+/** erp_catalog.product_detail_keys() */
+export const productDetailKeys = () => [...PRODUCT_DETAIL_KEYS];
+
 const isNull = (v: unknown) => v === null || v === undefined;
 const UUID_LOWER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
