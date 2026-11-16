@@ -214,6 +214,11 @@ export async function dualFixture({
       await pg.exec("set session_replication_role = origin");
     }
   }
+  // Nome de perfil para cada pessoa: o rótulo de autor (erp_activity.actor_label)
+  // usa o nome; sem perfil o Fagoo cairia no e-mail de auth.users, que o
+  // objeto não tem (o sincronismo com Pessoas da fase 3 mantém o perfil).
+  for (const [role, id] of Object.entries(users))
+    await pg.query("insert into erp_access.profile(user_id,name,version,updated_by,updated_at) values($1,$2,1,$1,now())", [id, `Pessoa sintética ${role}`]);
   await mirror(await changedInPg());
   const scalar = async (text, args = []) => {
     const row = (await pg.query(text, args)).rows[0];
