@@ -78,9 +78,10 @@ export function derivedUuid(spec, text) {
 
 // Catálogo (P): erp_catalog_contact_type_create, migração
 // 202610200124_contact_profile.sql: slug = 't' || replace(v_id::text,'-','').
-// O slug aparece no próprio tipo, no "item" da auditoria auxiliar e nos
-// "types" do contato (resposta e auditoria do cadastro). contact.roles só
-// guarda os três tipos fixos (customer, supplier, carrier): fica de fora.
+// O slug aparece no próprio tipo, no "item" da auditoria auxiliar e do
+// recibo de comando (resposta gravada para repetição) e nos "types" do
+// contato (resposta e auditoria do cadastro). contact.roles só guarda os três
+// tipos fixos (customer, supplier, carrier): fica de fora.
 registerDerivedId({
   id: "catalog.contact_type_slug",
   pattern: /^t([0-9a-f]{32})$/,
@@ -88,6 +89,7 @@ registerDerivedId({
   fromUuid: (u) => "t" + u.replace(/-/g, ""),
   columns: [
     "erp_catalog__contact_type.slug",
+    "erp_catalog__command.result",
     "erp_catalog__auxiliary_audit.after_data",
     "erp_catalog__auxiliary_audit.before_data",
     "erp_catalog__audit.after_data",
