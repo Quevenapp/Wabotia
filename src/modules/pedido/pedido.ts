@@ -46,7 +46,7 @@ import {
   updateOrder,
 } from "./manage";
 import { runDue } from "./schedule";
-import { orderTicket } from "./ticket";
+import { orderDeliverySlip, orderTicket } from "./ticket";
 import {
   cartCompleted,
   cartValidate,
@@ -225,6 +225,16 @@ onRead(
     ctx.access(actor, "conversations:read");
     return orderTicket(ctx, params.id, query, actor);
   },
+);
+
+// Via de entrega: comanda + QR do entregador (módulo Entrega).
+onRoute(MODULE, {
+  method: "POST",
+  path: "pedido/orders/:id/delivery-slip",
+  op: "pedido.delivery_slip",
+});
+onCommand(MODULE, "pedido.delivery_slip", (ctx, actor, data, { requestId }) =>
+  orderDeliverySlip(ctx, actor, data, requestId),
 );
 
 onRoute(MODULE, {

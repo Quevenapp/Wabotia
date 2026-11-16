@@ -1,4 +1,4 @@
-// Interface pública do Pedido para módulos que dependem dele (Mesas).
+// Interface pública do Pedido para módulos que dependem dele (Mesas, Entrega).
 // Contrato estável (docs/MODULOS.md, "Dependência entre módulos"): o módulo
 // dependente declara `requires: ["pedido"]` e usa só o que está aqui, nunca
 // as tabelas pedido_. Todas as funções agem como o módulo "pedido" (eventos
@@ -213,3 +213,16 @@ export const orderForActor = (
   actor: Parameters<typeof visibleOrder>[1],
   order: OrderView,
 ) => visibleOrder(ctx, actor, order);
+
+// Ganchos para a Entrega (docs/PEDIDO.md, "Para outros módulos").
+export {
+  onOrderStatusChanged,
+  onStatusNotice,
+  provideDeliveryInfo,
+  provideDeliverySlip,
+  type DeliveryInfo,
+  type DeliverySlip,
+  type DeliverySlipRequest,
+  type StatusChange,
+  type StatusNotice,
+} from "./listeners";

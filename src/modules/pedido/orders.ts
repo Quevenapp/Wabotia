@@ -33,6 +33,7 @@ import {
   type TextKey,
 } from "./model";
 import { config, offeredMethods, paymentsReady } from "./store";
+import { emitStatusChange, noticeHandled } from "./listeners";
 
 export type OrderSource = "cart" | "catalog" | "panel" | "api" | "table";
 
@@ -366,12 +367,27 @@ export async function notify(
   textKey: TextKey,
   key: string,
   extra: Record<string, string> = {},
+  /** Aviso de mudança de estado: outro módulo pode mandá-lo no lugar. */
+  status?: OrderStatus,
 ) {
   const cfg = await config(ctx);
   const template = cfg.texts[textKey];
   if (!template) return null;
   const c = await conversationOf(ctx, order);
-  return say(ctx, c, fill(template, await values(ctx, cfg, order, extra)), key);
+  const text = fill(template, await values(ctx, cfg, order, extra));
+  if (
+    status &&
+    c &&
+    (await noticeHandled(ctx.env, ctx.profile, {
+      order: orderView(order),
+      status,
+      text,
+      conversation_id: c.id,
+      key,
+    }))
+  )
+    return null;
+  return say(ctx, c, text, key);
 }
 
 /** Pedido em texto: linhas, valores, entrega ou retirada (cliente e comanda). */
@@ -687,7 +703,23 @@ async function announceMove(
     { key: `status:${historyId}` },
   );
   if (options.notify !== false)
-    await notify(ctx, next, to as TextKey, `status:${orderId}:${historyId}`);
+    await notify(
+      ctx,
+      next,
+      to as TextKey,
+      `status:${orderId}:${historyId}`,
+      {},
+      to,
+    );
+  // Outros módulos (Entrega) acompanham a mudança: com a chave do histórico
+  // na mão, um anúncio repetido chega de novo e o gancho ignora.
+  await emitStatusChange(ctx.env, ctx.profile, {
+    order: orderView(next),
+    from: from as OrderStatus,
+    to,
+    actor,
+    note,
+  });
   return next;
 }
 

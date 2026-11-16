@@ -2,7 +2,8 @@
 // pedido) para os apps nativos imprimirem pelo ThermalPrinterKit e o texto
 // pronto em colunas fixas (32 na bobina de 58 mm, 48 na de 80 mm) para o
 // painel e impressoras simples. Observações internas não entram.
-import { requireValue, type Actor } from "../../types";
+import { ApiError, requireValue, type Actor } from "../../types";
+import { deliverySlip } from "./listeners";
 import type { Establishment, ModuleContext } from "../api";
 import { PAYMENT_LABELS, dateTimeOf, money, type PaymentMethod } from "./model";
 import { loadOrder, orderView, visibleOrder, type OrderView } from "./orders";
@@ -154,6 +155,70 @@ export function ticketText(
     out.push(...center(establishment.footer, columns));
   }
   return out.join("\n");
+}
+
+/**
+ * POST pedido/orders/:id/delivery-slip {columns?}: via de entrega para
+ * imprimir ao despachar. A comanda do pedido mais a parte do entregador
+ * (título, QR e linhas) preparada pelo módulo que acompanha a entrega
+ * (gancho provideDeliverySlip, Entrega). É escrita: gerar o QR de novo
+ * revoga o anterior (a via reimpressa é a que vale). Ordem de impressão:
+ * `text`, depois `slip.title`, o QR de `slip.qr` e `slip.lines`.
+ */
+export async function orderDeliverySlip(
+  ctx: ModuleContext,
+  actor: Actor,
+  data: any,
+  requestId: string,
+) {
+  ctx.access(actor, "conversations:write");
+  const order = await loadOrder(ctx, data.id);
+  if (order.fulfillment !== "delivery")
+    throw new ApiError(
+      409,
+      "not_delivery",
+      `O pedido nº ${order.number} é para retirada: não tem via de entrega.`,
+    );
+  if (order.status === "delivered" || order.status === "cancelled")
+    throw new ApiError(
+      409,
+      "order_closed",
+      `O pedido nº ${order.number} já está ${order.status === "delivered" ? "entregue" : "cancelado"}.`,
+    );
+  const columns =
+    data.columns === undefined || data.columns === null
+      ? 32
+      : Number(data.columns);
+  requireValue(
+    (TICKET_COLUMNS as readonly number[]).includes(columns),
+    "columns: 32, 42 ou 48.",
+  );
+  const slip = await deliverySlip(ctx.env, ctx.profile, {
+    order: orderView(order),
+    actor,
+    requestId,
+  });
+  if (!slip)
+    throw new ApiError(
+      409,
+      "delivery_unavailable",
+      "Ligue o módulo Entrega para imprimir a via com o QR do entregador.",
+    );
+  const ticket = await orderTicket(
+    ctx,
+    order.id,
+    { columns: String(columns) },
+    actor,
+  );
+  return {
+    ...ticket,
+    slip,
+    /** Título e linhas da parte do entregador já centrados nas colunas. */
+    slip_text: {
+      title: center(slip.title, columns).join("\n"),
+      lines: slip.lines.flatMap((line) => center(line, columns)).join("\n"),
+    },
+  };
 }
 
 /** GET pedido/orders/:id/ticket?columns=32|42|48. */

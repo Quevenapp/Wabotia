@@ -25,6 +25,7 @@ import {
   type PaymentMethod,
 } from "./model";
 import { cartCategories, loadMenu } from "./menu";
+import { deliveryInfo } from "./listeners";
 import { config, storeSituation } from "./store";
 import {
   applyMethod,
@@ -157,9 +158,24 @@ export async function listOrders(
   };
 }
 
+/**
+ * Entregador e previsão (módulo que acompanha a entrega, se ligado) dos
+ * pedidos de entrega; null para os demais e sem esse módulo.
+ */
+async function deliveries(ctx: ModuleContext, rows: any[]) {
+  const ids = rows
+    .filter((r) => r.fulfillment === "delivery" && r.status !== "cancelled")
+    .map((r) => r.id as string);
+  return deliveryInfo(ctx.env, ctx.profile, ids);
+}
+
 export async function orderDetail(ctx: ModuleContext, id: unknown) {
   const order = await loadOrder(ctx, id);
-  return orderView(order, await orderHistory(ctx, order.id));
+  const [history, info] = await Promise.all([
+    orderHistory(ctx, order.id),
+    deliveries(ctx, [order]),
+  ]);
+  return { ...orderView(order, history), delivery: info.get(order.id) ?? null };
 }
 
 /** Início do dia em Brasília. */
@@ -187,6 +203,7 @@ export async function board(ctx: ModuleContext, at: number) {
     since,
   );
   const store = await storeSituation(ctx, cfg, at);
+  const info = await deliveries(ctx, rows);
   const card = (row: any) => {
     const minutes = Math.max(0, Math.floor((at - row.status_at) / 60_000));
     const alert = (ALERT_STATUSES as readonly string[]).includes(row.status)
@@ -200,6 +217,8 @@ export async function board(ctx: ModuleContext, at: number) {
         row.status === "awaiting_payment"
           ? !!row.payment_due_at && row.payment_due_at <= at
           : !!alert && minutes >= alert,
+      /** Entregador e previsão de chegada (módulo Entrega); senão null. */
+      delivery: info.get(row.id) ?? null,
     };
   };
   return {

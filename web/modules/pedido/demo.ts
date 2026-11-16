@@ -261,6 +261,19 @@ function order(
     address,
     address_text: address ? "Rua A, 10 - Centro, Apto 2" : "",
     table: null,
+    // Quadro e detalhe: entregador e previsão (módulo Entrega).
+    delivery:
+      status === "out_for_delivery"
+        ? {
+            status: "en_route",
+            status_label: "A caminho",
+            courier_id: "demo-carlos",
+            courier_name: "Carlos",
+            eta_at: t(-12 * M),
+            eta_minutes: 12,
+            position_at: t(M),
+          }
+        : null,
     lines,
     item_count: lines.reduce((s, l) => s + l.quantity, 0),
     subtotal_cents: subtotal,
