@@ -434,6 +434,36 @@ describe("clientes: exclusão a pedido do titular", () => {
   });
 });
 
+describe("clientes: linha do tempo", () => {
+  it("lê o núcleo e a rota pública dos módulos ligados, sem copiar", async () => {
+    const s = await setup();
+    const { c, customer } = await selfRegister(s);
+    await s.run("module.set", { id: "os", enabled: true });
+    const order = await s.run("os.create", {
+      item: "Notebook",
+      problem: "Não liga",
+      conversation_id: c.id,
+      notify: false,
+    });
+    const url = `${root(s)}/customers/${customer.id}/timeline`;
+    const timeline = await (await api(s.member, url)).json<any>();
+    const kinds = timeline.data.map((i: any) => `${i.module}:${i.kind}`);
+    expect(kinds).toEqual(
+      expect.arrayContaining(["clientes:customer", "clientes:consent", "core:conversation", "os:service_order"]),
+    );
+    const item = timeline.data.find((i: any) => i.module === "os");
+    expect(item).toMatchObject({ ref_id: order.id, conversation_id: c.id });
+    expect(item.title).toContain("Ordem de serviço");
+    // Nada foi copiado: desligada a OS, o item some da linha do tempo.
+    await s.run("module.set", { id: "os", enabled: false });
+    const after = await (await api(s.member, url)).json<any>();
+    expect(after.data.some((i: any) => i.module === "os")).toBe(false);
+    // A própria linha do tempo exige conversations:read da integração.
+    const app = await application(s.f, ["contacts:read"]);
+    expect((await api(app.token, `/profiles/${s.f.profile}/clientes/customers/${customer.id}/timeline`)).status).toBe(403);
+  });
+});
+
 describe("clientes: idempotência e módulo desligado", () => {
   it("mesma Idempotency-Key não duplica ficha, link nem pedido", async () => {
     const s = await setup();
