@@ -75,7 +75,25 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 1. **Fecho:** `node --no-warnings scripts/erp/call-graph.mjs <rpc> --source`. Corpos isolados: `node --no-warnings output/fnsrc.mjs schema.função`.
 2. **Código:**
    - Escreva `rpc/<rpc>.ts` com `registerRpc("<rpc>", fn)` e importe em `index.ts`.
-   - Tipos de argumento primeiro (uuid 22P02, date 22007/22008), como o Postgres.
+   - **Argumentos: o motor já trata, não repita no corpo.** O `callRpc` aplica `engine/args.ts` antes do corpo, com as assinaturas do oráculo (`engine/signatures.generated.ts`, gerado por `scripts/erp/gen-signatures.mjs`):
+     - argumento desconhecido ou obrigatório faltando → 42883;
+     - tipos, na ordem em que os argumentos vieram:
+       - uuid → 22P02;
+       - integer e bigint → 22P02 e 22003 (leitura do PG 17, com espaço, sinal, `0x`/`0o`/`0b` e `_`);
+       - boolean → 22P02;
+       - date → 22007/22008;
+       - `uuid[]`/`text[]` (`malformed array literal`);
+     - DEFAULT do argumento omitido; `null` explícito continua `null`.
+
+     O corpo recebe:
+     - uuid canônico em minúsculas;
+     - integer como `number`;
+     - bigint como `number`, ou `bigint` além de 2^53;
+     - boolean como `boolean`;
+     - text sempre texto.
+
+     jsonb e timestamptz passam como vieram. Tire os auxiliares locais (`argOr`, `uuidArg`, `?? 25`…). `tests/erp/signatures.test.mjs` confere tudo contra o oráculo.
+   - Diferença conhecida: date só no formato `AAAA-MM-DD`. O Postgres aceita outros formatos, como `2026-11-16T10:00Z`; a erp-api manda ISO.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:
