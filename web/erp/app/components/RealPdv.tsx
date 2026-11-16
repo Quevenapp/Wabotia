@@ -49,6 +49,12 @@ const noSubscription = () => () => {}, noSnapshot = () => null;
 const STORE_KEY = 'brufap.pdv.loja';
 const readStore = () => { try { return globalThis.localStorage?.getItem(STORE_KEY) ?? null; } catch { return null; } };
 const writeStore = (id: string) => { try { globalThis.localStorage?.setItem(STORE_KEY, id); } catch { /* Per-viewer convenience only. */ } };
+type StoreChoice = { store: Named; session: PdvSession | null };
+// Wabotia: a loja (a escolhida, a do localStorage ou a única) e o seu caixa, calculados do contexto como o efeito antigo fazia.
+const storeOf = (context: PdvContext, id: string | null): StoreChoice | null => {
+  const found = context.stores.find(item => item.id === id) ?? (context.stores.length === 1 ? context.stores[0]! : null);
+  return found ? { store: found, session: context.cash_sessions.find(item => item.account_id === found.id && item.own) ?? context.cash_sessions.find(item => item.account_id === found.id) ?? null } : null;
+};
 const newKey = () => globalThis.crypto.randomUUID();
 const emptyProduct = (percent: boolean): ProductForm => ({ record: null, quantity: '1', discount: '', discountMode: percent ? 'percent' : 'amount', price: '', listPrice: null, comment: '' });
 const emptyDraft = (context: PdvContext | null, kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null): Draft => ({ saleId: null, version: 0, number: null, record: null, kind, table, savedItems: {}, cart: [], contact: null, priceList: null,
@@ -86,9 +92,17 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const mayWrite = () => mayRead() && ['admin', 'vendas'].includes(role) && Boolean(context?.permissions.operate);
   const mayCash = () => mayRead() && ['admin', 'financeiro'].includes(role);
   const [reload, setReload] = useState(0), [salesReload, setSalesReload] = useState(0);
-  const [store, setStore] = useState<{ store: Named; session: PdvSession | null } | null>(null);
+  // Wabotia: a loja sai do contexto já na renderização (held guarda a escolha feita para um contexto), sem efeito com setStore: a lista de vendas não sai antes sem a loja para ser refeita.
+  const [held, setHeld] = useState<{ context: PdvContext; store: StoreChoice | null } | null>(null);
+  const store = !context ? held?.store ?? null : held?.context === context ? held.store : storeOf(context, held?.store?.store.id ?? readStore());
   const [dialog, setDialog] = useState<Dialog | null>(null), [tab, setTab] = useState<Tab>('produto');
-  const [draft, setDraft] = useState<Draft>(() => emptyDraft(null)), [product, setProduct] = useState<ProductForm>(() => emptyProduct(false));
+  // Wabotia: sem rascunho guardado, a venda segue o contexto desde a primeira renderização (antes emptyDraft(null) e depois um efeito, o que relia as listas aplicáveis).
+  const [kept, keep] = useState<Draft | null>(null), latest = useRef(context); latest.current = context;
+  const fresh = useMemo(() => emptyDraft(context), [context]), draft = kept ?? fresh;
+  const setDraft = (next: Draft | ((previous: Draft) => Draft)) => keep(previous => typeof next === 'function' ? next(previous ?? emptyDraft(latest.current)) : next);
+  const [product, setProduct] = useState<ProductForm>(() => emptyProduct(false));
+  // Wabotia: cada aba fica montada (escondida com hidden) depois da primeira visita na venda, para trocar de aba não reler listas, produtos, contatos e categorias.
+  const opened = useRef(new Set<Tab>()); opened.current.add(tab);
   const [barcode, setBarcode] = useState(false), [favoritesOpen, setFavoritesOpen] = useState(false), [favoritesGrid, setFavoritesGrid] = useState(true);
   const [favorites, setFavorites] = useState<{ key: string; items: PdvFavorite[] | null; error: string }>({ key: '', items: null, error: '' });
   const [sales, setSales] = useState<{ key: string; items: PdvSaleSummary[]; open: PdvSaleSummary[]; error: string } | null>(null), [query, setQuery] = useState(''), [search, setSearch] = useState('');
@@ -126,14 +140,14 @@ export default function RealPdv({ controller }: { controller: AccessController }
   // The loja (per-viewer convenience) and its caixa: with "Utilizar controle de caixa" the screen asks for the loja and the caixa.
   useEffect(() => {
     if (!context) return;
-    setDraft(previous => previous.cart.length || previous.saleId ? previous : emptyDraft(context, previous.kind, previous.table));
+    // Wabotia: sem rascunho guardado (null) a venda já segue o contexto; um rascunho vazio guardado volta ao contexto como antes.
+    keep(previous => previous && !previous.cart.length && !previous.saleId ? emptyDraft(context, previous.kind, previous.table) : previous);
     setProduct(previous => previous.record ? previous : emptyProduct(context.settings.percent_discount));
-    const id = store?.store.id ?? readStore(), found = context.stores.find(item => item.id === id) ?? (context.stores.length === 1 ? context.stores[0]! : null);
+    // Wabotia: store já foi calculada na renderização; aqui só se guarda para este contexto e se abre "Selecione uma loja" como antes (held é a loja anterior).
     const asks = context.permissions.operate || context.effects.cash;
-    if (!found) { setStore(null); if (context.stores.length && asks) setDialog(current => current ?? { kind: 'store' }); return; }
-    const session = context.cash_sessions.find(item => item.account_id === found.id && item.own) ?? context.cash_sessions.find(item => item.account_id === found.id) ?? null;
-    setStore({ store: found, session });
-    if (context.settings.cash_control && !session && !store && asks) setDialog(current => current ?? { kind: 'store' });
+    setHeld({ context, store });
+    if (!store) { if (context.stores.length && asks) setDialog(current => current ?? { kind: 'store' }); return; }
+    if (context.settings.cash_control && !store.session && !held?.store && asks) setDialog(current => current ?? { kind: 'store' });
   }, [context]);
   const salesKey = `${scope}:${store?.store.id ?? ''}:${store?.session?.id ?? ''}:${search}:${salesReload}`;
   useEffect(() => {
@@ -183,7 +197,9 @@ export default function RealPdv({ controller }: { controller: AccessController }
   // ---------------------------------------------------------------- Ações da venda
   const say = (message: string) => { if (mayRead()) { setNotice(message); setError(''); } };
   const fail = (message: string) => { if (mayRead()) { setError(message); setNotice(''); } };
-  const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
+  // Wabotia: venda nova, abas novas (Cliente e Pagamento voltam a montar na primeira visita, como antes).
+  const freshTabs = () => { opened.current = new Set<Tab>(['produto']); };
+  const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { freshTabs(); setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
   const selectProduct = async (record: CatalogRecord | null) => {
     if (!record) { setProduct(previous => ({ ...previous, record: null, price: '', listPrice: null })); return; }
     const cadastro = shownPrice(text(record.price) ?? '0');
@@ -205,7 +221,9 @@ export default function RealPdv({ controller }: { controller: AccessController }
       return row.selected_position.state === 'no_movements' ? 0n : quantity === null ? null : decimal(quantity.replace('-', ''), 6, 12) * (quantity.startsWith('-') ? -1n : 1n);
     } catch { return null; }
   };
-  const insert = async (form: ProductForm = product): Promise<string | null> => {
+  // Wabotia: stockRule diz se insert vai conferir o saldo; pending é o saldo já pedido pelo bipe (em paralelo com o preço da lista).
+  const stockRule = (record: CatalogRecord) => Boolean(context?.permissions.items && record.active === true && (context.settings.block_zero || !context.settings.negative_stock));
+  const insert = async (form: ProductForm = product, pending?: Promise<bigint | null>): Promise<string | null> => {
     if (!context?.permissions.items) return 'Seu vendedor não pode registrar itens na frente de caixa.';
     if (!form.record) return 'Escolha um produto para inserir.';
     if (form.record.active !== true) return `O produto ${form.record.name} está inativo e não pode ser incluído.`;
@@ -219,7 +237,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     } catch (failure) { return failure instanceof Error && !/^DOCUMENT_/.test(failure.message) ? failure.message : 'Confira a quantidade, o valor unitário e o desconto do item.'; }
     // Preferências › Frente de caixa: "Bloquear vendas com quantidade zero" e "Permite incluir produtos com estoque negativo".
     if (context.settings.block_zero || !context.settings.negative_stock) {
-      const stock = await stockOf(form.record);
+      const stock = await (pending ?? stockOf(form.record));
       if (!mayRead()) return null;
       if (stock !== null) {
         const wanted = draft.cart.filter(item => item.product_id === line.product_id).reduce((sum, item) => sum + decimal(item.quantity, 6, 9), decimal(line.quantity, 6, 9));
@@ -240,7 +258,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const onCode = (record: CatalogRecord) => {
     if (!barcode) { void selectProduct(record); return `Produto ${record.name} selecionado.`; }
     const quantity = product.quantity || '1';
-    void (async () => { const { price, list } = await priceOf(record); if (!mayRead()) return; const message = await insert({ ...emptyProduct(Boolean(context?.settings.percent_discount)), record, quantity, price, listPrice: list }); if (message) fail(message); })();
+    // Wabotia: preço da lista e saldo saem juntos (1 RT em vez de 2); insert espera os dois e faz as mesmas conferências, na mesma ordem.
+    void (async () => { const pending = stockRule(record) ? stockOf(record) : undefined; const { price, list } = await priceOf(record); if (!mayRead()) return; const message = await insert({ ...emptyProduct(Boolean(context?.settings.percent_discount)), record, quantity, price, listPrice: list }, pending); if (message) fail(message); })();
     return `Produto ${record.name} incluído.`;
   };
   const removeLine = (id: string) => { if (draft.savedItems[id] !== undefined && !context?.permissions.remove_items) { fail('Seu vendedor não pode excluir itens da venda.'); return; } setDraft(previous => ({ ...previous, cart: previous.cart.filter(item => item.id !== id) })); };
@@ -299,7 +318,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   };
   const afterSale = (record: PdvSale, finishing: boolean) => {
     const job: PdvPrintJob = { kind: 'sale', sale: record, pix: pixFor(record) };
-    setLast(job); setDraft(emptyDraft(context)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition('');
+    setLast(job); freshTabs(); setDraft(emptyDraft(context)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition('');
     setSelected({ id: record.id, record, error: '' }); setSalesReload(value => value + 1);
     if (!finishing) { say(record.kind === 'mesa' ? `Comanda da mesa ${record.table_number} guardada (pedido nº ${record.number}).` : `Pré-venda nº ${record.number} enviada para o caixa.`); return; }
     // 202610200267: a refused Lançar estoque / Lançar contas / baixa à vista no longer refuses the sale; the message says why it stayed pending.
@@ -319,7 +338,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     void sale.run(() => ({ id: newKey(), path: `/v1/frente-caixa/actions/${mode === 'finish' ? 'sale_finish' : 'sale_save'}`, data: saleData(mode === 'finish') }), value => { if (mayRead()) afterSale(pdvSale(value), mode === 'finish'); });
   };
   const loadSale = (record: PdvSale) => guard.confirmLeave(() => {
-    setDraft({ ...emptyDraft(context, record.kind, record.table_number), saleId: record.id, version: record.version, number: record.number, record,
+    freshTabs(); setDraft({ ...emptyDraft(context, record.kind, record.table_number), saleId: record.id, version: record.version, number: record.number, record,
       savedItems: Object.fromEntries(record.items.map(item => [item.id, item.quantity])),
       cart: record.items.map(item => ({ id: item.id, product_id: item.product_id, description: item.description, code: item.code, unit: item.unit, quantity: item.quantity.replace(/\.?0+$/, ''), unit_price: item.unit_price,
         discount_percent: item.discount_percent.replace(/\.?0+$/, '') || '0', comment: item.comment, list_price: null, kind: null })),
@@ -386,7 +405,9 @@ export default function RealPdv({ controller }: { controller: AccessController }
     return money(lineTotals({ quantity, unit_price: price, discount_percent: context.settings.item_discount ? itemDiscountPercent(quantity, price, product.discountMode, product.discount) : '0' }).total.replace('.', '')); } catch { return '—'; } })();
   const salesState = sales?.key === salesKey ? sales : null;
   const detail = selected?.record ?? null;
-  const tabButton = (id: Tab, label: string, action: PdvAction) => <button type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label} ({hint(action)})</button>;
+  const tabButton = (id: Tab, label: string, action: PdvAction) => <button type="button" role="tab" aria-selected={tab === id} aria-controls={opened.current.has(id) ? `pdv-panel-${id}` : undefined} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label} ({hint(action)})</button>;
+  // Wabotia: aba já visitada fica montada; a inativa recebe hidden (display none), fora do foco, do teclado e da árvore de acessibilidade.
+  const panel = (id: Tab, label: string) => ({ id: `pdv-panel-${id}`, role: 'tabpanel', 'aria-label': label, hidden: tab !== id });
   return <div className="pdv-workspace real-pdv">
     <header className="pdv-topbar">
       <button type="button" className="pdv-menu-button" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><Icon name="bars" size={15} /></button>
@@ -426,7 +447,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
         <nav className="pdv-steps" role="tablist" aria-label="Etapas da venda">{tabButton('produto', 'Produto', 'produto')}{tabButton('cliente', 'Cliente', 'cliente')}{tabButton('pagamento', 'Pagamento', 'pagamento')}</nav>
         <div className="pdv-columns">
           <fieldset className="pdv-form" disabled={locked}><legend className="real-sr-only">Venda</legend>
-            {tab === 'produto' && <>
+            {opened.current.has('produto') && <div className="pdv-tab-produto" {...panel('produto', 'Produto')}>
               {/* 202610200282 (PRD-149): the lists of the Vendedor and of the formas de pagamento of the venda apply here too. */}
               <DocumentPriceList controller={controller} contact={draft.contact ? { id: draft.contact.id, state: draft.contact.state } : null} seller={draft.seller?.id ?? null}
                 paymentMethods={draft.payments.map(row => row.payment_method_id)} selected={draft.priceList} disabled={locked} busy={repricing} applicable={draft.cart.filter(item => item.product_id).length}
@@ -457,8 +478,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
                   <label htmlFor="pdv-subtotal">Sub total<input id="pdv-subtotal" readOnly value={productSubtotal} /></label>
                   <label className="pdv-wide" htmlFor="pdv-comment">Comentário<textarea id="pdv-comment" rows={2} maxLength={4000} value={product.comment} onChange={event => { const comment = event.target.value; setProduct(previous => ({ ...previous, comment })); }} /></label>
                   <button type="button" className="primary-button" disabled={!product.record || !context.permissions.items} onClick={() => void insert().then(message => { if (message) fail(message); else if (mayRead()) setError(''); })}>Inserir</button></div></div>
-            </>}
-            {tab === 'cliente' && <div className="pdv-client">
+            </div>}
+            {opened.current.has('cliente') && <div className="pdv-client" {...panel('cliente', 'Cliente')}>
               <CatalogPicker controller={controller} entity="contacts" label="Nome *" selected={draft.contact ? { id: draft.contact.id, name: draft.contact.name } : null}
                 onSelect={record => setDraft(previous => ({ ...previous, contact: record ? contactOf(record) : null }))} onCreate={context.effects.contacts ? query => setDialog({ kind: 'contact', initial: quickContactInitial('sales_orders', query) }) : undefined} />
               <span className="pdv-client-tools"><button type="button" className="secondary-button" onClick={() => setDialog({ kind: 'contact_search', query: '' })}><Icon name="magnifying-glass" size={11} />Pesquisa avançada</button>
@@ -471,7 +492,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
               {draft.contact && <FinanceContactOpenTitles key={`${draft.contact.id}:${scope}`} controller={controller} contactId={draft.contact.id} kind="receivable" />}
               <p className="real-help">Opções avançadas (inscrição estadual, contribuinte, endereço, e-mail e telefones) ficam no Contato rápido e no cadastro do cliente.</p>
             </div>}
-            {tab === 'pagamento' && <div className="pdv-payment">
+            {opened.current.has('pagamento') && <div className="pdv-payment" {...panel('pagamento', 'Pagamento')}>
               <dl className="pdv-pay-totals"><div><dt>Sub total</dt><dd>{totals ? money(totals.subtotal.replace('.', '')) : '—'}</dd></div>
                 <div><dt><label htmlFor="pdv-sale-discount">Desconto</label></dt><dd><span className="pdv-discount"><input id="pdv-sale-discount" inputMode="decimal" maxLength={16} placeholder={draft.discountMode === 'percent' ? '0%' : '0,00'} value={draft.discountValue} onChange={event => { const discountValue = event.target.value; setDraft(previous => ({ ...previous, discountValue })); }} />
                   <button type="button" className="secondary-button" aria-label="Alternar desconto da venda entre R$ e %" onClick={() => setDraft(previous => ({ ...previous, discountMode: previous.discountMode === 'percent' ? 'amount' : 'percent', discountValue: '' }))}>{draft.discountMode === 'percent' ? '%' : 'R$'}</button></span></dd></div>
@@ -553,11 +574,11 @@ export default function RealPdv({ controller }: { controller: AccessController }
       </aside>
     </div>
     {dialog?.kind === 'store' && <PdvStoreDialog context={context} current={store?.store.id ?? null} sendFinance={sendFinance} mayWrite={mayCash} onCancel={() => setDialog(null)}
-      onSelect={(chosen, session) => { writeStore(chosen.id); setStore({ store: chosen, session }); setDialog(null); setReload(value => value + 1); setSalesReload(value => value + 1); say(session ? `Caixa de ${chosen.name} em uso.` : `Loja ${chosen.name} escolhida.`); }} />}
+      onSelect={(chosen, session) => { writeStore(chosen.id); setHeld({ context, store: { store: chosen, session } }); setDialog(null); setReload(value => value + 1); setSalesReload(value => value + 1); say(session ? `Caixa de ${chosen.name} em uso.` : `Loja ${chosen.name} escolhida.`); }} />}
     {dialog?.kind === 'move' && store?.session && <PdvMoveDialog controller={controller} session={store.session} move={dialog.move} sendFinance={sendFinance} mayWrite={mayCash} onClose={() => setDialog(null)}
       onDone={(amount, note) => { const job: PdvPrintJob = { kind: 'move', move: dialog.move, store: store.store.name, operator: store.session!.operator_name, amount_cents: amount, note, at: new Date().toISOString() }; setLast(job); setDialog(null); setReload(value => value + 1); say(dialog.move === 'supply' ? 'Suprimento registrado no caixa.' : 'Sangria registrada no caixa.'); }} />}
     {dialog?.kind === 'close' && store?.session && <PdvCloseDialog controller={controller} context={context} session={store.session} sendFinance={sendFinance} mayWrite={mayCash} onClose={() => setDialog(null)}
-      onDone={() => { setStore(previous => previous ? { ...previous, session: null } : previous); setDialog(null); setReload(value => value + 1); say('Caixa fechado.'); }} />}
+      onDone={() => { setHeld({ context, store: store ? { ...store, session: null } : null }); setDialog(null); setReload(value => value + 1); say('Caixa fechado.'); }} />}
     {dialog?.kind === 'settings' && <PdvSettingsDialog controller={controller} context={context} sendPos={sendPos} mayWrite={() => mayWrite() && role === 'admin'} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setReload(value => value + 1); say('Configurações da frente de caixa salvas.'); }} />}
     {dialog?.kind === 'table' && <PdvTableDialog mode={dialog.mode} open={(salesState?.open ?? []).filter(row => row.kind === 'mesa')} onClose={() => setDialog(null)}
       onOpen={id => { setDialog(null); setSelected({ id, record: null, error: '' }); setCollapsed(false); }} onPick={table => { if (dialog.mode === 'new') { setDialog(null); newSale('mesa', table); } else transferTable(table); }} />}

@@ -287,3 +287,67 @@ test('202610200282 PRD-149: the Lista de preço of the venda asks for the lists 
     assert.equal(lists().props.contact, null, 'no cliente chosen yet');
   } finally { view.unmount(); }
 });
+
+// Wabotia: latência do PDV. Abertura sem leituras repetidas, abas que não relêem ao voltar e bipe com preço da lista e saldo em paralelo.
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const reads = (source, pattern) => source.calls.filter(call => call.method === 'GET' && pattern.test(call.path)).map(call => call.path);
+const stockPage = quantity => ({ scope: 'stock_positions', data_mode: 'erp_native', warehouse: { id: WAREHOUSE, name: 'Depósito sintético', active: true }, limit: 25, has_more: false, next_cursor: null,
+  items: [{ product: { id: PRODUCT, version: 1, name: 'Caneta sintética', code: 'CAN-01', active: true, unit: 'UN', kind: 'P', format: 'S', gtin: null, brand: null, location: null, stock_min: null, stock_max: null },
+    global: { state: 'recorded', quantity, recorded_warehouse_count: '1', scope: 'all_recorded_warehouses' }, selected_position: { warehouse_id: WAREHOUSE, state: 'recorded', quantity, version: 1 }, limit_state: 'not_configured' }] });
+
+test('Wabotia: ao abrir, a lista de vendas (com a loja e o caixa) e as listas de preço aplicáveis são lidas uma vez cada', async () => {
+  const SELLER = id(95), source = server({ ctx: context({ seller: { id: SELLER, name: 'Vendedora sintética' } }) }), view = await mount(source, ['DocumentPriceList']);
+  try {
+    await settle(view);
+    assert.deepEqual(reads(source, /^\/v1\/frente-caixa\/vendas\?/), [`/v1/frente-caixa/vendas?state=all&limit=50&caixa=${SESSION}`, '/v1/frente-caixa/vendas?state=open&limit=50'], 'no first read without the loja');
+    assert.deepEqual(reads(source, /\/listas-precos\/aplicaveis/), [`/v1/cadastros/listas-precos/aplicaveis?vendedor=${SELLER}`], 'no first read without the vendedor');
+  } finally { view.unmount(); }
+});
+
+test('Wabotia: trocar de aba e voltar não relê listas, produtos, contatos, categorias nem vendedores; a aba inativa fica escondida', async () => {
+  const source = server();
+  source.controller.documents = async path => { source.calls.push({ path, method: 'GET' }); throw new Error(`documents ${path}`); };
+  const view = await mount(source, ['DocumentPriceList', 'CatalogPicker', 'DocumentCategoryPicker', 'DocumentSellerPicker']);
+  const go = async label => { view.find(node => node.type === 'button' && node.props.role === 'tab' && text(node).startsWith(label)).props.onClick(); await settle(view); await wait(300); await settle(view); };
+  try {
+    await settle(view); await wait(300); await settle(view);
+    // Wabotia: os seletores só leem quando a pessoa os usa (DocumentCatalogPicker sob demanda): o foco na busca abre cada um uma vez.
+    const focusPickers = async () => { for (const input of view.nodes().filter(node => node.type === 'input' && node.props.type === 'search' && node.props.onFocus)) input.props.onFocus(); await settle(view); await wait(300); await settle(view); };
+    await focusPickers(); await go('Cliente'); await focusPickers(); await go('Pagamento'); await go('Produto'); await focusPickers();
+    const first = source.calls.length;
+    for (const pattern of [/\/listas-precos\/aplicaveis/, /^\/v1\/cadastros\/products\?/, /^\/v1\/posicoes-estoque\?/, /^\/v1\/cadastros\/contatos\/opcoes\?/, /^\/v1\/documentos\/sales_orders\/categorias$/, /^\/v1\/cadastros\/vendedores\/opcoes$/])
+      assert.equal(reads(source, pattern).length, 1, `${pattern} read once on the first visit`);
+    await go('Cliente'); await go('Pagamento'); await go('Produto'); await go('Cliente');
+    assert.deepEqual(source.calls.slice(first).map(call => call.path), [], 'switching tabs again reads nothing');
+    const panels = view.nodes().filter(node => node.props.role === 'tabpanel');
+    assert.deepEqual(panels.map(node => [node.props['aria-label'], node.props.hidden]), [['Produto', true], ['Cliente', false], ['Pagamento', true]], 'only the active tab is shown and reachable');
+    assert.deepEqual(view.nodes().filter(node => node.props.role === 'tab').map(node => [node.props['aria-selected'], node.props['aria-controls']]), [[false, 'pdv-panel-produto'], [true, 'pdv-panel-cliente'], [false, 'pdv-panel-pagamento']]);
+  } finally { view.unmount(); }
+});
+
+test('Wabotia: o bipe com lista de preço e regra de estoque lê o preço da lista e o saldo ao mesmo tempo; o item só entra depois dos dois', async () => {
+  const LIST = id(96), source = server({ ctx: context({}, { negative_stock: false }) }), gates = { price: [], stock: [] };
+  const deferred = list => new Promise(resolve => list.push(resolve));
+  source.controller.catalog = async path => { source.calls.push({ path, method: 'GET' }); if (path === `/v1/cadastros/products/${PRODUCT}/listas-precos`) return deferred(gates.price); throw new Error(`catalog ${path}`); };
+  source.controller.stockPositions = async path => { source.calls.push({ path, method: 'GET' }); return deferred(gates.stock); };
+  const view = await mount(source);
+  const scan = () => component(view, 'CatalogPicker', props => props.entity === 'products').props.onCode(product);
+  try {
+    await settle(view);
+    component(view, 'DocumentPriceList').props.onSelect({ id: LIST, name: 'Lista sintética' }); await settle(view);
+    view.find(node => node.type === 'input' && node.props.role === 'switch').props.onChange({ target: { checked: true } }); await settle(view);
+    assert.equal(scan(), 'Produto Caneta sintética incluído.'); await settle(view);
+    assert.deepEqual([gates.price.length, gates.stock.length], [1, 1], 'both reads are in flight before either answers');
+    gates.price[0]({ product_id: PRODUCT, items: [{ id: LIST, list_price: '8.00' }] }); await settle(view);
+    assert.doesNotMatch(view.text(), /Cód: CAN-01/, 'nothing enters before the stock answer');
+    gates.stock[0](stockPage('3.000000')); await settle(view);
+    assert.match(view.text(), /Caneta sintéticaCód: CAN-01/); assert.match(view.text(), /Total R\$ 8,00/, 'the list price');
+    // Above the saldo: the same refusal as before and the sale keeps one unit.
+    scan(); await settle(view);
+    assert.deepEqual([gates.price.length, gates.stock.length], [2, 2]);
+    gates.stock[1](stockPage('1.000000')); await settle(view);
+    assert.match(view.text(), /Total R\$ 8,00/, 'nothing enters before the list price answer');
+    gates.price[1]({ product_id: PRODUCT, items: [{ id: LIST, list_price: '8.00' }] }); await settle(view);
+    assert.match(view.text(), /Estoque insuficiente de Caneta sintética no depósito da venda \(saldo 1[,0]*\)\./); assert.match(view.text(), /Total R\$ 8,00/);
+  } finally { view.unmount(); }
+});
