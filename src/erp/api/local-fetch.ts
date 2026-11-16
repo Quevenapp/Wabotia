@@ -12,6 +12,7 @@ import { requireModule } from "../../modules/registry";
 import { erpBlockOf } from "../blocks.ts";
 import { IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
+import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 
 let erpApiModule: Promise<any> | null = null;
 
@@ -46,19 +47,40 @@ export function identityFor(actor: Actor): IdentityPort {
   };
 }
 
-export function localFetch(env: Env, profile: string, actor: Actor, identity: IdentityPort = identityFor(actor)) {
+/**
+ * `read`: o pedido de fora é leitura (GET/HEAD), e os RPCs dele podem ser
+ * repetidos depois de um erro de stub (api/retry.ts). Escrita só se repete
+ * com p_command_id.
+ */
+export function localFetch(
+  env: Env,
+  profile: string,
+  actor: Actor,
+  identity: IdentityPort = identityFor(actor),
+  { read = false }: { read?: boolean } = {},
+) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== LOCAL) throw new Error("A erp-api tentou sair da costura local.");
     if (url.pathname === "/auth/v1/user")
       return Response.json({ id: actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
     const rpc = /^\/rest\/v1\/rpc\/([a-z0-9_]+)$/.exec(url.pathname);
-    if (rpc)
-      return erpFetch(env, profile, `/erp-rpc/${rpc[1]}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
-        body: init.body as BodyInit,
-      });
+    if (rpc) {
+      // Corpo em texto: a nova tentativa manda o mesmo de novo.
+      const body = init.body == null ? undefined : typeof init.body === "string" ? init.body : await new Response(init.body).text();
+      const route = `/erp-rpc/${rpc[1]}` as const;
+      // Erro de stub sai como ErpUnavailable; a erp-api do Fagoo responde 503
+      // ERP_UPSTREAM_UNAVAILABLE para qualquer exceção do fetch (upstream()).
+      return withStubRetry(
+        () =>
+          erpFetch(env, profile, route, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
+            body,
+          }),
+        { idempotent: read || rpcHasCommand(body), route },
+      );
+    }
     if (url.pathname.startsWith("/storage/v1/"))
       return Response.json({ code: "0A000", message: "erp_storage_not_ported" }, { status: 501 });
     return Response.json({ message: "not found" }, { status: 404 });
@@ -83,10 +105,14 @@ export async function erpProbe(env: Env, request: Request, profile: string, acto
   if (name !== "wipe") await requireModule(env, profile, "erp");
   const body = { ...(await request.json<Record<string, unknown>>().catch(() => ({}))), user: actor.id };
   const t0 = Date.now();
-  const response = await erpFetch(env, profile, `/erp-probe/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  const route = `/erp-probe/${name}` as const;
+  // Sondas não se repetem (carga, restauração): erro de stub → 503, não 500.
+  const response = await withStubRetry(
+    () => erpFetch(env, profile, route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+    { idempotent: false, route },
+  ).catch((error) => {
+    if (error instanceof ErpUnavailable) throw new ApiError(503, error.code, error.message);
+    throw error;
   });
   const result = await response.json<Record<string, unknown>>().catch(() => ({ error: "resposta sem JSON" }));
   return Response.json(
@@ -124,6 +150,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   // A erp-api (3 MB) só é avaliada na primeira chamada do ERP (prova 7).
   // @ts-ignore módulo JavaScript do Fagoo, sem tipos (allowJs desligado).
   const { createHandler } = await (erpApiModule ??= import("../fagoo/workers/erp-api/src/index.mjs"));
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor) });
+  const read = ["GET", "HEAD"].includes(request.method);
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identityFor(actor), { read }) });
   return handler(inner, CONFIG) as Promise<Response>;
 }

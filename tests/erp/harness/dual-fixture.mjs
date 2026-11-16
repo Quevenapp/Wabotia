@@ -14,10 +14,11 @@ import { oracleDb } from "../../../scripts/erp/oracle-db.mjs";
 import { pgToLite } from "../../../scripts/erp/gen-sqlite-lib.mjs";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import "../../../src/erp/domains/index.ts";
-import { callRpc, isPorted } from "../../../src/erp/engine/registry.ts";
+import { callRpc, isPorted, rpcWantsListing } from "../../../src/erp/engine/registry.ts";
 import { Clock } from "../../../src/erp/engine/time.ts";
 import { ERP_DEVIATIONS } from "../../../src/erp/schema/deviations.ts";
 import { derivedIds } from "./derived-ids.mjs";
+import { pgIdentity, pgListing } from "./identity.mjs";
 import { freshLite, nodeDriver } from "./node-driver.mjs";
 import { applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
 import { IdMap, collectIds, diffTables, diffValues, liteRows, pgSelectAll } from "./state-compare.mjs";
@@ -147,14 +148,45 @@ export async function dualFixture({
     }
   };
 
-  async function rpc(name, args) {
+  /**
+   * RPC nos dois motores. Opções:
+   *   as: true | { user, session } — chama com a porta de identidade
+   *     (engine/identity.ts) montada do auth.* do oráculo: a pessoa
+   *     (padrão: args.p_user_id), o papel dela, a sessão (padrão:
+   *     args.p_session_id; f.session cria uma com aal1 ou aal2) e o fator
+   *     verificado (f.factor). Sem `as`, o motor roda sem identidade, como antes.
+   * A listagem do armazenamento vai junto quando o RPC a pede
+   * (registerRpc(…, { listing: true })) ou com `as`.
+   */
+  async function rpc(name, args, { as = null } = {}) {
     if (engine === "pg" || !isPorted(name)) {
       const r = await outcome(() => pgRpc(name, args));
       if (engine === "both") await mirror(await changedInPg());
       if (!r.ok) throw r.raw;
       return r.value;
     }
-    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock, objectLookup));
+    const env = { objects: objectLookup };
+    if (as || rpcWantsListing(name)) env.listing = await pgListing(pg);
+    if (as) {
+      const who = as === true ? {} : as;
+      env.identity = await pgIdentity(pg, who.user ?? args.p_user_id ?? null, who.session ?? args.p_session_id ?? null);
+    }
+    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock, env));
+  }
+
+  /** Sessão do auth do oráculo para `user`, com o nível dado (aal1 ou aal2). */
+  async function session(user, aal = "aal1", { expired = false } = {}) {
+    const id = randomUUID();
+    await pg.query(`insert into auth.sessions(id,user_id,aal,not_after) values($1,$2,$3,${expired ? "clock_timestamp() - interval '1 minute'" : "null"})`, [
+      id,
+      user,
+      aal,
+    ]);
+    return id;
+  }
+  /** Fator TOTP verificado para `user` no auth do oráculo. */
+  async function factor(user, status = "verified") {
+    await pg.query("insert into auth.mfa_factors(id,user_id,factor_type,status,created_at) values($1,$2,'totp',$3,now())", [randomUUID(), user, status]);
   }
 
   /**
@@ -169,6 +201,7 @@ export async function dualFixture({
     stats.pg_ms += a.ms;
     stats.lite_ms += b.ms;
     const ids = new IdMap(known);
+    ids.rpc = name;
     const problems = [];
     if (a.ok !== b.ok) problems.push({ what: "resultado", pg: a.ok ? a.value : a.error, lite: b.ok ? b.value : b.error });
     else if (!a.ok) {
@@ -235,6 +268,10 @@ export async function dualFixture({
     driver,
     users,
     rpc,
+    /** f.rpc com a porta de identidade (opções de `as`: user, session). */
+    rpcAs: (name, args, as = true) => rpc(name, args, { as }),
+    session,
+    factor,
     dual,
     clock,
     putObject,

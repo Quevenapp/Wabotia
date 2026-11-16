@@ -4,6 +4,26 @@ Base: `feat/erp-motor`. Provas e números: `docs/ERP-FASE0.md`. Mapa de fechos:
 `docs/erp-closure-map.json`. Dono de cada RPC e das funções compartilhadas:
 `src/erp/domains/ownership.generated.json`.
 
+## Tronco e junções
+
+O tronco comum do ERP é **`feat/erp-motor`**. Só a sessão N faz push nele (decisão da orquestração, 16/11/2026).
+- **Sempre verde.** Um branch de domínio só entra com `npm run test:erp` e `npm run check` verdes.
+  - Teste pendente (`todo`) só entra declarado, com o motivo.
+  - Depois de juntar, a N roda tudo de novo. Se quebrar, quem conserta é o dono do domínio que entrou, e a junção espera.
+- **Cada domínio no próprio branch:**
+  - `feat/erp-catalogo` (P);
+  - `feat/erp-catalogo-produtos` (G);
+  - `feat/erp-financeiro` (O);
+  - `feat/erp-estoque` (N).
+
+  Cada sessão junta o tronco no próprio branch com frequência. Ao fechar um bloco verde, avisa a N com o commit, e a N junta.
+- **Ordem atual:**
+  1. Catálogo da P: juntado;
+  2. `feat/erp-catalogo-produtos` da G, quando a fase em andamento estiver verde;
+  3. Financeiro da O, depois de registrar os escritores no harness oficial.
+- **`feat/erp-base`** é só um apelido, igual ao tronco. Não use: a base é `feat/erp-motor`.
+- **Conflito de tetos** (`LIMITS` no `schema-parity`): na junção vale o menor número que passa.
+
 ## Quem é dono de quê
 
 | Pasta | Domínio | Sessão |
@@ -12,7 +32,10 @@ Base: `feat/erp-motor`. Provas e números: `docs/ERP-FASE0.md`. Mapa de fechos:
 | `access/`, `preferences/public.ts` (`get`), `sync/` (contrato de integração) | núcleo transversal | N |
 | `reference/`, `company/`, `access/` | Referências, Empresa, Acesso | N |
 | `catalog/` | Catálogo, contatos, preços (`erp_catalog`, `erp_pricing`) | P (`feat/erp-catalogo`) |
-| `stock/`, `finance/`, `documents/`, `fiscal/`, `cnab/`, `pos/`, `preferences/` | o resto, na ordem do relatório | a alocar |
+| `catalog/` (produtos, preços: fase da G) | produtos e preços | G (`feat/erp-catalogo-produtos`) |
+| `stock/` | Estoque | N (`feat/erp-estoque`) |
+| `finance/` | Financeiro | O (`feat/erp-financeiro`) |
+| `documents/`, `fiscal/`, `cnab/`, `pos/`, `preferences/` | o resto, na ordem do relatório | a alocar |
 
 `documents/internal.ts` (`autoProducts`) e `documents/public.ts` (`allowed`)
 já existem; são do domínio Documentos. `catalog/` (`document_product`,

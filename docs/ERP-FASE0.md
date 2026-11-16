@@ -915,10 +915,16 @@ npm run test:erp
      - Hipótese mais provável: um reinício do objeto entre as duas marcas, e a chamada pegou o objeto no meio do reinício.
    - **O desligamento.** O comando passa pelo objeto da área, não pelo `erp:`: é o `mutate` do `module.set`, que grava no D1 e emite o `module.changed`. Quase certamente não é o ERP. Uma corrida com o `wipe` (`deleteAll` no `erp:`) não se sustenta, porque são objetos diferentes.
    - **Para fechar a causa:** os dois `request_id` na Observabilidade (Workers → Logs) da instalação de teste, com a exceção e o `$workers.outcome`. É com a K, dona da instalação.
-   - **Proposta, independente da causa:** a costura (`erpFetch`) tenta de novo **uma vez**, com stub novo, quando a exceção tem `.retryable` e não `.overloaded`.
-     - Só para leitura, ou para RPC com `p_command_id`: o recibo do comando torna o repetir idempotente.
-     - Todo o resto, inclusive sobrecarga, sai como 503 `erp_unavailable` com `Retry-After`, e não como 500.
-     - São ~40 linhas e um teste. Fica para quando a orquestração aprovar.
+   - **Feito, com a aprovação da orquestração:** nova tentativa no stub (`src/erp/api/retry.ts`), conforme a página "Error handling" da Cloudflare ([Durable Objects › Best practices › Error handling](https://developers.cloudflare.com/durable-objects/best-practices/error-handling/)): repetir só o que é `retryable`, nunca o `overloaded`, com stub novo, e só pedido idempotente.
+     - **Regras:**
+       - uma tentativa só, depois de 50–150 ms;
+       - stub novo (o `erpStub` pede de novo ao namespace);
+       - só para leitura (GET/HEAD da erp-api) ou para RPC com `p_command_id`, porque o recibo devolve a mesma resposta sem aplicar de novo.
+     - **Fora disso**, o erro sai como `ErpUnavailable` (503):
+       - na erp-api, o `upstream()` do Fagoo já responde 503 `ERP_UPSTREAM_UNAVAILABLE` a qualquer exceção do fetch;
+       - nas sondas, 503 `erp_unavailable` no lugar do 500.
+     - **Log:** cada nova tentativa grava `{"event":"erp_stub_retry","route":"/erp-rpc/<nome>","retryable","overloaded","remote"}`, sem área, pessoa nem argumentos.
+     - **Testes** (`tests/erp/stub-retry.test.mjs`): leitura repetida uma vez (dois erros dão 503); sobrecarga e erro não repetível sem nova tentativa; escrita sem `p_command_id` → 503; escrita com `p_command_id`, aplicada no objeto e com a resposta perdida, repetida e com efeito uma vez só (versão 1, resposta igual à do recibo).
 2. **`locationHint: "sam"` não põe o objeto no Brasil.** A documentação diz duas coisas:
    - "sam" é aceito, mas Durable Objects ainda não nascem na América do Sul. O objeto nasce no **leste da América do Norte**, o que bate com o IAD e com os tempos da K.
    - Só o primeiro `get()` de um objeto respeita o hint, e o objeto não muda de lugar depois de criado. O `erpStub` passa o hint em toda chamada, o que é inofensivo.

@@ -60,6 +60,7 @@ export class IdMap {
   }
   clone() {
     const c = new IdMap(this.known);
+    c.rpc = this.rpc;
     c.liteToPg = new Map(this.liteToPg);
     c.pgToLite = new Map(this.pgToLite);
     return c;
@@ -150,7 +151,7 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
   // Array declarado como ordenado por id novo (registerNewIdOrder): a ordem
   // vem dos uuids aleatórios de cada lado. Cada lado tem de estar nessa
   // ordem; aí os elementos casam um a um. Fora da declaração, ordem é ordem.
-  const order = !positional && Array.isArray(pg) && key !== undefined ? orderFor(key) : null;
+  const order = !positional && Array.isArray(pg) && key !== undefined ? orderFor(key, { rpc: ids.rpc ?? null }) : null;
   if (order && pg.length === lite.length && pg.length > 1) {
     const trial = ids.clone();
     if (!diffValues(pg, lite, trial, path, [], specs, key, true).length) {
@@ -231,7 +232,7 @@ function encodeJson(v, table, column, key, specs, leaf) {
     // coluna: na ordem declarada, os elementos (já com os ids ligados) são
     // comparados pelo conteúdo, sem a ordem; fora dela, marcado à parte,
     // nunca igual ao ordenado (o motor que não ordena diverge sempre).
-    const order = leaf.isNew && key !== undefined ? orderFor(key, `${table}.${column}`) : null;
+    const order = leaf.isNew && key !== undefined ? orderFor(key, { where: `${table}.${column}` }) : null;
     if (order && inNewIdOrder(v, order, leaf.isNew)) return "\u0002[" + parts.join("\u0003") + "\u0002]";
     if (order) return "[!" + parts.join(",") + "]";
     return "[" + parts.join(",") + "]";
