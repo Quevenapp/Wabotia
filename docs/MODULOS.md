@@ -344,6 +344,7 @@ onMcpTool("agenda", {
   - Ordem de Serviço: `os_situacao`.
   - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`.
   - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
+  - Vendas: `vendas_catalogo`, `vendas_orcamentos`.
 - Chave presa à conversa: com `conversations:bound` (padrão da chave criada em
   Integrações → Hermes), a aplicação só alcança as conversas que um dos bots
   dela está atendendo agora (execução na fila ou em andamento, ou encerrada há

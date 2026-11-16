@@ -212,6 +212,58 @@ Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão;
 
 Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada pelo horário ou item esgotado; `via: "page"` quando a própria página recusou), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed` e `pedido.store_changed`; todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
 
+### Vendas e orçamento (módulo `vendas`)
+
+Catálogo de produtos com estoque e dados fiscais, orçamento, venda e nota fiscal (desligado por padrão; uso em [VENDAS.md](VENDAS.md); esquemas no OpenAPI, grupo "Vendas"). Rotas em `/profiles/{perfil}/vendas…`; leitura com `conversations:read`; escrita com `Idempotency-Key`. Vendas, devoluções, cancelamentos, conversão de orçamento e emissão de nota: pessoa da equipe, ou aplicação com `billing:write`. Orçamentos: `conversations:write`. Produtos, categorias e regras: administrador. Valores em centavos; **quantidades e saldo como número decimal** (até 3 casas: `0.75` kg). Desligado: `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /vendas` | Regras (`config`, chave `vendas` já com os padrões), `payment_methods` ligados, `online_payments` (Cobrança pronta) e `counts` (`quotes_pending`, `quotes_approved`, `low_stock`, `awaiting_payment`, `needs_refund`) |
+| `GET /vendas/categories`; `POST`/`PUT`/`DELETE /vendas/categories[/{id}]` | Categorias `{name, color "#RRGGBB", position}`. Excluir deixa os produtos sem categoria |
+| `GET /vendas/products` | `q` (nome, SKU, EAN), `category_id` (`none`), `active=1\|0\|all`, `low=1`, `limit`, `cursor` |
+| `POST`/`PUT /vendas/products[/{id}]` | `name`, `price_cents`, `cost_cents`, `unit` (UN, KG…), `fractional`, `ean` (GTIN com dígito verificador), `sku`, `photo_media_id` (de `POST /media`), `active`, `track_stock`, `allow_negative`, `min_stock`, `stock` (só na criação: "Saldo inicial"), `fiscal {ncm, cest, cfop, origin, icms_cst \| icms_csosn, icms_rate, pis_cst, pis_rate, cofins_cst, cofins_rate, ipi_cst, ipi_rate, tax_unit, tax_factor, tax_ean, cbenef, ibs_cbs_cst, cclasstrib}`. Código repetido: `409 ean_taken`/`sku_taken` |
+| `DELETE /vendas/products/{id}` | Arquiva (`archived: true`) se o produto já tem movimento, venda ou orçamento; senão exclui |
+| `GET /vendas/lookup?code=` | Produto ativo pelo EAN ou SKU (leitor de código de barras); `404 product_not_found` |
+| `GET /vendas/catalog` | Catálogo sem custo nem saldo (`available`), para bots |
+| `GET /vendas/stock/moves` | `product_id`, `type`, `from`, `to`, `limit`, `cursor` |
+| `POST /vendas/stock/moves` | `{"type":"entrada\|saida\|ajuste","items":[{product_id, quantity, cost_cents?}],"note"}`. Entrada: qualquer pessoa; saída e ajuste (quantity = saldo contado): administrador. Lote atômico; sem saldo: `409 out_of_stock` |
+| `GET /vendas/quotes`; `GET /vendas/quotes/{id}` | Orçamentos (`status`, `conversation_id`, `q`, `limit`, `cursor`) |
+| `POST`/`PUT /vendas/quotes[/{id}]` | `lines [{product_id, quantity, discount_cents?, unit_cents?} \| {name, quantity, unit_cents}]`, `discount_cents` ou `discount_percent`, `conversation_id`, `customer_name`, `customer_phone`, `customer_document`, `valid_days`, `note` (ao cliente), `notes` (interna). Editar um enviado volta para rascunho |
+| `POST /vendas/quotes/{id}/send` | `{"via":"buttons"\|"link","notify":true}`: texto com os itens + botões Aprovar/Recusar, ou link do passo web; sobe `version`; sem conversa: `409 no_conversation` |
+| `POST /vendas/quotes/{id}/decision` | `{"decision":"approve\|decline","note"}` em nome do cliente; vencido: `409 quote_expired` |
+| `POST /vendas/quotes/{id}/convert` | `{payments, conversation_id?}` → `{quote, sale}`; equipe só aprovado (`409 quote_not_approved`) |
+| `POST /vendas/quotes/{id}/cancel`; `GET /vendas/quotes/{id}/print?columns=` | Cancelar; orçamento para imprimir |
+| `GET /vendas/sales`; `GET /vendas/sales/{id}` | Vendas (`status`, `source`, `session_id`, `conversation_id`, `q`, `from`, `to`, `limit`, `cursor`); detalhe com `returns` e `fiscal_documents` |
+| `POST /vendas/sales` | `{lines, discount_cents\|discount_percent, payments:[{method, amount_cents}], customer_name, customer_phone, customer_document, conversation_id, note, notes}`. Formas: `cash`, `card_credit`, `card_debit`, `pix_manual`, `pix`, `link`, `other` (ligadas nas regras). Soma ≥ total; o excesso é troco e só sai de dinheiro. `pix`/`link` (Mercado Pago): sozinhos, com o total e `conversation_id`; a venda fica `awaiting_payment` com `payment.pix_code` e `payment.url`. Sem saldo: `409 out_of_stock` e nada é gravado. Desconto da equipe acima do limite: `403 discount_limit`. Outro preço ou item avulso: administrador |
+| `POST /vendas/sales/{id}/cancel` | `{reason}`: devolve o estoque restante; administrador (ou equipe com `operator_can_cancel`); sessão de caixa fechada: `409 session_closed` |
+| `POST /vendas/sales/{id}/return` | `{items?:[{index, quantity}], method, reason}` → `{sale, return}`; sem `items`, devolve tudo o que falta |
+| `GET /vendas/sales/{id}/receipt?columns=32\|42\|48` | Comprovante **não fiscal**: `establishment`, `sale` e `text` |
+| `GET /vendas/sales/{id}/fiscal?model=nfce\|nfe` | Prévia da nota: `ready`, `issues [{field, message, line?}]`, `document` (emitente, itens com NCM/CFOP/CSOSN…, totais, pagamentos com `tPag`) |
+| `POST /vendas/sales/{id}/fiscal/emit` | `{model, recipient?}`. Sem emissor configurado: `409 fiscal_provider_not_configured` (nenhum está integrado); com pendências: `409 fiscal_not_ready` |
+| `GET /vendas/fiscal` | Emitente, pendências, emissores disponíveis e produtos ativos sem NCM |
+
+Estados da venda: `awaiting_payment`, `completed`, `cancelled`, `returned` (tudo devolvido). Do orçamento: `draft`, `sent` (vencido aparece como `expired`), `approved`, `declined`, `expired`, `converted`, `cancelled`. WhatsApp: botões `vendas:q:{orçamento}:{versão}:approve\|decline`, "1"/"2" (linha QR) ou APROVAR/RECUSAR; item de menu `{"type":"vendas_orcamentos"}`. MCP: `vendas_catalogo`, `vendas_orcamentos`. Eventos (`module_id: "vendas"`): `vendas.product_changed`, `vendas.stock_moved`, `vendas.stock_low` (cruzou o mínimo), `vendas.quote_saved`, `vendas.quote_sent`, `vendas.quote_approved`, `vendas.quote_declined`, `vendas.quote_expired`, `vendas.quote_converted`, `vendas.sale_created`, `vendas.sale_paid` (`late: true` depois de cancelada: estornar), `vendas.sale_cancelled`, `vendas.sale_returned` e `vendas.fiscal_updated`.
+
+### Caixa (módulo `caixa`)
+
+Frente de caixa (PDV) sobre o catálogo de Vendas; `requires: ["vendas"]` (desligar Vendas com `cascade` desliga o Caixa). Uso e o que falta às telas nativas em [CAIXA.md](CAIXA.md). Leitura com `conversations:read`; escrita por pessoa da equipe ou aplicação com `billing:write`; caixas só administrador.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /caixa` | `registers [{id, name, active, session}]` (sessão aberta de cada um), `payment_methods`, `online_payments` |
+| `POST`/`PUT /caixa/registers[/{id}]` | `{name, active, position}` |
+| `GET /caixa/grid` | Grade de venda por toque: `categories` e `products [{id, category_id, name, price_cents, unit, fractional, ean, sku, photo_media_id, photo_path, stock, low_stock, out_of_stock}]` |
+| `GET /caixa/lookup?code=` | Produto pelo EAN ou SKU |
+| `POST /caixa/registers/{id}/open` | `{opening_cents, note}` (troco inicial); já aberto: `409 session_open` |
+| `POST /caixa/sessions/{id}/sales` | Mesmo corpo de `POST /vendas/sales`; a venda sai com `source: "caixa"` e `session_id`. Sessão fechada: `409 session_closed` |
+| `POST /caixa/sessions/{id}/moves` | `{"kind":"withdrawal"\|"supply","amount_cents","note"}`: sangria (até o dinheiro esperado, senão `409 insufficient_cash`) ou suprimento |
+| `POST /caixa/sessions/{id}/returns` | `{sale_id, items?, method, reason}`: devolução com o dinheiro saindo desta gaveta |
+| `POST /caixa/sessions/{id}/close` | `{counted_cents, note}`: quem abriu ou administrador; grava `expected_cash_cents`, `difference_cents` e `summary` |
+| `GET /caixa/sessions`; `GET /caixa/sessions/{id}` | Sessões (`register_id`, `status`); detalhe com `summary` ao vivo, `moves`, `sales` e `returns` |
+| `GET /caixa/sessions/{id}/report?columns=` | Parcial ou fechamento em texto para a impressora |
+
+`summary`: `opening_cents`, `supplies_cents`, `withdrawals_cents`, `sales {count, total_cents, discount_cents, cancelled_count, cancelled_cents, awaiting_count}`, `by_method [{method, label, count, amount_cents}]` (dinheiro já sem o troco), `change_cents`, `returns {count, total_cents, by_method}`, `cash {sales_cents, returns_cents, expected_cents}`. Eventos: `caixa.opened`, `caixa.moved`, `caixa.closed`, `caixa.register_changed`.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:
