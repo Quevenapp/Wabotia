@@ -32,7 +32,7 @@ onSettingsSave(MODULE, "mesas", validateMesasConfig);
 
 onRead(MODULE, "mesas", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
-  return overview(ctx, now());
+  return overview(ctx, now(), actor);
 });
 onRead(MODULE, "mesas/tabs", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");

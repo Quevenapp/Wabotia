@@ -216,11 +216,11 @@ Pedido de mesa (módulo Mesas, abaixo): `source: "table"`, `fulfillment: "table"
 
 ### Mesas (módulo `mesas`)
 
-Mesas e comandas com a conta aberta pelo garçom (desligado por padrão; depende do Pedido, `requires: ["pedido"]`; uso em [MESAS.md](MESAS.md)). Rotas em `/profiles/{perfil}/mesas…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Cadastro de mesas só administrador. Valores em centavos.
+Mesas e comandas com a conta aberta pelo garçom (desligado por padrão; depende do Pedido, `requires: ["pedido"]`; uso em [MESAS.md](MESAS.md)). Rotas em `/profiles/{perfil}/mesas…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Cadastro de mesas só administrador. Operar a conta (abrir, lançar, transferir, juntar, pagar, fechar) exige o papel **Garçom** (`mesas:waiter`, em `module_grants`) ou ser administrador; pessoa sem o papel recebe `403 role_required` e só lê. Aplicações operam com o escopo. Valores em centavos.
 
 | Método e caminho | O quê |
 |---|---|
-| `GET /mesas` | Mapa: `tables [{id, name, kind table\|card, section, seats, position, state free\|occupied\|closing, state_label, tab}]`, `counts {free, occupied, closing}`, `sections`, `config` |
+| `GET /mesas` | Mapa: `tables [{id, name, kind table\|card, section, seats, position, state free\|occupied\|closing, state_label, tab}]`, `counts {free, occupied, closing}`, `sections`, `config`, `can_operate` (quem lê pode operar), `waiters [{id, name}]` (quem tem o papel) |
 | `POST /mesas/tables` | Uma mesa `{name, kind?, section?, seats?, position?}` ou várias `{prefix:"Mesa", from:1, to:20, …}` (até 100; repetidas em `skipped`). Nome repetido: `409 table_name_taken` |
 | `PUT`/`DELETE /mesas/tables/{id}` | Alterar; apagar só livre (`409 table_in_use`) |
 | `GET /mesas/tabs` | Contas por `status` (padrão `open,closing`; também `closed`, `cancelled`, `merged`), `table_id`, `from`, `to` (abertura), `limit`, `cursor` |

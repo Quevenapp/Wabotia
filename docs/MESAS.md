@@ -15,6 +15,24 @@ Pedido ligado (desligar o Pedido desliga as Mesas). Contrato da API em
    ("Comanda", de 1 a 50, ambiente "Bar"). Ali também fica a taxa de serviço
    (padrão 10%; 0 desliga).
 
+## Quem opera as mesas
+
+- **Garçom**: o administrador dá o papel **Garçom** (`mesas:waiter`) em
+  Gestão → Pessoas e acessos, na edição da pessoa ("Papéis nos módulos").
+  Quem tem o papel abre, lança, transfere, junta, pede a conta, registra
+  pagamentos e fecha.
+- **Administrador**: opera as mesas mesmo sem o papel (cobre o salão quando
+  falta gente), mas só aparece na lista de garçons se receber o papel.
+- **Atendente sem o papel**: vê o mapa e as contas, mas não muda nada
+  (`403 role_required`). O atendente do WhatsApp não vira garçom sozinho.
+- **Aplicações** (PDV, totem) operam com `conversations:write`; não têm papel.
+- **Cozinha**: o quadro do Pedido não exige o papel: quem atende o Pedido muda
+  o estado dos pedidos da mesa e cancela um item (o pedido dele).
+- **Trocar o garçom da mesa**: "me" assume (garçom ou administrador); passar
+  a outra pessoa é do administrador (ou da aplicação), e só para quem tem o
+  papel. `GET /mesas` traz `waiters` (quem tem o papel) e `can_operate` (se
+  quem lê pode operar), para o app esconder os botões.
+
 ## No salão
 
 - **Mapa**: cada mesa aparece livre, ocupada ou fechando (pediu a conta), com
@@ -83,6 +101,6 @@ o item de menu da mesa. Fica para depois do uso real do salão.
 - Até 300 mesas e comandas por área; 100 por cadastro em faixa.
 - Até 100 linhas por envio para a cozinha, como no pedido de balcão.
 - Divisão de 2 a `split_max` pessoas (padrão 20, até 50).
-- Consultas ao D1 (docs/LIMITES.md): lançar itens 25, mapa 5, fechar 19.
+- Consultas ao D1 (docs/LIMITES.md): lançar itens 25, mapa 7, fechar 20.
 - Sem divisão por item (cada um paga o que consumiu): use o pagamento parcial
   com o valor da pessoa. Sem desconto nem couvert por enquanto.

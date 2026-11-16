@@ -7,7 +7,7 @@ import { json, uid } from "../src/types";
 import { perform } from "../src/service";
 import { openapi } from "../src/openapi";
 import { moduleRoutes } from "../src/modules/hooks";
-import { api, bearer } from "./service-center-fixture";
+import { api, application, bearer } from "./service-center-fixture";
 import { pedidoSetup, run, seedMenu, type SeededMenu } from "./pedido-fixture";
 
 async function mesasSetup(options: { config?: any } = {}) {
@@ -43,6 +43,15 @@ async function mesasSetup(options: { config?: any } = {}) {
     section: "Bar",
   });
   const tables = [...created.data, ...card.data];
+  // O atendente da fixture é o garçom (papel mesas:waiter).
+  await perform(
+    env,
+    f.admin,
+    f.profile,
+    "settings",
+    { module_grants: { "mesas:waiter": [f.member.id] } },
+    uid(),
+  );
   const waiter = await bearer(f.member);
   const P = `/profiles/${f.profile}`;
   return { f, menu, tables, waiter, P };
@@ -497,6 +506,64 @@ describe("mesas: conta da mesa", () => {
       waiter_id: "me",
     });
     expect(taken.waiter_id).toBe(f.admin.id);
+    // Administrador passa a mesa só para quem tem o papel Garçom.
+    await expect(
+      run(f, f.admin, "mesas.tab.update", {
+        id: tab.id,
+        waiter_id: f.other.id,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    const back = await run(f, f.admin, "mesas.tab.update", {
+      id: tab.id,
+      waiter_id: f.member.id,
+    });
+    expect(back.waiter_id).toBe(f.member.id);
+  });
+
+  it("papel Garçom: sem ele o atendente só lê; administrador e aplicação operam", async () => {
+    const { f, menu, tables, P } = await mesasSetup();
+    const plain = await bearer(f.other);
+    const map = await (await api(plain, `${P}/mesas`)).json<any>();
+    expect(map.can_operate).toBe(false);
+    expect(map.waiters).toEqual([expect.objectContaining({ id: f.member.id })]);
+    const denied = await api(plain, `${P}/mesas/tabs`, "POST", {
+      table_id: tables[0].id,
+    });
+    expect(denied.status).toBe(403);
+    expect((await denied.json<any>()).error.code).toBe("role_required");
+    // Administrador sem o papel opera (e não aparece entre os garçons).
+    const admin = await bearer(f.admin);
+    expect(
+      (await (await api(admin, `${P}/mesas`)).json<any>()).can_operate,
+    ).toBe(true);
+    const tab = await run(f, f.admin, "mesas.tab.open", {
+      table_id: tables[0].id,
+    });
+    // Aplicação (PDV) com conversations:write lança sem papel.
+    const app = await application(f, [
+      "conversations:read",
+      "conversations:write",
+    ]);
+    const sent = await api(
+      app.token,
+      `${P}/mesas/tabs/${tab.id}/orders`,
+      "POST",
+      {
+        items: [{ item_id: menu.suco.id, quantity: 1 }],
+      },
+    );
+    expect(sent.status).toBe(200);
+    // Mas o atendente sem papel ainda vê a conta.
+    const seen = await api(plain, `${P}/mesas/tabs/${tab.id}`);
+    expect(seen.status).toBe(200);
+    expect(
+      (
+        await api(plain, `${P}/mesas/tabs/${tab.id}/payments`, "POST", {
+          method: "cash",
+          amount_cents: 100,
+        })
+      ).status,
+    ).toBe(403);
   });
 
   it("transfere para mesa livre e junta mesas", async () => {

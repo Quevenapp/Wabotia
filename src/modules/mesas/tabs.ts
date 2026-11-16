@@ -48,6 +48,28 @@ export async function config(ctx: ModuleContext): Promise<MesasConfig> {
   return mesasConfig(await ctx.settings());
 }
 
+/**
+ * Quem opera as mesas (abrir, lançar, transferir, juntar, conta, pagamentos,
+ * fechar): pessoas com o papel Garçom (`mesas:waiter`, Gestão → Pessoas e
+ * acessos) e administradores. Atendente sem o papel só vê o mapa e as contas.
+ * Aplicações (PDV, totem) seguem o escopo conversations:write; não têm papel.
+ */
+export async function mayOperate(ctx: ModuleContext, actor: Actor) {
+  if (actor.kind !== "user") return true;
+  if (actor.role === "admin") return true;
+  return ctx.granted(actor, "waiter");
+}
+
+async function requireWaiter(ctx: ModuleContext, actor: Actor) {
+  ctx.access(actor, "conversations:write");
+  if (!(await mayOperate(ctx, actor)))
+    throw new ApiError(
+      403,
+      "role_required",
+      "Só quem tem o papel Garçom (Gestão → Pessoas e acessos) ou é administrador opera as mesas.",
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Leitura
 
@@ -219,18 +241,22 @@ const history = (
  * GET mesas: o mapa das mesas para o garçom. Cada mesa com o estado (livre,
  * ocupada, fechando) e o resumo da conta aberta; contagens e a configuração.
  */
-export async function overview(ctx: ModuleContext, at: number) {
-  const [cfg, tables, tabs, totals, paid] = await Promise.all([
-    config(ctx),
-    listTables(ctx),
-    all(
-      ctx.env,
-      `SELECT * FROM mesas_tabs WHERE profile_id=? AND ${LIVE_SQL} LIMIT 500`,
-      ctx.profile,
-    ),
-    pedido.openTabTotals(ctx.env, ctx.profile),
-    livePaid(ctx),
-  ]);
+export async function overview(ctx: ModuleContext, at: number, actor?: Actor) {
+  const [cfg, tables, tabs, totals, paid, waiters, operate] = await Promise.all(
+    [
+      config(ctx),
+      listTables(ctx),
+      all(
+        ctx.env,
+        `SELECT * FROM mesas_tabs WHERE profile_id=? AND ${LIVE_SQL} LIMIT 500`,
+        ctx.profile,
+      ),
+      pedido.openTabTotals(ctx.env, ctx.profile),
+      livePaid(ctx),
+      ctx.grantees("waiter"),
+      actor ? mayOperate(ctx, actor) : Promise.resolve(false),
+    ],
+  );
   const summary = (tab: any) => {
     const t = totals.get(tab.id);
     return tabView(
@@ -272,6 +298,10 @@ export async function overview(ctx: ModuleContext, at: number) {
   return {
     generated_at: at,
     config: cfg,
+    /** Quem lê pode operar as mesas (papel Garçom, administrador, aplicação). */
+    can_operate: operate,
+    /** Pessoas com o papel Garçom (para escolher o garçom da mesa). */
+    waiters,
     counts,
     sections: [...new Set(out.map((t) => t.section))],
     tables: out,
@@ -433,7 +463,7 @@ const occupied = (table: any) =>
  * a conta que está aberta).
  */
 export async function openTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const table = await loadTable(ctx, data.table_id);
   const guests = intIn(
     data.guests ?? 0,
@@ -512,7 +542,7 @@ export async function sendOrder(
   data: any,
   requestId: string,
 ) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const note = text(data.note, 300, "a observação do pedido");
   const { order, created } = await pedido.createTableOrder(
@@ -590,7 +620,7 @@ export async function sendOrder(
  * garçom ("me" assume a mesa; outra pessoa, só administrador).
  */
 export async function updateTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const sets: Record<string, any> = {};
   if (data.guests !== undefined)
@@ -611,11 +641,26 @@ export async function updateTab(ctx: ModuleContext, actor: Actor, data: any) {
   }
   if (data.waiter_id !== undefined) {
     const me = data.waiter_id === "me" || data.waiter_id === actor.id;
-    requireValue(
-      me || (actor.kind === "user" && actor.role === "admin"),
-      'Para assumir a mesa, envie waiter_id "me". Passar a outra pessoa é só para administradores.',
-    );
-    sets.waiter_id = me ? actor.id : text(data.waiter_id, 80, "o garçom", true);
+    const admin = actor.kind === "user" && actor.role === "admin";
+    if (me)
+      requireValue(
+        actor.kind === "user",
+        "Aplicação não assume mesa: informe o id do garçom.",
+      );
+    else {
+      // Passar a mesa a outra pessoa: administrador ou aplicação, e só para
+      // quem tem o papel Garçom.
+      requireValue(
+        admin || actor.kind !== "user",
+        'Para assumir a mesa, envie waiter_id "me". Passar a outra pessoa é só para administradores.',
+      );
+      const waiters = await ctx.grantees("waiter");
+      requireValue(
+        waiters.some((w) => w.id === data.waiter_id),
+        "Escolha uma pessoa com o papel Garçom.",
+      );
+    }
+    sets.waiter_id = me ? actor.id : data.waiter_id;
   }
   const changed = Object.keys(sets).filter((k) => sets[k] !== tab[k]);
   if (!changed.length) return (await tabState(ctx, tab)).tab;
@@ -650,7 +695,7 @@ export async function updateTab(ctx: ModuleContext, actor: Actor, data: any) {
 
 /** POST mesas/tabs/:id/bill: o cliente pediu a conta (mesa "fechando"). */
 export async function requestBill(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   if (tab.status === "open") {
     const at = now();
@@ -676,7 +721,7 @@ export async function requestBill(ctx: ModuleContext, actor: Actor, data: any) {
 
 /** POST mesas/tabs/:id/reopen: volta a "aberta" depois de pedir a conta. */
 export async function reopenTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   if (tab.status === "closing") {
     const at = now();
@@ -705,7 +750,7 @@ export async function reopenTab(ctx: ModuleContext, actor: Actor, data: any) {
  * pagamentos) passa para uma mesa livre.
  */
 export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const target = await loadTable(ctx, data.table_id);
   requireValue(target.id !== tab.table_id, "A conta já está nesta mesa.");
@@ -756,7 +801,7 @@ export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
  * mesa fica livre (a conta dela fica "juntada", com `merged_into`).
  */
 export async function mergeTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const target = await liveTab(ctx, data.id);
   let sourceId = data.tab_id;
   if (sourceId === undefined && data.table_id !== undefined) {
@@ -937,7 +982,7 @@ function insertPayment(
  * troco.
  */
 export async function addPayment(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const before = await tabState(ctx, tab);
   if (!before.tab.bill.due_cents)
@@ -972,7 +1017,7 @@ export async function addPayment(ctx: ModuleContext, actor: Actor, data: any) {
 
 /** POST mesas/payments/:id/void {reason}: desfaz um pagamento lançado errado. */
 export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const row = await one(
     ctx.env,
     "SELECT * FROM mesas_payments WHERE id=? AND profile_id=?",
@@ -1031,7 +1076,7 @@ export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
  * mesa fica livre e os pedidos da cozinha ficam pagos.
  */
 export async function closeTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const state = await tabState(ctx, tab);
   const list = data.payments ?? [];
@@ -1112,7 +1157,7 @@ export async function closeTab(ctx: ModuleContext, actor: Actor, data: any) {
  * Só sem pedido valendo e sem pagamento (409 tab_not_empty).
  */
 export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
-  ctx.access(actor, "conversations:write");
+  await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const state = await tabState(ctx, tab);
   if (state.tab.orders_count || state.tab.bill.paid_cents)

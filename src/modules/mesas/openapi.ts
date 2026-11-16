@@ -199,6 +199,19 @@ export function mesasSchemas() {
       properties: {
         generated_at: { type: "integer" },
         config: ref("MesasConfig"),
+        can_operate: {
+          type: "boolean",
+          description:
+            "Quem lê pode operar as mesas: papel Garçom (mesas:waiter), administrador ou aplicação com conversations:write.",
+        },
+        waiters: {
+          type: "array",
+          description: "Pessoas com o papel Garçom, em ordem de nome.",
+          items: {
+            type: "object",
+            properties: { id: { type: "string" }, name: { type: "string" } },
+          },
+        },
         counts: {
           type: "object",
           properties: {
@@ -298,7 +311,8 @@ export function mesasSchemas() {
         },
         waiter_id: {
           type: "string",
-          description: '"me" assume a mesa; outra pessoa, só administrador.',
+          description:
+            '"me" assume a mesa; outra pessoa (com o papel Garçom), só administrador ou aplicação.',
         },
       },
     },
@@ -480,6 +494,9 @@ export function describeMesasOperation(
   entry.tags = ["Mesas"];
   entry.description +=
     " Módulo Mesas (mesas, depende do Pedido); desligado, 409 module_disabled.";
+  if (method !== "get" && !path.includes("/tables"))
+    entry.description +=
+      " Só quem tem o papel Garçom (mesas:waiter) ou é administrador; pessoa sem o papel: 403 role_required. Aplicações: conversations:write.";
   const schema = (value: any) =>
     (success.content["application/json"].schema = value);
   if (path === base) {

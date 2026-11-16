@@ -44,8 +44,8 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
 | Mesas: lançar itens (vira pedido do Pedido)              | Coordinator `/command`   | —     | 25     |
-| Mesas: mapa das mesas                                    | Worker (leitura)         | —     | 5      |
-| Mesas: fechar a conta com o pagamento                    | Coordinator `/command`   | —     | 19     |
+| Mesas: mapa das mesas                                    | Worker (leitura)         | —     | 7      |
+| Mesas: fechar a conta com o pagamento                    | Coordinator `/command`   | —     | 20     |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
 

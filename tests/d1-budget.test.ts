@@ -90,7 +90,8 @@ const CEILINGS: Record<string, number> = {
   // 25: conta, cardápio, pedido no Pedido (contador, pedido, histórico,
   // evento), histórico da conta, evento e a conta relida com os totais.
   "mesas: lançar pedido (comando no Coordinator)": 27,
-  "mesas: mapa das mesas (leitura)": 6,
+  // 7: mesas, contas abertas, totais do Pedido, pagamentos e os garçons.
+  "mesas: mapa das mesas (leitura)": 8,
   "mesas: fechar a conta (comando no Coordinator)": 21,
 };
 
@@ -236,6 +237,9 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
 
     // 6. Mesas: lançar itens na conta (vira pedido do Pedido), o mapa das
     // mesas e o fechamento com o pagamento.
+    await run("settings", {
+      module_grants: { "mesas:waiter": [f.member.id] },
+    });
     const [mesa] = (await run("mesas.table.create", { name: "Mesa 1" })).data;
     const tab = await run("mesas.tab.open", { table_id: mesa.id }, f.member);
     report["mesas: lançar pedido (comando no Coordinator)"] = await command(

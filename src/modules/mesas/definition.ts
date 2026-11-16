@@ -40,4 +40,12 @@ export const mesasModule: ModuleDefinition = {
   operations: ["mesas."],
   scopes: [],
   requires: ["pedido"],
+  grants: [
+    {
+      id: "waiter",
+      label: "Garçom",
+      description:
+        "Abre as mesas, lança os pedidos para a cozinha, transfere, junta, registra pagamentos e fecha a conta.",
+    },
+  ],
 };

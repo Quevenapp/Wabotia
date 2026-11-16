@@ -18,6 +18,14 @@ export const mesasDemoModule: Row = {
   enabled: true,
   default_enabled: false,
   requires: ["pedido"],
+  grants: [
+    {
+      id: "waiter",
+      label: "Garçom",
+      description:
+        "Abre as mesas, lança os pedidos para a cozinha, transfere, junta, registra pagamentos e fecha a conta.",
+    },
+  ],
   navigation: [{ id: "mesas", label: "Mesas", place: "admin", admin: false }],
   menu_item_types: [],
 };
@@ -225,6 +233,8 @@ export function mesasDemo(rest: string, query: URLSearchParams): any {
     return {
       generated_at: Date.now(),
       config: mesasDemoConfig,
+      can_operate: true,
+      waiters: [{ id: "demo-ana", name: "Ana Beatriz" }],
       counts: {
         free: view.filter((x) => x.state === "free").length,
         occupied: view.filter((x) => x.state === "occupied").length,

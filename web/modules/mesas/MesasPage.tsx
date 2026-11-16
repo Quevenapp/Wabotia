@@ -585,11 +585,14 @@ function MoveDialog({
 function TabDialog({
   id,
   tables,
+  canOperate,
   onClose,
   onChanged,
 }: {
   id: string;
   tables: Row[];
+  /** Papel Garçom ou administrador; sem ele, só a leitura. */
+  canOperate: boolean;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -626,7 +629,8 @@ function TabDialog({
         )}
       </Dialog>
     );
-  const live = tab.status === "open" || tab.status === "closing";
+  const live =
+    canOperate && (tab.status === "open" || tab.status === "closing");
   const bill = tab.bill;
   return (
     <>
@@ -1138,6 +1142,12 @@ export function MesasPage() {
           </Button>
         )}
       </section>
+      {view.can_operate === false && (
+        <Notice tone="info">
+          Você vê as mesas, mas só quem tem o papel Garçom (Gestão → Pessoas e
+          acessos) ou é administrador abre, lança e fecha contas.
+        </Notice>
+      )}
       {!view.tables.length && (
         <Empty
           icon={<Armchair size={28} />}
@@ -1158,7 +1168,15 @@ export function MesasPage() {
                 type="button"
                 key={t.id}
                 className={`mesas-table ${t.state}`}
-                onClick={() => (t.tab ? setTabId(t.tab.id) : setOpening(t))}
+                onClick={() =>
+                  t.tab
+                    ? setTabId(t.tab.id)
+                    : view.can_operate !== false
+                      ? setOpening(t)
+                      : toast(
+                          "Para abrir mesas, peça ao administrador o papel Garçom.",
+                        )
+                }
               >
                 <span className="mesas-table-top">
                   <strong>{t.name}</strong>
@@ -1208,6 +1226,7 @@ export function MesasPage() {
         <TabDialog
           id={tabId}
           tables={view.tables}
+          canOperate={view.can_operate !== false}
           onClose={() => setTabId(null)}
           onChanged={() => void resource.reload()}
         />
