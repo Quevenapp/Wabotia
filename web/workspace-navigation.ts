@@ -1,5 +1,6 @@
 import {
   Activity,
+  Banknote,
   BedDouble,
   Blocks,
   BookOpen,
@@ -18,14 +19,18 @@ import {
   Link2,
   Menu,
   MessageCircle,
+  Package,
   Phone,
   PiggyBank,
   LifeBuoy,
   Plug,
+  Receipt,
+  ReceiptText,
   Send,
   Settings,
   ShieldCheck,
   ShoppingBag,
+  ShoppingCart,
   Star,
   Store,
   Ticket,
@@ -82,6 +87,10 @@ export const sections = [
   ["establishment", "Estabelecimento", Store],
   ["pedidos", "Pedidos", ShoppingBag],
   ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
+  ["caixa", "Caixa", Banknote],
+  ["vendas", "Vendas e orçamentos", Receipt],
+  ["vendas-produtos", "Produtos e estoque", Package],
+  ["vendas-config", "Regras e nota fiscal", ReceiptText],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -146,6 +155,12 @@ export const workspaceGroups = [
     label: "Pedidos",
     icon: ShoppingBag,
     pages: ["pedidos", "pedidos-cardapio"],
+  },
+  {
+    id: "vendas",
+    label: "Vendas e caixa",
+    icon: ShoppingCart,
+    pages: ["caixa", "vendas", "vendas-produtos", "vendas-config"],
   },
   {
     id: "automation",
@@ -219,6 +234,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "suporte-settings",
   "reserva-settings",
   "pedidos-cardapio",
+  "vendas-config",
 ]);
 
 /**
@@ -242,6 +258,10 @@ export const pageModules: Partial<Record<string, string>> = {
   "reserva-settings": "reserva",
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
+  vendas: "vendas",
+  "vendas-produtos": "vendas",
+  "vendas-config": "vendas",
+  caixa: "caixa",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -256,6 +276,7 @@ export const railPages: {
   { page: "agenda", label: "Agenda", icon: CalendarDays },
   { page: "service-orders", label: "Ordens", icon: Wrench },
   { page: "pedidos", label: "Pedidos", icon: ShoppingBag },
+  { page: "caixa", label: "Caixa", icon: Banknote },
 ];
 
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
@@ -359,4 +380,12 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Quadro da cozinha com os pedidos em andamento: mude o estado, registre o pagamento e imprima a comanda.",
   "pedidos-cardapio":
     "Cardápio com fotos e adicionais, imagens do WhatsApp, horário, entrega, pagamento e mensagens ao cliente.",
+  caixa:
+    "Frente de caixa por toque e leitor de código de barras: abertura, venda, troco, sangria, devolução e fechamento.",
+  vendas:
+    "Vendas com comprovante, devolução e prévia da nota fiscal; orçamentos enviados e aprovados pelo WhatsApp.",
+  "vendas-produtos":
+    "Produtos com foto, preço, código de barras, estoque e dados fiscais; entradas, saídas e ajustes de inventário.",
+  "vendas-config":
+    "Validade do orçamento, formas de pagamento, limites da equipe, comprovante e o emitente da nota fiscal.",
 };

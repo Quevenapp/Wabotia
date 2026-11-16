@@ -9,6 +9,12 @@ import {
   pedidoDemoConfig,
   pedidoDemoModule,
 } from "../modules/pedido/demo";
+import {
+  caixaDemoModule,
+  vendasDemo,
+  vendasDemoConfig,
+  vendasDemoModule,
+} from "../modules/vendas/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -41,6 +47,7 @@ const settings: Row = {
   menus: [],
   apps: [],
   pedido: pedidoDemoConfig,
+  vendas: vendasDemoConfig,
   departments: [
     { id: "suporte", name: "Suporte", members: ["demo-user", "demo-ana"], enabled: true },
     { id: "financeiro", name: "Financeiro", members: ["demo-ana"], enabled: true },
@@ -391,6 +398,8 @@ const demoModules: Row[] = [
   },
   reservaDemoModule,
   pedidoDemoModule,
+  vendasDemoModule,
+  caixaDemoModule,
   {
     id: "mensalidade",
     name: "Mensalidade",
@@ -863,6 +872,13 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
   if (rest === "pedido" || rest.startsWith("pedido/")) return pedidoDemo(rest, query);
+  if (
+    rest === "vendas" ||
+    rest.startsWith("vendas/") ||
+    rest === "caixa" ||
+    rest.startsWith("caixa/")
+  )
+    return vendasDemo(rest, query);
   if (rest === "service-orders") {
     const status = (query.get("status") || "").split(",").filter(Boolean),
       q = (query.get("q") || "").toLowerCase();

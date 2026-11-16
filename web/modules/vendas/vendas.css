@@ -1,0 +1,474 @@
+/* Vendas (web/modules/vendas): catálogo, vendas, orçamentos, regras e a
+   impressão do comprovante. Só tokens de web/styles/tokens.css. */
+.vendas-page > .card + .card,
+.vendas-page > form > .card + .card,
+.vendas-page > form + .card {
+  margin-top: 16px;
+}
+.vendas-page .toolbar .search-box {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.vendas-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px 16px;
+  margin-bottom: 12px;
+}
+.vendas-filters > .field {
+  flex: 0 1 260px;
+  margin-bottom: 0;
+}
+.vendas-chip-wrap {
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+}
+.vendas-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 12px;
+}
+.vendas-grid-4 {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 1fr);
+  gap: 0 12px;
+}
+@media (max-width: 680px) {
+  .vendas-grid-3,
+  .vendas-grid-4 {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+@media (max-width: 420px) {
+  .vendas-grid-3,
+  .vendas-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+.vendas-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.vendas-toggle small {
+  font-size: 13px;
+}
+.vendas-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.vendas-inline > input {
+  flex: 1 1 90px;
+  min-width: 0;
+}
+.vendas-static {
+  margin: 6px 0 0;
+  color: var(--text);
+}
+.vendas-total {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.vendas-h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+.vendas-subhead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 14px 0 6px;
+}
+.vendas-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.vendas-late {
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+.vendas-photo-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.vendas-photo-row img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.vendas-photo-row input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
+}
+.vendas-photo-row input[type="color"] {
+  width: 56px;
+  height: 40px;
+  padding: 2px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.vendas-fiscal {
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+}
+.vendas-fiscal > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px 0;
+  min-height: 32px;
+}
+.vendas-fiscal > p {
+  margin: 4px 0 10px;
+  font-size: 13.5px;
+}
+
+/* Foto ou inicial do produto. */
+.vendas-thumb {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--panel);
+}
+.vendas-thumb.initial,
+.caixa-card-photo.initial {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text-2);
+}
+
+/* Lista de produtos. */
+.vendas-products {
+  display: grid;
+  container-type: inline-size;
+}
+.vendas-product {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--divider);
+}
+.vendas-product:first-child {
+  border-top: 0;
+}
+.vendas-product.archived {
+  opacity: 0.72;
+}
+.vendas-product .info {
+  flex: 1;
+  min-width: 0;
+}
+.vendas-product .info small {
+  display: block;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.vendas-product .price {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.vendas-product .price small {
+  color: var(--text-2);
+  font-weight: 400;
+}
+.vendas-product .actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@container (max-width: 640px) {
+  .vendas-product {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+  .vendas-product .info {
+    flex: 1 1 calc(100% - 64px);
+  }
+  .vendas-product .price {
+    margin-left: 62px;
+  }
+  .vendas-product .actions {
+    margin-left: auto;
+  }
+}
+
+/* Categorias e caixas desativados. */
+.vendas-category-list {
+  display: grid;
+}
+.vendas-category-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--divider);
+}
+.vendas-category-row:first-child {
+  border-top: 0;
+}
+.vendas-category-row .spacer {
+  flex: 1;
+}
+.vendas-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted-soft);
+  border: 1px solid var(--divider);
+}
+
+/* Detalhe de venda e orçamento. */
+.vendas-lines {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 12px;
+}
+.vendas-lines td {
+  padding: 8px 0;
+  border-top: 1px solid var(--divider);
+  vertical-align: top;
+}
+.vendas-lines td:last-child {
+  text-align: right;
+  white-space: nowrap;
+  padding-left: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.vendas-lines small {
+  display: block;
+  color: var(--text-2);
+}
+.vendas-lines small.vendas-returned {
+  color: var(--ticket-ink);
+}
+.vendas-lines tr.total td {
+  font-weight: 700;
+  font-size: 16px;
+}
+.vendas-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 6px 16px;
+  margin: 0 0 12px;
+}
+.vendas-facts dt {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.vendas-facts dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.vendas-facts dd.pre {
+  white-space: pre-wrap;
+}
+.vendas-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.vendas-history li {
+  border-left: 3px solid var(--divider);
+  padding: 2px 0 2px 10px;
+}
+.vendas-history li div {
+  margin-top: 2px;
+  color: var(--text-2);
+}
+.vendas-issues {
+  margin: 4px 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+}
+.vendas-receipt {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: pre;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+/* Devolução. */
+.vendas-return-lines {
+  display: grid;
+  margin-bottom: 8px;
+}
+.vendas-return-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  align-items: end;
+  gap: 0 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--divider);
+}
+.vendas-return-line:first-child {
+  border-top: 0;
+}
+.vendas-return-line .info {
+  align-self: center;
+}
+.vendas-return-line .info small {
+  display: block;
+  color: var(--text-2);
+}
+.vendas-return-line > .button {
+  margin-bottom: 16px;
+}
+@media (max-width: 560px) {
+  .vendas-return-line {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .vendas-return-line .info {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Orçamento: busca de produtos, itens e conversa. */
+.vendas-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.vendas-picker .chip {
+  height: auto;
+  min-height: 36px;
+  white-space: normal;
+  text-align: left;
+}
+.vendas-picked {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--text);
+}
+.vendas-quote-lines {
+  display: grid;
+  margin: 10px 0;
+}
+.vendas-quote-line {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(70px, 0.7fr) minmax(90px, 1fr) minmax(80px, 0.9fr) auto;
+  gap: 0 10px;
+  align-items: end;
+  border-top: 1px solid var(--divider);
+  padding-top: 6px;
+}
+.vendas-quote-line:first-child {
+  border-top: 0;
+}
+.vendas-quote-line-total {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 720px) {
+  .vendas-quote-line {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .vendas-quote-line > :first-child {
+    grid-column: 1 / -1;
+  }
+  .vendas-quote-line-total {
+    justify-content: flex-end;
+  }
+}
+.vendas-payments {
+  display: grid;
+  gap: 4px;
+}
+.vendas-payment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  gap: 0 10px;
+  align-items: end;
+}
+.vendas-payment-row > .icon-button {
+  margin-bottom: 18px;
+}
+
+@media (max-width: 759px) {
+  .vendas-facts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .vendas-facts dd {
+    margin-bottom: 8px;
+  }
+}
+
+/* Impressão: só o comprovante (printText em shared.tsx). */
+.vendas-print-root {
+  display: none;
+}
+@media print {
+  body.vendas-printing > *:not(.vendas-print-root) {
+    display: none !important;
+  }
+  html:has(body.vendas-printing),
+  body.vendas-printing {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body.vendas-printing > .vendas-print-root {
+    display: block;
+    /* Papel claro mesmo no tema escuro, sem cor literal. */
+    color-scheme: light;
+    background: Canvas;
+    color: CanvasText;
+  }
+  .vendas-print-root pre {
+    margin: 0;
+    font: 12px/1.35 var(--mono);
+    color: CanvasText;
+    white-space: pre;
+  }
+  @page {
+    margin: 4mm;
+  }
+}

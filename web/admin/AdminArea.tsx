@@ -43,6 +43,10 @@ import { ReservaPage } from "../modules/reserva/ReservaPage";
 import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import { OrdersPage } from "../modules/pedido/OrdersPage";
 import { MenuPage } from "../modules/pedido/MenuPage";
+import { SalesPage } from "../modules/vendas/SalesPage";
+import { ProductsPage } from "../modules/vendas/ProductsPage";
+import { VendasConfigPage } from "../modules/vendas/VendasConfigPage";
+import { CaixaPage } from "../modules/caixa/CaixaPage";
 import {
   GroupsPage,
   LogsPage,
@@ -174,6 +178,14 @@ function Page({ page }: { page: PageId }) {
       return <OrdersPage />;
     case "pedidos-cardapio":
       return <MenuPage />;
+    case "vendas":
+      return <SalesPage />;
+    case "vendas-produtos":
+      return <ProductsPage />;
+    case "vendas-config":
+      return <VendasConfigPage />;
+    case "caixa":
+      return <CaixaPage />;
     case "users":
       return <UsersPage />;
     case "applications":
