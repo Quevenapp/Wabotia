@@ -15,3 +15,4 @@ import "./rpc/erp_preferences_framework_delete.ts";
 import "./rpc/erp_preferences_reports.ts";
 import "./rpc/erp_preferences_reads.ts";
 import "./rpc/erp_home_overview.ts";
+import "./rpc/erp_attachment_files.ts";
