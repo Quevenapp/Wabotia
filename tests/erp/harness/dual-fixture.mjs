@@ -131,10 +131,18 @@ export async function dualFixture({ engine = process.env.ERP_ENGINE || "both" } 
       if (!r.ok) throw r.raw;
       return r.value;
     }
+    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock));
+  }
+
+  /**
+   * A mesma operação nos dois motores (RPC portado ou função interna):
+   * compara resposta ou erro e as tabelas tocadas, e realinha o SQLite.
+   */
+  async function dual(name, pgFn, liteFn) {
     stats.ported++;
     lite.exec("DELETE FROM erp_changed");
-    const a = await outcome(() => pgRpc(name, args));
-    const b = await outcome(() => callRpc(driver, name, structuredClone(args), clock));
+    const a = await outcome(pgFn);
+    const b = await outcome(liteFn);
     stats.pg_ms += a.ms;
     stats.lite_ms += b.ms;
     const ids = new IdMap();
@@ -175,6 +183,10 @@ export async function dualFixture({ engine = process.env.ERP_ENGINE || "both" } 
     driver,
     users,
     rpc,
+    dual,
+    clock,
+    /** Depois de SQL direto no Postgres: espelha o que mudou. */
+    sync: async () => mirror(await changedInPg()),
     scalar,
     stats,
     catalog: async (entity, data) =>

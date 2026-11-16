@@ -32,9 +32,14 @@ export const isPorted = (name: string) => registry.has(name);
 export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new Clock()) {
   const fn = registry.get(name);
   if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
+  return inTransaction(db, (ctx) => fn(ctx, args), clock);
+}
+
+/** Uma função qualquer do motor numa transação, com o contexto (testes de funções internas). */
+export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, clock = new Clock()): T {
   const ctx: RpcContext = { db, clock, settings: new Map() };
   try {
-    return db.transaction(() => fn(ctx, args));
+    return db.transaction(() => fn(ctx));
   } catch (error) {
     throw fromSqlite(error);
   }

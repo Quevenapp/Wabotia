@@ -54,6 +54,17 @@ export function jsonbText(value: unknown): string {
   throw new TypeError(`Valor sem tradução para jsonb: ${typeof value}`);
 }
 
+/** Chaves na ordem do jsonb (jsonb_each, jsonb_object_keys). */
+export const jsonbKeys = (value: object) => Object.keys(value).sort(compareKeys);
+
+/** value->>'key': nulo se falta ou é null; texto como está; o resto como jsonb::text. */
+export function arrow(value: unknown, key: string): string | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = (value as Record<string, unknown>)[key];
+  if (v === undefined || v === null) return null;
+  return typeof v === "string" ? v : jsonbText(v);
+}
+
 /** jsonb_typeof */
 export function jsonType(value: unknown) {
   if (value === undefined) return null;
