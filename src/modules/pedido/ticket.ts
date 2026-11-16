@@ -43,14 +43,14 @@ export function wrap(value: string, columns: number) {
 const indented = (value: string, columns: number, pad = "   ") =>
   wrap(value, columns - pad.length).map((line) => pad + line);
 
-const center = (value: string, columns: number) =>
+export const center = (value: string, columns: number) =>
   wrap(value, columns).map((line) => {
     const pad = Math.max(0, Math.floor((columns - width(line)) / 2));
     return " ".repeat(pad) + line;
   });
 
 /** Texto à esquerda e valor à direita na mesma linha (ou na seguinte). */
-function pair(left: string, right: string, columns: number) {
+export function pair(left: string, right: string, columns: number) {
   const lines = wrap(left, columns);
   const last = lines.at(-1)!;
   if (width(last) + 1 + width(right) <= columns)
@@ -94,7 +94,13 @@ export function ticketText(
   );
   out.push(
     ...wrap(
-      `${order.fulfillment === "delivery" ? "ENTREGA" : "RETIRADA"} · ${order.status_label}`,
+      `${
+        order.fulfillment === "delivery"
+          ? "ENTREGA"
+          : order.fulfillment === "table"
+            ? (order.table?.label || "MESA").toUpperCase()
+            : "RETIRADA"
+      } · ${order.status_label}`,
       columns,
     ),
   );

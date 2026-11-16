@@ -12,6 +12,8 @@ import { completeWebStep } from "../src/web-steps";
 import { refreshFromProvider, verifyPaymentWebhook } from "../src/payments";
 import { runModuleSchedules } from "../src/modules/schedule";
 import { moduleStates } from "../src/modules/registry";
+import { modulesApi } from "../src/modules/api";
+import { overview as mesasOverview } from "../src/modules/mesas/tabs";
 import { hmac } from "../src/security";
 import { mpManifest } from "../src/payments-mercadopago";
 import { configure, fixture, type Fixture } from "./service-center-fixture";
@@ -38,6 +40,7 @@ const MODULES = [
   "pedido",
   "mensalidade",
   "suporte",
+  "mesas",
 ];
 const MENUS = [
   { id: "cardapio", label: "Cardápio", type: "pedido_cardapio" },
@@ -84,6 +87,11 @@ const CEILINGS: Record<string, number> = {
   // Passa de 50: manutenção, rodada dos módulos e motor na mesma invocação;
   // aqui as duas entregas são canceladas (época antiga), o caminho barato.
   "alarme com uma mensagem e entregas pendentes": 70,
+  // 25: conta, cardápio, pedido no Pedido (contador, pedido, histórico,
+  // evento), histórico da conta, evento e a conta relida com os totais.
+  "mesas: lançar pedido (comando no Coordinator)": 27,
+  "mesas: mapa das mesas (leitura)": 6,
+  "mesas: fechar a conta (comando no Coordinator)": 21,
 };
 
 describe("consultas ao D1 por invocação, com todos os módulos ligados", () => {
@@ -223,6 +231,26 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
     report["fila: chamar a próxima (comando no Coordinator)"] = await command(
       "queue.call_next",
       { id: counter.id },
+      f.member,
+    );
+
+    // 6. Mesas: lançar itens na conta (vira pedido do Pedido), o mapa das
+    // mesas e o fechamento com o pagamento.
+    const [mesa] = (await run("mesas.table.create", { name: "Mesa 1" })).data;
+    const tab = await run("mesas.tab.open", { table_id: mesa.id }, f.member);
+    report["mesas: lançar pedido (comando no Coordinator)"] = await command(
+      "mesas.order.send",
+      { id: tab.id, items: [{ item_id: menu.suco.id, quantity: 2 }] },
+      f.member,
+    );
+    report["mesas: mapa das mesas (leitura)"] = (
+      await measure(env, (e) =>
+        mesasOverview(modulesApi(e, f.profile, "mesas"), now()),
+      )
+    ).count;
+    report["mesas: fechar a conta (comando no Coordinator)"] = await command(
+      "mesas.tab.close",
+      { id: tab.id, payments: [{ method: "card", amount_cents: 1760 }] },
       f.member,
     );
 

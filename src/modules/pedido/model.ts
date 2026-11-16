@@ -68,6 +68,20 @@ export const CLOSED_STATUSES: readonly OrderStatus[] = [
   "cancelled",
 ];
 
+/**
+ * Retirada, entrega ou mesa (pedido lançado pelo garçom numa conta do módulo
+ * Mesas: segue o caminho da retirada, "Pronto" e depois "Entregue").
+ */
+export type Fulfillment = "pickup" | "delivery" | "table";
+
+/** Rótulo do estado; na mesa, "Pronto" é para servir. */
+export const statusLabel = (status: OrderStatus, fulfillment?: string) =>
+  fulfillment === "table" && status === "ready"
+    ? "Pronto para servir"
+    : fulfillment === "table" && status === "delivered"
+      ? "Servido"
+      : STATUS_LABELS[status] || status;
+
 export const isStatus = (value: unknown): value is OrderStatus =>
   typeof value === "string" &&
   (ORDER_STATUSES as readonly string[]).includes(value);
@@ -80,7 +94,7 @@ export const isStatus = (value: unknown): value is OrderStatus =>
  */
 export function nextStatuses(
   status: OrderStatus,
-  fulfillment: "pickup" | "delivery",
+  fulfillment: Fulfillment,
 ): OrderStatus[] {
   const done: OrderStatus =
     fulfillment === "delivery" ? "out_for_delivery" : "ready";

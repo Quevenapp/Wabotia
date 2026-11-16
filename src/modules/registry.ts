@@ -16,6 +16,7 @@ import { mensalidadeModule } from "./mensalidade/definition";
 import { suporteModule } from "./suporte/definition";
 import { reservaModule } from "./reserva/definition";
 import { pedidoModule } from "./pedido/definition";
+import { mesasModule } from "./mesas/definition";
 
 export type { ModuleDefinition } from "./types";
 
@@ -30,6 +31,7 @@ export const modules: readonly ModuleDefinition[] = [
   suporteModule,
   reservaModule,
   pedidoModule,
+  mesasModule,
 ];
 
 export const moduleById = (id: unknown) =>
