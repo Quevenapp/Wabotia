@@ -32,11 +32,13 @@ export function useListPreferences(controller:ListPreferencesPort,listId:string,
  const valid=(p:AbortController)=>may()&&!p.signal.aborted&&request.current===p;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();attempt.current=null;};},[controller]);
  // A different user never inherits the previous user's list or command.
- useEffect(()=>{if(owner.current===actor)return;owner.current=actor;request.current?.abort();request.current=null;attempt.current=null;setPending('none');setValue(null);setError('');setNotice('');setReload(n=>n+1);},[actor]);
+ // Wabotia: a releitura vem do `actor` nas dependências da leitura abaixo, e não de um setReload aqui: quando a porta liga
+ // (ator null → usuário, `allowed` false → true) as duas mudanças chegam juntas e a lista era lida duas vezes.
+ useEffect(()=>{if(owner.current===actor)return;owner.current=actor;request.current?.abort();request.current=null;attempt.current=null;setPending('none');setValue(null);setError('');setNotice('');},[actor]);
  useEffect(()=>{if(!allowed||!may())return;const p=new AbortController();request.current=p;setLoading(true);void(async()=>{try{
   const raw=await controller.listPreferences(listPreferencesPath(listId),{method:'GET',signal:p.signal});if(valid(p))setValue(parseListPreferences(raw,listId));
  }catch(e){if(valid(p)&&!aborted(e))setError('Não foi possível carregar a listagem customizada. A listagem padrão continua disponível.');}finally{if(request.current===p){request.current=null;setLoading(false);}}})();
-  return()=>{p.abort();if(request.current===p)request.current=null;};},[controller,listId,reload,allowed]);
+  return()=>{p.abort();if(request.current===p)request.current=null;};},[controller,listId,reload,allowed,actor]);
  const run=async(a:Attempt,post:boolean)=>{
   if(!may()||request.current||attempt.current!==a||post&&a.uncertain&&!a.retryAllowed)return;
   const p=new AbortController();request.current=p;setPending('saving');setError('');setNotice('');a.retryAllowed=false;let settled=false;

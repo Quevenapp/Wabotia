@@ -48,6 +48,8 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
   const [clone, setClone] = useState<{ values: Record<string, string>; name: string } | null>(null);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [detailError, setDetailError] = useState(''); const [notice, setNotice] = useState(''); const [reload, setReload] = useState(0);
+  // Wabotia: a primeira página de produtos espera as preferências de lista ("Tornar padrão"); useProductList libera uma vez só.
+  const [prefsHold, setPrefsHold] = useState(true);
   const filterKey = JSON.stringify([entity, query, active, productFilters, contactFilters, role, period, sort]);
   // Changing any filter or the order returns to page 1 in the same render, without a stale request.
   const [pageState, setPageState] = useState({ key: filterKey, number: 1 });
@@ -77,7 +79,7 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
   }, [controller]);
   useEffect(() => {
     // Clientes e fornecedores load their own page (ContactList.tsx, /v1/cadastros/contatos).
-    if (!permissions?.read.includes(entity) || entity === 'contacts') return;
+    if (!permissions?.read.includes(entity) || entity === 'contacts' || entity === 'products' && prefsHold) return;
     const request = new AbortController(); setLoading(true); setError(''); setPage(null);
     const params = catalogPageParams(entity, { page: pageNumber, sort, query, active, role, contact: contactFilters, product: productFilters, period });
     void controller.catalog(`/v1/cadastros/${entity}?${params}`, { signal: request.signal }).then(value => {
@@ -90,7 +92,7 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
       setPage(result); setLoading(false);
     }).catch(failure => { if (!aborted(failure)) { setError(errorText(failure)); setLoading(false); } });
     return () => request.abort();
-  }, [controller, permissions, entity, filterKey, pageNumber, reload]);
+  }, [controller, permissions, entity, filterKey, pageNumber, reload, prefsHold]);
   const load = async (id: string) => {
     detailRequest.current?.abort(); const request = new AbortController(); detailRequest.current = request; setError(''); setDetailError('');
     try {
@@ -195,7 +197,7 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
     query, setQuery, draft, setDraft, active, setActive, activeDraft, setActiveDraft, period, setPeriod, sort, setSort, role, setRole,
     productFilters, setProductFilters, productFilterDraft, setProductFilterDraft, contactFilters, setContactFilters, contactFilterDraft, setContactFilterDraft,
     pageState, setPageState, filterKey, listKey, selection, setSelection, selected, selectedItems, ids, allSelected, someSelected, toggleRow, selectWhere,
-    rowMenu, setRowMenu, batch, setBatch, batchPlan, runSituation, closeBatch, openSituation, setReload, rows, detailRequest, navigationGuard,
+    rowMenu, setRowMenu, batch, setBatch, batchPlan, runSituation, closeBatch, openSituation, setReload, rows, detailRequest, navigationGuard, setPrefsHold,
     load, recordPath, open, openRow, closeEditor, changeList, create, openClone, setRecord, setClone, setEditorEpoch, apply, clear, changeEntity,
     sortHeader, nameCell, editItem, situationItems,
   };

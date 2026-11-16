@@ -6,7 +6,7 @@ import {AccessError} from '../lib/real-access';
 import {badgeClass} from '../lib/origin-list';
 import {DOCUMENT_LABELS,STATES} from '../lib/real-documents-model';
 import {financeDate,financeMoney,todaySP} from '../lib/real-finance-model';
-import HomeNewInvoices from './HomeNewInvoices';
+import HomeNewInvoices,{useNewInvoices} from './HomeNewInvoices';
 import ReleaseNotesPanel from './ReleaseNotesPanel';
 import type {PlatformPort} from '../lib/platform-model';
 import {HOME_BUCKET_LABELS,HOME_CATALOG_LABELS,HOME_PERIOD_OPTIONS,homeCustomRoute,homeNetCents,homePeriodMatches,homePeriodRoute,homePeriodSearch,homePeriodText,homeSalesLines,homeSessionAccess,homeSummaryPath,type HomeController,type HomePeriodKey,type HomePeriodRoute,type HomeSummary} from '../lib/home-model';
@@ -53,6 +53,9 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
   const period=summary?.period;
   const money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
   const role=access?.role??summary?.role;
+  // Wabotia: a contagem de novas NF-es sai no salto 1; o cartão continua dentro do detalhamento do período.
+  const newInvoicesOn=Boolean(role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role));
+  const newInvoices=useNewInvoices(controller as unknown as Partial<PlatformPort>,newInvoicesOn);
   // Quick actions come from the destinations this access already has in the menu; nothing new is granted here.
   const quick=useMemo(()=>access?workspaceActions(resolveMenu('real',access),access.role):[],[access]);
   const togglePanel=()=>{const next=!panel;setPanel(next);try{globalThis.localStorage?.setItem(PANEL_KEY,next?'open':'closed');}catch{/* Visit only. */}};
@@ -110,13 +113,15 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
         </div>
         {(periodError||route.error)&&<p className="real-alert" role="alert">{periodError||route.error}</p>}
         {error&&<p className="real-alert" role="alert">{error}</p>}{loading&&<p className="real-result-status" role="status">Carregando resumo da empresa…</p>}
-        {period&&<><div className="fagoo-metrics" aria-label="Indicadores do período">
+        {/* Wabotia: os gráficos e as novas NF-es não dependem do resumo; montados fora do `period&&`, as leituras deles saem
+            junto com o /v1/inicio (salto 1), e o cartão aparece quando o período chega. */}
+        {period&&<div className="fagoo-metrics" aria-label="Indicadores do período">
           <article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>
           {period.receivable&&<article className="fagoo-metric"><span><Icon name="arrow-down" size={20}/>A receber no período</span><strong>{money(period.receivable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
           {period.payable&&<article className="fagoo-metric"><span><Icon name="arrow-up" size={20}/>A pagar no período</span><strong>{money(period.payable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
-        </div>
-        <HomeChartCards controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary!.as_of} resumo={<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>
-        <details className="fagoo-home-details"><summary>Detalhamento do período<Icon name="chevron-down" size={15}/></summary><div className="home-cards">
+        </div>}
+        <HomeChartCards controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary?.as_of} resumo={period&&<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>
+        {period&&<details className="fagoo-home-details"><summary>Detalhamento do período<Icon name="chevron-down" size={15}/></summary><div className="home-cards">
           <article className="home-card"><header><h3><Link className="home-card-title" to="/documentos-empresa?tipo=sales_orders">Pedidos de venda<Icon name="right" size={11}/></Link></h3></header>
             <ul className="home-dots home-sales">{homeSalesLines(period.sales).map(line=><li key={line.id} title={line.detail}><span className={`home-dot home-dot-${line.dot}`} aria-hidden="true"/><strong>{count(line.count)}</strong><span>{line.label}</span><em>{money(line.total_cents)}</em></li>)}</ul>
             <p className="home-card-note">Pedidos pela data do pedido no período.</p>
@@ -131,8 +136,8 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados.</p>
           </article>}
           {/* Leva H (PRF-252): real NF-es synced from Origin or received from SEFAZ since the last view, never drafts or homologation. */}
-          {role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role)&&<HomeNewInvoices controller={controller as unknown as Partial<PlatformPort>}/>}
-        </div></details></>}
+          {newInvoicesOn&&<HomeNewInvoices controller={controller as unknown as Partial<PlatformPort>} invoices={newInvoices}/>}
+        </div></details>}
       </section>
       {summary?.finance&&<section className="home-section" aria-labelledby="home-due-title"><h2 id="home-due-title">Contas em aberto por vencimento</h2><div className="home-cards">
         {financeTitles.map(row=>{const total=row.buckets.reduce((sum,bucket)=>sum+BigInt(bucket.balance_cents),0n).toString(),titles=row.buckets.reduce((sum,bucket)=>sum+bucket.count,0);return <article className="home-card" key={row.kind}>

@@ -10,8 +10,9 @@ import {
 } from "./app/hooks/useUnsavedChanges";
 import { setNavigationGuard } from "../lib/routes";
 import { setErpPorts, type ErpPorts } from "./ports";
-import { setErpBlocks, type ErpBlock } from "./blocks";
-import { createFetchPort, erpApiUrl } from "./fetch-port";
+import { setErpBlocks, targetEnabled, type ErpBlock } from "./blocks";
+import { createFetchPort, erpApiUrl, erpSimulated } from "./fetch-port";
+import { preloadScreen } from "./app/components/native-modules";
 import {
   createChallengePort,
   createSessionPort,
@@ -53,10 +54,7 @@ type Props = {
 };
 
 /** API simulada: demonstração e desenvolvimento (web/erp/demo, chunk próprio). */
-const simulated = (demo: boolean) =>
-  demo ||
-  (import.meta.env.DEV &&
-    !new URLSearchParams(location.search).has("erp-real"));
+const simulated = erpSimulated;
 
 /**
  * O ERP exige que o ator seja um UUID (as pessoas do Wabotia já são:
@@ -79,6 +77,15 @@ export default function ErpMount({
   // Lido pelo menu e pelas rotas do ERP ao renderizar (web/erp/blocks.ts); a
   // casca remonta o ERP quando a chave de um opcional muda.
   setErpBlocks(blocks);
+  // Primeira visita: o arquivo da tela do endereço baixa junto com o /v1/me
+  // (antecipado em ErpArea), e não depois dele. Bloco desligado: nada.
+  useEffect(() => {
+    const path = location.pathname.startsWith(ERP_BASENAME)
+      ? location.pathname.slice(ERP_BASENAME.length) || "/"
+      : "/";
+    if (targetEnabled(path + location.search))
+      preloadScreen(path, location.search);
+  }, []);
   const [simulation, setSimulation] = useState<null | {
     api: (
       path: string,
@@ -119,6 +126,7 @@ export default function ErpMount({
       apiUrl,
       fetch: createFetchPort({
         apiUrl,
+        actor,
         simulate: simulate ?? undefined,
         onUnauthorized: () => {
           auth.expire();

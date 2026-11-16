@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
 import {mountComponent,AccessError} from './helpers/component-recovery-harness.mjs';
 import {STATES} from '../../../packages/erp-domain/src/index.mjs';
 import {HOME_SHORTCUTS,homePeriodBuckets,homePeriodRange} from './upstream/workers/erp-api/src/home.mjs';
@@ -175,6 +176,27 @@ test('browser navigation to another period closes an open Customizado choice',as
   await view.navigate('/acesso?periodo=12m');
   assert.equal(view.button('12M').props['aria-pressed'],true);assert.equal(view.button('Customizado').props['aria-pressed'],false);assert.equal(picker(view),undefined);
   assert.equal(source.summaries().at(-1).path,'/v1/inicio?periodo=12m');
+ }finally{view.unmount();}
+});
+
+// Wabotia (latência, 9.6): gráficos (H7) e novas NF-es (H8) saem no salto 1, sem esperar o /v1/inicio; perfil e armazenamento
+// são lidos uma vez e repartidos com a barra do topo (aqui um substituto de HomeFavorites chama useCompanyChrome como a barra).
+test('Wabotia: charts and new NF-es start with the summary; profile and storage are read once with the top bar', async () => {
+ let release;const source=server({summaryHook:()=>new Promise(resolve=>{release=resolve;})}),system=[],platform=[];
+ const platformRead=source.controller.platform;source.controller.platform=async(...args)=>{platform.push(args[0]);return platformRead(...args);};
+ source.controller.system=async path=>{system.push(path);if(path==='/v1/sistema/perfil')return {scope:'system_profile'};return {};};
+ const chrome=JSON.stringify(fileURLToPath(new URL('../app/components/CompanyChrome.tsx',import.meta.url)));
+ const modules={'./HomeFavorites':`import {useCompanyChrome} from ${chrome};export function HomeFavorites({controller}){useCompanyChrome(controller,controller.getSnapshot());return null;}`};
+ const view=await mountComponent('RealHome.tsx',{controller:source.controller},{location:'/acesso',modules,expandChildren:['HomeView','HomeFavorites','HomeChartCards','HomeChart','HomeNewInvoices','HomeProfileCard']});
+ try{
+  assert.equal(source.summaries().length,1);assert.equal(typeof release,'function','the summary is still on its way');
+  assert.ok(system.includes('/v1/sistema/graficos-inicio'),'charts list in hop 1');assert.deepEqual(platform,['/v1/plataforma/novas-nfes'],'new NF-es in hop 1');
+  release();await view.flush();
+  assert.match(view.text(),/Novas NF-es/);
+  assert.equal(system.filter(path=>path==='/v1/sistema/perfil').length,1,'profile once');
+  assert.equal(system.filter(path=>path==='/v1/sistema/armazenamento').length,1,'storage once');
+  assert.equal(system.filter(path=>path.startsWith('/v1/sistema/notificacoes')).length,1,'notifications only for the bar');
+  assert.equal(system.filter(path=>path==='/v1/sistema/graficos-inicio').length,1);assert.deepEqual(platform,['/v1/plataforma/novas-nfes']);
  }finally{view.unmount();}
 });
 

@@ -1,10 +1,11 @@
 // Área ERP do painel (/app/erp/…): limite do carregamento sob demanda. Nada do
 // Fagoo (web/erp/app) entra no pacote inicial do painel; o import() abaixo é a
 // única porta (tests/erp-painel-build.test.ts confere no build).
-import React, { lazy, Suspense } from "react";
+import React, { lazy, Suspense, useEffect } from "react";
 import { useApp } from "../app/AppContext";
 import { navigate } from "../lib/routes";
 import { erpModuleOn } from "./modules";
+import { erpApiUrl, erpSimulated, prefetchErpMe } from "./fetch-port";
 import { Empty, Spinner, Button } from "../ui";
 
 const ErpMount = lazy(() => import("./mount"));
@@ -36,6 +37,15 @@ const OPTIONAL = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
 
 export function ErpArea() {
   const app = useApp();
+  // Primeira visita: o /v1/me sai já aqui, em paralelo com o download do
+  // ERP; o primeiro /v1/me do controlador recebe esta resposta
+  // (web/erp/fetch-port.ts). A API simulada não vai à rede.
+  const erpOn = app.statusLoaded && erpModuleOn(app.modules, "erp");
+  const actor = String(app.me?.id ?? "");
+  useEffect(() => {
+    if (erpOn && actor && !erpSimulated(app.demo))
+      prefetchErpMe(erpApiUrl(app.profile), actor);
+  }, [erpOn, actor, app.demo, app.profile]);
   // As chaves vêm de GET /status; até lá não se sabe se o ERP está ligado.
   if (!app.statusLoaded)
     return (

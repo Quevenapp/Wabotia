@@ -12,6 +12,23 @@ const fiscal = () => import('../../screens/fiscal');
 const preferencias = () => import('../../screens/preferencias');
 const pick = <M extends Record<K, ComponentType<any>>, K extends string>(load: () => Promise<M>, name: K) => () => load().then(module => ({ default: module[name] as M[K] }));
 
+// Wabotia: primeira visita. O arquivo da tela do endereço começa a baixar quando o ERP monta (web/erp/mount.tsx), junto com o
+// /v1/me, e não só depois dele; o lazy() da rota reaproveita o mesmo import(). Endereço sem tela conhecida não baixa nada.
+const SCREEN_FILES: [RegExp, () => Promise<unknown>][] = [
+  [/^\/frente-caixa-empresa$/, pdv],
+  [/^\/(cobranca-empresa|cobranca-operacional|retornos-operacionais)$/, cobranca],
+  [/^\/(financeiro-empresa|relatorio-vencimentos)$/, financeiro],
+  [/^\/(historico-fiscal|notas-entrada|naturezas-operacao|inutilizacoes-nfe|cartas-correcao|numeracao-fiscal|notas-recebidas|emissor-fiscal|certificado-a1|conexao-sefaz|checkin-recebimentos)$/, fiscal],
+  [/^\/(estoque-empresa|estoque-abertura|conferencia-estoque-empresa|relatorios-estoque|painel-produtos-empresa)$/, estoque],
+  [/^\/documentos-empresa$/, documentos],
+  [/^\/(cadastros-reais|categorias-produtos|grupos-produtos|tags|grupos-tags|exportacao-produtos|listas-precos|campos-customizados|tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos)$/, cadastros],
+  [/^\/(|acesso|empresa-configuracoes|preferencias(\/.*)?)$/, preferencias],
+];
+export function preloadScreen(pathname: string, search = '') {
+  const load = pathname === '/cadastros-reais' && new URLSearchParams(search).get('cadastro') === 'warehouses' ? estoque : SCREEN_FILES.find(([path]) => path.test(pathname))?.[1];
+  void load?.().catch(() => { /* A rota tenta de novo pelo lazy() e mostra o erro dela. */ });
+}
+
 // Stable component identities: loading a route never recreates its controller or editor.
 export const Catalog = lazy(pick(cadastros, 'RealCatalog'));
 // Produtos (202610200119-120): categorias, grupos de produtos, tags e grupos de tags; exportação de produtos.

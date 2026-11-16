@@ -12,16 +12,27 @@ const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 // The navigation stays free of the controller module (tests stub it): an HTTP refusal is read from its status.
 const statusOf=(e:unknown)=>e&&typeof e==='object'&&Number.isInteger((e as {status?:unknown}).status)?(e as {status:number}).status:null;
 type Port=Partial<Pick<SystemController,'system'>>&{getSnapshot?:()=>AccessState};
+// Wabotia: perfil e armazenamento são lidos uma vez por controlador, ator e papel e repartidos entre a barra do topo e o cartão
+// do Início (antes o Início repetia as duas leituras). Outro ator ou papel troca a chave; uma falha sai do cache para a próxima
+// montagem tentar de novo. Sem sinal: uma tela que sai não cancela a leitura que a outra espera (o controlador cancela na troca de sessão).
+const chromeReads=new WeakMap<object,{key:string;reads:Map<string,Promise<unknown>>}>();
+function sharedRead(controller:object,system:SystemController['system'],key:string,path:string){
+ let entry=chromeReads.get(controller);if(!entry||entry.key!==key){entry={key,reads:new Map()};chromeReads.set(controller,entry);}
+ const reads=entry.reads;let read=reads.get(path);
+ if(!read){const next=system(path,{method:'GET'});read=next;reads.set(path,next);next.catch(()=>{if(reads.get(path)===next)reads.delete(path);});}
+ return read;
+}
 /** Top bar data of the company area (Meu perfil, Armazenamento, unread notifications), one actor at a time. */
-export function useCompanyChrome(controller:Port|undefined,state:AccessState){
+export function useCompanyChrome(controller:Port|undefined,state:AccessState,{notifications=true}:{notifications?:boolean}={}){
  const actor=state.phase==='ready'?state.membership?.user_id??null:null,role=state.membership?.role;
  const [profile,setProfile]=useState<Profile|null>(null),[storage,setStorage]=useState<StorageUsage|null>(null),[unread,setUnread]=useState<number|null>(null);
- useEffect(()=>{setProfile(null);setStorage(null);setUnread(null);if(!actor||typeof controller?.system!=='function')return;const p=new AbortController(),system=controller.system;
+ useEffect(()=>{setProfile(null);setStorage(null);setUnread(null);if(!actor||!controller||typeof controller.system!=='function')return;const p=new AbortController(),system=controller.system,key=`${actor}:${role??''}`;
   const same=()=>!p.signal.aborted&&(!controller.getSnapshot||controller.getSnapshot().membership?.user_id===actor);
-  void system(PROFILE_PATH,{method:'GET',signal:p.signal}).then(raw=>{const v=parseProfile(raw);if(same()&&v.user_id===actor)setProfile(v);}).catch(()=>{});
-  void system(STORAGE_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(same())setStorage(parseStorage(raw));}).catch(()=>{});
-  void system(notificationsPath('nao_lidas'),{method:'GET',signal:p.signal}).then(raw=>{if(same())setUnread(parseNotifications(raw,{tab:'nao_lidas'}).unread);}).catch(()=>{});
-  return()=>p.abort();},[controller,actor,role]);
+  void sharedRead(controller,system,key,PROFILE_PATH).then(raw=>{const v=parseProfile(raw);if(same()&&v.user_id===actor)setProfile(v);}).catch(()=>{});
+  void sharedRead(controller,system,key,STORAGE_PATH).then(raw=>{if(same())setStorage(parseStorage(raw));}).catch(()=>{});
+  // Wabotia: o cartão do Início não mostra notificações; só a barra as lê.
+  if(notifications)void system(notificationsPath('nao_lidas'),{method:'GET',signal:p.signal}).then(raw=>{if(same())setUnread(parseNotifications(raw,{tab:'nao_lidas'}).unread);}).catch(()=>{});
+  return()=>p.abort();},[controller,actor,role,notifications]);
  return{profile,storage,unread,setUnread,actor};
 }
 
@@ -58,7 +69,7 @@ export function NotificationsPanel({controller,actor,onUnread,onNavigate}:{contr
 
 /** Meu Negócio > Página inicial, painel esquerdo: avatar, nome e e-mail do usuário e o cartão de armazenamento. */
 export function HomeProfileCard({controller}:{controller:Port}){
- const snapshot=controller.getSnapshot?.()??null,state=(snapshot??{phase:'ready',membership:null}) as AccessState,chrome=useCompanyChrome(controller,state);
+ const snapshot=controller.getSnapshot?.()??null,state=(snapshot??{phase:'ready',membership:null}) as AccessState,chrome=useCompanyChrome(controller,state,{notifications:false});
  if(typeof controller.system!=='function'||!chrome.profile)return null;
  const name=chrome.profile.name??chrome.profile.email??'Usuário';
  return <section className="home-profile" aria-label="Meu perfil">

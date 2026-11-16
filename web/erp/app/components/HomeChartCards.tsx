@@ -22,7 +22,8 @@ function PendingGuard({busy}:{busy:boolean}){useUnsavedChanges(true,busy);return
  * chart Brufap already had (`resumo`). Every change is one command (CAS by version, idempotent, audited); an uncertain answer
  * keeps the same command for "Conferir resultado". Without the charts list (before 189, or an error) only Valores por dia shows.
  * Origin "Atualizado em" of the charts: Valores por dia carries it; when that chart is hidden the header carries it instead. */
-export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{controller:Port;role:string|undefined;period:HomePeriod;hidden:boolean;resumo:ReactNode;asOf?:string}){
+// Wabotia: montado antes do resumo chegar (RealHome), para a lista de gráficos sair no salto 1; sem `period` não mostra nada.
+export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{controller:Port;role:string|undefined;period?:HomePeriod;hidden:boolean;resumo:ReactNode;asOf?:string}){
  const [view,setView]=useState<HomeChartsView|null>(null),[loadFailed,setLoadFailed]=useState(false),[top,setTop]=useState<TopProductsView|null>(null),[topFailed,setTopFailed]=useState(false);
  const [choosing,setChoosing]=useState(false),[draft,setDraft]=useState<HomeChart[]>([]),[menu,setMenu]=useState<HomeChart|null>(null),[dragging,setDragging]=useState<HomeChart|null>(null);
  const [busy,setBusy]=useState(false),[pending,setPending]=useState(false),[message,setMessage]=useState(''),[reload,setReload]=useState(0);
@@ -32,8 +33,8 @@ export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{cont
   void system(CHARTS_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setView(parseHomeCharts(raw));}).catch(()=>{if(!p.signal.aborted){setView(null);setLoadFailed(true);}});return()=>p.abort();},[system,reload]);
  const charts:HomeChart[]=view?view.charts:['resumo'];
  const wantsTop=Boolean(system&&role&&TOP_PRODUCT_ROLES.includes(role as never)&&charts.includes('top_skus'));
- const topKey=`${period.key}:${period.from}:${period.to}`;
- useEffect(()=>{setTop(null);setTopFailed(false);if(!wantsTop||!system)return;const p=new AbortController();
+ const topKey=period?`${period.key}:${period.from}:${period.to}`:'';
+ useEffect(()=>{setTop(null);setTopFailed(false);if(!wantsTop||!system||!period)return;const p=new AbortController();
   const q=captureTopProductsQuery({periodo:period.key,...(period.key==='customizado'?{de:period.from,ate:period.to}:{})});
   void system(topProductsPath(q.key,q.from,q.to),{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setTop(parseTopProducts(raw,q));}).catch(()=>{if(!p.signal.aborted)setTopFailed(true);});return()=>p.abort();},[system,wantsTop,topKey]);
  const run=async(a:Attempt)=>{if(!system||busy||attempt.current!==a)return;setBusy(true);setMessage('');try{
@@ -50,6 +51,7 @@ export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{cont
  const save=(next:HomeChart[])=>{if(!view||busy||attempt.current)return;const a:Attempt={body:captureHomeChartsSave({command_id:crypto.randomUUID(),expected_version:view.version,charts:next}),uncertain:false};
   attempt.current=a;setMenu(null);void run(a);};
  const locked=!view||busy||pending;
+ if(!period)return null;
  const values=homeChartValues(period),money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
  const body=(key:HomeChart)=>{switch(key){
   case'resumo':return resumo;

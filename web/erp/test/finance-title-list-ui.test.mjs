@@ -440,13 +440,16 @@ test('Preferências > Finanças: ⋮ Imprimir duplicata prints the título de cr
   const view = await mount(source, '/financeiro-empresa?area=receivable', ['NativeListLayout', 'Field', 'ToolButton', 'RowMenu']);
   try {
     for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
-    assert.deepEqual(reads, ['/v1/preferencias/financas-receber']);
+    // Wabotia: as preferências de finanças não são lidas na abertura da lista, só quando a impressão (ou a baixa) abre.
+    assert.deepEqual(reads, []);
     view.find(node => node.type === 'button' && node.props['aria-label'] === 'Ações de Conta 2').props.onClick({ stopPropagation() {}, currentTarget: { getBoundingClientRect: () => ({ top: 10, left: 10 }) } }); await view.flush();
-    await view.click('Imprimir duplicata'); let preview = child(view, 'FinancePrintPreview');
+    await view.click('Imprimir duplicata'); await view.flush(); let preview = child(view, 'FinancePrintPreview');
+    assert.deepEqual(reads, ['/v1/preferencias/financas-receber']);
     assert.deepEqual([preview.props.print.mode, preview.props.print.models, preview.props.print.source.rows.map(item => item.id), preview.props.receiptHeader], ['credit', ['nota_promissoria'], [id(2)], true]);
     preview.props.onClose(); await view.flush();
     view.find(node => node.type === 'button' && node.props['aria-label'] === 'Ações de Conta 1').props.onClick({ stopPropagation() {}, currentTarget: { getBoundingClientRect: () => ({ top: 10, left: 10 }) } }); await view.flush();
     await view.click('Imprimir recibo'); preview = child(view, 'FinancePrintPreview'); assert.equal(preview.props.receiptHeader, true); assert.equal(source.posts().length, 0, 'printing never writes');
+    assert.equal(reads.length, 1, 'read once per session scope');
   } finally { view.unmount(); }
 });
 
@@ -484,6 +487,32 @@ test('109 Listagem customizada keeps the chosen columns per user on the server, 
     await view.click('Reenviar a mesma listagem'); for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
     const posts = calls.filter(call => call.method === 'POST'); assert.equal(posts.length, 3); assert.deepEqual(posts[2].body, first.body, 'the same command_id and body');
     assert.equal(version, 3); assert.deepEqual(headers().slice(1), ['Cliente', 'Conta financeira', 'Histórico', 'Valor', 'Situação', 'Ações']); assert.doesNotMatch(view.text(), /Não foi possível confirmar/);
+  } finally { view.unmount(); }
+});
+
+// Wabotia (latência, 9.6): a porta das preferências de lista liga quando as permissões chegam e a lista é lida uma vez só;
+// as preferências de finanças (financas-receber) ficam fora da abertura e são lidas quando a baixa abre, antes do drawer.
+test('Wabotia: contas a receber abre com uma leitura das preferências de lista e sem financas-receber; a baixa lê as preferências antes de abrir', async () => {
+  const { storedPreferencePage } = await import('../../../packages/erp-domain/src/preferences/catalog.mjs'), { storedFields } = await import('../../../packages/erp-domain/src/preferences/core.mjs');
+  const lists = [], reads = [], source = server({ count: 2 });
+  source.controller.listPreferences = async (path, options = {}) => { lists.push({ path, method: options.method }); return { scope: 'list_preferences', data_mode: 'erp_native', list_id: 'financeiro.contas_receber', version: 0, columns: null, filters: null, updated_at: null }; };
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  source.controller.preferences = async path => { reads.push(path); await gate; const page = storedPreferencePage('financas-receber');
+    return { scope: 'preferences_page', data_mode: 'erp_native', page: page.id, owner: page.scope, role: 'financeiro', can_manage: false, directory: null,
+      items: storedFields(page).map(field => field.key === 'financas.receber_data_baixa' ? { key: field.key, value: true, version: 1, updated_at: '2026-10-20T12:00:00Z' } : { key: field.key, value: structuredClone(field.default), version: 0, updated_at: null }) }; };
+  const view = await mount(source);
+  try {
+    for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
+    assert.deepEqual(lists, [{ path: '/v1/preferencias-listas/financeiro.contas_receber', method: 'GET' }], 'one read when the port turns on');
+    assert.deepEqual(reads, [], 'no financas-receber on open');
+    view.find(node => node.type === 'input' && node.props['aria-label'] === 'Selecionar todos').props.onChange(); await view.flush();
+    await view.click('Baixar selecionados');
+    assert.deepEqual(reads, ['/v1/preferencias/financas-receber']);
+    assert.equal(child(view, 'FinanceSettleDrawer'), undefined, 'the baixa waits for the preferences');
+    assert.match(view.text(), /Carregando preferências de finanças/);
+    release(); for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
+    assert.equal(child(view, 'FinanceSettleDrawer').props.useDueDateDefault, true, 'Utilizar data de vencimento comes from the preferences');
+    assert.equal(lists.length, 1); assert.equal(reads.length, 1);
   } finally { view.unmount(); }
 });
 

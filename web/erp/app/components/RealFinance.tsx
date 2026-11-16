@@ -328,7 +328,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const [batch, setBatch] = useState<BatchState | null>(null), [batchRunning, setBatchRunning] = useState(false);
   const [settleSelection, setSettleSelection] = useState<{ scope: string; titles: FinanceTitle[] } | null>(null);
   const [share, setShare] = useState<WhatsappShare | null>(null);
-  const [printJob, setPrintJob] = useState<{ scope: string; print: FinancePrint } | null>(null), [printMenu, setPrintMenu] = useState(false), [printNotes, setPrintNotes] = useState(false);
+  const [printJob, setPrintJob] = useState<{ scope: string; print: FinancePrint; prefs?: boolean } | null>(null), [printMenu, setPrintMenu] = useState(false), [printNotes, setPrintNotes] = useState(false);
   const [pending, setPending] = useState<{ scope: string; owner: string; action: TitleBatchAction; items: PendingItem[] } | null>(null);
   const owner = sessionTracked ? actor ?? '' : 'isolated';
   const uncertain = useRef(new Map<string, PendingItem>());
@@ -337,7 +337,9 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   // Categoria filter (SQL 135): the tree of the tab, loaded on first use or when the URL already filters by one.
   const categoryOptions = useCategoryTree(categoryKey ? (path, options) => controller.finance(path, options) : null, kind, categoryKey);
   // Preferências > Finanças (applied): default of "Utilizar data de vencimento" in the baixa of contas a receber.
-  const financePreferences = useFinancePreferences(controller, entity === 'titles' && permissions ? `${authScope}:${kind}` : '', kind);
+  // Wabotia: lidas só quando a impressão ou a baixa abre (os únicos usos), fora da abertura da lista.
+  const [financePrefsWanted, setFinancePrefsWanted] = useState(false);
+  const financePreferences = useFinancePreferences(controller, entity === 'titles' && permissions && financePrefsWanted ? `${authScope}:${kind}` : '', kind);
   // Opening the filter again after a failed load really retries it, as the error message says.
   const [accountOptions, setAccountOptions] = useState<{ key: string; items: ReferenceOption[]; error: string }>({ key: '', items: [], error: '' });
   const accountKey = entity === 'titles' && permissions && !route.value.titleId && !route.error ? `${authScope}:${tab}` : '';
@@ -583,6 +585,12 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const printVisible = printJob && printJob.scope === routeKey ? printJob : null;
   const settleDrawer = entity === 'titles' && !route.error ? editor?.mode === 'settle' && record ? { titles: [record as FinanceTitle], partial: Boolean(editor.partial), selection: false }
     : settleSelection && settleSelection.scope === routeKey && !editor && !record ? { titles: settleSelection.titles, partial: false, selection: true } : null : null;
+  // Wabotia: a impressão (cabeçalho do recibo, modelos da duplicata) e a baixa a receber (data de vencimento como padrão) esperam
+  // as preferências de finanças; a duplicata recebe os modelos quando elas chegam.
+  const settleNeedsPrefs = Boolean(settleDrawer) && kind === 'receivable';
+  if (!financePrefsWanted && (printVisible || settleNeedsPrefs)) setFinancePrefsWanted(true);
+  if (printVisible && printVisible.print.mode === 'credit' && !printVisible.prefs && financePreferences.loaded) setPrintJob({ ...printVisible, prefs: true, print: { ...printVisible.print, models: creditModels(financePreferences.values['financas.receber_titulo_credito']) } });
+  const prefsWait = <p className="real-result-status" role="status">Carregando preferências de finanças…</p>;
   const settleSaved = (result: { items: number; borderos: number }) => {
     setSettleSelection(null); setSelection({ scope: '', ids: [], anchor: null }); setReload(value => value + 1);
     setNotice(`Baixa registrada: ${result.items === 1 ? '1 conta' : `${result.items} contas`} em ${result.borderos === 1 ? '1 borderô' : `${result.borderos} borderôs`}.`); close();
@@ -654,11 +662,11 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
           return <tr key={item.id} className="finance-row" onClick={event => { if (!(event.target as { closest?: (selector: string) => Element | null } | null)?.closest?.('button, a, input, select, textarea, label')) openRow(item.id, event); }}><td><button type="button" className="text-button finance-open" onClick={event => openRow(item.id, event)}>{named.name}</button></td><td>{FINANCE_KIND[named.kind]}</td>{entity === 'accounts' && <td className="numeric">{financeMoney((item as FinanceAccount).balance_cents)}</td>}<td><SituationBadge active={named.active} /></td></tr>; })}</tbody></table></div>{!page.items.length && <div className="empty-state"><h2>Nenhum registro encontrado</h2><p>{permissions?.write ? 'Inclua um registro ou ajuste os filtros.' : 'Ajuste os filtros ou aguarde os lançamentos da equipe financeira.'}</p></div>}<PageControls page={page} loading={loading} cursors={cursors} setCursors={setCursors} after={after} setAfter={setAfter} /></>}
       </NativeListLayout>
     </form>
-    {settleDrawer && <FinanceSettleDrawer key={`${settleDrawer.selection ? 'selection' : settleDrawer.titles[0].id}:${settleDrawer.titles.map(title => title.version).join(',')}:${settleDrawer.partial ? 'parcial' : ''}`} controller={controller} kind={kind} titles={settleDrawer.titles} partial={settleDrawer.partial} useDueDateDefault={kind === 'receivable' && financePreferences.values['financas.receber_data_baixa'] === true} onClose={() => { if (settleDrawer.selection) setSettleSelection(null); else close(); }} onSaved={settleSaved} />}
+    {settleDrawer && settleNeedsPrefs && !financePreferences.loaded ? prefsWait : settleDrawer && <FinanceSettleDrawer key={`${settleDrawer.selection ? 'selection' : settleDrawer.titles[0].id}:${settleDrawer.titles.map(title => title.version).join(',')}:${settleDrawer.partial ? 'parcial' : ''}`} controller={controller} kind={kind} titles={settleDrawer.titles} partial={settleDrawer.partial} useDueDateDefault={kind === 'receivable' && financePreferences.values['financas.receber_data_baixa'] === true} onClose={() => { if (settleDrawer.selection) setSettleSelection(null); else close(); }} onSaved={settleSaved} />}
     {titleDrawer && <FinanceTitleDrawer key={`${titleDrawer.mode}:${titleDrawer.title?.id ?? 'new'}:${titleDrawer.title?.version ?? titleDrawer.clone?.id ?? ''}`} controller={controller} kind={kind} mode={titleDrawer.mode} title={titleDrawer.title} clone={titleDrawer.clone} onClose={close} onSaved={drawerSaved}
       history={titleDrawer.title && <FinancialHistory key={titleDrawer.title.id} controller={controller} title={titleDrawer.title} writable={titleDrawer.mode === 'edit'} onReverse={payment => leaveGuard.confirmLeave(() => { if (!mayRead() || permissionScope.current !== authScope || !permissions?.write) return; setNotice(''); setView(previous => ({ ...previous, editor: { mode: 'reverse', payment } })); })} />} />}
     {share && share.scope === routeKey && <FinanceWhatsappShare share={share} onClose={() => setShare(null)} />}
-    {printVisible && entity === 'titles' && <FinancePrintPreview controller={controller} kind={kind} print={printVisible.print} receiptHeader={financePreferences.values[kind === 'receivable' ? 'financas.receber_cabecalho_recibo' : 'financas.pagar_cabecalho_recibo'] === true} onClose={() => setPrintJob(null)} />}
+    {printVisible && entity === 'titles' && (!financePreferences.loaded || printVisible.print.mode === 'credit' && !printVisible.prefs) ? prefsWait : printVisible && entity === 'titles' && <FinancePrintPreview controller={controller} kind={kind} print={printVisible.print} receiptHeader={financePreferences.values[kind === 'receivable' ? 'financas.receber_cabecalho_recibo' : 'financas.pagar_cabecalho_recibo'] === true} onClose={() => setPrintJob(null)} />}
     {columnsOpen && entity === 'titles' && <ColumnsDialog kind={kind} chosen={chosenColumns} onCancel={() => setColumnsOpen(false)} onApply={next => { const value = { view: 'customizada' as const, columns: customColumns(kind, next) }; setColumnState({ key: columnKey, ...value }); storeColumns(kind, owner, value); if (listPreferencesOn) listPrefs.saveColumns(value.columns); setColumnsOpen(false); }} />}
     {batchVisible && batchVisible.step === 'params' && <FinanceBatchParams key={`${batchVisible.action}:${batchVisible.scope}`} controller={controller} action={batchVisible.action} kind={kind} count={batchVisible.titles.length} onCancel={() => setBatch(null)} onContinue={continueBatch} />}
     {batchVisible && batchVisible.step === 'run' && batchVisible.plan && <BatchDialog title={batchVisible.recovery ? 'Conferir resultado' : TITLE_BATCH_LABEL[batchVisible.action]} description={batchDescription(batchVisible)} plan={batchVisible.plan} confirmLabel={batchVisible.recovery ? 'Conferir resultado' : TITLE_BATCH_LABEL[batchVisible.action]} canConfirm={canBatch} run={runBatchItem(batchVisible)} onClose={results => finishBatch(batchVisible, results)} />}

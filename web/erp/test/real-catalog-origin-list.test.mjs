@@ -52,7 +52,13 @@ test('products open newest first in pages of 100 with total, Origin columns, sto
     assert.match(view.text(), /Quantidade de Produtos250/);
     assert.match(view.text(), /250 cadastros encontrados/);
     assert.ok(view.button(active.name), 'the first-cell button stays available for keyboard users');
-    assert.ok(calls.some(call => call.path === '/v1/posicoes-estoque/depositos?limit=100'), 'depósito options for the Estoque filter');
+    // Wabotia: os depósitos (opções do seletor Depósito) só são lidos quando o filtro de Estoque é usado, uma vez.
+    assert.ok(!calls.some(call => call.path === '/v1/posicoes-estoque/depositos?limit=100'), 'no depósito options on open');
+    await view.change('catalog-stock-filter', 'positive');
+    await view.change('catalog-stock-filter', '');
+    await view.change('catalog-stock-filter', 'negative');
+    assert.equal(calls.filter(call => call.path === '/v1/posicoes-estoque/depositos?limit=100').length, 1, 'depósito options for the Estoque filter, read once');
+    assert.ok(view.input('catalog-warehouse-filter'));
 
     row(view, inactive.id).props.onClick({ button: 0 }); await view.flush();
     assert.equal(calls.at(-1).path, `/v1/cadastros/products/${inactive.id}`);
