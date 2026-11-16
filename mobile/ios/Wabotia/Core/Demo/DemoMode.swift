@@ -237,6 +237,7 @@ extension DemoMode {
         case "bot": launch.tab = "team"; launch.route = .bot(id: "b_vendas", conversationId: nil)
         case "calls": launch.tab = "calls"
         case "settings": launch.tab = "settings"
+        case "licenses": launch.tab = "settings"; launch.sheet = "licenses"
         case "lines": launch.tab = "attendance"; launch.route = .lines
         case "counter": launch.tab = "attendance"; launch.route = .counter
         // Agenda e Ordem de Serviço (WABOTIA_DEMO_ACTION=week abre a agenda na semana).

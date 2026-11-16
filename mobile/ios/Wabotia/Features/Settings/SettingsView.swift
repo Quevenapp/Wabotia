@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var confirmExitDemo = false
     @State private var appearance = AppAppearance.current
     @State private var showPrinter = false
+    @State private var showLicenses = false
     @ObservedObject private var moduleFeature = ModuleFeature.shared
 
     /// Na demonstração não há push nem servidor de verdade: essas seções dão lugar a explicações e à saída.
@@ -44,6 +45,9 @@ struct SettingsView: View {
                 .onAppear {
                     if active, let anchor = DemoMode.anchor {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { proxy.scrollTo(anchor, anchor: .top) }
+                    }
+                    if DemoMode.takeSheet("licenses") != nil {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { showLicenses = true }
                     }
                 }
                 #endif
@@ -319,10 +323,16 @@ struct SettingsView: View {
     private var aboutSection: some View {
         SectionCard(title: "Sobre") {
             Button { openURL(AppLinks.privacyPolicy) } label: {
-                CardRow(icon: "hand.raised.fill", iconColor: Theme.brand, title: "Política de privacidade", chevron: true, divider: false)
+                CardRow(icon: "hand.raised.fill", iconColor: Theme.brand, title: "Política de privacidade", chevron: true)
             }
             .buttonStyle(.plain)
+            Button { showLicenses = true } label: {
+                CardRow(icon: "doc.plaintext.fill", iconColor: Theme.muted, title: "Licenças", subtitle: "Bibliotecas de código aberto usadas no app", chevron: true, divider: false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings.licenses")
         }
+        .sheet(isPresented: $showLicenses) { LicensesView { showLicenses = false } }
     }
 
     // MARK: - Sair
