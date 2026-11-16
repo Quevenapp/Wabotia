@@ -106,7 +106,7 @@ export function transitionAllowed(kind: string, from: string, to: string) {
 
 const pad = (n: number | bigint, w: number) => String(n).padStart(w, "0");
 /** to_char(t at time zone 'UTC', 'YYYYMMDDHH24MISSUS') */
-function utcStamp(micros: bigint) {
+export function utcStamp(micros: bigint) {
   const us = ((micros % 1000000n) + 1000000n) % 1000000n;
   const d = new Date(Number((micros - us) / 1000n));
   return (
