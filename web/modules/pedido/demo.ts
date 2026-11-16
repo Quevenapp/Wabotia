@@ -260,6 +260,7 @@ function order(
     fulfillment_label: fulfillment === "delivery" ? "Entrega" : "Retirada",
     address,
     address_text: address ? "Rua A, 10 - Centro, Apto 2" : "",
+    table: null,
     lines,
     item_count: lines.reduce((s, l) => s + l.quantity, 0),
     subtotal_cents: subtotal,
