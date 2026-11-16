@@ -208,8 +208,24 @@ for (const [, u] of usage)
 const users = {};
 for (const [a, m] of Object.entries(deps)) for (const b of Object.keys(m)) (users[b] ??= new Set()).add(a);
 
+// Código alcançável (união dos fechos, cada função uma vez) por domínio dono.
+const reach = new Map();
+for (const name of rpcs) for (const e of closure(name, true).fns.values()) reach.set(e.id, e);
+const reachable = {};
+for (const e of reach.values()) {
+  const d = fnDomain(e);
+  reachable[d] = (reachable[d] || 0) + e.bytes;
+}
+const erpBytes = fns
+  .filter((f) => f.schema.startsWith("erp_") || (f.schema === "public" && f.name.startsWith("erp_")))
+  .reduce((s, f) => s + (f.src || "").length, 0);
+
 const summary = {
   rpcs: rows.length,
+  erp_function_bytes: erpBytes,
+  reachable_functions: reach.size,
+  reachable_bytes: [...reach.values()].reduce((s, e) => s + e.bytes, 0),
+  reachable_by_domain: Object.fromEntries(Object.entries(reachable).sort((a, b) => b[1] - a[1])),
   dynamic_prefixes: [...dynamic].sort(),
   domain_by_closure: rows.filter((r) => r.by === "fecho").length,
   internal_functions_reached: usage.size,

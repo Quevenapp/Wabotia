@@ -1,6 +1,24 @@
 {
  "summary": {
   "rpcs": 612,
+  "erp_function_bytes": 3303814,
+  "reachable_functions": 1895,
+  "reachable_bytes": 2849095,
+  "reachable_by_domain": {
+   "catalogo": 431245,
+   "estoque": 428640,
+   "financeiro": 423828,
+   "fiscal": 341806,
+   "preferencias": 325963,
+   "documentos": 303174,
+   "origin": 214623,
+   "cnab": 173300,
+   "acesso": 89603,
+   "pdv": 65800,
+   "empresa": 43326,
+   "?": 4705,
+   "referencias": 3082
+  },
   "dynamic_prefixes": [
    "erp_cnab_human_review_",
    "erp_document_finance_",
