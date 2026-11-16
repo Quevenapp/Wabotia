@@ -35,7 +35,7 @@ export const compact = (value: string | null) => fold(value ?? "")!.replace(/[^0
 // Gatilhos
 
 /** erp_catalog.guard_deleted_product (BEFORE UPDATE de record, entity='products'). */
-function guardDeletedProduct(ctx: RpcContext, id: string) {
+export function guardDeletedProduct(ctx: RpcContext, id: string) {
   if (ctx.settings.get("erp_catalog.product_lifecycle") === "on") return;
   if (one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product_detail" WHERE record_id=? AND deleted_at IS NOT NULL', id))
     raise("40001", "erp_catalog_product_deleted");

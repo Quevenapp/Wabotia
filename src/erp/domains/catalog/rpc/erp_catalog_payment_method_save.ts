@@ -2,7 +2,7 @@
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { intArg, jsonArg, uuidArg } from "../args.ts";
+import { jsonArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import {
   accountActive,
@@ -20,10 +20,10 @@ const MAX_VERSION = 2147483647;
 const OMIT = ["id", "version", "account_name", "active", "is_default", "created_at", "updated_at"];
 
 export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const id = uuidArg(a, "p_id");
-  const expected = intArg(a, "p_expected_version");
-  const command = uuidArg(a, "p_command_id");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const id = ((a.p_id ?? null) as string | null);
+  const expected = ((a.p_expected_version ?? null) as number | null);
+  const command = ((a.p_command_id ?? null) as string | null);
   const data = jsonArg(a, "p_data");
   const db = ctx.db;
   paymentMethodAccess(db, user, true);

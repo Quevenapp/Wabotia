@@ -4,15 +4,14 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { requireAccess } from "../access.ts";
-import { textArg, uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { CNTRL, btrim, chars, foldedKey } from "../fields.ts";
 import { fold } from "../internal.ts";
 
 export function erpCatalogContactTypeCreate(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const command = uuidArg(a, "p_command_id");
-  const raw = textArg(a, "p_label");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const command = ((a.p_command_id ?? null) as string | null);
+  const raw = ((a.p_label ?? null) as string | null);
   const label = raw === null ? null : btrim(raw);
   const db = ctx.db;
   requireAccess(db, user, "contacts", true);

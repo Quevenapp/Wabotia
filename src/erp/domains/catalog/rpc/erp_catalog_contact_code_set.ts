@@ -3,16 +3,15 @@
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { requireAccess } from "../access.ts";
-import { intArg, textArg, uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { contactCodeCounter, highestContactCode } from "../contact-code.ts";
 import { contactCode } from "./erp_catalog_contact_code.ts";
 
 export function erpCatalogContactCodeSet(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const command = uuidArg(a, "p_command_id");
-  const expected = intArg(a, "p_expected_version");
-  const next = textArg(a, "p_next_number");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const command = ((a.p_command_id ?? null) as string | null);
+  const expected = ((a.p_expected_version ?? null) as number | null);
+  const next = ((a.p_next_number ?? null) as string | null);
   const db = ctx.db;
   const role = requireAccess(db, user, "contacts", false);
   if (role !== "admin") raise("42501", "erp_catalog_access_denied");

@@ -1,10 +1,8 @@
 // public.erp_catalog_employee_page: lista de funcionários (só administrador).
 // O filtro (matches sobre fold de nome, código, cargo e CPF, calculado como
-// no Fagoo) fica em TS; a ordem é name__fold, id em collation C (foldedKey:
-// provisório enquanto o espelho não preenche __fold).
+// no Fagoo) fica em TS; a ordem é name__fold, id em collation C (foldedKey).
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { intArg, textArg, uuidArg } from "../args.ts";
 import { employeeAdmin } from "../employee.ts";
 import { CNTRL, chars, compareText, foldedKey, matches, searchTerms } from "../fields.ts";
 import { fold } from "../internal.ts";
@@ -12,11 +10,11 @@ import { fold } from "../internal.ts";
 const SITUATIONS: Record<string, string | null> = { todas: null, ativos: "ativo", desligados: "desligado" };
 
 export function erpCatalogEmployeePage(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const page = intArg(a, "p_page", 1);
-  const size = intArg(a, "p_size", 100);
-  const query = textArg(a, "p_query");
-  const situation = textArg(a, "p_situation", "ativos");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const page = ((a.p_page ?? null) as number | null);
+  const size = ((a.p_size ?? null) as number | null);
+  const query = ((a.p_query ?? null) as string | null);
+  const situation = ((a.p_situation ?? null) as string | null);
   employeeAdmin(ctx.db, user);
   if (
     page === null ||

@@ -15,6 +15,11 @@ export const discardTables = {};
  * de lá. Chaves: checks "schema.tabela.restrição"; triggers "schema__tabela.gatilho".
  */
 export const covered = {
-  "checks": {},
+  "checks": {
+    "erp_access.profile.profile_name_check": {
+      "where": "src/erp/domains/access/identity.ts profileName (a projeção é a única que grava profile)",
+      "test": "tests/erp/access/identity.test.mjs"
+    }
+  },
   "triggers": {}
 };

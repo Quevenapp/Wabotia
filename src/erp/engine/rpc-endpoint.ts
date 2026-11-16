@@ -5,7 +5,8 @@
 import "../domains/index.ts";
 import { storageDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
-import { callRpc, rpcObjectKeys, type StoredObject } from "./registry.ts";
+import { callRpc, rpcObjectKeys, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
+import { IDENTITY_HEADER, decodeIdentity } from "./identity.ts";
 import { Clock } from "./time.ts";
 
 const clocks = new WeakMap<DurableObjectState, Clock>();
@@ -36,8 +37,27 @@ export async function handleRpc(
     const head = media ? await media.head(erpObjectKey(profile, key)) : null;
     if (head) found.set(key, { size: head.size, mimetype: head.httpMetadata?.contentType ?? "" });
   }
+  // Todos os objetos da área, para quem soma o armazenamento (erp_access_storage).
+  const listing: StoredListing[] = [];
+  if (media && rpcWantsListing(name)) {
+    const prefix = erpObjectKey(profile, "");
+    let cursor: string | undefined;
+    do {
+      const page = await media.list({ prefix, cursor });
+      for (const o of page.objects) {
+        const [bucket, ...rest] = o.key.slice(prefix.length).split("/");
+        if (bucket && rest.length) listing.push({ bucket, name: rest.join("/"), size: o.size });
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+  }
+  const identity = decodeIdentity(request.headers.get(IDENTITY_HEADER));
   try {
-    const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, (k) => found.get(k) ?? null);
+    const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
+      objects: (k) => found.get(k) ?? null,
+      listing,
+      identity,
+    });
     return Response.json(result);
   } catch (error) {
     if (error instanceof ErpError)

@@ -138,9 +138,14 @@ try {
       step("limpeza falhou", { error: String(e.message) });
     }
   }
+  // Fecha a sessão do administrador do roteiro.
+  if (cookie) await api("v1/logout", { method: "POST", expected: null }).catch(() => {});
   if (tail) {
     await new Promise((r) => setTimeout(r, 5000));
-    tail.kill();
+    // No Windows o tail roda sob o shell (npx.cmd): kill() só fecha o shell e
+    // deixa o wrangler órfão. taskkill /T encerra a árvore inteira.
+    if (process.platform === "win32") spawn("taskkill", ["/pid", String(tail.pid), "/T", "/F"], { stdio: "ignore" });
+    else tail.kill();
     report.cpu = cpu;
     const by = {};
     for (const c of cpu) (by[c.url.replace(/\?.*$/, "")] ??= []).push(c.cpu_ms);

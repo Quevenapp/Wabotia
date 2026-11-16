@@ -10,6 +10,7 @@ import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
 import { requireModule } from "../../modules/registry";
 import { erpBlockOf } from "../blocks.ts";
+import { IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
 
 let erpApiModule: Promise<any> | null = null;
@@ -23,7 +24,29 @@ const CONFIG = {
   ALLOWED_ORIGINS: "",
 };
 
-export function localFetch(env: Env, profile: string, actor: Actor) {
+/**
+ * Envelope de identidade (engine/identity.ts). Fase 0: só quem chama, sem
+ * papel, sessão nem diretório de pessoas; a fase 3 preenche a partir do
+ * núcleo (papel erp:<papel>, sessão aal, fator) e manda as pessoas da área.
+ */
+export function identityFor(actor: Actor): IdentityPort {
+  const a = actor as Actor & { name?: string; email?: string };
+  return {
+    actor: {
+      user_id: a.id,
+      name: typeof a.name === "string" ? a.name : null,
+      email: typeof a.email === "string" ? a.email : null,
+      erp_role: null,
+      verified_factor: false,
+      session_id: null,
+      aal: "aal1",
+      is_agent: a.kind !== "user",
+    },
+    people: null,
+  };
+}
+
+export function localFetch(env: Env, profile: string, actor: Actor, identity: IdentityPort = identityFor(actor)) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== LOCAL) throw new Error("A erp-api tentou sair da costura local.");
@@ -33,7 +56,7 @@ export function localFetch(env: Env, profile: string, actor: Actor) {
     if (rpc)
       return erpFetch(env, profile, `/erp-rpc/${rpc[1]}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
         body: init.body as BodyInit,
       });
     if (url.pathname.startsWith("/storage/v1/"))

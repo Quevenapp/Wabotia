@@ -7,16 +7,16 @@ import { arrow, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import * as preferences from "../../preferences/public.ts";
 import { requireAccess } from "../access.ts";
-import { intArg, jsonArg, textArg, uuidArg } from "../args.ts";
+import { jsonArg } from "../args.ts";
 import { compositionKits, compositionSync, compositionSyncOn } from "../composition.ts";
 import { mutate } from "../record.ts";
 
 export function erpCatalogSave(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const entity = textArg(a, "p_entity");
-  const id = uuidArg(a, "p_id");
-  const expected = intArg(a, "p_expected_version");
-  const command = uuidArg(a, "p_command_id");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const entity = ((a.p_entity ?? null) as string | null);
+  const id = ((a.p_id ?? null) as string | null);
+  const expected = ((a.p_expected_version ?? null) as number | null);
+  const command = ((a.p_command_id ?? null) as string | null);
   const input = jsonArg(a, "p_data");
   let v = input;
   if (entity === "products" && id === null && jsonType(input) === "object" && (arrow(input, "origin") ?? "") === "") {
