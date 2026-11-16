@@ -104,7 +104,10 @@ workerd e no Node 22.
 **Quem confere:** `checkUpdate` (botão e automático, antes de qualquer
 etapa), a etapa `manifest` do atualizador (e de novo a cada rodada, ao reler
 o manifesto guardado no R2), o instalador de terminal (pela rede e de pasta
-local) e o instalador pelo navegador (antes de criar qualquer recurso).
+local) e o instalador pelo navegador (antes de criar qualquer recurso). No
+instalador pelo navegador, o andamento volta do navegador a cada passo: ele
+leva os bytes exatos do índice e a assinatura, que o servidor confere de
+novo em todo passo; o índice que o navegador mandar fora disso é ignorado.
 Sem assinatura válida: "A assinatura da versão oficial não confere (…).
 Nada foi alterado."
 
@@ -115,7 +118,10 @@ Nada foi alterado."
   os dois e recusa `issued_at` mais de um dia no futuro.
 - **Sem versão nova em 90 dias:** `npm run release -- --renew` reassina o
   mesmo índice com prazo novo (mesma versão, mesmo manifesto) e o site é
-  publicado de novo. Lembrete: renovar aos 60 dias.
+  publicado de novo. Lembrete aos 60 dias, sem nada automático: qualquer
+  execução do `release.mjs` avisa quando o índice publicado passou de 60
+  dias ou venceu, e a tela **Sistema** do site oficial (instalação com
+  `WABOTIA_WEB_INSTALLER=1`) mostra o mesmo aviso no cartão de atualização.
 - **Índice vencido numa instalação:** a consulta e a atualização são
   recusadas com "O índice da versão oficial venceu: o mantenedor precisa
   renová-lo. O atendimento continua normal; tente mais tarde." Nada mais
@@ -182,9 +188,10 @@ Nada foi alterado."
     `src/release.ts` e definida só no build de teste (um wrangler
     temporário, `wrangler.release-test.local.json`, no dry-run, e o
     `define` do esbuild no instalador); sem ela vale o endereço oficial.
-  - Índice e manifesto levam `test_origin` **assinado**: o build oficial
-    recusa qualquer pacote de teste, e o de teste só aceita os da própria
-    origem.
+  - Índice e manifesto levam `test_origin` **assinado**. O build oficial
+    recusa qualquer `test_origin`, seja qual for o valor (inclusive o
+    endereço oficial) e esteja a assinatura como estiver; o de teste só
+    aceita os da própria origem.
   - Só no build de teste existe a rota `GET /api/test-catalog/releases/*`,
     que serve o catálogo do R2 da instalação (prefixo `test-catalog/`,
     enviado por `scripts/release-test-upload.mjs`); `/api/health` mostra

@@ -16,6 +16,8 @@ import {
   nextRound,
   parseIndex,
   parseManifest,
+  OFFICIAL_RELEASE_ORIGIN,
+  RELEASE_ORIGIN,
   SIGNATURE_DOMAIN,
   validateIndexV2,
   verifySignature,
@@ -40,6 +42,7 @@ import {
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
+  renewalNotice,
 } from "../scripts/release-plan.mjs";
 import {
   buildRelease,
@@ -258,6 +261,13 @@ describe("formato 2: índice e manifesto", () => {
     expect(insideRepository("/repo", "/repo")).toBe(true);
     expect(insideRepository("/fora/chaves/x.pem", "/repo")).toBe(false);
     expect(insideRepository("/repo-irmao/x.pem", "/repo")).toBe(false);
+    // Lembrete de renovação: nada até 60 dias, aviso depois, e o vencido.
+    const day = 86400000,
+      issued = { version: "0.21.0", issued_at: 0, expires: 90 * day };
+    expect(renewalNotice(null)).toBeNull();
+    expect(renewalNotice(issued, 59 * day)).toBeNull();
+    expect(renewalNotice(issued, 60 * day)).toMatch(/vence em 30 dia/);
+    expect(renewalNotice(issued, 91 * day)).toMatch(/VENCEU/);
   });
 });
 
@@ -318,6 +328,38 @@ describe("assinatura do índice e do manifesto", () => {
       parseManifest(r.index, r.manifestBytes, asManifest),
     ).rejects.toThrow(/conteúdo alterado/);
     expect(SIGNATURE_DOMAIN.index).not.toBe(SIGNATURE_DOMAIN.manifest);
+    // Build oficial: qualquer test_origin é recusado, mesmo assinado e mesmo
+    // com o próprio endereço oficial (aqui RELEASE_ORIGIN é o oficial).
+    expect(RELEASE_ORIGIN).toBe(OFFICIAL_RELEASE_ORIGIN);
+    for (const origin of [
+      OFFICIAL_RELEASE_ORIGIN,
+      "https://teste.example/api/test-catalog",
+    ]) {
+      const testIndex = Buffer.from(
+        JSON.stringify({ ...r.index, test_origin: origin }),
+      );
+      await expect(
+        parseIndex(
+          testIndex,
+          await signFile("index", testIndex, keys.principal),
+        ),
+      ).rejects.toThrow(/pacote de teste/);
+      const testManifest = Buffer.from(
+        JSON.stringify({ ...r.manifest, test_origin: origin }),
+      );
+      await expect(
+        parseManifest(
+          {
+            ...r.index,
+            test_origin: origin,
+            manifest_sha256: await digest(testManifest),
+            manifest_size: testManifest.length,
+          },
+          testManifest,
+          await signFile("manifest", testManifest, keys.principal),
+        ),
+      ).rejects.toThrow(/pacote de teste/);
+    }
     // Índice assinado, mas vencido.
     const old = await buildRelease({
       ...baseSpec(),

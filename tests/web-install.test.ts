@@ -5,6 +5,8 @@ import { RELEASE_ORIGIN } from "../src/release";
 import {
   buildRelease,
   serveRelease,
+  signFile,
+  testKeys,
   type BuiltRelease,
   type ReleaseSpec,
 } from "./release-v2-fixture";
@@ -397,6 +399,47 @@ describe("assinatura no instalador pelo navegador", () => {
       message: expect.stringMatching(error),
     });
     expect(created()).toHaveLength(0);
+  });
+  it("o índice que volta no andamento é conferido de novo a cada passo", async () => {
+    const keys = await testKeys();
+    const { cursor } = await run("migrate");
+    const step = (c: any) =>
+      installStep(e, { account, name, token, step: "migrate", cursor: c });
+    // Índice trocado no andamento, sem mexer no assinado: vale o assinado.
+    const swapped = await step({
+      ...cursor,
+      index: { ...cursor.index, version: "9.9.9", commit: "d".repeat(40) },
+    });
+    expect(swapped.cursor.index.version).toBe("0.15.0");
+    expect(swapped.cursor.index.commit).toBe(commit);
+    // Sem o índice assinado: recusa.
+    const { signed_index, ...unsigned } = cursor;
+    await expect(step(unsigned)).rejects.toMatchObject({ status: 400 });
+    // Bytes do índice alterados no navegador: a assinatura não confere.
+    const bytes = Buffer.from(signed_index.data, "base64");
+    const altered = Buffer.from(
+      bytes.toString("utf8").replace('"0.15.0"', '"0.15.9"'),
+    );
+    await expect(
+      step({
+        ...cursor,
+        signed_index: { ...signed_index, data: altered.toString("base64") },
+      }),
+    ).rejects.toThrow(/assinatura/);
+    // Assinado por chave fora da lista: recusa.
+    await expect(
+      step({
+        ...cursor,
+        signed_index: {
+          data: altered.toString("base64"),
+          signature: (await signFile("index", altered, keys.unknown)).toString(
+            "base64",
+          ),
+        },
+      }),
+    ).rejects.toThrow(/chave desconhecida/);
+    // Nenhuma migração foi aplicada pelos andamentos recusados; só a válida.
+    expect(cloud.queries).toHaveLength(1);
   });
   it("manifesto alterado em um byte: para antes da primeira migração", async () => {
     const { cursor } = await run("migrate");

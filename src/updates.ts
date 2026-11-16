@@ -8,6 +8,7 @@ import {
   uid,
 } from "./types";
 import { buildInfo } from "./build-info.generated";
+import { webInstallerEnabled } from "./web-install";
 import { all, exec } from "./db";
 import {
   assetManifestV2,
@@ -269,6 +270,9 @@ export async function updateStatus(env: Env) {
       ["requested", "unknown", "sending"].includes(state.status) &&
       state.created < now() - 900000,
     automatic: await automaticUpdateStatus(env),
+    // Site oficial (que também serve o catálogo): o painel lembra de renovar
+    // o índice assinado (docs/ATUALIZACOES-FORMATO.md, "Prazo do índice").
+    distribution: webInstallerEnabled(env),
   };
 }
 export async function configureUpdates(env: Env, actor: Actor, data: any) {

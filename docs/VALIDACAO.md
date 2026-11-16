@@ -452,10 +452,13 @@ npm run check
 npm test
 node tests/installer.test.mjs
 node tests/qr-features.test.mjs
+node tests/router-examples.test.mjs
 npm run build
 python3 -m pip install httpx
 python3 tests/hermes_transport_test.py
 ```
+
+`tests/router-examples.test.mjs` executa também o exemplo Python do roteador: precisa de Python 3 no `PATH` (no Windows, o atalho da Microsoft Store não serve). Sem Python, esse teste falha com "Python was not found", sem relação com o código.
 
 Os scripts remotos `smoke.mjs` e `validate-examples.mjs` são exclusivos para staging e criam dados sintéticos. `validate-restore.mjs` cria e remove recursos descartáveis novos; use somente a configuração staging e um backup controlado. Os exemplos de execução de bot são opcionais e exigem `WABOTIA_BOT` autorizado.
 

@@ -66,7 +66,7 @@ Toda versão sai no **formato 2, assinada** (Ed25519). O formato, a assinatura, 
    Uma versão que exige o plano Workers Paid sai com `--workers-paid`, e uma que exige outra instalada antes, com `--min-version x.y.z`.
 4. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas, `releases/blobs/` e `releases/latest.json`. Esse último é o índice do formato antigo, parado na 0.20.0 com os 39 pacotes antigos; o script nunca o altera e ele não deve ser apagado.
 5. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
-6. **Sem versão nova em 90 dias:** antes do vencimento (lembrete aos 60 dias), rode `npm run release -- --renew` e publique o site. Com o índice vencido, as instalações recusam atualizar ("o mantenedor precisa renová-lo"), mas o atendimento continua normal.
+6. **Sem versão nova em 90 dias:** antes do vencimento, rode `npm run release -- --renew` e publique o site. A partir de 60 dias, o próprio `npm run release` avisa, e a tela Sistema do site oficial também. Com o índice vencido, as instalações recusam atualizar ("o mantenedor precisa renová-lo"), mas o atendimento continua normal.
 
 Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para conferir um pacote sem publicar, use `npm run release -- --candidate`: ele sai **sem assinatura** em `output/release-candidate/` e as instalações recusam. O build só de teste (`--test-origin`) é para o ensaio em staging e nunca vai ao site oficial.
 

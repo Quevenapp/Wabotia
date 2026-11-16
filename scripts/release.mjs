@@ -34,6 +34,7 @@ import {
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
+  renewalNotice,
 } from "./release-plan.mjs";
 import { signatureFile, signerFor, withValidity } from "./release-sign.mjs";
 
@@ -117,6 +118,9 @@ const read = (path) => {
   }
 };
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// Lembrete de renovação do índice oficial, em qualquer execução.
+const notice = renewalNotice(read("public/releases/v2/latest.json"));
+if (notice) console.warn(`AVISO: ${notice}`);
 const writeIndex = (index) => {
   const text = JSON.stringify(index, null, 2);
   const folder = `${root}/${index.version}`;
@@ -136,10 +140,11 @@ if (renew) {
   const manifest = readFileSync(`${root}/${current.version}/manifest.json`);
   if (hash(manifest) !== current.manifest_sha256)
     throw Error("O manifesto publicado não confere com o índice.");
-  writeIndex(withValidity(current));
+  const renewed = withValidity(current);
+  writeIndex(renewed);
   cpSync("public/releases", "dist/releases", { recursive: true });
   console.log(
-    `Índice da ${current.version} renovado por ${signer.id} até ${new Date(withValidity(current).expires).toISOString().slice(0, 10)}. Publique o site oficial com Wrangler.`,
+    `Índice da ${current.version} renovado por ${signer.id} até ${new Date(renewed.expires).toISOString().slice(0, 10)}. Publique o site oficial com Wrangler.`,
   );
   process.exit(0);
 }

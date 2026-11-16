@@ -312,6 +312,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     }
     let index: ReleaseIndexV2;
     let bytes: Uint8Array;
+    let signature: Uint8Array | null;
     try {
       bytes = await releaseFile(env, INDEX_PATH, 8192);
     } catch {
@@ -324,25 +325,50 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     // Assinatura e validade conferidas antes de criar qualquer recurso. Sem
     // assinatura válida a instalação não começa.
     try {
-      index = await parseIndex(
-        bytes,
-        await releaseFile(env, INDEX_SIGNATURE_PATH, 4096).catch(() => null),
+      signature = await releaseFile(env, INDEX_SIGNATURE_PATH, 4096).catch(
+        () => null,
       );
+      index = await parseIndex(bytes, signature);
     } catch (error) {
       throw unavailable(error);
     }
     return {
       next: "database",
-      cursor: { index, installation_id: crypto.randomUUID() },
+      cursor: {
+        index,
+        // Os bytes exatos e a assinatura vão no andamento: cada passo
+        // seguinte confere de novo e usa só o que foi assinado.
+        signed_index: {
+          data: Buffer.from(bytes).toString("base64"),
+          signature: Buffer.from(signature!).toString("base64"),
+        },
+        installation_id: crypto.randomUUID(),
+      },
       message: `Conta e nomes conferidos. Versão oficial ${index.version}.`,
     };
   }
 
+  // O andamento volta do navegador: o índice nunca é aceito como veio. Vale
+  // só o que a assinatura confere de novo aqui, a cada passo.
+  const signed = cursor.signed_index;
+  if (
+    typeof signed?.data !== "string" ||
+    typeof signed?.signature !== "string" ||
+    signed.data.length > 12000 ||
+    signed.signature.length > 6000
+  )
+    throw invalid("Andamento inválido. Recomece a instalação.");
   let index: ReleaseIndexV2;
   try {
-    index = validateIndexV2(cursor.index);
-  } catch {
-    throw invalid("Andamento inválido. Recomece a instalação.");
+    index = await parseIndex(
+      Buffer.from(signed.data, "base64"),
+      Buffer.from(signed.signature, "base64"),
+    );
+  } catch (error) {
+    throw invalid(
+      (error instanceof Error ? error.message : "Andamento inválido.") +
+        " Recomece a instalação.",
+    );
   }
   if (!shapes.uuid.test(cursor.installation_id || ""))
     throw invalid("Andamento inválido. Recomece a instalação.");

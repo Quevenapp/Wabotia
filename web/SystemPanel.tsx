@@ -385,6 +385,33 @@ function AutomaticUpdates({
   );
 }
 
+/**
+ * Só no site oficial (que serve o catálogo): lembra de renovar o índice
+ * assinado a partir de 60 dias da emissão (mesma regra de renewalNotice em
+ * scripts/release-plan.mjs). Sem lembrete automático além deste.
+ */
+function IndexRenewal({ updates }: { updates: any }) {
+  const index = updates.latest;
+  if (!updates.distribution || !index?.expires || !index.issued_at) return null;
+  const at = Date.now(),
+    left = Math.floor((index.expires - at) / 86400000);
+  if (index.expires > at && at - index.issued_at < 60 * 86400000) return null;
+  return (
+    <div className="callout" role="status">
+      <strong>
+        {index.expires <= at
+          ? "O índice da versão oficial venceu"
+          : `O índice da versão oficial vence em ${left} dia(s)`}
+      </strong>
+      <p>
+        Enquanto estiver vencido, as instalações recusam atualizar (o
+        atendimento delas continua). No computador com a chave de assinatura,
+        rode <code>npm run release -- --renew</code> e publique o site.
+      </p>
+    </div>
+  );
+}
+
 export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
   const system = useSystem(api, demo),
     action = useAction(demo);
@@ -423,6 +450,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           Instale as versões oficiais publicadas do Wabotia. A atualização
           direta na Cloudflare mantém seu banco, mídias, domínios e credenciais.
         </p>
+        <IndexRenewal updates={u} />
         <dl className="system-facts">
           <div>
             <dt>Versão instalada</dt>

@@ -31,11 +31,13 @@ export const RELEASE_ORIGIN: string =
 
 /**
  * Um pacote de teste traz `test_origin` assinado no índice e no manifesto e
- * só vale num build que aponta para essa mesma origem: o build oficial
- * recusa qualquer pacote de teste.
+ * só vale num build de teste que aponta para essa mesma origem. O build
+ * oficial recusa qualquer `test_origin`, seja qual for o valor (inclusive o
+ * próprio endereço oficial) e esteja a assinatura como estiver.
  */
-function testOriginAccepted(value: unknown) {
-  return value === undefined || value === RELEASE_ORIGIN;
+export function testOriginAccepted(value: unknown) {
+  if (value === undefined) return true;
+  return RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN && value === RELEASE_ORIGIN;
 }
 
 export const MAX_MANIFEST = 2 * 1024 * 1024;

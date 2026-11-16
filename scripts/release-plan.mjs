@@ -53,5 +53,23 @@ export function insideRepository(path, root) {
 /** Prazo de validade do índice assinado (dias); src/release.ts aceita até 180. */
 export const INDEX_DAYS = 90;
 
+/** A partir de quantos dias de emissão o índice publicado pede renovação. */
+export const RENEW_AFTER_DAYS = 60;
+
+/**
+ * Aviso de renovação do índice publicado (null se ainda não é hora): a partir
+ * de 60 dias da emissão, ou já vencido. Sem lembrete automático: o aviso
+ * aparece quando alguém roda o release.mjs e na tela Sistema do site oficial.
+ */
+export function renewalNotice(index, at = Date.now()) {
+  if (!index || !Number.isSafeInteger(index.expires)) return null;
+  const left = Math.floor((index.expires - at) / 86400000);
+  if (index.expires <= at)
+    return `O índice publicado (${index.version}) VENCEU: as instalações recusam atualizar. Rode \`npm run release -- --renew\` (ou publique uma versão nova) e publique o site.`;
+  if (at - index.issued_at >= RENEW_AFTER_DAYS * 86400000)
+    return `O índice publicado (${index.version}) vence em ${left} dia(s). Rode \`npm run release -- --renew\` (ou publique uma versão nova) e publique o site.`;
+  return null;
+}
+
 /** Última versão do formato 1: releases/latest.json fica parado nela. */
 export const LAST_FORMAT1 = "0.20.0";
