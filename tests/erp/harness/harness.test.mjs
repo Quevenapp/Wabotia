@@ -11,7 +11,9 @@ import { oracleDb } from "../../../scripts/erp/oracle-db.mjs";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
 import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
-import { dualFixture } from "./dual-fixture.mjs";
+import { callRpc } from "../../../src/erp/engine/registry.ts";
+import { dualFixture, wireArgs } from "./dual-fixture.mjs";
+import { pgIdentity } from "./identity.mjs";
 import { freshLite } from "./node-driver.mjs";
 import { SEED_LEAVES_NORMALIZED_NULL, applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
 import { IdMap, compareState, diffValues } from "./state-compare.mjs";
@@ -22,6 +24,8 @@ const compare = (data, known = []) => {
   const ids = new IdMap(new Set(known));
   return { diffs: compareState(data, ids).diffs, ids };
 };
+// IdMap da resposta do RPC que declara a ordem dos borderos.
+const bIds = () => Object.assign(new IdMap(new Set(KNOWN)), { rpc: "erp_finance_bordero_execute" });
 const equal = (data, known) => assert.deepEqual(compare(data, known).diffs, []);
 const differs = (data, known) => assert.notDeepEqual(compare(data, known).diffs, [], "a divergência plantada não foi acusada");
 
@@ -158,14 +162,14 @@ test("item 1: array da resposta ordenado por id novo (settle_batch sem agrupamen
     }
   };
   const { p, l } = make([100, 250]);
-  const ids = new IdMap(new Set(KNOWN));
+  const ids = bIds();
   assert.deepEqual(diffValues({ borderos: p }, { borderos: l }, ids), []);
   assert.equal(ids.map(l[0].id), p.find((x) => x.amount_cents === l[0].amount_cents).id, "ligou pelo conteúdo, não pela posição");
 
   // Valor diferente num elemento: acusado.
   const bad = structuredClone(l);
   bad[0].amount_cents += 1;
-  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: bad }, new IdMap(new Set(KNOWN))), []);
+  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: bad }, bIds()), []);
   // O motor não ordena pelo id: acusado (3 elementos, ordem nem crescente nem
   // decrescente nos ids do motor e diferente da do Postgres; se a ordem
   // errada coincidir com a do Postgres, a posição bate e passa: o limite).
@@ -174,20 +178,20 @@ test("item 1: array da resposta ordenado por id novo (settle_batch sem agrupamen
     const l3 = sideBy([U(), U(), U()], [100, 250, 400]);
     const wrong = [l3[1], l3[0], l3[2]];
     if (wrong.map((x) => x.amount_cents).join() === p3.map((x) => x.amount_cents).join()) continue;
-    assert.deepEqual(diffValues({ borderos: p3 }, { borderos: l3 }, new IdMap(new Set(KNOWN))), [], "ordenado pelos próprios ids: passa");
-    assert.notDeepEqual(diffValues({ borderos: p3 }, { borderos: wrong }, new IdMap(new Set(KNOWN))), []);
+    assert.deepEqual(diffValues({ borderos: p3 }, { borderos: l3 }, bIds()), [], "ordenado pelos próprios ids: passa");
+    assert.notDeepEqual(diffValues({ borderos: p3 }, { borderos: wrong }, bIds()), []);
     break;
   }
   // Ordem diferente sem id novo como chave (ordenado por id que já existia): acusado.
   const byKnown = (arr) => arr.map((x, i) => ({ ...x, id: [A, A2][i] }));
   assert.notDeepEqual(
-    diffValues({ borderos: byKnown(p) }, { borderos: byKnown(p).reverse() }, new IdMap(new Set(KNOWN))),
+    diffValues({ borderos: byKnown(p) }, { borderos: byKnown(p).reverse() }, bIds()),
     [],
   );
   // Lista que não tem id: ordem é ordem.
   assert.notDeepEqual(diffValues({ v: [1, 2] }, { v: [2, 1] }, new IdMap(new Set(KNOWN))), []);
   // Elemento a mais: acusado.
-  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: [...l, l[0]] }, new IdMap(new Set(KNOWN))), []);
+  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: [...l, l[0]] }, bIds()), []);
 });
 
 test("item 1: o mesmo array gravado em json nas tabelas (auditoria e recibo)", () => {
@@ -227,7 +231,10 @@ test("item 1: o mesmo array gravado em json nas tabelas (auditoria e recibo)", (
 test("item 1: a declaração de ordem por id novo é conferida", () => {
   assert.throws(() => registerNewIdOrder({ id: "teste.sem_chave", by: "id" }), /chaves/);
   assert.throws(() => registerNewIdOrder({ id: "teste.dir", keys: ["x"], dir: "acima" }), /asc ou desc/);
-  assert.throws(() => registerNewIdOrder({ id: "teste.coluna", keys: ["x"], columns: ["erp_finance__bordero.note"] }), /não é json/);
+  const ok = { rpcs: ["erp_x"], reason: "chave de ordenação aleatória no oráculo, só para o teste do harness" };
+  assert.throws(() => registerNewIdOrder({ id: "teste.coluna", keys: ["x"], columns: ["erp_finance__bordero.note"], ...ok }), /não é json/);
+  assert.throws(() => registerNewIdOrder({ id: "teste.sem_rpc", keys: ["x"], reason: ok.reason }), /RPCs/);
+  assert.throws(() => registerNewIdOrder({ id: "teste.sem_motivo", keys: ["x"], rpcs: ["erp_x"], reason: "aleatório" }), /justifique/);
   assert.throws(() => registerNewIdOrder({ id: "finance.settle_batch_borderos", keys: ["x"] }), /já registrada/);
   // Ids em ordem crescente nos dois lados: só a declaração separa os casos.
   const two = () => [U(), U()].sort();
@@ -236,7 +243,11 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   // Na resposta, array não declarado com ids novos: a ordem vale.
   assert.notDeepEqual(diffValues({ items: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { items: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, new IdMap(new Set(KNOWN))), []);
   // Declarado: a mesma troca passa.
-  assert.deepEqual(diffValues({ borderos: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { borderos: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, new IdMap(new Set(KNOWN))), []);
+  assert.deepEqual(diffValues({ borderos: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { borderos: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, bIds()), []);
+  // A mesma chave na resposta de outro RPC: a ordem vale.
+  const other = new IdMap(new Set(KNOWN));
+  other.rpc = "erp_finance_execute";
+  assert.notDeepEqual(diffValues({ borderos: [{ id: p1, n: 1 }, { id: p2, n: 2 }] }, { borderos: [{ id: l1, n: 2 }, { id: l2, n: 1 }] }, other), []);
   // Na tabela, a chave declarada numa coluna não declarada (before_data): a ordem vale.
   const at = (col, borderos) => row("erp_finance__audit", { id: "1", actor: ACTOR, command_id: CMD, action: "x", [col]: JSON.stringify({ borderos }), created_at: "1" });
   const data = (col) => ({
@@ -245,6 +256,32 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   });
   equal(data("after_data"), KNOWN);
   differs(data("before_data"), KNOWN);
+});
+
+test("item 6: uuid embutido em texto (source_key = 'cash_session:<movimento>')", () => {
+  const key = (id) => `cash_session:${id}`;
+  const pair = () => [U(), U()];
+  const [p1, p2] = pair(),
+    [l1, l2] = pair();
+  // O movimento que aponta para o outro movimento novo, só pelo texto.
+  const pgRows = [mov(p1, { delta_cents: "5" }), mov(p2, { delta_cents: "7", note: key(p1) })];
+  const data = (note) => ({ erp_finance__movement: { pg: pgRows, lite: [mov(l1, { delta_cents: "5" }), mov(l2, { delta_cents: "7", note })] } });
+  const { diffs, ids } = compare(data(key(l1)), KNOWN);
+  assert.deepEqual(diffs, []);
+  assert.equal(ids.map(l1), p1);
+  differs(data(key(l2)), KNOWN); // aponta para o movimento errado (ele mesmo)
+  differs(data(key(A)), KNOWN); // para um id que já existia
+  differs(data(key(U())), KNOWN); // para um id sem correspondência
+  differs(data(`cash_sessio:${l1}`), KNOWN); // prefixo diferente
+  differs(data(`${key(l1)}:${l1}`), KNOWN); // texto a mais
+  // Na resposta.
+  const r = () => new IdMap(new Set(KNOWN));
+  assert.deepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l1), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l2), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(A) }, { k: key(A2) }, r()), []);
+  assert.notDeepEqual(diffValues({ k: `x:${p1}` }, { k: `y:${l1}` }, r()), []);
+  // Hexa maior que um uuid não é uuid embutido: comparado literalmente.
+  assert.notDeepEqual(diffValues({ k: `${p1}aa` }, { k: `${l1}aa` }, r()), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -373,6 +410,65 @@ test("item 4: semeadura com uuid aleatório alinha; desalinhada de propósito pa
 });
 
 // ---------------------------------------------------------------------------
+// Porta de identidade: f.rpc(…, { as }) / f.rpcAs, papel e nível de sessão
+
+test("identidade: RPC como pessoa com papel e sessão aal1/aal2 nos dois motores; envelope errado é acusado", async () => {
+  const f = await dualFixture();
+  try {
+    const { admin, vendas, financeiro } = f.users;
+    const s1 = await f.session(admin, "aal1"),
+      s2 = await f.session(admin, "aal2"),
+      old = await f.session(admin, "aal2", { expired: true }),
+      fin = await f.session(financeiro, "aal1");
+    await f.factor(admin);
+    const gate = (user, session) => f.rpcAs("erp_access_gate_v2", { p_user_id: user, p_session_id: session });
+    for (const s of [null, s1, s2, old]) await gate(admin, s);
+    // Política de MFA: só com aal2 e fator verificado (o motor vê o mesmo).
+    await assert.rejects(
+      f.rpcAs("erp_access_security_policy_save", { p_user_id: admin, p_session_id: s1, p_command_id: U(), p_expected_version: 0, p_mfa_required: true }),
+      (e) => e.code === "28000",
+    );
+    await f.rpcAs("erp_access_security_policy_save", { p_user_id: admin, p_session_id: s2, p_command_id: U(), p_expected_version: 0, p_mfa_required: true });
+    assert.equal((await gate(admin, s1)).mfa_ok, false);
+    assert.equal((await gate(admin, s2)).mfa_ok, true);
+    await gate(financeiro, fin);
+    assert.equal((await f.rpcAs("erp_access_permissions_me", { p_user_id: vendas })).role, "vendas");
+    // `as` com outra pessoa que não a dos argumentos.
+    await f.rpc("erp_access_profile_me", { p_user_id: admin }, { as: { user: admin, session: s2 } });
+
+    // Envelope adulterado só no motor: a divergência aparece.
+    const pgCall = (name, args) => async () => {
+      await f.db.exec("set role service_role");
+      try {
+        const e = Object.entries(args);
+        return (await f.db.query(`select public.${name}(${e.map(([k], i) => `${k}=>$${i + 1}`).join(",")}) v`, e.map(([, v]) => v))).rows[0]?.v;
+      } finally {
+        await f.db.exec("reset role");
+      }
+    };
+    const tampered = async (name, args, session, change) => {
+      const identity = await pgIdentity(f.db, args.p_user_id, session);
+      change(identity);
+      return f.dual(name, pgCall(name, args), () => callRpc(f.driver, name, structuredClone(args), f.clock, { objects: f.objectLookup, listing: [], identity }));
+    };
+    const diverges = (p) => assert.rejects(p, /os motores divergem/);
+    // O motor projeta `people` (papel e nome) e lê a sessão do `actor`: o
+    // envelope adulterado muda os dois, como um Worker errado mandaria.
+    const set = (i, user, field, value) => {
+      i.actor[field] = value;
+      i.people.find((p) => p.user_id === user)[field] = value;
+    };
+    await diverges(tampered("erp_access_permissions_me", { p_user_id: vendas }, null, (i) => set(i, vendas, "erp_role", "admin")));
+    await diverges(tampered("erp_access_gate_v2", { p_user_id: admin, p_session_id: s1 }, s1, (i) => (i.actor.aal = "aal2")));
+    await diverges(tampered("erp_access_profile_me", { p_user_id: admin }, null, (i) => set(i, admin, "name", "Outra pessoa")));
+    // E o envelope certo continua passando depois.
+    assert.equal((await gate(admin, s2)).mfa_ok, true);
+  } finally {
+    await f.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Ponta a ponta: a fixture dupla com as escritas plantadas
 
 test("ponta a ponta: espelho, ids novos, __fold, ids existentes e resposta", async () => {
@@ -442,4 +538,12 @@ test("ponta a ponta: espelho, ids novos, __fold, ids existentes e resposta", asy
   } finally {
     await f.close();
   }
+});
+
+test("argumentos pelo fio: undefined some nos dois motores (achado da G)", () => {
+  const id = randomUUID();
+  assert.deepEqual(wireArgs({ p_user_id: id, p_extra: undefined, p_data: { campo: undefined, nome: "x", lista: [1, undefined] } }), {
+    p_user_id: id,
+    p_data: { nome: "x", lista: [1, null] },
+  });
 });

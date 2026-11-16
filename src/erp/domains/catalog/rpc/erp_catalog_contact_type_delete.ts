@@ -5,14 +5,13 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { requireAccess } from "../access.ts";
-import { uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { compareText } from "../fields.ts";
 
 export function erpCatalogContactTypeDelete(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const command = uuidArg(a, "p_command_id");
-  const id = uuidArg(a, "p_id");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const command = ((a.p_command_id ?? null) as string | null);
+  const id = ((a.p_id ?? null) as string | null);
   const db = ctx.db;
   const role = requireAccess(db, user, "contacts", false);
   if (role !== "admin") raise("42501", "erp_catalog_access_denied");

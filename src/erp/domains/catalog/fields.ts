@@ -131,21 +131,9 @@ export function percentValid(value: unknown, whenNull: boolean): boolean {
   );
 }
 
-/**
- * PROVISÓRIO: espelho não preenche __fold. O espelho do harness copia as
- * linhas do Postgres sem as colunas __fold (ficam NULL no SQLite), então a
- * leitura calcula o fold do valor. Quando a N publicar o espelho com __fold,
- * troque para true: as leituras passam a usar a coluna gravada.
- * Leituras que passam por aqui: employee_page (ordem por name__fold) e
- * contact_type_create (rótulo repetido por label__fold).
- */
-export const FOLD_COLUMNS_FILLED = false;
-/** Chave normalizada de uma linha: a coluna __fold ou, provisoriamente, o fold do valor. */
-export function foldedKey(row: Record<string, unknown>, column: string): string | null {
-  if (FOLD_COLUMNS_FILLED) return (row[`${column}__fold`] as string | null) ?? null;
-  const v = row[column];
-  return v === null || v === undefined ? null : fold(String(v));
-}
+/** Chave normalizada de uma linha: a coluna __fold gravada (erp_catalog.fold do valor). */
+export const foldedKey = (row: Record<string, unknown>, column: string): string | null =>
+  (row[`${column}__fold`] as string | null) ?? null;
 
 /** Ordem do texto no Postgres do oráculo (collation C): bytes UTF-8. */
 const encoder = new TextEncoder();

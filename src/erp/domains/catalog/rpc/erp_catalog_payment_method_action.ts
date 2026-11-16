@@ -3,7 +3,6 @@
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { intArg, textArg, uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { paymentMethodAccess, paymentMethodDto, readRow, updateRow } from "../payment-method.ts";
 
@@ -21,11 +20,11 @@ const RECEIVES = ["recebimentos", "ambos"];
 const PAYS = ["pagamentos", "ambos"];
 
 export function erpCatalogPaymentMethodAction(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const id = uuidArg(a, "p_id");
-  const expected = intArg(a, "p_expected_version");
-  const command = uuidArg(a, "p_command_id");
-  const action = textArg(a, "p_action");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const id = ((a.p_id ?? null) as string | null);
+  const expected = ((a.p_expected_version ?? null) as number | null);
+  const command = ((a.p_command_id ?? null) as string | null);
+  const action = ((a.p_action ?? null) as string | null);
   const db = ctx.db;
   paymentMethodAccess(db, user, true);
   if (

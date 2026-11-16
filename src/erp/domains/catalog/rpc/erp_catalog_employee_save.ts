@@ -5,7 +5,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { intArg, jsonArg, textArg, uuidArg } from "../args.ts";
+import { jsonArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { employeeAdmin, employeeDto, employeeForm, employeeInput, type EmployeeData } from "../employee.ts";
 import { fold } from "../internal.ts";
@@ -20,12 +20,12 @@ const salaryParam = (v: string | null) => (v === null ? null : toParam(toScaled(
 const values = (v: EmployeeData) => COLUMNS.map((c) => (c === "salary" ? salaryParam(v.salary) : v[c]));
 
 export function erpCatalogEmployeeSave(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const id = uuidArg(a, "p_id");
-  const expected = intArg(a, "p_expected_version");
-  const command = uuidArg(a, "p_command_id");
+  const user = ((a.p_user_id ?? null) as string | null);
+  const id = ((a.p_id ?? null) as string | null);
+  const expected = ((a.p_expected_version ?? null) as number | null);
+  const command = ((a.p_command_id ?? null) as string | null);
   const data = jsonArg(a, "p_data");
-  const situationArg = textArg(a, "p_situation");
+  const situationArg = ((a.p_situation ?? null) as string | null);
   const db = ctx.db;
   employeeAdmin(db, user);
   if (

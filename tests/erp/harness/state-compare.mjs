@@ -34,6 +34,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+00:00$/;
 const q = (id) => `"${id.replace(/"/g, '""')}"`;
 const NORMALIZED = ["fold", "computed"];
+// uuid canônico (com hífens) dentro de um texto, sem ser parte de outro hexa.
+const EMBEDDED_SRC = "(?<![0-9a-f-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f-])";
+const EMBEDDED = new RegExp(EMBEDDED_SRC, "i");
+const EMBEDDED_ALL = new RegExp(EMBEDDED_SRC, "gi");
 
 export class IdMap {
   /** known: ids que já existiam nos dois bancos (nunca ligados a outro). */
@@ -60,6 +64,7 @@ export class IdMap {
   }
   clone() {
     const c = new IdMap(this.known);
+    c.rpc = this.rpc;
     c.liteToPg = new Map(this.liteToPg);
     c.pgToLite = new Map(this.pgToLite);
     return c;
@@ -138,6 +143,15 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
         }
       }
     if (ISO_TIME.test(pg) && ISO_TIME.test(lite)) return out;
+    if (pg !== lite && EMBEDDED.test(pg) && EMBEDDED.test(lite)) {
+      const parts = (s) => s.split(EMBEDDED_ALL);
+      const ids_ = (s) => [...s.matchAll(EMBEDDED_ALL)].map((m) => m[0]);
+      const a = ids_(pg),
+        b = ids_(lite);
+      if (a.length !== b.length || JSON.stringify(parts(pg)) !== JSON.stringify(parts(lite))) out.push({ path, pg, lite });
+      else a.forEach((x, i) => linkPair(x, b[i], ids, path, out, "id embutido"));
+      return out;
+    }
   }
   if (pg === null || lite === null || typeof pg !== "object" || typeof lite !== "object") {
     if (pg !== lite && !(typeof pg === "number" && String(pg) === String(lite))) out.push({ path, pg, lite });
@@ -150,7 +164,7 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
   // Array declarado como ordenado por id novo (registerNewIdOrder): a ordem
   // vem dos uuids aleatórios de cada lado. Cada lado tem de estar nessa
   // ordem; aí os elementos casam um a um. Fora da declaração, ordem é ordem.
-  const order = !positional && Array.isArray(pg) && key !== undefined ? orderFor(key) : null;
+  const order = !positional && Array.isArray(pg) && key !== undefined ? orderFor(key, { rpc: ids.rpc ?? null }) : null;
   if (order && pg.length === lite.length && pg.length > 1) {
     const trial = ids.clone();
     if (!diffValues(pg, lite, trial, path, [], specs, key, true).length) {
@@ -220,6 +234,19 @@ function encodeString(s, table, column, key, specs, leaf, inJson) {
     if (u) return leaf("derived", u, sp);
   }
   if (inJson && ISO_TIME.test(s)) return '"<tempo>"';
+  // uuid canônico embutido no texto (source_key = 'cash_session:<id>'): cada
+  // um passa pela mesma correspondência; o resto do texto é literal.
+  if (EMBEDDED.test(s)) {
+    let out = '"',
+      last = 0;
+    for (const m of s.matchAll(EMBEDDED_ALL)) {
+      out += JSON.stringify(s.slice(last, m.index)).slice(1, -1);
+      const t = leaf("embedded", m[0].toLowerCase(), null);
+      out += t.startsWith('"') ? t.slice(1, -1) : t;
+      last = m.index + m[0].length;
+    }
+    return out + JSON.stringify(s.slice(last)).slice(1, -1) + '"';
+  }
   return JSON.stringify(s);
 }
 
@@ -231,7 +258,7 @@ function encodeJson(v, table, column, key, specs, leaf) {
     // coluna: na ordem declarada, os elementos (já com os ids ligados) são
     // comparados pelo conteúdo, sem a ordem; fora dela, marcado à parte,
     // nunca igual ao ordenado (o motor que não ordena diverge sempre).
-    const order = leaf.isNew && key !== undefined ? orderFor(key, `${table}.${column}`) : null;
+    const order = leaf.isNew && key !== undefined ? orderFor(key, { where: `${table}.${column}` }) : null;
     if (order && inNewIdOrder(v, order, leaf.isNew)) return "\u0002[" + parts.join("\u0003") + "\u0002]";
     if (order) return "[!" + parts.join(",") + "]";
     return "[" + parts.join(",") + "]";
@@ -307,7 +334,7 @@ function encodeAll(data, ids, specs) {
           }
           if (lit !== null) return JSON.stringify(kind === "derived" ? sp.fromUuid(lit) : lit);
           slots.push(`${side}:${u}`);
-          return `\u0000${kind === "derived" ? sp.id : ""}\u0001${slots.length - 1}\u0000`;
+          return `\u0000${kind === "derived" ? sp.id : kind === "embedded" ? "~" : ""}\u0001${slots.length - 1}\u0000`;
         };
         // Gerado nesta chamada: não existia e só aparece deste lado (ligado ou não).
         leaf.isNew = (u) => !ids.known.has(u) && !other.has(u);
@@ -324,7 +351,8 @@ const keyValue = (key) => key.slice(key.indexOf(":") + 1);
 function finalText(row, pairs, specById) {
   return render(row, (key, spec) => {
     const v = keyValue(row.side === "lite" && pairs.has(key) ? pairs.get(key) : key);
-    return JSON.stringify(spec ? specById.get(spec).fromUuid(v) : v);
+    // "~": uuid embutido num texto (sem aspas próprias).
+    return spec === "~" ? v : JSON.stringify(spec ? specById.get(spec).fromUuid(v) : v);
   });
 }
 

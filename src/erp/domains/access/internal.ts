@@ -4,6 +4,7 @@
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { jsonType } from "../../engine/json.ts";
 import { saoPauloLocal, saoPauloParts } from "../../engine/time.ts";
+import { sellerAccessAllowed } from "../catalog/public.ts";
 import { mfaPolicyOn, permissionKeys, permissionParent } from "./public.ts";
 
 type Window = { start: string; end: string; days: number[] };
@@ -81,16 +82,6 @@ export function mfaInScope(db: SqlDriver, user: string): boolean {
 /** erp_access.mfa_required */
 export const mfaRequired = (db: SqlDriver, user: string) => mfaPolicyOn(db) && mfaInScope(db, user);
 
-/**
- * erp_catalog.seller_access_allowed (dono: Catálogo). Aqui só enquanto o
- * Catálogo não a porta: a regra é a janela do Acesso aplicada ao vendedor.
- */
-function sellerAccessAllowed(db: SqlDriver, user: string, at: bigint): boolean {
-  const s = one(db, 'SELECT access_hours_enabled, access_windows FROM "erp_catalog__seller" WHERE user_id=?', user);
-  if (!s) return true;
-  const windows = parse(s.access_windows) as Window[];
-  return !s.access_hours_enabled || windows.length === 0 || windowOpen(windows, at);
-}
 
 const isAdmin = (db: SqlDriver, user: string) =>
   !!one(db, `SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1 AND role='admin'`, user);
