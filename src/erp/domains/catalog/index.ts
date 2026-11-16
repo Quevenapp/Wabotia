@@ -14,6 +14,8 @@ import "./rpc/erp_catalog_contact_type_create.ts";
 import "./rpc/erp_catalog_contact_type_delete.ts";
 import "./rpc/erp_catalog_contact_code.ts";
 import "./rpc/erp_catalog_contact_code_set.ts";
+import "./rpc/erp_catalog_save.ts";
+import "./rpc/erp_catalog_set_active.ts";
 import "./rpc/erp_catalog_product_images.ts";
 import "./rpc/erp_catalog_product_image_delete.ts";
 import "./rpc/erp_catalog_product_image_order.ts";
