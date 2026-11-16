@@ -10,7 +10,9 @@ object Routes {
     const val START = "start"
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
-    const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), ajustes
+    const val HOME = "home" // abas: conversas, atendimento, equipe, ligações (histórico), ajustes
+    /** Lista de protocolos, aberta pela aba Atendimento; [filter] é o nome do filtro (`active`, `overdue`, `open`, `all`…). */
+    const val TICKETS = "tickets?filter={filter}"
     const val LINES = "lines"
     const val MENUS = "menus"
     const val BOT_LINES = "bot-lines"
@@ -30,6 +32,7 @@ object Routes {
         val query = listOfNotNull(sheet?.let { "sheet=${Uri.encode(it)}" }, arg?.let { "arg=${Uri.encode(it)}" }).joinToString("&")
         return "conversation/$id" + if (query.isEmpty()) "" else "?$query"
     }
+    fun tickets(filter: String? = null) = "tickets" + (filter?.let { "?filter=${Uri.encode(it)}" } ?: "")
     fun conversationInfo(id: String) = "conversation-info/$id"
     fun ticket(id: String) = "ticket/$id"
     fun ticketNew(conversationId: String) = "ticket-new/$conversationId"

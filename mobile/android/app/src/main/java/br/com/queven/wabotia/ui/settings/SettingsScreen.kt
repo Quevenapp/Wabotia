@@ -24,32 +24,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -84,7 +74,6 @@ import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.ModuleIds
-import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -109,21 +98,15 @@ import java.text.DateFormat
 import java.util.Date
 
 /**
- * Aba Ajustes (DESIGN.md, seção 10): cartão do usuário com presença e grupos em cartões — Atendimento, Notificações,
- * Aparência, Servidor, Dispositivo, Sobre e Sair. Tudo o que existia na antiga aba "Mais" continua aqui; a lista da equipe
- * passou para a aba Equipe.
+ * Aba Ajustes (DESIGN.md, seção 10): cartão do usuário e grupos em cartões — Notificações, Aparência, Privacidade,
+ * Servidor, Dispositivo (com a impressora do cupom), Sobre e Sair. O que é do atendimento (online/offline, guichê,
+ * módulos, linhas e menus) fica na aba Atendimento; a lista da equipe, na aba Equipe.
  */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
-    openLines: () -> Unit,
-    openMenus: () -> Unit,
-    openBotLines: () -> Unit,
     openPrinter: () -> Unit = {},
-    openCounter: () -> Unit = {},
-    /** Telas dos módulos (Agenda, Ordens de serviço, Reservas, Mensalidades), por [br.com.queven.wabotia.modules.ModuleRoutes]. */
-    openRoute: (String) -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -137,10 +120,10 @@ fun SettingsScreen(
     // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
     val demo = container.isDemo
     val c = Wb.colors
-    // Guichê, impressora e as telas das verticais só aparecem quando o servidor liga o módulo neste perfil.
+    // A impressora só aparece quando algum módulo ligado neste perfil imprime (fila, ordem de serviço, pedido).
     val enabledModules by container.modules.enabled.collectAsState()
     val modules = enabledModules[container.session.profileId].orEmpty()
-    val queueAvailable = ModuleIds.QUEUE in modules
+    val printAvailable = SettingsTexts.printerSubtitle(modules) != null
     LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
@@ -175,50 +158,6 @@ fun SettingsScreen(
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item("user") { UserCard(state, container.session.user?.id ?: "me", presence, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) }
-
-            // --- Atendimento ---
-            item("service-label") { SectionLabel("Atendimento") }
-            item("service") {
-                WbCard(Modifier.padding(horizontal = 16.dp)) {
-                    if (queueAvailable) {
-                        SettingsRow(
-                            Icons.Filled.ConfirmationNumber,
-                            "Guichê da fila de senhas",
-                            subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
-                            tint = c.warn,
-                            onClick = openCounter,
-                        )
-                        RowDivider()
-                    }
-                    if (ModuleIds.AGENDA in modules) {
-                        SettingsRow(Icons.Filled.CalendarMonth, "Agenda", subtitle = "Agendamentos do dia e da semana por profissional", tint = c.ok, onClick = { openRoute(ModuleRoutes.AGENDA) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.SERVICE_ORDERS in modules) {
-                        SettingsRow(Icons.Filled.Build, "Ordens de serviço", subtitle = "Recebidas, orçamentos, execução e entrega", tint = c.warn, onClick = { openRoute(ModuleRoutes.SERVICE_ORDERS) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.RESERVA in modules) {
-                        SettingsRow(Icons.Filled.Hotel, "Reservas", subtitle = "Ocupação das unidades, sinal e check-in", tint = c.brand, onClick = { openRoute(ModuleRoutes.RESERVA) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.MENSALIDADE in modules) {
-                        SettingsRow(Icons.Filled.Payments, "Mensalidades", subtitle = "Parcelas do mês, assinaturas e inadimplentes", tint = c.ok, onClick = { openRoute(ModuleRoutes.MENSALIDADE) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.PEDIDO in modules) {
-                        SettingsRow(Icons.Filled.RestaurantMenu, "Pedidos", subtitle = "Quadro da cozinha, comanda, pausa da loja e esgotados", tint = c.ticket, onClick = { openRoute(ModuleRoutes.PEDIDO) })
-                        RowDivider()
-                    }
-                    SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
-                    if (state.isAdmin) {
-                        RowDivider()
-                        SettingsRow(Icons.Filled.AccountTree, "Menus e submenus", subtitle = "Opções, destinos e linhas permitidas", tint = c.ticket, onClick = openMenus)
-                        RowDivider()
-                        SettingsRow(Icons.Filled.SmartToy, "Linhas dos bots", subtitle = "Em quais linhas cada bot pode atender", tint = c.bot, onClick = openBotLines)
-                    }
-                }
-            }
 
             // --- Notificações ---
             item("notifications-label") { SectionLabel("Notificações") }
@@ -407,11 +346,11 @@ fun SettingsScreen(
                         RowDivider()
                         SettingsRow(Icons.Filled.Tune, "Sessão", subtitle = text, tint = c.textSecondary)
                     }
-                    if (queueAvailable) RowDivider()
-                    if (queueAvailable) SettingsRow(
+                    if (printAvailable) RowDivider()
+                    if (printAvailable) SettingsRow(
                         Icons.Filled.Print,
-                        "Impressora térmica",
-                        subtitle = "Bluetooth, USB ou Wi-Fi, para o cupom da senha do totem",
+                        "Impressora do cupom",
+                        subtitle = SettingsTexts.printerSubtitle(modules),
                         tint = c.textSecondary,
                         onClick = openPrinter,
                     )
@@ -509,12 +448,11 @@ fun SettingsScreen(
 
 // --- partes ---
 
-/** Cartão do usuário: avatar, nome, e-mail, papel, perfil atual e o interruptor de presença. */
+/** Cartão do usuário: avatar (com o ponto de online), nome, e-mail, papel e perfil atual. O interruptor fica na aba Atendimento. */
 @Composable
 private fun UserCard(state: SettingsUiState, seed: String, presence: PresenceViewModel, modifier: Modifier = Modifier) {
     val c = Wb.colors
     val name = state.userName.ifBlank { "Atendente" }
-    val online = presence.present == true
     WbCard(modifier) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Avatar(name, seed = seed, size = 56.dp, online = presence.present, ringColor = c.surface)
@@ -534,41 +472,12 @@ private fun UserCard(state: SettingsUiState, seed: String, presence: PresenceVie
                 }
             }
         }
-        HorizontalDivider(color = c.hairline, modifier = Modifier.padding(horizontal = 16.dp))
-        Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    when (presence.present) {
-                        true -> "Você está online"
-                        false -> "Você está offline"
-                        null -> "Consultando presença…"
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = c.textPrimary,
-                )
-                Text(
-                    if (online) "Você recebe novos atendimentos e transferências." else "Novos atendimentos não são encaminhados a você.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = c.textSecondary,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            BusySwitch(
-                checked = online,
-                busy = presence.busy,
-                enabled = presence.present != null,
-                onChange = { presence.set(it) },
-                description = if (online) "Ficar offline" else "Ficar online",
-                checkedColor = c.ok,
-            )
-        }
     }
 }
 
 /** Interruptor que vira indicador de progresso enquanto o pedido está em curso. */
 @Composable
-private fun BusySwitch(checked: Boolean, busy: Boolean, onChange: (Boolean) -> Unit, description: String, enabled: Boolean = true, checkedColor: Color = Wb.colors.brand) {
+internal fun BusySwitch(checked: Boolean, busy: Boolean, onChange: (Boolean) -> Unit, description: String, enabled: Boolean = true, checkedColor: Color = Wb.colors.brand) {
     Box(Modifier.size(width = 56.dp, height = 48.dp), contentAlignment = Alignment.Center) {
         if (busy) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp, color = checkedColor)
@@ -623,6 +532,21 @@ private fun ProfileSheet(profiles: List<Profile>, selected: String?, onSelect: (
                 if (isSelected) Icon(Icons.Filled.Check, contentDescription = "Perfil atual", tint = c.brand)
             }
         }
+    }
+}
+
+/** Textos de Ajustes que dependem dos módulos, sem Compose, para testar. */
+object SettingsTexts {
+    /** Para que serve a impressora neste perfil; null quando nenhum módulo ligado imprime (a linha some). */
+    fun printerSubtitle(modules: Set<String>): String? {
+        val uses = listOfNotNull(
+            "a senha do totem".takeIf { ModuleIds.QUEUE in modules },
+            "o comprovante da ordem de serviço".takeIf { ModuleIds.SERVICE_ORDERS in modules },
+            "a comanda do pedido".takeIf { ModuleIds.PEDIDO in modules },
+        )
+        if (uses.isEmpty()) return null
+        val list = if (uses.size == 1) uses[0] else uses.dropLast(1).joinToString(", ") + " e " + uses.last()
+        return "Bluetooth, USB ou Wi-Fi, para imprimir $list"
     }
 }
 

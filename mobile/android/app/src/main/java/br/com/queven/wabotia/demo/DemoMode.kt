@@ -151,7 +151,9 @@ object DemoMode {
             "form" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "form")
             "charge" -> DemoDestination(conversationId = Ids.C_RICH, sheet = "charge")
             "info" -> DemoDestination(conversationId = Ids.C_RICH, info = true)
-            "tickets" -> DemoDestination(tab = "tickets", arg = option)
+            // Aba Atendimento; `tickets` abre a lista por cima dela, com o filtro de `--es arg` (active, overdue, open…).
+            "service", "atendimento" -> DemoDestination(tab = "service")
+            "tickets" -> DemoDestination(tab = "service", route = "tickets" + (option?.let { "?filter=$it" } ?: ""))
             "ticket" -> DemoDestination(
                 ticketId = when (option) {
                     "overdue" -> Ids.T_OVERDUE

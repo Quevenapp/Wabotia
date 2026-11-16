@@ -10,11 +10,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Call
-import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.material.icons.outlined.SupportAgent
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
@@ -56,7 +56,9 @@ import br.com.queven.wabotia.ui.conversations.ConversationsScreen
 import br.com.queven.wabotia.ui.settings.SettingsScreen
 import br.com.queven.wabotia.ui.team.TeamScreen
 import br.com.queven.wabotia.ui.theme.Wb
-import br.com.queven.wabotia.ui.tickets.TicketsScreen
+import br.com.queven.wabotia.ui.service.ServiceScreen
+import br.com.queven.wabotia.ui.tickets.TicketFilter
+import br.com.queven.wabotia.ui.tickets.ticketCounts as countTickets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -65,19 +67,23 @@ import kotlinx.coroutines.launch
 /** As cinco abas da barra inferior (DESIGN.md §3). [key] é o nome usado nos atalhos de demonstração. */
 enum class HomeTab(val key: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Conversations("conversations", "Conversas", Icons.AutoMirrored.Outlined.Chat, Icons.AutoMirrored.Filled.Chat),
-    Tickets("tickets", "Protocolos", Icons.Outlined.ConfirmationNumber, Icons.Filled.ConfirmationNumber),
+    /** No lugar da antiga aba Protocolos: online/offline, protocolos por situação, fila, módulos, linhas e menus. */
+    Service("service", "Atendimento", Icons.Outlined.SupportAgent, Icons.Filled.SupportAgent),
     Team("team", "Equipe", Icons.Outlined.Groups, Icons.Filled.Groups),
     Calls("calls", "Ligações", Icons.Outlined.Call, Icons.Filled.Call),
     Settings("settings", "Ajustes", Icons.Outlined.Settings, Icons.Filled.Settings),
 }
 
-/** Contadores das abas: protocolos atrasados/recebidos (só ativos) e conversas internas não lidas. */
+/** Contadores das abas: protocolos atrasados/recebidos (só ativos, na aba Atendimento) e conversas internas não lidas. */
 class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
     var overdueTickets by mutableStateOf(0)
         private set
     var openTickets by mutableStateOf(0)
         private set
     var internalUnread by mutableStateOf(0)
+        private set
+    /** Contadores por situação dos protocolos ativos, para a aba Atendimento; vazio até a primeira leitura. */
+    var ticketCounts by mutableStateOf<Map<TicketFilter, Int>>(emptyMap())
         private set
 
     fun refreshTickets() {
@@ -90,6 +96,7 @@ class HomeBadgesViewModel(private val container: AppContainer) : ViewModel() {
                 val active = container.api.tickets(profile, active = "1").data.filter { it.isActive }
                 overdueTickets = active.count { it.isOverdueAt(now) }
                 openTickets = active.count { it.status == TicketStatus.OPEN }
+                ticketCounts = countTickets(active, now)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -126,7 +133,8 @@ fun HomeScreen(
     tabArg: String?,
     onTabArgConsumed: () -> Unit,
     openConversation: (id: String, sheet: String?) -> Unit,
-    openTicket: (String) -> Unit,
+    /** Lista de protocolos com o filtro escolhido na aba Atendimento. */
+    openTickets: (TicketFilter) -> Unit,
     newTicket: (conversationId: String) -> Unit,
     openBot: (String) -> Unit,
     openBotRuns: () -> Unit,
@@ -180,7 +188,7 @@ fun HomeScreen(
                         val selected = tab == t
                         val (count, badgeColor) = when (t) {
                             HomeTab.Conversations -> unread to c.accent
-                            HomeTab.Tickets -> if (badges.overdueTickets > 0) badges.overdueTickets to c.danger else badges.openTickets to c.accent
+                            HomeTab.Service -> if (badges.overdueTickets > 0) badges.overdueTickets to c.danger else badges.openTickets to c.accent
                             HomeTab.Team -> badges.internalUnread to c.accent
                             HomeTab.Calls -> 0 to c.accent
                             HomeTab.Settings -> 0 to c.accent
@@ -225,10 +233,20 @@ fun HomeScreen(
                     newTicket = newTicket,
                     showMessage = { text -> scope.launch { snackbar.showSnackbar(text) } },
                 )
-                HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) }, initialFilter = initialArg)
+                HomeTab.Service -> ServiceScreen(
+                    container,
+                    modifier,
+                    ticketCounts = badges.ticketCounts,
+                    openTickets = openTickets,
+                    openCounter = openCounter,
+                    openLines = openLines,
+                    openMenus = openMenus,
+                    openBotLines = openBotLines,
+                    openRoute = openRoute,
+                )
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
-                HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines, openPrinter = openPrinter, openCounter = openCounter, openRoute = openRoute)
+                HomeTab.Settings -> SettingsScreen(container, modifier, openPrinter = openPrinter)
             }
             }
         }

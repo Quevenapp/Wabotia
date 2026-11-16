@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,6 +42,7 @@ import br.com.queven.wabotia.ui.service.MenusScreen
 import br.com.queven.wabotia.ui.team.InternalChatScreen
 import br.com.queven.wabotia.ui.tickets.NewTicketScreen
 import br.com.queven.wabotia.ui.tickets.TicketScreen
+import br.com.queven.wabotia.ui.tickets.TicketsScreen
 
 @Composable
 fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLink?, onDeepLinkConsumed: () -> Unit) {
@@ -152,7 +155,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 tabArg = homeArg,
                 onTabArgConsumed = { homeArg = null },
                 openConversation = { id, sheet -> nav.navigate(Routes.conversation(id, sheet)) },
-                openTicket = { nav.navigate(Routes.ticket(it)) },
+                openTickets = { nav.navigate(Routes.tickets(it.name.lowercase())) },
                 newTicket = { nav.navigate(Routes.ticketNew(it)) },
                 openBot = { nav.navigate(Routes.botChat(it)) },
                 openBotRuns = { nav.navigate(Routes.BOT_RUNS) },
@@ -215,6 +218,16 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                     // Volta para a conversa (ou abre uma) com a folha "Encaminhar atendimento".
                     nav.navigate(Routes.conversation(id, "transfer")) { popUpTo(Routes.HOME) }
                 },
+            )
+        }
+        composable(Routes.TICKETS, arguments = listOf(navArgument("filter") { type = NavType.StringType; nullable = true; defaultValue = null })) { entry ->
+            TicketsScreen(
+                container,
+                modifier = Modifier.navigationBarsPadding(),
+                openTicket = { nav.navigate(Routes.ticket(it)) },
+                openConversation = { nav.navigate(Routes.conversation(it)) },
+                initialFilter = entry.arguments?.getString("filter"),
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.TICKET, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->

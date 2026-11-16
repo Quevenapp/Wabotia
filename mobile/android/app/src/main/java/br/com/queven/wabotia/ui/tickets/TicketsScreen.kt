@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -52,6 +53,7 @@ import br.com.queven.wabotia.core.model.TicketStatus
 import br.com.queven.wabotia.core.model.nameOf
 import br.com.queven.wabotia.core.net.ApiException
 import br.com.queven.wabotia.ui.components.ConnectionStrip
+import br.com.queven.wabotia.ui.components.DetailTopBar
 import br.com.queven.wabotia.ui.components.EmptyState
 import br.com.queven.wabotia.ui.components.ErrorState
 import br.com.queven.wabotia.ui.components.EventPolling
@@ -70,7 +72,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Filtros da aba Protocolos (mobile/README.md). [statuses] vazio = sem filtro de estado; com mais de um valor a lista
+ * Filtros da lista de protocolos (mobile/README.md). [statuses] vazio = sem filtro de estado; com mais de um valor a lista
  * junta uma consulta `status=` por estado (o servidor aceita um estado por consulta). [active] usa `active=1` (0.14+).
  */
 enum class TicketFilter(val label: String, val statuses: List<String> = emptyList(), val active: Boolean = false, val overdue: Boolean = false) {
@@ -325,15 +327,20 @@ class TicketsViewModel(private val container: AppContainer, private val profileI
     }
 }
 
-/** Aba Protocolos: busca por número/telefone, chips com contador, cartões com prazo, pull-to-refresh e paginação. */
+/**
+ * Lista de protocolos, aberta pela aba Atendimento: busca por número/telefone, chips com contador, cartões com prazo,
+ * pull-to-refresh e paginação.
+ */
 @Composable
 fun TicketsScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
     openTicket: (String) -> Unit,
     openConversation: (String) -> Unit,
-    /** Filtro inicial pelo nome (atalho de demonstração): `active`, `open`, `waiting`, `resolved`, `all`… */
+    /** Filtro inicial pelo nome (linha da aba Atendimento ou atalho de demonstração): `active`, `open`, `overdue`, `all`… */
     initialFilter: String? = null,
+    /** Voltar para a aba Atendimento; null mostra a barra de aba, sem seta. */
+    onBack: (() -> Unit)? = null,
 ) {
     val profileId = container.session.profileId ?: ""
     val vm: TicketsViewModel = viewModel(key = "tickets-$profileId") { TicketsViewModel(container, profileId) }
@@ -388,11 +395,12 @@ fun TicketsScreen(
                 )
             }
         } else {
-            TabTopBar("Protocolos") {
+            val search: @Composable RowScope.() -> Unit = {
                 IconButton(onClick = { searching = true }) {
                     Icon(Icons.Filled.Search, contentDescription = "Buscar protocolo", tint = c.textPrimary)
                 }
             }
+            if (onBack != null) DetailTopBar("Protocolos", onBack = onBack, actions = search) else TabTopBar("Protocolos", actions = search)
         }
         ConnectionStrip(container)
         FilterRow {
