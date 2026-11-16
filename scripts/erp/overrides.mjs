@@ -22,14 +22,19 @@ import * as sync from "./overrides/sync.mjs";
 
 const parts = { access, catalog, cnab, company, documents, finance, fiscal, pos, preferences, reference, stock, sync };
 
-function merge(field) {
+function merge(field, sub) {
   const out = {};
   for (const [domain, part] of Object.entries(parts))
-    for (const [key, value] of Object.entries(part[field])) {
+    for (const [key, value] of Object.entries(sub ? (part[field]?.[sub] ?? {}) : part[field])) {
       if (key in out) throw Error(`overrides: ${key} declarado duas vezes (${domain})`);
       out[key] = value;
     }
   return out;
 }
 
-export const overrides = { columns: merge("columns"), discardTables: merge("discardTables") };
+export const overrides = {
+  columns: merge("columns"),
+  discardTables: merge("discardTables"),
+  /** Pendências cumpridas em TS, por domínio (overrides/<domínio>.mjs, `covered`). */
+  covered: { checks: merge("covered", "checks"), triggers: merge("covered", "triggers") },
+};
