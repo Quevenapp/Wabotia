@@ -4,6 +4,14 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 
 export * from "./stubs.generated.ts";
 
+/**
+ * erp_attachments.storage_ready(): no Fagoo confere o bucket em
+ * storage.buckets e lança 55000 sem ele. No Wabotia o armazenamento é o R2
+ * (binding MEDIA), sempre presente: não lança. O harness cria o bucket no
+ * oráculo (existe em produção), e os dois motores concordam.
+ */
+export function storageReady(): void {}
+
 /** Valor da preferência (JSON) ou null quando a chave não existe. */
 export function get(db: SqlDriver, key: string, user: string | null = null): unknown {
   const row = one(

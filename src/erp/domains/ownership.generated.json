@@ -2774,7 +2774,7 @@
   "public_functions": {
    "erp_attachments.storage_ready": {
     "name": "storageReady",
-    "ported": false
+    "ported": true
    },
    "erp_home.biz_cost_visible": {
     "name": "bizCostVisible",
