@@ -85,9 +85,10 @@ test('115 a late answer for a previous user never fills the page',async()=>{cons
  assert.match(v.text(),/Preferência não liberada/);assert.equal(v.nodes().some(n=>n.props.id==='pref-empresa-decimais_quantidade'),false);
 }finally{v.unmount();}});
 
-test('115 Sistema › Interface is personal: any role saves its own theme and it is applied in this browser',async()=>{const f=createPreferencesFixture({role:'estoque'}),v=await mount(f,'sistema-interface');try{
+// Wabotia: o tema segue o painel; salvar "tema escuro" no ERP grava a preferência, mas não troca o tema do navegador.
+test('115 Sistema › Interface is personal: any role saves its own theme and it is applied in this browser',async()=>{globalThis.document.documentElement.dataset.theme='light';const f=createPreferencesFixture({role:'estoque'}),v=await mount(f,'sistema-interface');try{
  assert.match(v.text(),/valem somente para o seu usuário/);await v.change('pref-sistema-tema_escuro',true);await v.click('Salvar');
- assert.deepEqual(posts(f)[0].body.changes,[{key:'sistema.tema_escuro',expected_version:0,value:true}]);assert.equal(globalThis.document.documentElement.dataset.theme,'dark');
+ assert.deepEqual(posts(f)[0].body.changes,[{key:'sistema.tema_escuro',expected_version:0,value:true}]);assert.equal(globalThis.document.documentElement.dataset.theme,'light');
 }finally{v.unmount();}});
 
 test('115 keymaps refuse a repeated key, documents accept masked CPF/CNPJ and info entries link only allowed roles',async()=>{const f=createPreferencesFixture(),v=await mount(f,'vendas-frente-caixa','atalhos');try{
@@ -129,7 +130,7 @@ test('115 hub: every page has a Origin category and an address; disabled items c
 test('115 opening Sistema › Interface never flips the theme of this browser until the user saved one',async()=>{
  globalThis.document.documentElement.dataset.theme='dark';
  const f=createPreferencesFixture(),v=await mount(f,'sistema-interface');try{assert.equal(v.input('pref-sistema-tema_escuro').props.checked,false);assert.equal(globalThis.document.documentElement.dataset.theme,'dark');}finally{v.unmount();}
- const g=createPreferencesFixture();g.set('sistema.tema_escuro',false);const w=await mount(g,'sistema-interface');try{assert.equal(globalThis.document.documentElement.dataset.theme,'light');}finally{w.unmount();}
+ const g=createPreferencesFixture();g.set('sistema.tema_escuro',false);const w=await mount(g,'sistema-interface');try{/* Wabotia: o valor salvo no ERP não troca o tema do painel. */assert.equal(globalThis.document.documentElement.dataset.theme,'dark');}finally{w.unmount();}
 });
 
 test('115 a marked user who lost access can be unmarked from the users field',async()=>{

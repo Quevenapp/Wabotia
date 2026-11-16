@@ -14,8 +14,7 @@ async function mountRoute(location, role) {
   const controller = { start: () => () => {}, subscribe: () => () => {}, getSnapshot: () => state, retry() {}, logout() {} };
   return mountComponent('RealAccess.tsx', {}, { componentName: 'ConnectedArea', location, expandChildren: ['NativeModuleBoundary', 'FiscalInvoiceRoutes', 'RealFiscalInvoices', 'RealOperationNatures', 'FiscalEventList', 'HistoryView'], ports: { access, controller }, modules: {
     '../lib/real-access': 'export const createAccessController=()=>r.controller;export const {AccessError,decimalMoney,RESOURCE_LABELS,ROLE_LABELS}=r.access;',
-    '@supabase/supabase-js': 'export const createClient=()=>({auth:{}});',
-    '../lib/access-config': 'export const accessConfig=()=>({supabaseUrl:"https://synthetic.supabase.co",publicKey:"synthetic",apiUrl:"https://api.synthetic.test"});',
+    '../../ports': 'export const erpPorts=()=>({auth:{},mfa:{},apiUrl:"https://api.synthetic.test",fetch:globalThis.fetch,demo:false});',
     './NativeModuleBoundary': 'export default function NativeModuleBoundary({children}){return children;}',
     './CompanyNavigation': 'export default function CompanyNavigation(){return null;}',
     './native-modules': `export function RealFiscalInvoices(p){return 'LIST:'+p.screen+(p.backup?':backup':'');}export function RealOperationNatures(){return 'NATURES';}export function FiscalEventList(p){return 'EVENTS:'+p.kind;}export function HistoryView(p){return 'BACKUP:'+p.initialModel;}${names.map(n => `export function ${n}(){return null;}`).join('')}`,

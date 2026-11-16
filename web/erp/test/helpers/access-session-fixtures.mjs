@@ -31,8 +31,7 @@ async function mountAccess(s){
  const source=fileURLToPath(new URL('../../app/components/ServiceOrderEvents.tsx',import.meta.url));
  return mountComponent('RealAccess.tsx',{}, {componentName:'ConnectedArea',location:'/documentos-empresa?tipo=service_orders',expandChildren:['NativeModuleBoundary','RealDocuments','ServiceOrderEvents'],ports:{access,controller:s.controller},modules:{
   '../lib/real-access':'export const createAccessController=()=>r.controller;export const {AccessError,decimalMoney,RESOURCE_LABELS,ROLE_LABELS}=r.access;',
-  '@supabase/supabase-js':'export const createClient=()=>({auth:{}});',
-  '../lib/access-config':'export const accessConfig=()=>({supabaseUrl:"https://synthetic.supabase.co",publicKey:"synthetic",apiUrl:"https://api.synthetic.test"});',
+  '../../ports':'export const erpPorts=()=>({auth:{},mfa:{},apiUrl:"https://api.synthetic.test",fetch:globalThis.fetch,demo:false});',
   './NativeModuleBoundary':'export default function NativeModuleBoundary({children}){return children;}',
   './CompanyNavigation':'export default function CompanyNavigation(){return null;}',
   './native-modules':`import Events from ${JSON.stringify(source)};import {jsx} from 'react/jsx-runtime';export function RealDocuments({controller}){return jsx(Events,{controller,document:{id:${JSON.stringify(doc)},version:3}});}${moduleNames.map(name=>`export function ${name}(){return null;}`).join('')}`,

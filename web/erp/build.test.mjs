@@ -94,6 +94,27 @@ test("o ERP fica em 30 a 50 arquivos JS, e a demonstração num chunk só dela",
     );
 });
 
+test("a política de conteúdo libera só o CSS do boleto, pelo hash", async () => {
+  // A prévia do boleto (ItauBoletoPreview) é um iframe srcdoc com um <style>
+  // fixo (packages/boleto-preview); style-src não tem 'unsafe-inline'.
+  const { createHash } = await import("node:crypto");
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../../packages/boleto-preview/src/index.mjs", import.meta.url),
+    "utf8",
+  );
+  const css = /const CSS = `([^`]*)`/.exec(source)?.[1];
+  assert.ok(css && !css.includes("${"), "CSS fixo do boleto");
+  const hash = `'sha256-${createHash("sha256").update(css).digest("base64")}'`;
+  const headers = await readFile(
+    new URL("../../public/_headers", import.meta.url),
+    "utf8",
+  );
+  const styleSrc = /style-src ([^;]+);/.exec(headers)?.[1] ?? "";
+  assert.ok(styleSrc.includes(hash), `style-src precisa de ${hash}`);
+  assert.ok(!styleSrc.includes("'unsafe-inline'"));
+});
+
 test("nenhum arquivo nem marcador de QA do Fagoo na saída", () => {
   const failures = output
     .map((item) =>

@@ -17,10 +17,11 @@ const company=()=>{const calls=[];return{calls,port:{async company(path,options=
  return{section:'identity',record:{version:1,data:{legal_name:'Empresa Sintética Ltda',trade_name:'Sintética',cnpj:'11222333000181',ie:null,postal_code:'01001000',street:'Rua Sintética',number:'1',complement:null,district:'Centro',city:'São Paulo',municipality_code:'3550308',state:'SP',phone:null,email:null},created_at:'2026-10-20T12:00:00Z',updated_at:'2026-10-20T12:00:00Z'},data_mode:'erp_native',emission_enabled:false};}}};};
 
 test('151 top bar: name, Meu Perfil, razão social, Armazenamento and the unread badge; the saved theme is applied at login',async()=>{
- const f=createSystemFixture({theme:true}),v=await nav(f);try{
+ // Wabotia: o tema segue o painel; o tema salvo no ERP é lido, mas não aplicado ao entrar.
+ globalThis.document.documentElement.dataset.theme='light';const f=createSystemFixture({theme:true}),v=await nav(f);try{
   const user=v.find(n=>n.type==='button'&&n.props.className==='origin-user-button');assert.equal(user.props.title,'Meu Perfil');assert.match(textOf(user),/Ana Sintética/);
   const bell=v.find(n=>n.type==='button'&&String(n.props['aria-label']).startsWith('Notificações'));assert.equal(bell.props['aria-label'],'Notificações: 1 não lidas');
-  assert.equal(globalThis.document.documentElement.dataset.theme,'dark');assert.ok(f.calls.some(c=>c.path==='/v1/preferencias/sistema-interface'));
+  assert.equal(globalThis.document.documentElement.dataset.theme,'light');assert.ok(f.calls.some(c=>c.path==='/v1/preferencias/sistema-interface'));
   user.props.onClick();await v.flush();assert.match(v.text(),/Empresa Sintética Ltda/);assert.ok(v.nodes().some(n=>n.props.to==='/empresa-configuracoes'&&textOf(n).includes('Empresa Sintética Ltda')));
   assert.ok(v.nodes().some(n=>n.props.to==='/empresa-configuracoes?secao=armazenamento'&&textOf(n).includes('Armazenamento 3,0 MB')));
  }finally{v.unmount();}

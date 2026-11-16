@@ -1,6 +1,7 @@
 // Dados fictícios da vitrine do ERP (papelaria). Valores em centavos como texto,
 // datas no fuso de São Paulo, como a API do Fagoo responde.
 import { homeShortcutPaths } from "../app/lib/home-request";
+import { fixtureRoute } from "./fixtures";
 
 const today = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(
@@ -196,8 +197,8 @@ export function demoData(actor: string) {
       },
       period: period(params),
     }),
-    /** Demais rotas: undefined quando ainda não simuladas. */
-    route: (_url: URL): unknown => undefined,
+    /** Demais rotas (fixtures.ts); undefined quando ainda não simuladas. */
+    route: (url: URL): unknown => fixtureRoute(url, actor),
   };
 }
 export type DemoData = ReturnType<typeof demoData>;

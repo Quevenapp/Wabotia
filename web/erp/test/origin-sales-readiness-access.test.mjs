@@ -50,8 +50,7 @@ async function mountRoute(controller){
  const names=[...String(await readFile(new URL('../app/components/native-modules.ts',import.meta.url),'utf8')).matchAll(/export const (\w+) = lazy/g)].map(x=>x[1]).filter(x=>x!=='OriginSalesReadiness');
  return mountComponent('RealAccess.tsx',{}, {componentName:'ConnectedArea',location:'/conferir-vendas-origin',expandChildren:true,ports:{access,controller},modules:{
   '../lib/real-access':'export const createAccessController=()=>r.controller;export const {AccessError,decimalMoney,RESOURCE_LABELS,ROLE_LABELS}=r.access;',
-  '@supabase/supabase-js':'export const createClient=()=>({auth:{}});',
-  '../lib/access-config':'export const accessConfig=()=>({supabaseUrl:"https://synthetic.supabase.co",publicKey:"synthetic",apiUrl:"https://api.synthetic.test"});',
+  '../../ports':'export const erpPorts=()=>({auth:{},mfa:{},apiUrl:"https://api.synthetic.test",fetch:globalThis.fetch,demo:false});',
   './NativeModuleBoundary':'export default function NativeModuleBoundary({children}){return children;}',
   './CompanyNavigation':'export default function CompanyNavigation(){return null;}',
   './native-modules':`export {default as OriginSalesReadiness} from ${JSON.stringify(source)};${names.map(n=>`export function ${n}(){return null;}`).join('')}`,

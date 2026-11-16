@@ -28,7 +28,7 @@
  ],
  "local": {
   "web/erp/app/components/RealAccess.tsx": "alterado: sessão, MFA e API pelas portas do Wabotia (web/erp/ports.ts) no lugar do supabase-js; saem o login e o 'esqueci minha senha'; telas do gateway A1 (/certificado-a1, /conexao-sefaz, /emissor-fiscal) mostram o aviso de emissão externa",
-  "web/erp/app/hooks/useTheme.ts": "alterado: o tema segue a preferência do painel (web/lib/theme.ts)",
+  "web/erp/app/hooks/useTheme.ts": "alterado: o tema segue a preferência do painel (<html data-theme>, web/lib/theme.ts); applyStoredTheme não faz nada",
   "web/erp/app/main.tsx": "removido: entrada própria do Fagoo; web/erp/mount.tsx monta o ERP",
   "web/erp/app/erp-entry.tsx": "removido: substituído por web/erp/mount.tsx (basename /app/erp)",
   "web/erp/app/lib/invite-activation.ts": "removido: ativação por convite (/ativar-acesso) é do núcleo do Wabotia",
@@ -40,7 +40,24 @@
   "web/erp/test/invite-activation-component.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-activation.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-auth-client.test.mjs": "removido: testa o cliente do supabase-js da ativação, que saiu",
-  "web/erp/app/components/native-modules.ts": "alterado: as telas de cada módulo do menu carregam juntas (web/erp/screens), para o ERP caber em 30 a 50 arquivos"
+  "web/erp/app/components/native-modules.ts": "alterado: as telas de cada módulo do menu carregam juntas (web/erp/screens), para o ERP caber em 30 a 50 arquivos",
+  "web/erp/test/fiscal-draft-status-parent.test.mjs": "removido: monta a rota /emissor-fiscal, que saiu com o gateway A1",
+  "web/erp/test/fiscal-invoices-routes.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/helpers/access-session-fixtures.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/itau-legacy-readiness-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/stock-reservations-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/purchase-receipts-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/origin-stock-observations-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/origin-sales-readiness-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/financial-import-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/origin-sales-history-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/fiscal-subset-review-access.test.mjs": "removido: monta a rota /emissor-fiscal, que saiu com o gateway A1",
+  "web/erp/test/origin-warehouse-import-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/cnab-operational-v2-session.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/preferences-ui.test.mjs": "alterado: o tema segue o painel; salvar \"tema escuro\" no ERP não troca o tema do navegador (2 asserções)",
+  "web/erp/test/stock-opening-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
+  "web/erp/test/stock-origin-mirror-roundtrip.test.mjs": "removido: roda SQL real no PGlite com as migrações do Postgres do Fagoo; é teste do motor (diferencial da sessão Q), não da casca",
+  "web/erp/test/system-profile-ui.test.mjs": "alterado: o tema salvo no ERP não é aplicado ao entrar (1 asserção)"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
