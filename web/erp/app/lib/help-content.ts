@@ -28,16 +28,17 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
     ], links: [{ label: 'Usuários e permissões', to: '/preferencias/sistema/usuarios' }] },
   ] },
   // Wabotia: o tópico 'convivencia' (Convivência com o Origin) saiu; a convivência com o Bling é de um componente externo (PLANO-FAGOO.md, item 17).
-  { slug: 'notas-fiscais', title: 'Manual de notas fiscais', summary: 'As notas do Origin, os rascunhos de homologação e as notas recebidas.', sections: [
-    { title: 'As duas visões', paragraphs: [
-      '"Notas do Origin" lista as notas sincronizadas do Origin, com situação, XML e DANFE quando o XML autorizado está no acervo. É a visão de consulta durante a convivência.',
-      '"Notas do FAGOO" lista os rascunhos e as notas de homologação criadas aqui, por pedido, por importação ou à mão. Elas não têm valor fiscal e não aparecem nos relatórios de produção.',
+  // Wabotia: sem a comparação com o Origin (item 17); a emissão com valor fiscal vai para um emissor externo, ainda não ligado.
+  { slug: 'notas-fiscais', title: 'Manual de notas fiscais', summary: 'As notas do ERP, a emissão por um emissor externo e as notas recebidas.', sections: [
+    { title: 'As notas do ERP', paragraphs: [
+      'As notas fiscais de saída, as NFC-e e as notas de entrada ficam no ERP, ligadas aos pedidos, ao estoque e ao financeiro. Você pode prepará-las a partir de um pedido, importando o XML ou à mão.',
+      'A emissão com valor fiscal (assinatura, envio à SEFAZ e DANFE) será feita por um emissor externo, que ainda não está ligado a esta instalação. Até lá, as notas preparadas aqui não têm valor fiscal e não aparecem nos relatórios de produção.',
     ], links: [{ label: 'Notas fiscais de saída', to: '/historico-fiscal?modelo=55' }, { label: 'Notas de entrada', to: '/notas-entrada' }] },
     { title: 'Situações e o card da página inicial', paragraphs: [
-      'O card "Notas Fiscais" da página inicial conta só notas reais desde a sua última visualização: as autorizadas ou com DANFE emitido sincronizadas do Origin e as recebidas da SEFAZ pela Distribuição DF-e. Rascunhos e homologação não entram.',
+      'O card "Notas Fiscais" da página inicial conta as notas autorizadas e as notas recebidas desde a sua última visualização. Rascunhos não entram.',
     ] },
     { title: 'Parâmetros', paragraphs: [
-      'Série, numeração de homologação, natureza padrão e textos ficam em Preferências › Notas fiscais. O certificado A1 fica em custódia própria; a conexão com a SEFAZ só usa o ambiente de homologação.',
+      'Série, numeração, natureza padrão e textos ficam em Preferências › Notas fiscais. O certificado digital e a conexão com a SEFAZ passam a ser do emissor externo.',
     ], links: [{ label: 'Parâmetros de nota fiscal', to: '/preferencias/notas-fiscais/nfe' }, { label: 'Naturezas de operação', to: '/naturezas-operacao' }] },
     { title: 'Referências oficiais', paragraphs: ['O leiaute, as regras de validação e as tabelas da NF-e são os publicados no Portal Nacional da NF-e.'],
       links: [OFFICIAL_LINKS.portalNfe, OFFICIAL_LINKS.nfeDocs] },

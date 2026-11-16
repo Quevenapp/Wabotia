@@ -36,7 +36,7 @@ test('PRF-287, NFE-187, NFE-222: the Central de ajuda is an internal route with 
  const index=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda'});
  assert.match(index.text(),/Central de ajuda do FAGOO/);assert.match(index.text(),/Manual de notas fiscais/);assert.match(index.text(),/Novidades/);
  const notes=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/notas-fiscais'});
- assert.match(notes.text(),/Notas do Origin/);assert.match(notes.text(),/Portal Nacional da NF-e/);
+ /* Wabotia: o manual fala das notas do ERP e do emissor externo, sem o Origin (item 17). */assert.match(notes.text(),/emissor externo/);assert.doesNotMatch(notes.text(),/Origin/);assert.match(notes.text(),/Portal Nacional da NF-e/);
  const natures=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/naturezas-operacao'});assert.match(natures.text(),/Manual de operações fiscais/);
  const news=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/novidades',expandChildren:['ReleaseNotesList']});assert.match(news.text(),new RegExp(`Versão ${LATEST_RELEASE.version.replace(/\./g,'\\.')}`));
  const missing=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/inexistente'});assert.match(missing.text(),/Tema não encontrado/);

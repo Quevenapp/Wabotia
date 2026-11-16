@@ -184,11 +184,11 @@
   "web/erp/test/itau-cutover-guide.test.mjs": "removido: testa o guia da virada Itaú, que saiu (item 17)",
   "web/erp/test/cutover-model.test.mjs": "removido: testa o modelo da virada do Origin, que saiu (item 17)",
   "web/erp/app/components/RealCnab.tsx": "alterado: sai o guia da virada da carteira Itaú (ItauCutoverGuide), que era do Origin (item 17)",
-  "web/erp/app/lib/help-content.ts": "alterado: sai o tópico 'Convivência com o Origin' (/ajuda/convivencia); a convivência com o Bling terá a ajuda do componente externo (item 17)",
+  "web/erp/app/lib/help-content.ts": "alterado: sai o tópico 'Convivência com o Origin' (/ajuda/convivencia; a convivência com o Bling terá a ajuda do componente externo) e o 'Manual de notas fiscais' deixa de comparar com o Origin: as notas são do ERP e a emissão com valor fiscal vai para um emissor externo ainda não ligado (item 17)",
   "web/erp/app/components/CompanyNavigation.tsx": "alterado: sai o atalho de ajuda 'Convivência com o Origin' (item 17)",
   "web/erp/app/components/RealStockOpening.tsx": "alterado: sai a adoção do saldo vindo do Origin (depósitos vinculados, data de corte da virada; item 17); fica a política de estoque negativo",
   "web/erp/test/stock-opening-ui.test.mjs": "alterado: saem os casos da adoção do saldo do Origin (item 17); ficam os da política de estoque negativo",
-  "web/erp/test/plataforma-h-ui.test.mjs": "alterado: o tópico de ajuda 'convivencia' saiu (item 17)"
+  "web/erp/test/plataforma-h-ui.test.mjs": "alterado: o tópico de ajuda 'convivencia' saiu e o 'Manual de notas fiscais' fala das notas do ERP e do emissor externo, sem o Origin (item 17)"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
