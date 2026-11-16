@@ -9,6 +9,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { rowJson, rowJsonSelect } from "../../../engine/row-json.ts";
 import { pgLeft, pgLength } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { accessRequireAdmin, readAdmin } from "../../access/public.ts";
@@ -267,6 +268,66 @@ export function erpPlatformExportRemoved(ctx: RpcContext, a: RpcArgs) {
   return { export: exportDto(db, exportWhere(db, "WHERE id=?", e.id)[0]), data_mode: "erp_native" };
 }
 
+/** Colunas da chave primária, na ordem (o DDL gerado mantém a ordem do Postgres). */
+const primaryKey = (db: SqlDriver, table: string) =>
+  db
+    .exec("SELECT name, pk FROM pragma_table_info(?) WHERE pk>0", table)
+    .rows.sort((x, y) => Number(x.pk) - Number(y.pk))
+    .map((r) => String(r.name));
+
+/**
+ * public.erp_platform_export_chunk(p_task, p_lease, p_dataset, p_offset, p_limit):
+ * uma fatia da tabela como to_jsonb(t), na ordem da chave primária, até
+ * p_limit linhas ou ~700 kB de texto; renova a posse da tarefa.
+ */
+export function erpPlatformExportChunk(ctx: RpcContext, a: RpcArgs) {
+  const db = ctx.db;
+  const e = exportHeld(db, uuid(a, "p_task"), uuid(a, "p_lease"));
+  const dataset = text(a, "p_dataset");
+  const offset = int(a, "p_offset");
+  const limit = int(a, "p_limit");
+  if (offset === null || offset < 0 || limit === null || limit < 1 || limit > 1000) invalid();
+  const found = exportTables().find((t) => t.name === dataset);
+  if (!found) raise("22023", "erp_platform_export_dataset_invalid");
+  const table = `${found.schema}__${found.table}`;
+  const pk = primaryKey(db, table);
+  const q = (c: string) => `"${c.replace(/"/g, '""')}"`;
+  let rows: Record<string, unknown>[];
+  if (pk.length)
+    rows = db
+      .exec(`SELECT ${rowJsonSelect(table)} FROM ${q(table)} ORDER BY ${pk.map(q).join(", ")} LIMIT ? OFFSET ?`, limit! + 1, offset)
+      .rows.map((r) => rowJson(table, r));
+  else
+    // Sem chave primária: a ordem do texto do to_jsonb(t) (collation C).
+    rows = db
+      .exec(`SELECT ${rowJsonSelect(table)} FROM ${q(table)}`)
+      .rows.map((r) => rowJson(table, r))
+      .sort((x, y) => compareText(jsonbText(x), jsonbText(y)))
+      .slice(offset!, offset! + limit! + 1);
+  const out: unknown[] = [];
+  let bytes = 0;
+  let more = false;
+  for (const r of rows) {
+    const size = pgLength(jsonbText(r));
+    if (out.length === limit || (out.length > 0 && bytes + size > 700000)) {
+      more = true;
+      break;
+    }
+    out.push(r);
+    bytes += size;
+  }
+  db.exec('UPDATE "erp_platform__task" SET lease_until=? WHERE id=?', (ctx.clock.next() + 5n * MINUTE).toString(), e.task_id);
+  return {
+    scope: "platform_export_chunk",
+    data_mode: "erp_native",
+    dataset,
+    offset,
+    rows: out,
+    next_offset: more ? offset! + out.length : null,
+  };
+}
+
+registerRpc("erp_platform_export_chunk", erpPlatformExportChunk);
 registerRpc("erp_platform_export_request", erpPlatformExportRequest);
 registerRpc("erp_platform_exports", erpPlatformExports);
 registerRpc("erp_platform_export_link", erpPlatformExportLink);

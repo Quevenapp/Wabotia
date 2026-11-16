@@ -3,7 +3,7 @@
 // o pedido, a repetição, a recusa enquanto há outra, o plano (tabelas e arquivos do armazenamento, pela listagem),
 // a confirmação, a lista, o link curto e a limpeza depois da retenção, pelos RPCs que o runPlatformTasks chama.
 // Fora, declarado: a montagem do ZIP e o envio ao armazenamento (erp-api, fora do motor; a confirmação usa um
-// SHA-256 sintético) e o erp_platform_export_chunk (espera o rowJson central do motor).
+// SHA-256 sintético). O erp_platform_export_chunk é exercitado em fatias de tabelas reais.
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
@@ -39,6 +39,21 @@ test("PRF-029: one export at a time, the plan, the confirmation, the short link 
   assert.ok(plan.datasets.includes("erp_catalog.record") && plan.datasets.includes("origin_sync.raw_record"));
   assert.ok(!plan.datasets.some((n) => /erp_access|auth\.|credential|erp_platform|vault/.test(n)));
   assert.equal(plan.files.length, 1);
+  // Fatias das tabelas (to_jsonb na ordem da chave primária), com cadastros de verdade.
+  for (const name of ["Ábaco", "Zíper", "Parafuso"]) await f.catalog("products", { name, price: "10.1250", unit: "UN", kind: "P", format: "S" });
+  for (const dataset of ["erp_catalog.record", "erp_catalog.product", "erp_preferences.definition", "erp_platform.task".replace("erp_platform", "erp_catalog")]) {
+    let offset = 0;
+    for (let i = 0; i < 4; i++) {
+      const out = await f.rpc("erp_platform_export_chunk", { p_task: task.id, p_lease: lease, p_dataset: dataset, p_offset: offset, p_limit: 2 }).catch((e) => {
+        if (e.code === "22023") return null;
+        throw e;
+      });
+      if (!out?.next_offset) break;
+      offset = out.next_offset;
+    }
+  }
+  for (const args of [{ p_dataset: "erp_access.membership" }, { p_dataset: "erp_platform.task" }, { p_offset: -1 }, { p_limit: 0 }, { p_limit: 1001 }])
+    await fails(() => f.rpc("erp_platform_export_chunk", { p_task: task.id, p_lease: lease, p_dataset: "erp_catalog.record", p_offset: 0, p_limit: 10, ...args }), "22023");
   const sha = createHash("sha256").update("zip sintético").digest("hex");
   for (const bad of [
     { p_sha256: "x" }, { p_object_key: "outro.zip" }, { p_size_bytes: 21 }, { p_size_bytes: 52428801 }, { p_manifest: [] },
