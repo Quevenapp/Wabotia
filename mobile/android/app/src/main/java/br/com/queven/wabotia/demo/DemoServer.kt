@@ -149,7 +149,7 @@ internal object DemoServer {
             j(
                 "capabilities_version" to 1,
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
-                "features" to listOf("modules", "establishment"),
+                "features" to listOf("modules", "establishment", "queue_coupon"),
                 "profiles" to listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules)),
                 "modules" to modules,
             ),

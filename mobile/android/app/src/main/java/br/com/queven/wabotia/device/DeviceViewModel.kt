@@ -15,7 +15,6 @@ import br.com.queven.wabotia.device.core.PanelTemplateStore
 import br.com.queven.wabotia.device.core.StationCall
 import br.com.queven.wabotia.modules.Establishment
 import br.com.queven.wabotia.printing.CouponData
-import br.com.queven.wabotia.printing.CouponSettings
 import br.com.queven.wabotia.printing.SenhaPrinter
 import br.com.queven.wabotia.printing.TicketPrint
 import br.com.queven.wabotia.queue.CallFrame
@@ -105,11 +104,6 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private var client: QueueClient? = null
     /** Nome, documento, endereço, telefone e rodapé do cupom, lidos do servidor ao conectar. */
     private var establishment: Establishment? = null
-    /**
-     * O que a área mostra no cupom (dados do cadastro, posição, rodapé, QR e o texto do QR). Fica no padrão (o cupom
-     * de antes) enquanto o servidor não manda a configuração; a leitura entra com o contrato do núcleo (Onda 4).
-     */
-    internal var couponSettings = CouponSettings()
     private var socket: WebSocket? = null
     private var loop: Job? = null
     /** Acorda o laço da conexão quando o WebSocket cai. */
@@ -426,7 +420,8 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private suspend fun printIssued() {
         val ticket = mutable.value.issued ?: return
         val header = mutable.value.config?.name.orEmpty().ifBlank { "Wabotia" }
-        val result = services.printer.print(CouponData.of(ticket, header, establishment, couponSettings))
+        // O cupom configurado pela área chega no overview (GET /queue e cada snapshot); servidor antigo: o de antes.
+        val result = services.printer.print(CouponData.of(ticket, header, establishment, mutable.value.overview?.coupon))
         mutable.update { it.copy(print = result) }
     }
 

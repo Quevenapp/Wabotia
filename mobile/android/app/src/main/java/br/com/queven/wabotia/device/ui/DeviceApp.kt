@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.automirrored.filled.ViewQuilt
@@ -427,6 +428,17 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                         onClick = onPrinter,
                     )
                     RowDivider()
+                    // Por que o QR do WhatsApp não sai no cupom (sem linha, linha sem número, desligado): aviso para quem
+                    // configura, aqui atrás do PIN; o cupom não fala disso.
+                    DeviceTexts.qrNotice(config.role?.totem == true, state.overview?.coupon)?.let { notice ->
+                        SettingsRow(
+                            Icons.Filled.QrCode2,
+                            "QR do WhatsApp fora do cupom",
+                            subtitle = notice,
+                            tint = if (state.overview?.coupon?.whatsappQrIssue == "disabled") c.muted else c.warn,
+                        )
+                        RowDivider()
+                    }
                     SettingsRow(
                         if (state.pinSet) Icons.Filled.Lock else Icons.Filled.LockOpen,
                         if (state.pinSet) "Trocar o PIN de saída" else "Criar PIN de saída",
@@ -900,5 +912,22 @@ private fun IssuedTicketCard(
             },
             dismissButton = { TextButton(onClick = { confirmReprint = false }) { Text("Saiu, cancelar") } },
         )
+    }
+}
+
+/** Textos do modo aparelho que dependem do servidor, sem Compose, para testar. */
+object DeviceTexts {
+    /**
+     * O aviso do QR do WhatsApp para quem configura: só no Totem e no Painel híbrido (o Painel de chamadas não
+     * imprime), só quando o servidor diz que o QR não sai, com o texto que ele manda.
+     */
+    fun qrNotice(prints: Boolean, coupon: br.com.queven.wabotia.queue.QueueCoupon?): String? {
+        if (!prints || coupon == null) return null
+        val notice = coupon.whatsappQrNotice?.trim()?.takeIf { it.isNotEmpty() }
+        return when {
+            notice != null -> notice
+            coupon.whatsappQrIssue != null -> "O QR do WhatsApp não sai no cupom. Veja em Filas e guichês → Cupom da senha, no painel."
+            else -> null
+        }
     }
 }

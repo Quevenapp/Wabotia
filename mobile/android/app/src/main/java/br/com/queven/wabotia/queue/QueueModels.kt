@@ -1,5 +1,6 @@
 package br.com.queven.wabotia.queue
 
+import br.com.queven.wabotia.modules.Establishment
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -105,10 +106,31 @@ data class QueueSettings(
     @SerialName("notify_ahead") val notifyAhead: Int? = null,
 )
 
+/**
+ * O cupom da senha já resolvido pelo servidor para a área (docs/FILA-SENHAS.md, "Cupom da senha"): vem em
+ * `GET /queue` e em todo `snapshot`, com `queue:read`. Ausente em servidores sem a configuração do cupom.
+ */
+@Serializable
+data class QueueCoupon(
+    /** Nome, documento, endereço e telefone do cadastro; null = cupom sem cabeçalho do estabelecimento. */
+    val establishment: Establishment? = null,
+    /** Pessoas à frente e espera estimada. */
+    val position: Boolean = true,
+    /** Rodapé já escolhido (o da fila ou o do estabelecimento); null = sem rodapé. */
+    val footer: String? = null,
+    /** QR do wa.me ligado. O servidor já anula `Ticket.whatsapp_link` quando o QR não deve sair. */
+    @SerialName("whatsapp_qr") val whatsappQr: Boolean = true,
+    /** Por que o QR não sai: `disabled`, `no_line`, `no_number`; null quando sai. */
+    @SerialName("whatsapp_qr_issue") val whatsappQrIssue: String? = null,
+    /** O motivo em pt-BR para quem configura o aparelho; nunca vai para o cupom. */
+    @SerialName("whatsapp_qr_notice") val whatsappQrNotice: String? = null,
+)
+
 @Serializable
 data class QueueOverview(
     val day: String? = null,
     val settings: QueueSettings? = null,
+    val coupon: QueueCoupon? = null,
     val queues: List<QueueInfo>? = null,
     val counters: List<CounterInfo>? = null,
     @SerialName("recent_calls") val recentCalls: List<CallFrame>? = null,

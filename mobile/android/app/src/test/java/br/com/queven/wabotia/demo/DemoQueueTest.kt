@@ -82,6 +82,19 @@ class DemoQueueTest {
         assertNotNull(ticket.ahead)
         assertTrue(ticket.whatsappLink!!.startsWith("https://wa.me/${DemoMode.WHATSAPP_LINE}?"))
         assertTrue(DemoMode.WHATSAPP_LINE.matches(Regex("""552090\d{7}""")))
+        // O texto que o servidor monta: convite para apertar ENVIAR e a linha SENHA que vincula a conversa.
+        assertTrue(ticket.whatsappLink!!.contains("text=Aperte%20ENVIAR"))
+        assertTrue(ticket.whatsappLink!!.contains("%0ASENHA%20${ticket.code}%20"))
+    }
+
+    @Test fun cupomDaDemonstracaoComTudoLigado() = runTest {
+        val coupon = client.overview().coupon!!
+        assertEquals(DemoMode.PROFILE_NAME, coupon.establishment?.name)
+        assertTrue(coupon.position)
+        assertTrue(coupon.whatsappQr)
+        assertNotNull(coupon.footer)
+        assertEquals(null, coupon.whatsappQrIssue)
+        assertEquals(null, br.com.queven.wabotia.device.ui.DeviceTexts.qrNotice(prints = true, coupon = coupon))
     }
 
     @Test fun pareamentoDoAparelhoAprovaSozinho() = runTest {

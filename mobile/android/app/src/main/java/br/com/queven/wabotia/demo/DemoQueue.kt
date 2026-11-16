@@ -2,7 +2,9 @@ package br.com.queven.wabotia.demo
 
 import br.com.queven.wabotia.core.model.WabotiaJson
 import br.com.queven.wabotia.queue.CallFrame
+import br.com.queven.wabotia.modules.Establishment
 import br.com.queven.wabotia.queue.CounterInfo
+import br.com.queven.wabotia.queue.QueueCoupon
 import br.com.queven.wabotia.queue.DeviceScopes
 import br.com.queven.wabotia.queue.QueueInfo
 import br.com.queven.wabotia.queue.QueueOverview
@@ -314,6 +316,17 @@ internal class DemoQueue(private val t0: Long) {
         QueueOverview(
             day = localDay(now),
             settings = QueueSettings(frontDoor = true, notifyAhead = 2),
+            // Cupom com tudo ligado e o QR saindo (o servidor manda o mesmo formato, já resolvido para a área).
+            coupon = QueueCoupon(
+                establishment = Establishment(
+                    name = DemoMode.PROFILE_NAME,
+                    address = "Rua Exemplo, 100 — Centro\nCidade Exemplo/SP",
+                    phone = "(20) 3000-0000",
+                ),
+                position = true,
+                footer = "Demonstração: dados fictícios.",
+                whatsappQr = true,
+            ),
             queues = queues.map { q ->
                 val waiting = tickets.filter { it.queueId == q.id && it.status == "waiting" }
                 val open = counters.count { it.status == "open" && q.id in it.queueIds }
@@ -347,7 +360,10 @@ internal class DemoQueue(private val t0: Long) {
             phone = t.phone, conversationId = t.conversationId, windowOpen = t.phone?.let { !it.endsWith("7") },
             createdAt = t.createdAt, calledAt = t.calledAt, startedAt = t.startedAt, finishedAt = t.finishedAt,
             serviceDay = localDay(t.createdAt), publicToken = "demo${t.id}",
-            whatsappLink = "https://wa.me/${DemoMode.WHATSAPP_LINE}?text=SENHA%20${t.code}%20DEMO${t.id.filter(Char::isDigit)}",
+            // O texto que o servidor monta: o convite para apertar ENVIAR e a linha que vincula a senha. Sem endereço
+            // público (a demonstração não tem), a linha do link /imagemwa não entra.
+            whatsappLink = "https://wa.me/${DemoMode.WHATSAPP_LINE}?text=" +
+                "Aperte%20ENVIAR%20para%20ser%20chamado%20pelo%20WhatsApp.%0ASENHA%20${t.code}%20DEMO${t.id.filter(Char::isDigit)}",
         )
     }
 

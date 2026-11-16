@@ -1,6 +1,7 @@
 package br.com.queven.wabotia.printing
 
 import br.com.queven.wabotia.modules.Establishment
+import br.com.queven.wabotia.queue.QueueCoupon
 import br.com.queven.wabotia.queue.QueueTicket
 import br.com.thermalprinterkit.ReceiptLayout
 import br.com.thermalprinterkit.ThermalPrinter
@@ -14,26 +15,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.coroutines.cancellation.CancellationException
 
-/**
- * O que a área escolhe mostrar no cupom da senha (Onda 4: dados do cadastro, posição na fila, rodapé e QR do wa.me,
- * cada um ligável, e o texto do QR pensado para quem tem dificuldade com o celular). Os padrões reproduzem o cupom de
- * antes da configuração, para servidores que ainda não mandam nada.
- */
-data class CouponSettings(
-    /** Documento, endereço e telefone do cadastro abaixo do nome. O nome sai sempre. */
-    val showEstablishment: Boolean = true,
-    /** "3 pessoas à sua frente · cerca de 12 min". */
-    val showPosition: Boolean = true,
-    /** Mensagem de rodapé da área; null usa o rodapé do cadastro do estabelecimento. Vazia não imprime rodapé. */
-    val footer: String? = null,
-    /** QR do wa.me (só sai quando o servidor manda o link). */
-    val showWhatsappQr: Boolean = true,
-    /** Texto abaixo do QR; null usa [CouponText.WHATSAPP]. */
-    val whatsappHint: String? = null,
-)
-
 /** O que vai no cupom; separado do ticket para o teste montar sem rede. */
 data class CouponData(
+    /** Nome do estabelecimento; vazio = cupom sem cabeçalho (a área desligou os dados do cadastro). */
     val header: String,
     val queueName: String,
     val code: String,
@@ -42,37 +26,38 @@ data class CouponData(
     val ahead: Int,
     /** `null` quando a fila não mostra estimativa (`wait_mode: off`): o cupom fala só das pessoas à frente. */
     val waitMinutes: Int?,
-    /** `https://wa.me/...?text=SENHA N023 AB12CD`; liga a senha ao WhatsApp do cliente. */
+    /** `https://wa.me/...?text=...SENHA N023 AB12CD...`; liga a senha ao WhatsApp do cliente. */
     val whatsappLink: String?,
     /** Documento, endereço e telefone do estabelecimento, abaixo do nome. */
     val headerLines: List<String> = emptyList(),
-    /** Rodapé do estabelecimento, no fim do cupom. */
+    /** Rodapé, no fim do cupom. */
     val footerLines: List<String> = emptyList(),
     /** Linha "pessoas à sua frente"; a área pode desligar. */
     val showPosition: Boolean = true,
-    /** Texto abaixo do QR. */
-    val whatsappHint: String = CouponText.WHATSAPP,
 ) {
     companion object {
         /**
-         * `header` é o nome do aparelho; com o estabelecimento lido do servidor vale o nome dele (o nome da área quando
-         * não há cadastro) e entram documento, endereço, telefone e rodapé, conforme [settings].
+         * Com [coupon] (servidor com o cupom configurável), vale o que a área escolheu: cabeçalho só com o
+         * estabelecimento, posição, rodapé e QR. Sem ele (servidor antigo), o cupom de antes: o nome do estabelecimento
+         * lido à parte, ou [header] (o nome do aparelho), com documento, endereço, telefone e rodapé do cadastro.
          */
-        fun of(ticket: QueueTicket, header: String, establishment: Establishment? = null, settings: CouponSettings = CouponSettings()) =
-            CouponData(
-                header = establishment?.displayName ?: header,
+        fun of(ticket: QueueTicket, header: String, establishment: Establishment? = null, coupon: QueueCoupon? = null): CouponData {
+            val shop = if (coupon != null) coupon.establishment else establishment
+            return CouponData(
+                header = shop?.displayName ?: if (coupon != null) "" else header,
                 queueName = ticket.queueName.orEmpty(),
                 code = ticket.code,
                 preferential = ticket.preferential,
                 issuedAt = ticket.createdAt,
                 ahead = ticket.ahead ?: 0,
                 waitMinutes = ticket.waitMinutes,
-                whatsappLink = ticket.whatsappLink?.takeIf { settings.showWhatsappQr && it.startsWith("https://") },
-                headerLines = if (settings.showEstablishment) establishment?.headerLines.orEmpty() else emptyList(),
-                footerLines = settings.footer?.let(CouponText::lines) ?: establishment?.footerLines.orEmpty(),
-                showPosition = settings.showPosition,
-                whatsappHint = settings.whatsappHint?.trim()?.takeIf { it.isNotEmpty() } ?: CouponText.WHATSAPP,
+                // O servidor já anula o link quando o QR está desligado ou sem número; o app só confere o esquema.
+                whatsappLink = ticket.whatsappLink?.takeIf { coupon?.whatsappQr != false && it.startsWith("https://") },
+                headerLines = shop?.headerLines.orEmpty(),
+                footerLines = if (coupon != null) coupon.footer?.let(CouponText::lines).orEmpty() else establishment?.footerLines.orEmpty(),
+                showPosition = coupon?.position ?: true,
             )
+        }
     }
 }
 
@@ -93,9 +78,10 @@ object CouponText {
         }
     }
 
-    const val WHATSAPP = "Aponte a câmera e envie a mensagem: avisamos pelo WhatsApp quando for chamada"
+    /** Abaixo do QR. A mensagem que o QR abre já diz "Aperte ENVIAR para ser chamado pelo WhatsApp." */
+    const val WHATSAPP = "Aponte a câmera do celular e aperte ENVIAR no WhatsApp: avisamos quando for a sua vez"
 
-    /** Texto livre da área em linhas de cupom, sem linhas vazias nas pontas nem espaços sobrando. */
+    /** Texto livre da área em linhas de cupom, sem linhas vazias nem espaços sobrando. */
     fun lines(text: String): List<String> = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
 }
 
@@ -109,7 +95,9 @@ class SenhaTicketReceipt(private var data: CouponData?) : ThermalReceiptPayload 
         val d = data ?: error("Senha indisponível.")
         val parts =
             buildList {
-                add(layout.text(layout.wrap(d.header) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
+                if (d.header.isNotBlank()) {
+                    add(layout.text(layout.wrap(d.header) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
+                }
                 d.headerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 if (d.queueName.isNotBlank()) {
                     add(layout.text(layout.wrap(d.queueName) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
@@ -123,9 +111,7 @@ class SenhaTicketReceipt(private var data: CouponData?) : ThermalReceiptPayload 
                 }
                 d.whatsappLink?.let { link ->
                     add(requireNotNull(layout.qrRaster(link)) { "QR da senha inválido." })
-                    CouponText.lines(d.whatsappHint).forEach {
-                        add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
-                    }
+                    add(layout.text(layout.wrap(CouponText.WHATSAPP) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
                 d.footerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 add(layout.finish())
