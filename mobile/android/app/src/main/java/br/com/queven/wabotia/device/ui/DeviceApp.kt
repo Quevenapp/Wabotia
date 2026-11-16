@@ -292,6 +292,21 @@ private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () ->
 
 // --- papel e ajustes ---------------------------------------------------------------
 
+/** Volume de alarme do aparelho (atual, máximo), relido a cada 2 s enquanto os ajustes estão abertos. */
+@Composable
+private fun rememberAlarmVolume(): Pair<Int, Int>? {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audio = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager }
+    var value by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    LaunchedEffect(audio) {
+        while (audio != null) {
+            value = audio.getStreamVolume(android.media.AudioManager.STREAM_ALARM) to audio.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    return value
+}
+
 @Composable
 private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: IdleTimer, onPrinter: () -> Unit, onDone: (() -> Unit)?) {
     val config = state.config ?: return
@@ -359,10 +374,17 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                 SectionLabel("Aparelho")
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     if (config.role?.panel == true) {
+                        // Gongo e voz saem no volume de ALARME: com ele no mínimo o painel fica mudo e nada na tela dizia.
+                        val alarm = rememberAlarmVolume()
+                        val lowAlarm = alarm != null && alarm.first * 3 < alarm.second
                         SettingsRow(
                             Icons.Filled.RecordVoiceOver,
                             "Voz das chamadas",
-                            subtitle = "Gongo e a senha falada duas vezes, no volume do alarme",
+                            subtitle = if (state.soundEnabled && lowAlarm) {
+                                "Volume do alarme do aparelho está baixo (${alarm!!.first} de ${alarm.second}): suba em Configurações → Sons → Volume → Alarme, ou o painel quase não se ouve."
+                            } else {
+                                "Gongo e a senha falada duas vezes, no volume do alarme"
+                            },
                             trailing = {
                                 Switch(
                                     checked = state.soundEnabled,
@@ -375,10 +397,16 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                         SettingsRow(Icons.AutoMirrored.Filled.VolumeUp, "Testar som", subtitle = "“Senha N 1. Guichê 1.”", tint = c.ticket, onClick = vm::testSound)
                         RowDivider()
                     }
-                    if (config.role?.totem == true) {
-                        SettingsRow(Icons.Filled.Print, "Impressora do cupom", subtitle = "Bluetooth, USB ou Wi-Fi", tint = c.textSecondary, onClick = onPrinter)
-                        RowDivider()
-                    }
+                    // Em qualquer papel: no Painel de chamadas nada é impresso, mas a impressora pode ficar pronta para quando o
+                    // aparelho virar Totem ou Híbrido (antes a linha sumia no Painel e ninguém achava onde configurar).
+                    SettingsRow(
+                        Icons.Filled.Print,
+                        "Impressora do cupom",
+                        subtitle = if (config.role?.totem == true) "Bluetooth, USB ou Wi-Fi" else "O Painel de chamadas não imprime: só o Totem e o Painel híbrido imprimem o cupom. Dá para deixar a impressora pronta aqui.",
+                        tint = c.textSecondary,
+                        onClick = onPrinter,
+                    )
+                    RowDivider()
                     SettingsRow(
                         if (state.pinSet) Icons.Filled.Lock else Icons.Filled.LockOpen,
                         if (state.pinSet) "Trocar o PIN de saída" else "Criar PIN de saída",
