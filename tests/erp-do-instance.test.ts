@@ -26,6 +26,10 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     expect((await erpFetch(env, f.profile, "/erp-wake", { method: "POST" })).status).toBe(200);
 
     const stub = erpStub(env, f.profile);
+    // O /erp-wake agenda o alarme para 1 ms: o runtime o roda sozinho, e numa
+    // suíte lenta ele corria junto com a chamada manual abaixo (falha
+    // intermitente). O teste tira esse alarme e agenda o seu, longe.
+    await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
     // O alarme roda com o D1 contado: nenhuma instrução.
     const counted = await runInDurableObject(stub, async (instance: any, state) => {
       const original = instance.env;
@@ -53,8 +57,11 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     expect(counted.kind).toBe("erp");
     expect(counted.bound).toBe(f.profile);
     expect(Number(counted.lastAlarm)).toBeGreaterThan(0);
-    // O alarme agendado pelo /erp-wake também roda pelo caminho do runtime.
-    await erpFetch(env, f.profile, "/erp-wake", { method: "POST" });
+    // O alarme também roda pelo caminho do runtime. Agendado longe, para que
+    // só o runDurableObjectAlarm o rode (sem disputa com o disparo automático).
+    await runInDurableObject(stub, (_i: any, state: DurableObjectState) =>
+      state.storage.setAlarm(Date.now() + 60_000),
+    );
     expect(await runDurableObjectAlarm(stub)).toBe(true);
 
     // Nada mudou no D1 da área.
@@ -80,6 +87,24 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     }));
     expect(areaKeys).toEqual({ kind: undefined, tables: 0 });
   });
+
+  it("causa da falha intermitente: o alarme de 1 ms do /erp-wake roda sozinho; o agendado longe, não", async () => {
+    const f = await fixture();
+    const stub = erpStub(env, f.profile);
+    await erpFetch(env, f.profile, "/erp-ping");
+    const settle = () => new Promise((r) => setTimeout(r, 300));
+    // Padrão antigo: /erp-wake e depois runDurableObjectAlarm. Com a suíte
+    // lenta (aqui, 300 ms de espera) o runtime já rodou o alarme: false.
+    await erpFetch(env, f.profile, "/erp-wake", { method: "POST" });
+    await settle();
+    expect(await runDurableObjectAlarm(stub)).toBe(false);
+    // Padrão do teste: alarme agendado longe só roda quando o teste manda.
+    await runInDurableObject(stub, (_i: any, state: DurableObjectState) =>
+      state.storage.setAlarm(Date.now() + 60_000),
+    );
+    await settle();
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+  }, 60_000);
 
   it("recusa outra área, instância de área e rotas da área na instância do ERP", async () => {
     const f = await fixture();

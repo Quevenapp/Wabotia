@@ -25,7 +25,7 @@
   "public_functions": {
    "erp_access.gate_required": {
     "name": "gateRequired",
-    "ported": false
+    "ported": true
    },
    "erp_access.member_role": {
     "name": "memberRole",
@@ -33,11 +33,11 @@
    },
    "erp_access.mfa_policy_on": {
     "name": "mfaPolicyOn",
-    "ported": false
+    "ported": true
    },
    "erp_access.permission_keys": {
     "name": "permissionKeys",
-    "ported": false
+    "ported": true
    },
    "erp_access.permission_parent": {
     "name": "permissionParent",
@@ -49,7 +49,7 @@
    },
    "erp_access.read_admin": {
     "name": "readAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_access.record_summary": {
     "name": "recordSummary",
@@ -57,39 +57,39 @@
    },
    "erp_access.require_admin": {
     "name": "accessRequireAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_access.require_history_role": {
     "name": "requireHistoryRole",
-    "ported": false
+    "ported": true
    },
    "erp_access.require_permission": {
     "name": "requirePermission",
-    "ported": false
+    "ported": true
    },
    "erp_access.resources_for_role": {
     "name": "resourcesForRole",
-    "ported": false
+    "ported": true
    },
    "erp_access.scalar_text": {
     "name": "scalarText",
-    "ported": false
+    "ported": true
    },
    "erp_activity.actor_label": {
     "name": "actorLabel",
-    "ported": false
+    "ported": true
    },
    "erp_activity.clean": {
     "name": "clean",
-    "ported": false
+    "ported": true
    },
    "erp_activity.period": {
     "name": "period",
-    "ported": false
+    "ported": true
    },
    "erp_activity.require_admin": {
     "name": "activityRequireAdmin",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
@@ -212,7 +212,7 @@
    },
    "erp_catalog.allowed": {
     "name": "allowed",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.can_read_stock": {
     "name": "canReadStock",
@@ -252,7 +252,7 @@
    },
    "erp_catalog.contact_date": {
     "name": "contactDate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_dto": {
     "name": "contactDto",
@@ -260,7 +260,7 @@
    },
    "erp_catalog.contact_email_list": {
     "name": "contactEmailList",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_field_person_type": {
     "name": "contactFieldPersonType",
@@ -308,7 +308,7 @@
    },
    "erp_catalog.contact_text": {
     "name": "contactText",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_type_slugs": {
     "name": "contactTypeSlugs",
@@ -316,7 +316,7 @@
    },
    "erp_catalog.contact_uf": {
     "name": "contactUf",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_visible_to": {
     "name": "contactVisibleTo",
@@ -356,7 +356,7 @@
    },
    "erp_catalog.detail_uuid": {
     "name": "detailUuid",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.document_issue": {
     "name": "documentIssue",
@@ -372,7 +372,7 @@
    },
    "erp_catalog.employee_admin": {
     "name": "employeeAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.fold": {
     "name": "fold",
@@ -396,7 +396,7 @@
    },
    "erp_catalog.matches": {
     "name": "matches",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.mutate": {
     "name": "mutate",
@@ -432,7 +432,7 @@
    },
    "erp_catalog.payment_condition_valid": {
     "name": "paymentConditionValid",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_cost_at": {
     "name": "productCostAt",
@@ -476,11 +476,11 @@
    },
    "erp_catalog.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.search_terms": {
     "name": "searchTerms",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.seller_access_allowed": {
     "name": "sellerAccessAllowed",
@@ -496,11 +496,11 @@
    },
    "erp_catalog.valid_cnpj": {
     "name": "validCnpj",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.valid_cpf": {
     "name": "validCpf",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.validate_data": {
     "name": "validateData",
@@ -520,19 +520,19 @@
    },
    "erp_pricing.list_price": {
     "name": "listPrice",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.require": {
     "name": "require",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.rule_text": {
     "name": "ruleText",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.valid_now": {
     "name": "validNow",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_contact_save": {
     "name": "erpCatalogContactSave",
@@ -548,7 +548,7 @@
    },
    "public.erp_pricing_product_lists": {
     "name": "erpPricingProductLists",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {

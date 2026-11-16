@@ -21,7 +21,7 @@ const names = result => result.items.map(item => item.name).sort();
 
 
 
-test('234 Componente: the compositions whose current structure uses the product, only with the Tipo "Produtos com composição"', { todo: 'espera a correção da P em productDetailData (custom_values é texto, não JSON)' }, async () => {
+test('234 Componente: the compositions whose current structure uses the product, only with the Tipo "Produtos com composição"', async () => {
   const f = await produtosEFixture();
   try {
     const a = await f.product({ name: 'Parafuso sintético', price: '1' }), b = await f.product({ name: 'Porca sintética', price: '2' }), lone = await f.product({ name: 'Arruela sintética' });

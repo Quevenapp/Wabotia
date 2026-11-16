@@ -1,4 +1,4 @@
-// Funções de outros donos que as listas de preço usam, num lugar só.
-// TEMPORÁRIO: tmp-access.ts até a P (requireAccess, detailUuid) e a N
-// (resourcesForRole) publicarem; depois, ../public.ts.
-export { detailUuid, requireAccess } from "./tmp-access.ts";
+// Funções do Catálogo que as listas de preço e os produtos usam, num lugar só:
+// o acesso (erp_catalog.require_access, allowed, detail_uuid) da P, direto de
+// access.ts para não criar ciclo com public.ts (que reexporta pricing/).
+export { detailUuid, requireAccess } from "../access.ts";

@@ -15,7 +15,7 @@ import { raise } from "../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { activeRole } from "../access/public.ts";
-import { allowed } from "../documents/public.ts";
+import { allowed as documentsAllowed } from "../documents/public.ts";
 import * as preferences from "../preferences/public.ts";
 import {
   dto,
@@ -41,6 +41,22 @@ export {
   validateData,
   validateProductIdentifiers,
 } from "./internal.ts";
+export { allowed, detailUuid, requireAccess } from "./access.ts";
+export { employeeAdmin } from "./employee.ts";
+export {
+  contactDate,
+  contactEmailList,
+  contactText,
+  contactUf,
+  matches,
+  searchTerms,
+  validCnpj,
+  validCpf,
+} from "./fields.ts";
+export { paymentConditionValid } from "./payment-method.ts";
+// Listas de preço (sessão G): erp_pricing.list_price, require, rule_text, valid_now.
+export { listPrice, requirePricing as require, ruleText, validNow } from "./pricing/pricing.ts";
+export { erpPricingProductLists } from "./pricing/rpc/erp_pricing_product_lists.ts";
 
 const KINDS = ["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 const btrim = (s: string) => s.replace(/^ +| +$/g, "");
@@ -72,7 +88,7 @@ export function documentProduct(
 ): string | null {
   const db = ctx.db;
   const role = activeRole(db, user);
-  if (role === null || kind === null || !KINDS.includes(kind) || !allowed(role, kind, true))
+  if (role === null || kind === null || !KINDS.includes(kind) || !documentsAllowed(role, kind, true))
     raise("42501", "erp_catalog_access_denied");
   const it = item as Record<string, unknown>;
   if (

@@ -29,7 +29,9 @@ export function fold(value: string | null): string | null {
     const i = FOLD_FROM.indexOf(ch);
     // lower() do Postgres é caractere a caractere: sem o sigma final do JS
     // ("ΑΣ" → "ασ", não "ας").
-    out += i >= 0 ? FOLD_TO[i].toLowerCase() : ch.toLowerCase();
+    // Mapeamento simples, como o Postgres: "İ" → "i" (o JS dá "i̇").
+    const l = i >= 0 ? FOLD_TO[i].toLowerCase() : ch === "İ" ? "i" : ch.toLowerCase();
+    out += [...l].length === 1 ? l : ch;
   }
   return out;
 }
@@ -387,10 +389,12 @@ export function productDetailData(db: SqlDriver, id: string, display: boolean): 
   out.images = db
     .exec('SELECT url FROM "erp_catalog__product_image" WHERE record_id=? ORDER BY position', id)
     .rows.map((x) => ({ url: x.url }));
+  // erp_catalog.product_custom_values: jsonb_object_agg(field_id::text, value)
+  // com value TEXT: cada valor sai como string JSON ("123", "true", datas).
   out.custom_values = Object.fromEntries(
     db
       .exec('SELECT field_id, value FROM "erp_catalog__product_custom_value" WHERE record_id=?', id)
-      .rows.map((x) => [String(x.field_id), JSON.parse(String(x.value))]),
+      .rows.map((x) => [String(x.field_id), String(x.value)]),
   );
   if (display) {
     out.deleted_at = d.deleted_at === null || d.deleted_at === undefined ? null : jsonTimestamp(d.deleted_at as number);

@@ -106,5 +106,6 @@ describe("ERP fase 0: backup e restauração", () => {
           bookmark: seeded.bookmark,
         }),
     );
-  });
+    // Duas instâncias novas: cada uma avalia o motor (import dinâmico) e aplica o esquema.
+  }, 120_000);
 });

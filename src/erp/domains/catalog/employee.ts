@@ -7,7 +7,7 @@ import { raise } from "../../engine/errors.ts";
 import { jsonbKeys, jsonType } from "../../engine/json.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../engine/time.ts";
 import { activeRole } from "../access/public.ts";
-import { contactDate, contactEmailList, contactText, contactUf, validCpf, validPis } from "./fields.ts";
+import { contactDate, contactEmailList, contactText, contactUf, upper, validCpf, validPis } from "./fields.ts";
 
 /** erp_catalog.employee_admin: só o administrador ativo. */
 export function employeeAdmin(db: SqlDriver, user: string | null) {
@@ -50,7 +50,7 @@ export function employeeInput(p: unknown): EmployeeData {
   for (const key of TEXT_KEYS) {
     let text = contactText(key, data[key], TEXTS[key]);
     if (key === "cpf" || key === "pis") text = (text ?? "").replace(/[ ./-]/g, "") || null;
-    if (key === "state" && text !== null) text = text.toUpperCase();
+    if (key === "state" && text !== null) text = upper(text);
     v[key] = text;
   }
   if (v.name === null) raise("22023", "erp_catalog_employee_invalid:name");

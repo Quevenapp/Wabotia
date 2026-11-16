@@ -130,7 +130,7 @@ import {
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
-import { erpApi } from "./erp/api/local-fetch";
+import { erpApi, erpProbe } from "./erp/api/local-fetch";
 import {
   appProfiles,
   closeSockets,
@@ -888,6 +888,13 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   return erpApi(c.env, c.req.raw, profile, c.get("actor"));
+});
+// Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
+app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return erpProbe(c.env, c.req.raw, profile, c.get("actor"), c.req.param("name"));
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {

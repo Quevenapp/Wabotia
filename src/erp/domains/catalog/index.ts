@@ -4,6 +4,16 @@
 import "./rpc/erp_catalog_employee_get.ts";
 import "./rpc/erp_catalog_employee_page.ts";
 import "./rpc/erp_catalog_employee_save.ts";
+import "./rpc/erp_catalog_payment_method_get.ts";
+import "./rpc/erp_catalog_payment_method_page.ts";
+import "./rpc/erp_catalog_payment_method_save.ts";
+import "./rpc/erp_catalog_payment_method_action.ts";
+import "./rpc/erp_catalog_access.ts";
+import "./rpc/erp_catalog_contact_types.ts";
+import "./rpc/erp_catalog_contact_type_create.ts";
+import "./rpc/erp_catalog_contact_type_delete.ts";
+import "./rpc/erp_catalog_contact_code.ts";
+import "./rpc/erp_catalog_contact_code_set.ts";
 import "./rpc/erp_catalog_product_images.ts";
 import "./rpc/erp_catalog_product_image_delete.ts";
 import "./rpc/erp_catalog_product_image_order.ts";

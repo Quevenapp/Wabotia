@@ -1,12 +1,12 @@
 // public.erp_catalog_employee_page: lista de funcionários (só administrador).
-// O filtro (matches sobre fold de nome, código, cargo e CPF) e a ordem
-// (fold(name), id em collation C) ficam em TS: a tabela é pequena e o
-// fold não tem coluna no SQLite.
+// O filtro (matches sobre fold de nome, código, cargo e CPF, calculado como
+// no Fagoo) fica em TS; a ordem é name__fold, id em collation C (foldedKey:
+// provisório enquanto o espelho não preenche __fold).
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { intArg, textArg, uuidArg } from "../args.ts";
 import { employeeAdmin } from "../employee.ts";
-import { CNTRL, chars, compareText, matches, searchTerms } from "../fields.ts";
+import { CNTRL, chars, compareText, foldedKey, matches, searchTerms } from "../fields.ts";
 import { fold } from "../internal.ts";
 
 const SITUATIONS: Record<string, string | null> = { todas: null, ativos: "ativo", desligados: "desligado" };
@@ -34,7 +34,7 @@ export function erpCatalogEmployeePage(ctx: RpcContext, a: RpcArgs) {
   const wanted = SITUATIONS[situation];
   const rows = ctx.db
     .exec(
-      `SELECT id, CAST(version AS TEXT) version, name, cpf, job_title, admission_date, situation, code
+      `SELECT id, CAST(version AS TEXT) version, name, cpf, job_title, admission_date, situation, code, name__fold
        FROM "erp_catalog__employee" WHERE (? IS NULL OR situation=?)`,
       wanted,
       wanted,
@@ -49,7 +49,7 @@ export function erpCatalogEmployeePage(ctx: RpcContext, a: RpcArgs) {
           e.cpf as string,
         ),
     )
-    .map((e) => ({ e, key: fold(e.name as string)! }))
+    .map((e) => ({ e, key: foldedKey(e, "name") ?? "" }))
     .sort((x, y) => compareText(x.key, y.key) || compareText(String(x.e.id), String(y.e.id)))
     .map((x) => x.e);
   return {

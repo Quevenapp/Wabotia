@@ -123,6 +123,13 @@ export class ErpHub {
       const { manifest, files } = await readBackup(this.env.MEDIA, prefix);
       return Response.json(restoreAll(this.ctx.storage, manifest, files));
     }
+    // Sondas da instalação de teste (src/erp/probe.ts); o Worker só encaminha
+    // com ERP_PROBES=1 e administrador (src/erp/api/local-fetch.ts).
+    if (path.startsWith("/erp-probe/")) {
+      const { probe } = await import("./probe.ts");
+      const body = await request.json<Record<string, unknown>>().catch(() => ({}));
+      return Response.json(await probe(this.ctx, path.slice("/erp-probe/".length), body));
+    }
     if (path.startsWith("/erp-rpc/"))
       return handleRpc(this.ctx, profile, path.slice("/erp-rpc/".length), request);
     return fail(404, "not_found", "Rota do ERP desconhecida.");

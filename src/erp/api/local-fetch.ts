@@ -7,6 +7,9 @@
 //   /storage/v1/…        → ainda não (R2 na fase 3): 501
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";
+import { admin } from "../../security";
+import { requireModule } from "../../modules/registry";
+import { erpBlockOf } from "../blocks.ts";
 import { erpFetch } from "../hub.ts";
 
 let erpApiModule: Promise<any> | null = null;
@@ -39,6 +42,36 @@ export function localFetch(env: Env, profile: string, actor: Actor) {
   };
 }
 
+const PROBES = new Set([
+  "setup", "stock-post", "load", "report", "limits", "bookmark-mark", "bookmark-at", "bookmark-restore",
+  "bookmark-check", "location", "wipe",
+]);
+
+/**
+ * POST /api/v1/profiles/:profile/erp-probe/<sonda>: roteiro da instalação de
+ * teste (scripts/erp/staging-check.mjs). Só existe com a variável
+ * ERP_PROBES=1 no deploy (`wrangler deploy --var ERP_PROBES:1`); sem ela, 404.
+ * Administrador, módulo erp ligado na área (salvo "wipe", a limpeza).
+ */
+export async function erpProbe(env: Env, request: Request, profile: string, actor: Actor, name: string) {
+  if ((env as unknown as Record<string, unknown>).ERP_PROBES !== "1" || !PROBES.has(name))
+    throw new ApiError(404, "not_found", "Rota não encontrada.");
+  admin(actor);
+  if (name !== "wipe") await requireModule(env, profile, "erp");
+  const body = { ...(await request.json<Record<string, unknown>>().catch(() => ({}))), user: actor.id };
+  const t0 = Date.now();
+  const response = await erpFetch(env, profile, `/erp-probe/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json<Record<string, unknown>>().catch(() => ({ error: "resposta sem JSON" }));
+  return Response.json(
+    { probe: name, status: response.status, worker_colo: (request as any).cf?.colo ?? null, wall_ms: Date.now() - t0, result },
+    { status: response.ok ? 200 : 502 },
+  );
+}
+
 /**
  * /api/v1/profiles/:profile/erp/<rota da erp-api> → handler do Fagoo. Fase 0:
  * só pessoas com acesso à área; o motor confere o vínculo (erp_access) como
@@ -50,6 +83,13 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const url = new URL(request.url);
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
   const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
+  // Portão dos blocos (src/erp/blocks.ts): opcional desligado → 409 antes do
+  // objeto; o que saiu da instalação principal (Origin, MCP, autoatualização
+  // do Fagoo) → 404. O módulo `erp` em si já passou pelo portão comum.
+  const block = erpBlockOf(path);
+  if (block === "externo")
+    throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
+  if (block !== "erp") await requireModule(env, profile, block);
   const headers = new Headers({ Authorization: "Bearer wabotia-session" });
   const type = request.headers.get("Content-Type");
   if (type) headers.set("Content-Type", type);
