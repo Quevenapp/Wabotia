@@ -356,6 +356,9 @@ onCommand(
   "mensalidade.payer.phone_remove",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
+    // Tirar o telefone corta o suporte pago de quem paga: como acrescentar,
+    // só administrador (conferência N-3).
+    manager(actor);
     const payer = await loadPayer(ctx, data.id);
     await removePayerPhone(ctx, payer, data.phone, actor.id);
     return payerView(payer, await payerPhones(ctx, payer.id));

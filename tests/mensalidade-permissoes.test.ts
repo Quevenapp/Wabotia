@@ -46,8 +46,9 @@ describe("M4: valor, desconto e plano da assinatura", () => {
       { name: "Barato", amount_cents: 100 },
       f.admin.id,
     );
-    // Cadastro pelo valor do plano: pode.
-    const created = await api(member, `${root(f)}/subscriptions`, "POST", {
+    // Cadastro pelo valor do plano (com telefone avulso, só administrador:
+    // conferência M5).
+    const created = await api(admin, `${root(f)}/subscriptions`, "POST", {
       plan_id: plan.id,
       customer_name: "Loja Gama",
       phone: "5511982000001",
@@ -155,6 +156,38 @@ describe("M5: telefone autorizado e documento do pagador", () => {
     expect(
       (await ok.json<any>()).phones.map((p: any) => p.created_by),
     ).toContain(f.admin.id);
+  });
+
+  it("conferência N-3: atendente não tira telefone autorizado do pagador", async () => {
+    const { f, admin, member } = await setup();
+    const phone = "5511982000039";
+    const payer = await (
+      await api(admin, `${root(f)}/payers`, "POST", {
+        name: "Pagador",
+        phones: [phone],
+      })
+    ).json<any>();
+    const removed = await api(
+      member,
+      `${root(f)}/payers/${payer.id}/phones/remove`,
+      "POST",
+      { phone },
+    );
+    expect(removed.status).toBe(403);
+    expect(
+      await one(
+        env,
+        "SELECT phone FROM mensalidade_payer_phones WHERE payer_id=?",
+        payer.id,
+      ),
+    ).toMatchObject({ phone });
+    const byAdmin = await api(
+      admin,
+      `${root(f)}/payers/${payer.id}/phones/remove`,
+      "POST",
+      { phone },
+    );
+    expect(byAdmin.status).toBe(200);
   });
 });
 

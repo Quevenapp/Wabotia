@@ -5,7 +5,7 @@
 //   segurada e o cliente entra no fluxo do Suporte.
 // - `passToTeam`: ctx.handoff ao setor das regras, com resumo e marcadores
 //   para o atendente; não passa pelo gancho.
-import { all, exec } from "../../db";
+import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, now } from "../../types";
 import type { ModuleContext } from "../api";
 import {
@@ -157,6 +157,27 @@ export async function settleByRef(
 }
 
 /**
+ * "Em dia" que vale para liberar o suporte (conferência M5): o pagador tem
+ * assinatura ativa com ao menos uma parcela paga, ou criada por um
+ * administrador ou por integração com billing:write. Uma assinatura recém-
+ * cadastrada por atendente (sem parcela paga) não libera sozinha: antes, um
+ * atendente criava pagador com o telefone de um conhecido e assinatura no
+ * futuro, e o portão via "em dia".
+ */
+export async function trustedStanding(ctx: ModuleContext, payerId: string) {
+  return !!(await one(
+    ctx.env,
+    `SELECT 1 FROM mensalidade_subscriptions s WHERE s.profile_id=? AND s.payer_id=? AND s.status='active' AND (
+       EXISTS (SELECT 1 FROM mensalidade_installments i WHERE i.subscription_id=s.id AND i.status='paid')
+       OR s.created_by IN (SELECT id FROM users WHERE role='admin')
+       OR s.created_by IN (SELECT 'app:'||a.id FROM applications a WHERE EXISTS (SELECT 1 FROM json_each(a.scopes) WHERE value='billing:write'))
+     ) LIMIT 1`,
+    ctx.profile,
+    payerId,
+  ));
+}
+
+/**
  * Regra da passagem para humano: libera com liberação ativa ou pagador em
  * dia pelo telefone da conversa. Fora isso, `allowed: false` com o motivo.
  */
@@ -178,7 +199,10 @@ export async function handoffGate(
     (await mensalidadeAvailable(ctx.env, ctx.profile))
   ) {
     const situation = await situationByPhone(ctx.env, ctx.profile, phone, at);
-    if (situation?.status === "em_dia")
+    if (
+      situation?.status === "em_dia" &&
+      (await trustedStanding(ctx, situation.payer.id))
+    )
       return { allowed: true, reason: "subscription" };
   }
   return { allowed: false, reason: "payment_required" };

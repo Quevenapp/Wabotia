@@ -147,8 +147,9 @@ describe("mensalidade: pagadores", () => {
       })
     ).json<any>();
     expect(linked.phones).toHaveLength(3);
+    // Tirar telefone autorizado: administrador (conferência N-3).
     const removed = await (
-      await api(member, `${root(f)}/payers/${payer.id}/phones/remove`, "POST", {
+      await api(admin, `${root(f)}/payers/${payer.id}/phones/remove`, "POST", {
         phone: "5511981000003",
       })
     ).json<any>();

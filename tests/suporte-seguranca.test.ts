@@ -620,6 +620,71 @@ describe("M3, M6 e M7 no Suporte (base do núcleo)", () => {
   });
 });
 
+describe("conferência M5 e N-2", () => {
+  it("M5: assinatura sem parcela paga criada por atendente com o telefone de um conhecido não libera", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const friend = "5511986000021";
+    const member = await bearer(f.member);
+    const root = `/profiles/${f.profile}/mensalidade`;
+    const plan = s.plan;
+    const future = new Date(Date.now() + 365 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await api(member, `${root}/subscriptions`, "POST", {
+      plan_id: plan.id,
+      customer_name: "Conhecido",
+      phone: friend,
+      start_date: future,
+    });
+    expect(created.status).toBe(200);
+    expect((await situationByPhone(env, f.profile, friend))?.status).toBe(
+      "em_dia",
+    );
+    const c = await talk(f, "oi", friend);
+    expect(await handoffGate(s.sctx, c, now())).toMatchObject({
+      allowed: false,
+      reason: "payment_required",
+    });
+    // A mesma assinatura cadastrada pelo administrador libera.
+    const byAdmin = await api(
+      await bearer(f.admin),
+      `${root}/subscriptions`,
+      "POST",
+      {
+        plan_id: plan.id,
+        customer_name: "Cliente do administrador",
+        phone: "5511986000022",
+      },
+    );
+    expect(byAdmin.status).toBe(200);
+    const ok = await talk(f, "oi", "5511986000022");
+    expect(await handoffGate(s.sctx, ok, now())).toMatchObject({
+      allowed: true,
+    });
+  });
+
+  it("N-2: confirmar quem digitou o documento de pagador em atraso não vincula o telefone", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    await configure(f, { menus: paidMenu });
+    await payerEmAtraso(s, "5511986000031", CNPJ);
+    const attacker = "5511986000039";
+    await talk(f, "oi", attacker);
+    await talk(f, "1", attacker);
+    const c = await talk(f, CNPJ, attacker);
+    await claim(f, f.member, c.id);
+    const res = await api(
+      await bearer(f.member),
+      `/profiles/${f.profile}/suporte/conversations/${c.id}/confirm`,
+      "POST",
+      { link: true },
+    );
+    expect(res.status).toBe(409);
+    expect(await situationByPhone(env, f.profile, attacker)).toBeNull();
+  });
+});
+
 describe("B1: portão fail-closed e chave pela mensagem", () => {
   it("o Suporte declara failClosed e reprocessar a mesma mensagem não repete a pergunta", async () => {
     expect(gateFailsClosed("suporte")).toBe(true);

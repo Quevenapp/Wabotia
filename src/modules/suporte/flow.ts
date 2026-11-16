@@ -43,7 +43,7 @@ import {
   sessionOptions,
   updateSession,
 } from "./store";
-import { activeRelease, passToTeam } from "./handoff";
+import { activeRelease, passToTeam, trustedStanding } from "./handoff";
 
 export const PREFIX = "suporte:";
 const CANCEL = new Set(["menu", "voltar", "sair", "cancelar"]);
@@ -216,7 +216,10 @@ async function onSituation(
     name: situation.payer.name,
     document_display: situation.payer.document_display,
   };
-  if (situation.status === "em_dia") {
+  if (
+    situation.status === "em_dia" &&
+    (await trustedStanding(ctx, situation.payer.id))
+  ) {
     await release(ctx, {
       c,
       session,
@@ -936,29 +939,35 @@ export async function confirmByTeam(
       "Esta conversa não espera confirmação do suporte pago.",
     );
   const phone = verified(ctx, c);
-  if (options.link) {
-    if (!phone)
-      throw new ApiError(
-        409,
-        "phone_not_verified",
-        "Esta conversa não tem telefone verificado pelo canal: confirme sem vincular ou vincule pelo cadastro do pagador.",
-      );
-    await linkPhoneFn(session.payer_id, phone);
-  }
+  if (options.link && !phone)
+    throw new ApiError(
+      409,
+      "phone_not_verified",
+      "Esta conversa não tem telefone verificado pelo canal: confirme sem vincular ou vincule pelo cadastro do pagador.",
+    );
   const situation = await situationByPayer(
     ctx.env,
     ctx.profile,
     session.payer_id,
     { phone: phone || null },
   );
-  if (situation.status !== "em_dia")
+  // Confere antes e só vincula no sucesso (conferência N-2: antes vinculava
+  // e depois respondia 409, com o telefone já ligado ao pagador). "Em dia"
+  // só com parcela paga ou assinatura de administrador (conferência M5).
+  if (
+    situation.status !== "em_dia" ||
+    !(await trustedStanding(ctx, session.payer_id))
+  )
     throw new ApiError(
       409,
       "payment_required",
       situation.status === "em_atraso"
         ? "O pagador está com a mensalidade em atraso. Peça para escolher Atendimento humano (pago) no menu e pagar, ou libere como cortesia."
-        : "O pagador não tem assinatura ativa. Peça para contratar pelo menu ou libere como cortesia.",
+        : situation.status === "em_dia"
+          ? "A assinatura do pagador ainda não tem parcela paga. Peça o pagamento da primeira parcela ou libere como cortesia."
+          : "O pagador não tem assinatura ativa. Peça para contratar pelo menu ou libere como cortesia.",
     );
+  if (options.link) await linkPhoneFn(session.payer_id, phone!);
   return release(ctx, {
     c,
     session: await loadSession(ctx, session.id),
