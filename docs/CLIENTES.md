@@ -139,11 +139,14 @@ histórico daquele número.
 ### Confirmar (só o titular)
 
 O cliente recebe o que será apagado, o que fica e até quando, com os botões
-**Confirmar exclusão** e **Manter meus dados** (na linha QR, responde 1 ou
-2). O pedido vale 48 horas. A confirmação só vale vinda do próprio WhatsApp de
-um telefone da ficha: o toque no botão pelo canal da conversa, a resposta
-digitada nessa conversa ou o link de uso único enviado nela. Outro telefone
-que toque no botão recebe "Só o titular…". **Não existe rota para a equipe
+**Confirmar exclusão** e **Manter meus dados** (na linha QR, as opções saem
+numeradas). O pedido vale 48 horas. A confirmação só vale vinda do próprio
+WhatsApp de um telefone da ficha: o toque no botão pelo canal da conversa, a
+resposta CONFIRMAR digitada nessa conversa (ou "1" nos 30 minutos seguintes à
+pergunta; depois disso um "1" é do menu) ou o link de uso único enviado nela.
+Com telefone confirmado pelo cliente na ficha, só ele confirma: um número
+acrescentado pela equipe, talvez errado, não. Outro telefone que toque no
+botão recebe "Só o titular…". **Não existe rota para a equipe
 confirmar**; a equipe pode cancelar um pedido ainda não confirmado.
 
 ### O que acontece

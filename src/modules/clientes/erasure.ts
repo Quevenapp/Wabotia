@@ -92,7 +92,11 @@ async function fiscalSummary(ctx: ModuleContext, customerId: string, at: number)
   )) as { n: number; until: number | null };
 }
 
-/** O telefone autenticado da conversa é um dos da ficha. */
+/**
+ * O telefone autenticado da conversa é um dos da ficha. Com telefone
+ * confirmado pelo próprio cliente, só ele vale: um número acrescentado pela
+ * equipe (talvez errado) não confirma a exclusão de outra pessoa.
+ */
 async function conversationOwnsCustomer(
   ctx: ModuleContext,
   c: Conversation,
@@ -100,15 +104,16 @@ async function conversationOwnsCustomer(
 ) {
   const phone = ctx.verifiedPhone(c);
   if (!phone) return false;
-  const found = await one(
-    ctx.env,
-    "SELECT 1 FROM clientes_phones WHERE customer_id=? AND profile_id=? AND phone IN (SELECT value FROM json_each(?))",
-    customerId,
-    ctx.profile,
-    JSON.stringify(phoneVariants(phone)),
-  );
-  return !!found;
+  const phones = await customerPhones(ctx, customerId);
+  const trusted = phones.some((p) => p.verified)
+    ? phones.filter((p) => p.verified)
+    : phones;
+  const variants = new Set(phoneVariants(phone));
+  return trusted.some((p) => variants.has(p.phone));
 }
+
+/** "1"/"2" só logo depois da pergunta; depois, só a palavra. */
+const NUMBER_WINDOW = 30 * 60000;
 
 function requestText(fiscal: { n: number; until: number | null }) {
   return [
@@ -122,7 +127,7 @@ function requestText(fiscal: { n: number; until: number | null }) {
       : []),
     "• o número dos atendimentos e protocolos, sem dados pessoais.",
     "",
-    "Para confirmar, toque em Confirmar exclusão (ou responda 1). Para manter seus dados, responda 2. O pedido vale por 48 horas.",
+    "Para confirmar, toque em Confirmar exclusão (ou responda CONFIRMAR). Para manter seus dados, toque em Manter meus dados (ou responda MANTER). O pedido vale por 48 horas.",
   ].join("\n");
 }
 
@@ -182,7 +187,8 @@ export async function requestErasure(
       { erasure_id: row.id, customer_id: customer.id, requested_via: options.via },
       { key: row.id },
     );
-  } else if (row.conversation_id !== c.id) {
+  } else {
+    // Reenvio: a pergunta é nova (o "1"/"2" volta a valer por 30 min).
     await exec(
       ctx.env,
       "UPDATE clientes_erasures SET conversation_id=?,updated=? WHERE id=?",
@@ -467,6 +473,8 @@ export async function handleErasureTurn(
   turn: { text: string; replyId: string | null; rowId: string },
 ) {
   const match = turn.replyId?.match(/^clientes:(apagar|manter):(.+)$/);
+  // Toque em botão de outro módulo: não é resposta a este pedido.
+  if (turn.replyId && !match) return false;
   let row: any = null;
   if (match) {
     row = await one(
@@ -494,8 +502,15 @@ export async function handleErasureTurn(
     if (!row) return false;
   }
   const word = normalizeKeyword(turn.text);
-  const confirm = match ? match[1] === "apagar" : ["1", "CONFIRMAR", "CONFIRMAR EXCLUSAO", "CONFIRMO"].includes(word);
-  const keep = match ? match[1] === "manter" : ["2", "MANTER", "MANTER MEUS DADOS", "CANCELAR"].includes(word);
+  // Um "1" digitado horas depois é mais provável para o menu do que para
+  // este pedido: número só vale logo depois da pergunta.
+  const recent = now() - row.updated < NUMBER_WINDOW;
+  const confirm = match
+    ? match[1] === "apagar"
+    : ["CONFIRMAR", "CONFIRMAR EXCLUSAO", "CONFIRMO"].includes(word) || (recent && word === "1");
+  const keep = match
+    ? match[1] === "manter"
+    : ["MANTER", "MANTER MEUS DADOS", "CANCELAR"].includes(word) || (recent && word === "2");
   if (!confirm && !keep) return false;
   try {
     if (keep) await cancelErasure(ctx, row, `customer:${c.id}`, c);

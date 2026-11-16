@@ -331,6 +331,12 @@ describe("clientes: exclusão a pedido do titular", () => {
     const intruder = await tap(s.f, `clientes:apagar:${asked.id}`, "Confirmar exclusão", OTHER);
     expect((await latest(intruder.id)).text).toContain("Só o titular");
     expect((await one(env, "SELECT status FROM clientes_erasures WHERE id=?", asked.id)).status).toBe("awaiting_confirmation");
+    // Telefone acrescentado pela equipe também não confirma: a ficha tem
+    // telefone confirmado pelo próprio cliente.
+    await api(s.admin, `${root(s)}/customers/${customer.id}/phones`, "POST", { phone: OTHER });
+    const added = await tap(s.f, `clientes:apagar:${asked.id}`, "Confirmar exclusão", OTHER);
+    expect((await latest(added.id)).text).toContain("Só o titular");
+    await api(s.admin, `${root(s)}/customers/${customer.id}/phones/remove`, "POST", { phone: OTHER });
     // Não existe rota para a equipe confirmar.
     expect((await api(s.admin, `${root(s)}/erasures/${asked.id}/confirm`, "POST", {})).status).toBe(404);
     // O titular confirma respondendo 1 na linha QR.
@@ -408,6 +414,12 @@ describe("clientes: exclusão a pedido do titular", () => {
     // Pelo menu, de novo; sem resposta, vence em 48 h.
     await say(s.f, "oi");
     await say(s.f, "2");
+    // Um "1" digitado muito depois da pergunta é do menu, não confirmação.
+    await exec(env, "UPDATE clientes_erasures SET updated=updated-? WHERE customer_id=? AND status='awaiting_confirmation'", 31 * 60000, customer.id);
+    await say(s.f, "1");
+    expect(
+      (await one(env, "SELECT status FROM clientes_erasures WHERE customer_id=? ORDER BY created DESC LIMIT 1", customer.id)).status,
+    ).toBe("awaiting_confirmation");
     await runModuleSchedules(env, s.f.profile, now() + 49 * 3600000);
     expect(
       (await all(env, "SELECT status,requested_via FROM clientes_erasures WHERE customer_id=? ORDER BY created", customer.id)).map((r) => [r.status, r.requested_via]),
