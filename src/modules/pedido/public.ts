@@ -5,7 +5,10 @@ export {
   onOrderStatusChanged,
   onStatusNotice,
   provideDeliveryInfo,
+  provideDeliverySlip,
   type DeliveryInfo,
+  type DeliverySlip,
+  type DeliverySlipRequest,
   type StatusChange,
   type StatusNotice,
 } from "./listeners";

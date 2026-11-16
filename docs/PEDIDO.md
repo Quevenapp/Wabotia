@@ -115,6 +115,24 @@ mudança de estado pode ser anunciada de novo depois de uma falha).
   pedidos de entrega em andamento (`Map<id do pedido, {status, status_label,
   courier_id, courier_name, eta_at, eta_minutes, position_at}>`), uma chamada
   por leitura do quadro ou do detalhe. Vira `delivery` no pedido.
+- `provideDeliverySlip(módulo, fn)`: a parte do entregador na **via de
+  entrega** (`POST /pedido/orders/{id}/delivery-slip`), com
+  `{order, actor, requestId}`. A Entrega cria a entrega do pedido se ainda
+  não houver e gera o QR do acesso sem login: `{title, qr, lines,
+  expires_at?, delivery_id?}`. Diferente dos outros, o erro do módulo chega a
+  quem pediu (a via não sai sem o QR).
+
+### Via de entrega (ao despachar)
+
+`POST /profiles/{p}/pedido/orders/{id}/delivery-slip {"columns":32}` devolve a
+comanda (`text`, `establishment`, `order`, como `GET …/ticket`) e `slip`, a
+parte do entregador. Imprima nesta ordem: `text`, `slip.title`, o QR com o
+conteúdo de `slip.qr` e `slip.lines` (`slip_text` já traz título e linhas
+centrados). É uma escrita: gerar de novo revoga o QR anterior, então vale só a
+última via impressa; a mesma `Idempotency-Key` devolve a mesma via. O QR é um
+acesso: desenhe no aparelho (os apps, pelo ThermalPrinterKit), nunca num
+serviço de terceiros. Retirada: `409 not_delivery`; entregue ou cancelado:
+`409 order_closed`; sem a Entrega ligada: `409 delivery_unavailable`.
 
 ## Limites desta versão
 

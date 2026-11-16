@@ -8,12 +8,13 @@ import { uid } from "../src/types";
 import { perform } from "../src/service";
 import { modulesApi } from "../src/modules/api";
 import { board, orderDetail } from "../src/modules/pedido/manage";
-import { outbox } from "./service-center-fixture";
+import { api, bearer, outbox } from "./service-center-fixture";
 import { MENUS, pedidoSetup, run, say, seedMenu } from "./pedido-fixture";
 import {
   onOrderStatusChanged,
   onStatusNotice,
   provideDeliveryInfo,
+  provideDeliverySlip,
   type StatusChange,
   type StatusNotice,
 } from "../src/modules/pedido/public";
@@ -159,5 +160,80 @@ describe("pedido: ganchos para outros módulos", () => {
     const plain = await orderDetail(ctx, order.id);
     expect(plain.delivery).toBeNull();
     expect(asked).toHaveLength(2);
+  });
+
+  it("via de entrega: comanda + QR do módulo, só para entrega em andamento", async () => {
+    const { f, order } = await deliveryOrder();
+    const token = await bearer(f.member);
+    const path = `/profiles/${f.profile}/pedido/orders/${order.id}/delivery-slip`;
+    // Sem módulo que prepare a via: 409.
+    const none = await api(token, path, "POST", { columns: 32 });
+    expect(none.status).toBe(409);
+    expect((await none.json<any>()).error.code).toBe("delivery_unavailable");
+    let calls = 0;
+    off.push(
+      provideDeliverySlip("os", async (_e, _p, request) => {
+        calls++;
+        expect(request.order.id).toBe(order.id);
+        expect(request.actor.id).toBe(f.member.id);
+        return {
+          title: `ENTREGA · Pedido nº ${request.order.number}`,
+          qr: "https://test/c/CODIGO-DE-TESTE",
+          lines: [
+            "Abra o app Wabotia e toque em Escanear pedido.",
+            "Vale até 21:30.",
+          ],
+          expires_at: 1_800_000_000_000,
+          delivery_id: "entrega-1",
+        };
+      }),
+    );
+    const key = uid();
+    const res = await api(token, path, "POST", { columns: 32 }, key);
+    expect(res.status).toBe(200);
+    const slip = await res.json<any>();
+    expect(slip.columns).toBe(32);
+    expect(slip.order.id).toBe(order.id);
+    expect(slip.text).toContain(`PEDIDO Nº ${order.number}`);
+    expect(slip.text).toContain("ENTREGA");
+    expect(slip.slip).toMatchObject({
+      qr: "https://test/c/CODIGO-DE-TESTE",
+      delivery_id: "entrega-1",
+    });
+    expect(slip.slip_text.title.trim()).toBe(
+      `ENTREGA · Pedido nº ${order.number}`,
+    );
+    expect(slip.slip_text.lines).toContain("Escanear pedido");
+    // Mesma Idempotency-Key: a mesma via, sem gerar outro QR.
+    await api(token, path, "POST", { columns: 32 }, key);
+    expect(calls).toBe(1);
+    // Colunas inválidas; pedido entregue não tem via.
+    expect((await api(token, path, "POST", { columns: 40 })).status).toBe(400);
+    await run(f, f.admin, "pedido.status", {
+      id: order.id,
+      status: "out_for_delivery",
+    });
+    await run(f, f.admin, "pedido.status", {
+      id: order.id,
+      status: "delivered",
+    });
+    const closed = await api(token, path, "POST", {});
+    expect((await closed.json<any>()).error.code).toBe("order_closed");
+  });
+
+  it("via de entrega: pedido de retirada é recusado", async () => {
+    const { f } = await pedidoSetup({
+      config: { payments: { cash: true, card: false } },
+    });
+    const menu = await seedMenu(f);
+    const order = await run(f, f.admin, "pedido.order.create", {
+      items: [{ item_id: menu.suco.id, quantity: 1 }],
+      fulfillment: "pickup",
+      customer_name: "Balcão",
+      payment_method: "cash",
+    });
+    await expect(
+      run(f, f.admin, "pedido.delivery_slip", { id: order.id }),
+    ).rejects.toMatchObject({ code: "not_delivery" });
   });
 });

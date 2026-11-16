@@ -45,6 +45,28 @@ export interface DeliveryInfo {
   position_at: number | null;
 }
 
+/** Parte do entregador na via de entrega: o QR do acesso sem login. */
+export interface DeliverySlip {
+  /** "ENTREGA · Pedido nº 12". */
+  title: string;
+  /** Conteúdo do QR (endereço de troca do acesso). */
+  qr: string;
+  /** Linhas abaixo do QR (estabelecimento, como usar, validade). */
+  lines: string[];
+  /** Validade do QR (ms), se houver. */
+  expires_at?: number | null;
+  /** Registro do módulo que gerou (a entrega). */
+  delivery_id?: string | null;
+}
+
+export interface DeliverySlipRequest {
+  order: Order;
+  /** Quem pediu a via (pessoa ou aplicação). */
+  actor: Record<string, any>;
+  /** Id da requisição (Idempotency-Key), para o módulo não repetir trabalho. */
+  requestId: string;
+}
+
 interface Registered<T> {
   module: string;
   fn: T;
@@ -66,7 +88,14 @@ type DeliveryProvider = (
   orderIds: string[],
 ) => Promise<Map<string, DeliveryInfo>>;
 
+type SlipProvider = (
+  env: Env,
+  profile: string,
+  request: DeliverySlipRequest,
+) => Promise<DeliverySlip | null>;
+
 const statusListeners: Registered<StatusListener>[] = [];
+const slipProviders: Registered<SlipProvider>[] = [];
 const noticeHandlers: Registered<NoticeHandler>[] = [];
 const deliveryProviders: Registered<DeliveryProvider>[] = [];
 
@@ -120,6 +149,16 @@ export const provideDeliveryInfo = (
   provider: DeliveryProvider,
 ) => add(deliveryProviders, module, provider);
 
+/**
+ * Via de entrega (POST pedido/orders/:id/delivery-slip): o módulo prepara a
+ * parte do entregador, por exemplo cria a entrega do pedido (se ainda não
+ * houver) e gera o QR do acesso sem login. Diferente dos outros ganchos, um
+ * erro do módulo (ApiError) chega a quem pediu: a via não sai sem o QR.
+ * null: o módulo não trata este pedido.
+ */
+export const provideDeliverySlip = (module: string, provider: SlipProvider) =>
+  add(slipProviders, module, provider);
+
 async function active<T>(env: Env, profile: string, list: Registered<T>[]) {
   const out: Registered<T>[] = [];
   for (const entry of list)
@@ -155,6 +194,19 @@ export async function noticeHandled(
       logFailure(entry.module, "notice", error);
     }
   return false;
+}
+
+/** Primeiro módulo ligado que preparou a via; null sem nenhum. */
+export async function deliverySlip(
+  env: Env,
+  profile: string,
+  request: DeliverySlipRequest,
+): Promise<DeliverySlip | null> {
+  for (const entry of await active(env, profile, slipProviders)) {
+    const slip = await entry.fn(env, profile, request);
+    if (slip) return slip;
+  }
+  return null;
 }
 
 export async function deliveryInfo(

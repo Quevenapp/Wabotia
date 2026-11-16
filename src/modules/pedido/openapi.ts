@@ -575,6 +575,47 @@ export function pedidoSchemas() {
         },
       },
     },
+    PedidoDeliverySlipRequest: {
+      type: "object",
+      properties: {
+        columns: { enum: [32, 42, 48], default: 32 },
+      },
+    },
+    PedidoDeliverySlip: {
+      allOf: [
+        ref("PedidoTicket"),
+        {
+          type: "object",
+          properties: {
+            slip: {
+              type: "object",
+              properties: {
+                title: {
+                  type: "string",
+                  description: "ENTREGA · Pedido nº 12",
+                },
+                qr: {
+                  type: "string",
+                  description:
+                    "Conteúdo do QR (vale uma leitura; é um acesso: não envie a terceiros para desenhar).",
+                },
+                lines: { type: "array", items: { type: "string" } },
+                expires_at: nullable("integer"),
+                delivery_id: nullable("string"),
+              },
+            },
+            slip_text: {
+              type: "object",
+              description: "Título e linhas já centrados nas colunas.",
+              properties: {
+                title: { type: "string" },
+                lines: { type: "string" },
+              },
+            },
+          },
+        },
+      ],
+    },
     PedidoTicket: {
       type: "object",
       properties: {
@@ -705,6 +746,13 @@ export const pedidoOperations: [string, string, string, string?, string?][] = [
     "PedidoPaymentMethod",
   ],
   ["get", `${base}/orders/{id}/ticket`, "Pedido: comanda para imprimir", read],
+  [
+    "post",
+    `${base}/orders/{id}/delivery-slip`,
+    "Pedido: via de entrega com o QR do entregador",
+    write,
+    "PedidoDeliverySlipRequest",
+  ],
 ];
 
 /** Descrições, parâmetros e respostas das rotas do Pedido. */
@@ -759,6 +807,11 @@ export function describePedidoOperation(
     entry.description +=
       " Uma coluna por estado em andamento (do mais antigo ao mais novo), com minutes_in_status e late; mais a situação da loja e o resumo do dia (Brasília). Os apps podem reler a cada 15 s ou ao receber pedido.* em GET /events.";
     return schema(ref("PedidoBoard"));
+  }
+  if (path.endsWith("/delivery-slip")) {
+    entry.description +=
+      " Ao despachar: a comanda e a parte do entregador (QR do acesso sem login) preparada pelo módulo Entrega, que cria a entrega do pedido se ainda não houver. Gerar de novo revoga o QR anterior (vale a última via). Imprima text, depois slip.title, o QR com o conteúdo de slip.qr e slip.lines. Pedido de retirada: 409 not_delivery; entregue ou cancelado: 409 order_closed; sem a Entrega ligada: 409 delivery_unavailable.";
+    return schema(ref("PedidoDeliverySlip"));
   }
   if (path.endsWith("/ticket")) {
     entry.description +=
