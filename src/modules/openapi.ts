@@ -14,6 +14,11 @@ import {
   mesasOperations,
   mesasSchemas,
 } from "./mesas/openapi";
+import {
+  describeEntregaOperation,
+  entregaOperations,
+  entregaSchemas,
+} from "./entrega/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -159,6 +164,7 @@ export const moduleSchemas = {
   ...serviceOrderSchemas(),
   ...pedidoSchemas(),
   ...mesasSchemas(),
+  ...entregaSchemas(),
   ...mensalidadeSchemas(),
   ...suporteSchemas(),
   WebStep: {
@@ -741,6 +747,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ...reservaOperations,
   ...pedidoOperations,
   ...mesasOperations,
+  ...entregaOperations,
   ...mensalidadeOperations(),
   ...suporteOperations(),
 ];
@@ -905,6 +912,9 @@ export function describeModuleOperation(
     return describePedidoOperation(path, method, entry, success);
   if (path.startsWith("/profiles/{profile}/mesas"))
     return describeMesasOperation(path, method, entry, success);
+
+  if (path.startsWith("/profiles/{profile}/entrega"))
+    return describeEntregaOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("/mensalidade/"))

@@ -106,7 +106,11 @@ import { visibleEvent } from "./visibility";
 import { queueTurn, queueFrontDoor, startQueue } from "./queue-flow";
 import { moduleEnabled } from "./modules/registry";
 import { menuHandler, turnHandlersList } from "./modules/hooks";
-import { isStructured, structuredInbound } from "./structured-inbound";
+import {
+  isStructured,
+  moduleLocation,
+  structuredInbound,
+} from "./structured-inbound";
 import "./modules/runtime";
 import {
   activeBlock,
@@ -189,6 +193,14 @@ export async function processInbox(env: Env, profile: string) {
       );
       return;
     }
+    // Localização enviada pelo cliente: só quando um módulo trata (destino
+    // da Entrega); sem dono, segue o caminho de sempre.
+    if (
+      c.chat_type !== "group" &&
+      data.content?.type === "location" &&
+      (await moduleLocation(env, c, row, data))
+    )
+      return;
     const value = data.text.trim(),
       normalized = value
         .toLowerCase()

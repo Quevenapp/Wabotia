@@ -9,7 +9,7 @@ import {
   requireValue,
 } from "../../types";
 import {
-  onCommand,
+  onCommand as registerCommand,
   onConversationAction,
   onConversationTurn,
   onInboundContent,
@@ -70,6 +70,31 @@ import {
 } from "./menu";
 
 const MODULE = "pedido";
+
+/**
+ * Ator de outro módulo (ctx.moduleActor; a Entrega em nome do entregador):
+ * só leva o pedido de entrega a "Saiu para entrega" ou "Entregue". Nunca
+ * cancela, nunca mexe em pagamento, cadastro ou loja (revisão A, credencial
+ * por QR, item 3).
+ */
+export const MODULE_ACTOR_STATUSES = ["out_for_delivery", "delivered"];
+function refuseModuleActor(op: string, actor: Actor, data: any) {
+  if (!actor.module) return;
+  if (op === "pedido.status" && MODULE_ACTOR_STATUSES.includes(data?.status))
+    return;
+  throw new ApiError(
+    403,
+    "module_forbidden",
+    `O módulo ${actor.module.id} só pode marcar o pedido como saiu para entrega ou entregue.`,
+  );
+}
+
+/** onCommand do núcleo com a trava do ator de módulo em todo comando. */
+const onCommand: typeof registerCommand = (moduleId, op, handler) =>
+  registerCommand(moduleId, op, (ctx, actor, data, request) => {
+    refuseModuleActor(op, actor, data);
+    return handler(ctx, actor, data, request);
+  });
 
 // ---------------------------------------------------------------------------
 // WhatsApp
@@ -266,6 +291,12 @@ onRoute(MODULE, {
 onCommand(MODULE, "pedido.status", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
+  if (actor.module && order.fulfillment !== "delivery")
+    throw new ApiError(
+      403,
+      "module_forbidden",
+      `O módulo ${actor.module.id} só muda pedidos de entrega.`,
+    );
   return visibleOrder(
     ctx,
     actor,

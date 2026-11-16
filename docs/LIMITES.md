@@ -54,6 +54,8 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Mesas: lançar itens (vira pedido do Pedido)              | Coordinator `/command`   | —     | 25     |
 | Mesas: mapa das mesas                                    | Worker (leitura)         | —     | 7      |
 | Mesas: fechar a conta com o pagamento                    | Coordinator `/command`   | —     | 20     |
+| Entrega: lote de posições (1 escrita, sem recibo)        | Worker (telemetria)      | —     | 4⁴     |
+| Entrega: rodada com uma entrega a caminho, nada vencido  | alarme (parte da rodada) | —     | 4      |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
 
@@ -62,6 +64,10 @@ pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
 
 ³ Mais 2 desde o cupom configurável: a configuração da área (QR ligado) e o
 endereço público, para o texto do QR do `wa.me`.
+
+⁴ Só o módulo (`tests/entrega.test.ts`); a requisição soma a sessão do app, o
+estado do módulo e o contador do limite por credencial (mais uma escrita). Um lote a cada minuto por entregador em rota, não uma
+escrita por ponto; detalhes em [ENTREGA.md](ENTREGA.md#limites-do-cloudflare).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
 gravação do recibo de idempotência, auditoria e fechamento do recibo).

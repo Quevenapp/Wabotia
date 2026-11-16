@@ -133,13 +133,21 @@ import {
   publicOrigin,
   rememberOrigin,
   statePage,
+  appInvitePage,
   stepFor,
   touchWebStep,
   webStepByCode,
+  webStepView,
   whatsappReturnLink,
 } from "./web-steps";
 import { emailReady } from "./email";
-import { moduleRoutes } from "./modules/hooks";
+import { trackPage } from "./web-track";
+import { claimOwner, ipHash, peekClaim } from "./module-credentials";
+import {
+  credentialGate,
+  moduleRoutes,
+  webStepPageHook,
+} from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -307,6 +315,80 @@ app.get("/api/public/queue/:token", async (c) => {
   if (owner) await requireModule(c.env, owner.profile_id, "queue");
   return c.json(await publicTicket(c.env, c.req.param("token")));
 });
+// Credencial por QR (src/module-credentials.ts): o app sem login troca o
+// código do QR por um token que só alcança as rotas do módulo. Uso único,
+// limite por IP; a leitura e o gancho do módulo rodam no Coordinator da área.
+app.post(
+  "/api/credentials/claim",
+  bodyLimit({ maxSize: 4 * 1024 }),
+  async (c) => {
+    const ip = c.req.header("CF-Connecting-IP") || "local";
+    await rate(c.env, "credential-claim:" + (await ipHash(c.env, ip)), 10, 600000);
+    const body = await c.req.json<any>().catch(() => ({}));
+    const code = String(body?.code ?? "").replace(/^.*\/c\//, "");
+    const owner = await claimOwner(c.env, code);
+    if (!owner) throw new ApiError(404, "claim_not_found", "QR inválido.");
+    return c.env.COORDINATOR.get(
+      c.env.COORDINATOR.idFromName(owner.profile_id),
+    ).fetch("https://coordinator/credential-claim", {
+      method: "POST",
+      body: JSON.stringify({
+        profile: owner.profile_id,
+        code,
+        name: body?.name,
+        device: body?.device,
+        ip,
+      }),
+    });
+  },
+);
+// O QR (https://<endereço público>/c/<código>) nunca é trocado aqui: prévias
+// de link e a câmera comum não gastam o código. Com Accept: application/json,
+// a leitura pública do app antes da troca ("Entrega da loja X, servidor Y —
+// continuar?"): só o nome do estabelecimento e se o código vale; inexistente,
+// vencido, lido ou revogado dão a mesma resposta (sem oráculo). Sem JSON, a
+// página que orienta a abrir o app. Limite por IP nas duas.
+const PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=br.com.queven.wabotia";
+app.get("/c/:code", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "local";
+  await rate(c.env, "credential-peek:" + (await ipHash(c.env, ip)), 30, 600000);
+  const row = await peekClaim(c.env, c.req.param("code"));
+  const live =
+    row && (await moduleEnabled(c.env, row.profile_id, row.module_id))
+      ? row
+      : null;
+  const store = live
+    ? (await establishment(c.env, live.profile_id).catch(() => null))?.name ||
+      null
+    : null;
+  const server =
+    (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  const headers = {
+    "Cache-Control": "no-store",
+    Vary: "Accept",
+  };
+  if ((c.req.header("Accept") || "").includes("application/json"))
+    return c.json(
+      live
+        ? { valid: true, store, server, expires_at: live.claim_expires }
+        : { valid: false, server },
+      200,
+      headers,
+    );
+  const links = [{ label: "Baixar na Google Play", href: PLAY_STORE_URL }];
+  if (c.env.IOS_APP_URL?.startsWith("https://"))
+    links.push({ label: "Baixar na App Store", href: c.env.IOS_APP_URL });
+  return c.html(
+    appInvitePage(appName(c.env), {
+      app: appName(c.env),
+      store,
+      links,
+    }),
+    200,
+    { ...webStepHeaders, ...headers },
+  );
+});
 // Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
 const webStepHeaders = {
@@ -347,6 +429,43 @@ app.get("/api/w/:code", async (c) => {
     row.conversation_id,
   );
   const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
+  // Página de acompanhamento (spec.page "track"): o módulo diz o que mostrar.
+  if (json(row.spec).page === "track") {
+    const hook = webStepPageHook(row.module_id);
+    const view =
+      ["sent", "opened"].includes(current.status) &&
+      hook &&
+      (await webStepAvailable(c.env, row))
+        ? await hook(c.env, row.profile_id, webStepView(current)).catch(
+            (error: unknown) => {
+              // O cliente vê "Acompanhamento encerrado"; o erro vai ao log.
+              console.error(
+                JSON.stringify({
+                  component: "web-step-page",
+                  module: row.module_id,
+                  web_step: row.id,
+                  error: String((error as Error)?.message || error).slice(
+                    0,
+                    300,
+                  ),
+                }),
+              );
+              return null;
+            },
+          )
+        : null;
+    if (!view)
+      return webStepHtml(
+        c,
+        statePage("expired", brand, {
+          whatsapp,
+          title: "Acompanhamento encerrado",
+          text: "Este acompanhamento não está mais disponível. Fale com a gente pelo WhatsApp.",
+        }),
+        410,
+      );
+    return webStepHtml(c, trackPage(view, brand, whatsapp));
+  }
   if (current.status === "completed")
     return webStepHtml(c, statePage("used", brand, { whatsapp }));
   if (
@@ -415,6 +534,9 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   row.public_code = c.req.param("code");
   const brand = await pageBrand(c.env, row.profile_id);
   const spec = json(row.spec);
+  // Acompanhamento só se lê.
+  if (spec.page === "track")
+    return webStepHtml(c, statePage("not_found", brand), 405);
   const form = await c.req.raw.formData().catch(() => new URLSearchParams());
   const cart = spec.page === "cart";
   const input = cart ? cartInput(form) : formInput(form);
@@ -840,6 +962,21 @@ app.use("/api/v1/*", async (c, next) => {
   // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
   // cadastro do fator (src/mfa.ts).
   if (!internal) mfaGate(actor, c.req.path);
+  // Credencial por QR: só as rotas do módulo dela, na área dela.
+  if (actor.credential) {
+    const [, , , segment, profile, route] = c.req.path.split("/");
+    const owner = route ? moduleForRoute(route) : null;
+    if (
+      segment !== "profiles" ||
+      profile !== actor.profiles[0] ||
+      owner?.id !== actor.credential.module
+    )
+      throw new ApiError(
+        403,
+        "credential_scope",
+        "Este acesso vale só para a entrega do QR.",
+      );
+  }
   // Endereço público visto por quem usa o painel e os aplicativos: o passo
   // web monta com ele os links enviados ao cliente (src/web-steps.ts). Chaves
   // de integração podem chamar por outro domínio e não contam.
@@ -1560,20 +1697,72 @@ for (const [method, path, op] of commands)
   });
 // Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
 // escrita vira comando no Coordinator da área, como as rotas acima.
+// Credencial por QR: negada por padrão; só a rota que declara
+// `credential: true`, e só com o :id do registro dela (credentialGate).
 for (const route of moduleRoutes().write)
-  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) =>
-    mutate(c, route.op, c.req.param("profile")!, {
+  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) => {
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
+    return mutate(c, route.op, c.req.param("profile")!, {
       ...(route.method === "DELETE"
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    }),
+    });
+  });
+// Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
+// Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
+// chamadas por minuto por credencial, área e rota.
+const TELEMETRY_RATE = 60;
+for (const route of moduleRoutes().telemetry)
+  app.post(
+    `/api/v1/profiles/:profile/${route.path}`,
+    bodyLimit({ maxSize: 64 * 1024 }),
+    async (c) => {
+      const profile = c.req.param("profile")!;
+      const actor = c.get("actor");
+      if (!canProfile(actor, profile))
+        throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      credentialGate(actor, route, c.req.param() as Record<string, string>);
+      // Conectores não mandam telemetria; a escrita mais barata da API tem
+      // limite por credencial e rota no núcleo (revisão A).
+      if (actor.kind === "connector")
+        throw new ApiError(
+          403,
+          "forbidden",
+          "Conectores não enviam dados para esta rota.",
+        );
+      await rate(
+        c.env,
+        `telemetry:${actor.keyId || actor.id}:${profile}:${route.path}`,
+        TELEMETRY_RATE,
+      );
+      const body = await c.req.json().catch(() => null);
+      requireValue(
+        body && typeof body === "object" && !Array.isArray(body),
+        "Envie um objeto JSON.",
+      );
+      return c.json(
+        await route.handler(c.env, c.get("actor"), profile, {
+          params: c.req.param() as Record<string, string>,
+          body,
+        }),
+      );
+    },
   );
 for (const route of moduleRoutes().read)
   app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {
     const profile = c.req.param("profile")!;
     if (!canProfile(c.get("actor"), profile))
       throw new ApiError(404, "not_found", "Perfil não encontrado.");
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
     return c.json(
       await route.handler(c.env, c.get("actor"), profile, {
         params: c.req.param() as Record<string, string>,

@@ -6,6 +6,8 @@ export interface Env {
   MASTER_KEY: string;
   SETUP_TOKEN: string;
   APP_NAME?: string;
+  /** Endereço do app na App Store (página do QR do entregador, /c/<código>). */
+  IOS_APP_URL?: string;
   WABOTIA_ACCOUNT_ID?: string;
   WABOTIA_WORKER_NAME?: string;
   WABOTIA_INSTALLATION_ID?: string;
@@ -45,6 +47,16 @@ export interface Actor {
   via?: BotVia;
   rate: number;
   runLimit: number;
+  /**
+   * Credencial de módulo trocada por QR (src/module-credentials.ts): só as
+   * rotas do módulo, só o registro `subject` (a entrega). Sem escopos.
+   */
+  credential?: { id: string; module: string; subject: string };
+  /**
+   * Ator de módulo (ctx.moduleActor): o módulo `id` age em outros módulos
+   * por ctx.read/ctx.run, só nos de `reach`. Nunca vem de uma requisição.
+   */
+  module?: { id: string; reach: string[] };
 }
 export interface BotVia {
   kind: "bot";

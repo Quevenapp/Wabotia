@@ -1265,7 +1265,10 @@ export function mountMcp(app: Hono<Bindings>) {
   });
   app.post(MCP_PATH, async (c) => {
     const actor = await authenticate(c.env, c.req.raw);
-    if (actor.kind !== "app")
+    // A credencial por QR (wabx_) também é kind "app", mas fica fora do
+    // middleware de /api/v1 que a prende ao registro dela: aqui não entra
+    // (revisão A, credencial por QR, item 1).
+    if (actor.kind !== "app" || actor.credential || actor.module)
       throw new ApiError(
         403,
         "app_key_required",
