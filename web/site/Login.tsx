@@ -4,7 +4,11 @@
 import React, { useEffect, useState } from "react";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { api, type Row } from "../lib/api";
-import { setupTokenFromHash } from "../../src/install-links";
+import {
+  accountTokenFromHash,
+  setupTokenFromHash,
+} from "../../src/install-links";
+import { AccountLinkForm, RecoverAdminForm } from "./AccountLink";
 import { Button, Field, Logo, Notice } from "../ui";
 
 function PasswordField({
@@ -58,7 +62,27 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
   // Link de primeiro acesso do instalador: o código vem no fragmento da URL,
   // é guardado no formulário e sai da barra de endereço em seguida.
   const [linked, setLinked] = useState(false);
+  // Segundo fator no login, link de convite ou de redefinição e recuperação
+  // do administrador (web/site/AccountLink.tsx).
+  const [needCode, setNeedCode] = useState(false),
+    [recovery, setRecovery] = useState(false),
+    [link, setLink] = useState(() => accountTokenFromHash(location.hash)),
+    [recover, setRecover] = useState(false);
+  const signIn = async (email: string, password: string) => {
+    setLink(null);
+    setRecover(false);
+    setForm({ email, password });
+    try {
+      await api("auth/login", "POST", { email, password });
+      await ready();
+    } catch (e: any) {
+      if (e.code === "mfa_required") setNeedCode(true);
+      else setError(e.message);
+    }
+  };
   useEffect(() => {
+    if (link)
+      history.replaceState(null, "", location.pathname + location.search);
     const token = setupTokenFromHash(location.hash);
     if (!token) return;
     setForm((current) => ({ ...current, token }));
@@ -78,7 +102,15 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
       <Logo light size={40} />
       <main className="auth-card">
         <h1>
-          {setup ? "Crie sua conta de administrador" : "Entrar no Wabotia"}
+          {link?.purpose === "invite"
+            ? "Crie sua senha"
+            : link?.purpose === "reset"
+              ? "Redefinir senha"
+              : recover
+                ? "Esqueci a senha"
+                : setup
+                  ? "Crie sua conta de administrador"
+                  : "Entrar no Wabotia"}
         </h1>
         <p>
           {setup
@@ -91,67 +123,127 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
             começar.
           </Notice>
         )}
-        <form
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setBusy(true);
-            setError("");
-            try {
-              if (setup) await api("auth/setup", "POST", form);
-              await api("auth/login", "POST", form);
-              await ready();
-            } catch (e: any) {
-              setError(e.message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {setup && (
-            <>
-              <Field
-                label="Seu nome"
-                value={form.name}
-                onChange={change("name")}
-                autoComplete="name"
-                required
-              />
-              <PasswordField
-                label="Código de instalação (SETUP_TOKEN)"
-                value={form.token}
-                onChange={change("token")}
-                autoComplete="off"
-                help={
-                  linked
-                    ? "Preenchido pelo link do instalador."
-                    : "O instalador mostra um link que preenche este campo. O código também está em chaves.local.json."
-                }
-              />
-            </>
-          )}
-          <Field
-            label="E-mail"
-            type="email"
-            value={form.email}
-            onChange={change("email")}
-            autoComplete="username"
-            required
+        {link ? (
+          <AccountLinkForm
+            purpose={link.purpose}
+            token={link.token}
+            onDone={(email, password) => void signIn(email, password)}
           />
-          <PasswordField
-            label="Senha"
-            value={form.password}
-            onChange={change("password")}
-            autoComplete={setup ? "new-password" : "current-password"}
-            help={setup ? "Use pelo menos 12 caracteres." : undefined}
+        ) : recover ? (
+          <RecoverAdminForm
+            onDone={(email, password) => void signIn(email, password)}
           />
-          {error && <Notice tone="error">{error}</Notice>}
-          <Button type="submit" busy={busy} full size="lg">
-            {setup ? "Criar conta e entrar" : "Entrar"}
-            {!busy && <ArrowRight size={17} />}
-          </Button>
-        </form>
+        ) : (
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
+              try {
+                if (setup) await api("auth/setup", "POST", form);
+                const { code, ...credentials } = form;
+                await api(
+                  "auth/login",
+                  "POST",
+                  needCode
+                    ? {
+                        ...credentials,
+                        [recovery ? "recovery_code" : "totp"]: code,
+                      }
+                    : credentials,
+                );
+                await ready();
+              } catch (e: any) {
+                // Conta com segundo fator: pede o código e manda de novo.
+                if (e.code === "mfa_required" && !needCode) setNeedCode(true);
+                else setError(e.message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {setup && (
+              <>
+                <Field
+                  label="Seu nome"
+                  value={form.name}
+                  onChange={change("name")}
+                  autoComplete="name"
+                  required
+                />
+                <PasswordField
+                  label="Código de instalação (SETUP_TOKEN)"
+                  value={form.token}
+                  onChange={change("token")}
+                  autoComplete="off"
+                  help={
+                    linked
+                      ? "Preenchido pelo link do instalador."
+                      : "O instalador mostra um link que preenche este campo. O código também está em chaves.local.json."
+                  }
+                />
+              </>
+            )}
+            <Field
+              label="E-mail"
+              type="email"
+              value={form.email}
+              onChange={change("email")}
+              autoComplete="username"
+              required
+            />
+            <PasswordField
+              label="Senha"
+              value={form.password}
+              onChange={change("password")}
+              autoComplete={setup ? "new-password" : "current-password"}
+              help={setup ? "Use pelo menos 12 caracteres." : undefined}
+            />
+            {needCode && (
+              <>
+                <Field
+                  label={
+                    recovery
+                      ? "Código de recuperação"
+                      : "Código de 6 dígitos do aplicativo autenticador"
+                  }
+                  value={form.code}
+                  onChange={change("code")}
+                  autoComplete="one-time-code"
+                  required
+                />
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => setRecovery(!recovery)}
+                >
+                  {recovery
+                    ? "Usar o aplicativo autenticador"
+                    : "Perdi o celular: usar um código de recuperação"}
+                </button>
+              </>
+            )}
+            {error && <Notice tone="error">{error}</Notice>}
+            <Button type="submit" busy={busy} full size="lg">
+              {setup ? "Criar conta e entrar" : "Entrar"}
+              {!busy && <ArrowRight size={17} />}
+            </Button>
+          </form>
+        )}
       </main>
       <nav className="auth-links" aria-label="Ajuda">
+        {!setup && !link && (
+          <button
+            type="button"
+            className="text-link"
+            onClick={() => {
+              setRecover(!recover);
+              setError("");
+            }}
+          >
+            {recover ? "Voltar para a entrada" : "Esqueci a senha"}
+          </button>
+        )}
         <a href="/install">Precisa de ajuda para instalar?</a>
         <a href="/app?demo=1">Ver telas de demonstração</a>
         <a href="/">Página inicial</a>

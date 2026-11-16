@@ -29,6 +29,14 @@ export interface Actor {
    * completo); o administrador e aplicações não usam.
    */
   access?: string[] | null;
+  /**
+   * Pessoa: nível da sessão (1 só senha, 2 com segundo fator) e o id público
+   * da sessão (src/mfa.ts). Aplicações não têm.
+   */
+  aal?: 1 | 2;
+  sessionId?: string;
+  /** Pessoa: tem fator ativo e a política da instância (src/mfa.ts). */
+  mfa?: { factor: boolean; policy: "off" | "financial" | "all" };
   rate: number;
   runLimit: number;
 }

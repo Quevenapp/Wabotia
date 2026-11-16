@@ -76,6 +76,8 @@ import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
 import { mountMcp, takeInternalActor } from "./mcp";
+import { mountAccount, mountAccountPublic } from "./account-routes";
+import { loginMfaNext, loginSecondFactor, mfaGate } from "./mfa";
 import { buildInfo } from "./build-info.generated";
 import {
   listContacts,
@@ -628,6 +630,7 @@ app.use("/api/auth/*", async (c, next) => {
     throw new ApiError(403, "invalid_origin", "Origem inválida.");
   await next();
 });
+mountAccountPublic(app);
 app.post("/api/auth/setup", async (c) => {
   await rate(
     c.env,
@@ -699,14 +702,19 @@ app.post("/api/auth/login", async (c) => {
       "invalid_credentials",
       "E-mail ou senha inválidos.",
     );
+  // Horário de acesso e segundo fator (src/mfa.ts).
+  const aal = await loginSecondFactor(c.env, user, data);
   const token = random();
   await exec(
     c.env,
-    "INSERT INTO sessions(hash,user_id,expires,kind,created) VALUES(?,?,?,'cookie',?)",
+    "INSERT INTO sessions(hash,user_id,expires,kind,created,id,aal,mfa_at) VALUES(?,?,?,'cookie',?,?,?,?)",
     await sha(token),
     user.id,
     now() + 43200000,
     now(),
+    uid(),
+    aal,
+    aal === 2 ? now() : null,
   );
   setCookie(c, "wabotia", token, {
     httpOnly: true,
@@ -715,7 +723,7 @@ app.post("/api/auth/login", async (c) => {
     path: "/",
     maxAge: 43200,
   });
-  return c.json({ ok: true });
+  return c.json({ ok: true, aal, mfa: await loginMfaNext(c.env, user, aal) });
 });
 const MOBILE_SESSION_MS = 30 * 86400000;
 const mobilePlatforms = ["android", "ios"];
@@ -726,20 +734,28 @@ function mobileLabel(device: any) {
     .join(" | ")
     .slice(0, 200);
 }
-async function createMobileSession(env: Env, userId: string, label: string) {
+async function createMobileSession(
+  env: Env,
+  userId: string,
+  label: string,
+  aal: 1 | 2 = 1,
+) {
   const token = MOBILE_TOKEN_PREFIX + random(),
     expires = now() + MOBILE_SESSION_MS;
   await exec(
     env,
-    "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used) VALUES(?,?,?,'bearer',?,?,?)",
+    "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used,id,aal,mfa_at) VALUES(?,?,?,'bearer',?,?,?,?,?,?)",
     await sha(token),
     userId,
     expires,
     now(),
     label || null,
     now(),
+    uid(),
+    aal,
+    aal === 2 ? now() : null,
   );
-  return { token, expires };
+  return { token, expires, aal };
 }
 const mobileUser = (user: any) => ({
   id: user.id,
@@ -775,18 +791,27 @@ app.post("/api/auth/mobile/login", async (c) => {
       "invalid_credentials",
       "E-mail ou senha inválidos.",
     );
+  const aal = await loginSecondFactor(c.env, user, data);
   const session = await createMobileSession(
     c.env,
     user.id,
     mobileLabel(data.device),
+    aal,
   );
-  return c.json({ ...session, user: mobileUser(user) });
+  return c.json({
+    ...session,
+    mfa: await loginMfaNext(c.env, user, aal),
+    user: mobileUser(user),
+  });
 });
 app.use("/api/v1/*", async (c, next) => {
   // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
   const internal = takeInternalActor(c.req.raw);
   const actor = internal || (await authenticate(c.env, c.req.raw));
   c.set("actor", actor);
+  // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
+  // cadastro do fator (src/mfa.ts).
+  if (!internal) mfaGate(actor, c.req.path);
   // Endereço público visto por quem usa o painel e os aplicativos: o passo
   // web monta com ele os links enviados ao cliente (src/web-steps.ts). Chaves
   // de integração podem chamar por outro domínio e não contam.
@@ -871,6 +896,8 @@ app.get("/api/v1/profiles/:profile/access", (c) => {
   });
 });
 mountMcp(app);
+// Conta: segundo fator, links de uso único (src/account-routes.ts).
+mountAccount(app);
 const mobileToken = (c: any) => {
   const bearer = c.req.header("Authorization")?.match(/^Bearer (.+)$/)?.[1];
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
@@ -984,10 +1011,12 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
     "SELECT * FROM users WHERE id=?",
     c.get("actor").id,
   );
+  // A sessão nova mantém o nível da antiga (src/mfa.ts).
   const session = await createMobileSession(
     c.env,
     c.get("actor").id,
     old?.label || "",
+    c.get("actor").aal === 2 ? 2 : 1,
   );
   await exec(c.env, "DELETE FROM sessions WHERE hash=?", hash);
   return c.json({ ...session, user: mobileUser(user) });
@@ -1157,7 +1186,7 @@ app.get("/api/v1/users", async (c) => {
   return c.json(
     await all(
       c.env,
-      "SELECT id,email,name,role,profiles,disabled,access FROM users ORDER BY created",
+      "SELECT id,email,name,role,profiles,disabled,access,schedule,password='' invite_pending,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=users.id AND f.status='active') has_mfa FROM users ORDER BY created",
     ),
   );
 });
@@ -1307,6 +1336,7 @@ for (const [path, operation] of [
 for (const [method, path, op] of [
   ["post", "profiles", "profile.create"],
   ["post", "users", "user.create"],
+  ["post", "users/invite", "user.invite"],
   ["patch", "users/:id", "user.update"],
   ["post", "applications", "application.create"],
   ["patch", "applications/:id", "application.update"],

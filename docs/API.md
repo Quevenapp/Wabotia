@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps", "establishment", "module_grants", "person_access"],
+  "features": ["modules", "web_steps", "establishment", "module_grants", "person_access", "login_mfa"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -82,6 +82,72 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 ### Pessoas da área
 
 Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. Cada pessoa traz `grants`, os papéis dela nos módulos ligados (`"os:technician"`), e `?grant=os:technician` lista só quem tem o papel; os papéis e quem tem cada um estão em `GET /profiles/{perfil}/grants` (veja "Acesso por pessoa" abaixo). `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+
+### Login e segundo fator
+
+**Entrar** (painel: `POST /api/auth/login`, cookie; app: `POST /api/auth/mobile/login`, `Bearer wabu_…`):
+- O corpo é `{email, password}` e, quando a pessoa tem segundo fator, também `totp` (6 dígitos do aplicativo autenticador) ou `recovery_code`.
+- Sem o código, a resposta é `401 mfa_required` e nenhuma sessão é criada. O app mostra o campo do código e manda o mesmo pedido de novo com `totp`.
+- Respostas de erro:
+  - código errado ou já usado: `401 invalid_code`. O mesmo código não vale duas vezes, e o relógio aceita ±30 s.
+  - cinco erros em 15 minutos: o sexto pedido recebe `429 mfa_locked`, mesmo com o código certo.
+  - fora do horário de acesso da pessoa: `403 outside_schedule`.
+- A resposta traz:
+  - `aal`: 1 só senha, 2 com o código;
+  - `mfa`: `{policy, factor, next}`. `next: "enroll"` quer dizer que a instalação exige o segundo fator e a pessoa ainda não cadastrou.
+- O app guarda `aal`. A sessão renovada (`POST /api/v1/auth/mobile/refresh`) mantém o nível.
+
+**Política da instalação** (Pessoas e acessos, `PUT /api/v1/system/mfa-policy` com `{policy}`):
+- `off`: opcional;
+- `financial`: as operações financeiras de pessoas exigem a sessão em aal2;
+- `all`: toda pessoa precisa do segundo fator.
+
+Regras gerais:
+- Com fator cadastrado, entrar sempre pede o código.
+- Uma sessão em aal1 que precisa do fator só alcança `/api/v1/me`, `/api/v1/account` e `/api/v1/account/mfa/*`, a renovação e a saída. As outras rotas respondem `403 mfa_required`. O app leva a pessoa ao desafio ou ao cadastro.
+- Chave de aplicação nunca chega a aal2: as rotas que exigem aal2 a recusam. As operações financeiras de aplicações continuam valendo por `billing:write`.
+- `GET /api/v1/me` traz `aal`, `sessionId` e `mfa: {factor, policy}`.
+
+**Cadastro do aplicativo autenticador:**
+1. `POST /api/v1/account/mfa/enroll` com `{password}` devolve `{factor_id, secret, otpauth_url}`.
+   - O app pode abrir `otpauth_url`, ou mostrar `secret` para digitar.
+   - Trocar um fator ativo exige a sessão em aal2.
+2. `POST /api/v1/account/mfa/verify` com `{factor_id, code}`:
+   - devolve `{aal: 2, recovery_codes}`: 10 códigos de recuperação, mostrados uma vez só;
+   - sobe esta sessão para aal2 e derruba as outras sessões da pessoa.
+
+**Outras rotas do segundo fator:**
+- `POST /api/v1/account/mfa/challenge` com `{code}` ou `{recovery_code}` sobe a sessão para aal2.
+- `POST /api/v1/account/mfa/recovery-codes` (exige aal2) gera códigos novos.
+- `DELETE /api/v1/account/mfa/factors/{id}` (exige aal2) remove o fator. Com a política `all`, responde `409`.
+- `GET /api/v1/account` e `GET /api/v1/account/mfa` mostram a situação.
+
+**Administrador** (exige aal2 quando ele tem fator ou a política não é `off`):
+- `POST /api/v1/people/{id}/mfa/reset` zera o segundo fator da pessoa e derruba as sessões dela.
+- `POST /api/v1/people/{id}/password-link` devolve `{url, expires_at}`:
+  - é o link de redefinir a senha, de uso único e válido por 24 horas (`<origem>/app#reset=<código>`);
+  - o código vai no fragmento e só o hash fica guardado;
+  - um link novo invalida o anterior.
+- `POST /api/v1/users/invite`, com os campos de `POST /users` sem `password`:
+  - cria a pessoa sem senha e devolve `{id, url, expires_at}`;
+  - é um convite de 72 horas (`#invite=`);
+  - antes de aceitar, nenhuma senha entra.
+- `POST /users` e `PATCH /users/{id}` aceitam `schedule`, o horário de acesso no formato do Fagoo:
+  - `{"enabled": true, "windows": [{"start": "08:00", "end": "18:00", "days": [1,2,3,4,5]}]}`;
+  - até 10 janelas; dias de 0 (domingo) a 6, em ordem; horário de Brasília;
+  - `null` tira o horário;
+  - o administrador é isento;
+  - fora do horário, o login e qualquer chamada da sessão recebem `403 outside_schedule`.
+- `GET /users` traz `schedule`, `has_mfa` e `invite_pending`.
+
+**Sem sessão:**
+- `POST /api/auth/link-info` com `{token}` devolve `{purpose, name, email, expires_at}`.
+- `POST /api/auth/reset` e `POST /api/auth/invite/accept`, com `{token, password}`, gravam a senha e derrubam as sessões da pessoa.
+- `POST /api/auth/recover-admin` com `{setup_token, password}`:
+  - só funciona quando existe um único administrador ativo; com mais de um, outro administrador gera o link;
+  - troca a senha, tira o segundo fator e derruba as sessões.
+
+E-mail: o núcleo não manda e-mail, então o administrador envia o link. Proposta, não implementada: um provedor por HTTP (Resend, Postmark ou Amazon SES pela API), com a chave cifrada como os outros segredos. Com ele, o link de redefinição poderia ser pedido pela própria pessoa ("esqueci a senha"), com limite por e-mail e por IP e a mesma resposta exista ou não a conta.
 
 ### Acesso por pessoa
 

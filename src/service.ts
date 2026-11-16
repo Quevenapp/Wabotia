@@ -80,6 +80,8 @@ import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
 import { requireOperationAccess, validateAccess } from "./access";
+import { requireFinancialAal, validateSchedule } from "./mfa";
+import { issueAccountLink } from "./auth-tokens";
 import {
   hiddenMenuTypes,
   moduleById,
@@ -1511,6 +1513,8 @@ export async function perform(
   await requireOperation(env, profile, op);
   // Acesso por pessoa (src/access.ts): atendente sem o item, 403.
   requireOperationAccess(actor, op);
+  // Cobrança feita por pessoa: com a política do segundo fator (src/mfa.ts).
+  if (op.startsWith("payment.")) requireFinancialAal(actor);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
@@ -1631,7 +1635,7 @@ export async function perform(
     );
     return { id };
   }
-  if (op === "user.create") {
+  if (op === "user.create" || op === "user.invite") {
     admin(actor);
     requireValue(["admin", "operator"].includes(data.role), "Papel inválido.");
     requireValue(
@@ -1641,19 +1645,38 @@ export async function perform(
     const id = uid();
     const userAccess =
       data.access === undefined ? null : validateAccess(data.access);
+    const schedule =
+      data.schedule === undefined ? null : validateSchedule(data.schedule);
+    const email = text(data.email, 200).toLowerCase();
+    requireValue(
+      !(await one(env, "SELECT id FROM users WHERE email=?", email)),
+      "Já existe uma pessoa com este e-mail.",
+    );
+    // Convite: a pessoa entra sem senha (nenhuma senha confere) e cria a
+    // dela pelo link de 72 h (src/auth-tokens.ts).
+    const invite = op === "user.invite";
     await exec(
       env,
-      "INSERT INTO users(id,email,name,password,role,profiles,access,created) VALUES(?,?,?,?,?,?,?,?)",
+      "INSERT INTO users(id,email,name,password,role,profiles,access,schedule,created) VALUES(?,?,?,?,?,?,?,?,?)",
       id,
-      text(data.email, 200).toLowerCase(),
+      email,
       text(data.name, 100),
-      passwordHash(data.password),
+      invite ? "" : passwordHash(data.password),
       data.role,
       JSON.stringify(data.profiles || []),
       userAccess && JSON.stringify(userAccess),
+      schedule && JSON.stringify(schedule),
       now(),
     );
-    return { id };
+    if (!invite) return { id };
+    return {
+      id,
+      ...(await issueAccountLink(env, {
+        userId: id,
+        purpose: "invite",
+        createdBy: actor.id,
+      })),
+    };
   }
   if (op === "user.update") {
     admin(actor);
@@ -1672,13 +1695,22 @@ export async function perform(
             const list = validateAccess(data.access);
             return list && JSON.stringify(list);
           })();
+    // schedule: horário de acesso (src/mfa.ts) ou null (sem horário).
+    const schedule =
+      data.schedule === undefined
+        ? (u.schedule ?? null)
+        : (() => {
+            const value = validateSchedule(data.schedule);
+            return value && JSON.stringify(value);
+          })();
     await exec(
       env,
-      "UPDATE users SET name=?,profiles=?,disabled=?,access=? WHERE id=?",
+      "UPDATE users SET name=?,profiles=?,disabled=?,access=?,schedule=? WHERE id=?",
       data.name ? text(data.name, 100) : u.name,
       JSON.stringify(data.profiles ?? json(u.profiles, [])),
       data.disabled === undefined ? u.disabled : Number(!!data.disabled),
       userAccess,
+      schedule,
       data.id,
     );
     if (data.password)

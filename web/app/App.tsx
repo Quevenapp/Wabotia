@@ -16,6 +16,7 @@ import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
+import { MfaGate, mfaNeeded } from "./Account";
 
 function Areas() {
   const app = useApp();
@@ -110,12 +111,22 @@ export function App() {
     [profiles, setProfiles] = useState<Row[]>(demo ? [demoProfile] : []),
     [checked, setChecked] = useState(demo),
     [error, setError] = useState(""),
-    [offline, setOffline] = useState(false);
+    [offline, setOffline] = useState(false),
+    [gate, setGate] = useState<"challenge" | "enroll" | null>(null);
   const current = useRef<Row | null>(me);
   current.current = me;
   const init = useCallback(async () => {
     try {
       const actor = await api("v1/me");
+      // Segundo fator pendente (web/app/Account.tsx): só o portão, sem áreas.
+      const need = mfaNeeded(actor);
+      setGate(need);
+      if (need) {
+        setProfiles([]);
+        setMe(actor);
+        setError("");
+        return;
+      }
       let areas = await api("v1/profiles");
       if (actor.role === "admin" && areas.length === 0) {
         await api("v1/installation/area/bootstrap", "POST", {});
@@ -167,6 +178,21 @@ export function App() {
         ) : (
           <Login ready={init} />
         )}
+        <ToastHost />
+      </>
+    );
+  if (gate)
+    return (
+      <>
+        <MfaGate
+          need={gate}
+          onDone={() => void init()}
+          onLogout={() =>
+            void api("v1/logout", "POST", {})
+              .catch(() => {})
+              .then(() => init())
+          }
+        />
         <ToastHost />
       </>
     );
