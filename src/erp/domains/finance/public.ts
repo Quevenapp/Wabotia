@@ -11,6 +11,23 @@ import { pgLeft as left, pgLower as lower } from "../../engine/text.ts";
 
 export * from "./stubs.generated.ts";
 
+// Portadas (src/erp/domains/finance/internal.ts). Assinaturas: leitura pura
+// recebe o SqlDriver; validadores de p_data recebem só o valor.
+export {
+  assertSettlementPostings,
+  categoryDepth,
+  categoryInUse,
+  cents,
+  cnabPlanForSettlement,
+  day,
+  expected,
+  keys,
+  permissionKey,
+  requireAccess,
+  txt,
+  uuidValue,
+} from "./internal.ts";
+
 /** Ordem do texto no oráculo (collation C): bytes UTF-8. */
 const encoder = new TextEncoder();
 function compareText(a: string, b: string) {
