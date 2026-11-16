@@ -1,2 +1,3 @@
 *.pdf binary
 public/hermes-plugin/* text eol=lf
+tests/erp/oracle/migrations/*.sql text eol=lf
