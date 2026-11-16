@@ -11,10 +11,23 @@ import { isBound } from "./visibility";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
 import { moduleMcpTools } from "./modules/hooks";
+import {
+  BOT_TOOLS,
+  RUN_HEADER,
+  newToolState,
+  proposalsOfRun,
+  runBotTool,
+  runFromHeader,
+  type BotActionContext,
+  type ToolState,
+} from "./bot-actions/actions";
+
+/** Chamadas de ferramenta por execução do Hermes (teto por turno). */
+const personStates = new Map<string, ToolState>();
 
 type Row = Record<string, any>;
-type Call = {
-  method?: "GET" | "POST" | "PATCH" | "PUT";
+export type Call = {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   path: string;
   query?: Row;
   body?: Row;
@@ -992,7 +1005,54 @@ export function checkedCall(tool: Tool, args: Row, profile: string): Call {
   return { ...tool.call(args, profile), path };
 }
 
+let appRef: Hono<Bindings> | null = null;
+/**
+ * Chamada interna à API v1 com um ator já conferido, fora de uma requisição
+ * (bot agindo pela pessoa, src/bot-actions). Passa pelos mesmos middlewares
+ * de uma chamada HTTP: área, módulo desligado, acesso por pessoa, comando no
+ * Coordinator com Idempotency-Key. Nunca grava a origem pública.
+ */
+export async function internalCall(
+  env: Env,
+  actor: Actor,
+  call: Call,
+  key?: string,
+) {
+  // A entrada do Worker monta o app (mountMcp) ao carregar; fora dela
+  // (Coordinator, testes que importam o motor), carregar a entrada basta.
+  if (!appRef) await import("./index");
+  if (!appRef) throw new Error("API interna indisponível.");
+  const url = new URL("/api/v1" + call.path, "https://wabotia.internal");
+  if (url.pathname !== "/api/v1" + call.path || url.search || url.hash)
+    throw new ApiError(400, "invalid_request", "Caminho inválido.");
+  for (const [k, v] of Object.entries(call.query || {}))
+    if (v !== undefined && v !== null && v !== "")
+      url.searchParams.set(k, String(v));
+  const method = call.method || "GET";
+  const nonce = crypto.randomUUID();
+  const headers: Row = { [INTERNAL_HEADER]: nonce, Accept: "application/json" };
+  if (method !== "GET") {
+    headers["Content-Type"] = "application/json";
+    headers["Idempotency-Key"] = key || crypto.randomUUID();
+  }
+  internalActors.set(nonce, actor);
+  try {
+    return await appRef!.request(
+      url.toString(),
+      {
+        method,
+        headers,
+        body: call.body === undefined ? undefined : JSON.stringify(call.body),
+      },
+      env,
+    );
+  } finally {
+    internalActors.delete(nonce);
+  }
+}
+
 export function mountMcp(app: Hono<Bindings>) {
+  appRef = app;
   async function dispatch(c: any, actor: Actor, call: Call, key?: string) {
     const url = new URL("/api/v1" + call.path, new URL(c.req.url).origin);
     // Nada de normalização ("..", "."), consulta ou fragmento vindos do caminho.
@@ -1083,7 +1143,31 @@ export function mountMcp(app: Hono<Bindings>) {
         : {}),
     };
   }
-  async function handle(c: any, actor: Actor, message: any) {
+  // Ferramentas do bot agindo pela pessoa (src/bot-actions), só com o
+  // cabeçalho assinado da execução que o plugin do Hermes repõe.
+  async function personTool(person: BotActionContext, params: any) {
+    const runId = person.run.id;
+    const state = personStates.get(runId) || newToolState();
+    state.proposals = (await proposalsOfRun(person.env, runId)).length;
+    personStates.set(runId, state);
+    const text = await runBotTool(
+      person,
+      state,
+      String(params?.name || ""),
+      params?.arguments,
+    );
+    const failed = /^\{"erro"/.test(text);
+    return {
+      ...(failed ? { isError: true } : {}),
+      content: [{ type: "text", text }],
+    };
+  }
+  async function handle(
+    c: any,
+    actor: Actor,
+    message: any,
+    person: BotActionContext | null = null,
+  ) {
     const id = message?.id;
     const isRequest = id !== undefined && id !== null;
     const reply = (result: any) =>
@@ -1116,10 +1200,22 @@ export function mountMcp(app: Hono<Bindings>) {
       if (method === "ping") return reply({});
       if (method === "tools/list")
         return reply({
-          tools: toolList(await enabledModules(c.env, actor), actor),
+          tools: [
+            ...toolList(await enabledModules(c.env, actor), actor),
+            ...(person
+              ? BOT_TOOLS.map((t) => ({
+                  name: t.name,
+                  description: t.description,
+                  inputSchema: t.schema,
+                }))
+              : []),
+          ],
         });
-      if (method === "tools/call")
+      if (method === "tools/call") {
+        if (person && BOT_TOOLS.some((t) => t.name === params?.name))
+          return reply(await personTool(person, params));
         return reply(await callTool(c, actor, params));
+      }
       if (method.startsWith("notifications/")) return null;
       throw new RpcError(-32601, `Método não suportado: ${method}`);
     } catch (error: any) {
@@ -1199,9 +1295,17 @@ export function mountMcp(app: Hono<Bindings>) {
         },
         400,
       );
+    // Execução de conversa interna de um bot desta chave, assinada pelo
+    // Wabotia no job do plugin: as ferramentas da pessoa aparecem e rodam
+    // como ela. Sem o cabeçalho, ou inválido, nada muda.
+    const person = await runFromHeader(
+      c.env,
+      actor,
+      c.req.header(RUN_HEADER) ?? null,
+    );
     const responses = [];
     for (const message of messages) {
-      const response = await handle(c, actor, message);
+      const response = await handle(c, actor, message, person);
       if (response) responses.push(response);
     }
     if (!responses.length) return c.body(null, 202);

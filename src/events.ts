@@ -67,10 +67,19 @@ export async function audit(
   id: string,
   requestId: string,
 ) {
+  // `via`: a pessoa agiu pelo bot da conversa interna (src/bot-actions).
+  const via = actor.via
+    ? JSON.stringify({
+        kind: actor.via.kind,
+        bot_id: actor.via.bot_id,
+        run_id: actor.via.run_id,
+        proposal_id: actor.via.proposal_id ?? null,
+      })
+    : null;
   await env.DB.prepare(
-    "INSERT INTO audit(profile_id,actor,operation,resource_id,request_id,created) VALUES(?,?,?,?,?,?)",
+    "INSERT INTO audit(profile_id,actor,operation,resource_id,request_id,via,created) VALUES(?,?,?,?,?,?,?)",
   )
-    .bind(profile, actor.id, operation, id, requestId, now())
+    .bind(profile, actor.id, operation, id, requestId, via, now())
     .run();
 }
 export async function wake(env: Env, profile: string) {

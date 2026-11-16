@@ -96,7 +96,7 @@ export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export type SensitiveKind = "contacts" | "notes";
 /** Campos fora das leituras do bot pela conversa (ctx.botView). */
-const BOT_HIDDEN = new Set([
+export const BOT_HIDDEN = new Set([
   "document",
   "document_display",
   "payer_document",
@@ -111,9 +111,15 @@ const BOT_HIDDEN = new Set([
   "notes",
   "created_by",
 ]);
-/** Pessoas da equipe sempre; aplicação só com `<kind>:read`. */
+/**
+ * Pessoas da equipe sempre; aplicação só com `<kind>:read`. Leitura que o
+ * bot da conversa interna faz pela pessoa (actor.via) e que vai ao modelo de
+ * IA: mascarada, a menos que o administrador libere na instalação.
+ */
 export const mayRead = (actor: Actor, kind: SensitiveKind) =>
-  actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
+  actor.via?.masked
+    ? false
+    : actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
 
 export interface OutgoingMessage {
   text: string;
@@ -408,7 +414,7 @@ export function modulesApi(
     access: (actor, scope) => access(actor, profile, scope),
     mayRead: (actor, kind) => mayRead(actor, kind),
     botView(actor, value) {
-      if (actor.kind !== "app") return value;
+      if (actor.kind !== "app" && !actor.via?.masked) return value;
       const walk = (v: any): any => {
         if (Array.isArray(v)) return v.map(walk);
         if (!v || typeof v !== "object") return v;

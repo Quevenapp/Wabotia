@@ -164,6 +164,18 @@ function userActor(row: any): Actor {
     access: storedAccess(row.access),
   };
 }
+/**
+ * A pessoa como ator, relida do banco (bot agindo em nome dela, src/bot-actions):
+ * desabilitada ou inexistente, null. Mesma forma do login, sem sessão.
+ */
+export async function actorForUser(env: Env, id: string): Promise<Actor | null> {
+  const row = await one(
+    env,
+    "SELECT * FROM users WHERE id=? AND disabled=0",
+    id,
+  );
+  return row ? userActor(row) : null;
+}
 export const MOBILE_TOKEN_PREFIX = "wabu_";
 export async function authenticate(env: Env, request: Request): Promise<Actor> {
   const bearer = request.headers

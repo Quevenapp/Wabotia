@@ -57,13 +57,16 @@ export async function hermesRequest(
   // Separa a memória do Hermes por conversa: sem isto, tudo o que o perfil
   // atende compartilha o mesmo escopo.
   sessionKey?: string,
+  // Execução de conversa interna (src/bot-actions): identidade assinada da
+  // execução, só para o plugin repor nas chamadas MCP. Nunca vai no texto
+  // enviado ao modelo nem ao Hermes por URL.
+  wabotiaRun?: string,
 ) {
   if (isLink(connection))
-    return linkCall(
-      env,
-      connection,
-      linkJob(path, body, profile, idem, sessionKey),
-    );
+    return linkCall(env, connection, {
+      ...linkJob(path, body, profile, idem, sessionKey),
+      ...(wabotiaRun && path === "/v1/runs" ? { wabotia_run: wabotiaRun } : {}),
+    });
   const cfg = json(connection.config),
     keys = await secret(env, `connection:${connection.id}`);
   const api = path.startsWith("/v1/");

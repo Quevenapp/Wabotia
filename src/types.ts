@@ -29,8 +29,22 @@ export interface Actor {
    * completo); o administrador e aplicações não usam.
    */
   access?: string[] | null;
+  /**
+   * Só auditoria: a pessoa agiu pelo bot na conversa interna
+   * (src/bot-actions). As regras dos módulos não olham este campo; o núcleo
+   * usa para gravar `audit.via` e mascarar o que vai ao modelo.
+   */
+  via?: BotVia;
   rate: number;
   runLimit: number;
+}
+export interface BotVia {
+  kind: "bot";
+  bot_id: string;
+  run_id: string;
+  proposal_id?: string;
+  /** Leitura que vai ao modelo de IA: dado pessoal mascarado (padrão). */
+  masked: boolean;
 }
 export type Bindings = {
   Bindings: Env;

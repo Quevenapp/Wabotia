@@ -57,6 +57,7 @@ import {
   CONSENT_DENY_REPLY,
 } from "./service";
 import { hermesRequest, hermesArtifact } from "./integrations";
+import { botActionContext, signRun } from "./bot-actions/actions";
 import { AiError, aiCallTimeout, aiComplete } from "./ai-provider";
 import { signedPayload } from "./signature";
 import { secret, hmac, safeFetch } from "./security";
@@ -1447,6 +1448,11 @@ export async function processRun(env: Env, run: Run) {
           parts.length > 1 ? [{ role: "user", content: parts }] : run.input,
         instructions,
       };
+      // Conversa interna de uma pessoa: a identidade assinada da execução vai
+      // no job do plugin (src/bot-actions), para ele repor nas chamadas MCP.
+      const wabotiaRun = (await botActionContext(env, run))
+        ? await signRun(env, run.id)
+        : undefined;
       const result = await hermesRequest(
         env,
         conn,
@@ -1455,6 +1461,7 @@ export async function processRun(env: Env, run: Run) {
         bot.remote_profile,
         `wabotia:${run.id}`,
         sessionKey(run),
+        wabotiaRun,
       );
       requireValue(result.run_id, "Hermes não retornou run_id.");
       await exec(
