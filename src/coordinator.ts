@@ -15,6 +15,7 @@ import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
+import { ErpHub } from "./erp/hub";
 import { closeDay, overview as queueOverview } from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import {
@@ -35,7 +36,14 @@ export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
   private link = new HermesLinkHub(this.env, this.ctx);
+  private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
+    // Instâncias "erp:<área>" (src/erp/hub.ts): só "/erp-*", antes de ler o
+    // corpo e de gravar o perfil da área.
+    const erpPath = new URL(request.url).pathname;
+    if (erpPath.startsWith("/erp-")) return this.erp.handle(erpPath, request);
+    if (await this.erp.isErp())
+      return new Response("Instância do ERP.", { status: 404 });
     // Instâncias "hermes-link:<conexão>" só atendem o vínculo do plugin: não
     // gravam perfil nem agendam alarme.
     const linkPath = new URL(request.url).pathname;
@@ -358,6 +366,8 @@ export class Coordinator extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(now() + 1000);
   }
   async alarm() {
+    // Instância do ERP: alarme próprio, nunca o pipeline da área.
+    if (await this.erp.isErp()) return this.erp.alarm();
     if (this.busy) return;
     this.busy = true;
     this.profile ||= (await this.ctx.storage.get<string>("profile")) || "";
