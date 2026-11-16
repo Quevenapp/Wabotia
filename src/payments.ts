@@ -362,16 +362,21 @@ export async function createPayment(env: Env, input: ChargeInput) {
   for (let step = 0; old?.provider_ref && step < 20; step++) {
     const open = old.status === "created" && old.expires_at > now();
     // Aberta mas nunca entregue (o envio falhou depois de criar no provedor:
-    // consentimento, política da linha): tenta entregar de novo; a chave
-    // payment:<id> não deixa sair duas vezes (conferência B11).
+    // consentimento, política da linha), ou com o envio cancelado ou falho na
+    // fila: tenta entregar de novo, com chave por tentativa (conferência B11
+    // e segunda conferência, N2-4).
+    const sends = open
+      ? await all(
+          env,
+          "SELECT status FROM outbox WHERE dedupe=? OR dedupe LIKE ?",
+          `payment:${old.id}`,
+          `payment:${old.id}#%`,
+        )
+      : [];
     if (
       open &&
       old.conversation_id === c.id &&
-      !(await one(
-        env,
-        "SELECT id FROM outbox WHERE dedupe=?",
-        `payment:${old.id}`,
-      ))
+      !sends.some((s) => !["cancelled", "failed"].includes(s.status))
     ) {
       const official = await interactiveLine(env, c);
       const windowOpen = now() - c.last_customer < 86400000;
@@ -381,7 +386,14 @@ export async function createPayment(env: Env, input: ChargeInput) {
           "window_closed",
           "O cliente precisa ter escrito nas últimas 24 horas para receber a cobrança.",
         );
-      await deliver(env, c, old, input.actor, official && !windowOpen);
+      await deliver(
+        env,
+        c,
+        old,
+        input.actor,
+        official && !windowOpen,
+        sends.length ? `#${sends.length}` : "",
+      );
     }
     if (open || old.status === "paid" || old.status === "refunded")
       return { payment: paymentView(old)!, created: false };
@@ -535,6 +547,9 @@ async function deliver(
   row: any,
   actor: string,
   asNotification: boolean,
+  // Reenvio depois de um envio cancelado (segunda conferência, N2-4): chave
+  // nova por tentativa, para sair de novo e no máximo uma vez.
+  suffix = "",
 ) {
   const value = money(row.amount_cents, row.currency);
   const pix = row.method === "pix";
@@ -554,7 +569,7 @@ async function deliver(
         // Fora da janela, exige o consentimento de cobrança.
         consent_purpose: "billing",
       },
-      `payment:${row.id}`,
+      `payment:${row.id}${suffix}`,
     );
     return;
   }
@@ -569,7 +584,7 @@ async function deliver(
         display_text: pix ? "Ver QR Code Pix" : "Pagar agora",
         url: row.url,
       },
-      `payment:${row.id}`,
+      `payment:${row.id}${suffix}`,
       "payment",
     );
   else
@@ -579,7 +594,7 @@ async function deliver(
       actor,
       "text",
       { text: body, automation: "payment", payment_id: row.id },
-      `payment:${row.id}`,
+      `payment:${row.id}${suffix}`,
     );
   // O código sozinho, para copiar e colar no app do banco.
   if (pix && row.pix_code)
@@ -589,7 +604,7 @@ async function deliver(
       actor,
       "text",
       { text: row.pix_code, automation: "payment", payment_id: row.id },
-      `payment-pix:${row.id}`,
+      `payment-pix:${row.id}${suffix}`,
     );
 }
 
