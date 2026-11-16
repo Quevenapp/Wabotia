@@ -8,8 +8,8 @@ import { formatScaled, fromColumn, toParam } from "../../engine/dec.ts";
 import { raise } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
-import { activeRole, permitted } from "../access/internal.ts";
-import * as sync from "../sync/internal.ts";
+import { activeRole, permitted } from "../access/public.ts";
+import * as sync from "../sync/public.ts";
 
 export const QTY = 6;
 const MAX = 999999999999999999n; // 999999999999.999999 na escala 6

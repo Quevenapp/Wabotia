@@ -9,7 +9,7 @@ import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { replay } from "../../../engine/receipt.ts";
 import { dateArgError, todaySaoPaulo, validDate } from "../../../engine/time.ts";
-import * as sync from "../../sync/internal.ts";
+import * as sync from "../../sync/public.ts";
 import {
   QTY,
   QTY_MAX,

@@ -6,7 +6,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
-import { memberRole } from "../../access/internal.ts";
+import { memberRole } from "../../access/public.ts";
 
 const CNTRL = /[\u0000-\u001f\u007f-\u009f]/;
 const FROM = "áàâãäéèêëíìîïóòôõöúùûüçñ";

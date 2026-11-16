@@ -14,6 +14,18 @@ instalação de teste (sessão K).
 | 2 | Instância `erp:` sem afetar a área | **passou** |
 | 3 | Pacote candidato | **passou** (alerta: 18,3 MB sem o ERP) |
 | 4 | Esquema completo gerado, paridade, aplicado no objeto | **passou** |
+| 5 | Motor mínimo e diferencial | **passou** para `erp_reference_search` e `erp_stock_post`; **`erp_document_save` não portado** (190 funções, 180 KB: tamanho de domínio, não de prova) |
+| 6 | Costura (`createHandler` sem alteração, rota real) | **passou** |
+| 7 | Medições | **passou** com ressalvas: `erp_document_save` não medido (proxy: `erp_stock_post` com 100 itens); CPU de produção só na instalação de teste |
+| 8 | Backup | **passou** (dump e restauração); recuperação por bookmark **não deu para provar** no local |
+
+**Veredito do portão:** a instância extra, o `transactionSync` e o
+diferencial são viáveis; nenhuma parada foi necessária. O porte em massa
+pode começar, com quatro condições: `--minify` obrigatório no pacote (e a
+versão ponte), relatórios pesados fora da transação de escrita (teto de
+linhas lidas e jobs em fatias), o `erp_document_save` como primeira tarefa do
+domínio Documentos sobre o harness pronto, e a confirmação na instalação de
+teste (CPU real, limites e bookmark).
 
 ## Prova 1 — sonda de dialeto (`tests/erp-do-dialect.test.ts`)
 
@@ -127,3 +139,209 @@ A prova por comportamento pegou um erro real do tradutor (`jsonb ? 'chave'`
 com JSON nulo: nulo no Postgres, falso no SQLite) e um erro do próprio teste
 (decimais escalados passados como texto comparam em ordem alfabética; na
 coluna `STRICT` viram inteiro). Os dois corrigidos.
+
+## Prova 5 — motor mínimo e diferencial
+
+**Motor** (`src/erp/engine/`, só TypeScript apagável: o Node dos testes
+importa direto):
+
+| Arquivo | O quê |
+|---|---|
+| `driver.ts` | `SqlDriver` síncrono; `storageDriver(ctx.storage)` no objeto |
+| `errors.ts` | `ErpError(code, message)` com o SQLSTATE do Postgres; `fromSqlite` traduz `RAISE(ABORT,'<sqlstate>:<msg>')` e restrições |
+| `dec.ts` | decimal exato em BigInt na escala da coluna, arredondamento metade para longe do zero |
+| `time.ts` | relógio monotônico em µs, dia em America/Sao_Paulo pelo `Intl`, texto de `timestamptz` do jsonb, argumento `date` com os códigos do Postgres (22007 formato, 22008 data inexistente) |
+| `json.ts` | `jsonbText`: o texto canônico do `jsonb` (chaves por tamanho e bytes, `", "` e `": "`), para o hash de pedido igual ao do Fagoo |
+| `receipt.ts` | recibo de comando (mesmo ator e hash devolve o gravado; senão 40001) |
+| `registry.ts` | `registerRpc`, `callRpc`: uma transação por RPC, contexto no lugar de `set_config` |
+| `rpc-endpoint.ts` | `/erp-rpc/<nome>` no objeto |
+| `dump.ts` | backup (prova 8) |
+
+**Portados** (`src/erp/domains/`): `reference/rpc/erp_reference_search.ts`;
+`stock/rpc/erp_stock_post.ts` + `stock/internal.ts` (fecho de 27 funções,
+13 em PL/pgSQL: validação, hash do pedido, comando idempotente, movimento,
+saldo com versão, lançamentos, `movement_dto`, e os gatilhos de guarda
+`guard_negative_insert`, `guard_reserved_balance`, `capture_stock`,
+`reverse_lot_entries` na camada de tabela); `access/public.ts` e
+`sync/public.ts` (o que os dois usam de acesso e do espelho).
+
+**Harness** (`tests/erp/harness/`): `dual-fixture.mjs` (mesma interface das
+62 fixtures do Fagoo: `rpc`, `scalar`, `db`, `users`, `catalog`),
+`state-compare.mjs` (resposta e tabelas; correspondência de ids gerados;
+tempo e identity mascarados; erros por código e mensagem), `node-driver.mjs`
+(o mesmo contrato do objeto sobre `node:sqlite`, recusando BigInt e booleano
+como parâmetro, como o objeto). RPC não portado roda só no Postgres e o
+estado é espelhado; RPC portado roda nos dois, compara e realinha.
+
+| Teste (`npm run test:erp`, 15 de 15) | Resultado |
+|---|---|
+| `tests/erp/fagoo/stock-adversarial.test.mjs` (cópia de `tools/migration/test_stock_adversarial.mjs`, 5 asserções originais) | **passa nos dois motores**, estado igual tabela a tabela depois de cada `erp_stock_post` |
+| `tests/erp/fagoo/reference-search.test.mjs` (consultas do teste "PRF-296, CTT-045, VND-042" do `plataforma-h-sql`) | passa nos dois motores, mais 13 buscas com acento, prefixo, dígitos e limites |
+| `tests/erp/stock-post-diff.test.mjs` (aleatório, semente fixa) | 200 chamadas: 138 aceitas, 62 recusadas em 12 erros diferentes; 680 tabelas comparadas; zero divergência. ~3,8 ms por chamada no motor contra ~10,9 ms no PGlite (Node local) |
+
+O diferencial pegou, até ficar verde: a regra do `numeric(18,6)` (abaixo); o
+fuso do oráculo (PGlite herda o da máquina; produção é UTC); 22008 × 22007 em
+data inexistente; e a ordem das conferências (o tipo do argumento falha antes
+do corpo da função, antes até do acesso). Também separou o que **não** é
+divergência: o identity do Postgres não reaproveita números de transações
+desfeitas, o `rowid` do SQLite reaproveita (ninguém deve depender do valor).
+
+**`erp_document_save` não foi portado.** Fecho medido por
+`scripts/erp/call-graph.mjs`: 190 funções (114 em PL/pgSQL), 180 KB, escreve
+em 25 tabelas; só o núcleo (`normalize`, `normalize_core`, `permission_keys`,
+`validate_data`, `document_product`, `extension_data`, `write_fields`,
+`transitions`) passa de 70 KB. É o domínio Documentos, não uma prova. Fica
+como a primeira tarefa da sessão de Documentos, sobre o harness pronto.
+
+## Prova 6 — costura (`tests/erp-do-api.test.ts`)
+
+`/api/v1/profiles/:profile/erp/*` (`src/index.ts`, uma rota; pessoa com
+acesso à área) → `src/erp/api/local-fetch.ts` → `createHandler` da erp-api
+**sem alteração** (`src/erp/fagoo/workers/erp-api`, copiada por
+`scripts/erp/copy-fagoo.mjs` com as dependências que ela alcança: 229
+arquivos, 3,0 MB, mais `@xmldom/xmldom` 0.9.12) com `fetchImpl` local:
+`/rest/v1/rpc/<nome>` → objeto `/erp-rpc/<nome>`; `/auth/v1/user` → o ator do
+Wabotia; `/storage/v1` → 501 até o R2.
+
+| Verificação | Resultado |
+|---|---|
+| `GET …/erp/v1/plataforma/referencias/cnae?q=4744`, municípios, país inválido | 200, 200, 400 |
+| `POST …/erp/v1/estoque/movimentos` (rota de escrita do Fagoo) | lança no motor; saldo `2.500000`, versão 1 |
+| Pessoa da área sem vínculo `erp_access` | 403 (42501 traduzido pela erp-api) |
+| Latência local Worker → erp-api → objeto → motor | primeira 53 ms; depois p50 9 ms, p95 12 ms |
+
+O vínculo `erp_access.membership` foi semeado no teste: o sincronismo com
+Pessoas e os papéis `erp:<papel>` são da fase 3.
+
+## Prova 7 — medições (workerd local)
+
+| Medida | Valor | Observação |
+|---|---|---|
+| `erp_stock_post`, 50 itens | 26–40 ms | proxy do `erp_document_save` (não portado) |
+| `erp_stock_post`, 100 itens (máximo) | 36–61 ms | ~110 KB de banco por chamada |
+| Carga de 100 mil lançamentos | 400 mil linhas escritas (com índices), ~5–6 s | |
+| Relatório: saldo por produto e depósito sobre 100 mil linhas | **1,6–1,8 s**, 100.300 linhas lidas | segura o escritor único: relatório pesado precisa de teto (`rowsRead`) e job em fatias |
+| Relatório: extrato de um produto, página de 50 | 21–28 ms, 3.013 linhas lidas | |
+| Banco com 100 mil lançamentos | 53 MB | 10 GB por empresa |
+| Salto Worker → objeto (`/erp-ping`) | p50 3–4 ms, p95 4–6 ms | |
+| Primeira chamada (aplica esquema + semeadura) | 0,86–0,95 s | uma vez por área |
+| Bundle sem `--minify` | 8,9 MB → **13,4 MB** (gzip 1,7 → 2,6 MB) | base: `main` + módulos de vendas |
+| Bundle com `--minify` | 4,7 MB → **7,8 MB** (gzip 1,3 → 2,1 MB) | |
+| Partida (`wrangler check startup`, CPU ativa) | 177 ms → 243 ms sem minify; 186 ms com minify | |
+
+**Pacote:** sem `--minify`, o módulo de 13,4 MB em base64 (~17,8 MB) mais os
+estáticos (~6,4 MB) passa do teto de 24 MB; com `--minify`, ~16,8 MB.
+`--minify` é obrigatório desde já, e cada domínio portado soma.
+
+## Prova 8 — backup (`tests/erp-do-backup.test.ts`)
+
+`/erp-backup` grava uma tabela por NDJSON gzip em
+`erp-backups/<área>/<instante>/` no `MEDIA`, com `manifest.json` (versão e
+hash do esquema; linhas e SHA-256 por tabela); `/erp-restore {prefix}`
+restaura numa instância nova, numa transação, recriando os gatilhos e
+conferindo as FKs.
+
+| Medida (dados sintéticos: 20 produtos, 30 lançamentos, semeadura) | Valor |
+|---|---|
+| Tabelas / linhas | 39 / 7.771 |
+| Backup (gzip) | 126 KB, ~0,4–0,6 s |
+| Restauração | ~1,3 s; **mesmos SHA-256 em todas as tabelas**, saldos iguais, ledger continua imutável |
+| `getCurrentBookmark()` | responde (texto de 59 caracteres) |
+| `getBookmarkForTime()` | **"storage back-end does not implement point-in-time recovery"** no local |
+
+Recuperação no tempo (30 dias): fica documentada — `getBookmarkForTime(t)` e
+`onNextSessionRestoreBookmark(b)` + reinício do objeto — e precisa da
+instalação de teste para ser provada. O dump inteiro numa invocação é um
+retrato consistente; para bancos grandes vira job em fatias com manutenção
+ligada (escritas 503).
+
+## Regras de conversão que mudaram (PLANO-FAGOO-MOTOR.md, seção 3)
+
+1. **i64 sempre lido como TEXT.** Lido como número, 2^53+1 vira 2^53 sem erro.
+2. **BigInt nunca vai como parâmetro** (o objeto recusa): vai como string; a
+   coluna `STRICT` converte.
+3. **Nada de FK adiada.** Sem correção, o commit reinicia o objeto e desfaz a
+   invocação inteira (não lança). O gerador não emite `DEFERRABLE` (as 22 FKs
+   adiadas do Postgres viram imediatas); onde adiar for preciso (semeadura,
+   restauração), `PRAGMA foreign_key_check` e lançar antes do fim.
+4. **Profundidade de expressão 100**: cadeias longas de `OR`/`+` viram
+   `json_each` ou TS.
+5. **`numeric(16–18, s)` é i64 lido como TEXT**, não "INTEGER com
+   CHECK ≤ 2^53": `numeric(18,6)` chega a 999999999999.999999 (10^18
+   escalado), e o Fagoo testa esse teto. `numeric(≤15)` continua número.
+6. **Tipos de argumento antes de tudo**: uuid/date inválidos falham antes do
+   corpo do RPC (22P02, 22007, 22008), como no Postgres.
+7. **`LIKE '%…%'`** com consulta do usuário vira `instr()` (padrão > 50 bytes
+   estoura).
+8. **Identity**: o valor exato pode diferir do Postgres (o SQLite reaproveita
+   o número de uma transação desfeita); só a ordem e a existência valem.
+9. **`PRAGMA user_version` e `sqlite_version()`** não são autorizados:
+   versão em `erp_meta`.
+10. Mantidas com prova: `transactionSync` aninhado = savepoint (os 48
+   `when others` cabem em `try { transactionSync }`), `STRICT`,
+   `RAISE(ABORT)`, índices parciais, colunas geradas, `->>`, `json_each`, 100
+   parâmetros, `lower`/`NOCASE` só ASCII (coluna normalizada em TS).
+
+## Estimativa revisada por domínio
+
+Medida do porte: `erp_stock_post` (21 KB de PL/pgSQL sem a lista constante de
+permissões) virou ~450 linhas de TS: **~21 linhas por KB**, contra as ~35 que
+a estimativa do plano supunha (115 mil linhas para 3,3 MB). Somam-se ao porte
+das funções: os 240 gatilhos pendentes (guardas em TS), os 227 CHECKs
+pendentes e a adaptação dos testes que usam SQL direto.
+
+| # | Domínio | Plano (mil linhas) | Revisado (mil linhas) | Observação |
+|---|---|---|---|---|
+| 1 | Referências | 0,1 | 0,1 | `erp_reference_search` já portado |
+| 2 | Empresa | 1,7 | 1,2 | |
+| 3 | Acesso e atividade | 3,4 | 2,5 | `access/public.ts` começado |
+| 4 | Catálogo, contatos, preços | 16 | 11 | `erp_catalog_save` é pré-requisito de quase todo teste |
+| 5 | Documentos | 13 | 10–13 | `erp_document_save` sozinho é ~3–5 mil |
+| 6 | Estoque | 15 | 10 | `erp_stock_post` já portado |
+| 7 | Financeiro | 16 | 11 | |
+| 8 | PDV | 2,4 | 1,8 | |
+| 9 | CNAB e boleto | 6,4 | 4,5 | |
+| 10 | Fiscal do lado ERP | 12 | 8 | sem o bloco A1/SEFAZ (decisão 7) |
+| 11 | Preferências, home, plataforma, anexos | 12 | 8,5 | |
+| 12 | Origin | 16 | 11 | |
+| | **Total** | **~115 (90–140)** | **~80 (65–100)** | mais ~5 mil de guardas e validações pendentes |
+
+Ritmo observado com o harness pronto: um RPC difícil de ~30 KB com o fecho
+inteiro, teste original e diferencial aleatório verdes, em poucas horas de
+uma sessão. O gargalo é a preparação dos testes: quase todos usam
+`erp_catalog_save` e SQL direto, então Catálogo (4) é o caminho crítico.
+
+## Para as sessões de domínio
+
+- **Rodar:** `npm run test:erp` (Node: paridade do esquema, diferencial e
+  testes do Fagoo); `npx vitest run tests/erp-do-*.test.ts` (no workerd:
+  dialeto, instância, esquema, costura, medidas, backup).
+  `ERP_ENGINE=pg` roda um teste só no Postgres (como era no Fagoo);
+  `ERP_DIFF_N`/`ERP_DIFF_SEED` controlam o diferencial aleatório.
+- **Portar um RPC:** `scripts/erp/call-graph.mjs <rpc> --source` mostra o
+  fecho e o corpo de cada função no oráculo. Escreva
+  `src/erp/domains/<domínio>/rpc/<rpc>.ts` com `registerRpc("<rpc>", fn)` e
+  importe em `src/erp/domains/index.ts`; ajudantes do domínio em
+  `internal.ts`; o que outro domínio usa, só por `public.ts` (exemplos:
+  `access/public.ts`, `sync/public.ts`). Gatilhos do Postgres viram funções
+  da camada de tabela chamadas por quem escreve (`stock/internal.ts`:
+  `ensureBalance`, `updateBalance`, `insertEntry`); os que só lançam erro já
+  estão em SQL gerado.
+- **Testes originais:** copie para `tests/erp/fagoo/`, troque a criação do
+  banco por `dualFixture()` e as chamadas SQL de RPC por `f.rpc`; asserções
+  iguais; testes de `grant`/RLS saem (declare no cabeçalho). Acrescente um
+  diferencial aleatório com mutações de um campo (`stock-post-diff`).
+- **Esquema:** `scripts/erp/gen-sqlite.mjs` (decisões em
+  `scripts/erp/overrides.mjs`, por domínio); `tests/erp/schema-parity.test.mjs`
+  tem tetos para pendências (CHECK 227, gatilhos 240): baixe ao portar.
+  `src/erp/schema/` e `src/erp/engine/` congelam depois da fase 0, com um
+  dono; mudança no gerador sobe `ERP_DDL_VERSION`.
+- **Regras do dialeto:** as dez acima, e `docs/ERP-FASE0.md`, prova 1.
+
+## O que a instalação de teste (sessão K) precisa confirmar
+
+Nada foi implantado. Quando a orquestração pedir: CPU real de
+`erp_stock_post` (100 itens) e do relatório de 100 mil linhas
+(`observability` do Worker), os limites de produção (argumentos de função,
+tamanho de instrução), `getBookmarkForTime` e restauração por bookmark,
+`locationHint: "sam"` e o tempo de partida do pacote com `--minify`.
