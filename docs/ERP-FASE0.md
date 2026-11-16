@@ -117,23 +117,74 @@ O ERP não cabe sem a versão ponte (sessão R). Medição com o ERP na prova 7.
 | Oráculo | `scripts/erp/oracle-db.mjs` | PGlite 0.5.10, 346 migrações (088 pulada) em **10,2 s**; cache do diretório de dados em `output/erp-oracle/` |
 | Introspecção | `scripts/erp/introspect.mjs` → `src/erp/schema/catalog.json` (3,6 MB) | 49 schemas, 430 tabelas, 3.784 colunas, 2.933 restrições (sem NOT NULL), 863 índices, 388 gatilhos, 2.368 funções |
 | Geração | `scripts/erp/gen-sqlite.mjs` + `overrides.mjs` | 973 instruções; tabelas `STRICT` `schema__tabela` |
-| Paridade | `tests/erp/schema-parity.test.mjs` (`npm run test:erp`) | 7 de 7, ~26 s |
+| Paridade | `tests/erp/schema-parity.test.mjs` (`npm run test:erp`) | 7 de 7, ~25 s |
 | No objeto | `tests/erp-do-schema.test.ts` | 430 tabelas, 786 índices, 296 gatilhos SQLite; 23.062 linhas escritas; 6,4 MB; ~0,95 s locais na primeira chamada |
 
 Conversão (contagens de `src/erp/schema/report.generated.json`):
 
 | O quê | Resultado |
 |---|---|
-| Colunas | 3.784 com codec; nenhuma sem tipo. `numeric` sem escala (20): escala declarada em `overrides.mjs` (preço 10 casas, quantidade 6) — **decisão a confirmar pelo domínio** |
+| Colunas | 3.784 com codec; nenhuma sem tipo. `numeric` sem escala (20): decididas coluna a coluna pela evidência (tabela abaixo) |
 | `bigint` | INTEGER com `CHECK(abs(x) <= 2^53-1)`, lido como número (contadores, centavos) |
-| `numeric(p≤15)` / `(16–18)` / `(>18)` | INTEGER escalado / idem com teto 2^53 / i64 lido como TEXT |
-| CHECK | 991 traduzidos para SQL e **provados por comportamento**: 10.397 avaliações com os mesmos valores nos dois motores, zero divergência (89 valores que o próprio Postgres recusa no tipo ficam de fora). 233 com regex viram `RegExp` em TS, conferidos contra o `~` do Postgres. **227 pendentes**, com motivo (aritmética decimal, `lower`/`upper`, funções do Fagoo, tempo relativo, arrays): validação em TS no porte do domínio |
+| `numeric(p≤15)` / `(16–18)` / `(>18)` | `dec`: INTEGER escalado, lido como número / `dec_i64`: INTEGER escalado lido como TEXT / `dec_text`: **decimal exato em TEXT** (o i64 não comporta 30 dígitos) |
+| CHECK | 996 traduzidos para SQL e **provados por comportamento**: 10.469 avaliações com os mesmos valores nos dois motores, zero divergência (89 valores que o próprio Postgres recusa no tipo ficam de fora). 233 com regex viram `RegExp` em TS, conferidos contra o `~` do Postgres. **222 pendentes**, com motivo (aritmética decimal, `lower`/`upper`, funções do Fagoo, tempo relativo, arrays): validação em TS no porte do domínio |
 | UNIQUE / PK | 201 / 430, iguais |
 | FK | 512 mantidas; 327 para `auth.users`/`storage` removidas (ator do Wabotia e R2); **22 `DEFERRABLE` viram imediatas** (prova 1): o porte confere a ordem de escrita |
 | Índices | 231 criados (104 parciais traduzidos), 16 colunas normalizadas ou calculadas pelo motor (`fold`, `lower`, funções do Fagoo), 1 GIN descartado |
 | Gatilhos | **148 gerados em SQL** (só lançam erro: `RAISE(ABORT,'<sqlstate>:<mensagem>')`, um por evento); **240 pendentes** (PL/pgSQL; 12 são gatilhos de restrição adiados, que viram conferência no fim da transação em TS) |
 | Padrões | constantes no DDL; `now()`/`clock_timestamp()`, `gen_random_uuid()` e 7 expressões preenchidos pelo motor (`columns.generated.ts`) |
 | Semeadura | 30 tabelas, 7.586 linhas (municípios, CNAE, países, definições de preferência…), aplicada com FKs adiadas e `foreign_key_check` antes do fim da transação |
+
+### As 20 colunas `numeric` sem escala
+
+Decisão em `scripts/erp/overrides.mjs`, com o motivo em cada entrada; prova em
+`tests/erp/numeric-boundary.test.mjs` (fronteiras de cada coluna pelo
+`numeric` do Postgres e pelo codec do SQLite, e o caminho real do Fagoo:
+`erp_catalog_save` com preço `99999999999999.9999999999`, igual nos dois
+motores). **Nenhuma ficou como "assumido"**: todas têm CHECK ou função do
+Fagoo que fixa a escala.
+
+| Coluna | Codec, escala | Evidência |
+|---|---|---|
+| `erp_catalog.product.price` | `dec_text`, 10 | CHECK `< 1e14`, `= trunc(x,10)`; `erp_catalog.unit_price(v,14)`; o teste do Fagoo grava `99999999999999.9999999999` |
+| `erp_catalog.product_supplier.purchase_price` | `dec_text`, 10 | idem (CHECK `< 1e14`, trunc 10) |
+| `erp_catalog.product_supplier.cost_price` | `dec_text`, 10 | idem |
+| `erp_pricing.price_list_item.custom_price` | `dec_text`, 10 | idem |
+| `erp_stock.movement_detail.unit_price` | `dec_text`, 10 | idem |
+| `erp_stock.movement_detail.unit_cost` | `dec_text`, 10 | idem |
+| `erp_documents.item.unit_price` | `dec_text`, 10 | CHECK `< 1e10`, trunc 10: 20 dígitos, acima do i64 |
+| `erp_fiscal_invoices.invoice_item.unit_price` | `dec_text`, 10 | CHECK `< 1e11`, trunc 10: 21 dígitos |
+| `erp_stock.checkin_item.unit_price` | `dec_text`, 10 | CHECK `< 1e11`, trunc 10 |
+| `erp_fiscal_invoices.invoice_item.quantity` | `dec`, 4 | CHECK `> 0`, `< 1e11`, trunc 4 (15 dígitos: cabe no número) |
+| `erp_fiscal_invoices.invoice_order_item.quantity` | `dec`, 4 | idem |
+| `erp_stock.checkin_item.quantity` | `dec`, 4 | idem |
+| `erp_stock.checkin_item.received` | `dec`, 4 | CHECK `>= 0`, `< 1e11`, trunc 4 |
+| `erp_stock.checkin_item.issue_quantity` | `dec`, 4 | CHECK `> 0`, `< 1e11`, trunc 4, `≤ quantity` |
+| `erp_stock.checkin_event.quantity` | `dec`, 4 | sem CHECK; herda de `checkin_item.quantity/received` (as funções copiam e formatam `::numeric(24,4)`) |
+| `erp_stock.checkin_event.previous` | `dec`, 4 | sem CHECK; valor anterior da mesma coluna de `checkin_item` |
+| `erp_stock_mirror.observation.physical` | `dec_text`, até 12 | gravada a partir de `erp_stock_mirror.number()`: `abs < 1e24`, `min_scale ≤ 12`, `trim_scale` |
+| `erp_stock_mirror.observation.virtual` | `dec_text`, até 12 | idem |
+| `erp_stock_mirror.observation.physical_delta` | `dec_text`, até 12 | diferença de duas leituras (até 2e24) |
+| `erp_stock_mirror.observation.virtual_delta` | `dec_text`, até 12 | idem |
+
+**Teto do i64:** com 10 casas, ±922 milhões; os preços do Fagoo chegam a 14
+inteiros + 10 casas (24 dígitos). Escala menor quebraria o próprio teste do
+Fagoo (10 casas são exigidas), então os 9 preços e as 4 observações do
+espelho viram `dec_text`. **Achado de quebra:** as 3 colunas tipadas
+`numeric(30,10)` (`product_cost_history.cost_price` e `.purchase_price`,
+`item_cost_applied.unit_cost`) também estouravam o i64 na regra anterior
+(`dec_i64` para precisão > 15); a regra agora é `dec_i64` só até 18 dígitos e
+`dec_text` acima.
+
+`dec_text` guarda o mesmo texto de `numeric::text` (`engine/dec.ts`
+`decText`): `numeric(p,s)` arredonda e completa até `s` casas; `numeric` puro
+conserva as casas de entrada, como o Postgres (`1.2345000000` volta
+`1.2345000000`). Comparação, soma e teto ficam em TS (`compareDec`, `exact`);
+no SQL só o sinal (`>= 0`, `> 0`) e o formato viram CHECK. As quantidades de
+escala 4 em `dec` perdem a escala de exibição de entrada (`2.5` volta
+`2.5000`): as funções do Fagoo formatam a saída com `::numeric(24,4)`, e o
+porte faz igual. O motor recusa casas a mais (CHECK `trunc`) em vez de
+arredondar.
 
 A prova por comportamento pegou um erro real do tradutor (`jsonb ? 'chave'`
 com JSON nulo: nulo no Postgres, falso no SQLite) e um erro do próprio teste
@@ -269,6 +320,8 @@ ligada (escritas 503).
 5. **`numeric(16–18, s)` é i64 lido como TEXT**, não "INTEGER com
    CHECK ≤ 2^53": `numeric(18,6)` chega a 999999999999.999999 (10^18
    escalado), e o Fagoo testa esse teto. `numeric(≤15)` continua número.
+   **Acima de 18 dígitos** (`numeric(30,10)`, preços de 14+10) o i64 estoura:
+   decimal exato em TEXT (`dec_text`), conta em TS.
 6. **Tipos de argumento antes de tudo**: uuid/date inválidos falham antes do
    corpo do RPC (22P02, 22007, 22008), como no Postgres.
 7. **`LIKE '%…%'`** com consulta do usuário vira `instr()` (padrão > 50 bytes
@@ -287,7 +340,7 @@ ligada (escritas 503).
 Medida do porte: `erp_stock_post` (21 KB de PL/pgSQL sem a lista constante de
 permissões) virou ~450 linhas de TS: **~21 linhas por KB**, contra as ~35 que
 a estimativa do plano supunha (115 mil linhas para 3,3 MB). Somam-se ao porte
-das funções: os 240 gatilhos pendentes (guardas em TS), os 227 CHECKs
+das funções: os 240 gatilhos pendentes (guardas em TS), os 222 CHECKs
 pendentes e a adaptação dos testes que usam SQL direto.
 
 | # | Domínio | Plano (mil linhas) | Revisado (mil linhas) | Observação |
@@ -333,7 +386,7 @@ uma sessão. O gargalo é a preparação dos testes: quase todos usam
   diferencial aleatório com mutações de um campo (`stock-post-diff`).
 - **Esquema:** `scripts/erp/gen-sqlite.mjs` (decisões em
   `scripts/erp/overrides.mjs`, por domínio); `tests/erp/schema-parity.test.mjs`
-  tem tetos para pendências (CHECK 227, gatilhos 240): baixe ao portar.
+  tem tetos para pendências (CHECK 222, gatilhos 240): baixe ao portar.
   `src/erp/schema/` e `src/erp/engine/` congelam depois da fase 0, com um
   dono; mudança no gerador sobe `ERP_DDL_VERSION`.
 - **Regras do dialeto:** as dez acima, e `docs/ERP-FASE0.md`, prova 1.
