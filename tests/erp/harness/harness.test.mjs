@@ -12,7 +12,7 @@ import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
 import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
 import { callRpc } from "../../../src/erp/engine/registry.ts";
-import { dualFixture } from "./dual-fixture.mjs";
+import { dualFixture, wireArgs } from "./dual-fixture.mjs";
 import { pgIdentity } from "./identity.mjs";
 import { freshLite } from "./node-driver.mjs";
 import { SEED_LEAVES_NORMALIZED_NULL, applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
@@ -538,4 +538,12 @@ test("ponta a ponta: espelho, ids novos, __fold, ids existentes e resposta", asy
   } finally {
     await f.close();
   }
+});
+
+test("argumentos pelo fio: undefined some nos dois motores (achado da G)", () => {
+  const id = randomUUID();
+  assert.deepEqual(wireArgs({ p_user_id: id, p_extra: undefined, p_data: { campo: undefined, nome: "x", lista: [1, undefined] } }), {
+    p_user_id: id,
+    p_data: { nome: "x", lista: [1, null] },
+  });
 });
