@@ -151,7 +151,15 @@ export function entregaSchemas() {
     },
     EntregaDone: {
       type: "object",
-      properties: { note: { type: "string", maxLength: 500 } },
+      properties: {
+        note: { type: "string", maxLength: 500 },
+        code: {
+          type: "string",
+          pattern: "^[0-9]{4}$",
+          description:
+            "Código de confirmação que o cliente recebeu (com confirm_code ligado, exigido do entregador: 409 code_required/code_invalid, 423 code_locked; a equipe conclui sem ele).",
+        },
+      },
     },
     EntregaCancel: {
       type: "object",

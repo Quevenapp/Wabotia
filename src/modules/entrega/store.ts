@@ -325,22 +325,13 @@ export function mustBeCourierOf(actor: Actor, row: DeliveryRow) {
 
 /**
  * Ator com que a Entrega lê e muda o pedido no Pedido em nome do entregador
- * por QR (que não tem escopos): só depois de conferir que a credencial é desta
- * entrega. Aparece no histórico do pedido como "module:entrega".
+ * (QR ou pessoa só com o papel entregador), sempre depois de conferir que ele
+ * é desta entrega: o ator de módulo do núcleo (revisão A, item 3), que só
+ * alcança o Pedido e, lá, só os estados de entrega. Aparece no histórico do
+ * pedido como "module:entrega", com o nome de quem agiu.
  */
 export function pedidoActor(ctx: ModuleContext, actor: Actor): Actor {
-  if (!actor.credential) return actor;
-  return {
-    id: "module:entrega",
-    kind: "user",
-    name: `Entrega (${actor.name})`,
-    role: "operator",
-    profiles: [ctx.profile],
-    scopes: [],
-    bots: [],
-    rate: 0,
-    runLimit: 0,
-  };
+  return ctx.moduleActor({ reach: ["pedido"], label: actor.name });
 }
 
 /** Fecha o QR e a credencial da entrega: o app recebe 401. */
@@ -674,14 +665,18 @@ export async function start(
   // (onStatusNotice) roda dentro do pedido.status e já encontra a entrega a
   // caminho para mandar o botão Acompanhar na mesma mensagem.
   const at = now();
+  // Código de confirmação (desligado por padrão): nasce na saída e vai ao
+  // cliente com o aviso "saiu para entrega" (./pedido-hooks.ts, ./notify.ts).
+  const code = cfg.confirm_code.enabled ? newConfirmCode() : null;
   await exec(
     ctx.env,
-    "UPDATE entrega_deliveries SET status='en_route',started_at=?,next_update_at=?,dest_lat=coalesce(?,dest_lat),dest_lng=coalesce(?,dest_lng),dest_source=CASE WHEN ? IS NULL THEN dest_source ELSE 'app' END,updated=? WHERE id=? AND status='assigned'",
+    "UPDATE entrega_deliveries SET status='en_route',started_at=?,next_update_at=?,dest_lat=coalesce(?,dest_lat),dest_lng=coalesce(?,dest_lng),dest_source=CASE WHEN ? IS NULL THEN dest_source ELSE 'app' END,confirm_code=?,confirm_attempts=0,updated=? WHERE id=? AND status='assigned'",
     at,
     at + cfg.updates.every_minutes * 60000,
     dest?.lat ?? null,
     dest?.lng ?? null,
     dest?.lat ?? null,
+    code,
     at,
     row.id,
   );
@@ -716,6 +711,62 @@ export async function start(
   return { ...view, pedido_status: pedidoStatus, app: appParams(cfg, fresh) };
 }
 
+/** Quatro dígitos ao acaso (0000 a 9999), sem viés. */
+export function newConfirmCode() {
+  const buf = new Uint32Array(1);
+  let n: number;
+  do {
+    crypto.getRandomValues(buf);
+    n = buf[0];
+  } while (n >= 4_294_960_000);
+  return String(n % 10_000).padStart(4, "0");
+}
+
+/** Frase do código para o cliente (com o aviso de saída). */
+export const confirmSentence = (code: string) =>
+  `Código de entrega: ${code}. Informe ao entregador só quando receber o pedido.`;
+
+/**
+ * "Entreguei" do entregador com o código ligado: confere o código, conta a
+ * tentativa (UPDATE condicionado, as erradas ficam gravadas) e trava no
+ * limite; a equipe conclui sem o código.
+ */
+async function checkConfirmCode(
+  ctx: ModuleContext,
+  cfg: EntregaConfig,
+  row: DeliveryRow,
+  value: unknown,
+) {
+  const expected = (row as any).confirm_code as string | null;
+  if (!expected) return;
+  const given = typeof value === "string" ? value.replace(/\D/g, "") : "";
+  const counted = await exec(
+    ctx.env,
+    "UPDATE entrega_deliveries SET confirm_attempts=confirm_attempts+1,updated=? WHERE id=? AND confirm_attempts<?",
+    now(),
+    row.id,
+    cfg.confirm_code.attempts,
+  );
+  if (!counted.meta?.changes)
+    throw new ApiError(
+      423,
+      "code_locked",
+      "Tentativas do código esgotadas. Fale com a loja: ela conclui a entrega.",
+    );
+  if (given === expected) return;
+  const left =
+    cfg.confirm_code.attempts - ((row as any).confirm_attempts + 1);
+  throw new ApiError(
+    409,
+    given ? "code_invalid" : "code_required",
+    given
+      ? left > 0
+        ? `Código errado. Restam ${left} ${left === 1 ? "tentativa" : "tentativas"}.`
+        : "Código errado. Tentativas esgotadas: fale com a loja."
+      : "Peça ao cliente o código de entrega (4 dígitos) que ele recebeu no WhatsApp.",
+  );
+}
+
 /** Parâmetros do GPS e do envio para o app (frequência, lote, bateria). */
 export function appParams(cfg: EntregaConfig, row: DeliveryRow) {
   const near =
@@ -747,6 +798,9 @@ export async function finish(
       : "Esta entrega não está em andamento.",
   );
   const note = text(data.note, 500, "Observação");
+  // Código de confirmação: o entregador conclui só com ele; a equipe, sem.
+  const byCourier = isCourierOf(actor, row);
+  if (byCourier) await checkConfirmCode(ctx, cfg, row, data.code);
   // A entrega é concluída antes de mudar o Pedido: o gancho de estado do
   // Pedido (onOrderStatusChanged) já a encontra entregue e não repete.
   const at = now();
@@ -758,7 +812,22 @@ export async function finish(
     at,
     row.id,
   );
-  await history(ctx, row.id, "delivered", actor.id, note);
+  await history(
+    ctx,
+    row.id,
+    "delivered",
+    actor.id,
+    [
+      note,
+      (row as any).confirm_code
+        ? byCourier
+          ? "Código de entrega conferido."
+          : "Concluída pela loja sem o código de entrega."
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
   await endAccess(ctx, row.id, "Entrega concluída.");
   const asPedido = pedidoActor(ctx, actor);
   let pedidoError: string | null = null;

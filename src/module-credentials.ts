@@ -16,7 +16,7 @@
 // Um QR novo para o mesmo registro revoga o anterior e a credencial ativa.
 import { all, exec, one } from "./db";
 import { ApiError, type Actor, type Env, now, requireValue, uid } from "./types";
-import { sha } from "./security";
+import { hmac, sha } from "./security";
 import { newWebStepCode, publicOrigin } from "./web-steps";
 
 export const CREDENTIAL_PREFIX = "wabx_";
@@ -103,13 +103,14 @@ export async function issueClaim(
       "origin_unknown",
       "O endereço público desta instalação ainda não é conhecido. Abra o painel pelo endereço usado pelos clientes e tente de novo.",
     );
+  // Prazos curtos para um QR que pode sair impresso (revisão A, item 4).
   requireValue(
-    input.claimMinutes >= 5 && input.claimMinutes <= 1440,
-    "Validade do QR: de 5 a 1440 minutos.",
+    input.claimMinutes >= 5 && input.claimMinutes <= 120,
+    "Validade do QR: de 5 a 120 minutos.",
   );
   requireValue(
-    input.ttlMinutes >= 15 && input.ttlMinutes <= 720,
-    "Validade da credencial: de 15 a 720 minutos.",
+    input.ttlMinutes >= 15 && input.ttlMinutes <= 360,
+    "Validade da credencial: de 15 a 360 minutos.",
   );
   await revokeCredentials(
     env,
@@ -168,6 +169,20 @@ export async function claimOwner(env: Env, code: unknown) {
   );
 }
 
+/**
+ * IP de quem leu o QR, para comparar leituras sem guardar o IP: HMAC com a
+ * MASTER_KEY (revisão A). O SHA sem sal se revertia pelo espaço do IPv4.
+ */
+export async function ipHash(env: Env, ip: string | undefined) {
+  if (!env.MASTER_KEY || env.MASTER_KEY.length < 32)
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "Configure MASTER_KEY nos secrets do Worker.",
+    );
+  return hmac(env.MASTER_KEY, "credential-ip:" + (ip || "local"));
+}
+
 const clean = (value: unknown, max: number) =>
   typeof value === "string"
     ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max)
@@ -211,7 +226,7 @@ export async function claim(
     expires,
     name,
     clean(input.device, 80),
-    await sha(input.ip || "local"),
+    await ipHash(env, input.ip),
     at,
     row.id,
   );

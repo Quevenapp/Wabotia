@@ -2,6 +2,8 @@
 // arquivo não importa nada de propósito: o núcleo (service, engine, web-steps)
 // consulta os ganchos sem criar ciclo de importação com os módulos.
 import type { Answers } from "../web-steps";
+// Só o erro da API (src/types.ts não importa módulos: sem ciclo).
+import { ApiError } from "../types";
 
 type Hook = (...args: any[]) => Promise<any>;
 
@@ -218,13 +220,44 @@ export function registerCommand(
 }
 export const moduleCommandHandler = (op: string) => commands.get(op);
 
-export interface ModuleWriteRoute {
+/**
+ * Credencial por QR (wabx_) numa rota do módulo: negada por padrão. A rota
+ * que aceita declara `credential: true` e o núcleo confere que o parâmetro
+ * `credentialParam` (padrão "id") é o registro da credencial (`subject`).
+ * Sem esse parâmetro no caminho, a rota não pode aceitar credencial.
+ */
+export interface CredentialRouteOptions {
+  credential?: boolean;
+  credentialParam?: string;
+}
+
+/** Recusa a credencial numa rota que não a aceita ou de outro registro. */
+export function credentialGate(
+  actor: any,
+  route: { path: string } & CredentialRouteOptions,
+  params: Record<string, string>,
+) {
+  if (!actor?.credential) return;
+  const param = route.credentialParam || "id";
+  if (
+    !route.credential ||
+    !route.path.split("/").includes(":" + param) ||
+    params[param] !== actor.credential.subject
+  )
+    throw new ApiError(
+      403,
+      "credential_scope",
+      "Este acesso vale só para o registro do QR.",
+    );
+}
+
+export interface ModuleWriteRoute extends CredentialRouteOptions {
   method: "POST" | "PUT" | "PATCH" | "DELETE";
   /** Depois de /api/v1/profiles/:profile/, com :id opcional. */
   path: string;
   op: string;
 }
-export interface ModuleReadRoute {
+export interface ModuleReadRoute extends CredentialRouteOptions {
   path: string;
   handler: (
     env: any,
@@ -238,7 +271,7 @@ export interface ModuleReadRoute {
  * dados idempotentes por natureza (posições com horário). Uma escrita por
  * chamada, decidida pelo módulo.
  */
-export interface ModuleTelemetryRoute {
+export interface ModuleTelemetryRoute extends CredentialRouteOptions {
   path: string;
   handler: (
     env: any,

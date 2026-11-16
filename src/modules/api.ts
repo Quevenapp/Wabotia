@@ -15,6 +15,8 @@ import {
   registerMcpTool,
   registerSchedule,
   registerTelemetryRoute,
+  credentialGate,
+  type CredentialRouteOptions,
   registerTurnHandler,
   type ModuleMcpTool,
   registerSettingsValidator,
@@ -91,6 +93,7 @@ import {
   moduleEnabled,
   moduleForMenuType,
   moduleForOperation,
+  moduleForRoute,
   type ModuleDefinition,
 } from "./registry";
 
@@ -344,6 +347,16 @@ export interface ModuleContext {
    */
   run(actor: Actor, op: string, data: any, requestId: string): Promise<any>;
   /**
+   * Ator de módulo para `read`/`run` em outro módulo em nome de quem não tem
+   * acesso a ele (o entregador do QR, a pessoa só com o papel entregador).
+   * Aparece nos históricos como `module:<id>` (com `label` no nome), nunca
+   * tem papel (`granted`), não entra no MCP nem nas rotas HTTP, e só alcança
+   * os módulos de `reach`; o módulo dono confere o que esse ator pode
+   * (o Pedido só aceita dele os estados de entrega). A credencial por QR
+   * nunca chega a `read`/`run`.
+   */
+  moduleActor(options: { reach: string[]; label?: string }): Actor;
+  /**
    * Acorda o Coordinator da área: o alarme roda em seguida (a rodada dos
    * módulos no máximo uma vez por minuto, e as entregas da fila). Para rotas
    * fora do Coordinator (onTelemetry) que gravaram algo a avisar.
@@ -466,6 +479,26 @@ function refuseBound(actor: Actor) {
       403,
       "bound_key",
       "Esta chave atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
+    );
+}
+
+/**
+ * `read`/`run` em outro módulo (revisão A, credencial por QR): a credencial
+ * nunca passa (ela só vale nas rotas que a declaram); o ator de módulo, só
+ * nos módulos do alcance dele.
+ */
+function refuseCrossing(actor: Actor, target: string | undefined) {
+  if (actor.credential)
+    throw new ApiError(
+      403,
+      "credential_scope",
+      "Este acesso vale só para o registro do QR.",
+    );
+  if (actor.module && (!target || !actor.module.reach.includes(target)))
+    throw new ApiError(
+      403,
+      "module_scope",
+      `O módulo ${actor.module.id} não age neste módulo.`,
     );
 }
 
@@ -807,6 +840,7 @@ export function modulesApi(
     },
     async read(actor, path, query = {}) {
       refuseBound(actor);
+      refuseCrossing(actor, moduleForRoute(path.split("/")[0])?.id);
       for (const route of moduleRoutes().read) {
         const params = matchRoute(route.path, path);
         if (params) {
@@ -826,7 +860,31 @@ export function modulesApi(
       // Só comandos de módulo (rotas públicas deles), nunca os do núcleo.
       if (!moduleForOperation(op) || moduleForOperation(op)!.id === moduleId)
         throw new Error(`run: ${op} não é comando de outro módulo.`);
+      refuseCrossing(actor, moduleForOperation(op)!.id);
       return perform(env, actor, profile, op, data, requestId);
+    },
+    moduleActor(o) {
+      const reach = [...new Set(o.reach)];
+      if (!reach.length || reach.some((id) => id === moduleId || !moduleById(id)))
+        throw new Error(
+          `moduleActor: alcance inválido (${reach.join(", ")}) no módulo ${moduleId}.`,
+        );
+      const name = moduleById(moduleId)?.name || moduleId;
+      return {
+        id: `module:${moduleId}`,
+        // Aplicação para as regras de acesso por pessoa (que não se aplicam a
+        // ela) e para `granted` (nunca tem papel); os escopos são os de ler e
+        // mudar registros pela API pública do outro módulo.
+        kind: "app",
+        name: o.label ? `${name} (${String(o.label).slice(0, 60)})` : name,
+        role: "service",
+        profiles: [profile],
+        scopes: ["conversations:read", "conversations:write", "contacts:read"],
+        bots: [],
+        rate: 0,
+        runLimit: 0,
+        module: { id: moduleId, reach },
+      };
     },
     issueCredential: (subject, o) =>
       issueClaim(env, {
@@ -980,9 +1038,23 @@ export function onCommand(
   const definition = moduleById(moduleId);
   if (!definition?.operations.some((prefix) => op.startsWith(prefix)))
     throw new Error(`Operação ${op} fora de operations do módulo ${moduleId}.`);
-  registerCommand(op, (env, actor, profile, data, requestId) =>
-    handler(modulesApi(env, profile, moduleId), actor, data, { requestId }),
-  );
+  registerCommand(op, (env, actor, profile, data, requestId) => {
+    // Segunda conferência da credencial por QR (a primeira é na rota): só
+    // comandos de rota que a aceita, do registro dela.
+    if (actor?.credential) {
+      const routes = moduleRoutes().write.filter((r) => r.op === op);
+      if (!routes.length) credentialGate(actor, { path: "" }, {});
+      for (const route of routes)
+        credentialGate(actor, route, {
+          [route.credentialParam || "id"]: String(
+            data?.[route.credentialParam || "id"] ?? "",
+          ),
+        });
+    }
+    return handler(modulesApi(env, profile, moduleId), actor, data, {
+      requestId,
+    });
+  });
 }
 
 const ownsPath = (definition: ModuleDefinition | null, path: string) =>
@@ -1010,11 +1082,14 @@ export function onRead(
     actor: Actor,
     request: { params: Record<string, string>; query: Record<string, string> },
   ) => Promise<any>,
+  /** `{credential: true}`: aceita a credencial por QR do registro `:id`. */
+  options: CredentialRouteOptions = {},
 ) {
   if (!ownsPath(moduleById(moduleId), path))
     throw new Error(`Rota ${path} fora de routes do módulo ${moduleId}.`);
   registerReadRoute({
     path,
+    ...options,
     handler: async (env, actor, profile, request) => {
       const ctx = modulesApi(env, profile, moduleId);
       await ctx.requireEnabled();
@@ -1040,11 +1115,14 @@ export function onTelemetry(
     actor: Actor,
     request: { params: Record<string, string>; body: any },
   ) => Promise<any>,
+  /** `{credential: true}`: aceita a credencial por QR do registro `:id`. */
+  options: CredentialRouteOptions = {},
 ) {
   if (!ownsPath(moduleById(moduleId), path))
     throw new Error(`Rota ${path} fora de routes do módulo ${moduleId}.`);
   registerTelemetryRoute({
     path,
+    ...options,
     handler: async (env, actor, profile, request) => {
       const ctx = modulesApi(env, profile, moduleId, { worker: true });
       await ctx.requireEnabled();
@@ -1103,9 +1181,13 @@ export function filteredHandlers(
   filter: (ctx: ModuleContext, actor: Actor, value: any) => any,
 ) {
   return {
-    onRead: (...[moduleId, path, handler]: Parameters<typeof onRead>) =>
-      onRead(moduleId, path, async (ctx, actor, request) =>
-        filter(ctx, actor, await handler(ctx, actor, request)),
+    onRead: (...[moduleId, path, handler, options]: Parameters<typeof onRead>) =>
+      onRead(
+        moduleId,
+        path,
+        async (ctx, actor, request) =>
+          filter(ctx, actor, await handler(ctx, actor, request)),
+        options,
       ),
     onCommand: (...[moduleId, op, handler]: Parameters<typeof onCommand>) =>
       onCommand(moduleId, op, async (ctx, actor, data, request) =>

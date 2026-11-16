@@ -30,6 +30,12 @@ export interface EntregaConfig {
    * credencial depois de lido (revogada antes, quando a entrega termina).
    */
   qr: { claim_minutes: number; credential_hours: number };
+  /**
+   * Código de confirmação (4 dígitos): vai ao cliente com o aviso de saída e
+   * o entregador só conclui com ele, até `attempts` tentativas; a equipe
+   * conclui sem o código. Desligado por padrão (decisão do usuário pendente).
+   */
+  confirm_code: { enabled: boolean; attempts: number };
   /** Velocidade média para a previsão (km/h). */
   speed_kmh: number;
   /** Fator de ruas sobre a linha reta. */
@@ -91,7 +97,10 @@ export const DEFAULT_TEXTS: Record<TextKey, string> = {
 };
 
 export const DEFAULT_CONFIG: EntregaConfig = {
-  qr: { claim_minutes: 180, credential_hours: 8 },
+  // QR impresso no cupom pode ser fotografado: leitura curta e acesso curto
+  // (revisão A, item 4). O acesso já é revogado quando a entrega termina.
+  qr: { claim_minutes: 20, credential_hours: 3 },
+  confirm_code: { enabled: false, attempts: 5 },
   speed_kmh: 25,
   road_factor: 1.3,
   route_provider: "straight_line",
@@ -221,10 +230,15 @@ function normalize(raw: unknown, strict: boolean): EntregaConfig {
       "A leitura do GPS precisa ser mais frequente que o envio.",
     );
   const qr = obj(v.qr);
+  const code = obj(v.confirm_code);
   return {
     qr: {
-      claim_minutes: int(qr.claim_minutes, d.qr.claim_minutes, 10, 1440, "Validade do QR (min)", strict),
-      credential_hours: int(qr.credential_hours, d.qr.credential_hours, 1, 12, "Validade do acesso pelo QR (h)", strict),
+      claim_minutes: int(qr.claim_minutes, d.qr.claim_minutes, 5, 120, "Validade do QR (min)", strict),
+      credential_hours: int(qr.credential_hours, d.qr.credential_hours, 1, 6, "Validade do acesso pelo QR (h)", strict),
+    },
+    confirm_code: {
+      enabled: bool(code.enabled, d.confirm_code.enabled, "Código de confirmação", strict),
+      attempts: int(code.attempts, d.confirm_code.attempts, 3, 10, "Tentativas do código de confirmação", strict),
     },
     speed_kmh: int(v.speed_kmh, d.speed_kmh, 5, 120, "Velocidade média (km/h)", strict),
     road_factor:

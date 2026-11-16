@@ -127,8 +127,13 @@ onCommand(MODULE, "entrega.qr", (ctx, actor, data) => issueQr(ctx, actor, data))
 onCredentialClaim(MODULE, (ctx, credential) => qrClaimed(ctx, credential));
 
 // O que o app do entregador mostra (credencial do QR ou pessoa atribuída).
-onRead(MODULE, "entrega/deliveries/:id/courier", (ctx, actor, { params }) =>
-  courierDelivery(ctx, actor, params.id),
+// As rotas do app do entregador declaram `credential: true`: a credencial do
+// QR só passa nelas, e só com o :id da entrega dela (o núcleo nega o resto).
+onRead(
+  MODULE,
+  "entrega/deliveries/:id/courier",
+  (ctx, actor, { params }) => courierDelivery(ctx, actor, params.id),
+  { credential: true },
 );
 
 // Conversa da entrega: entregador ↔ loja (store) e entregador ↔ cliente
@@ -137,10 +142,12 @@ onRead(
   MODULE,
   "entrega/deliveries/:id/messages",
   (ctx, actor, { params, query }) => listMessages(ctx, actor, params.id, query),
+  { credential: true },
 );
 onRoute(MODULE, {
   method: "POST",
   path: "entrega/deliveries/:id/messages",
+  credential: true,
   op: "entrega.message",
 });
 onCommand(MODULE, "entrega.message", (ctx, actor, data, { requestId }) =>
@@ -170,6 +177,7 @@ onCommand(MODULE, "entrega.assign", (ctx, actor, data) =>
 onRoute(MODULE, {
   method: "POST",
   path: "entrega/deliveries/:id/destination",
+  credential: true,
   op: "entrega.destination",
 });
 onCommand(MODULE, "entrega.destination", (ctx, actor, data) =>
@@ -179,6 +187,7 @@ onCommand(MODULE, "entrega.destination", (ctx, actor, data) =>
 onRoute(MODULE, {
   method: "POST",
   path: "entrega/deliveries/:id/start",
+  credential: true,
   op: "entrega.start",
 });
 onCommand(MODULE, "entrega.start", async (ctx, actor, data, { requestId }) => {
@@ -190,6 +199,7 @@ onCommand(MODULE, "entrega.start", async (ctx, actor, data, { requestId }) => {
 onRoute(MODULE, {
   method: "POST",
   path: "entrega/deliveries/:id/delivered",
+  credential: true,
   op: "entrega.deliver",
 });
 onCommand(
@@ -205,6 +215,7 @@ onCommand(
 onRoute(MODULE, {
   method: "POST",
   path: "entrega/deliveries/:id/cancel",
+  credential: true,
   op: "entrega.cancel",
 });
 onCommand(MODULE, "entrega.cancel", async (ctx, actor, data) => {
@@ -227,6 +238,7 @@ onTelemetry(
     );
     return positions(ctx, actor, params.id, body);
   },
+  { credential: true },
 );
 
 // Página de acompanhamento do cliente (link de uso único, com prazo).

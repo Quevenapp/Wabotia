@@ -12,6 +12,7 @@ import { runDue, purge } from "../src/modules/entrega/notify";
 import { entregaConfig } from "../src/modules/entrega/config";
 import { distanceM, straightLine } from "../src/modules/entrega/geo";
 import { mapGrid } from "../src/web-track";
+import { hmac, sha } from "../src/security";
 import { measure } from "./d1-counter";
 import {
   api,
@@ -762,6 +763,301 @@ describe("entrega: entregador pelo QR, sem login", () => {
     for (let i = 0; i < 10; i++)
       expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(404);
     expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(429);
+  });
+  // ---------------------------------------------------------------------------
+  // Revisão A da credencial por QR (sessao-A-revisao-credencial-qr.md)
+
+  /** Duas entregas na mesma área; a credencial é da primeira. */
+  async function twoDeliveries(entrega: any = {}) {
+    const { f, menu } = await setup(entrega);
+    const admin = await bearer(f.admin);
+    const base = `/profiles/${f.profile}/entrega/deliveries`;
+    const make = async () => {
+      const phone = "5511974" + String(Math.random()).slice(2, 8);
+      const { c, order } = await deliveryOrder(f, menu, phone);
+      const created = await (
+        await api(admin, base, "POST", { source: "pedido", ref_id: order.id })
+      ).json<any>();
+      return { c, order, phone, created };
+    };
+    const mine = await make();
+    const other = await make();
+    const qr = await (
+      await api(admin, `${base}/${mine.created.id}/qr`, "POST", {})
+    ).json<any>();
+    const ip = "203.0.113." + Math.floor(Math.random() * 250);
+    const got = await (
+      await claim(
+        { code: qr.qr.url, name: "Carlos Souza", device: "Moto G" },
+        ip,
+      )
+    ).json<any>();
+    return {
+      f,
+      menu,
+      admin,
+      base,
+      mine,
+      other,
+      token: got.token as string,
+      ip,
+    };
+  }
+
+  it("MCP recusa a credencial wabx_", async () => {
+    const { token } = await twoDeliveries();
+    const res = await SELF.fetch("https://test/api/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("negar por padrão: toda rota da Entrega recusa o wabx_ de outra entrega e as não declaradas", async () => {
+    const { f, mine, other, token } = await twoDeliveries();
+    const routes = moduleRoutes();
+    const all = [
+      ...routes.read
+        .filter((r) => r.path.startsWith("entrega"))
+        .map((r) => ({ method: "GET", ...r })),
+      ...routes.write
+        .filter((r) => r.path.startsWith("entrega"))
+        .map((r) => ({ ...r })),
+      ...routes.telemetry
+        .filter((r) => r.path.startsWith("entrega"))
+        .map((r) => ({ method: "POST", ...r })),
+    ];
+    expect(all.length).toBeGreaterThan(15);
+    const call = (method: string, path: string, id: string) =>
+      SELF.fetch(
+        `https://test/api/v1/profiles/${f.profile}/${path.replace(":id", id)}`,
+        {
+          method,
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "application/json",
+            "Idempotency-Key": uid(),
+          },
+          body: method === "GET" ? undefined : JSON.stringify({ points: [] }),
+        },
+      );
+    const accepted: string[] = [];
+    for (const route of all) {
+      // Com o :id de OUTRA entrega (ou sem :id): sempre 403 credential_scope.
+      const res = await call(route.method, route.path, other.created.id);
+      expect(res.status, `${route.method} ${route.path}`).toBe(403);
+      expect((await res.json<any>()).error.code).toBe("credential_scope");
+      if (route.credential) accepted.push(`${route.method} ${route.path}`);
+      // Rota que não declarou: 403 mesmo com o :id da própria entrega.
+      else if (route.path.includes(":id")) {
+        const own = await call(route.method, route.path, mine.created.id);
+        expect(own.status, `${route.method} ${route.path} (própria)`).toBe(403);
+      }
+    }
+    // As rotas do app do entregador, e só elas.
+    expect(accepted.sort()).toEqual(
+      [
+        "GET entrega/deliveries/:id/courier",
+        "GET entrega/deliveries/:id/messages",
+        "POST entrega/deliveries/:id/messages",
+        "POST entrega/deliveries/:id/start",
+        "POST entrega/deliveries/:id/destination",
+        "POST entrega/deliveries/:id/delivered",
+        "POST entrega/deliveries/:id/cancel",
+        "POST entrega/deliveries/:id/positions",
+      ].sort(),
+    );
+  });
+
+  it("ator de módulo: só o Pedido, só os estados de entrega; credencial fora de read/run", async () => {
+    const { f, menu, mine } = await twoDeliveries();
+    const ctx = modulesApi(env, f.profile, "entrega");
+    const actor = ctx.moduleActor({ reach: ["pedido"], label: "Carlos" });
+    expect(actor).toMatchObject({ id: "module:entrega", kind: "app" });
+    expect(await ctx.granted(actor, "courier")).toBe(false);
+    const id = mine.order.id;
+    for (const [op, data] of [
+      ["pedido.status", { id, status: "cancelled", reason: "x" }],
+      ["pedido.payment.paid", { id }],
+      ["pedido.payment.method", { id, method: "cash" }],
+      ["pedido.order.update", { id, notes: "x" }],
+      ["pedido.store.pause", { paused: true }],
+    ] as const)
+      await expect(ctx.run(actor, op, data, uid()), op).rejects.toMatchObject({
+        code: "module_forbidden",
+      });
+    // Saiu para entrega vale, e aparece no histórico como module:entrega.
+    await ctx.run(
+      actor,
+      "pedido.status",
+      { id, status: "out_for_delivery" },
+      uid(),
+    );
+    expect(await orderStatus(id)).toBe("out_for_delivery");
+    const h = await one(
+      env,
+      "SELECT actor FROM pedido_history WHERE order_id=? AND to_status='out_for_delivery'",
+      id,
+    );
+    expect(h.actor).toBe("module:entrega");
+    // Fora do alcance: outro módulo.
+    await expect(ctx.read(actor, "agenda")).rejects.toMatchObject({
+      code: "module_scope",
+    });
+    // Pedido de retirada não é dele.
+    const pickup = await run(f, f.admin, "pedido.order.create", {
+      items: [{ item_id: menu.suco.id, quantity: 1 }],
+      fulfillment: "pickup",
+      customer_name: "Balcão",
+      payment_method: "card",
+    });
+    await expect(
+      ctx.run(
+        actor,
+        "pedido.status",
+        { id: pickup.id, status: "ready" },
+        uid(),
+      ),
+    ).rejects.toMatchObject({ code: "module_forbidden" });
+    // A credencial nunca chega a read/run de outro módulo.
+    const cred = {
+      ...actor,
+      module: undefined,
+      credential: { id: "x", module: "entrega", subject: mine.created.id },
+    };
+    await expect(
+      ctx.read(cred as Actor, `pedido/orders/${id}`),
+    ).rejects.toMatchObject({
+      code: "credential_scope",
+    });
+  });
+
+  it("prazos curtos, aviso da leitura na conversa e IP com HMAC", async () => {
+    expect(entregaConfig({}).qr).toEqual({
+      claim_minutes: 20,
+      credential_hours: 3,
+    });
+    const { f, admin, mine, ip } = await twoDeliveries();
+    const bad = await api(admin, `/profiles/${f.profile}/settings`, "PUT", {
+      entrega: { qr: { claim_minutes: 121 } },
+    });
+    expect(bad.status).toBe(400);
+    const bad2 = await api(admin, `/profiles/${f.profile}/settings`, "PUT", {
+      entrega: { qr: { credential_hours: 7 } },
+    });
+    expect(bad2.status).toBe(400);
+    const cred = await one(
+      env,
+      "SELECT claim_expires,created,expires,claimed_at,claimed_ip_hash FROM module_credentials WHERE subject=?",
+      mine.created.id,
+    );
+    expect(cred.claim_expires - cred.created).toBe(20 * 60000);
+    expect(cred.expires - cred.claimed_at).toBe(3 * 3600000);
+    expect(cred.claimed_ip_hash).toBe(
+      await hmac(env.MASTER_KEY, "credential-ip:" + ip),
+    );
+    expect(cred.claimed_ip_hash).not.toBe(await sha(ip));
+    const note = await one(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note' AND text LIKE 'QR da entrega%'",
+      mine.c.id,
+    );
+    expect(note.text).toContain("Carlos Souza");
+    expect(note.text).toContain("Moto G");
+  });
+
+  it("código de confirmação: vai com a saída, exigido do entregador, tentativas e a loja conclui sem ele", async () => {
+    const { f, admin, base, mine, token } = await twoDeliveries({
+      confirm_code: { enabled: true, attempts: 3 },
+    });
+    const id = mine.created.id;
+    const go = await api(token, `${base}/${id}/start`, "POST", {
+      destination: DEST,
+    });
+    expect(go.status).toBe(200);
+    const texts = (await outbox(mine.c.id)).map((m) =>
+      String(m.text || m.body || JSON.stringify(m)),
+    );
+    const sent = texts.join("\n").match(/Código de entrega: (\d{4})/);
+    expect(sent).toBeTruthy();
+    // Só uma vez, e o entregador nunca vê o código.
+    expect(texts.join("\n").match(/Código de entrega/g)!.length).toBe(1);
+    const view = await (await api(token, `${base}/${id}/courier`)).json<any>();
+    expect(view.confirm).toEqual({ required: true, attempts_left: 3 });
+    expect(JSON.stringify(view)).not.toContain(sent![1]);
+    const wrong = sent![1] === "0000" ? "1111" : "0000";
+    const none = await api(token, `${base}/${id}/delivered`, "POST", {});
+    expect((await none.json<any>()).error.code).toBe("code_required");
+    const bad = await api(token, `${base}/${id}/delivered`, "POST", {
+      code: wrong,
+    });
+    expect((await bad.json<any>()).error.code).toBe("code_invalid");
+    const ok = await api(token, `${base}/${id}/delivered`, "POST", {
+      code: sent![1],
+    });
+    expect(ok.status).toBe(200);
+    expect(await orderStatus(mine.order.id)).toBe("delivered");
+    void admin;
+    void f;
+  });
+
+  it("código de confirmação: tentativas esgotadas travam o entregador e a loja conclui", async () => {
+    const other = await twoDeliveries({
+      confirm_code: { enabled: true, attempts: 3 },
+    });
+    const oid = other.mine.created.id;
+    await api(other.token, `${other.base}/${oid}/start`, "POST", {
+      destination: DEST,
+    });
+    for (let i = 0; i < 3; i++)
+      expect(
+        (
+          await api(other.token, `${other.base}/${oid}/delivered`, "POST", {
+            code: "x",
+          })
+        ).status,
+      ).toBe(409);
+    const locked = await api(
+      other.token,
+      `${other.base}/${oid}/delivered`,
+      "POST",
+      { code: "9999" },
+    );
+    expect(locked.status).toBe(423);
+    const byStore = await api(
+      other.admin,
+      `${other.base}/${oid}/delivered`,
+      "POST",
+      {},
+    );
+    expect(byStore.status).toBe(200);
+    // O histórico registra que a loja concluiu sem o código.
+    const h = await one(
+      env,
+      "SELECT note FROM entrega_history WHERE delivery_id=? AND status='delivered'",
+      oid,
+    );
+    expect(h.note).toContain("sem o código");
+  });
+
+  it("código desligado por padrão: o entregador conclui sem ele", async () => {
+    const { base, mine, token } = await twoDeliveries();
+    await api(token, `${base}/${mine.created.id}/start`, "POST", {
+      destination: DEST,
+    });
+    const view = await (
+      await api(token, `${base}/${mine.created.id}/courier`)
+    ).json<any>();
+    expect(view.confirm).toEqual({ required: false, attempts_left: null });
+    expect(
+      (await api(token, `${base}/${mine.created.id}/delivered`, "POST", {}))
+        .status,
+    ).toBe(200);
   });
 });
 

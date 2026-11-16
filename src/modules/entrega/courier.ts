@@ -110,6 +110,18 @@ export async function qrClaimed(ctx: ModuleContext, credential: any) {
   await ctx.publish("entrega.assigned", row.id, eventPayload(view), {
     key: `${row.id}:assigned:${courierId}`,
   });
+  // Aviso imediato à loja (revisão A, item 4): nota na conversa do pedido,
+  // com quem leu, para conferir no balcão e gerar outro QR se não for ele.
+  if (fresh.conversation_id)
+    try {
+      await ctx.note(
+        await ctx.conversation(fresh.conversation_id),
+        `QR da entrega (${row.label}) lido por ${credential.label}${credential.device ? `, ${credential.device}` : ""}, às ${hhmm(at)}. Não é o entregador? Gere outro QR na entrega: o acesso de quem leu cai na hora.`,
+        { key: `qr-claimed:${credential.id}` },
+      );
+    } catch {
+      // A leitura vale mesmo sem a nota (conversa apagada ou de grupo).
+    }
   return { delivery: courierSafe(view), app: appParams(cfg, fresh) };
 }
 
@@ -165,6 +177,14 @@ export async function courierDelivery(
   return {
     ...courierSafe(deliveryView(row, cfg)),
     order,
+    // Código de confirmação: só se é exigido e quantas tentativas restam
+    // (o código em si nunca vai ao entregador).
+    confirm: {
+      required: !!(row as any).confirm_code,
+      attempts_left: (row as any).confirm_code
+        ? Math.max(0, cfg.confirm_code.attempts - ((row as any).confirm_attempts || 0))
+        : null,
+    },
     chat: {
       last_seq: await lastSeq(ctx, row.id),
       customer_open: await customerChannelOpen(ctx, row),

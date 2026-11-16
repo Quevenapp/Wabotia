@@ -21,12 +21,17 @@ avulsas; o desenho já prevê visitas técnicas da Ordem de Serviço (veja
 
 1. **Gestão → Módulos → Entrega**: ligue (vem desligado).
 2. Opcional: dê o papel **Entregador** às pessoas fixas da equipe (Gestão →
-   Pessoas, `module_grants: {"entrega:courier": [ids]}`). Entregadores
+   Pessoas e acessos, `entrega:courier` no acesso da pessoa). Entregadores
    avulsos não precisam de nada: usam o QR.
 3. Configure a chave `entrega` (`PUT /profiles/{p}/settings`):
-   - `qr`: `claim_minutes` (validade do QR até ser lido, 10 a 1440, padrão
-     180) e `credential_hours` (validade do acesso depois de lido, 1 a 12,
-     padrão 8; ele termina antes, quando a entrega acaba).
+   - `qr`: `claim_minutes` (validade do QR até ser lido, 5 a 120, padrão
+     20) e `credential_hours` (validade do acesso depois de lido, 1 a 6,
+     padrão 3; ele termina antes, quando a entrega acaba). Prazos curtos
+     porque o QR sai impresso e pode ser fotografado.
+   - `confirm_code`: `enabled` (padrão **desligado**, decisão do usuário
+     pendente) e `attempts` (3 a 10, padrão 5): código de 4 dígitos que o
+     cliente recebe com o aviso de saída e informa ao entregador (veja
+     "Código de confirmação").
    - `speed_kmh` (padrão 25) e `road_factor` (1,3): velocidade média e quanto
      as ruas somam à linha reta, para a previsão.
    - `updates`: `mode` `eta` (previsão em texto), `location` (mensagem de
@@ -118,14 +123,40 @@ QR de uma via reimpressa só vale se for o último gerado.
 - **A primeira leitura vence** e a loja vê quem leu (nome, aparelho, hora)
   no detalhe da entrega e no evento `entrega.qr_claimed`. Se não reconhecer,
   gera outro QR: o anterior e o acesso de quem leu são revogados na hora.
-- O QR vale `qr.claim_minutes` (padrão 3 h) e uma leitura só; a câmera comum
-  do celular abre uma página que só orienta (não gasta o QR).
-- Até 10 leituras por IP a cada 10 minutos.
-- O acesso só alcança aquela entrega: o destino, o resumo do pedido, a
-  posição, a conversa e concluir. Nunca o telefone do cliente, outras
-  entregas, conversas ou cadastros.
+- **A loja sabe na hora:** a leitura vira nota na conversa do pedido ("QR da
+  entrega lido por Carlos Souza, Moto G, às 19:20. Não é o entregador? Gere
+  outro QR…") e o evento `entrega.qr_claimed` (tempo real e webhooks).
+- O QR vale `qr.claim_minutes` (padrão 20 min, no máximo 120) e uma leitura
+  só; o acesso, `qr.credential_hours` (padrão 3 h, no máximo 6). A câmera
+  comum do celular abre uma página que só orienta (não gasta o QR).
+- Até 10 leituras por IP a cada 10 minutos (o IP fica guardado só em HMAC).
+- O acesso só alcança aquela entrega, nas rotas do app do entregador
+  (negado por padrão no núcleo): o destino, o resumo do pedido, a posição, a
+  conversa, sair, concluir e "não consegui entregar". Nunca o telefone do
+  cliente, outras entregas, listas, conversas, cadastros ou o MCP.
+- No Pedido, a Entrega age como `module:entrega` (ator de módulo), que só
+  marca "Saiu para entrega" e "Entregue": nunca cancela nem mexe em
+  pagamento.
+- Com o **código de confirmação** ligado, o QR fotografado não fecha o
+  pedido como entregue: falta o código que só o cliente tem.
 - Confirmação pela loja antes de liberar o acesso fica como opção futura
   (decisão em aberto).
+
+### Código de confirmação (desligado por padrão)
+
+Com `confirm_code.enabled`:
+
+- Na saída nasce um código de 4 dígitos. Ele vai ao cliente **junto do aviso
+  "saiu para entrega"** (na mesma mensagem do botão Acompanhar) ou, quando o
+  Pedido mandou o aviso dele (fora da janela de 24 h, cozinha marcou a saída
+  antes), numa mensagem logo depois, pelas regras dos avisos.
+- "Entregue" do entregador exige `code`. Errado: `409 code_invalid` (com as
+  tentativas que restam); sem código: `409 code_required`; depois de
+  `confirm_code.attempts` erros: `423 code_locked`, e só a loja conclui.
+- A loja (equipe no painel) conclui sem o código; o histórico registra
+  "Concluída pela loja sem o código de entrega".
+- O código nunca vai ao entregador nem aos eventos; some com a posição em
+  `retention_hours`.
 
 ## Contrato do app do entregador
 
@@ -156,7 +187,11 @@ ou notas internas.
 
 **3. Iniciar e concluir.** `POST …/start` `{"destination": {"lat", "lng"}}`,
 `POST …/destination` `{"lat", "lng"}` (corrigir o pino), `POST …/delivered`
-`{"note"}`, `POST …/cancel` `{"reason"}`. Todas com `Idempotency-Key`.
+`{"note", "code"}`, `POST …/cancel` `{"reason"}`. Todas com `Idempotency-Key`.
+Com `confirm.required` (em `/courier`), peça ao cliente o código de 4 dígitos
+e mande em `code`; `409 code_invalid` traz as tentativas que restam no texto
+(e em `confirm.attempts_left` ao reler `/courier`); `423 code_locked`: só a
+loja conclui, mostre "Fale com a loja".
 
 **4. Posições, só com o app aberto.** `POST …/deliveries/{id}/positions`
 (sem `Idempotency-Key`) com até 200 pontos `{t, lat, lng, accuracy, speed}`
@@ -208,8 +243,10 @@ ou notas internas.
 **6. Revogação.** Qualquer `401` (`invalid_token`: entrega concluída ou
 cancelada, QR substituído, prazo vencido) encerra aquela entrega no app:
 apague o token e a fila e volte à primeira tela (ou à lista, se houver outras
-entregas). `403 credential_scope` é chamada fora da entrega do QR (erro do
-app).
+entregas). `403 credential_scope` é chamada fora da entrega do QR ou fora
+das rotas do app do entregador (erro do app): com o token só valem
+`GET …/courier`, `GET`/`POST …/messages`, `POST …/start`, `…/destination`,
+`…/delivered`, `…/cancel` e `…/positions` da entrega dele.
 
 **Várias entregas.** Um entregador pode ler vários QRs: um token por entrega.
 O app junta as entregas na lista, manda as posições de cada uma com o token
@@ -296,8 +333,9 @@ do cliente, e a conversa da entrega.
   Rota esquecida fecha em 8 horas.
 - **Acesso mínimo e curto.** O QR vale uma leitura; o acesso alcança só a
   entrega dele e é revogado ao concluir ou cancelar (no máximo
-  `qr.credential_hours`). Só os hashes do QR e do token ficam guardados. O
-  nome fica no aparelho e na entrega (para o cliente e a equipe).
+  `qr.credential_hours`, padrão 3 h). Só os hashes do QR e do token ficam
+  guardados, e o IP de quem leu em HMAC com a chave do servidor. O nome fica
+  no aparelho e na entrega (para o cliente e a equipe).
 - **Mínimo necessário.** Guarda só a última posição e até 12 pontos dos
   últimos 15 minutos (para a velocidade), nunca o trajeto inteiro. O
   entregador vê o primeiro nome do cliente, o endereço e o pedido; nunca o

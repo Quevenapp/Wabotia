@@ -13,6 +13,7 @@ import {
 } from "../pedido/public";
 import {
   config,
+  confirmSentence,
   deliveryView,
   endAccess,
   eventPayload,
@@ -21,7 +22,7 @@ import {
   STATUS_LABELS,
   type DeliveryStatus,
 } from "./store";
-import { etaSentence, openTrack, windowOpen } from "./notify";
+import { etaSentence, openTrack, setNotified, windowOpen } from "./notify";
 
 const MODULE = "entrega";
 
@@ -108,10 +109,26 @@ onStatusNotice(MODULE, async (env, profile, notice) => {
     return false;
   }
   if (!windowOpen(c)) return false;
-  const text = [notice.text, etaSentence(row, cfg, now())]
+  // Com o código de confirmação ligado, ele vai na mesma mensagem.
+  const code = (row as any).confirm_code as string | null;
+  const text = [
+    notice.text,
+    etaSentence(row, cfg, now()),
+    code ? confirmSentence(code) : "",
+  ]
     .filter(Boolean)
     .join(" ");
-  return openTrack(ctx, cfg, c, row, text, `notice:${notice.key}`, false);
+  const sent = await openTrack(
+    ctx,
+    cfg,
+    c,
+    row,
+    text,
+    `notice:${notice.key}`,
+    false,
+  );
+  if (sent && code) await setNotified(ctx, row.id, "code");
+  return sent;
 });
 
 /**

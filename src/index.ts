@@ -126,8 +126,12 @@ import {
   whatsappReturnLink,
 } from "./web-steps";
 import { trackPage } from "./web-track";
-import { claimOwner } from "./module-credentials";
-import { moduleRoutes, webStepPageHook } from "./modules/hooks";
+import { claimOwner, ipHash } from "./module-credentials";
+import {
+  credentialGate,
+  moduleRoutes,
+  webStepPageHook,
+} from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -301,7 +305,7 @@ app.post(
   bodyLimit({ maxSize: 4 * 1024 }),
   async (c) => {
     const ip = c.req.header("CF-Connecting-IP") || "local";
-    await rate(c.env, "credential-claim:" + (await sha(ip)), 10, 600000);
+    await rate(c.env, "credential-claim:" + (await ipHash(c.env, ip)), 10, 600000);
     const body = await c.req.json<any>().catch(() => ({}));
     const code = String(body?.code ?? "").replace(/^.*\/c\//, "");
     const owner = await claimOwner(c.env, code);
@@ -1582,15 +1586,22 @@ for (const [method, path, op] of commands)
   });
 // Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
 // escrita vira comando no Coordinator da área, como as rotas acima.
+// Credencial por QR: negada por padrão; só a rota que declara
+// `credential: true`, e só com o :id do registro dela (credentialGate).
 for (const route of moduleRoutes().write)
-  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) =>
-    mutate(c, route.op, c.req.param("profile")!, {
+  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) => {
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
+    return mutate(c, route.op, c.req.param("profile")!, {
       ...(route.method === "DELETE"
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    }),
-  );
+    });
+  });
 // Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
 // Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
 // chamadas por minuto por credencial, área e rota.
@@ -1604,6 +1615,7 @@ for (const route of moduleRoutes().telemetry)
       const actor = c.get("actor");
       if (!canProfile(actor, profile))
         throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      credentialGate(actor, route, c.req.param() as Record<string, string>);
       // Conectores não mandam telemetria; a escrita mais barata da API tem
       // limite por credencial e rota no núcleo (revisão A).
       if (actor.kind === "connector")
@@ -1635,6 +1647,11 @@ for (const route of moduleRoutes().read)
     const profile = c.req.param("profile")!;
     if (!canProfile(c.get("actor"), profile))
       throw new ApiError(404, "not_found", "Perfil não encontrado.");
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
     return c.json(
       await route.handler(c.env, c.get("actor"), profile, {
         params: c.req.param() as Record<string, string>,

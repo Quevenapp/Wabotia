@@ -9,6 +9,7 @@ import type { ModuleContext, TrackView } from "../api";
 import { fill, type EntregaConfig } from "./config";
 import {
   config,
+  confirmSentence,
   deliveryView,
   endAccess,
   eventPayload,
@@ -101,7 +102,7 @@ export async function milestone(
   }
 }
 
-async function setNotified(
+export async function setNotified(
   ctx: ModuleContext,
   id: string,
   flag: string,
@@ -199,6 +200,14 @@ export async function announceStart(ctx: ModuleContext, row: DeliveryRow) {
         });
   } else if (parts.length && row.source !== "pedido")
     await milestone(ctx, cfg, c, parts.join(" "), `start:${row.id}`);
+  // Código de confirmação que não foi junto do aviso de saída (o Pedido
+  // mandou o dele, fora da janela ou a cozinha marcou a saída antes): numa
+  // mensagem própria, pelas mesmas regras dos avisos.
+  const code = (row as any).confirm_code as string | null;
+  if (code && !json(row.notified, {}).code) {
+    await milestone(ctx, cfg, c, confirmSentence(code), `code:${row.id}`);
+    await setNotified(ctx, row.id, "code", at);
+  }
   await setNotified(ctx, row.id, "started", at);
 }
 
@@ -404,7 +413,7 @@ export async function purge(ctx: ModuleContext, cfg: EntregaConfig, at: number) 
   for (const row of rows) {
     await exec(
       ctx.env,
-      "UPDATE entrega_deliveries SET last_lat=NULL,last_lng=NULL,last_accuracy=NULL,last_speed=NULL,last_battery=NULL,trail='[]',dest_lat=NULL,dest_lng=NULL,purged_at=? WHERE id=?",
+      "UPDATE entrega_deliveries SET last_lat=NULL,last_lng=NULL,last_accuracy=NULL,last_speed=NULL,last_battery=NULL,trail='[]',dest_lat=NULL,dest_lng=NULL,confirm_code=NULL,purged_at=? WHERE id=?",
       at,
       row.id,
     );

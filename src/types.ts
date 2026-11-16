@@ -36,6 +36,11 @@ export interface Actor {
    * rotas do módulo, só o registro `subject` (a entrega). Sem escopos.
    */
   credential?: { id: string; module: string; subject: string };
+  /**
+   * Ator de módulo (ctx.moduleActor): o módulo `id` age em outros módulos
+   * por ctx.read/ctx.run, só nos de `reach`. Nunca vem de uma requisição.
+   */
+  module?: { id: string; reach: string[] };
 }
 export type Bindings = {
   Bindings: Env;
