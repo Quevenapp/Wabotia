@@ -7,6 +7,7 @@ import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { ERP_TABLES } from "../src/erp/schema/columns.generated";
 import { bearer, fixture } from "./service-center-fixture";
+import { setModule } from "./erp-module-helper";
 
 /** INSERT com os NOT NULL sem padrão preenchidos por tipo (só para o teste). */
 function insert(sql: SqlStorage, table: string, values: Record<string, unknown>) {
@@ -42,6 +43,8 @@ describe("ERP fase 0: costura da erp-api até o objeto", () => {
   it("rota real do Worker serve leitura e escrita pelo motor", async () => {
     const f = await fixture();
     const token = await bearer(f.admin);
+    // O ERP é módulo desligado de fábrica (tests/erp-do-module.test.ts).
+    await setModule(f.profile, "erp", true, f.admin.id);
     const base = `https://test/api/v1/profiles/${f.profile}/erp`;
     const get = (path: string, t = token) => SELF.fetch(base + path, { headers: { Authorization: "Bearer " + t } });
     // Instância criada e vínculo do administrador no ERP (o Fagoo exige
@@ -106,5 +109,6 @@ describe("ERP fase 0: costura da erp-api até o objeto", () => {
     console.log(
       "ERP_API " + JSON.stringify({ first_ms: firstMs, p50_ms: times[10], p95_ms: times[18], max_ms: times[19] }),
     );
-  });
+    // A primeira chamada aplica o esquema e avalia o motor e a erp-api (import dinâmico).
+  }, 120_000);
 });
