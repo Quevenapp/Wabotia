@@ -196,6 +196,15 @@ async function proposeToCustomer(
   call: ReturnType<ModuleMcpTool["call"]>,
   summary: unknown,
 ) {
+  // Execução repetida (provedor caiu no meio): a mesma proposta, sem outro botão.
+  const same = await one(
+    ctx.env,
+    "SELECT id FROM bot_proposals WHERE run_id=? AND operation=? AND params=? AND status='pending'",
+    ctx.run.id,
+    tool.name,
+    JSON.stringify(call.body ?? {}),
+  );
+  if (same) return same.id as string;
   const id = uid(),
     at = now();
   const text =

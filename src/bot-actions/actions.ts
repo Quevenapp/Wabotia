@@ -362,6 +362,15 @@ export async function createProposal(
   buildCall(ctx.profile, op, params);
   const serialized = JSON.stringify(params);
   requireValue(serialized.length <= 20000, "Parâmetros grandes demais.");
+  // Execução repetida (provedor caiu no meio): a mesma proposta, sem outra.
+  const same = await one(
+    ctx.env,
+    "SELECT * FROM bot_proposals WHERE run_id=? AND operation=? AND params=? AND status='pending'",
+    ctx.run.id,
+    op.name,
+    serialized,
+  );
+  if (same) return same;
   const id = uid(),
     at = now(),
     messageId = `proposal:${id}`;
