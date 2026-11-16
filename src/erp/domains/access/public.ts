@@ -4,6 +4,8 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { PERMISSION_KEYS } from "./permission-keys.generated.ts";
 
+export * from "./stubs.generated.ts";
+
 const KEYS = new Set(PERMISSION_KEYS);
 
 /** Papel ativo do membro (null sem vínculo ativo). */

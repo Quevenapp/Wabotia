@@ -1,9 +1,15 @@
-// RPCs portados: cada domínio registra os seus ao ser importado. Para portar
-// um RPC: escreva src/erp/domains/<domínio>/rpc/<nome>.ts com
-// registerRpc("<nome>", fn) e importe aqui; o diferencial
-// (tests/erp/harness/dual-fixture.mjs) passa a rodá-lo nos dois motores.
-import "./reference/rpc/erp_reference_search.ts";
-import "./stock/rpc/erp_stock_post.ts";
-import "./catalog/rpc/erp_catalog_employee_get.ts";
-import "./catalog/rpc/erp_catalog_employee_page.ts";
-import "./catalog/rpc/erp_catalog_employee_save.ts";
+// RPCs portados: cada domínio registra os seus no próprio index.ts
+// (src/erp/domains/<domínio>/index.ts). Dono de cada RPC e das funções
+// compartilhadas: ownership.generated.json; regras em docs/ERP-PORTE.md.
+import "./reference/index.ts";
+import "./company/index.ts";
+import "./access/index.ts";
+import "./catalog/index.ts";
+import "./documents/index.ts";
+import "./stock/index.ts";
+import "./finance/index.ts";
+import "./fiscal/index.ts";
+import "./cnab/index.ts";
+import "./pos/index.ts";
+import "./preferences/index.ts";
+import "./sync/index.ts";
