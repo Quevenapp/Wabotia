@@ -285,6 +285,10 @@ button.team-row:hover:not(:disabled) {
 .proposal-card p {
   margin: 0;
 }
+.proposal-description {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 .proposal-params {
   display: grid;
   grid-template-columns: max-content 1fr;

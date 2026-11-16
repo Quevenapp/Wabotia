@@ -391,13 +391,14 @@ App antigo mostra o texto; app novo desenha o cartão.
   "id": "proposal:5f0c…",
   "author": "bot:3a1e…",
   "kind": "proposal",
-  "text": "Proposta do bot: Mudar a OS nº 12 para Pronta\nOperação: Mudar o estado da ordem de serviço\nConfirme no painel ou no app atualizado (vale 10 minutos).",
+  "text": "Proposta do bot:\nMudar o estado da ordem de serviço\n• id: …\n• status: ready\nTexto do bot (não conferido): Mudar a OS nº 12 para Pronta\nConfirme no painel ou no app atualizado (vale 10 minutos).",
   "payload": {
     "operation_summary": "Mudar o estado da ordem de serviço",
     "module": "os",
     "actions": ["confirm", "cancel"],
     "proposal": {
       "id": "5f0c…", "status": "pending", "operation": "os.status",
+      "description": "Mudar o estado da ordem de serviço\n• id: …\n• status: ready",
       "summary": "Mudar a OS nº 12 para Pronta",
       "params": {"id": "…", "status": "ready"},
       "sensitive": false, "expires_at": 1794840000000, "decided_at": null,
@@ -408,10 +409,12 @@ App antigo mostra o texto; app novo desenha o cartão.
 ```
 
 O cartão mostra:
-- `summary` (escrito pelo bot);
+- `description`, em destaque: o que roda ao confirmar, montado no servidor (texto do módulo ou a operação e os parâmetros, um por linha; quebras de linha com `\n`);
+- `summary`, à parte e marcado como "Texto do bot (não conferido)": foi escrito pelo modelo;
 - `operation_summary` (do catálogo, não do bot);
-- os `params`, para a pessoa conferir;
 - o estado.
+
+Propostas antigas, sem `description`, mostram `summary` e os `params`.
 
 `proposal.status` vem sempre atual na leitura:
 
@@ -424,20 +427,20 @@ O cartão mostra:
 | `cancelled` | cancelada |
 | `expired` | venceu; vale 10 minutos |
 
-Com `sensitive: true`, avise que o código do autenticador será pedido.
+Com `sensitive: true`, avise que o código do autenticador pode ser pedido: depende da política da instalação (`financial` ou `all`). Operações financeiras de módulos (Mensalidade, Suporte) também podem pedir o código sem a marca.
 
 **Botões**: `POST /profiles/{perfil}/internal-chats/{id}/proposals/{proposta}/confirm` e `…/cancel`.
 - Corpo vazio; `Idempotency-Key` opcional.
 - Resposta: o objeto `proposal` atualizado.
 - Só a pessoa da proposta, com sessão de pessoa (cookie ou `wabu_`). Chave de aplicação ou o próprio bot recebem `403 person_required`.
-- Confirmar de novo devolve o mesmo resultado, sem rodar outra vez: a operação roda com `Idempotency-Key` `proposal:<id>`.
+- Confirmar de novo devolve o mesmo resultado, sem rodar outra vez: a proposta passa a `running` antes de chamar a operação, e a operação roda com `Idempotency-Key` `proposal:<id>:<tentativa>`.
 
 | Erro | Quando | O app faz |
 |---|---|---|
 | `404 not_found` | proposta de outra pessoa ou de outra conversa | some com os botões |
 | `409 proposal_expired` | passou dos 10 minutos | mostra "Venceu"; a pessoa pede de novo ao bot |
 | `409 proposal_cancelled` / `409 proposal_closed` | já cancelada / já confirmada | recarrega a conversa |
-| `403 mfa_required` | operação sensível com sessão sem segundo fator | pede o código do autenticador, envia `POST /api/v1/account/mfa/challenge` com `{code}` (ou `{recovery_code}`), a sessão sobe para aal2 por um tempo, e toca em Confirmar de novo. Não há token por operação. Contrato completo em "Login e segundo fator" (`feat/login-mfa`) |
+| `403 mfa_required` | a política pede o segundo fator e a sessão está sem ele (a proposta continua aberta) | pede o código do autenticador, envia `POST /api/v1/account/mfa/challenge` com `{code}` (ou `{recovery_code}`), a sessão sobe para aal2 por um tempo, e toca em Confirmar de novo. Não há token por operação. Contrato completo em "Login e segundo fator" (`feat/login-mfa`) |
 
 **Resultado** (`kind: "result"`, autor `bot:<id>`): sai depois de confirmar ou cancelar, com `payload.proposal` (estado `done`, `failed` ou `cancelled`, e `result` ou `error`). Depois, o bot não continua sozinho; a pessoa segue a conversa.
 

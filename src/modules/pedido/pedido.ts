@@ -457,6 +457,8 @@ onMcpTool(MODULE, {
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
   write: true,
+  describe: async () =>
+    "Enviar o link do carrinho para você escolher os itens e fazer o pedido.",
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,

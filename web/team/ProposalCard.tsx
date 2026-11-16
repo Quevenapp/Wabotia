@@ -55,9 +55,24 @@ export function ProposalCard({
   }
   return (
     <div className="proposal-card">
-      <p>
-        <strong>{proposal.summary}</strong>
-      </p>
+      {/* O que roda ao confirmar, montado no servidor; o texto do modelo vai
+          à parte, marcado como não conferido. */}
+      {proposal.description ? (
+        <>
+          <p className="proposal-description">
+            <strong>{proposal.description}</strong>
+          </p>
+          {proposal.summary && (
+            <p className="muted">
+              <small>Texto do bot (não conferido): {proposal.summary}</small>
+            </p>
+          )}
+        </>
+      ) : (
+        <p>
+          <strong>{proposal.summary}</strong>
+        </p>
+      )}
       <p className="muted">
         <small>
           {payload.operation_summary || proposal.operation}
@@ -69,7 +84,7 @@ export function ProposalCard({
           )}
         </small>
       </p>
-      {params.length > 0 && (
+      {!proposal.description && params.length > 0 && (
         <dl className="proposal-params">
           {params.map(([key, value]) => (
             <React.Fragment key={key}>

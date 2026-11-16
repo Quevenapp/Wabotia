@@ -465,6 +465,10 @@ onMcpTool("mensalidade", {
   },
   required: ["conversation_id"],
   write: true,
+  // Sem consultar a parcela pelo id do modelo: o valor e o vencimento vão na
+  // própria segunda via, que só sai para a mensalidade deste cliente.
+  describe: async () =>
+    "Enviar a segunda via (Pix ou link) da sua mensalidade em aberto.",
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,

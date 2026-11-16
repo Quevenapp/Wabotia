@@ -29,7 +29,9 @@ import {
   searchCatalog,
   type CatalogOperation,
 } from "./catalog";
-import { requireAal2 } from "./mfa";
+import { requireFinancialAal } from "../mfa";
+import { moduleById } from "../modules/registry";
+import { describeFields, describeWith } from "./describe";
 
 /** Teto de chamadas de ferramenta por turno do bot. */
 export const MAX_TOOL_CALLS = 6;
@@ -135,7 +137,8 @@ export const BOT_TOOLS: BotTool[] = [
       properties: {
         texto: {
           type: "string",
-          description: "O que a pessoa quer, em poucas palavras (ex.: 'ordens de serviço abertas', 'baixar parcela').",
+          description:
+            "O que a pessoa quer, em poucas palavras (ex.: 'ordens de serviço abertas', 'baixar parcela').",
         },
         tipo: { type: "string", enum: ["consulta", "acao"] },
       },
@@ -149,7 +152,10 @@ export const BOT_TOOLS: BotTool[] = [
     schema: {
       type: "object",
       properties: {
-        operacao: { type: "string", description: "Nome exato devolvido por buscar_operacoes." },
+        operacao: {
+          type: "string",
+          description: "Nome exato devolvido por buscar_operacoes.",
+        },
         parametros: { type: "object", description: "Parâmetros da operação." },
       },
       required: ["operacao"],
@@ -162,11 +168,15 @@ export const BOT_TOOLS: BotTool[] = [
     schema: {
       type: "object",
       properties: {
-        operacao: { type: "string", description: "Nome exato devolvido por buscar_operacoes." },
+        operacao: {
+          type: "string",
+          description: "Nome exato devolvido por buscar_operacoes.",
+        },
         parametros: { type: "object", description: "Parâmetros da operação." },
         resumo: {
           type: "string",
-          description: "Frase curta, em português, do que será feito (ex.: 'Mudar a OS nº 12 para Pronta').",
+          description:
+            "Frase curta, em português, do que será feito (ex.: 'Mudar a OS nº 12 para Pronta').",
         },
       },
       required: ["operacao", "resumo"],
@@ -187,8 +197,10 @@ const SECRET_VALUES = /\b(wab[ul]?_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/g;
 /** Tira segredos sempre e dados pessoais quando mascarado. */
 export function sanitize(value: any, masked: boolean, depth = 0): any {
   if (depth > 12) return null;
-  if (typeof value === "string") return value.replace(SECRET_VALUES, "[oculto]");
-  if (Array.isArray(value)) return value.map((v) => sanitize(v, masked, depth + 1));
+  if (typeof value === "string")
+    return value.replace(SECRET_VALUES, "[oculto]");
+  if (Array.isArray(value))
+    return value.map((v) => sanitize(v, masked, depth + 1));
   if (!value || typeof value !== "object") return value;
   const out: Record<string, any> = {};
   for (const [key, item] of Object.entries(value)) {
@@ -227,7 +239,11 @@ export function buildCall(
     return encodeURIComponent(String(value));
   });
   if (missing.length)
-    throw new ApiError(400, "invalid_request", `Informe ${missing.join(", ")}.`);
+    throw new ApiError(
+      400,
+      "invalid_request",
+      `Informe ${missing.join(", ")}.`,
+    );
   const full = `/profiles/${encodeURIComponent(profile)}/${path}`;
   return op.kind === "read"
     ? { method: "GET" as const, path: full, query: rest }
@@ -259,17 +275,28 @@ export async function runBotTool(
     if (name === "buscar_operacoes") {
       const ops = await catalogFor(ctx.env, ctx.actor, ctx.profile);
       const kind =
-        input.tipo === "consulta" ? "read" : input.tipo === "acao" ? "write" : undefined;
+        input.tipo === "consulta"
+          ? "read"
+          : input.tipo === "acao"
+            ? "write"
+            : undefined;
       const found = searchCatalog(ops, String(input.texto || ""), { kind });
       return clip({
         operacoes: found.map(operationView),
-        ...(found.length ? {} : { aviso: "Nada encontrado para essa busca entre o que a pessoa pode usar." }),
+        ...(found.length
+          ? {}
+          : {
+              aviso:
+                "Nada encontrado para essa busca entre o que a pessoa pode usar.",
+            }),
       });
     }
     if (name === "consultar") {
       const op = await findOperation(ctx, input.operacao);
       if (!op || op.kind !== "read")
-        return toolError("Consulta desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.");
+        return toolError(
+          "Consulta desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.",
+        );
       const response = await internalCall(
         ctx.env,
         ctx.actor,
@@ -277,7 +304,9 @@ export async function runBotTool(
       );
       const body = await response.json<any>().catch(() => null);
       if (!response.ok)
-        return toolError(body?.error?.message || `Falha HTTP ${response.status}.`);
+        return toolError(
+          body?.error?.message || `Falha HTTP ${response.status}.`,
+        );
       return clip(sanitize(body, !!ctx.actor.via?.masked));
     }
     if (name === "propor_acao") {
@@ -285,8 +314,15 @@ export async function runBotTool(
         return toolError(`Limite de ${MAX_PROPOSALS} propostas por resposta.`);
       const op = await findOperation(ctx, input.operacao);
       if (!op || op.kind !== "write")
-        return toolError("Ação desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.");
-      const proposal = await createProposal(ctx, op, input.parametros || {}, input.resumo);
+        return toolError(
+          "Ação desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.",
+        );
+      const proposal = await createProposal(
+        ctx,
+        op,
+        input.parametros || {},
+        input.resumo,
+      );
       state.proposals++;
       return JSON.stringify({
         proposta: proposal.id,
@@ -300,7 +336,12 @@ export async function runBotTool(
   } catch (error) {
     if (error instanceof ApiError) return toolError(error.message);
     console.error(
-      JSON.stringify({ component: "bot-actions", run: ctx.run.id, tool: name, error: String((error as Error)?.message || error).slice(0, 300) }),
+      JSON.stringify({
+        component: "bot-actions",
+        run: ctx.run.id,
+        tool: name,
+        error: String((error as Error)?.message || error).slice(0, 300),
+      }),
     );
     return toolError("Falha ao executar a ferramenta.");
   }
@@ -317,6 +358,9 @@ export function proposalView(row: any) {
     id: row.id,
     status: row.status,
     operation: row.operation,
+    // Montado no servidor: o que roda ao confirmar (src/bot-actions/describe.ts).
+    description: row.description ?? null,
+    // Escrito pelo modelo: só contexto, não conferido.
     summary: row.summary,
     params: json(row.params, {}),
     sensitive: !!row.sensitive,
@@ -343,10 +387,29 @@ async function postMessage(
   await env.DB.batch([
     env.DB.prepare(
       "INSERT OR IGNORE INTO internal_messages(id,chat_id,author,text,kind,payload,status,source_key,created) VALUES(?,?,?,?,?,?,'sent',?,?)",
-    ).bind(id, chatId, author, text.slice(0, 60000), kind, JSON.stringify(payload), id, now()),
-    env.DB.prepare("UPDATE internal_chats SET updated=? WHERE id=?").bind(now(), chatId),
+    ).bind(
+      id,
+      chatId,
+      author,
+      text.slice(0, 60000),
+      kind,
+      JSON.stringify(payload),
+      id,
+      now(),
+    ),
+    env.DB.prepare("UPDATE internal_chats SET updated=? WHERE id=?").bind(
+      now(),
+      chatId,
+    ),
   ]);
-  await event(env, profile, "internal.message", id, { chat_id: chatId }, `internal:${id}`);
+  await event(
+    env,
+    profile,
+    "internal.message",
+    id,
+    { chat_id: chatId },
+    `internal:${id}`,
+  );
 }
 
 export async function createProposal(
@@ -355,9 +418,18 @@ export async function createProposal(
   params: Record<string, any>,
   summary: unknown,
 ) {
-  requireValue(params && typeof params === "object" && !Array.isArray(params), "Parâmetros inválidos.");
-  const text = String(summary ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_SUMMARY);
-  requireValue(text.length >= 3, "Escreva o resumo da ação para a pessoa confirmar.");
+  requireValue(
+    params && typeof params === "object" && !Array.isArray(params),
+    "Parâmetros inválidos.",
+  );
+  const text = String(summary ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SUMMARY);
+  requireValue(
+    text.length >= 3,
+    "Escreva o resumo da ação para a pessoa confirmar.",
+  );
   // Confere o caminho agora (parâmetros do caminho presentes).
   buildCall(ctx.profile, op, params);
   const serialized = JSON.stringify(params);
@@ -371,12 +443,19 @@ export async function createProposal(
     serialized,
   );
   if (same) return same;
+  // O que a pessoa confirma: texto do módulo ou a lista dos parâmetros, nunca
+  // o resumo do modelo (que vai à parte, marcado como não conferido).
+  const describe = moduleById(op.module)?.bot?.describe?.[op.name];
+  const description = await describeWith(
+    describe ? () => describe(ctx.env, ctx.profile, params) : null,
+    () => describeFields(op.summary, params),
+  );
   const id = uid(),
     at = now(),
     messageId = `proposal:${id}`;
   await exec(
     ctx.env,
-    "INSERT INTO bot_proposals(id,profile_id,actor,bot_id,run_id,chat_id,message_id,operation,method,path,params,summary,sensitive,status,expires_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
+    "INSERT INTO bot_proposals(id,profile_id,actor,bot_id,run_id,chat_id,message_id,operation,method,path,params,summary,description,sensitive,status,expires_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
     id,
     ctx.profile,
     ctx.actor.id,
@@ -389,6 +468,7 @@ export async function createProposal(
     op.path,
     serialized,
     text,
+    description,
     op.sensitive ? 1 : 0,
     at + PROPOSAL_TTL,
     at,
@@ -401,7 +481,7 @@ export async function createProposal(
     ctx.chatId,
     `bot:${ctx.run.bot_id}`,
     "proposal",
-    `Proposta do bot: ${text}\nOperação: ${op.summary}\nConfirme no painel ou no app atualizado (vale ${PROPOSAL_TTL / 60000} minutos).`,
+    `Proposta do bot:\n${description}\nTexto do bot (não conferido): ${text}\nConfirme no painel ou no app atualizado (vale ${PROPOSAL_TTL / 60000} minutos).`,
     {
       proposal: proposalView(row),
       operation_summary: op.summary,
@@ -413,7 +493,13 @@ export async function createProposal(
   return row;
 }
 
-async function loadProposal(env: Env, actor: Actor, profile: string, chatId: string, id: string) {
+async function loadProposal(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  chatId: string,
+  id: string,
+) {
   const row = await one(
     env,
     "SELECT * FROM bot_proposals WHERE id=? AND profile_id=? AND chat_id=? AND actor=?",
@@ -461,17 +547,28 @@ export async function confirmProposal(
   id: string,
 ) {
   requirePerson(actor);
-  let row = await expireIfDue(env, await loadProposal(env, actor, profile, chatId, id));
+  let row = await expireIfDue(
+    env,
+    await loadProposal(env, actor, profile, chatId, id),
+  );
   if (row.status === "expired")
-    throw new ApiError(409, "proposal_expired", "A proposta venceu. Peça de novo ao bot.");
+    throw new ApiError(
+      409,
+      "proposal_expired",
+      "A proposta venceu. Peça de novo ao bot.",
+    );
   if (row.status === "cancelled")
     throw new ApiError(409, "proposal_cancelled", "A proposta foi cancelada.");
   if (row.status !== "pending") return proposalView(row);
-  if (row.sensitive) requireAal2(actor);
+  // Operação sensível (billing:write ou marcada pelo módulo): segundo fator
+  // conforme a política da instalação (src/mfa.ts). As operações financeiras
+  // dos módulos pedem de novo no próprio guarda, com o ator abaixo.
+  if (row.sensitive) requireFinancialAal(actor);
+  const claimedAt = now();
   const claimed = await exec(
     env,
     "UPDATE bot_proposals SET status='running',decided_at=?,updated=? WHERE id=? AND status='pending' AND expires_at>?",
-    now(),
+    claimedAt,
     now(),
     id,
     now(),
@@ -493,24 +590,50 @@ export async function confirmProposal(
   try {
     const response = await internalCall(
       env,
-      { ...person, ...("aal" in actor ? { aal: (actor as any).aal } : {}), via } as Actor,
+      // Nível, sessão e política de quem confirmou: os guardas do núcleo e
+      // dos módulos (requireFinancialAal) valem como numa chamada da tela.
+      {
+        ...person,
+        aal: actor.aal ?? 1,
+        sessionId: actor.sessionId,
+        mfa: actor.mfa ?? person.mfa,
+        via,
+      } as Actor,
       buildCall(
         profile,
         { path: row.path, kind: "write", method: row.method },
         json(row.params, {}),
       ),
-      `proposal:${row.id}`,
+      // Uma chave por tentativa: um 403 mfa_required não roda nada e devolve
+      // a proposta a aberta; a próxima confirmação (já com o código) não pode
+      // receber a resposta guardada da anterior.
+      `proposal:${row.id}:${claimedAt}`,
     );
     const body = await response.json<any>().catch(() => null);
+    // O guarda do módulo pediu o código (requireFinancialAal): a proposta
+    // volta a aberta e a pessoa confirma de novo depois do código.
+    if (response.status === 403 && body?.error?.code === "mfa_required") {
+      await exec(
+        env,
+        "UPDATE bot_proposals SET status='pending',decided_at=NULL,updated=? WHERE id=? AND status='running'",
+        now(),
+        id,
+      );
+      throw new ApiError(403, "mfa_required", body.error.message);
+    }
     if (!response.ok) {
       status = "failed";
       error = body?.error?.message || `Falha HTTP ${response.status}.`;
     } else result = body;
   } catch (e) {
+    if (e instanceof ApiError && e.code === "mfa_required") throw e;
     status = "failed";
     error = e instanceof ApiError ? e.message : "Falha ao executar.";
   }
-  const stored = result === null ? null : JSON.stringify(sanitize(result, false)).slice(0, 20000);
+  const stored =
+    result === null
+      ? null
+      : JSON.stringify(sanitize(result, false)).slice(0, 20000);
   await exec(
     env,
     "UPDATE bot_proposals SET status=?,result=?,error=?,updated=? WHERE id=?",
@@ -527,7 +650,9 @@ export async function confirmProposal(
     chatId,
     `bot:${row.bot_id}`,
     "result",
-    status === "done" ? `Feito: ${row.summary}` : `Não foi possível: ${row.summary}. ${error}`,
+    status === "done"
+      ? `Feito:\n${row.description || row.summary}`
+      : `Não foi possível:\n${row.description || row.summary}\n${error}`,
     { proposal: proposalView(row) },
     `proposal-result:${row.id}`,
   );
@@ -542,7 +667,10 @@ export async function cancelProposal(
   id: string,
 ) {
   requirePerson(actor);
-  const row = await expireIfDue(env, await loadProposal(env, actor, profile, chatId, id));
+  const row = await expireIfDue(
+    env,
+    await loadProposal(env, actor, profile, chatId, id),
+  );
   if (row.status === "pending") {
     await exec(
       env,
@@ -558,13 +686,14 @@ export async function cancelProposal(
       chatId,
       `bot:${fresh.bot_id}`,
       "result",
-      `Cancelado: ${fresh.summary}`,
+      `Cancelado:\n${fresh.description || fresh.summary}`,
       { proposal: proposalView(fresh) },
       `proposal-result:${fresh.id}`,
     );
     return proposalView(fresh);
   }
-  if (row.status === "cancelled" || row.status === "expired") return proposalView(row);
+  if (row.status === "cancelled" || row.status === "expired")
+    return proposalView(row);
   throw new ApiError(409, "proposal_closed", "A proposta já foi confirmada.");
 }
 
@@ -601,7 +730,11 @@ export async function signRun(env: Env, runId: string, at = now()) {
  * execução ativa de conversa interna de um bot que a chave atende. Devolve o
  * contexto da pessoa, ou null (chamada segue como a aplicação, como hoje).
  */
-export async function runFromHeader(env: Env, app: Actor, header: string | null) {
+export async function runFromHeader(
+  env: Env,
+  app: Actor,
+  header: string | null,
+) {
   if (!header || app.kind !== "app") return null;
   const [runId, expText, sig] = header.split(".");
   const exp = Number(expText);
@@ -609,14 +742,21 @@ export async function runFromHeader(env: Env, app: Actor, header: string | null)
   const expected = await hmac(await runKey(env), `${runId}.${exp}`);
   if (expected.length !== sig.length) return null;
   let diff = 0;
-  for (let i = 0; i < sig.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+  for (let i = 0; i < sig.length; i++)
+    diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
   if (diff) return null;
   const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", runId);
-  if (!run || !["queued", "starting", "running"].includes(run.status)) return null;
-  if (!app.bots.includes(run.bot_id) || !canProfile(app, run.profile_id)) return null;
+  if (!run || !["queued", "starting", "running"].includes(run.status))
+    return null;
+  if (!app.bots.includes(run.bot_id) || !canProfile(app, run.profile_id))
+    return null;
   return botActionContext(env, run);
 }
 
 /** Propostas de uma execução (para o resumo do bot e os testes). */
 export const proposalsOfRun = (env: Env, runId: string) =>
-  all(env, "SELECT * FROM bot_proposals WHERE run_id=? ORDER BY created", runId);
+  all(
+    env,
+    "SELECT * FROM bot_proposals WHERE run_id=? ORDER BY created",
+    runId,
+  );

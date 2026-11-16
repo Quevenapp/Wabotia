@@ -1,6 +1,8 @@
 // Agenda (módulo "agenda"): registra rotas, comandos e ganchos no núcleo
 // (src/modules/api.ts). Regras em catalog.ts (cadastros). Uso: docs/AGENDA.md.
 import { one } from "../../db";
+import { formatBrasilia } from "../../business-time";
+import { money } from "../../payments";
 import {
   ApiError,
   type Actor,
@@ -556,6 +558,33 @@ onMcpTool("agenda", {
   },
   required: ["conversation_id", "service_id", "starts"],
   write: true,
+  // O que o cliente confirma (src/bot-actions/describe.ts): serviço, data,
+  // profissional e valor lidos daqui, nunca o texto do modelo.
+  describe: async (env, profile, a) => {
+    const service = await one(
+      env,
+      "SELECT name,price_cents FROM agenda_services WHERE id=? AND profile_id=?",
+      a.service_id,
+      profile,
+    );
+    if (!service || typeof a.starts !== "number") return null;
+    const pro = a.professional_id
+      ? await one(
+          env,
+          "SELECT name FROM agenda_professionals WHERE id=? AND profile_id=?",
+          a.professional_id,
+          profile,
+        )
+      : null;
+    return [
+      `Agendar: ${service.name}`,
+      `Quando: ${formatBrasilia(a.starts)}`,
+      ...(pro ? [`Com: ${pro.name}`] : []),
+      ...(service.price_cents != null
+        ? [`Valor: ${money(service.price_cents)}`]
+        : []),
+    ].join("\n");
+  },
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
@@ -591,6 +620,22 @@ onMcpTool("agenda", {
   },
   required: ["conversation_id", "appointment_id", "starts"],
   write: true,
+  // Só agendamento desta conversa: outro cliente não aparece no texto.
+  describe: async (env, profile, a) => {
+    const row = await one(
+      env,
+      "SELECT service_name,starts FROM agenda_appointments WHERE id=? AND profile_id=? AND conversation_id=?",
+      a.appointment_id,
+      profile,
+      a.conversation_id,
+    );
+    if (!row || typeof a.starts !== "number") return null;
+    return [
+      `Remarcar: ${row.service_name}`,
+      `De: ${formatBrasilia(row.starts)}`,
+      `Para: ${formatBrasilia(a.starts)}`,
+    ].join("\n");
+  },
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
@@ -613,6 +658,18 @@ onMcpTool("agenda", {
   },
   required: ["conversation_id", "appointment_id"],
   write: true,
+  describe: async (env, profile, a) => {
+    const row = await one(
+      env,
+      "SELECT service_name,starts FROM agenda_appointments WHERE id=? AND profile_id=? AND conversation_id=?",
+      a.appointment_id,
+      profile,
+      a.conversation_id,
+    );
+    return row
+      ? `Cancelar: ${row.service_name}\nQuando: ${formatBrasilia(row.starts)}`
+      : null;
+  },
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,

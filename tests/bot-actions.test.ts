@@ -145,7 +145,8 @@ describe("bot age pela pessoa: proposta e confirmação", () => {
     // A mensagem estruturada, com texto de reserva para apps antigos.
     const detail = await (await api(s.member, `/profiles/${f.profile}/internal-chats/${chat.id}`)).json<any>();
     const message = detail.messages.find((m: any) => m.kind === "proposal");
-    expect(message.text).toContain("Proposta do bot: Abrir OS do notebook que não liga");
+    expect(message.text).toContain("Proposta do bot:\nAbrir ordem de serviço");
+    expect(message.text).toContain("Texto do bot (não conferido): Abrir OS do notebook que não liga");
     expect(message.payload.proposal).toMatchObject({ id: proposed.proposta, status: "pending", operation: "os.create" });
     // Outra pessoa: 404. Chave de aplicação: 403.
     expect((await confirm(s.admin, s, chat.id, proposed.proposta)).status).toBe(404);
@@ -163,7 +164,10 @@ describe("bot age pela pessoa: proposta e confirmação", () => {
     expect(audit.actor).toBe(f.member.id);
     expect(JSON.parse(audit.via)).toEqual({ kind: "bot", bot_id: botId, run_id: run.id, proposal_id: proposed.proposta });
     const after = await (await api(s.member, `/profiles/${f.profile}/internal-chats/${chat.id}`)).json<any>();
-    expect(after.messages.filter((m: any) => m.kind === "result").map((m: any) => m.text)).toEqual(["Feito: Abrir OS do notebook que não liga"]);
+    const results = after.messages.filter((m: any) => m.kind === "result").map((m: any) => m.text);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatch(/^Feito:\n/);
+    expect(results[0]).toContain("item: Notebook");
   });
 
   it("vence, cancela e recusa operação sensível sem segundo fator", async () => {
@@ -179,8 +183,14 @@ describe("bot age pela pessoa: proposta e confirmação", () => {
     const cancelled = await (await api(s.member, `/profiles/${f.profile}/internal-chats/${chat.id}/proposals/${second.proposta}/cancel`, "POST", {})).json<any>();
     expect(cancelled.status).toBe("cancelled");
     expect((await confirm(s.member, s, chat.id, second.proposta)).status).toBe(409);
-    // Módulo marca a op como sensível: sem aal2, mfa_required e nada roda.
+    // Módulo marca a op como sensível e a política pede o fator nas
+    // operações financeiras: sem aal2, mfa_required e nada roda.
     (osModule as any).bot = { sensitive: ["os.create"] };
+    await exec(
+      env,
+      "INSERT INTO instance_settings(key,value,updated) VALUES('mfa_policy','financial',?) ON CONFLICT(key) DO UPDATE SET value='financial'",
+      now(),
+    );
     resetCatalogCache();
     const third = await tool(f, run, "propor_acao", { operacao: "os.create", parametros: { item: "E", problem: "F", phone: "5511966660003" }, resumo: "Abrir OS E" });
     const mfa = await confirm(s.member, s, chat.id, third.proposta);
@@ -188,6 +198,7 @@ describe("bot age pela pessoa: proposta e confirmação", () => {
     expect((await mfa.json<any>()).error.code).toBe("mfa_required");
     expect((await one(env, "SELECT status FROM bot_proposals WHERE id=?", third.proposta)).status).toBe("pending");
     expect(await all(env, "SELECT id FROM os_orders WHERE profile_id=?", f.profile)).toHaveLength(0);
+    await exec(env, "UPDATE instance_settings SET value='off' WHERE key='mfa_policy'");
     // Teto de propostas por turno.
     const state = newToolState();
     for (let i = 0; i < 3; i++) await tool(f, run, "propor_acao", { operacao: "os.create", parametros: { item: "X", problem: "Y", phone: "5511966660003" }, resumo: "Abrir OS X" }, state);
