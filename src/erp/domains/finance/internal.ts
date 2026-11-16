@@ -210,7 +210,34 @@ export function replayed(db: SqlDriver, command: string, actor: string, hash: st
   return { ...JSON.parse(String(row.result)), replayed: true };
 }
 
+const reservedCommands = new WeakMap<RpcContext, Set<string>>();
+/**
+ * Reserva o recibo antes do fim do RPC, para as tabelas cuja FK para
+ * erp_finance.command é DEFERRABLE INITIALLY DEFERRED no Postgres (transfer,
+ * cnab_cash_plan): no SQLite não há FK adiada (docs/ERP-FASE0.md, regra 3).
+ * O resultado provisório '{}' não aciona os gatilhos de imutabilidade do
+ * recibo; insertCommand grava o resultado final no fim.
+ */
+export function reserveCommand(ctx: RpcContext, id: string, actor: string, hash: string) {
+  let set = reservedCommands.get(ctx);
+  if (!set) reservedCommands.set(ctx, (set = new Set()));
+  if (set.has(id)) return;
+  set.add(id);
+  ctx.db.exec(
+    'INSERT INTO "erp_finance__command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
+    id,
+    actor,
+    hash,
+    "{}",
+    ctx.clock.next().toString(),
+  );
+}
+
 export function insertCommand(ctx: RpcContext, id: string, actor: string, hash: string, result: unknown) {
+  if (reservedCommands.get(ctx)?.has(id)) {
+    ctx.db.exec('UPDATE "erp_finance__command" SET result=? WHERE id=?', JSON.stringify(result), id);
+    return;
+  }
   ctx.db.exec(
     'INSERT INTO "erp_finance__command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
     id,

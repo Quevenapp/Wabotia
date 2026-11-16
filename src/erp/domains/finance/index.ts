@@ -9,7 +9,9 @@ import "./rpc/erp_finance_category_execute.ts";
 // na resposta. Validado com esse ajuste local; até lá roda só no Postgres.
 // import "./rpc/erp_finance_execute.ts";
 // import "./rpc/erp_finance_bordero_execute.ts";
+// import "./rpc/erp_finance_cash_execute.ts";
 import "./rpc/erp_finance_payment_methods.ts";
+import "./rpc/erp_finance_statement_page.ts";
 import "./rpc/erp_finance_title_detail.ts";
 import "./rpc/erp_finance_title_execute.ts";
 import "./rpc/erp_finance_title_page_v2.ts";
