@@ -62,6 +62,10 @@ function target(source) {
   if (r.startsWith("apps/erp/test/")) return "web/erp/test/" + r.slice(14);
   if (/^apps\/erp\/[^/]+\.html$/.test(r) && !r.endsWith("/index.html"))
     return "web/erp/qa/" + r.slice(9);
+  // Bibliotecas que só os testes usam, guardadas no node_modules de um pacote
+  // (jsQR, para ler o QR gerado): node_modules/ é ignorado pelo git.
+  const vendored = /^packages\/[^/]+\/node_modules\/(.+)$/.exec(r);
+  if (vendored) return "web/erp/test/upstream/vendor/" + vendored[1];
   if (r.startsWith("packages/")) return r;
   if (
     r.startsWith("..") ||
@@ -141,6 +145,15 @@ while (stack.length) {
   const to = target(file);
   if (!to) throw new Error(`Fora do mapa de cópia: ${rel(file)}`);
   files.set(file, to);
+  // Biblioteca de terceiros: a licença e o package.json (que diz se o código é
+  // CommonJS) vão junto.
+  const library =
+    /^(.*[\\/]node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)[\\/]/.exec(file);
+  if (library)
+    for (const name of ["LICENSE", "package.json"]) {
+      const extra = join(library[1], name);
+      if (existsSync(extra) && !files.has(extra)) stack.push(extra);
+    }
   // Declarações de tipo ao lado do .mjs/.js (o TypeScript as lê no lugar do JS).
   for (const declaration of [
     file.replace(/\.mjs$/, ".d.mts"),

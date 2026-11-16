@@ -5,3 +5,4 @@ web/erp/app/** -text
 web/erp/test/** -text
 web/erp/qa/** -text
 packages/** -text
+web/lib/qr-code.ts -text

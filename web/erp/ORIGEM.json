@@ -57,7 +57,10 @@
   "web/erp/test/preferences-ui.test.mjs": "alterado: o tema segue o painel; salvar \"tema escuro\" no ERP não troca o tema do navegador (2 asserções)",
   "web/erp/test/stock-opening-access.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
   "web/erp/test/stock-origin-mirror-roundtrip.test.mjs": "removido: roda SQL real no PGlite com as migrações do Postgres do Fagoo; é teste do motor (diferencial da sessão Q), não da casca",
-  "web/erp/test/system-profile-ui.test.mjs": "alterado: o tema salvo no ERP não é aplicado ao entrar (1 asserção)"
+  "web/erp/test/system-profile-ui.test.mjs": "alterado: o tema salvo no ERP não é aplicado ao entrar (1 asserção)",
+  "web/erp/app/lib/qr-code.ts": "movido: para web/lib/qr-code.ts, byte a byte igual, para o painel também gerar QR (via de entrega do Pedido)",
+  "web/erp/app/components/PdvReceiptPrint.tsx": "alterado: importa o gerador de QR de web/lib/qr-code.ts",
+  "web/erp/test/pix-static.test.mjs": "alterado: testa o gerador de QR em web/lib/qr-code.ts e lê o jsQR de upstream/vendor"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
@@ -1145,10 +1148,6 @@
   "packages/fiscal-danfe-runtime/test/processed-receipt-query-fixture.mjs": {
    "from": "packages/fiscal-danfe-runtime/test/processed-receipt-query-fixture.mjs",
    "sha256": "a781a69ca0a2a97f39938f926c6cefda96c5269707405836700d41ebc8cdf901"
-  },
-  "packages/fiscal-danfe/node_modules/jsqr/dist/jsQR.js": {
-   "from": "packages/fiscal-danfe/node_modules/jsqr/dist/jsQR.js",
-   "sha256": "bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859"
   },
   "packages/fiscal-danfe/src/codes.mjs": {
    "from": "packages/fiscal-danfe/src/codes.mjs",
@@ -4745,8 +4744,7 @@
   "web/erp/test/cnab-operational-v2-session.test.mjs": {
    "from": "apps/erp/test/cnab-operational-v2-session.test.mjs",
    "sha256": "6a072dfc56108d0822416ac303986c8d33cbd24bbc469978aab1f3c9ed29481d",
-   "rewritten": true,
-   "sha256_copy": "527fcb84ec390ebc2825368b3d58bc93798c6c3b40d8a2d63ca39d7d8ccb0598"
+   "rewritten": true
   },
   "web/erp/test/cnab-operational-v2-ui.test.mjs": {
    "from": "apps/erp/test/cnab-operational-v2-ui.test.mjs",
@@ -5513,8 +5511,7 @@
   "web/erp/test/financial-import-access.test.mjs": {
    "from": "apps/erp/test/financial-import-access.test.mjs",
    "sha256": "555950a6eae005e2a82ba0a6725f0ac5c8e10b1c0f4335df4f2e82650a7d2c54",
-   "rewritten": true,
-   "sha256_copy": "5cb4889b4b139a1c3dd5e068ec46edc32d11d092fb62beae98378c76f0d88636"
+   "rewritten": true
   },
   "web/erp/test/financial-import-category.test.mjs": {
    "from": "apps/erp/test/financial-import-category.test.mjs",
@@ -5657,8 +5654,7 @@
   "web/erp/test/fiscal-draft-status-parent.test.mjs": {
    "from": "apps/erp/test/fiscal-draft-status-parent.test.mjs",
    "sha256": "aec5bc7249fb5053f37cc5e91e41d379e6aadedef52b050005705f07410cf704",
-   "rewritten": true,
-   "sha256_copy": "af345e39801c76ab66a83bd74e4863ca8ede1c01fc6fd0a37e9dd5d2073b9b35"
+   "rewritten": true
   },
   "web/erp/test/fiscal-draft-status-qa.test.mjs": {
    "from": "apps/erp/test/fiscal-draft-status-qa.test.mjs",
@@ -5707,8 +5703,7 @@
   "web/erp/test/fiscal-invoices-routes.test.mjs": {
    "from": "apps/erp/test/fiscal-invoices-routes.test.mjs",
    "sha256": "5952f95dcee1e9ffc6ccbb5064eaa9c6756228ab3c82d9b7a8aaac87d447f898",
-   "rewritten": true,
-   "sha256_copy": "04f5bcbfdb0d001c0f5985beff7a11c858838251ce8d96fa0685bc6a18422d71"
+   "rewritten": true
   },
   "web/erp/test/fiscal-invoices-ui.test.mjs": {
    "from": "apps/erp/test/fiscal-invoices-ui.test.mjs",
@@ -5973,8 +5968,7 @@
   "web/erp/test/fiscal-subset-review-access.test.mjs": {
    "from": "apps/erp/test/fiscal-subset-review-access.test.mjs",
    "sha256": "9884ffa2a313a14ef377ac6ff16bc20c33ebe2269ac1b9e76a5ad35ed1c4f48b",
-   "rewritten": true,
-   "sha256_copy": "ff28e6166f8777b441358c3efc2463f6cf75edf3883ebe03b50b9b2294bb48c7"
+   "rewritten": true
   },
   "web/erp/test/fiscal-subset-review-client.test.mjs": {
    "from": "apps/erp/test/fiscal-subset-review-client.test.mjs",
@@ -6057,8 +6051,7 @@
   "web/erp/test/helpers/access-session-fixtures.mjs": {
    "from": "apps/erp/test/helpers/access-session-fixtures.mjs",
    "sha256": "87cec129e679e8732e12a2be2c2ab4b07b1e9127da558cb1cfcae5a746a6094d",
-   "rewritten": true,
-   "sha256_copy": "7b3bbb4e1eda73cfdfa57ff06596f31636204d3899ab7ebf104fa8ec2690a03d"
+   "rewritten": true
   },
   "web/erp/test/helpers/backup-import-fixture.mjs": {
    "from": "apps/erp/test/helpers/backup-import-fixture.mjs",
@@ -6311,8 +6304,7 @@
   "web/erp/test/itau-legacy-readiness-access.test.mjs": {
    "from": "apps/erp/test/itau-legacy-readiness-access.test.mjs",
    "sha256": "63aab704f676f8025907768a974cf814a8386d7b4a3423095173c28c9770398b",
-   "rewritten": true,
-   "sha256_copy": "5f402b9687518686bea068d1359191329239034e8d3f06a87fa413e2b584f547"
+   "rewritten": true
   },
   "web/erp/test/itau-legacy-readiness-model.test.mjs": {
    "from": "apps/erp/test/itau-legacy-readiness-model.test.mjs",
@@ -6433,8 +6425,7 @@
   "web/erp/test/origin-sales-history-access.test.mjs": {
    "from": "apps/erp/test/origin-sales-history-access.test.mjs",
    "sha256": "66033f7db00143c0f898d84234c3b4cbbc30762ea038892c6f19203a7e78031b",
-   "rewritten": true,
-   "sha256_copy": "9b868ef926ce0836a48e22b276a4f8556896fca2a0aa5523f0131389e41b7f2b"
+   "rewritten": true
   },
   "web/erp/test/origin-sales-history-model.test.mjs": {
    "from": "apps/erp/test/origin-sales-history-model.test.mjs",
@@ -6461,8 +6452,7 @@
   "web/erp/test/origin-sales-readiness-access.test.mjs": {
    "from": "apps/erp/test/origin-sales-readiness-access.test.mjs",
    "sha256": "54bdaddcc41be32c48fd0db77d8bfed2c97843e5547cb322de58d84c171ec0a3",
-   "rewritten": true,
-   "sha256_copy": "c13170679d592b903a71fa8b50a05e47bd221bc2c21c44dd5157034a3e96bcd5"
+   "rewritten": true
   },
   "web/erp/test/origin-sales-readiness-model.test.mjs": {
    "from": "apps/erp/test/origin-sales-readiness-model.test.mjs",
@@ -6495,8 +6485,7 @@
   "web/erp/test/origin-stock-observations-access.test.mjs": {
    "from": "apps/erp/test/origin-stock-observations-access.test.mjs",
    "sha256": "33b7cfe448f50a2bb82abf0d5d81a139dee4068c9ed38b960e9e52ed588bf799",
-   "rewritten": true,
-   "sha256_copy": "5f68986800efbbc35579214fb88894c5d6aca06e2321987e0d6e5f65fbdc002a"
+   "rewritten": true
   },
   "web/erp/test/origin-stock-observations-model.test.mjs": {
    "from": "apps/erp/test/origin-stock-observations-model.test.mjs",
@@ -6531,8 +6520,7 @@
   "web/erp/test/origin-warehouse-import-access.test.mjs": {
    "from": "apps/erp/test/origin-warehouse-import-access.test.mjs",
    "sha256": "7895838cd5147108d01306b2a953133a1e449e3d218fcad4d60a67865e01b0fc",
-   "rewritten": true,
-   "sha256_copy": "7b6ea3431031cc43f482f08f9e17188cdbfd32389ae8a937fe4b115e09d525c1"
+   "rewritten": true
   },
   "web/erp/test/origin-warehouse-import-model.test.mjs": {
    "from": "apps/erp/test/origin-warehouse-import-model.test.mjs",
@@ -6595,8 +6583,7 @@
   "web/erp/test/pix-static.test.mjs": {
    "from": "apps/erp/test/pix-static.test.mjs",
    "sha256": "7f3b88118a6e13c52213f4d4670548e271496e4a1a83facca7615f33896f3c6c",
-   "rewritten": true,
-   "sha256_copy": "2d52f6f5f33dcd18813b069410eeab61b9de668146623f66d14bcfa9a4367ce4"
+   "rewritten": true
   },
   "web/erp/test/plataforma-h-ui.test.mjs": {
    "from": "apps/erp/test/plataforma-h-ui.test.mjs",
@@ -6631,8 +6618,7 @@
   "web/erp/test/preferences-ui.test.mjs": {
    "from": "apps/erp/test/preferences-ui.test.mjs",
    "sha256": "00ce572206facbaae17fab7bf3544752564658856e156582e5c0990790a0056d",
-   "rewritten": true,
-   "sha256_copy": "eef2c9673dbecfba6553c4fc2befe70fbb40ad6a4f39bdbea347c0fb92e60f01"
+   "rewritten": true
   },
   "web/erp/test/product-list-origin-stock-ui.test.mjs": {
    "from": "apps/erp/test/product-list-origin-stock-ui.test.mjs",
@@ -6747,8 +6733,7 @@
   "web/erp/test/purchase-receipts-access.test.mjs": {
    "from": "apps/erp/test/purchase-receipts-access.test.mjs",
    "sha256": "6a1b655b16de095cc4e9a52a6402f2b40592381ea0c1b4f3a9af45cd8db7d504",
-   "rewritten": true,
-   "sha256_copy": "ec661dcfbc2db5b5351d6b9f9dd3806cb2ce5e37a1a558863c5373593bee2de6"
+   "rewritten": true
   },
   "web/erp/test/purchase-receipts-model.test.mjs": {
    "from": "apps/erp/test/purchase-receipts-model.test.mjs",
@@ -7011,8 +6996,7 @@
   "web/erp/test/stock-opening-access.test.mjs": {
    "from": "apps/erp/test/stock-opening-access.test.mjs",
    "sha256": "873d2c8015ca432cfdea53e261f20d8bd2c4c847f5f9656ee2ff8ee866adda7d",
-   "rewritten": true,
-   "sha256_copy": "23457f075a20fbe42a6be4e9ab41ccf8163c3e0612bf4c97d69bfd8205c9f587"
+   "rewritten": true
   },
   "web/erp/test/stock-opening-model.test.mjs": {
    "from": "apps/erp/test/stock-opening-model.test.mjs",
@@ -7041,8 +7025,7 @@
   "web/erp/test/stock-origin-mirror-roundtrip.test.mjs": {
    "from": "apps/erp/test/stock-origin-mirror-roundtrip.test.mjs",
    "sha256": "48503a72ff1d20b7868e3915feb917e53515806978122f1d9e928652deab1a92",
-   "rewritten": true,
-   "sha256_copy": "128147166a632baac6221e0b70f563b8449c509bc1f485d5ee388ebe535c4232"
+   "rewritten": true
   },
   "web/erp/test/stock-origin-mirror-ui.test.mjs": {
    "from": "apps/erp/test/stock-origin-mirror-ui.test.mjs",
@@ -7075,8 +7058,7 @@
   "web/erp/test/stock-reservations-access.test.mjs": {
    "from": "apps/erp/test/stock-reservations-access.test.mjs",
    "sha256": "af27b643dd3881150a76c5f250e03de080dd62b3f218667535bdf51f37d3bcfd",
-   "rewritten": true,
-   "sha256_copy": "9a6aba7c2a687eeb859d903596235a8c59b9b24f02759ada1abcd982e984ba0b"
+   "rewritten": true
   },
   "web/erp/test/stock-reservations-parent.test.mjs": {
    "from": "apps/erp/test/stock-reservations-parent.test.mjs",
@@ -7133,8 +7115,7 @@
   "web/erp/test/system-profile-ui.test.mjs": {
    "from": "apps/erp/test/system-profile-ui.test.mjs",
    "sha256": "7618292f59d0e42795b7878be830a1bf1746fee8c8d8c053e1ada9fc3db64007",
-   "rewritten": true,
-   "sha256_copy": "85e32a7061bfabd8ebc3b12c68871df8021165e054926199157a926e365f7539"
+   "rewritten": true
   },
   "web/erp/test/system-updates.test.mjs": {
    "from": "apps/erp/test/system-updates.test.mjs",
@@ -7175,6 +7156,18 @@
   "web/erp/test/upstream/tools/qa/check-erp-build.mjs": {
    "from": "tools/qa/check-erp-build.mjs",
    "sha256": "0357463d6c094f92fe3c498f1800fd9d8e7d783d2e58563f0da2a1ebb8d7d933"
+  },
+  "web/erp/test/upstream/vendor/jsqr/dist/jsQR.js": {
+   "from": "packages/fiscal-danfe/node_modules/jsqr/dist/jsQR.js",
+   "sha256": "bc40c8a15196236b2314db0856f72ca0b49980cd5413b8c852a7349f5fee0859"
+  },
+  "web/erp/test/upstream/vendor/jsqr/LICENSE": {
+   "from": "packages/fiscal-danfe/node_modules/jsqr/LICENSE",
+   "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+  },
+  "web/erp/test/upstream/vendor/jsqr/package.json": {
+   "from": "packages/fiscal-danfe/node_modules/jsqr/package.json",
+   "sha256": "23850629144f70982bdefa89db822397fc14bc849d6ed18bf9ceeb72c0f2678f"
   },
   "web/erp/test/upstream/workers/erp-api/src/boleto-preview.mjs": {
    "from": "workers/erp-api/src/boleto-preview.mjs",

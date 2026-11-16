@@ -4,7 +4,7 @@ import type { CompanyRecord } from '../lib/company-model';
 // 302 (mixed lane): CPF for a company of Pessoa Física.
 import { companyDocumentLabel } from '../lib/company-model';
 import { dateBR, dateTimeSP, money, quantityText, receiptItems, decimalText, type PdvReceiptSettings, type PdvSale } from '../lib/pdv-model';
-import { qrEncode, qrPath } from '../lib/qr-code';
+import { qrEncode, qrPath } from '../../../lib/qr-code';
 import { Icon } from './Icon';
 
 /** What the 80 mm sheet prints: a sale (comprovante não fiscal), a sangria/suprimento or the QR code fixo of the Pix key. */

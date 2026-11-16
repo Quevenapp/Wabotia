@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import jsQR from '../../../packages/fiscal-danfe/node_modules/jsqr/dist/jsQR.js';
+import jsQR from './upstream/vendor/jsqr/dist/jsQR.js';
 import { crc16, pixFields, pixKey, pixPayload, pixText } from '../app/lib/pix-static.ts';
-import { qrCapacity, qrEncode, qrPath, QR_MAX_VERSION } from '../app/lib/qr-code.ts';
+import { qrCapacity, qrEncode, qrPath, QR_MAX_VERSION } from '../../lib/qr-code.ts';
 
 // Synthetic keys only. "Pix - QR Code Impresso (QR estático)" of the Frente de caixa: BR Code payload and the local QR encoder.
 function decode(text) {
