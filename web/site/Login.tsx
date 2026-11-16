@@ -89,6 +89,20 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
     setLinked(true);
     history.replaceState(null, "", location.pathname + location.search);
   }, []);
+  // Link aberto com o painel já na tela de entrada (só o fragmento muda, sem
+  // recarregar a página): lê o convite ou a redefinição do mesmo jeito.
+  useEffect(() => {
+    const changed = () => {
+      const next = accountTokenFromHash(location.hash);
+      if (!next) return;
+      setLink(next);
+      setRecover(false);
+      setError("");
+      history.replaceState(null, "", location.pathname + location.search);
+    };
+    window.addEventListener("hashchange", changed);
+    return () => window.removeEventListener("hashchange", changed);
+  }, []);
   useEffect(() => {
     api("auth/status")
       .then((status) => {

@@ -8,6 +8,7 @@ import { parse } from "../lib/format";
 import {
   Badge,
   Button,
+  Confirm,
   CopyButton,
   Dialog,
   Field,
@@ -339,23 +340,47 @@ function MfaPolicy() {
   const app = useApp();
   const { run } = useAction();
   const [policy, setPolicy] = useState<string>(app.me.mfa?.policy || "off");
+  const [confirmAll, setConfirmAll] = useState(false);
+  const save = (next: string) =>
+    void run(
+      () => app.api("v1/system/mfa-policy", "PUT", { policy: next }),
+      { success: "Política do segundo fator salva." },
+    ).then(() => setPolicy(next));
   return (
-    <Field
-      label="Segundo fator"
-      value={policy}
-      emptyOption={null}
-      options={[
-        ["off", "Opcional"],
-        ["financial", "Exigido nas operações financeiras"],
-        ["all", "Exigido para todos"],
-      ]}
-      onChange={(next) =>
-        void run(
-          () => app.api("v1/system/mfa-policy", "PUT", { policy: next }),
-          { success: "Política do segundo fator salva." },
-        ).then(() => setPolicy(next))
-      }
-    />
+    <>
+      <Field
+        label="Segundo fator"
+        value={policy}
+        emptyOption={null}
+        options={[
+          ["off", "Opcional"],
+          ["financial", "Exigido nas operações financeiras"],
+          ["all", "Exigido para todos"],
+        ]}
+        onChange={(next) =>
+          next === "all" ? setConfirmAll(true) : save(next)
+        }
+      />
+      {confirmAll && (
+        <Confirm
+          title="Exigir o segundo fator para todos?"
+          confirmLabel="Exigir para todos"
+          onClose={() => setConfirmAll(false)}
+          onConfirm={() => {
+            setConfirmAll(false);
+            save("all");
+          }}
+        >
+          <p>
+            Toda pessoa vai precisar do código do aplicativo autenticador para
+            entrar; quem ainda não cadastrou só consegue cadastrar. Os
+            aplicativos Wabotia de celular sem o passo do código (versões
+            antigas) deixam de entrar até serem atualizados. Seu fator precisa
+            estar cadastrado antes.
+          </p>
+        </Confirm>
+      )}
+    </>
   );
 }
 

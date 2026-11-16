@@ -231,17 +231,39 @@ export async function loginMfaNext(env: Env, user: any, aal: 1 | 2) {
 }
 
 /**
- * Portão do middleware: quem tem fator e está em aal1 precisa do desafio;
- * com a política "all", quem não tem precisa cadastrar.
+ * Quanto tempo a confirmação do segundo fator vale numa sessão: o cookie do
+ * painel dura 12 h; a sessão do app (30 dias), até 7 dias depois do código
+ * (a renovação mantém o horário). Passado o prazo, a sessão volta a aal1 e a
+ * ação que exige o fator pede o código de novo (elevação sob demanda).
+ */
+export const AAL2_WINDOW_MS = {
+  cookie: 12 * 3600000,
+  bearer: 7 * 86400000,
+} as const;
+
+export function sessionAal(
+  kind: string,
+  aal: unknown,
+  mfaAt: unknown,
+  at = now(),
+): 1 | 2 {
+  const window =
+    AAL2_WINDOW_MS[kind as keyof typeof AAL2_WINDOW_MS] ??
+    AAL2_WINDOW_MS.cookie;
+  return aal === 2 && typeof mfaAt === "number" && mfaAt > at - window ? 2 : 1;
+}
+
+/**
+ * Portão do middleware, só com a política "all": sem fator, a sessão só
+ * cadastra; com fator e sessão em aal1, só confirma o código. Nas outras
+ * políticas a sessão segue; as ações que exigem o fator pedem na hora
+ * (requireAal2, requireFinancialAal).
  */
 export function mfaGate(actor: Actor, path: string) {
   if (!person(actor) || (actor.aal ?? 1) >= 2) return;
-  const need = actor.mfa?.factor
-    ? "challenge"
-    : actor.mfa?.policy === "all"
-      ? "enroll"
-      : null;
-  if (!need || AAL1_PATHS.some((p) => p.test(path))) return;
+  if (actor.mfa?.policy !== "all") return;
+  const need = actor.mfa?.factor ? "challenge" : "enroll";
+  if (AAL1_PATHS.some((p) => p.test(path))) return;
   throw new ApiError(
     403,
     "mfa_required",

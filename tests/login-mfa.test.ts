@@ -3,12 +3,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { now, uid, type Actor } from "../src/types";
-import { passwordHash } from "../src/security";
+import { passwordHash, sha } from "../src/security";
 import { BRASILIA_OFFSET_MS } from "../src/business-time";
 import {
   base32Decode,
   currentStep,
   requireAal2,
+  sessionAal,
   totpAt,
   withinSchedule,
 } from "../src/mfa";
@@ -159,25 +160,87 @@ describe("segundo fator (TOTP)", () => {
     );
   });
 
-  it("sessão só com senha de quem tem fator: só /me e o desafio, até confirmar", async () => {
+  it("elevação sob demanda: sessão aal1 de quem tem fator segue; a ação que exige pede o código", async () => {
     const f = await fixture();
     const u = await person("operator", [f.profile]);
     const { secret } = await enroll(u.email);
-    // Sessão antiga em aal1 (criada antes do fator).
+    // Sessão antiga em aal1 (criada antes do fator): continua trabalhando.
     const old = await bearer({ id: u.id } as Actor);
     expect(
       (await api(old, `/profiles/${f.profile}/conversations`)).status,
-    ).toBe(403);
-    const blocked = await api(old, `/profiles/${f.profile}/conversations`);
+    ).toBe(200);
+    const blocked = await api(old, "/account/mfa/recovery-codes", "POST", {});
+    expect(blocked.status).toBe(403);
     expect((await blocked.json<any>()).error.code).toBe("mfa_required");
-    expect((await api(old, "/me")).status).toBe(200);
     const challenge = await api(old, "/account/mfa/challenge", "POST", {
       code: await totpAt(secret, currentStep() + 1),
     });
     expect(challenge.status).toBe(200);
     expect(
+      (await api(old, "/account/mfa/recovery-codes", "POST", {})).status,
+    ).toBe(200);
+  });
+
+  it("política all: sessão aal1 de quem tem fator só confirma o código", async () => {
+    const f = await fixture();
+    const u = await person("operator", [f.profile]);
+    const { secret } = await enroll(u.email);
+    await policy("all");
+    const old = await bearer({ id: u.id } as Actor);
+    const blocked = await api(old, `/profiles/${f.profile}/conversations`);
+    expect(blocked.status).toBe(403);
+    expect((await blocked.json<any>()).error.code).toBe("mfa_required");
+    expect((await api(old, "/me")).status).toBe(200);
+    await api(old, "/account/mfa/challenge", "POST", {
+      code: await totpAt(secret, currentStep() + 1),
+    });
+    expect(
       (await api(old, `/profiles/${f.profile}/conversations`)).status,
     ).toBe(200);
+  });
+
+  it("a confirmação vale 12 h no cookie e 7 dias no app; a renovação não reinicia o prazo", async () => {
+    expect(sessionAal("cookie", 2, now() - 11 * 3600000)).toBe(2);
+    expect(sessionAal("cookie", 2, now() - 13 * 3600000)).toBe(1);
+    expect(sessionAal("bearer", 2, now() - 6 * 86400000)).toBe(2);
+    expect(sessionAal("bearer", 2, now() - 8 * 86400000)).toBe(1);
+    expect(sessionAal("bearer", 1, now())).toBe(1);
+    const f = await fixture();
+    const u = await person("operator", [f.profile]);
+    const { secret } = await enroll(u.email);
+    const login = await (
+      await mobileLogin(u.email, {
+        totp: await totpAt(secret, currentStep() + 1),
+      })
+    ).json<any>();
+    expect(login.aal).toBe(2);
+    // Código de 3 dias atrás: ainda aal2; a renovação guarda o mesmo horário.
+    const earlier = now() - 3 * 86400000;
+    await exec(
+      env,
+      "UPDATE sessions SET mfa_at=? WHERE user_id=? AND kind='bearer' AND aal=2",
+      earlier,
+      u.id,
+    );
+    expect((await (await api(login.token, "/me")).json<any>()).aal).toBe(2);
+    const renewed = await (
+      await api(login.token, "/auth/mobile/refresh", "POST", {})
+    ).json<any>();
+    expect(renewed.aal).toBe(2);
+    const row = await one(
+      env,
+      "SELECT mfa_at FROM sessions WHERE hash=?",
+      await sha(renewed.token),
+    );
+    expect(row.mfa_at).toBe(earlier);
+    // Passados 7 dias do código, a sessão renovada volta a aal1.
+    await exec(
+      env,
+      "UPDATE sessions SET mfa_at=? WHERE hash=?",
+      now() - 8 * 86400000,
+      await sha(renewed.token),
+    );
+    expect((await (await api(renewed.token, "/me")).json<any>()).aal).toBe(1);
   });
 
   it("rota que exige aal2 recusa sessão sem segundo fator e chave de aplicação", async () => {

@@ -739,6 +739,8 @@ async function createMobileSession(
   userId: string,
   label: string,
   aal: 1 | 2 = 1,
+  /** Horário do código na sessão anterior (renovação): o prazo não recomeça. */
+  mfaAt: number | null = null,
 ) {
   const token = MOBILE_TOKEN_PREFIX + random(),
     expires = now() + MOBILE_SESSION_MS;
@@ -753,7 +755,7 @@ async function createMobileSession(
     now(),
     uid(),
     aal,
-    aal === 2 ? now() : null,
+    aal === 2 ? (mfaAt ?? now()) : null,
   );
   return { token, expires, aal };
 }
@@ -1003,7 +1005,7 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
   const hash = await sha(token);
   const old = await one(
     c.env,
-    "SELECT label FROM sessions WHERE hash=? AND kind='bearer'",
+    "SELECT label,mfa_at FROM sessions WHERE hash=? AND kind='bearer'",
     hash,
   );
   const user = await one(
@@ -1011,12 +1013,14 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
     "SELECT * FROM users WHERE id=?",
     c.get("actor").id,
   );
-  // A sessão nova mantém o nível da antiga (src/mfa.ts).
+  // A sessão nova mantém o nível e o horário do código da antiga: o prazo
+  // da confirmação não recomeça na renovação (src/mfa.ts).
   const session = await createMobileSession(
     c.env,
     c.get("actor").id,
     old?.label || "",
     c.get("actor").aal === 2 ? 2 : 1,
+    old?.mfa_at ?? null,
   );
   await exec(c.env, "DELETE FROM sessions WHERE hash=?", hash);
   return c.json({ ...session, user: mobileUser(user) });

@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps", "establishment", "module_grants", "person_access", "login_mfa"],
+  "features": ["modules", "web_steps", "establishment", "module_grants", "person_access", "mfa"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -95,19 +95,33 @@ Para escolher o responsável de uma ordem de serviço (ou de outro registro de m
 - A resposta traz:
   - `aal`: 1 só senha, 2 com o código;
   - `mfa`: `{policy, factor, next}`. `next: "enroll"` quer dizer que a instalação exige o segundo fator e a pessoa ainda não cadastrou.
-- O app guarda `aal`. A sessão renovada (`POST /api/v1/auth/mobile/refresh`) mantém o nível.
+- O app guarda `aal`.
+
+**Login em duas etapas nos apps:** o recurso `mfa` em `features` de `/capabilities` diz que o servidor entende `totp` e `recovery_code`. App que não conhece o recurso continua entrando com senha enquanto a pessoa não tiver fator. Quando a pessoa cadastra o fator, esse app deixa de entrar e recebe `401 mfa_required`: atualize o app antes de ligar a política `all`.
+
+**Elevação sob demanda:** sessões abertas antes do segundo fator, e as abertas só com senha, ficam em aal1 e não são derrubadas.
+- Uma ação que exige aal2 responde `403 mfa_required`.
+- O app pede o código e chama `POST /api/v1/account/mfa/challenge`. A sessão passa a aal2 e o app repete a ação.
+- A confirmação vale por um prazo contado do código:
+  - 12 horas no cookie do painel;
+  - 7 dias no `wabu_` do app.
+- Passado o prazo, a sessão continua aberta em aal1 e a próxima ação protegida pede o código de novo.
+- A renovação (`POST /api/v1/auth/mobile/refresh`) leva o nível e o horário do código para a sessão nova, sem reiniciar o prazo.
+- O painel faz isso sozinho: qualquer `403 mfa_required` abre a janela "Confirme que é você" (com fator) ou o aviso para cadastrar o fator em Minha conta (sem fator).
 
 **Política da instalação** (Pessoas e acessos, `PUT /api/v1/system/mfa-policy` com `{policy}`):
 - `off`: opcional;
-- `financial`: as operações financeiras de pessoas exigem a sessão em aal2;
+- `financial`: as operações financeiras feitas por pessoas (`payment.*`, gestão da Mensalidade e ações do Suporte) exigem a sessão em aal2;
 - `all`: toda pessoa precisa do segundo fator.
+  - Só liga se o administrador que pede já tem fator; sem ele, `409 mfa_enroll_first`.
+  - O painel avisa que apps antigos, sem o recurso `mfa`, deixam de entrar.
 
 Regras gerais:
 - Com fator cadastrado, entrar sempre pede o código.
-- Uma sessão em aal1 que precisa do fator só alcança `/api/v1/me`, `/api/v1/account` e `/api/v1/account/mfa/*`, a renovação e a saída. As outras rotas respondem `403 mfa_required`. O app leva a pessoa ao desafio ou ao cadastro.
+- Só com a política `all`, uma sessão em aal1 fica restrita a `/api/v1/me`, `/api/v1/account`, `/api/v1/account/mfa/*`, a renovação e a saída. As outras rotas respondem `403 mfa_required`. O painel mostra a tela de desafio ou de cadastro antes das áreas.
+- Com `off` e `financial`, a sessão aal1 usa tudo, menos as ações que exigem aal2.
 - Chave de aplicação nunca chega a aal2: as rotas que exigem aal2 a recusam. As operações financeiras de aplicações continuam valendo por `billing:write`.
-- `GET /api/v1/me` traz `aal`, `sessionId` e `mfa: {factor, policy}`.
-
+- `GET /api/v1/me` traz `aal` (o efetivo, já com o prazo), `sessionId` e `mfa: {factor, policy}`.
 **Cadastro do aplicativo autenticador:**
 1. `POST /api/v1/account/mfa/enroll` com `{password}` devolve `{factor_id, secret, otpauth_url}`.
    - O app pode abrir `otpauth_url`, ou mostrar `secret` para digitar.
@@ -147,7 +161,7 @@ Regras gerais:
   - só funciona quando existe um único administrador ativo; com mais de um, outro administrador gera o link;
   - troca a senha, tira o segundo fator e derruba as sessões.
 
-E-mail: o núcleo não manda e-mail, então o administrador envia o link. Proposta, não implementada: um provedor por HTTP (Resend, Postmark ou Amazon SES pela API), com a chave cifrada como os outros segredos. Com ele, o link de redefinição poderia ser pedido pela própria pessoa ("esqueci a senha"), com limite por e-mail e por IP e a mesma resposta exista ou não a conta.
+E-mail: o núcleo ainda não manda e-mail, então o administrador envia o link. Sem administrador com acesso, veja "Administrador sem acesso" em [OPERACAO.md](OPERACAO.md).
 
 ### Acesso por pessoa
 

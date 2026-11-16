@@ -1,7 +1,7 @@
 import { scryptSync, timingSafeEqual } from "node:crypto";
 import { one, exec } from "./db";
 import { ApiError, type Env, type Actor, uid, now, json } from "./types";
-import { mfaPolicy, requireSchedule } from "./mfa";
+import { mfaPolicy, requireSchedule, sessionAal } from "./mfa";
 const enc = new TextEncoder();
 export const hex = (b: ArrayBuffer | Uint8Array) =>
   Array.from(new Uint8Array(b))
@@ -167,7 +167,7 @@ function userActor(row: any): Actor {
 }
 /** Colunas da sessão e do segundo fator lidas junto com a pessoa. */
 const SESSION_COLUMNS =
-  "s.id session_id,s.aal session_aal,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor";
+  "s.id session_id,s.aal session_aal,s.mfa_at session_mfa_at,s.kind session_kind,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor";
 /**
  * Ator de uma sessão de pessoa: horário de acesso (403 outside_schedule),
  * nível da sessão e política do segundo fator (src/mfa.ts). Sessão antiga
@@ -190,7 +190,8 @@ async function sessionActor(env: Env, row: any, hash: string) {
   }
   return {
     ...userActor(row),
-    aal: row.session_aal === 2 ? 2 : 1,
+    // Confirmação do segundo fator vale por um prazo (src/mfa.ts).
+    aal: sessionAal(row.session_kind, row.session_aal, row.session_mfa_at),
     sessionId: sessionId!,
     mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
   } as Actor;

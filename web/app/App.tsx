@@ -16,7 +16,7 @@ import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
-import { MfaGate, mfaNeeded } from "./Account";
+import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
 
 function Areas() {
   const app = useApp();
@@ -112,7 +112,8 @@ export function App() {
     [checked, setChecked] = useState(demo),
     [error, setError] = useState(""),
     [offline, setOffline] = useState(false),
-    [gate, setGate] = useState<"challenge" | "enroll" | null>(null);
+    [gate, setGate] = useState<"challenge" | "enroll" | null>(null),
+    [prompt, setPrompt] = useState(false);
   const current = useRef<Row | null>(me);
   current.current = me;
   const init = useCallback(async () => {
@@ -153,6 +154,8 @@ export function App() {
     () =>
       onApiState((state) => {
         setOffline(!state.online);
+        // Ação que exige o segundo fator: pede o código (web/app/Account.tsx).
+        if (state.mfaRequired && current.current && !demo) setPrompt(true);
         // Sessão encerrada em outra aba ou expirada: volta para a entrada.
         if (state.unauthorized && current.current && !demo) void init();
       }),
@@ -172,7 +175,9 @@ export function App() {
             <Empty
               title="Não foi possível abrir o painel"
               description={error}
-              action={<Button onClick={() => void init()}>Tentar de novo</Button>}
+              action={
+                <Button onClick={() => void init()}>Tentar de novo</Button>
+              }
             />
           </div>
         ) : (
@@ -207,6 +212,9 @@ export function App() {
       reloadSession={init}
     >
       <Areas />
+      {prompt && (
+        <MfaPrompt factor={!!me.mfa?.factor} onClose={() => setPrompt(false)} />
+      )}
       <ToastHost />
     </AppProvider>
   );

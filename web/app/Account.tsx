@@ -6,12 +6,52 @@ import { ShieldCheck } from "lucide-react";
 import { api, type Row } from "../lib/api";
 import { Button, Dialog, Field, Logo, Notice, toast } from "../ui";
 
-/** O que falta para usar o painel com esta sessão, ou null. */
+/**
+ * O que falta para usar o painel com esta sessão, ou null. Só a política
+ * "all" bloqueia o painel inteiro; nas outras, a ação que exige o segundo
+ * fator pede o código na hora (MfaPrompt).
+ */
 export function mfaNeeded(me: Row | null) {
   if (!me || me.kind !== "user" || (me.aal ?? 1) >= 2) return null;
-  if (me.mfa?.factor) return "challenge";
-  if (me.mfa?.policy === "all") return "enroll";
-  return null;
+  if (me.mfa?.policy !== "all") return null;
+  return me.mfa?.factor ? "challenge" : "enroll";
+}
+
+/**
+ * Uma ação respondeu 403 mfa_required: pede o código (ou leva ao cadastro,
+ * sem fator), sobe a sessão para aal2 e pede para repetir a ação.
+ */
+export function MfaPrompt({
+  factor,
+  onClose,
+}: {
+  factor: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog title="Confirme que é você" onClose={onClose}>
+      <p>
+        {factor
+          ? "Esta ação exige o código do aplicativo autenticador. Depois de confirmar, repita a ação."
+          : "Esta ação exige o segundo fator. Cadastre o aplicativo autenticador e repita a ação."}
+      </p>
+      {factor ? (
+        <ChallengeMfa
+          onDone={() => {
+            toast("Confirmado. Repita a ação.");
+            onClose();
+          }}
+        />
+      ) : (
+        <EnrollMfa
+          onDone={() => {
+            toast("Segundo fator cadastrado. Repita a ação.");
+            onClose();
+          }}
+        />
+      )}
+    </Dialog>
+  );
 }
 
 /** Códigos de recuperação: mostrados uma vez, com cópia. */
