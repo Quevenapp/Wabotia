@@ -2,4 +2,5 @@
 // (cada um chama registerRpc). Só a sessão dona do domínio edita este arquivo.
 import "./rpc/erp_stock_post.ts";
 import "./rpc/policy.ts";
+import "./rpc/warehouses.ts";
 export {};
