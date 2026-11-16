@@ -27,8 +27,6 @@ export const contactFieldPersonType = (..._args: unknown[]): never => notPorted(
 export const contactInput = (..._args: unknown[]): never => notPorted("erp_catalog.contact_input");
 /** erp_catalog.contact_merge(p_user_id uuid, p_id uuid, p_data jsonb, p_before jsonb) → jsonb */
 export const contactMerge = (..._args: unknown[]): never => notPorted("erp_catalog.contact_merge");
-/** erp_catalog.contact_require_visible(p_user_id uuid, p_id uuid) → void */
-export const contactRequireVisible = (..._args: unknown[]): never => notPorted("erp_catalog.contact_require_visible");
 /** erp_catalog.contact_required_field(p_option text) → text */
 export const contactRequiredField = (..._args: unknown[]): never => notPorted("erp_catalog.contact_required_field");
 /** erp_catalog.contact_required_missing(p jsonb, p_fields text[]) → text */
@@ -37,8 +35,6 @@ export const contactRequiredMissing = (..._args: unknown[]): never => notPorted(
 export const contactTakeCode = (..._args: unknown[]): never => notPorted("erp_catalog.contact_take_code");
 /** erp_catalog.contact_type_slugs(p_id uuid) → text[] */
 export const contactTypeSlugs = (..._args: unknown[]): never => notPorted("erp_catalog.contact_type_slugs");
-/** erp_catalog.contact_visible_to(p_scope uuid, p_id uuid) → boolean */
-export const contactVisibleTo = (..._args: unknown[]): never => notPorted("erp_catalog.contact_visible_to");
 /** erp_catalog.contact_warnings(p_id uuid, p_full jsonb, p_before jsonb) → jsonb */
 export const contactWarnings = (..._args: unknown[]): never => notPorted("erp_catalog.contact_warnings");
 /** erp_catalog.contact_write(p_id uuid, p jsonb) → void */
