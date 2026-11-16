@@ -24,6 +24,27 @@ async function setup() {
 }
 
 describe("ferramentas do bot: Agenda", () => {
+  it("conferência N-7: agenda_agendar respeita o prazo máximo do cliente", async () => {
+    const { token, mine, corte, ana } = await setup();
+    const far = await tool(token, "agenda_agendar", {
+      conversation_id: mine.id,
+      service_id: corte.id,
+      professional_id: ana.id,
+      starts: at(future(200), "10:00"),
+      idempotency_key: uid(),
+    });
+    expect(far.ok).toBe(false);
+    // Dentro do prazo, agenda normalmente.
+    const near = await tool(token, "agenda_agendar", {
+      conversation_id: mine.id,
+      service_id: corte.id,
+      professional_id: ana.id,
+      starts: at(future(5), "10:00"),
+      idempotency_key: uid(),
+    });
+    expect(near.ok).toBe(true);
+  });
+
   it("horários livres, agendar, ver, remarcar e cancelar só do cliente da conversa", async () => {
     const { f, token, mine, other, corte, ana } = await setup();
     const day = future(5);

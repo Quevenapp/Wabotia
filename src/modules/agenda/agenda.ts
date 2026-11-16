@@ -145,11 +145,14 @@ function mayActOn(actor: Actor, c: Conversation) {
 // Ação do atendente: "Agendar para este cliente"
 // (POST /conversations/:id/actions {action:"agenda", service_id, starts, …}).
 onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
-  mayActOn(actor, c);
+  const bot = mayActOn(actor, c);
   requireValue(
     c.chat_type !== "group",
     "Agende pela conversa direta do cliente.",
   );
+  // Bot ou integração (agenda_agendar) age pelo cliente: valem a
+  // antecedência e o prazo das regras, e não há encaixe (conferência N-7).
+  const staff = !bot && actor.kind === "user";
   return (
     await book(ctx, await config(ctx), {
       service_id: data.service_id,
@@ -159,8 +162,8 @@ onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
       notes: data.notes,
       source: sourceOf(actor),
       actor: actor.id,
-      rules: { staff: true },
-      force: staffFlag(data.force),
+      rules: { staff },
+      force: staff ? staffFlag(data.force) : false,
       notify: data.notify === false ? false : undefined,
     })
   ).appointment;
