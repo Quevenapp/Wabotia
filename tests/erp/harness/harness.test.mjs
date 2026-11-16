@@ -258,6 +258,32 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   differs(data("before_data"), KNOWN);
 });
 
+test("item 6: uuid embutido em texto (source_key = 'cash_session:<movimento>')", () => {
+  const key = (id) => `cash_session:${id}`;
+  const pair = () => [U(), U()];
+  const [p1, p2] = pair(),
+    [l1, l2] = pair();
+  // O movimento que aponta para o outro movimento novo, só pelo texto.
+  const pgRows = [mov(p1, { delta_cents: "5" }), mov(p2, { delta_cents: "7", note: key(p1) })];
+  const data = (note) => ({ erp_finance__movement: { pg: pgRows, lite: [mov(l1, { delta_cents: "5" }), mov(l2, { delta_cents: "7", note })] } });
+  const { diffs, ids } = compare(data(key(l1)), KNOWN);
+  assert.deepEqual(diffs, []);
+  assert.equal(ids.map(l1), p1);
+  differs(data(key(l2)), KNOWN); // aponta para o movimento errado (ele mesmo)
+  differs(data(key(A)), KNOWN); // para um id que já existia
+  differs(data(key(U())), KNOWN); // para um id sem correspondência
+  differs(data(`cash_sessio:${l1}`), KNOWN); // prefixo diferente
+  differs(data(`${key(l1)}:${l1}`), KNOWN); // texto a mais
+  // Na resposta.
+  const r = () => new IdMap(new Set(KNOWN));
+  assert.deepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l1), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l2), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(A) }, { k: key(A2) }, r()), []);
+  assert.notDeepEqual(diffValues({ k: `x:${p1}` }, { k: `y:${l1}` }, r()), []);
+  // Hexa maior que um uuid não é uuid embutido: comparado literalmente.
+  assert.notDeepEqual(diffValues({ k: `${p1}aa` }, { k: `${l1}aa` }, r()), []);
+});
+
 // ---------------------------------------------------------------------------
 // Item 2: identificadores derivados de uuid
 
