@@ -1,0 +1,5704 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Cofre NFapi",
+		"version": "0.3.1",
+		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
+		"license": {
+			"name": "MIT"
+		}
+	},
+	"servers": [
+		{
+			"url": "https://{cofre}",
+			"variables": {
+				"cofre": {
+					"default": "nfapi-cofre.sua-conta.workers.dev",
+					"description": "Endereço do seu cofre."
+				}
+			}
+		}
+	],
+	"security": [
+		{
+			"chaveDeApi": []
+		}
+	],
+	"tags": [
+		{
+			"name": "NF-e"
+		},
+		{
+			"name": "NFC-e"
+		},
+		{
+			"name": "NFS-e"
+		},
+		{
+			"name": "Numeração"
+		},
+		{
+			"name": "Cofre"
+		}
+	],
+	"paths": {
+		"/v1/nfe": {
+			"post": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Emite uma NF-e",
+				"description": "O cofre reserva o número na série, monta e assina o XML, transmite e arquiva a nota autorizada. A série precisa estar cadastrada no cofre.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/PedidoNfe"
+							},
+							"example": {
+								"ambiente": "homologacao",
+								"referencia": "pedido-1001",
+								"serie": 1,
+								"naturezaOperacao": "Venda de mercadoria",
+								"presenca": "outros",
+								"consumidorFinal": false,
+								"emitente": {
+									"nome": "Empresa Exemplo Ltda",
+									"fantasia": "Exemplo",
+									"inscricaoEstadual": "111111111111",
+									"regime": "normal",
+									"endereco": {
+										"logradouro": "Rua das Flores",
+										"numero": "100",
+										"bairro": "Centro",
+										"codigoMunicipio": "3550308",
+										"municipio": "São Paulo",
+										"uf": "SP",
+										"cep": "01001000",
+										"telefone": "1133334444"
+									}
+								},
+								"destinatario": {
+									"cnpj": "99888777000166",
+									"nome": "Cliente Ltda",
+									"indicadorIe": "contribuinte",
+									"inscricaoEstadual": "222222222222",
+									"email": "compras@cliente.example",
+									"endereco": {
+										"logradouro": "Avenida Brasil",
+										"numero": "2000",
+										"bairro": "Jardins",
+										"codigoMunicipio": "3509502",
+										"municipio": "Campinas",
+										"uf": "SP",
+										"cep": "13010000"
+									}
+								},
+								"itens": [
+									{
+										"codigo": "SKU-1",
+										"descricao": "Cadeira de escritório",
+										"ncm": "94013090",
+										"cfop": "5102",
+										"unidade": "UN",
+										"quantidade": 2,
+										"valorUnitario": 350,
+										"impostos": {
+											"icms": {
+												"origem": 0,
+												"cst": "00",
+												"modalidadeBc": 3,
+												"baseCalculo": 700,
+												"aliquota": 18,
+												"valor": 126
+											},
+											"pis": {
+												"cst": "01",
+												"baseCalculo": 700,
+												"aliquota": 1.65,
+												"valor": 11.55
+											},
+											"cofins": {
+												"cst": "01",
+												"baseCalculo": 700,
+												"aliquota": 7.6,
+												"valor": 53.2
+											},
+											"ibsCbs": {
+												"cst": "000",
+												"classificacao": "000001",
+												"baseCalculo": 509.25,
+												"ibsUf": {
+													"aliquota": 0.1,
+													"valor": 0.51
+												},
+												"ibsMunicipio": {
+													"aliquota": 0,
+													"valor": 0
+												},
+												"cbs": {
+													"aliquota": 0.9,
+													"valor": 4.58
+												}
+											}
+										}
+									}
+								],
+								"transporte": {
+									"modalidade": 0
+								},
+								"cobranca": {
+									"fatura": {
+										"numero": "1001",
+										"valorOriginal": 700,
+										"valorLiquido": 700
+									},
+									"duplicatas": [
+										{
+											"numero": "001",
+											"vencimento": "2026-12-16",
+											"valor": 700
+										}
+									]
+								},
+								"pagamentos": [
+									{
+										"forma": "15",
+										"valor": 700,
+										"indicador": "a_prazo"
+									}
+								],
+								"informacoesComplementares": "Pedido 1001"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A referência já tinha uma nota: nada foi reenviado.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"201": {
+						"description": "Autorizada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Lista as emissões de NF-e",
+				"parameters": [
+					{
+						"name": "referencia",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Pesquisa pela referência do seu sistema."
+					},
+					{
+						"name": "limite",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Emissões, da mais nova para a mais antiga.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"nfe": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/EmissaoNfe"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}": {
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Consulta o registro da emissão no cofre",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/consultar": {
+			"post": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Consulta a SEFAZ e fecha uma emissão sem resposta conclusiva",
+				"description": "Para emissões em situação `indefinida`. Nas demais situações devolve o registro como está.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão, atualizada quando a SEFAZ respondeu.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/xml": {
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Baixa o XML autorizado (nfeProc)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML autorizado.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/cancelar": {
+			"post": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Cancela a NF-e",
+				"description": "Repetir o pedido de uma nota já cancelada devolve 200.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CancelamentoNfe"
+							},
+							"example": {
+								"justificativa": "Pedido cancelado pelo cliente antes da entrega"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Cancelada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/carta-correcao": {
+			"post": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Registra uma carta de correção",
+				"description": "Até 20 por nota. A carta mais recente substitui as anteriores, então o texto deve trazer todas as correções.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CartaCorrecao"
+							},
+							"example": {
+								"correcao": "Endereço de entrega: Rua das Acácias, 45, sala 2"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Registrada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce": {
+			"post": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Emite uma NFC-e",
+				"description": "O cofre reserva o número na série, monta e assina o XML, transmite e arquiva a nota autorizada. A série precisa estar cadastrada no cofre.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/PedidoNfce"
+							},
+							"example": {
+								"ambiente": "homologacao",
+								"referencia": "caixa1-venda-5001",
+								"serie": 1,
+								"naturezaOperacao": "Venda ao consumidor",
+								"emitente": {
+									"nome": "Loja Exemplo Ltda",
+									"inscricaoEstadual": "111111111111",
+									"regime": "simples_nacional",
+									"endereco": {
+										"logradouro": "Rua das Flores",
+										"numero": "100",
+										"bairro": "Centro",
+										"codigoMunicipio": "3550308",
+										"municipio": "São Paulo",
+										"uf": "SP",
+										"cep": "01001000",
+										"telefone": "1133334444"
+									}
+								},
+								"destinatario": {
+									"cpf": "12345678909"
+								},
+								"itens": [
+									{
+										"codigo": "789",
+										"descricao": "Camiseta de algodão",
+										"ncm": "61091000",
+										"cfop": "5102",
+										"unidade": "UN",
+										"quantidade": 1,
+										"valorUnitario": 59.9,
+										"impostos": {
+											"valorAproximadoTributos": 12.5,
+											"icms": {
+												"origem": 0,
+												"csosn": "102"
+											}
+										}
+									}
+								],
+								"pagamentos": [
+									{
+										"forma": "01",
+										"valor": 100
+									}
+								],
+								"troco": 40.1
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A referência já tinha uma nota: nada foi reenviado.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"201": {
+						"description": "Autorizada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Lista as emissões de NFC-e",
+				"parameters": [
+					{
+						"name": "referencia",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Pesquisa pela referência do seu sistema."
+					},
+					{
+						"name": "limite",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Emissões, da mais nova para a mais antiga.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"nfce": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/EmissaoNfe"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}": {
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Consulta o registro da emissão no cofre",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/consultar": {
+			"post": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Consulta a SEFAZ e fecha uma emissão sem resposta conclusiva",
+				"description": "Para emissões em situação `indefinida`. Nas demais situações devolve o registro como está.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão, atualizada quando a SEFAZ respondeu.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/xml": {
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Baixa o XML autorizado (nfeProc)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML autorizado.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/cancelar": {
+			"post": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Cancela a NFC-e",
+				"description": "Repetir o pedido de uma nota já cancelada devolve 200.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CancelamentoNfe"
+							},
+							"example": {
+								"justificativa": "Pedido cancelado pelo cliente antes da entrega"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Cancelada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfe"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse": {
+			"post": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Emite uma NFS-e (Sistema Nacional)",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/PedidoNfse"
+							},
+							"example": {
+								"ambiente": "homologacao",
+								"referencia": "pedido-2001",
+								"prestador": {
+									"codigoMunicipio": "3550308",
+									"regimeTributario": {
+										"simplesNacional": "me_epp",
+										"apuracaoSimples": 1
+									}
+								},
+								"tomador": {
+									"cnpj": "99888777000166",
+									"nome": "Cliente Ltda"
+								},
+								"servico": {
+									"codigoMunicipioPrestacao": "3550308",
+									"codigoTributacaoNacional": "010701",
+									"descricao": "Suporte técnico"
+								},
+								"valores": {
+									"servico": 1500
+								},
+								"tributacao": {
+									"issqn": {
+										"aliquota": 2
+									},
+									"totalTributos": {
+										"tipo": "percentual_simples",
+										"percentual": 6
+									}
+								}
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A referência já tinha uma nota.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfse"
+								}
+							}
+						}
+					},
+					"201": {
+						"description": "Autorizada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfse"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Lista as emissões de NFS-e",
+				"parameters": [
+					{
+						"name": "referencia",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Pesquisa pela referência do seu sistema."
+					},
+					{
+						"name": "limite",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Emissões.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"nfse": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/EmissaoNfse"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse/{id}": {
+			"get": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Consulta a emissão",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfse"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse/{id}/xml": {
+			"get": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Baixa o XML da NFS-e",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML autorizado.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse/{id}/cancelar": {
+			"post": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Cancela a NFS-e",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/CancelamentoNfse"
+							},
+							"example": {
+								"motivo": "erro_emissao",
+								"justificativa": "Nota emitida com o valor incorreto"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Cancelada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EmissaoNfse"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/inutilizacoes": {
+			"post": {
+				"tags": [
+					"Numeração"
+				],
+				"summary": "Inutiliza uma faixa de numeração de NF-e ou NFC-e",
+				"description": "Para números que não serão usados (lacunas). A faixa não pode conter nota autorizada ou em andamento neste cofre.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/Inutilizacao"
+							},
+							"example": {
+								"modelo": "nfe",
+								"ambiente": "homologacao",
+								"uf": "SP",
+								"serie": 1,
+								"numeroInicial": 15,
+								"numeroFinal": 15,
+								"justificativa": "Número pulado por falha no sistema anterior"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Homologada pela SEFAZ.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/InutilizacaoRegistrada"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/series": {
+			"get": {
+				"tags": [
+					"Numeração"
+				],
+				"summary": "Séries cadastradas e o próximo número de cada uma",
+				"description": "As séries são cadastradas pelo emitente na tela do cofre, com o número inicial. O pedido de emissão escolhe a série entre as cadastradas.",
+				"responses": {
+					"200": {
+						"description": "Séries.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"series": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Serie"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/cofre": {
+			"get": {
+				"tags": [
+					"Cofre"
+				],
+				"summary": "Estado do cofre",
+				"description": "Versão instalada, atualização pendente, validade do certificado e ambientes liberados. Nunca inclui chaves nem segredos.",
+				"responses": {
+					"200": {
+						"description": "Estado.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Cofre"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/sefaz/status": {
+			"get": {
+				"tags": [
+					"Cofre"
+				],
+				"summary": "Status do serviço de autorização da SEFAZ",
+				"parameters": [
+					{
+						"name": "uf",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 2,
+							"maxLength": 2
+						}
+					},
+					{
+						"name": "modelo",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"nfe",
+								"nfce"
+							],
+							"default": "nfe"
+						}
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							],
+							"default": "homologacao"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Status.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/StatusSefaz"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/openapi.json": {
+			"get": {
+				"tags": [
+					"Cofre"
+				],
+				"summary": "Este contrato",
+				"security": [],
+				"responses": {
+					"200": {
+						"description": "OpenAPI 3.1."
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"securitySchemes": {
+			"chaveDeApi": {
+				"type": "http",
+				"scheme": "bearer",
+				"description": "Chave de API do cofre: `Authorization: Bearer nfapi_...`."
+			}
+		},
+		"schemas": {
+			"Erro": {
+				"type": "object",
+				"properties": {
+					"erro": {
+						"type": "object",
+						"properties": {
+							"codigo": {
+								"type": "string"
+							},
+							"mensagem": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"codigo",
+							"mensagem"
+						]
+					},
+					"campo": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Em erros de validação da NF-e e NFC-e: o campo recusado."
+					},
+					"nfe": {
+						"$ref": "#/components/schemas/EmissaoNfe"
+					},
+					"nfce": {
+						"$ref": "#/components/schemas/EmissaoNfe"
+					},
+					"nfse": {
+						"$ref": "#/components/schemas/EmissaoNfse"
+					},
+					"mensagens": {
+						"type": "array",
+						"description": "Código e descrição devolvidos pelo governo (na NF-e e NFC-e, cStat e xMotivo) ou pelo cofre.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"codigo": {
+									"type": "string"
+								},
+								"descricao": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"codigo",
+								"descricao"
+							]
+						}
+					}
+				},
+				"required": [
+					"erro"
+				]
+			},
+			"Cabecalho": {
+				"type": "object",
+				"properties": {
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						],
+						"default": "homologacao"
+					},
+					"referencia": {
+						"type": "string",
+						"pattern": "^[A-Za-z0-9._:-]{1,80}$",
+						"description": "Identificador do pedido no seu sistema. Repetir a referência com o mesmo conteúdo devolve a mesma emissão; com conteúdo diferente, o cofre recusa (409 referencia_com_conteudo_diferente). Só uma nota rejeitada pode ser reenviada corrigida com a mesma referência."
+					}
+				}
+			},
+			"PedidoNfe": {
+				"allOf": [
+					{
+						"$ref": "#/components/schemas/Cabecalho"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"serie": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 889
+							},
+							"naturezaOperacao": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 60
+							},
+							"dataEmissao": {
+								"type": "string",
+								"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+							},
+							"finalidade": {
+								"default": "normal",
+								"type": "string",
+								"enum": [
+									"normal",
+									"complementar",
+									"ajuste",
+									"devolucao"
+								]
+							},
+							"notasReferenciadas": {
+								"maxItems": 999,
+								"type": "array",
+								"items": {
+									"type": "string",
+									"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+								}
+							},
+							"intermediador": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"identificacao": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									}
+								},
+								"required": [
+									"cnpj",
+									"identificacao"
+								]
+							},
+							"emitente": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"nome": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"fantasia": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 60
+									},
+									"inscricaoEstadual": {
+										"type": "string",
+										"pattern": "^\\d{2,14}$"
+									},
+									"inscricaoMunicipal": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 15
+									},
+									"cnae": {
+										"type": "string",
+										"pattern": "^\\d{7}$"
+									},
+									"regime": {
+										"type": "string",
+										"enum": [
+											"simples_nacional",
+											"simples_excesso",
+											"normal",
+											"mei"
+										]
+									},
+									"endereco": {
+										"type": "object",
+										"properties": {
+											"logradouro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"complemento": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"bairro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"codigoMunicipio": {
+												"type": "string",
+												"pattern": "^\\d{7}$"
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"cep": {
+												"type": "string",
+												"pattern": "^\\d{8}$"
+											},
+											"telefone": {
+												"type": "string",
+												"pattern": "^\\d{6,14}$"
+											}
+										},
+										"required": [
+											"logradouro",
+											"numero",
+											"bairro",
+											"codigoMunicipio",
+											"municipio",
+											"uf",
+											"cep"
+										]
+									}
+								},
+								"required": [
+									"nome",
+									"inscricaoEstadual",
+									"regime",
+									"endereco"
+								]
+							},
+							"itens": {
+								"minItems": 1,
+								"maxItems": 990,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"codigo": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 60
+										},
+										"ean": {
+											"type": "string",
+											"pattern": "^(\\d{8}|\\d{12,14})$"
+										},
+										"descricao": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 120
+										},
+										"ncm": {
+											"type": "string",
+											"pattern": "^(\\d{2}|\\d{8})$"
+										},
+										"cest": {
+											"type": "string",
+											"pattern": "^\\d{7}$"
+										},
+										"codigoBeneficioFiscal": {
+											"type": "string",
+											"pattern": "^([A-Za-z0-9]{8}|[A-Za-z0-9]{10}|SEM CBENEF)$"
+										},
+										"cfop": {
+											"type": "string",
+											"pattern": "^\\d{4}$"
+										},
+										"unidade": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 6
+										},
+										"quantidade": {
+											"type": "number",
+											"exclusiveMinimum": 0,
+											"maximum": 99999999999.9999
+										},
+										"valorUnitario": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 100000000000
+										},
+										"valorTotal": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"tributavel": {
+											"type": "object",
+											"properties": {
+												"ean": {
+													"type": "string",
+													"pattern": "^(\\d{8}|\\d{12,14})$"
+												},
+												"unidade": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 6
+												},
+												"quantidade": {
+													"type": "number",
+													"exclusiveMinimum": 0,
+													"maximum": 99999999999.9999
+												},
+												"valorUnitario": {
+													"type": "number",
+													"minimum": 0,
+													"maximum": 100000000000
+												}
+											},
+											"required": [
+												"unidade",
+												"quantidade",
+												"valorUnitario"
+											]
+										},
+										"frete": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"seguro": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"desconto": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"outrasDespesas": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"compoeTotal": {
+											"default": true,
+											"type": "boolean"
+										},
+										"numeroPedido": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 15
+										},
+										"itemPedido": {
+											"type": "integer",
+											"minimum": 0,
+											"maximum": 999999
+										},
+										"informacoesAdicionais": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 500
+										},
+										"impostos": {
+											"type": "object",
+											"properties": {
+												"valorAproximadoTributos": {
+													"type": "number",
+													"minimum": 0,
+													"maximum": 9999999999999.99
+												},
+												"icms": {
+													"type": "object",
+													"properties": {
+														"origem": {
+															"default": 0,
+															"type": "integer",
+															"minimum": 0,
+															"maximum": 8
+														},
+														"cst": {
+															"type": "string",
+															"enum": [
+																"10",
+																"20",
+																"30",
+																"40",
+																"41",
+																"50",
+																"51",
+																"60",
+																"70",
+																"90",
+																"00"
+															]
+														},
+														"csosn": {
+															"type": "string",
+															"enum": [
+																"101",
+																"102",
+																"103",
+																"201",
+																"202",
+																"203",
+																"300",
+																"400",
+																"500",
+																"900"
+															]
+														},
+														"modalidadeBc": {
+															"type": "integer",
+															"minimum": 0,
+															"maximum": 3
+														},
+														"reducaoBc": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"fcp": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"st": {
+															"type": "object",
+															"properties": {
+																"modalidadeBc": {
+																	"type": "integer",
+																	"minimum": 0,
+																	"maximum": 6
+																},
+																"mva": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"reducaoBc": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"fcp": {
+																	"type": "object",
+																	"properties": {
+																		"baseCalculo": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"modalidadeBc",
+																"baseCalculo",
+																"aliquota",
+																"valor"
+															]
+														},
+														"desoneracao": {
+															"type": "object",
+															"properties": {
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"motivo": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 99
+																},
+																"deduzDoTotal": {
+																	"default": false,
+																	"type": "boolean"
+																}
+															},
+															"required": [
+																"valor",
+																"motivo"
+															]
+														},
+														"diferimento": {
+															"type": "object",
+															"properties": {
+																"valorOperacao": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"percentual": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valorDiferido": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"valorOperacao",
+																"percentual",
+																"valorDiferido"
+															]
+														},
+														"creditoSimples": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"retidoAnteriormente": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquotaConsumidorFinal": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valorSubstituto": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"fcp": {
+																	"type": "object",
+																	"properties": {
+																		"baseCalculo": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"baseCalculo",
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"baseCalculo",
+																"aliquotaConsumidorFinal",
+																"valor"
+															]
+														}
+													}
+												},
+												"ipi": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"enum": [
+																"49",
+																"50",
+																"51",
+																"52",
+																"53",
+																"54",
+																"55",
+																"99",
+																"00",
+																"01",
+																"02",
+																"03",
+																"04",
+																"05"
+															]
+														},
+														"codigoEnquadramento": {
+															"default": "999",
+															"type": "string",
+															"pattern": "^\\d{1,3}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"pis": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"cofins": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"ibsCbs": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^\\d{3}$"
+														},
+														"classificacao": {
+															"type": "string",
+															"pattern": "^\\d{6}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"ibsUf": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"ibsMunicipio": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"cbs": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														}
+													},
+													"required": [
+														"cst",
+														"classificacao"
+													]
+												},
+												"difal": {
+													"type": "object",
+													"properties": {
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquotaInterna": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"aliquotaInterestadual": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valorDestino": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"fcp": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														}
+													},
+													"required": [
+														"baseCalculo",
+														"aliquotaInterna",
+														"aliquotaInterestadual",
+														"valorDestino"
+													]
+												}
+											},
+											"required": [
+												"icms"
+											]
+										}
+									},
+									"required": [
+										"codigo",
+										"descricao",
+										"ncm",
+										"cfop",
+										"unidade",
+										"quantidade",
+										"valorUnitario",
+										"impostos"
+									]
+								}
+							},
+							"pagamentos": {
+								"minItems": 1,
+								"maxItems": 100,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"forma": {
+											"type": "string",
+											"pattern": "^\\d{2}$"
+										},
+										"valor": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"descricao": {
+											"type": "string",
+											"minLength": 2,
+											"maxLength": 60
+										},
+										"indicador": {
+											"type": "string",
+											"enum": [
+												"a_vista",
+												"a_prazo"
+											]
+										},
+										"cartao": {
+											"type": "object",
+											"properties": {
+												"integracao": {
+													"default": "nao_integrado",
+													"type": "string",
+													"enum": [
+														"integrado",
+														"nao_integrado"
+													]
+												},
+												"cnpjCredenciadora": {
+													"type": "string",
+													"pattern": "^[0-9A-Z]{12}\\d{2}$"
+												},
+												"bandeira": {
+													"type": "string",
+													"pattern": "^\\d{2}$"
+												},
+												"autorizacao": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 128
+												}
+											}
+										}
+									},
+									"required": [
+										"forma",
+										"valor"
+									]
+								}
+							},
+							"troco": {
+								"type": "number",
+								"minimum": 0,
+								"maximum": 9999999999999.99
+							},
+							"informacoesComplementares": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 5000
+							},
+							"informacoesFisco": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 2000
+							},
+							"responsavelTecnico": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"contato": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"email": {
+										"type": "string",
+										"minLength": 6,
+										"maxLength": 60,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									},
+									"telefone": {
+										"type": "string",
+										"pattern": "^\\d{6,14}$"
+									}
+								},
+								"required": [
+									"cnpj",
+									"contato",
+									"email",
+									"telefone"
+								]
+							},
+							"tipo": {
+								"default": "saida",
+								"type": "string",
+								"enum": [
+									"saida",
+									"entrada"
+								]
+							},
+							"dataSaida": {
+								"type": "string",
+								"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+							},
+							"consumidorFinal": {
+								"default": false,
+								"type": "boolean"
+							},
+							"presenca": {
+								"type": "string",
+								"enum": [
+									"nao_se_aplica",
+									"presencial",
+									"internet",
+									"teleatendimento",
+									"entrega_domicilio",
+									"presencial_fora",
+									"outros"
+								]
+							},
+							"destinoOperacao": {
+								"type": "string",
+								"enum": [
+									"interna",
+									"interestadual",
+									"exterior"
+								]
+							},
+							"destinatario": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"cpf": {
+										"type": "string",
+										"pattern": "^\\d{11}$"
+									},
+									"idEstrangeiro": {
+										"type": "string",
+										"pattern": "^[A-Za-z0-9]{0,20}$"
+									},
+									"nome": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"indicadorIe": {
+										"default": "nao_contribuinte",
+										"type": "string",
+										"enum": [
+											"contribuinte",
+											"isento",
+											"nao_contribuinte"
+										]
+									},
+									"inscricaoEstadual": {
+										"type": "string",
+										"pattern": "^\\d{2,14}$"
+									},
+									"email": {
+										"type": "string",
+										"maxLength": 60,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									},
+									"endereco": {
+										"type": "object",
+										"properties": {
+											"logradouro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"complemento": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"bairro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"codigoMunicipio": {
+												"type": "string",
+												"pattern": "^\\d{7}$"
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"cep": {
+												"type": "string",
+												"pattern": "^\\d{8}$"
+											},
+											"telefone": {
+												"type": "string",
+												"pattern": "^\\d{6,14}$"
+											}
+										},
+										"required": [
+											"logradouro",
+											"numero",
+											"bairro",
+											"codigoMunicipio",
+											"municipio",
+											"uf"
+										]
+									}
+								}
+							},
+							"transporte": {
+								"default": {
+									"modalidade": 9
+								},
+								"type": "object",
+								"properties": {
+									"modalidade": {
+										"default": 9,
+										"anyOf": [
+											{
+												"type": "number",
+												"const": 0
+											},
+											{
+												"type": "number",
+												"const": 1
+											},
+											{
+												"type": "number",
+												"const": 2
+											},
+											{
+												"type": "number",
+												"const": 3
+											},
+											{
+												"type": "number",
+												"const": 4
+											},
+											{
+												"type": "number",
+												"const": 9
+											}
+										]
+									},
+									"transportadora": {
+										"type": "object",
+										"properties": {
+											"cnpj": {
+												"type": "string",
+												"pattern": "^[0-9A-Z]{12}\\d{2}$"
+											},
+											"cpf": {
+												"type": "string",
+												"pattern": "^\\d{11}$"
+											},
+											"nome": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"inscricaoEstadual": {
+												"type": "string",
+												"pattern": "^\\d{2,14}$"
+											},
+											"endereco": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											}
+										}
+									},
+									"veiculo": {
+										"type": "object",
+										"properties": {
+											"placa": {
+												"type": "string",
+												"pattern": "^[A-Z]{2,3}[0-9]{4}$|^[A-Z]{3,4}[0-9]{3}$|^[A-Z0-9]{7}$"
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"rntc": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 20
+											}
+										},
+										"required": [
+											"placa"
+										]
+									},
+									"volumes": {
+										"maxItems": 5000,
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"quantidade": {
+													"type": "integer",
+													"minimum": 0,
+													"maximum": 9007199254740991
+												},
+												"especie": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"marca": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"numeracao": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"pesoLiquido": {
+													"type": "number",
+													"minimum": 0
+												},
+												"pesoBruto": {
+													"type": "number",
+													"minimum": 0
+												}
+											}
+										}
+									}
+								}
+							},
+							"cobranca": {
+								"type": "object",
+								"properties": {
+									"fatura": {
+										"type": "object",
+										"properties": {
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"valorOriginal": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 9999999999999.99
+											},
+											"desconto": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 9999999999999.99
+											},
+											"valorLiquido": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 9999999999999.99
+											}
+										},
+										"required": [
+											"numero",
+											"valorOriginal",
+											"valorLiquido"
+										]
+									},
+									"duplicatas": {
+										"maxItems": 120,
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"numero": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"vencimento": {
+													"type": "string",
+													"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+												},
+												"valor": {
+													"type": "number",
+													"minimum": 0,
+													"maximum": 9999999999999.99
+												}
+											},
+											"required": [
+												"numero",
+												"vencimento",
+												"valor"
+											]
+										}
+									}
+								}
+							}
+						},
+						"required": [
+							"naturezaOperacao",
+							"emitente",
+							"itens",
+							"pagamentos",
+							"presenca",
+							"destinatario"
+						]
+					}
+				]
+			},
+			"PedidoNfce": {
+				"allOf": [
+					{
+						"$ref": "#/components/schemas/Cabecalho"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"serie": {
+								"type": "integer",
+								"minimum": 0,
+								"maximum": 889
+							},
+							"naturezaOperacao": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 60
+							},
+							"dataEmissao": {
+								"type": "string",
+								"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+							},
+							"finalidade": {
+								"default": "normal",
+								"type": "string",
+								"enum": [
+									"normal",
+									"complementar",
+									"ajuste",
+									"devolucao"
+								]
+							},
+							"notasReferenciadas": {
+								"maxItems": 999,
+								"type": "array",
+								"items": {
+									"type": "string",
+									"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+								}
+							},
+							"intermediador": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"identificacao": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									}
+								},
+								"required": [
+									"cnpj",
+									"identificacao"
+								]
+							},
+							"emitente": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"nome": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"fantasia": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 60
+									},
+									"inscricaoEstadual": {
+										"type": "string",
+										"pattern": "^\\d{2,14}$"
+									},
+									"inscricaoMunicipal": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 15
+									},
+									"cnae": {
+										"type": "string",
+										"pattern": "^\\d{7}$"
+									},
+									"regime": {
+										"type": "string",
+										"enum": [
+											"simples_nacional",
+											"simples_excesso",
+											"normal",
+											"mei"
+										]
+									},
+									"endereco": {
+										"type": "object",
+										"properties": {
+											"logradouro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"complemento": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"bairro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"codigoMunicipio": {
+												"type": "string",
+												"pattern": "^\\d{7}$"
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"cep": {
+												"type": "string",
+												"pattern": "^\\d{8}$"
+											},
+											"telefone": {
+												"type": "string",
+												"pattern": "^\\d{6,14}$"
+											}
+										},
+										"required": [
+											"logradouro",
+											"numero",
+											"bairro",
+											"codigoMunicipio",
+											"municipio",
+											"uf",
+											"cep"
+										]
+									}
+								},
+								"required": [
+									"nome",
+									"inscricaoEstadual",
+									"regime",
+									"endereco"
+								]
+							},
+							"itens": {
+								"minItems": 1,
+								"maxItems": 990,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"codigo": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 60
+										},
+										"ean": {
+											"type": "string",
+											"pattern": "^(\\d{8}|\\d{12,14})$"
+										},
+										"descricao": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 120
+										},
+										"ncm": {
+											"type": "string",
+											"pattern": "^(\\d{2}|\\d{8})$"
+										},
+										"cest": {
+											"type": "string",
+											"pattern": "^\\d{7}$"
+										},
+										"codigoBeneficioFiscal": {
+											"type": "string",
+											"pattern": "^([A-Za-z0-9]{8}|[A-Za-z0-9]{10}|SEM CBENEF)$"
+										},
+										"cfop": {
+											"type": "string",
+											"pattern": "^\\d{4}$"
+										},
+										"unidade": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 6
+										},
+										"quantidade": {
+											"type": "number",
+											"exclusiveMinimum": 0,
+											"maximum": 99999999999.9999
+										},
+										"valorUnitario": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 100000000000
+										},
+										"valorTotal": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"tributavel": {
+											"type": "object",
+											"properties": {
+												"ean": {
+													"type": "string",
+													"pattern": "^(\\d{8}|\\d{12,14})$"
+												},
+												"unidade": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 6
+												},
+												"quantidade": {
+													"type": "number",
+													"exclusiveMinimum": 0,
+													"maximum": 99999999999.9999
+												},
+												"valorUnitario": {
+													"type": "number",
+													"minimum": 0,
+													"maximum": 100000000000
+												}
+											},
+											"required": [
+												"unidade",
+												"quantidade",
+												"valorUnitario"
+											]
+										},
+										"frete": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"seguro": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"desconto": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"outrasDespesas": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"compoeTotal": {
+											"default": true,
+											"type": "boolean"
+										},
+										"numeroPedido": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 15
+										},
+										"itemPedido": {
+											"type": "integer",
+											"minimum": 0,
+											"maximum": 999999
+										},
+										"informacoesAdicionais": {
+											"type": "string",
+											"minLength": 1,
+											"maxLength": 500
+										},
+										"impostos": {
+											"type": "object",
+											"properties": {
+												"valorAproximadoTributos": {
+													"type": "number",
+													"minimum": 0,
+													"maximum": 9999999999999.99
+												},
+												"icms": {
+													"type": "object",
+													"properties": {
+														"origem": {
+															"default": 0,
+															"type": "integer",
+															"minimum": 0,
+															"maximum": 8
+														},
+														"cst": {
+															"type": "string",
+															"enum": [
+																"10",
+																"20",
+																"30",
+																"40",
+																"41",
+																"50",
+																"51",
+																"60",
+																"70",
+																"90",
+																"00"
+															]
+														},
+														"csosn": {
+															"type": "string",
+															"enum": [
+																"101",
+																"102",
+																"103",
+																"201",
+																"202",
+																"203",
+																"300",
+																"400",
+																"500",
+																"900"
+															]
+														},
+														"modalidadeBc": {
+															"type": "integer",
+															"minimum": 0,
+															"maximum": 3
+														},
+														"reducaoBc": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"fcp": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"st": {
+															"type": "object",
+															"properties": {
+																"modalidadeBc": {
+																	"type": "integer",
+																	"minimum": 0,
+																	"maximum": 6
+																},
+																"mva": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"reducaoBc": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"fcp": {
+																	"type": "object",
+																	"properties": {
+																		"baseCalculo": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"modalidadeBc",
+																"baseCalculo",
+																"aliquota",
+																"valor"
+															]
+														},
+														"desoneracao": {
+															"type": "object",
+															"properties": {
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"motivo": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 99
+																},
+																"deduzDoTotal": {
+																	"default": false,
+																	"type": "boolean"
+																}
+															},
+															"required": [
+																"valor",
+																"motivo"
+															]
+														},
+														"diferimento": {
+															"type": "object",
+															"properties": {
+																"valorOperacao": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"percentual": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valorDiferido": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"valorOperacao",
+																"percentual",
+																"valorDiferido"
+															]
+														},
+														"creditoSimples": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"retidoAnteriormente": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquotaConsumidorFinal": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valorSubstituto": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"fcp": {
+																	"type": "object",
+																	"properties": {
+																		"baseCalculo": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"baseCalculo",
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"baseCalculo",
+																"aliquotaConsumidorFinal",
+																"valor"
+															]
+														}
+													}
+												},
+												"ipi": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"enum": [
+																"49",
+																"50",
+																"51",
+																"52",
+																"53",
+																"54",
+																"55",
+																"99",
+																"00",
+																"01",
+																"02",
+																"03",
+																"04",
+																"05"
+															]
+														},
+														"codigoEnquadramento": {
+															"default": "999",
+															"type": "string",
+															"pattern": "^\\d{1,3}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"pis": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"cofins": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"cst"
+													]
+												},
+												"ibsCbs": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^\\d{3}$"
+														},
+														"classificacao": {
+															"type": "string",
+															"pattern": "^\\d{6}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"ibsUf": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"ibsMunicipio": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														},
+														"cbs": {
+															"type": "object",
+															"properties": {
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														}
+													},
+													"required": [
+														"cst",
+														"classificacao"
+													]
+												},
+												"difal": {
+													"type": "object",
+													"properties": {
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquotaInterna": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"aliquotaInterestadual": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"valorDestino": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"fcp": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"aliquota": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 999.9999
+																},
+																"valor": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"aliquota",
+																"valor"
+															]
+														}
+													},
+													"required": [
+														"baseCalculo",
+														"aliquotaInterna",
+														"aliquotaInterestadual",
+														"valorDestino"
+													]
+												}
+											},
+											"required": [
+												"icms"
+											]
+										}
+									},
+									"required": [
+										"codigo",
+										"descricao",
+										"ncm",
+										"cfop",
+										"unidade",
+										"quantidade",
+										"valorUnitario",
+										"impostos"
+									]
+								}
+							},
+							"pagamentos": {
+								"minItems": 1,
+								"maxItems": 100,
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"forma": {
+											"type": "string",
+											"pattern": "^\\d{2}$"
+										},
+										"valor": {
+											"type": "number",
+											"minimum": 0,
+											"maximum": 9999999999999.99
+										},
+										"descricao": {
+											"type": "string",
+											"minLength": 2,
+											"maxLength": 60
+										},
+										"indicador": {
+											"type": "string",
+											"enum": [
+												"a_vista",
+												"a_prazo"
+											]
+										},
+										"cartao": {
+											"type": "object",
+											"properties": {
+												"integracao": {
+													"default": "nao_integrado",
+													"type": "string",
+													"enum": [
+														"integrado",
+														"nao_integrado"
+													]
+												},
+												"cnpjCredenciadora": {
+													"type": "string",
+													"pattern": "^[0-9A-Z]{12}\\d{2}$"
+												},
+												"bandeira": {
+													"type": "string",
+													"pattern": "^\\d{2}$"
+												},
+												"autorizacao": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 128
+												}
+											}
+										}
+									},
+									"required": [
+										"forma",
+										"valor"
+									]
+								}
+							},
+							"troco": {
+								"type": "number",
+								"minimum": 0,
+								"maximum": 9999999999999.99
+							},
+							"informacoesComplementares": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 5000
+							},
+							"informacoesFisco": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 2000
+							},
+							"responsavelTecnico": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"contato": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"email": {
+										"type": "string",
+										"minLength": 6,
+										"maxLength": 60,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									},
+									"telefone": {
+										"type": "string",
+										"pattern": "^\\d{6,14}$"
+									}
+								},
+								"required": [
+									"cnpj",
+									"contato",
+									"email",
+									"telefone"
+								]
+							},
+							"presenca": {
+								"default": "presencial",
+								"type": "string",
+								"enum": [
+									"presencial",
+									"entrega_domicilio"
+								]
+							},
+							"destinatario": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"cpf": {
+										"type": "string",
+										"pattern": "^\\d{11}$"
+									},
+									"idEstrangeiro": {
+										"type": "string",
+										"pattern": "^[A-Za-z0-9]{0,20}$"
+									},
+									"nome": {
+										"type": "string",
+										"minLength": 2,
+										"maxLength": 60
+									},
+									"indicadorIe": {
+										"default": "nao_contribuinte",
+										"type": "string",
+										"enum": [
+											"contribuinte",
+											"isento",
+											"nao_contribuinte"
+										]
+									},
+									"inscricaoEstadual": {
+										"type": "string",
+										"pattern": "^\\d{2,14}$"
+									},
+									"email": {
+										"type": "string",
+										"maxLength": 60,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									},
+									"endereco": {
+										"type": "object",
+										"properties": {
+											"logradouro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"complemento": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"bairro": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"codigoMunicipio": {
+												"type": "string",
+												"pattern": "^\\d{7}$"
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"cep": {
+												"type": "string",
+												"pattern": "^\\d{8}$"
+											},
+											"telefone": {
+												"type": "string",
+												"pattern": "^\\d{6,14}$"
+											}
+										},
+										"required": [
+											"logradouro",
+											"numero",
+											"bairro",
+											"codigoMunicipio",
+											"municipio",
+											"uf"
+										]
+									}
+								}
+							},
+							"transporte": {
+								"default": {
+									"modalidade": 9
+								},
+								"type": "object",
+								"properties": {
+									"modalidade": {
+										"default": 9,
+										"anyOf": [
+											{
+												"type": "number",
+												"const": 0
+											},
+											{
+												"type": "number",
+												"const": 1
+											},
+											{
+												"type": "number",
+												"const": 2
+											},
+											{
+												"type": "number",
+												"const": 3
+											},
+											{
+												"type": "number",
+												"const": 4
+											},
+											{
+												"type": "number",
+												"const": 9
+											}
+										]
+									},
+									"transportadora": {
+										"type": "object",
+										"properties": {
+											"cnpj": {
+												"type": "string",
+												"pattern": "^[0-9A-Z]{12}\\d{2}$"
+											},
+											"cpf": {
+												"type": "string",
+												"pattern": "^\\d{11}$"
+											},
+											"nome": {
+												"type": "string",
+												"minLength": 2,
+												"maxLength": 60
+											},
+											"inscricaoEstadual": {
+												"type": "string",
+												"pattern": "^\\d{2,14}$"
+											},
+											"endereco": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"municipio": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											}
+										}
+									},
+									"veiculo": {
+										"type": "object",
+										"properties": {
+											"placa": {
+												"type": "string",
+												"pattern": "^[A-Z]{2,3}[0-9]{4}$|^[A-Z]{3,4}[0-9]{3}$|^[A-Z0-9]{7}$"
+											},
+											"uf": {
+												"type": "string",
+												"enum": [
+													"AC",
+													"AL",
+													"AM",
+													"AP",
+													"BA",
+													"CE",
+													"DF",
+													"ES",
+													"GO",
+													"MA",
+													"MG",
+													"MS",
+													"MT",
+													"PA",
+													"PB",
+													"PE",
+													"PI",
+													"PR",
+													"RJ",
+													"RN",
+													"RO",
+													"RR",
+													"RS",
+													"SC",
+													"SE",
+													"SP",
+													"TO"
+												]
+											},
+											"rntc": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 20
+											}
+										},
+										"required": [
+											"placa"
+										]
+									},
+									"volumes": {
+										"maxItems": 5000,
+										"type": "array",
+										"items": {
+											"type": "object",
+											"properties": {
+												"quantidade": {
+													"type": "integer",
+													"minimum": 0,
+													"maximum": 9007199254740991
+												},
+												"especie": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"marca": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"numeracao": {
+													"type": "string",
+													"minLength": 1,
+													"maxLength": 60
+												},
+												"pesoLiquido": {
+													"type": "number",
+													"minimum": 0
+												},
+												"pesoBruto": {
+													"type": "number",
+													"minimum": 0
+												}
+											}
+										}
+									}
+								}
+							}
+						},
+						"required": [
+							"naturezaOperacao",
+							"emitente",
+							"itens",
+							"pagamentos"
+						]
+					}
+				]
+			},
+			"PedidoNfse": {
+				"allOf": [
+					{
+						"$ref": "#/components/schemas/Cabecalho"
+					},
+					{
+						"type": "object",
+						"properties": {
+							"serie": {
+								"default": "1",
+								"type": "string",
+								"pattern": "^\\d{1,5}$"
+							},
+							"numero": {
+								"type": "integer",
+								"exclusiveMinimum": 0,
+								"maximum": 999999999999999
+							},
+							"dataEmissao": {
+								"type": "string",
+								"format": "date-time",
+								"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+							},
+							"dataCompetencia": {
+								"type": "string",
+								"format": "date",
+								"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+							},
+							"prestador": {
+								"type": "object",
+								"properties": {
+									"codigoMunicipio": {
+										"type": "string",
+										"pattern": "^\\d{7}$"
+									},
+									"inscricaoMunicipal": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 15
+									},
+									"telefone": {
+										"type": "string",
+										"pattern": "^\\d{6,20}$"
+									},
+									"email": {
+										"type": "string",
+										"maxLength": 80,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									},
+									"regimeTributario": {
+										"type": "object",
+										"properties": {
+											"simplesNacional": {
+												"type": "string",
+												"enum": [
+													"nao_optante",
+													"mei",
+													"me_epp"
+												]
+											},
+											"apuracaoSimples": {
+												"anyOf": [
+													{
+														"type": "number",
+														"const": 1
+													},
+													{
+														"type": "number",
+														"const": 2
+													},
+													{
+														"type": "number",
+														"const": 3
+													}
+												]
+											},
+											"regimeEspecial": {
+												"default": 0,
+												"anyOf": [
+													{
+														"type": "number",
+														"const": 0
+													},
+													{
+														"type": "number",
+														"const": 1
+													},
+													{
+														"type": "number",
+														"const": 2
+													},
+													{
+														"type": "number",
+														"const": 3
+													},
+													{
+														"type": "number",
+														"const": 4
+													},
+													{
+														"type": "number",
+														"const": 5
+													},
+													{
+														"type": "number",
+														"const": 6
+													},
+													{
+														"type": "number",
+														"const": 9
+													}
+												]
+											}
+										},
+										"required": [
+											"simplesNacional"
+										]
+									}
+								},
+								"required": [
+									"codigoMunicipio",
+									"regimeTributario"
+								]
+							},
+							"tomador": {
+								"type": "object",
+								"properties": {
+									"cnpj": {
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"cpf": {
+										"type": "string",
+										"pattern": "^\\d{11}$"
+									},
+									"nome": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 300
+									},
+									"inscricaoMunicipal": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 15
+									},
+									"endereco": {
+										"type": "object",
+										"properties": {
+											"codigoMunicipio": {
+												"type": "string",
+												"pattern": "^\\d{7}$"
+											},
+											"cep": {
+												"type": "string",
+												"pattern": "^\\d{8}$"
+											},
+											"logradouro": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 255
+											},
+											"numero": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											},
+											"complemento": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 156
+											},
+											"bairro": {
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
+											}
+										},
+										"required": [
+											"codigoMunicipio",
+											"cep",
+											"logradouro",
+											"numero",
+											"bairro"
+										]
+									},
+									"telefone": {
+										"type": "string",
+										"pattern": "^\\d{6,20}$"
+									},
+									"email": {
+										"type": "string",
+										"maxLength": 80,
+										"format": "email",
+										"pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+									}
+								},
+								"required": [
+									"nome"
+								]
+							},
+							"servico": {
+								"type": "object",
+								"properties": {
+									"codigoMunicipioPrestacao": {
+										"type": "string",
+										"pattern": "^\\d{7}$"
+									},
+									"codigoTributacaoNacional": {
+										"type": "string",
+										"pattern": "^\\d{6}$"
+									},
+									"codigoTributacaoMunicipal": {
+										"type": "string",
+										"pattern": "^\\d{3}$"
+									},
+									"descricao": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									},
+									"codigoNbs": {
+										"type": "string",
+										"pattern": "^\\d{9}$"
+									},
+									"codigoInterno": {
+										"type": "string",
+										"pattern": "^[a-zA-Z0-9]{1,20}$"
+									},
+									"informacoesComplementares": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 2000
+									}
+								},
+								"required": [
+									"codigoMunicipioPrestacao",
+									"codigoTributacaoNacional",
+									"descricao"
+								]
+							},
+							"valores": {
+								"type": "object",
+								"properties": {
+									"servico": {
+										"type": "number",
+										"minimum": 0,
+										"maximum": 999999999999999
+									},
+									"descontoIncondicionado": {
+										"type": "number",
+										"minimum": 0,
+										"maximum": 999999999999999
+									},
+									"descontoCondicionado": {
+										"type": "number",
+										"minimum": 0,
+										"maximum": 999999999999999
+									}
+								},
+								"required": [
+									"servico"
+								]
+							},
+							"tributacao": {
+								"type": "object",
+								"properties": {
+									"issqn": {
+										"type": "object",
+										"properties": {
+											"tipo": {
+												"default": "tributavel",
+												"type": "string",
+												"enum": [
+													"tributavel",
+													"imunidade",
+													"exportacao",
+													"nao_incidencia"
+												]
+											},
+											"tipoImunidade": {
+												"type": "integer",
+												"minimum": 0,
+												"maximum": 5
+											},
+											"retencao": {
+												"default": "nao_retido",
+												"type": "string",
+												"enum": [
+													"nao_retido",
+													"retido_tomador",
+													"retido_intermediario"
+												]
+											},
+											"aliquota": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 9.99
+											}
+										}
+									},
+									"federal": {
+										"type": "object",
+										"properties": {
+											"pisCofins": {
+												"type": "object",
+												"properties": {
+													"cst": {
+														"type": "string",
+														"pattern": "^\\d{2}$"
+													},
+													"baseCalculo": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													},
+													"aliquotaPis": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 99.99
+													},
+													"aliquotaCofins": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 99.99
+													},
+													"valorPis": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													},
+													"valorCofins": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													},
+													"retencao": {
+														"type": "integer",
+														"minimum": 0,
+														"maximum": 9
+													}
+												},
+												"required": [
+													"cst"
+												]
+											},
+											"retencaoCp": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 999999999999999
+											},
+											"retencaoIrrf": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 999999999999999
+											},
+											"retencaoCsll": {
+												"type": "number",
+												"minimum": 0,
+												"maximum": 999999999999999
+											}
+										}
+									},
+									"totalTributos": {
+										"default": {
+											"tipo": "nao_informado"
+										},
+										"oneOf": [
+											{
+												"type": "object",
+												"properties": {
+													"tipo": {
+														"type": "string",
+														"const": "nao_informado"
+													}
+												},
+												"required": [
+													"tipo"
+												]
+											},
+											{
+												"type": "object",
+												"properties": {
+													"tipo": {
+														"type": "string",
+														"const": "percentual_simples"
+													},
+													"percentual": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 99.99
+													}
+												},
+												"required": [
+													"tipo",
+													"percentual"
+												]
+											},
+											{
+												"type": "object",
+												"properties": {
+													"tipo": {
+														"type": "string",
+														"const": "valores"
+													},
+													"federal": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													},
+													"estadual": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													},
+													"municipal": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999999999999999
+													}
+												},
+												"required": [
+													"tipo",
+													"federal",
+													"estadual",
+													"municipal"
+												]
+											},
+											{
+												"type": "object",
+												"properties": {
+													"tipo": {
+														"type": "string",
+														"const": "percentuais"
+													},
+													"federal": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999.99
+													},
+													"estadual": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999.99
+													},
+													"municipal": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 999.99
+													}
+												},
+												"required": [
+													"tipo",
+													"federal",
+													"estadual",
+													"municipal"
+												]
+											}
+										]
+									}
+								},
+								"required": [
+									"issqn"
+								]
+							}
+						},
+						"required": [
+							"prestador",
+							"servico",
+							"valores",
+							"tributacao"
+						]
+					}
+				]
+			},
+			"CancelamentoNfe": {
+				"type": "object",
+				"properties": {
+					"justificativa": {
+						"type": "string",
+						"minLength": 15,
+						"maxLength": 255
+					}
+				},
+				"required": [
+					"justificativa"
+				]
+			},
+			"CancelamentoNfse": {
+				"type": "object",
+				"properties": {
+					"motivo": {
+						"type": "string",
+						"enum": [
+							"erro_emissao",
+							"servico_nao_prestado",
+							"outros"
+						]
+					},
+					"justificativa": {
+						"type": "string",
+						"minLength": 15,
+						"maxLength": 255
+					}
+				},
+				"required": [
+					"motivo",
+					"justificativa"
+				]
+			},
+			"CartaCorrecao": {
+				"type": "object",
+				"properties": {
+					"correcao": {
+						"type": "string",
+						"minLength": 15,
+						"maxLength": 1000
+					}
+				},
+				"required": [
+					"correcao"
+				]
+			},
+			"Inutilizacao": {
+				"type": "object",
+				"properties": {
+					"modelo": {
+						"type": "string",
+						"enum": [
+							"nfe",
+							"nfce"
+						]
+					},
+					"ambiente": {
+						"default": "homologacao",
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"serie": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 889
+					},
+					"numeroInicial": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 999999999
+					},
+					"numeroFinal": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 999999999
+					},
+					"justificativa": {
+						"type": "string",
+						"minLength": 15,
+						"maxLength": 255
+					},
+					"uf": {
+						"type": "string",
+						"enum": [
+							"AC",
+							"AL",
+							"AM",
+							"AP",
+							"BA",
+							"CE",
+							"DF",
+							"ES",
+							"GO",
+							"MA",
+							"MG",
+							"MS",
+							"MT",
+							"PA",
+							"PB",
+							"PE",
+							"PI",
+							"PR",
+							"RJ",
+							"RN",
+							"RO",
+							"RR",
+							"RS",
+							"SC",
+							"SE",
+							"SP",
+							"TO"
+						]
+					},
+					"cnpj": {
+						"type": "string",
+						"pattern": "^[0-9A-Z]{12}\\d{2}$"
+					}
+				},
+				"required": [
+					"modelo",
+					"serie",
+					"numeroInicial",
+					"numeroFinal",
+					"justificativa",
+					"uf"
+				]
+			},
+			"EmissaoNfe": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"modelo": {
+						"type": "string",
+						"enum": [
+							"nfe",
+							"nfce"
+						]
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"referencia": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"serie": {
+						"type": "integer"
+					},
+					"numero": {
+						"type": "integer"
+					},
+					"situacao": {
+						"type": "string",
+						"enum": [
+							"processando",
+							"autorizada",
+							"rejeitada",
+							"denegada",
+							"erro",
+							"indefinida",
+							"cancelada"
+						],
+						"description": "`indefinida`: a resposta do governo se perdeu; use POST .../consultar ou repita o pedido com a mesma referência. `erro`: barrada pelo cofre antes de transmitir."
+					},
+					"chaveAcesso": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"emitidaEm": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Data e hora de emissão que estão no XML (dhEmi), com o fuso da UF."
+					},
+					"autorizadaEm": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Data e hora em que a SEFAZ autorizou (dhRecbto). Com o protocolo, vai impressa no DANFE e no DANFCE."
+					},
+					"valor": {
+						"type": [
+							"number",
+							"null"
+						],
+						"description": "Valor total da nota (vNF), somado pelo cofre."
+					},
+					"qrCode": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Só na NFC-e: conteúdo do QR Code."
+					},
+					"urlConsulta": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Só na NFC-e: endereço de consulta pela chave."
+					},
+					"cartasCorrecao": {
+						"type": "integer"
+					},
+					"mensagens": {
+						"type": "array",
+						"description": "Código e descrição devolvidos pelo governo (na NF-e e NFC-e, cStat e xMotivo) ou pelo cofre.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"codigo": {
+									"type": "string"
+								},
+								"descricao": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"codigo",
+								"descricao"
+							]
+						}
+					},
+					"xmlDisponivel": {
+						"type": "boolean"
+					},
+					"criadaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"atualizadaEm": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"required": [
+					"id",
+					"modelo",
+					"ambiente",
+					"serie",
+					"numero",
+					"situacao",
+					"mensagens",
+					"xmlDisponivel"
+				]
+			},
+			"EmissaoNfse": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"referencia": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"serie": {
+						"type": "string"
+					},
+					"numero": {
+						"type": "integer",
+						"description": "Número da DPS."
+					},
+					"idDps": {
+						"type": "string"
+					},
+					"situacao": {
+						"type": "string",
+						"enum": [
+							"processando",
+							"autorizada",
+							"rejeitada",
+							"erro",
+							"indefinida",
+							"cancelada"
+						]
+					},
+					"chaveAcesso": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"numeroNfse": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"mensagens": {
+						"type": "array",
+						"description": "Código e descrição devolvidos pelo governo (na NF-e e NFC-e, cStat e xMotivo) ou pelo cofre.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"codigo": {
+									"type": "string"
+								},
+								"descricao": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"codigo",
+								"descricao"
+							]
+						}
+					},
+					"xmlDisponivel": {
+						"type": "boolean"
+					},
+					"criadaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"atualizadaEm": {
+						"type": "string",
+						"format": "date-time"
+					}
+				},
+				"required": [
+					"id",
+					"ambiente",
+					"serie",
+					"numero",
+					"situacao",
+					"mensagens",
+					"xmlDisponivel"
+				]
+			},
+			"InutilizacaoRegistrada": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"modelo": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"serie": {
+						"type": "integer"
+					},
+					"numeroInicial": {
+						"type": "integer"
+					},
+					"numeroFinal": {
+						"type": "integer"
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"criadaEm": {
+						"type": "string",
+						"format": "date-time"
+					}
+				}
+			},
+			"Serie": {
+				"type": "object",
+				"properties": {
+					"modelo": {
+						"type": "string",
+						"enum": [
+							"nfe",
+							"nfce"
+						]
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"serie": {
+						"type": "integer"
+					},
+					"proximoNumero": {
+						"type": "integer",
+						"description": "Número que a próxima nota da série vai receber."
+					},
+					"descricao": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"cnpj": {
+						"type": "string"
+					}
+				}
+			},
+			"Cofre": {
+				"type": "object",
+				"properties": {
+					"versao": {
+						"type": "string"
+					},
+					"atualizacao": {
+						"type": "object",
+						"properties": {
+							"versaoPublicada": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"pendente": {
+								"type": "boolean"
+							}
+						}
+					},
+					"certificado": {
+						"type": [
+							"object",
+							"null"
+						],
+						"properties": {
+							"titular": {
+								"type": "string"
+							},
+							"documento": {
+								"type": "object",
+								"properties": {
+									"kind": {
+										"type": "string",
+										"enum": [
+											"cnpj",
+											"cpf"
+										]
+									},
+									"id": {
+										"type": "string"
+									}
+								}
+							},
+							"validoAte": {
+								"type": "string",
+								"format": "date-time"
+							},
+							"diasRestantes": {
+								"type": "integer"
+							}
+						}
+					},
+					"producaoLiberada": {
+						"type": "boolean"
+					},
+					"chave": {
+						"type": "object",
+						"properties": {
+							"escopo": {
+								"type": "string",
+								"enum": [
+									"completo",
+									"homologacao"
+								]
+							},
+							"ambientes": {
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"homologacao",
+										"producao"
+									]
+								}
+							}
+						}
+					},
+					"documentos": {
+						"type": "object",
+						"description": "O que este cofre emite e, para NF-e e NFC-e, em quais UFs.",
+						"properties": {
+							"nfse": {
+								"type": "boolean"
+							},
+							"nfe": {
+								"type": "object",
+								"properties": {
+									"ufs": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								}
+							},
+							"nfce": {
+								"type": "object",
+								"properties": {
+									"ufs": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			"StatusSefaz": {
+				"type": "object",
+				"properties": {
+					"modelo": {
+						"type": "string"
+					},
+					"uf": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"autorizador": {
+						"type": "string"
+					},
+					"emOperacao": {
+						"type": "boolean"
+					},
+					"mensagem": {
+						"type": "object",
+						"properties": {
+							"codigo": {
+								"type": "string"
+							},
+							"descricao": {
+								"type": "string"
+							}
+						}
+					},
+					"tempoMedioSegundos": {
+						"type": [
+							"number",
+							"null"
+						]
+					}
+				}
+			}
+		}
+	}
+}
