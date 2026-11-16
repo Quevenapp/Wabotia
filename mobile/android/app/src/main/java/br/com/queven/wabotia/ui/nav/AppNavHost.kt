@@ -85,6 +85,8 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             }
             if (auth.profileId == null) return@LaunchedEffect
             val destination = DemoMode.destination(link.demoScreen ?: "conversations", link.demoArg)
+            // A lista de acessos mudou na demonstração: relê as capacidades antes de montar a barra.
+            if (link.demoScreen?.trim()?.lowercase() == "access") container.modules.refresh(force = true)
             if (nav.currentDestination?.route != Routes.HOME) nav.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
             homeTab = HomeTab.entries.firstOrNull { it.key == destination?.tab } ?: HomeTab.Conversations
             homeArg = destination?.sheet ?: destination?.arg?.takeIf { destination.conversationId == null && destination.ticketId == null }

@@ -30,6 +30,10 @@ object ModuleIds {
 class ModuleFeature(private val container: AppContainer) {
     private val _enabled = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val enabled: StateFlow<Map<String, Set<String>>> = _enabled.asStateFlow()
+
+    /** O que a pessoa acessa em cada área ([AccessRules]); ausente ou null = tudo. */
+    private val _access = MutableStateFlow<Map<String, Set<String>?>>(emptyMap())
+    val access: StateFlow<Map<String, Set<String>?>> = _access.asStateFlow()
     private val checkedAt = mutableMapOf<String, Long>()
 
     fun has(module: String, profileId: String? = container.session.profileId): Boolean =
@@ -41,9 +45,15 @@ class ModuleFeature(private val container: AppContainer) {
         val now = System.currentTimeMillis()
         if (!force && now - (checkedAt[profile] ?: 0L) < 60_000) return
         checkedAt[profile] = now
-        val found = QueueAvailabilityProbe(server, profile, { container.session.token }).modules()
+        val probe = QueueAvailabilityProbe(server, profile, { container.session.token })
+        val found = probe.modules()
         // Sem rede: fica o que já se sabia, e a próxima consulta tenta de novo.
-        if (found == null) checkedAt.remove(profile) else _enabled.update { it + (profile to found) }
+        if (found == null) {
+            checkedAt.remove(profile)
+        } else {
+            _enabled.update { it + (profile to found) }
+            _access.update { it + (profile to probe.access) }
+        }
     }
 
     /** `409 module_disabled`: o administrador desligou o módulo; a entrada some até a próxima consulta dizer outra coisa. */
@@ -60,5 +70,6 @@ class ModuleFeature(private val container: AppContainer) {
     fun clear() {
         checkedAt.clear()
         _enabled.value = emptyMap()
+        _access.value = emptyMap()
     }
 }

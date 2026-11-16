@@ -85,6 +85,10 @@ class QueueAvailabilityProbe(
 ) {
     private val base = normalizeBaseUrl(baseUrl)
 
+    /** O acesso da pessoa lido na última resposta de capacidades (null = tudo, ou servidor sem a lista). */
+    var access: Set<String>? = null
+        private set
+
     suspend fun check(): QueueAvailability =
         when (val found = modules()) {
             null -> QueueAvailability.UNKNOWN
@@ -98,7 +102,10 @@ class QueueAvailabilityProbe(
     suspend fun modules(): Set<String>? = withContext(Dispatchers.IO) {
         for (path in listOf("/api/v1/profiles/$profileId/capabilities", "/api/v1/capabilities?profile_id=$profileId")) {
             when (val answer = get(path)) {
-                is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let { return@withContext it }
+                is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let {
+                    access = br.com.queven.wabotia.core.AccessRules.parse(answer.json, profileId)
+                    return@withContext it
+                }
                 is Answer.Failed -> if (answer.status == 0) return@withContext null
                 // 401 da pessoa: a sessão caiu; a tela que chamou cuida disso na próxima chamada da API.
             }

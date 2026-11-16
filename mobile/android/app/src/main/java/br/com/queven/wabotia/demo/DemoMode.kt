@@ -46,6 +46,12 @@ object DemoMode {
 
     fun isDemo(serverUrl: String?): Boolean = serverUrl == SERVER
 
+    /**
+     * Acesso por usuário na demonstração (`--es demo access --es arg caixa,pedido`, só depuração): a lista que o
+     * servidor fictício manda em `/capabilities`. `null` = a pessoa vê tudo; `--es arg all` volta a isso.
+     */
+    @Volatile var access: List<String>? = null
+
     /** O texto digitado na tela Servidor pede a demonstração? */
     fun wantsDemo(input: String): Boolean = input.trim().equals("demo", ignoreCase = true)
 
@@ -153,6 +159,11 @@ object DemoMode {
             "info" -> DemoDestination(conversationId = Ids.C_RICH, info = true)
             // Aba Atendimento; `tickets` abre a lista por cima dela, com o filtro de `--es arg` (active, overdue, open…).
             "service", "atendimento" -> DemoDestination(tab = "service")
+            // A barra e a aba Atendimento montadas a partir de uma lista de acessos (ex.: "caixa", "garcom,tickets").
+            "access" -> {
+                access = option?.takeUnless { it == "all" }?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+                DemoDestination(tab = "service")
+            }
             "tickets" -> DemoDestination(tab = "service", route = "tickets" + (option?.let { "?filter=$it" } ?: ""))
             "ticket" -> DemoDestination(
                 ticketId = when (option) {

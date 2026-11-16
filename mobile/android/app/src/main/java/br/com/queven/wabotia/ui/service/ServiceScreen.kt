@@ -41,7 +41,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import br.com.queven.wabotia.core.AccessIds
+import br.com.queven.wabotia.core.AccessRules
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.ui.components.ConnectionStrip
@@ -68,6 +71,8 @@ fun ServiceScreen(
     modifier: Modifier = Modifier,
     /** Contadores dos protocolos ativos (Ativos, Recebidos, Atrasados…), da mesma consulta da barra inferior. */
     ticketCounts: Map<TicketFilter, Int>,
+    /** O que a pessoa acessa ([AccessRules]); null = tudo. */
+    access: Set<String>? = null,
     openTickets: (TicketFilter) -> Unit,
     openCounter: () -> Unit,
     openLines: () -> Unit,
@@ -102,11 +107,24 @@ fun ServiceScreen(
         },
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-            item("presence") { PresenceCard(presence, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) }
+            // Online/offline decide se chegam conversas: só para quem atende conversas.
+            if (AccessRules.allows(access, AccessIds.CONVERSATIONS)) {
+                item("presence") { PresenceCard(presence, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) }
+            }
+            // Papéis da lista que o app ainda não tem tela (ex.: caixa): aviso em vez de aba vazia.
+            AccessRules.unavailable(access).forEach { role ->
+                item("role-$role") {
+                    InlineNotice(
+                        "${AccessRules.label(role)}: esta tela ainda não está no app. Use o painel no navegador.",
+                        Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                        color = c.warn,
+                    )
+                }
+            }
 
             // --- Protocolos ---
-            item("tickets-label") { SectionLabel("Protocolos") }
-            item("tickets") {
+            if (AccessRules.allows(access, AccessIds.TICKETS)) item("tickets-label") { SectionLabel("Protocolos") }
+            if (AccessRules.allows(access, AccessIds.TICKETS)) item("tickets") {
                 val overdue = ticketCounts[TicketFilter.Overdue] ?: 0
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     SettingsRow(
@@ -147,7 +165,7 @@ fun ServiceScreen(
             }
 
             // --- Fila e módulos ligados neste perfil ---
-            val tools = ServiceTexts.tools(modules)
+            val tools = ServiceTexts.tools(AccessRules.modules(access, modules))
             if (tools.isNotEmpty()) {
                 item("modules-label") { SectionLabel("Fila e módulos") }
                 item("modules") {
@@ -173,8 +191,8 @@ fun ServiceScreen(
             }
 
             // --- Configuração do atendimento ---
-            item("setup-label") { SectionLabel("Linhas e menus") }
-            item("setup") {
+            if (AccessRules.allows(access, AccessIds.LINES)) item("setup-label") { SectionLabel("Linhas e menus") }
+            if (AccessRules.allows(access, AccessIds.LINES)) item("setup") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
                     if (isAdmin) {

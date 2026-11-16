@@ -48,6 +48,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.calls.CallsScreen
+import androidx.compose.runtime.collectAsState
+import br.com.queven.wabotia.core.AccessRules
+import br.com.queven.wabotia.core.AccessTab
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.TicketStatus
@@ -72,6 +75,17 @@ enum class HomeTab(val key: String, val label: String, val icon: ImageVector, va
     Team("team", "Equipe", Icons.Outlined.Groups, Icons.Filled.Groups),
     Calls("calls", "Ligações", Icons.Outlined.Call, Icons.Filled.Call),
     Settings("settings", "Ajustes", Icons.Outlined.Settings, Icons.Filled.Settings),
+    ;
+
+    companion object {
+        fun of(tab: AccessTab): HomeTab = when (tab) {
+            AccessTab.CONVERSATIONS -> Conversations
+            AccessTab.SERVICE -> Service
+            AccessTab.TEAM -> Team
+            AccessTab.CALLS -> Calls
+            AccessTab.SETTINGS -> Settings
+        }
+    }
 }
 
 /** Contadores das abas: protocolos atrasados/recebidos (só ativos, na aba Atendimento) e conversas internas não lidas. */
@@ -165,6 +179,14 @@ fun HomeScreen(
             }
         }
     }
+    // A barra se monta com o que a pessoa acessa (`GET /capabilities`); sem lista, todas as abas, como antes.
+    val enabledModules by container.modules.enabled.collectAsState()
+    val accessByProfile by container.modules.access.collectAsState()
+    val access = accessByProfile[profileId]
+    val profileModules = enabledModules[profileId].orEmpty()
+    val tabs = remember(access, profileModules) { AccessRules.tabs(access, profileModules).map(HomeTab::of) }
+    LaunchedEffect(profileId) { container.modules.refresh() }
+    LaunchedEffect(tabs, tab) { if (tab !in tabs) onTab(tabs.first()) }
     // O pedido da aba (atalho de demonstração) recria o conteúdo da aba uma vez com o valor inicial e some em seguida.
     var initialArg by remember { mutableStateOf<String?>(null) }
     var argToken by remember { mutableStateOf(0) }
@@ -184,7 +206,7 @@ fun HomeScreen(
             Column {
                 HorizontalDivider(color = c.hairline)
                 NavigationBar(containerColor = c.background, tonalElevation = 0.dp) {
-                    HomeTab.entries.forEach { t ->
+                    tabs.forEach { t ->
                         val selected = tab == t
                         val (count, badgeColor) = when (t) {
                             HomeTab.Conversations -> unread to c.accent
@@ -237,6 +259,7 @@ fun HomeScreen(
                     container,
                     modifier,
                     ticketCounts = badges.ticketCounts,
+                    access = access,
                     openTickets = openTickets,
                     openCounter = openCounter,
                     openLines = openLines,
