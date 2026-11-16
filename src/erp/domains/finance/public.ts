@@ -7,22 +7,10 @@
 // as faz o Fagoo (erp_catalog.payment_method_dto, payment_method_accounts e
 // a conferência de conta ativa de erp_catalog_payment_method_save).
 import { one, type SqlDriver } from "../../engine/driver.ts";
+import { pgLeft as left, pgLower as lower } from "../../engine/text.ts";
 
 export * from "./stubs.generated.ts";
 
-/** left(text, n): caracteres, não unidades UTF-16. */
-const left = (s: string, n: number) => [...s].slice(0, n).join("");
-/**
- * lower() do Postgres: mapeamento simples, caractere a caractere (sem o
- * sigma final do JS; "İ" → "i").
- */
-const lower = (s: string) =>
-  [...s]
-    .map((c) => {
-      const l = c === "İ" ? "i" : c.toLowerCase();
-      return [...l].length === 1 ? l : c;
-    })
-    .join("");
 /** Ordem do texto no oráculo (collation C): bytes UTF-8. */
 const encoder = new TextEncoder();
 function compareText(a: string, b: string) {
