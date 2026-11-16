@@ -6,7 +6,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { requireAccess } from "../access.ts";
 import { textArg, uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
-import { CNTRL, btrim, chars } from "../fields.ts";
+import { CNTRL, btrim, chars, foldedKey } from "../fields.ts";
 import { fold } from "../internal.ts";
 
 export function erpCatalogContactTypeCreate(ctx: RpcContext, a: RpcArgs) {
@@ -22,8 +22,8 @@ export function erpCatalogContactTypeCreate(ctx: RpcContext, a: RpcArgs) {
   const replayed = replayCommand(ctx, command, user!, hash);
   if (replayed) return replayed;
   const key = fold(label);
-  const active = db.exec('SELECT label FROM "erp_catalog__contact_type" WHERE active=1').rows;
-  if (active.some((t) => fold(String(t.label)) === key)) raise("23505", "erp_catalog_contact_type_exists");
+  const active = db.exec('SELECT label, label__fold FROM "erp_catalog__contact_type" WHERE active=1').rows;
+  if (active.some((t) => foldedKey(t, "label") === key)) raise("23505", "erp_catalog_contact_type_exists");
   if (active.length >= 100) raise("22023", "erp_catalog_contact_type_limit");
   const id = crypto.randomUUID();
   const slug = "t" + id.replace(/-/g, "");

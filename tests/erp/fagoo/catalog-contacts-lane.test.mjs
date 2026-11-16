@@ -5,8 +5,9 @@
 // - fora: o subteste de GRANT/RLS/SECURITY DEFINER (sem papéis do Postgres);
 // - fora: o contato espelhado do Origin com situacao S (Origin desligado,
 //   desvio origin-fora);
-// - "tipos de contato" como todo: o slug t||uuid do tipo criado sai diferente
-//   nos dois motores até o harness ligar o slug ao uuid (pedido à N);
+// - "tipos de contato" como todo (aguardando harness): contact_type_create
+//   diverge só em $.item.slug, 't'||uuid sem hífens, porque o IdMap não liga
+//   identificador derivado de uuid (pedido à N);
 // - SQL direto de escrita seguido de f.sync(); f.users.other → f.users.vendedor.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -98,7 +99,7 @@ test('contatos lane SQL (124-128): ACL, contact form, situation, types, preferen
    assert.equal((await f.get(legacy.id)).record.situation,'I');
   });
 
-  await t.test('tipos de contato: system types are protected; Contador and created types can be deleted by an administrator',{todo:'slug t||uuid de contact_type_create: espera o IdMap do harness (N)'},async()=>{
+  await t.test('tipos de contato: system types are protected; Contador and created types can be deleted by an administrator',{todo:'aguardando harness: erp_catalog_contact_type_create diverge só em $.item.slug (t||uuid sem hífens; o uuid vem de gen_random_uuid nos dois motores), o IdMap não liga identificador derivado de uuid'},async()=>{
    const types=await rpc('erp_catalog_contact_types',{p_user_id:f.users.vendas});
    assert.deepEqual(types.items.map(i=>i.label),['Cliente','Desenvolvedor','Fornecedor','Padrao','Técnico','Transportador','Vendedor','Contador','Fornecedor verificado']);
    assert.deepEqual([types.can_create,types.can_delete],[true,false]);
