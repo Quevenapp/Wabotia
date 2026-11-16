@@ -27,9 +27,11 @@ export function fold(value: string | null): string | null {
   let out = "";
   for (const ch of value) {
     const i = FOLD_FROM.indexOf(ch);
-    out += i >= 0 ? FOLD_TO[i] : ch;
+    // lower() do Postgres é caractere a caractere: sem o sigma final do JS
+    // ("ΑΣ" → "ασ", não "ας").
+    out += i >= 0 ? FOLD_TO[i].toLowerCase() : ch.toLowerCase();
   }
-  return out.toLowerCase();
+  return out;
 }
 
 /** erp_catalog.unit_price(p_value jsonb, p_integers): preço com 4 ou 10 casas. */
