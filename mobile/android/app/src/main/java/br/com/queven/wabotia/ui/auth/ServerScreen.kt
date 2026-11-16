@@ -41,6 +41,7 @@ import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.demo.DemoMode
 import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.ui.platform.testTag
 import br.com.queven.wabotia.courier.CourierTexts
 import br.com.queven.wabotia.courier.ui.CourierActivity
 import br.com.queven.wabotia.device.DeviceActivity
@@ -116,6 +117,17 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
     }
 
     AuthScaffold(title = "Wabotia", subtitle = "Atendimento WhatsApp com IA e equipe humana") {
+        // Entregador: o QR do pedido já traz o servidor da loja; nada de digitar endereço (várias lojas, um app).
+        WbCard {
+            Column(Modifier.padding(16.dp)) {
+                Text("Vai fazer uma entrega?", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+                Spacer(Modifier.height(2.dp))
+                Text(CourierTexts.ENTRY_HELP, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                Spacer(Modifier.height(12.dp))
+                SecondaryButton("Escanear pedido", onClick = { if (!busy) context.startActivity(CourierActivity.intent(context)) }, enabled = !busy, icon = Icons.Filled.QrCodeScanner, modifier = Modifier.testTag("server.courier"))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         WbCard {
             Column(Modifier.padding(16.dp)) {
                 Text("Endereço do seu servidor", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
@@ -172,14 +184,7 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
             Spacer(Modifier.width(8.dp))
             Text("Ver o modo entregador (demonstração)", style = MaterialTheme.typography.bodyMedium, color = c.brand, fontWeight = FontWeight.SemiBold)
         }
-        Spacer(Modifier.height(18.dp))
-        OrDivider()
-        Spacer(Modifier.height(18.dp))
-        // O entregador não precisa saber o endereço do servidor: o QR do pedido já traz.
-        SecondaryButton("Escanear pedido", onClick = { if (!busy) context.startActivity(CourierActivity.intent(context)) }, enabled = !busy, icon = Icons.Filled.QrCodeScanner)
-        Spacer(Modifier.height(10.dp))
-        AuthHelp(CourierTexts.ENTRY_HELP)
-        Spacer(Modifier.height(6.dp))
+
         TextButton(onClick = { Links.open(context, Links.PRIVACY_POLICY) }) {
             Text("Política de privacidade", style = MaterialTheme.typography.bodySmall, color = c.brand, fontWeight = FontWeight.SemiBold)
         }

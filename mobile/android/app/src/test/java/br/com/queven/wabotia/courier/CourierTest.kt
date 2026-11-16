@@ -31,19 +31,39 @@ class CourierTest {
 
     // --- QR -------------------------------------------------------------------------------------------------------
 
-    @Test fun linkDoQr() {
-        assertEquals(CourierLink("https://loja.exemplo.com.br", "AbC123xyz"), CourierLinks.parse("https://loja.exemplo.com.br/c/AbC123xyz"))
-        assertEquals(CourierLink("https://loja.exemplo.com.br:8443", "AbC1_23-x"), CourierLinks.parse(" https://loja.exemplo.com.br:8443/c/AbC1_23-x "))
-        // Sem https, de outro lugar, caminho diferente ou sem código: não é pedido.
-        assertNull(CourierLinks.parse("http://loja.exemplo.com.br/c/AbC123xyz"))
-        assertNull(CourierLinks.parse("https://wa.me/552090000000?text=SENHA%20N004"))
-        assertNull(CourierLinks.parse("https://loja.exemplo.com.br/c/"))
-        assertNull(CourierLinks.parse("https://loja.exemplo.com.br/x/AbC123xyz"))
-        assertNull(CourierLinks.parse("https://loja.exemplo.com.br/c/AbC/extra"))
-        assertNull(CourierLinks.parse("SENHA N004 AB12CD"))
+    private val code = "DEMxENTREGAxLANCHExNUMxDzEZEW23Q"
+
+    private fun rejected(raw: String) = (CourierLinks.check(raw) as CourierScan.Rejected).message
+
+    @Test fun leituraDoQr() {
+        assertEquals(CourierLink("https://loja.exemplo.com.br", code), CourierLinks.parse("https://loja.exemplo.com.br/c/$code"))
+        assertEquals(CourierLink("https://loja.exemplo.com.br:8443", code), CourierLinks.parse(" https://Loja.Exemplo.com.br:8443/c/$code "))
+        assertEquals("loja.exemplo.com.br", CourierLinks.parse("https://loja.exemplo.com.br/c/$code")!!.host)
     }
 
-    // --- fila de posições -----------------------------------------------------------------------------------------
+    @Test fun formatosRecusadosComMensagemClara() {
+        assertEquals(CourierLinks.NOT_HTTPS, rejected("http://loja.exemplo.com.br/c/$code"))
+        assertEquals(CourierLinks.LOCAL, rejected("https://192.168.0.10/c/$code"))
+        assertEquals(CourierLinks.LOCAL, rejected("https://[::1]/c/$code"))
+        assertEquals(CourierLinks.LOCAL, rejected("https://localhost/c/$code"))
+        assertEquals(CourierLinks.LOCAL, rejected("https://wabotia.local/c/$code"))
+        assertEquals(CourierLinks.LOCAL, rejected("https://servidor/c/$code"))
+        // Não é do Wabotia (ou o código está fora do formato de 32 caracteres sem 0, 1, I, O, l e o).
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://wa.me/552090000000?text=SENHA%20N004"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/x/$code"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/$code/extra"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/" + code.dropLast(1)))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/" + code.dropLast(1) + "0"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/$code?x=1"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("SENHA N004 AB12CD"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected(""))
+        // O servidor da leitura pública só vale se for o mesmo host do QR.
+        val link = CourierLinks.parse("https://loja.exemplo.com.br/c/$code")!!
+        assertTrue(CourierLinks.sameServer(link, "https://loja.exemplo.com.br/"))
+        assertTrue(CourierLinks.sameServer(link, null))
+        assertFalse(CourierLinks.sameServer(link, "https://outra.exemplo.com.br"))
+    }
+
 
     private fun p(t: Long, lat: Double, lng: Double = -46.6, accuracy: Float? = 10f) = PositionPoint(t, lat, lng, accuracy)
 
@@ -103,112 +123,166 @@ class CourierTest {
 
     // --- tela (ViewModel) com o servidor da demonstração ----------------------------------------------------------
 
-    @Test fun nomeIniciarRotaVariasEntregasEEntreguei() = runTest(dispatcher) {
-        val backend = DemoCourierBackend(clock = { 1_000_000L })
-        val store = MemoryCourierSessionStore()
-        val vm = CourierViewModel(backend, store, device = "Teste", clock = { 1_000_000L })
-        vm.restore()
-        advanceUntilIdle()
-        assertTrue(vm.state.value.deliveries.isEmpty())
-        assertFalse(vm.state.value.ended)
+    private val k12 = "lanchonete.example/dl-12"
+    private val k15 = "pizzaria.example/dl-15"
 
-        // Sem nome guardado, o QR lido espera o nome.
-        vm.claim(DemoCourierBackend.demoLink(0))
+    /** Ler o QR, conferir a loja e continuar. */
+    private fun CourierViewModel.read(index: Int, scope: kotlinx.coroutines.test.TestScope) {
+        scanned(DemoCourierBackend.QRS[index])
+        scope.advanceUntilIdle()
+        confirmContinue()
+        scope.advanceUntilIdle()
+    }
+
+    @Test fun confirmaALojaAntesDeGastarOCodigoEPedeONome() = runTest(dispatcher) {
+        val backend = DemoCourierBackend()
+        val store = MemoryCourierSessionStore()
+        val vm = CourierViewModel(backend, store, device = "Teste")
+        vm.scanned(DemoCourierBackend.QRS[0])
+        advanceUntilIdle()
+        val confirm = vm.state.value.confirm!!
+        assertEquals("Lanchonete Exemplo", confirm.store)
+        assertEquals("lanchonete.example", confirm.link.host)
+        // Cancelar não gasta nada.
+        vm.cancelConfirm()
+        assertNull(vm.state.value.confirm)
+        assertTrue(store.load().isEmpty())
+        // Continuar sem nome guardado pede o nome; o nome vale para todas as lojas.
+        vm.scanned(DemoCourierBackend.QRS[0])
+        advanceUntilIdle()
+        vm.confirmContinue()
         assertNotNull(vm.state.value.pendingLink)
         vm.claimWithName("  Carlos Souza ")
         advanceUntilIdle()
         assertEquals("Carlos Souza", store.name)
-        // Com o nome guardado, o segundo QR vai direto.
-        vm.claim(DemoCourierBackend.demoLink(1))
-        advanceUntilIdle()
-        assertEquals(listOf("dl-12", "dl-15"), vm.state.value.deliveries.map { it.id })
-        assertEquals(2, store.load().size)
-        assertEquals("demo", store.load().first().profile)
+        assertEquals(listOf(k12), vm.state.value.deliveries.map { it.id })
+        assertEquals("Lanchonete Exemplo", vm.state.value.deliveries.single().store)
+        // Recusado logo na leitura: nada vai ao servidor.
+        vm.scanned("http://lanchonete.example/c/${DemoCourierBackend.CODES[0]}")
+        assertEquals(CourierLinks.NOT_HTTPS, vm.state.value.notice)
+        assertNull(vm.state.value.confirm)
+    }
 
-        // Antes de Iniciar rota, o GPS não liga e nada entra na fila.
-        assertFalse(vm.wantsLocation)
-        vm.start("dl-12") { null }
+    @Test fun duasLojasAoMesmoTempoERevogacaoDeUmaSo() = runTest(dispatcher) {
+        val backend = DemoCourierBackend(clock = { 1_000_000L })
+        val store = MemoryCourierSessionStore().apply { name = "Carlos" }
+        val vm = CourierViewModel(backend, store, device = "Teste", clock = { 1_000_000L })
+        vm.restore()
         advanceUntilIdle()
-        assertTrue(vm.state.value.deliveries.first { it.id == "dl-12" }.enRoute)
-        assertTrue(vm.wantsLocation)
+        vm.read(0, this)
+        vm.read(1, this)
+        assertEquals(listOf(k12, k15), vm.state.value.deliveries.map { it.id })
+        assertEquals(listOf("Lanchonete Exemplo", "Pizzaria Exemplo"), vm.state.value.deliveries.map { it.store })
+        // Cada entrega guarda o próprio servidor e o próprio token.
+        assertEquals(setOf("https://lanchonete.example", "https://pizzaria.example"), store.load().map { it.server }.toSet())
+        assertEquals(2, store.load().map { it.token }.toSet().size)
 
-        // A leitura vai só para a entrega a caminho; o lote atualiza a previsão.
+        // As duas a caminho: a mesma leitura do GPS vai para as duas, cada uma ao seu servidor.
+        vm.start(k12) { null }
+        advanceUntilIdle()
+        vm.start(k15) { null }
+        advanceUntilIdle()
         vm.onLocation(PositionPoint(999_000L, -23.55, -46.63, 8f))
         vm.flush(battery = 80)
-        val d12 = vm.state.value.deliveries.first { it.id == "dl-12" }
-        assertTrue(d12.eta!!.distanceM!! in 1000..2000)
-        assertNull(vm.state.value.deliveries.first { it.id == "dl-15" }.eta)
+        assertTrue(vm.state.value.deliveries.all { it.eta?.distanceM != null })
 
-        // Conversa: o cliente do nº 12 pode receber; o do nº 15 não (janela de 24 h fechada).
-        vm.open("dl-12")
-        advanceUntilIdle()
-        vm.send("dl-12", CourierParty.CUSTOMER, "Cheguei no portão")
-        advanceUntilIdle()
-        val chat = vm.state.value.messages["dl-12"]!!
-        assertTrue(chat.any { it.mine && it.channel == "customer" && it.text == "Cheguei no portão" })
-        assertEquals(chat.map { it.seq }.sorted(), chat.map { it.seq })
-        vm.open("dl-15")
-        advanceUntilIdle()
-        assertEquals(false, vm.state.value.customerOpen["dl-15"])
-        vm.send("dl-15", CourierParty.CUSTOMER, "Oi")
-        advanceUntilIdle()
-        assertTrue(vm.state.value.notice!!.contains("24 horas"))
-
-        vm.delivered("dl-12", battery = 80)
-        advanceUntilIdle()
-        assertEquals(listOf("dl-15"), vm.state.value.deliveries.map { it.id })
+        // A pizzaria revoga a dela: só ela sai; a da lanchonete continua.
+        backend.revoke("dl-15")
+        vm.onLocation(PositionPoint(999_500L, -23.56, -46.63, 8f))
+        vm.flush(battery = 80)
+        assertEquals(listOf(k12), vm.state.value.deliveries.map { it.id })
         assertFalse(vm.state.value.ended)
-        assertEquals(1, store.load().size)
+        assertEquals(listOf("https://lanchonete.example"), store.load().map { it.server })
 
-        // Não consegui entregar: a última sai e o app volta à primeira tela.
-        vm.cancel("dl-15", "Cliente ausente")
+        // Conversa e conclusão vão ao servidor da entrega.
+        vm.open(k12)
+        advanceUntilIdle()
+        vm.send(k12, CourierParty.CUSTOMER, "Cheguei no portão")
+        advanceUntilIdle()
+        assertTrue(vm.state.value.messages[k12]!!.any { it.mine && it.text == "Cheguei no portão" })
+        vm.delivered(k12, battery = 80)
         advanceUntilIdle()
         assertTrue(vm.state.value.deliveries.isEmpty())
         assertTrue(vm.state.value.ended)
         assertTrue(store.load().isEmpty())
     }
 
-    @Test fun revogacaoNoLoteTiraAEntrega() = runTest(dispatcher) {
-        val backend = DemoCourierBackend()
+    @Test fun qrQueNaoValeMaisOuQueApontaOutroServidor() = runTest(dispatcher) {
         val store = MemoryCourierSessionStore().apply { name = "Ana" }
-        val vm = CourierViewModel(backend, store)
-        vm.claim(DemoCourierBackend.demoLink(0))
+        val demo = DemoCourierBackend()
+        // Já lido: a leitura pública diz `valid: false`.
+        val vm = CourierViewModel(demo, store)
+        vm.read(0, this)
+        vm.scanned(DemoCourierBackend.QRS[0])
         advanceUntilIdle()
-        vm.start("dl-12") { null }
+        assertEquals(CourierViewModel.INVALID, vm.state.value.notice)
+        assertNull(vm.state.value.confirm)
+        // A leitura aponta outro host: o app não segue e não troca o código.
+        val other = object : CourierBackend by demo {
+            override suspend fun preview(link: CourierLink) = CourierPreview(valid = true, store = "Loja", server = "https://outro.example")
+        }
+        val vm2 = CourierViewModel(other, MemoryCourierSessionStore().apply { name = "Ana" })
+        vm2.scanned(DemoCourierBackend.QRS[1])
         advanceUntilIdle()
-        vm.onLocation(PositionPoint(System.currentTimeMillis(), -23.55, -46.63, 8f))
-        backend.revokeAll()
-        vm.flush(battery = null)
-        assertTrue(vm.state.value.ended)
-        assertTrue(store.load().isEmpty())
+        assertTrue(vm2.state.value.notice!!.contains("outro servidor"))
+        assertNull(vm2.state.value.confirm)
+        assertTrue(vm2.state.value.deliveries.isEmpty())
     }
 
-    @Test fun qrDesconhecidoAvisaENaoGuarda() = runTest(dispatcher) {
+    @Test fun janelaFechadaENaoConsegui() = runTest(dispatcher) {
         val store = MemoryCourierSessionStore().apply { name = "Ana" }
         val vm = CourierViewModel(DemoCourierBackend(), store)
-        vm.claim(CourierLink(DemoMode.SERVER, "OUTRO-CODIGO"))
+        vm.read(1, this)
+        vm.open(k15)
         advanceUntilIdle()
-        assertTrue(vm.state.value.notice!!.contains("não é de um pedido"))
-        assertTrue(store.load().isEmpty())
+        assertEquals(false, vm.state.value.customerOpen[k15])
+        vm.send(k15, CourierParty.CUSTOMER, "Oi")
+        advanceUntilIdle()
+        assertTrue(vm.state.value.notice!!.contains("24 horas"))
+        vm.cancel(k15, "Cliente ausente")
+        advanceUntilIdle()
+        assertTrue(vm.state.value.ended)
     }
 
     @Test fun reabrirRetomaSoAsEntregasVivas() = runTest(dispatcher) {
         val backend = DemoCourierBackend()
         val store = MemoryCourierSessionStore().apply { name = "Ana" }
         val first = CourierViewModel(backend, store)
-        first.claim(DemoCourierBackend.demoLink(0))
-        advanceUntilIdle()
-        first.claim(DemoCourierBackend.demoLink(1))
-        advanceUntilIdle()
-        backend.revokeAll()
+        first.read(0, this)
+        first.read(1, this)
+        backend.revoke("dl-12")
         val reopened = CourierViewModel(backend, store)
         reopened.restore()
         advanceUntilIdle()
-        assertTrue(reopened.state.value.deliveries.isEmpty())
-        assertTrue("guardadas e todas encerradas: volta à primeira tela", reopened.state.value.ended)
+        assertEquals(listOf(k15), reopened.state.value.deliveries.map { it.id })
+        assertEquals("Pizzaria Exemplo", reopened.state.value.deliveries.single().store)
+        backend.revoke("dl-15")
+        val again = CourierViewModel(backend, store)
+        again.restore()
+        advanceUntilIdle()
+        assertTrue("guardadas e todas encerradas: volta à primeira tela", again.state.value.ended)
     }
 
     // --- ligação HTTP -----------------------------------------------------------------------------------------------
+
+    @Test fun leituraPublicaNaoGastaOCodigo() = runTest(dispatcher) {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""{"valid":true,"store":"Lanchonete Exemplo","server":"https://x","expires_at":5}"""))
+        server.start()
+        try {
+            val base = server.url("/").toString().trimEnd('/')
+            val preview = HttpCourierBackend().preview(CourierLink(base, code))
+            assertTrue(preview.valid)
+            assertEquals("Lanchonete Exemplo", preview.store)
+            val request = server.takeRequest()
+            assertEquals("GET", request.method)
+            assertEquals("/c/$code", request.path)
+            assertEquals("application/json", request.getHeader("Accept"))
+            assertNull(request.getHeader("Authorization"))
+        } finally {
+            server.shutdown()
+        }
+    }
 
     @Test fun httpSegueOContrato() = runTest(dispatcher) {
         val server = MockWebServer()

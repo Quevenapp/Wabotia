@@ -13,27 +13,72 @@ import java.net.URI
  * c8d65f2). As rotas ficam só em [HttpCourierBackend]; os campos, nos `@SerialName` deste arquivo.
  */
 
-/** O que o QR do pedido traz: `https://<servidor>/c/<código>`. */
-data class CourierLink(val server: String, val code: String)
+/** O que o QR do pedido traz: `https://<servidor>/c/<código>`. O servidor é o da loja; o app não pergunta nenhum. */
+data class CourierLink(val server: String, val code: String) {
+    /** O host, para mostrar ("loja.exemplo.com.br"). */
+    val host: String get() = server.removePrefix("https://")
+}
 
+/** O resultado da leitura do QR: o pedido, ou o motivo da recusa em texto para o entregador. */
+sealed interface CourierScan {
+    data class Ok(val link: CourierLink) : CourierScan
+    data class Rejected(val message: String) : CourierScan
+}
+
+/**
+ * A leitura do QR do entregador, isolada aqui (formato de fix/credencial-qr): `https://<endereço público>/c/<código>`,
+ * com o código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]` (sem 0, 1, I, O, l e o). Só https e só endereço
+ * público: um QR com http, IP ou nome de rede local é recusado com explicação.
+ */
 object CourierLinks {
-    private val CODE = Regex("^[A-Za-z0-9_-]{4,200}$")
+    private val CODE = Regex("^[2-9A-HJ-NP-Za-km-np-z]{32}$")
+    private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
 
-    /**
-     * Só `https://<servidor>/c/<código>` (a câmera comum que abrir esse endereço vê uma página que só orienta). Sem
-     * https, outro caminho ou sem código: `null` ("este QR não é de um pedido").
-     */
-    fun parse(raw: String): CourierLink? {
-        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
-        if (uri.scheme?.lowercase() != "https") return null
-        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+    const val NOT_ORDER = "Este QR não é de um pedido."
+    const val NOT_HTTPS = "Este QR não usa endereço seguro (https). Peça à loja o QR do pedido gerado pelo Wabotia."
+    const val LOCAL = "Este QR aponta para um endereço de rede local, que só funciona dentro da loja. Peça à loja o QR do endereço público."
+
+    fun check(raw: String): CourierScan {
+        val text = raw.trim()
+        if (text.isEmpty()) return CourierScan.Rejected(NOT_ORDER)
+        val uri = runCatching { URI(text) }.getOrNull() ?: return CourierScan.Rejected(NOT_ORDER)
+        when (uri.scheme?.lowercase()) {
+            "https" -> Unit
+            "http" -> return CourierScan.Rejected(NOT_HTTPS)
+            else -> return CourierScan.Rejected(NOT_ORDER)
+        }
+        if (uri.userInfo != null || uri.rawQuery != null || uri.rawFragment != null) return CourierScan.Rejected(NOT_ORDER)
+        val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return CourierScan.Rejected(NOT_ORDER)
+        if (isLocal(host)) return CourierScan.Rejected(LOCAL)
+        val segments = uri.rawPath.orEmpty().split('/').filter { it.isNotEmpty() }
+        if (segments.size != 2 || segments[0] != "c" || !CODE.matches(segments[1])) return CourierScan.Rejected(NOT_ORDER)
         val server = "https://$host" + (if (uri.port > 0 && uri.port != 443) ":${uri.port}" else "")
-        val segments = uri.path.orEmpty().split('/').filter { it.isNotEmpty() }
-        if (segments.size != 2 || segments[0] != "c") return null
-        val code = segments[1].takeIf { CODE.matches(it) } ?: return null
-        return CourierLink(server, code)
+        return CourierScan.Ok(CourierLink(server, segments[1]))
+    }
+
+    fun parse(raw: String): CourierLink? = (check(raw) as? CourierScan.Ok)?.link
+
+    /** IP (v4 ou v6), `localhost` e nomes de rede local (`.local`, `.lan`, `.internal`, `.localhost`) ou sem ponto. */
+    private fun isLocal(host: String): Boolean =
+        host.startsWith("[") || ':' in host || IPV4.matches(host) || '.' !in host || host == "localhost" ||
+            listOf(".local", ".lan", ".internal", ".localhost", ".home", ".intranet").any { host.endsWith(it) }
+
+    /** O `server` da leitura pública aponta para o mesmo host do QR? Se não, o app não o segue. */
+    fun sameServer(link: CourierLink, server: String?): Boolean {
+        val other = server?.trim()?.trimEnd('/')?.lowercase() ?: return true
+        return other == link.server.lowercase()
     }
 }
+
+/** `GET https://<servidor do QR>/c/<código>` com `Accept: application/json`: lê sem gastar o código. */
+@Serializable
+data class CourierPreview(
+    val valid: Boolean = false,
+    /** O nome da loja (só com `valid`). */
+    val store: String? = null,
+    val server: String? = null,
+    @SerialName("expires_at") val expiresAt: Long? = null,
+)
 
 /** Ponto no mapa. */
 @Serializable
@@ -93,6 +138,8 @@ data class CourierDelivery(
     val order: CourierOrder? = null,
     val chat: CourierChat? = null,
     val app: CourierPace? = null,
+    /** A loja (da leitura pública do QR), só no app: a lista junta entregas de várias lojas. */
+    @kotlinx.serialization.Transient val store: String? = null,
 ) {
     val enRoute: Boolean get() = status == "en_route"
 
@@ -179,7 +226,11 @@ data class CourierSession(
     val profile: String,
     @SerialName("delivery_id") val deliveryId: String,
     @SerialName("expires_at") val expiresAt: Long? = null,
-)
+    /** O nome da loja, da leitura pública do QR: a lista junta entregas de várias lojas e mostra de qual é cada uma. */
+    @SerialName("store_name") val storeName: String? = null,
+) {
+    val host: String get() = server.removePrefix("https://")
+}
 
 /** `401`: entrega concluída ou cancelada, QR substituído ou prazo vencido. O app esquece a entrega. */
 class CourierRevoked(message: String = "Esta entrega não está mais com você.") : Exception(message)

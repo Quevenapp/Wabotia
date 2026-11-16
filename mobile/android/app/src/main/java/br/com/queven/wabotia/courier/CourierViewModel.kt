@@ -17,8 +17,11 @@ data class CourierState(
     val open: String? = null,
     val restoring: Boolean = true,
     val claiming: Boolean = false,
-    /** QR lido esperando o nome do entregador (o servidor exige; o cliente vê). */
+    /** QR lido, esperando o entregador conferir a loja e o servidor (Continuar/Cancelar). */
+    val confirm: CourierConfirm? = null,
+    /** QR confirmado esperando o nome do entregador (o servidor exige; o cliente vê). */
     val pendingLink: CourierLink? = null,
+    val pendingStore: String? = null,
     val name: String? = null,
     /** Aviso transitório (snackbar). */
     val notice: String? = null,
@@ -34,6 +37,9 @@ data class CourierState(
     /** Sem nenhuma entrega depois de ter tido alguma: o acesso acabou e o app volta à primeira tela. */
     val ended: Boolean = false,
 )
+
+/** A confirmação antes de gastar o código: a loja (da leitura pública) e o host do QR. */
+data class CourierConfirm(val link: CourierLink, val store: String? = null, val loading: Boolean = true)
 
 /**
  * O modo entregador: as entregas escaneadas (uma credencial por entrega), a fila de posições de cada uma, o envio em
@@ -62,7 +68,7 @@ class CourierViewModel(
             val alive = mutableListOf<CourierDelivery>()
             for (session in saved) {
                 try {
-                    val delivery = backend.delivery(session)
+                    val delivery = local(session, backend.delivery(session))
                     adopt(session, delivery)
                     alive += delivery
                 } catch (e: CancellationException) {
@@ -72,7 +78,7 @@ class CourierViewModel(
                 } catch (e: Exception) {
                     // Sem rede: mantém a credencial e mostra o que se sabe até a próxima leitura.
                     adopt(session, null)
-                    alive += CourierDelivery(id = session.deliveryId, status = "en_route")
+                    alive += CourierDelivery(id = keyOf(session), status = "en_route", store = session.storeName ?: session.host)
                 }
             }
             persist()
@@ -81,33 +87,70 @@ class CourierViewModel(
         }
     }
 
-    /** O QR lido (ou o link colado). Sem o nome guardado, a tela pergunta antes. */
-    fun claim(link: CourierLink) {
-        val name = store.name
-        if (name.isNullOrBlank()) {
-            mutable.update { it.copy(pendingLink = link) }
-            return
+    /** O texto lido pela câmera (ou colado): recusa com explicação, ou segue para a confirmação da loja. */
+    fun scanned(raw: String) {
+        when (val scan = CourierLinks.check(raw)) {
+            is CourierScan.Rejected -> mutable.update { it.copy(notice = scan.message) }
+            is CourierScan.Ok -> claim(scan.link)
         }
-        claim(link, name)
     }
+
+    /**
+     * Um QR válido: primeiro a leitura pública (não gasta o código) para mostrar a loja e o servidor; só depois de
+     * Continuar o app pede o nome, se ainda não tiver, e troca o código. O servidor é sempre o host do QR: se a leitura
+     * apontar para outro, o app não segue.
+     */
+    fun claim(link: CourierLink) {
+        if (mutable.value.confirm != null || mutable.value.claiming) return
+        mutable.update { it.copy(confirm = CourierConfirm(link), notice = null) }
+        viewModelScope.launch {
+            try {
+                val preview = backend.preview(link)
+                when {
+                    !preview.valid -> mutable.update { it.copy(confirm = null, notice = INVALID) }
+                    !CourierLinks.sameServer(link, preview.server) ->
+                        mutable.update { it.copy(confirm = null, notice = "Este QR indica outro servidor (${preview.server}). Por segurança, a entrega não foi aberta. Fale com a loja.") }
+                    else -> mutable.update { it.copy(confirm = CourierConfirm(link, preview.store?.trim()?.takeIf(String::isNotEmpty), loading = false)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutable.update { it.copy(confirm = null, notice = e.message ?: "Não deu para ler este pedido.") }
+            }
+        }
+    }
+
+    /** "Continuar": pede o nome (se faltar) e troca o código. */
+    fun confirmContinue() {
+        val c = mutable.value.confirm ?: return
+        if (c.loading) return
+        mutable.update { it.copy(confirm = null) }
+        val name = store.name
+        if (name.isNullOrBlank()) mutable.update { it.copy(pendingLink = c.link, pendingStore = c.store) } else claim(c.link, name, c.store)
+    }
+
+    fun cancelConfirm() = mutable.update { it.copy(confirm = null) }
 
     fun claimWithName(name: String) {
         val link = mutable.value.pendingLink ?: return
         val clean = name.trim().take(60)
         if (clean.length < 2) return
         store.name = clean
-        mutable.update { it.copy(pendingLink = null, name = clean) }
-        claim(link, clean)
+        val storeName = mutable.value.pendingStore
+        mutable.update { it.copy(pendingLink = null, pendingStore = null, name = clean) }
+        claim(link, clean, storeName)
     }
 
-    fun dismissName() = mutable.update { it.copy(pendingLink = null) }
+    fun dismissName() = mutable.update { it.copy(pendingLink = null, pendingStore = null) }
 
-    private fun claim(link: CourierLink, name: String) {
+    private fun claim(link: CourierLink, name: String, storeName: String?) {
         if (mutable.value.claiming) return
         mutable.update { it.copy(claiming = true, notice = null) }
         viewModelScope.launch {
             try {
-                val (session, delivery) = backend.claim(link, name, device)
+                val (claimed, raw) = backend.claim(link, name, device)
+                val session = claimed.copy(storeName = claimed.storeName ?: storeName)
+                val delivery = local(session, raw)
                 adopt(session, delivery)
                 persist()
                 mutable.update { s ->
@@ -121,7 +164,6 @@ class CourierViewModel(
             }
         }
     }
-
     fun open(id: String?) {
         mutable.update { it.copy(open = id) }
         if (id != null) refreshMessages(id)
@@ -142,7 +184,7 @@ class CourierViewModel(
                 val current = delivery(id)
                 val destination = if (current?.destination == null && !current?.address.isNullOrBlank()) geocode(current!!.address) else null
                 backend.start(session, destination)?.let { pace = it }
-                replace(backend.delivery(session))
+                replace(local(session, backend.delivery(session)))
             }
         }
     }
@@ -293,11 +335,21 @@ class CourierViewModel(
     }
 
     private fun adopt(session: CourierSession, delivery: CourierDelivery?) {
-        sessions[session.deliveryId] = session
-        queues.getOrPut(session.deliveryId) { PositionQueue() }
+        val key = keyOf(session)
+        sessions[key] = session
+        queues.getOrPut(key) { PositionQueue() }
         delivery?.app?.let { pace = it }
-        delivery?.chat?.customerOpen?.let { open -> mutable.update { it.copy(customerOpen = it.customerOpen + (session.deliveryId to open)) } }
+        delivery?.chat?.customerOpen?.let { open -> mutable.update { it.copy(customerOpen = it.customerOpen + (key to open)) } }
     }
+
+    /**
+     * Lojas diferentes podem repetir o id de uma entrega: no app, cada uma é `host/id` e leva o nome da loja. As
+     * chamadas usam o id do servidor, que fica na credencial.
+     */
+    private fun keyOf(session: CourierSession) = "${session.host}/${session.deliveryId}"
+
+    private fun local(session: CourierSession, delivery: CourierDelivery) =
+        delivery.copy(id = keyOf(session), store = session.storeName ?: session.host)
 
     private fun replace(delivery: CourierDelivery) = mutable.update { s -> s.copy(deliveries = s.deliveries.map { if (it.id == delivery.id) delivery else it }) }
 
@@ -327,6 +379,8 @@ class CourierViewModel(
     private fun persist() = store.save(sessions.values.toList())
 
     companion object {
+        const val INVALID = "Este QR não vale mais; peça outro à loja."
+
         fun factory(backend: CourierBackend, store: CourierSessionStore, device: String) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T = CourierViewModel(backend, store, device) as T
