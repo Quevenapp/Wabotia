@@ -1,6 +1,14 @@
 # Limites do Cloudflare: consultas ao D1 e CPU
 
 O Wabotia roda em Workers com D1 e um Durable Object por área (Coordinator).
+
+**O plano pago do Workers (Workers Paid) é exigido** para rodar o Wabotia,
+desde a versão seguinte à 0.20.0 (decisão de 16/11/2026). O plano gratuito
+não é suportado: o alarme de cada área e a conclusão do carrinho passam de 50
+consultas ao D1 por invocação, e a invocação que passa do limite para no meio,
+com parte já gravada (veja "Riscos" abaixo). O instalador pelo navegador pede
+que o administrador confirme o plano antes de criar qualquer recurso.
+
 Os limites que importam aqui:
 
 | Limite                        | Plano gratuito | Plano pago    |
@@ -40,7 +48,7 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Webhook do Mercado Pago: assinatura                      | Worker                   | 2     | 2      |
 | Webhook do Mercado Pago: consulta, estado, Pedido        | Coordinator              | 29    | 28²    |
 | Rodada periódica dos módulos (sem nada vencido)          | alarme (parte da rodada) | 26    | 22     |
-| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 15     |
+| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 17³    |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
 
@@ -48,6 +56,9 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 
 ² 25 com o cache; mais 3 da entrega durável do gancho do módulo (fila de
 pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
+
+³ Mais 2 desde o cupom configurável: a configuração da área (QR ligado) e o
+endereço público, para o texto do QR do `wa.me`.
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
 gravação do recibo de idempotência, auditoria e fechamento do recibo).
@@ -116,8 +127,8 @@ antiga da conversa, o caminho barato. Com 10 entregas, o alarme chega a mais de 
   gravada (não há transação entre as etapas). No alarme, o Coordinator registra
   o erro e volta no próximo, e as chaves de origem evitam duplicar, mas o
   trabalho atrasa e se repete parado no mesmo ponto. Na conclusão do carrinho,
-  o cliente pode ficar com o pedido criado e sem a cobrança. Para usar os
-  verticais em produção, o plano pago.
+  o cliente pode ficar com o pedido criado e sem a cobrança. Por isso o plano
+  pago passou a ser exigido.
 - **Crescimento com os dados.** A rodada dos módulos lê listas com `LIMIT`
   (lembretes da Agenda, avisos da Mensalidade, chegada e saída da Reserva,
   pedidos parados) e cada item vencido gera mensagens e escritas. Num dia com
@@ -133,9 +144,10 @@ antiga da conversa, o caminho barato. Com 10 entregas, o alarme chega a mais de 
   cifras (HMAC, AES-GCM), que são do WebCrypto. No gratuito, cardápios grandes
   são o primeiro candidato a passar.
 
-## Se for preciso caber no gratuito
+## O que seria preciso para caber no gratuito
 
-Sem reescrever o motor, as saídas são de agenda, não de consulta:
+Não está planejado (o plano pago é exigido). Fica registrado: sem reescrever o
+motor, as saídas seriam de agenda, não de consulta:
 
 1. alarmes separados para a rodada dos módulos, para o motor e para as entregas,
    cada um com a própria conta;

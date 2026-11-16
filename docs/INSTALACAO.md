@@ -117,7 +117,7 @@ A Cloudflare é a plataforma que mantém o Wabotia disponível na internet e gua
 
 | Serviço | Para que serve no Wabotia | O que você prepara |
 |---|---|---|
-| **Workers** | Executa o painel web, a API e as regras do atendimento. | Escolha o plano da conta. Workers Paid é a referência de produção do projeto. |
+| **Workers** | Executa o painel web, a API e as regras do atendimento. | **Exige o plano pago Workers Paid.** O plano gratuito não é suportado. |
 | **D1** | Banco de dados: guarda usuários, configurações, conversas, protocolos e registros. | Confira acesso ao D1. O instalador cria o banco exclusivo da instalação. |
 | **R2** | Armazena documentos, imagens, áudios e outros anexos. Uma pasta de armazenamento é chamada de *bucket*. | Ative a assinatura R2 e use um bucket privado. |
 | **Durable Objects e alarmes** | Coordenam as conversas e os trabalhos pendentes, preservando ordem e evitando operações duplicadas. Os alarmes retomam tarefas agendadas. | O deploy configura esses recursos. Não precisa criar um servidor nem contratar cada alarme. |
@@ -139,12 +139,12 @@ A Cloudflare é a plataforma que mantém o Wabotia disponível na internet e gua
 
 R2 tem uma franquia mensal gratuita e cobrança conforme o uso excedente. Confira a [ativação oficial do R2](https://developers.cloudflare.com/r2/get-started/) e os [preços vigentes](https://developers.cloudflare.com/r2/pricing/) antes de confirmar.
 
-### Requisito 2 - Confira D1 e o plano Workers
+### Requisito 2 - Confira D1 e assine o plano Workers Paid
 
 1. Abra **Armazenamento e bancos de dados > Banco de dados SQL D1**. Confira que consegue abrir a lista e encontrar **Criar banco de dados**.
 2. **D1 já está incluído nos planos Workers Free e Paid.** Ele não exige uma assinatura separada equivalente à adesão do R2; limites e eventuais cobranças dependem do plano Workers. Consulte os [planos oficiais do D1](https://developers.cloudflare.com/d1/platform/pricing/).
 3. O instalador do Wabotia cria o banco. Não é preciso criar um banco de teste para habilitar o serviço. Se já instalou o Wabotia, confira o banco existente em **Worker > Bindings > DB**, sem criar outro para substituí-lo.
-4. Para produção, prepare **Workers Paid** conforme a referência do projeto. Confira o plano e as condições na área de assinatura do Workers. Uma assinatura Zero Trust Free ou um plano do site/domínio não muda automaticamente o plano Workers.
+4. **O Wabotia exige o plano pago Workers Paid.** Assine na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans) antes de instalar. No plano gratuito, o trabalho de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por execução e param no meio, com parte já gravada ([Limites do Cloudflare](LIMITES.md)). Uma assinatura Zero Trust Free ou um plano do site/domínio não muda o plano Workers. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso; ele não consegue conferir o plano sozinho, porque isso exigiria dar ao token acesso aos dados de cobrança da conta.
 
 O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 e R2. Você não precisa gerar chaves D1 nem credenciais S3/R2 para colocar no painel Wabotia.
 
