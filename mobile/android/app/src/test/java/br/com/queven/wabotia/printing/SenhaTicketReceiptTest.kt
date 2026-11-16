@@ -54,6 +54,67 @@ class SenhaTicketReceiptTest {
         assertEquals("1 pessoa à sua frente · cerca de 25 min", CouponText.position(data(ahead = 1)))
     }
 
+    private fun print(d: CouponData) = String(SenhaTicketReceipt(d).receiptBytes(portable58mm), Charsets.ISO_8859_1)
+
+    private val ticket = br.com.queven.wabotia.queue.QueueTicket(
+        id = "t1",
+        code = "N012",
+        queueName = "Atendimento geral",
+        ahead = 3,
+        waitMinutes = 25,
+        createdAt = 1_794_672_300_000,
+        whatsappLink = "https://wa.me/5511999998888?text=SENHA%20N012%20AB12CD",
+    )
+    private val establishment = br.com.queven.wabotia.modules.Establishment(
+        name = "Clinica Central",
+        address = "Rua Exemplo, 100",
+        footer = "Obrigado pela visita",
+    )
+
+    @Test
+    fun `sem configuracao da area o cupom sai como antes`() {
+        val text = print(CouponData.of(ticket, "Totem", establishment))
+        assertTrue(text.contains("Clinica Central"))
+        assertTrue(text.contains("Rua Exemplo"))
+        assertTrue(text.contains("3 pessoas"))
+        assertTrue(text.contains("WhatsApp"))
+        assertTrue(text.contains("Obrigado pela visita"))
+    }
+
+    @Test
+    fun `a area desliga cadastro, posicao e QR e troca o rodape`() {
+        val settings = CouponSettings(showEstablishment = false, showPosition = false, showWhatsappQr = false, footer = "Volte sempre\n\n  Boa consulta  ")
+        val d = CouponData.of(ticket, "Totem", establishment, settings)
+        assertEquals(null, d.whatsappLink)
+        assertEquals(listOf("Volte sempre", "Boa consulta"), d.footerLines)
+        val text = print(d)
+        // O nome sai sempre; o resto do cadastro, não.
+        assertTrue(text.contains("Clinica Central"))
+        assertFalse(text.contains("Rua Exemplo"))
+        assertFalse(text.contains("pessoas"))
+        assertFalse(text.contains("WhatsApp"))
+        assertFalse(text.contains("Obrigado pela visita"))
+        assertTrue(text.contains("Volte sempre"))
+        assertTrue(text.contains("N012"))
+    }
+
+    @Test
+    fun `rodape vazio da area tira o rodape do cadastro`() {
+        assertEquals(emptyList<String>(), CouponData.of(ticket, "Totem", establishment, CouponSettings(footer = "")).footerLines)
+    }
+
+    @Test
+    fun `texto do QR para quem tem dificuldade com o celular`() {
+        val hint = "Aperte ENVIAR no WhatsApp\npara ser chamado"
+        val d = CouponData.of(ticket, "Totem", establishment, CouponSettings(whatsappHint = hint))
+        val text = print(d)
+        assertTrue(text.contains("Aperte ENVIAR no WhatsApp"))
+        assertTrue(text.contains("para ser chamado"))
+        assertFalse(text.contains(CouponText.WHATSAPP.take(20)))
+        // Em branco volta ao texto padrão.
+        assertEquals(CouponText.WHATSAPP, CouponData.of(ticket, "Totem", null, CouponSettings(whatsappHint = "  ")).whatsappHint)
+    }
+
     @Test
     fun `depois de impresso o cupom esquece os dados e nao aparece em log`() {
         val payload = SenhaTicketReceipt(data())
