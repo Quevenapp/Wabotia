@@ -2,6 +2,7 @@
 // erp_catalog.contact_text, contact_date, contact_email_list, contact_uf,
 // valid_cpf, valid_pis, search_terms e matches. Fonte: migrações do Fagoo
 // (versões finais no oráculo).
+import { toScaled } from "../../engine/dec.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonType } from "../../engine/json.ts";
 import { validDate } from "../../engine/time.ts";
@@ -14,7 +15,17 @@ export const CNTRL = /[\u0000-\u001f\u007f-\u009f]/;
  * caractere): sem U+00A0, U+1680, U+2007, U+200B, U+202F nem U+FEFF.
  */
 const SPACE = "\\t\\n\\v\\f\\r \\u0085\\u2000-\\u2006\\u2008-\\u200a\\u2028\\u2029\\u205f\\u3000";
-const SPACES = new RegExp(`[${SPACE}]+`);
+export const SPACES = new RegExp(`[${SPACE}]+`);
+/** regexp_replace(x, '\s+', ' ', 'g') */
+export const collapseSpaces = (s: string) => s.replace(new RegExp(`[${SPACE}]+`, "g"), " ");
+
+/**
+ * upper()/lower() do Postgres: caractere a caractere, sem expansão do JS
+ * ("ß" → "ẞ", não "SS"; sigma sem a forma final).
+ */
+export const upper = (s: string) =>
+  [...s].map((c) => (c === "ß" ? "ẞ" : [...c.toUpperCase()].length === 1 ? c.toUpperCase() : c)).join("");
+export const lower = (s: string) => [...s].map((c) => ([...c.toLowerCase()].length === 1 ? c.toLowerCase() : c)).join("");
 const LIST_SEPARATOR = new RegExp(`[${SPACE}]*[;,][${SPACE}]*`);
 const EMAIL = new RegExp(`^[^@${SPACE};,]+@[^@${SPACE};,]+\\.[^@${SPACE};,]+$`);
 
@@ -97,6 +108,33 @@ export function matches(terms: string[], text: string | null, compact: string | 
     const only = t.replace(/[^0-9]/g, "");
     return !/[a-z]/.test(t) && only !== "" && (digits ?? "").includes(only);
   });
+}
+
+/** erp_catalog.valid_cnpj: 12 alfanuméricos + 2 dígitos (CNPJ alfanumérico). */
+export function validCnpj(value: string | null): boolean {
+  if (value === null || !/^[A-Z0-9]{12}[0-9]{2}$/.test(value) || /^([0-9])\1{13}$/.test(value)) return false;
+  let base = value.slice(0, 12);
+  for (let j = 0; j < 2; j++) {
+    let sum = 0,
+      weight = 2;
+    for (let i = base.length - 1; i >= 0; i--) {
+      sum += (base.charCodeAt(i) - 48) * weight;
+      weight = weight === 9 ? 2 : weight + 1;
+    }
+    const rest = sum % 11;
+    base += String(rest < 2 ? 0 : 11 - rest);
+  }
+  return base === value;
+}
+
+/** erp_catalog.percent_valid(p_value jsonb, p_null) */
+export function percentValid(value: unknown, whenNull: boolean): boolean {
+  if (value === null || value === undefined) return whenNull;
+  return (
+    typeof value === "string" &&
+    /^(0|[1-9][0-9]?|100)(\.[0-9]{1,4})?$/.test(value) &&
+    toScaled(value, 4) <= 1000000n
+  );
 }
 
 /** Ordem do texto no Postgres do oráculo (collation C): bytes UTF-8. */

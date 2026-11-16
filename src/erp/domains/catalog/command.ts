@@ -52,8 +52,9 @@ export function auxiliaryAudit(
     row.subject,
     row.subjectId,
     row.action,
-    row.before === undefined ? null : jsonbText(row.before),
-    row.after === undefined ? null : jsonbText(row.after),
+    // jsonb 'null' e NULL saem iguais do codec json: o motor grava NULL.
+    row.before === undefined || row.before === null ? null : jsonbText(row.before),
+    row.after === undefined || row.after === null ? null : jsonbText(row.after),
     ctx.clock.next().toString(),
   );
 }
