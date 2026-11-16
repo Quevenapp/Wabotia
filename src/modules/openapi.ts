@@ -9,6 +9,11 @@ import {
   pedidoOperations,
   pedidoSchemas,
 } from "./pedido/openapi";
+import {
+  clientesOperations,
+  clientesSchemas,
+  describeClientesOperation,
+} from "./clientes/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -155,6 +160,7 @@ export const moduleSchemas = {
   ...pedidoSchemas(),
   ...mensalidadeSchemas(),
   ...suporteSchemas(),
+  ...clientesSchemas(),
   WebStep: {
     type: "object",
     description:
@@ -724,6 +730,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ...pedidoOperations,
   ...mensalidadeOperations(),
   ...suporteOperations(),
+  ...clientesOperations,
 ];
 
 /** Rotas da Agenda (módulo "agenda", docs/AGENDA.md). */
@@ -884,6 +891,8 @@ export function describeModuleOperation(
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
   if (path.startsWith("/profiles/{profile}/pedido"))
     return describePedidoOperation(path, method, entry, success);
+  if (path.startsWith("/profiles/{profile}/clientes"))
+    return describeClientesOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("/mensalidade/"))
