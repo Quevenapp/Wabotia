@@ -201,8 +201,33 @@ export async function paymentUpdated(
     payment.ref_id,
     ctx.profile,
   );
-  // Só a cobrança atual do sinal mexe na reserva.
-  if (!row || row.payment_id !== payment.id) return;
+  if (!row) return;
+  // Só a cobrança atual do sinal mexe na reserva. Uma substituída e paga
+  // depois (conferência N-11) vira pendência: dinheiro a mais para estornar.
+  if (row.payment_id !== payment.id) {
+    if (payment.status === "paid") {
+      const b = await getBooking(ctx, row.id);
+      await publish(
+        ctx,
+        "reserva.payment_late",
+        b,
+        "system",
+        { reason: "replaced", payment_id: payment.id, needs_refund: true },
+        `replaced:${payment.id}`,
+      );
+      if (b.conversation_id)
+        try {
+          await ctx.note(
+            await ctx.conversation(b.conversation_id),
+            `Uma cobrança antiga do sinal da reserva nº ${b.number} foi paga depois de substituída (${money(payment.amount_cents)}). Confira e estorne o valor a mais pelo Mercado Pago.`,
+            { key: `replaced:${payment.id}` },
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+        }
+    }
+    return;
+  }
   const at = clock();
   if (payment.status === "paid")
     return depositPaid(ctx, config, row.id, at, previous);

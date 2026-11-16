@@ -1060,7 +1060,37 @@ export async function paymentUpdated(
     ctx.profile,
   );
   if (!order) return;
-  if (order.payment_id && order.payment_id !== payment.id) return;
+  // Cobrança substituída e paga depois (conferência N-11): pendência para a
+  // equipe estornar o valor a mais, em vez de ignorar.
+  if (order.payment_id && order.payment_id !== payment.id) {
+    if (payment.status === "paid") {
+      await ctx.publish(
+        "pedido.payment_late",
+        order.id,
+        {
+          order_id: order.id,
+          number: order.number,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+          needs_refund: true,
+          reason: "replaced",
+          conversation_id: order.conversation_id,
+        },
+        { key: `replaced:${payment.id}` },
+      );
+      if (order.conversation_id)
+        try {
+          await ctx.note(
+            await ctx.conversation(order.conversation_id),
+            `Uma cobrança antiga do pedido nº ${order.number} foi paga depois de substituída (${money(payment.amount_cents)}). Confira e estorne o valor a mais pelo Mercado Pago.`,
+            { key: `replaced:${payment.id}` },
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+        }
+    }
+    return;
+  }
   const at = now();
   if (payment.status === "paid") {
     const claimed = await exec(

@@ -158,6 +158,35 @@ describe("estorno e duplicidade (revisão M8)", () => {
     ).toBe("paid");
   });
 
+  it("N-11: cobrança substituída e paga depois vira pendência no Pedido", async () => {
+    const { mp, f, c, account, order, payment } =
+      await pixOrder("5511973100010");
+    // A cobrança foi substituída (outra forma, nova tentativa).
+    await exec(
+      env,
+      "UPDATE pedido_orders SET payment_id='outra-cobranca' WHERE id=?",
+      order.id,
+    );
+    mp.remote.get(payment.provider_ref)!.status = "approved";
+    await webhook(account.id, payment.provider_ref);
+    const late = await all(
+      env,
+      "SELECT payload FROM events WHERE profile_id=? AND kind='pedido.payment_late'",
+      f.profile,
+    );
+    expect(late.map((e) => json(e.payload))).toEqual([
+      expect.objectContaining({ reason: "replaced", needs_refund: true }),
+    ]);
+    const notes = await all(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note'",
+      c.id,
+    );
+    expect(notes.map((n) => n.text).join("\n")).toContain(
+      "foi paga depois de substituída",
+    );
+  });
+
   it("estorno antes do primeiro aviso: sem comprovante e o módulo vê só o estorno", async () => {
     const { mp, account, c, order, payment } = await pixOrder("5511973100002");
     mp.remote.get(payment.provider_ref)!.status = "refunded";
