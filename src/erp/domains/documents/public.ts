@@ -1,7 +1,21 @@
 // Documentos (erp_documents): o que outros domínios usam. Portado de
-// erp_documents.allowed.
+// erp_documents.allowed e guard_trash_child. Dono: O (Documentos); as
+// leituras de reads-g.ts foram escritas pela G e assumidas por O.
+import { one, type SqlDriver } from "../../engine/driver.ts";
+import { raise } from "../../engine/errors.ts";
 
 export * from "./stubs.generated.ts";
+
+/**
+ * erp_documents.guard_trash_child: gatilho das tabelas filhas de um documento
+ * (no Financeiro, grouped_billing_document): nenhuma linha nova, alterada ou
+ * apagada aponta para um documento na lixeira. Chame com o document_id da
+ * linha (o novo no INSERT/UPDATE, o antigo no DELETE).
+ */
+export function guardTrashChild(db: SqlDriver, documentId: string | null) {
+  if (documentId !== null && one(db, 'SELECT 1 x FROM "erp_documents__document" WHERE id=? AND deleted_at IS NOT NULL', documentId))
+    raise("40001", "erp_document_deleted");
+}
 export { autoProducts } from "./internal.ts";
 export { transitions } from "./preferences.ts";
 export { contactUsable, mirrorRequireVisible, mirrorVisible, osPermitted, reportCoverage, requireAccess, requireRole } from "./reads-g.ts";
