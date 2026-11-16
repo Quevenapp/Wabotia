@@ -625,14 +625,20 @@ async function onDocument(
   // Limite por telefone e por dia: ninguém testa documentos à vontade.
   const phone = verified(ctx, c);
   const since = now() - 86_400_000;
-  const used = await all(
+  // Na mesma consulta, uma linha vencida da área, se houver: a limpeza só
+  // custa uma instrução a mais quando há o que apagar (conferência N-5).
+  const rows = await all(
     ctx.env,
-    "SELECT document FROM suporte_lookups WHERE profile_id=? AND ((phone<>'' AND phone=?) OR conversation_id=?) AND created>?",
+    "SELECT document,created FROM suporte_lookups WHERE profile_id=? AND ((((phone<>'' AND phone=?) OR conversation_id=?) AND created>?) OR id IN (SELECT id FROM suporte_lookups WHERE profile_id=? AND created<=? LIMIT 1))",
     ctx.profile,
     phone,
     c.id,
     since,
+    ctx.profile,
+    since,
   );
+  const used = rows.filter((r) => r.created > since);
+  const stale = rows.length > used.length;
   const known = new Set(used.map((r) => r.document).filter(Boolean));
   if (
     used.length >= LOOKUPS_PER_DAY ||
@@ -660,12 +666,13 @@ async function onDocument(
   }
   // Documentos digitados só valem para o limite do dia: os mais antigos saem
   // aqui mesmo, sem rodada periódica (conferência N-5).
-  await exec(
-    ctx.env,
-    "DELETE FROM suporte_lookups WHERE id IN (SELECT id FROM suporte_lookups WHERE profile_id=? AND created<=? LIMIT 50)",
-    ctx.profile,
-    since,
-  );
+  if (stale)
+    await exec(
+      ctx.env,
+      "DELETE FROM suporte_lookups WHERE id IN (SELECT id FROM suporte_lookups WHERE profile_id=? AND created<=? LIMIT 50)",
+      ctx.profile,
+      since,
+    );
   await exec(
     ctx.env,
     "INSERT INTO suporte_lookups(id,profile_id,phone,conversation_id,document,created) VALUES(?,?,?,?,?,?)",
