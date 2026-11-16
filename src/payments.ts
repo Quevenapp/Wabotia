@@ -675,6 +675,46 @@ async function transition(
 }
 
 /**
+ * O pagamento em duplicidade foi estornado (o que a nota pede): marca na
+ * lista, publica payment.duplicate_refunded e deixa nota, uma vez. A
+ * cobrança continua paga pelo pagamento original (conferência N-1).
+ */
+async function recordDuplicateRefund(env: Env, row: any, remoteId: string) {
+  const marked = await exec(
+    env,
+    "UPDATE payments SET duplicate_payments=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')=? THEN json_set(value,'$.refunded_at',?) ELSE json(value) END) FROM json_each(payments.duplicate_payments)),updated=? WHERE id=? AND EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=? AND json_extract(value,'$.refunded_at') IS NULL)",
+    remoteId,
+    now(),
+    now(),
+    row.id,
+    remoteId,
+  );
+  if (!marked.meta?.changes) return false;
+  const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
+  await event(
+    env,
+    fresh.profile_id,
+    "payment.duplicate_refunded",
+    fresh.id,
+    paymentEvent(fresh, { duplicate_provider_payment_id: remoteId }),
+    `payment.duplicate_refunded:${fresh.id}:${remoteId}`,
+  );
+  try {
+    const c = await conversation(env, fresh.conversation_id, fresh.profile_id);
+    await message(
+      env,
+      c,
+      "note",
+      "system",
+      `Pagamento em duplicidade estornado (pagamento ${remoteId} no provedor). A cobrança ${fresh.description} continua paga pelo pagamento original.`,
+    );
+  } catch {
+    // Cobrança sem conversa: fica o evento.
+  }
+  return true;
+}
+
+/**
  * Segundo pagamento aprovado da mesma cobrança (link pago duas vezes): outro
  * id no provedor. Guarda, publica payment.duplicate e avisa a equipe numa
  * nota interna para estornar; cada id só uma vez (revisão M8).
@@ -876,6 +916,33 @@ export async function refreshFromProvider(
     const recorded = await recordDuplicate(env, row, remote);
     return { status: row.status, changed: false, duplicate: recorded };
   }
+  // Conferência N-1: estorno, cancelamento ou vencimento de OUTRO pagamento
+  // (o duplicado estornado pela equipe, uma tentativa no checkout) não mexe
+  // na cobrança paga pelo pagamento original.
+  if (
+    next !== "paid" &&
+    row.provider_payment_id &&
+    remote.id &&
+    String(remote.id) !== String(row.provider_payment_id)
+  ) {
+    const duplicate =
+      next === "refunded"
+        ? await recordDuplicateRefund(env, row, String(remote.id))
+        : false;
+    return {
+      status: row.status,
+      changed: false,
+      ignored: duplicate ? "duplicate_refunded" : "other_payment",
+    };
+  }
+  // Link de pagamento ainda sem pagamento: uma tentativa cancelada ou vencida
+  // no checkout não fecha a cobrança, que continua pagável até a validade.
+  if (
+    (next === "cancelled" || next === "expired") &&
+    row.method === "link" &&
+    row.status === "created"
+  )
+    return { status: row.status, changed: false, ignored: "attempt" };
   // Pagamento aprovado e depois estornado antes de chegar o primeiro aviso:
   // o "paga" só fica registrado; o módulo e o cliente veem o estorno.
   if (next === "refunded" && row.status !== "paid") {

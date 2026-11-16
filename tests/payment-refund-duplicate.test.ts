@@ -96,6 +96,68 @@ describe("estorno e duplicidade (revisão M8)", () => {
     );
   });
 
+  it("N-1: estornar o pagamento duplicado não estorna a cobrança nem cancela o pedido", async () => {
+    const { mp, f, c, account, order, payment } =
+      await pixOrder("5511973100009");
+    mp.remote.get(payment.provider_ref)!.status = "approved";
+    await webhook(account.id, payment.provider_ref);
+    const second = "999000222";
+    mp.remote.set(second, {
+      status: "approved",
+      amount: payment.amount_cents / 100,
+      ref: payment.id,
+    });
+    await webhook(account.id, second);
+    // A equipe estorna o segundo pagamento (ou o cliente contesta).
+    mp.remote.get(second)!.status = "refunded";
+    await webhook(account.id, second);
+    await webhook(account.id, second);
+    expect(
+      (await one(env, "SELECT status FROM payments WHERE id=?", payment.id))
+        .status,
+    ).toBe("paid");
+    expect(
+      (await one(env, "SELECT status FROM pedido_orders WHERE id=?", order.id))
+        .status,
+    ).not.toBe("cancelled");
+    const refunded = await all(
+      env,
+      "SELECT payload FROM events WHERE profile_id=? AND kind='payment.duplicate_refunded'",
+      f.profile,
+    );
+    expect(refunded).toHaveLength(1);
+    const dupes = JSON.parse(
+      (
+        await one(
+          env,
+          "SELECT duplicate_payments FROM payments WHERE id=?",
+          payment.id,
+        )
+      ).duplicate_payments,
+    );
+    expect(dupes[0]).toMatchObject({ id: second });
+    expect(dupes[0].refunded_at).toBeGreaterThan(0);
+    const notes = await all(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note'",
+      c.id,
+    );
+    expect(notes.map((n) => n.text).join("\n")).toContain(
+      "Pagamento em duplicidade estornado",
+    );
+    // Contestação de outro pagamento qualquer também não mexe.
+    mp.remote.set("999000333", {
+      status: "charged_back",
+      amount: payment.amount_cents / 100,
+      ref: payment.id,
+    });
+    await webhook(account.id, "999000333");
+    expect(
+      (await one(env, "SELECT status FROM payments WHERE id=?", payment.id))
+        .status,
+    ).toBe("paid");
+  });
+
   it("estorno antes do primeiro aviso: sem comprovante e o módulo vê só o estorno", async () => {
     const { mp, account, c, order, payment } = await pixOrder("5511973100002");
     mp.remote.get(payment.provider_ref)!.status = "refunded";
