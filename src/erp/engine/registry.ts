@@ -4,6 +4,7 @@
 import type { SqlDriver } from "./driver.ts";
 import { ErpError, fromSqlite } from "./errors.ts";
 import { Clock } from "./time.ts";
+import { NO_IDENTITY, type IdentityPort } from "./identity.ts";
 
 /** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Wabotia, o R2). */
 export interface StoredObject {
@@ -24,6 +25,24 @@ export interface RpcContext {
    * declarou em registerRpc(…, { objects }).
    */
   objects: ObjectLookup;
+  /** Todos os objetos do armazenamento da área (só para RPC registrado com { listing: true }). */
+  listing: () => StoredListing[];
+  /** Quem chama e as pessoas da área (porta de identidade, engine/identity.ts). */
+  identity: IdentityPort;
+}
+
+/** Objeto do armazenamento numa listagem: bucket, nome e tamanho em bytes. */
+export interface StoredListing {
+  bucket: string;
+  name: string;
+  size: number;
+}
+
+/** O que o objeto erp: entrega ao RPC além do banco (lido antes da transação). */
+export interface RpcEnvironment {
+  objects?: ObjectLookup;
+  listing?: StoredListing[];
+  identity?: IdentityPort;
 }
 
 export type RpcArgs = Record<string, unknown>;
@@ -31,10 +50,21 @@ export type RpcFn = (ctx: RpcContext, args: RpcArgs) => unknown;
 export interface RpcOptions {
   /** Chaves de armazenamento ("bucket/nome") que o RPC consulta, a partir dos argumentos. */
   objects?: (args: RpcArgs) => string[];
+  /** O RPC soma ou lista todos os objetos da área (storage.objects inteiro). */
+  listing?: boolean;
 }
 
 const registry = new Map<string, RpcFn>();
 const options = new Map<string, RpcOptions>();
+const before: ((ctx: RpcContext) => void)[] = [];
+
+/** Passo comum a todo RPC, dentro da transação e antes do corpo (ex.: projeção da identidade). */
+export function registerBeforeRpc(fn: (ctx: RpcContext) => void) {
+  before.push(fn);
+}
+
+/** O RPC pede a listagem de todos os objetos da área? */
+export const rpcWantsListing = (name: string) => options.get(name)?.listing === true;
 
 /** Domínios registram as funções públicas (o nome do Postgres, sem schema). */
 export function registerRpc(name: string, fn: RpcFn, opts: RpcOptions = {}) {
@@ -58,15 +88,36 @@ export const isPorted = (name: string) => registry.has(name);
  * Executa o RPC numa transação. Erro desfaz tudo e sai como ErpError
  * (código e mensagem do Postgres). RPC não portado: 0A000.
  */
-export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new Clock(), objects: ObjectLookup = noObjects) {
+export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new Clock(), env: ObjectLookup | RpcEnvironment = {}) {
   const fn = registry.get(name);
   if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
-  return inTransaction(db, (ctx) => fn(ctx, args), clock, objects);
+  return inTransaction(
+    db,
+    (ctx) => {
+      for (const step of before) step(ctx);
+      return fn(ctx, args);
+    },
+    clock,
+    env,
+  );
 }
 
-/** Uma função qualquer do motor numa transação, com o contexto (testes de funções internas). */
-export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, clock = new Clock(), objects: ObjectLookup = noObjects): T {
-  const ctx: RpcContext = { db, clock, settings: new Map(), objects };
+/**
+ * Uma função qualquer do motor numa transação, com o contexto (testes de
+ * funções internas). `env` aceita a consulta de objetos (forma antiga) ou o
+ * ambiente completo.
+ */
+export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, clock = new Clock(), env: ObjectLookup | RpcEnvironment = {}): T {
+  const e: RpcEnvironment = typeof env === "function" ? { objects: env } : env;
+  const listing = e.listing ?? [];
+  const ctx: RpcContext = {
+    db,
+    clock,
+    settings: new Map(),
+    objects: e.objects ?? noObjects,
+    listing: () => listing,
+    identity: e.identity ?? NO_IDENTITY,
+  };
   try {
     return db.transaction(() => fn(ctx));
   } catch (error) {
