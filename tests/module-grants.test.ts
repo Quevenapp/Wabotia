@@ -57,7 +57,7 @@ describe("papéis dos módulos no acesso da pessoa", () => {
     await expect(
       run(f, f.admin, "user.update", {
         id: f.member.id,
-        access: ["entrega:courier"],
+        access: ["entrega:dispatcher"],
       }),
     ).rejects.toThrow("Acesso desconhecido");
     await expect(
