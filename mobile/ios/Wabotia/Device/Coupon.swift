@@ -3,6 +3,25 @@ import SwiftUI
 import ThermalPrinterKit
 import Printher
 
+/// O que a área escolhe mostrar no cupom da senha (configuração por área, que o servidor vai mandar). O padrão é o
+/// cupom de sempre: tudo ligado, legenda e rodapé do app e do cadastro.
+struct CouponOptions: Equatable {
+    /// Documento, endereço e telefone do cadastro da empresa, abaixo do nome.
+    var establishment = true
+    /// "N pessoas à sua frente · cerca de X min".
+    var position = true
+    /// Rodapé no fim do cupom.
+    var footer = true
+    /// QR do wa.me (só sai quando o servidor manda o link: a área precisa de uma linha de WhatsApp).
+    var whatsappQR = true
+    /// Texto abaixo do QR; `nil` usa o do app (`CouponText.whatsapp`).
+    var qrCaption: String? = nil
+    /// Rodapé próprio do cupom; `nil` usa o rodapé do cadastro da empresa.
+    var footerLines: [String]? = nil
+
+    static let standard = CouponOptions()
+}
+
 /// O que vai no cupom; separado da senha para o teste montar sem rede.
 struct CouponData: Equatable {
     var header: String
@@ -20,10 +39,14 @@ struct CouponData: Equatable {
     var headerLines: [String] = []
     /// Rodapé do estabelecimento, no fim do cupom.
     var footerLines: [String] = []
+    /// `false` tira "pessoas à sua frente" do cupom.
+    var showPosition = true
+    /// Texto abaixo do QR.
+    var qrCaption: String = CouponText.whatsapp
 
     /// `header` é o nome do aparelho; com o estabelecimento lido do servidor, vale o nome dele (o nome da área quando
-    /// não há cadastro) e entram documento, endereço, telefone e rodapé.
-    static func of(_ ticket: QueueTicket, header: String, establishment: Establishment? = nil) -> CouponData {
+    /// não há cadastro) e entram documento, endereço, telefone e rodapé, conforme o que a área ligou (`options`).
+    static func of(_ ticket: QueueTicket, header: String, establishment: Establishment? = nil, options: CouponOptions = .standard) -> CouponData {
         CouponData(
             header: establishment?.displayName ?? header,
             queueName: ticket.queueName ?? "",
@@ -32,9 +55,11 @@ struct CouponData: Equatable {
             issuedAt: ticket.createdAt ?? Int64(Date().timeIntervalSince1970 * 1000),
             ahead: ticket.ahead ?? 0,
             waitMinutes: ticket.waitMinutes,
-            whatsappLink: ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil },
-            headerLines: establishment?.headerLines ?? [],
-            footerLines: establishment?.footerLines ?? []
+            whatsappLink: options.whatsappQR ? ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil } : nil,
+            headerLines: options.establishment ? establishment?.headerLines ?? [] : [],
+            footerLines: options.footer ? options.footerLines ?? establishment?.footerLines ?? [] : [],
+            showPosition: options.position,
+            qrCaption: options.qrCaption.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? CouponText.whatsapp
         )
     }
 }
@@ -87,11 +112,14 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
         // Corpo triplo: a senha se lê de longe e é o que a pessoa compara com o painel.
         out.append(layout.text(layout.wrap(d.code, size: big) + "\n", alignment: center, bold: true, size: big))
         out.append(layout.text(CouponText.issued(d) + "\n", alignment: center, bold: false, size: .normal))
-        out.append(layout.text(layout.wrap(CouponText.position(d)) + "\n", alignment: center, bold: false, size: .normal))
-        if let link = d.whatsappLink {
-            guard let qr = layout.qr(payload: link) else { return nil }
+        if d.showPosition {
+            out.append(layout.text(layout.wrap(CouponText.position(d)) + "\n", alignment: center, bold: false, size: .normal))
+        }
+        // Um link longo demais para a largura do papel (texto do wa.me comprido) não vira QR: a senha sai mesmo assim,
+        // sem o QR, em vez de o cupom inteiro falhar.
+        if let link = d.whatsappLink, let qr = layout.qr(payload: link) {
             out.append(qr)
-            out.append(layout.text(layout.wrap(CouponText.whatsapp) + "\n", alignment: center, bold: false, size: .normal))
+            out.append(layout.text(layout.wrap(d.qrCaption) + "\n", alignment: center, bold: false, size: .normal))
         }
         for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
         out.append(layout.finish())

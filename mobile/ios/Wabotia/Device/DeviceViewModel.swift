@@ -69,6 +69,9 @@ final class DeviceViewModel: ObservableObject {
     @Published var notice: String?
     @Published private(set) var spotlight: StationCall?
     @Published private(set) var soundEnabled = true
+    /// O que a área liga no cupom da senha. Por ora o padrão; a configuração por área (dados da empresa, posição,
+    /// rodapé, QR com legenda) entra aqui quando o servidor publicar o contrato.
+    var couponOptions = CouponOptions.standard
     /// Volume do painel no app, de 0,1 a 1 (`PanelVolume`).
     @Published private(set) var panelVolume: Float = 1
     @Published private(set) var template = PanelTemplate.default
@@ -360,7 +363,11 @@ final class DeviceViewModel: ObservableObject {
     private func printIssued() async {
         guard let issued else { return }
         let header = config?.name.isEmpty == false ? config!.name : "Wabotia"
-        couponPrint = await services.printer.print(CouponData.of(issued, header: header, establishment: establishment))
+        #if DEBUG
+        // O QR só sai com o link do servidor, que só vem quando a área tem uma linha de WhatsApp com número.
+        print("[Wabotia] aparelho: cupom \(issued.code ?? "?"), link do WhatsApp \(issued.whatsappLink == nil ? "ausente (área sem linha de WhatsApp?)" : "presente")")
+        #endif
+        couponPrint = await services.printer.print(CouponData.of(issued, header: header, establishment: establishment, options: couponOptions))
     }
 
     /// Segunda via: quando a primeira ficou incerta, só com confirmação de quem está no totem.

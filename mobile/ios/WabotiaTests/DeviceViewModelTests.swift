@@ -85,6 +85,51 @@ final class TotemCouponTests: XCTestCase {
         XCTAssertNil(receipt.receiptBytes(layout: .portable58mm), "depois de imprimir, o cupom não guarda a senha")
     }
 
+    func testQrComesOnlyWithTheServerLink() throws {
+        let with = try XCTUnwrap(SenhaTicketReceipt(CouponData.of(ticket, header: "Totem")).receiptBytes(layout: .portable58mm))
+        var noLink = ticket
+        noLink.whatsappLink = nil
+        let without = try XCTUnwrap(SenhaTicketReceipt(CouponData.of(noLink, header: "Totem")).receiptBytes(layout: .portable58mm))
+        XCTAssertGreaterThan(with.count, without.count + 100, "com o link do servidor, o QR entra no cupom")
+        XCTAssertTrue(String(decoding: with, as: UTF8.self).contains("WhatsApp"))
+        XCTAssertFalse(String(decoding: without, as: UTF8.self).contains("WhatsApp"),
+                       "sem linha de WhatsApp na área o servidor manda whatsapp_link nulo, e o cupom sai sem QR")
+    }
+
+    func testLinkTooLongForThePaperStillPrintsTheTicket() throws {
+        var long = ticket
+        long.whatsappLink = "https://wa.me/552090000000?text=" + String(repeating: "Aperte%20ENVIAR%20", count: 200)
+        let bytes = try XCTUnwrap(SenhaTicketReceipt(CouponData.of(long, header: "Totem")).receiptBytes(layout: .portable58mm),
+                                  "o QR que não cabe na largura do papel não derruba o cupom")
+        XCTAssertTrue(String(decoding: bytes, as: UTF8.self).contains("P004"))
+        XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("WhatsApp"), "sem QR, sem a legenda dele")
+    }
+
+    func testCouponOptionsTurnPartsOff() throws {
+        let establishment = Establishment(name: "Centro Exemplo", document: "11.222.333/0001-81", address: "Rua A, 1", phone: "(20) 3000-1234", footer: "Volte sempre", configured: true)
+        let full = CouponData.of(ticket, header: "Totem", establishment: establishment)
+        XCTAssertFalse(full.headerLines.isEmpty)
+        XCTAssertEqual(full.footerLines, ["Volte sempre"])
+        XCTAssertTrue(full.showPosition)
+        XCTAssertEqual(full.qrCaption, CouponText.whatsapp)
+
+        let off = CouponData.of(ticket, header: "Totem", establishment: establishment,
+                                options: CouponOptions(establishment: false, position: false, footer: false, whatsappQR: false))
+        XCTAssertEqual(off.header, "Centro Exemplo", "o nome da empresa continua no topo")
+        XCTAssertTrue(off.headerLines.isEmpty)
+        XCTAssertTrue(off.footerLines.isEmpty)
+        XCTAssertNil(off.whatsappLink)
+        let text = String(decoding: try XCTUnwrap(SenhaTicketReceipt(off).receiptBytes(layout: .portable58mm)), as: UTF8.self)
+        XCTAssertFalse(text.contains("frente"), "sem a posição na fila")
+        XCTAssertTrue(text.contains("P004"))
+
+        let custom = CouponData.of(ticket, header: "Totem", establishment: establishment,
+                                   options: CouponOptions(qrCaption: "Aperte ENVIAR para ser chamado pelo WhatsApp", footerLines: ["Obrigado"]))
+        XCTAssertEqual(custom.qrCaption, "Aperte ENVIAR para ser chamado pelo WhatsApp")
+        XCTAssertEqual(custom.footerLines, ["Obrigado"], "rodapé próprio do cupom no lugar do rodapé do cadastro")
+        XCTAssertTrue(String(decoding: try XCTUnwrap(SenhaTicketReceipt(custom).receiptBytes(layout: .portable58mm)), as: UTF8.self).contains("Aperte ENVIAR"))
+    }
+
     func testPrintResultMapping() {
         XCTAssertEqual(TicketPrint.of(.delivered), .printed)
         XCTAssertEqual(TicketPrint.of(.failed(message: "x", delivery: .notSent)), .failed(message: "x", reprintNeedsConfirmation: false))
