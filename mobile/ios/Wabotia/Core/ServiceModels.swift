@@ -60,6 +60,30 @@ struct InternalMessage: Codable, Identifiable, Equatable {
     var created: Int64
     var status: String?
     var run_id: String?
+    /// `text` (ou ausente), `proposal`, `result`, `approval`; tipos novos aparecem como `text`.
+    var kind: String? = nil
+    /// Cartão estruturado (`BotActions.swift`); um payload que o app não entende vira só o texto de reserva.
+    var payload: InternalPayload? = nil
+
+    private enum CodingKeys: String, CodingKey { case id, author, text, created, status, run_id, kind, payload }
+
+    init(id: String, author: String, text: String, created: Int64, status: String? = nil, run_id: String? = nil,
+         kind: String? = nil, payload: InternalPayload? = nil) {
+        self.id = id; self.author = author; self.text = text; self.created = created; self.status = status; self.run_id = run_id
+        self.kind = kind; self.payload = payload
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        author = try c.decode(String.self, forKey: .author)
+        text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        created = try c.decode(Int64.self, forKey: .created)
+        status = try? c.decodeIfPresent(String.self, forKey: .status)
+        run_id = try? c.decodeIfPresent(String.self, forKey: .run_id)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        payload = try? c.decodeIfPresent(InternalPayload.self, forKey: .payload)
+    }
 }
 
 extension AppContainer {

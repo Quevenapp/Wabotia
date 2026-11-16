@@ -116,6 +116,7 @@ final class DemoServer {
     /// Pedido (lanchonete) e Suporte pago (passagem para humano), em `DemoPedidoSuporte.swift`.
     private(set) lazy var pedido = DemoPedido(t0: start)
     private(set) lazy var suporte = DemoSuporte(t0: start)
+    private(set) lazy var botActions = DemoBotActions(t0: start)
     /// Formulários (passo web) e cobranças por conversa: `web_steps` e `payments` do detalhe.
     private var webSteps: [String: [Row]] = [:]
     private var payments: [String: [Row]] = [:]
@@ -523,6 +524,8 @@ final class DemoServer {
         if let reply = pedido.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = suporte.route(method: method, parts: parts, body: body, key: key, now: now, emit: emitter) { return reply }
         if get, m("api/v1/profiles/*/forms") != nil { return ok(["data": forms]) }
+        // Ações pelo bot na conversa interna, pedidos de aprovação e o segundo fator.
+        if let reply = botActions.route(method: method, parts: parts, body: body, query: query, now: now) { return reply }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }
@@ -773,7 +776,8 @@ final class DemoServer {
         if get, let c = m(base + "internal-chats/*") {
             guard let chat = chats.first(where: { $0["id"] as? String == c[1] }) else { return fail(404, "not_found", "Conversa não encontrada.") }
             var row = chatRow(chat)
-            row["messages"] = chatMessages[c[1]] ?? []
+            let structured = botActions.rows(chatId: c[1], now: now)
+            row["messages"] = ((chatMessages[c[1]] ?? []) + structured).sorted { ($0["created"] as? Int64 ?? 0) < ($1["created"] as? Int64 ?? 0) }
             return ok(row)
         }
         if post, let c = m(base + "internal-chats/*/messages") {
@@ -784,7 +788,11 @@ final class DemoServer {
             let message: Row = ["id": id, "author": me, "text": body["text"] ?? "", "created": now, "status": toBot ? "queued" : "sent", "run_id": NSNull()]
             chatMessages[c[1], default: []].append(message)
             chats[i]["updated"] = now
-            if toBot {
+            if toBot, botActions.respond(chatId: c[1], text: body["text"] as? String ?? "", now: now) {
+                // O bot respondeu com uma proposta de ação (cartão).
+                if let j = chatMessages[c[1]]?.firstIndex(where: { $0["id"] as? String == id }) { chatMessages[c[1]]?[j]["status"] = "completed" }
+                emit("internal.message", ["chat_id": c[1]])
+            } else if toBot {
                 schedule(after: 3) { [weak self] in
                     guard let self else { return }
                     if let j = self.chatMessages[c[1]]?.firstIndex(where: { $0["id"] as? String == id }) { self.chatMessages[c[1]]?[j]["status"] = "completed" }

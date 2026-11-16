@@ -399,18 +399,23 @@ struct DeepLink: Equatable {
     var conversationId: String?
     var ticketId: String?
     var callId: String?
+    /// Pedido de aprovação (`data.type: "approval"`, `approval_id`).
+    var approvalId: String?
 
-    init(type: String, profileId: String?, conversationId: String?, ticketId: String?, callId: String?) {
+    init(type: String, profileId: String?, conversationId: String?, ticketId: String?, callId: String?, approvalId: String? = nil) {
         self.type = type; self.profileId = profileId; self.conversationId = conversationId; self.ticketId = ticketId; self.callId = callId
+        self.approvalId = approvalId
     }
     init?(url: URL) {
         guard url.scheme == "wabotia", url.host == "open" else { return nil }
         let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func v(_ k: String) -> String? { q.first { $0.name == k }?.value }
-        self.init(type: url.pathComponents.dropFirst().first ?? "message", profileId: v("profile"), conversationId: v("conversation"), ticketId: v("ticket"), callId: v("call"))
+        self.init(type: url.pathComponents.dropFirst().first ?? "message", profileId: v("profile"), conversationId: v("conversation"), ticketId: v("ticket"), callId: v("call"),
+                  approvalId: v("approval"))
     }
     init?(userInfo: [AnyHashable: Any]) {
         guard let type = userInfo["type"] as? String else { return nil }
-        self.init(type: type, profileId: userInfo["profile_id"] as? String, conversationId: userInfo["conversation_id"] as? String, ticketId: userInfo["ticket_id"] as? String, callId: userInfo["call_id"] as? String)
+        self.init(type: type, profileId: userInfo["profile_id"] as? String, conversationId: userInfo["conversation_id"] as? String, ticketId: userInfo["ticket_id"] as? String, callId: userInfo["call_id"] as? String,
+                  approvalId: userInfo["approval_id"] as? String)
     }
 }

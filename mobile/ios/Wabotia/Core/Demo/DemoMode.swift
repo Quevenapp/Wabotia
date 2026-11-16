@@ -235,6 +235,9 @@ extension DemoMode {
         case "team-people", "team-bots", "team-departments": launch.tab = "team"; launch.sheet = screen
         case "internal": launch.tab = "team"; launch.route = .internalChat(peer: TeamContact(id: "u_ana", kind: "user", name: "Ana Souza", online: true), chatId: "ic_ana")
         case "bot": launch.tab = "team"; launch.route = .bot(id: "b_vendas", conversationId: nil)
+        // Ações pelo bot: a conversa interna com o bot Vendas (propostas e pedidos de aprovação) e um pedido aberto pelo aviso.
+        case "bot-actions": launch.tab = "team"; launch.route = .internalChat(peer: TeamContact(id: "bot:b_vendas", kind: "bot", name: "Vendas", online: true), chatId: DemoBotActions.chatId)
+        case "approval": launch.tab = "attendance"; launch.route = .approval(id: "ap_128")
         case "calls": launch.tab = "calls"
         case "settings": launch.tab = "settings"
         case "licenses": launch.tab = "settings"; launch.sheet = "licenses"

@@ -149,8 +149,13 @@ struct HomeView: View {
         // Aviso de algo que a pessoa não acessa (a lista mudou depois do envio): só abre o app.
         let access = moduleFeature.access(container.profileId)
         let needed = ["ticket": AppAccess.Area.tickets, "ticket_due": AppAccess.Area.tickets][link.type] ?? AppAccess.Area.conversations
-        guard access.allows(needed) else { return }
+        // O pedido de aprovação só chega a quem pode decidir (o servidor filtra).
+        guard link.type == "approval" || access.allows(needed) else { return }
         switch link.type {
+        case "approval":
+            // Pedido de aprovação de cliente (desconto, dispensa de parcela): o cartão, sem esperar a conversa interna.
+            guard let id = link.approvalId else { return }
+            router.open(.approval(id: id))
         case "call":
             // O app não atende ligações: o aviso abre a conversa; sem conversa, é ignorado.
             guard let c = link.conversationId else { return }

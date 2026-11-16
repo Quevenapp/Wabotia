@@ -368,6 +368,12 @@ struct InternalChatView: View {
     @State private var pending: (text: String, key: String)?
     @State private var confirmDiscard = false
     @FocusState private var focused: Bool
+    /// Cartões com um toque em andamento.
+    @State private var cardBusy: Set<String> = []
+    @State private var cardError: String?
+    /// `403 mfa_required`: o toque a repetir depois do código do autenticador.
+    @State private var secondFactorRetry: (() async -> Void)?
+    @Environment(\.pushRoute) private var push
 
     private var messages: [InternalMessage] { chat?.messages ?? [] }
     private var online: Bool { workspace.team.first { $0.id == peer.id }?.online ?? peer.online }
@@ -386,8 +392,8 @@ struct InternalChatView: View {
                                 ForEach(Array(messages.enumerated().reversed()), id: \.element.id) { index, message in
                                     let mine = message.author == container.user?.id
                                     let first = index == 0 || messages[index - 1].author != message.author
-                                    bubble(message, mine: mine, first: first, maxWidth: min(geo.size.width * 0.8, 520))
-                                        .padding(.top, first ? 7 : 2)
+                                    row(message, mine: mine, first: first, maxWidth: min(geo.size.width * 0.8, 520))
+                                        .padding(.top, first || message.card != nil ? 7 : 2)
                                         .flippedVertically()
                                         .id(message.id)
                                     if index == 0 || ConversationFormatting.dayKey(messages[index - 1].created) != ConversationFormatting.dayKey(message.created) {
@@ -418,7 +424,16 @@ struct InternalChatView: View {
             while !Task.isCancelled { await load(); do { try await Task.sleep(nanoseconds: 4_000_000_000) } catch { break } }
         }
         .onDisappear { workspace.visibleInternalChatId = nil }
+        .sheet(isPresented: Binding(get: { secondFactorRetry != nil }, set: { if !$0 { secondFactorRetry = nil } })) {
+            SecondFactorSheet(verifier: secondFactor) {
+                let retry = secondFactorRetry
+                secondFactorRetry = nil
+                Task { await retry?() }
+            } onClose: { secondFactorRetry = nil }
+        }
     }
+
+    private var secondFactor: SecondFactorVerifying { LiveSecondFactor(api: container.api) }
 
     private var header: some View {
         HStack(spacing: 0) {
@@ -441,6 +456,76 @@ struct InternalChatView: View {
         .frame(height: 54)
         .background(Theme.bar.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { ThinDivider() }
+    }
+
+    /// Cartão (proposta, resultado, pedido de aprovação) ou a bolha de texto; tipo desconhecido mostra o texto de reserva.
+    @ViewBuilder
+    private func row(_ message: InternalMessage, mine: Bool, first: Bool, maxWidth: CGFloat) -> some View {
+        if let card = message.card {
+            HStack(spacing: 0) {
+                switch card {
+                case let .proposal(p, operationSummary):
+                    ProposalCardView(proposal: p, operationSummary: operationSummary, busy: cardBusy.contains(message.id)) {
+                        Task { await act(message.id) { await actions.confirm(chatId: chatId, p) } }
+                    } onCancel: {
+                        Task { await act(message.id) { await actions.cancel(chatId: chatId, p) } }
+                    }
+                case let .result(p):
+                    ResultCardView(proposal: p)
+                case let .approval(a):
+                    ApprovalCardView(approval: a, busy: cardBusy.contains(message.id)) { value in
+                        Task { await act(message.id) { await actions.decide(a, decision: "approve", value: value) } }
+                    } onDecline: { reason in
+                        Task { await act(message.id) { await actions.decide(a, decision: "decline", reason: reason) } }
+                    } onHandoff: {
+                        Task { await act(message.id, opensConversation: true) { await actions.decide(a, decision: "handoff") } }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 4)
+        } else {
+            bubble(message, mine: mine, first: first, maxWidth: maxWidth)
+        }
+    }
+
+    private var chatId: String { chat?.id ?? existingId ?? "" }
+    private var actions: BotActions { BotActions(api: LiveBotActionsAPI(api: container.api, profile: container.profileId ?? "")) }
+
+    /// Um toque num cartão: o objeto atualizado substitui o do cartão; as recusas do contrato viram o que a tela faz.
+    private func act(_ messageId: String, opensConversation: Bool = false, _ op: @escaping () async -> BotActionOutcome) async {
+        cardBusy.insert(messageId)
+        defer { cardBusy.remove(messageId) }
+        cardError = nil
+        switch await op() {
+        case .proposal(let p):
+            update(messageId) { $0.payload?.proposal = p }
+            await load()
+        case .approval(let a):
+            update(messageId) { $0.payload?.approval = a }
+            // "Assumir a conversa": a conversa passa a quem tocou, e o app a abre (não quando outra pessoa assumiu antes).
+            let byMe = a.decided_by?.objectValue?["id"]?.stringValue.map { $0 == container.user?.id } ?? true
+            if opensConversation, a.status == "handoff", byMe, let conversation = a.conversation_id {
+                push(.conversation(id: conversation))
+            }
+        case .expired:
+            update(messageId) { $0.payload?.proposal?.status = "expired" }
+            cardError = "A proposta venceu (vale 10 minutos). Peça de novo ao bot."
+        case .reload(let message):
+            cardError = message
+            await load()
+        case .gone:
+            update(messageId) { $0.kind = "text" }
+        case .needsSecondFactor:
+            secondFactorRetry = { await act(messageId, opensConversation: opensConversation, op) }
+        case .failed(let text):
+            cardError = text
+        }
+    }
+
+    private func update(_ messageId: String, _ change: (inout InternalMessage) -> Void) {
+        guard let i = chat?.messages?.firstIndex(where: { $0.id == messageId }) else { return }
+        change(&chat!.messages![i])
     }
 
     private func bubble(_ message: InternalMessage, mine: Bool, first: Bool, maxWidth: CGFloat) -> some View {
@@ -475,6 +560,7 @@ struct InternalChatView: View {
     private var footer: some View {
         VStack(spacing: 6) {
             if let error { InlineError(text: error) }
+            if let cardError { InlineError(text: cardError) }
             if chat == nil, error != nil {
                 SecondaryButton(title: "Tentar abrir a conversa", busy: busy) { Task { await load() } }
             }

@@ -7,6 +7,8 @@ enum Route: Hashable {
     /// Lista de protocolos (aba Atendimento), já num filtro (`TicketFilter.rawValue`) quando pedido.
     case tickets(filter: String?)
     case ticket(id: String)
+    /// Pedido de aprovação aberto pelo aviso.
+    case approval(id: String)
     case newTicket(conversationId: String)
     case bot(id: String, conversationId: String?)
     case internalChat(peer: TeamContact, chatId: String?)
@@ -152,6 +154,7 @@ struct RouteDestination: View {
             case .conversationInfo(let id): ConversationInfoView(conversationId: id)
             case .tickets(let filter): TicketsView(filter: filter.flatMap(TicketFilter.init(rawValue:)))
             case .ticket(let id): TicketView(ticketId: id)
+            case .approval(let id): ApprovalScreen(id: id)
             case .newTicket(let id): NewTicketView(conversationId: id)
             case .bot(let id, let conversation): BotChatView(botId: id, conversationId: conversation)
             case .internalChat(let peer, let chatId): InternalChatView(peer: peer, existingId: chatId)
