@@ -16,6 +16,8 @@ import { admin, canProfile, random, sha } from "./security";
 import { event } from "./events";
 import { BRASILIA_OFFSET_MS } from "./business-time";
 import { conversation, enqueue, settings } from "./service";
+import { establishment } from "./establishment";
+import { publicOrigin } from "./web-steps";
 
 const DAY_MS = 86400000;
 export const QUEUE_SCOPES = ["queue:read", "queue:issue", "queue:operate"];
@@ -34,12 +36,38 @@ export const queueDefaults = {
   operators_can_block: true,
   blocked_can_talk: true,
 };
-export type QueueSettings = typeof queueDefaults;
+/**
+ * O que o cupom da senha impresso pelo totem traz (`queue.coupon`). Cada item
+ * liga e desliga; o rodapé usa `footer_text` ou, vazio, o rodapé do cadastro
+ * do estabelecimento.
+ */
+export const couponDefaults = {
+  establishment: true,
+  position: true,
+  footer: true,
+  footer_text: "",
+  whatsapp_qr: true,
+};
+export type CouponSettings = typeof couponDefaults;
+export const COUPON_FOOTER_MAX = 300;
+
+export type QueueSettings = typeof queueDefaults & { coupon: CouponSettings };
 
 const intIn = (value: unknown, min: number, max: number) =>
   Number.isInteger(value) &&
   (value as number) >= min &&
   (value as number) <= max;
+
+const plainObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+function couponSettings(saved: unknown): CouponSettings {
+  const from = plainObject(saved) ? saved : {};
+  const out: any = { ...couponDefaults };
+  for (const [key, fallback] of Object.entries(couponDefaults))
+    if (typeof from[key] === typeof fallback) out[key] = from[key];
+  return out;
+}
 
 /** Tolerant read of the saved settings: a malformed field falls back. */
 export function queueSettings(cfg: any): QueueSettings {
@@ -47,11 +75,41 @@ export function queueSettings(cfg: any): QueueSettings {
   const out: any = { ...queueDefaults };
   for (const [key, fallback] of Object.entries(queueDefaults))
     if (typeof saved[key] === typeof fallback) out[key] = saved[key];
+  out.coupon = couponSettings(saved.coupon);
   return out;
 }
 
-/** Strict validation for PUT /settings. */
-export function validateQueueSettings(value: any): QueueSettings {
+/** Strict validation of `queue.coupon`; a partial object keeps `old`. */
+function validateCoupon(value: unknown, old: unknown): CouponSettings {
+  if (value === undefined) return couponSettings(old);
+  requireValue(plainObject(value), "Cupom da senha: configuração inválida.");
+  const next: any = { ...couponSettings(old), ...value };
+  for (const key of [
+    "establishment",
+    "position",
+    "footer",
+    "whatsapp_qr",
+  ] as const)
+    requireValue(
+      typeof next[key] === "boolean",
+      `Cupom da senha: ${key} deve ser ligado ou desligado.`,
+    );
+  requireValue(
+    typeof next.footer_text === "string" &&
+      Array.from(next.footer_text.trim()).length <= COUPON_FOOTER_MAX,
+    `Cupom da senha: a mensagem de rodapé deve ter até ${COUPON_FOOTER_MAX} caracteres.`,
+  );
+  const out: any = {};
+  for (const key of Object.keys(couponDefaults)) out[key] = next[key];
+  out.footer_text = out.footer_text.trim();
+  return out;
+}
+
+/**
+ * Strict validation for PUT /settings. `old` is the saved block: a partial
+ * `coupon` merges with it.
+ */
+export function validateQueueSettings(value: any, old?: any): QueueSettings {
   requireValue(
     value && typeof value === "object" && !Array.isArray(value),
     "Configuração da fila inválida.",
@@ -81,6 +139,7 @@ export function validateQueueSettings(value: any): QueueSettings {
     );
   const out: any = {};
   for (const key of Object.keys(queueDefaults)) out[key] = next[key];
+  out.coupon = validateCoupon(value.coupon, old?.coupon);
   return out;
 }
 
@@ -263,7 +322,8 @@ async function aheadOf(env: Env, ticket: any) {
   return row?.n || 0;
 }
 
-async function whatsappNumber(env: Env, profile: string, queue: any) {
+/** WhatsApp lines of the area and the first number usable in a wa.me link. */
+async function whatsappLine(env: Env, profile: string, queue: any) {
   const rows = await all(
     env,
     "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY (id=?) DESC,created",
@@ -273,20 +333,107 @@ async function whatsappNumber(env: Env, profile: string, queue: any) {
   for (const row of rows) {
     const cfg = json(row.config);
     const digits = normalizePhone(cfg.number || cfg.phone || "");
-    if (digits.length >= 10) return digits;
+    if (digits.length >= 10) return { lines: rows.length, number: digits };
   }
-  return null;
+  return { lines: rows.length, number: null };
 }
+
+/**
+ * Página pública com a prévia (Open Graph) da imagem que aponta o botão de
+ * enviar. Fica sob /api/ porque só esses caminhos chegam ao Worker
+ * (run_worker_first em wrangler.jsonc); fora deles, o fallback de página
+ * única dos arquivos estáticos responde com o painel, sem Open Graph.
+ */
+export const SEND_HINT_PATH = "/api/public/imagemwa";
+
+/**
+ * Texto que o QR do cupom deixa escrito no WhatsApp: instrução curta para
+ * quem não está acostumado, a linha "SENHA N023 AB12CD" que vincula a conversa
+ * (src/queue-flow.ts) e o link da imagem com a seta, cuja prévia aparece no
+ * rascunho quando o WhatsApp a gera.
+ */
+export function couponWhatsappText(
+  ticket: { code: string; link_code: string },
+  origin: string | null,
+) {
+  return [
+    "Aperte ENVIAR para ser chamado pelo WhatsApp.",
+    `SENHA ${ticket.code} ${ticket.link_code}`,
+    ...(origin ? [`${origin}${SEND_HINT_PATH}`] : []),
+  ].join("\n");
+}
+
 export async function whatsappLink(
   env: Env,
   profile: string,
   queue: any,
   ticket: any,
 ) {
-  const number = await whatsappNumber(env, profile, queue);
+  if (!queueSettings(await settings(env, profile)).coupon.whatsapp_qr)
+    return null;
+  const { number } = await whatsappLine(env, profile, queue);
   return number
-    ? `https://wa.me/${number}?text=${encodeURIComponent(`SENHA ${ticket.code} ${ticket.link_code}`)}`
+    ? `https://wa.me/${number}?text=${encodeURIComponent(couponWhatsappText(ticket, await publicOrigin(env)))}`
     : null;
+}
+
+export type CouponQrIssue = "disabled" | "no_line" | "no_number";
+const COUPON_QR_NOTICE: Record<CouponQrIssue, string> = {
+  disabled: "O QR do WhatsApp está desligado no cupom.",
+  no_line:
+    "O QR do WhatsApp não sai no cupom porque a área não tem linha de WhatsApp. Conecte uma linha em Integrações.",
+  no_number:
+    "O QR do WhatsApp não sai no cupom porque nenhuma linha de WhatsApp da área tem o número registrado. Confira a conexão da linha em Integrações.",
+};
+
+/** "123.456.789-09" → "***.456.789-**". */
+export const maskCpf = (display: string) =>
+  /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(display)
+    ? `***${display.slice(3, 11)}-**`
+    : "";
+
+/**
+ * O que o aparelho imprime no cupom da senha, já resolvido (contrato em
+ * docs/FILA-SENHAS.md, "Cupom da senha"). Vai no snapshot da fila.
+ */
+export async function couponView(
+  env: Env,
+  profile: string,
+  cfg: QueueSettings,
+) {
+  const c = cfg.coupon;
+  const est =
+    c.establishment || c.footer ? await establishment(env, profile) : null;
+  const line = c.whatsapp_qr ? await whatsappLine(env, profile, null) : null;
+  const issue: CouponQrIssue | null = !line
+    ? "disabled"
+    : !line.lines
+      ? "no_line"
+      : !line.number
+        ? "no_number"
+        : null;
+  return {
+    establishment:
+      c.establishment && est
+        ? {
+            name: est.name,
+            // CPF vai mascarado: o cupom fica com o cliente e o aparelho só
+            // tem queue:read. CNPJ sai inteiro.
+            document_type: est.document_type,
+            document_display:
+              est.document_type === "cpf"
+                ? maskCpf(est.document_display)
+                : est.document_display,
+            address: est.address,
+            phone: est.phone,
+          }
+        : null,
+    position: c.position,
+    footer: (c.footer && (c.footer_text || est?.footer)) || null,
+    whatsapp_qr: c.whatsapp_qr,
+    whatsapp_qr_issue: issue,
+    whatsapp_qr_notice: issue ? COUPON_QR_NOTICE[issue] : null,
+  };
 }
 
 const userNames = async (env: Env, ids: string[]) => {
@@ -485,6 +632,7 @@ export async function overview(
   return {
     day: serviceDay(),
     settings: { front_door: cfg.front_door, notify_ahead: cfg.notify_ahead },
+    coupon: await couponView(env, profile, cfg),
     queues: out,
     counters,
     recent_calls: recent

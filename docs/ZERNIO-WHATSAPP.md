@@ -53,6 +53,21 @@ Nas linhas oficiais (Zernio), os módulos e o atendimento automático podem usar
 | Produto, lista de produtos (até 30 itens) e catálogo | Cartões do catálogo da Meta | Texto da mensagem e, quando informados, texto e link alternativos (por exemplo, a loja ou o passo web) |
 | Flow publicado | Botão que abre o formulário dentro do WhatsApp | Texto da mensagem e o link alternativo, quando informado |
 
+### Onde o Wabotia usa o botão com link
+
+Toda mensagem do núcleo e dos módulos que leva o cliente a uma página usa o botão com link na linha oficial (com a janela de 24 horas aberta) e o texto com o link na linha QR:
+
+| Mensagem | Botão |
+|---|---|
+| Passo web: formulário, carrinho do Pedido, agendar, remarcar, escolher horário e "Meus agendamentos" da Agenda, abrir ordem da OS, check-in da Reserva | Texto definido pelo módulo ("Escolher dia", "Abrir ordem", "Fazer check-in"…) |
+| Cobrança do núcleo (link de pagamento e Pix) | "Pagar agora" ou "Ver QR Code Pix" |
+| Mensalidade: aviso de vencimento e de atraso com cobrança que ainda vale, segunda via e reenvio da cobrança do contrato | "Pagar agora" ou "Ver QR Code Pix"; o Pix copia e cola vem sozinho na mensagem seguinte |
+| Suporte: reenvio do pacote avulso | Idem |
+| Item de menu do tipo link | O rótulo do item (até 20 caracteres) ou "Abrir link" |
+| Item de menu do tipo aplicativo e o pedido de avaliação | "Abrir aplicativo" e "Avaliar" |
+
+Fora da janela de 24 horas a mensagem sai pelo modelo de notificação aprovado, que não tem botão: o link e o Pix vão no texto, numa mensagem só. Ficam como texto, de propósito, o link `wa.me` do cupom da senha (é o conteúdo do QR impresso) e o botão **Voltar ao WhatsApp** das páginas do passo web (já é um botão na página).
+
 Os limites do WhatsApp são conferidos antes do envio, em todas as linhas, para que uma mensagem aceita no QR não falhe depois numa linha oficial: cabeçalho e rodapé até 60 caracteres, texto do botão até 20, título de opção até 24, descrição até 72, texto do cartão do carrossel até 160 e botão de Flow até 30. Emojis contam como um caractere. Mensagens interativas só podem ser enviadas com a janela de 24 horas aberta; fora dela, use um template aprovado.
 
 ### O que depende de configuração na Meta

@@ -409,6 +409,122 @@ function WhatsAppCard({
   );
 }
 
+const couponDefaults = {
+  establishment: true,
+  position: true,
+  footer: true,
+  footer_text: "",
+  whatsapp_qr: true,
+};
+
+/** O que o totem imprime no cupom da senha (`queue.coupon`). */
+function CouponCard({
+  settings,
+  coupon,
+  onSaved,
+}: {
+  settings: Row;
+  coupon: Row | undefined;
+  onSaved: () => void;
+}) {
+  const app = useApp();
+  const { busy, run } = useAction();
+  const saved = () => ({
+    ...couponDefaults,
+    ...(settings.queue?.coupon || {}),
+  });
+  const [form, setForm] = useState<Row>(saved);
+  useEffect(() => setForm(saved()), [settings.queue]);
+  const notice =
+    coupon?.whatsapp_qr_issue !== "disabled" && coupon?.whatsapp_qr_notice;
+  return (
+    <Card
+      title="Cupom da senha"
+      description="O que o totem Senhapp imprime junto com a senha. Os aparelhos pareados recebem a mudança na hora."
+    >
+      <div className="queue-settings-list">
+        {(
+          [
+            [
+              "establishment",
+              "Dados do estabelecimento",
+              "Nome, CPF ou CNPJ, endereço e telefone de Gestão → Estabelecimento.",
+            ],
+            [
+              "position",
+              "Posição na fila",
+              "Quantas pessoas estão à frente e a espera estimada.",
+            ],
+            [
+              "footer",
+              "Mensagem de rodapé",
+              "Texto abaixo; vazio usa o rodapé do estabelecimento.",
+            ],
+            [
+              "whatsapp_qr",
+              "QR do WhatsApp",
+              "O cliente lê o QR, aperta Enviar e passa a ser avisado pelo WhatsApp quando for chamado.",
+            ],
+          ] as const
+        ).map(([key, label, help]) => (
+          <React.Fragment key={key}>
+            <label className="queue-switch">
+              <Switch
+                label={label}
+                checked={!!form[key]}
+                onChange={(value) => setForm({ ...form, [key]: value })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{help}</small>
+              </span>
+            </label>
+            {/* O texto do rodapé logo abaixo da chave dele; o aviso, da do QR. */}
+            {key === "footer" && form.footer && (
+              <Field
+                label="Mensagem de rodapé do cupom"
+                type="textarea"
+                rows={2}
+                maxLength={300}
+                value={form.footer_text}
+                onChange={(footer_text) => setForm({ ...form, footer_text })}
+                placeholder="Obrigado pela visita!"
+              />
+            )}
+            {key === "whatsapp_qr" && notice && (
+              <Notice tone="warn">{notice}</Notice>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+      <div className="toolbar">
+        <Button
+          busy={busy}
+          onClick={() =>
+            void run(
+              () =>
+                app.api(`${app.root}/settings`, "PUT", {
+                  queue: {
+                    coupon: {
+                      establishment: !!form.establishment,
+                      position: !!form.position,
+                      footer: !!form.footer,
+                      footer_text: String(form.footer_text || ""),
+                      whatsapp_qr: !!form.whatsapp_qr,
+                    },
+                  },
+                }),
+              { success: "Cupom salvo." },
+            ).then(onSaved)
+          }
+        >
+          Salvar cupom
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function AbuseCard({
   settings,
   onSaved,
@@ -983,6 +1099,11 @@ export function QueueSettingsPage() {
       </Card>
       <WhatsAppCard settings={app.settings} onSaved={reload} />
       <DisplaysCard queues={queues} />
+      <CouponCard
+        settings={app.settings}
+        coupon={overview.data.coupon}
+        onSaved={reload}
+      />
       <AbuseCard settings={app.settings} onSaved={reload} />
       {editingQueue !== undefined && (
         <QueueDialog

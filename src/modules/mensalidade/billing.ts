@@ -23,6 +23,7 @@ import { loadInstallment, paymentsReady } from "./installments";
 import { announcePaid, notifyInstallmentRefunded } from "./listeners";
 import { contractPaymentUpdated } from "./contracts";
 import { cancelOpenCharge } from "./store";
+import { sendPayMessage } from "./pay-message";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -73,14 +74,6 @@ export function noticeText(inst: any, kind: NoticeKind, at: number) {
     return `${who}A ${what} vence hoje (${dayLabel(inst.due_date)}).`;
   return `${who}A ${what} vence em ${dayLabel(inst.due_date)}.`;
 }
-
-const payLines = (inst: any) =>
-  [
-    inst.pay_url ? `Pagar: ${inst.pay_url}` : "",
-    inst.pix_code ? `Pix copia e cola:\n${inst.pix_code}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
 
 /**
  * Conversa do cliente da assinatura: a guardada, ou a conversa individual
@@ -338,11 +331,10 @@ export async function sendNotice(
       return { sent: true, charged: true };
     }
     if (!result.error) {
-      await ctx.sendMessage(
-        c,
-        { text: `${noticeText(inst, kind, at)}\n\n${payLines(result.inst)}` },
-        { key, ...BILLING },
-      );
+      await sendPayMessage(ctx, c, noticeText(inst, kind, at), result.inst, {
+        key,
+        ...BILLING,
+      });
       await published(ctx, inst, kind, c, false, key);
       return { sent: true, charged: false };
     }
@@ -539,11 +531,11 @@ export async function resendCharge(
       result.message || "Não foi possível criar a cobrança.",
     );
   if (!result.created)
-    await ctx.sendMessage(
+    await sendPayMessage(
+      ctx,
       c,
-      {
-        text: `Segunda via: ${noticeText(inst, kind, at)}\n\n${payLines(result.inst)}`,
-      },
+      `Segunda via: ${noticeText(inst, kind, at)}`,
+      result.inst,
       { key, ...BILLING },
     );
   return loadInstallment(ctx, inst.id);

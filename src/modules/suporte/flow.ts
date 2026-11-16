@@ -44,6 +44,7 @@ import {
   updateSession,
 } from "./store";
 import { activeRelease, passToTeam, trustedStanding } from "./handoff";
+import { sendPayMessage } from "../mensalidade/pay-message";
 
 export const PREFIX = "suporte:";
 const CANCEL = new Set(["menu", "voltar", "sair", "cancelar"]);
@@ -568,17 +569,12 @@ async function resend(
       (purchase.payment_expires_at || 0) > now() + 60_000 &&
       (purchase.pix_code || purchase.pay_url)
     ) {
-      await say(
+      await sendPayMessage(
         ctx,
         c,
-        [
-          `Suporte avulso: ${purchase.package_name}, ${money(purchase.price_cents)}.`,
-          purchase.pay_url ? `Pagar: ${purchase.pay_url}` : "",
-          purchase.pix_code ? `Pix copia e cola:\n${purchase.pix_code}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-        `reenvio:${rowId}`,
+        `Suporte avulso: ${purchase.package_name}, ${money(purchase.price_cents)}.`,
+        purchase,
+        { key: `reenvio:${rowId}` },
       );
       return;
     }

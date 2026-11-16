@@ -4,7 +4,7 @@ const services = [
   [
     "Workers",
     "Mantém o painel e a API do Wabotia funcionando, mesmo com seu computador desligado.",
-    "Escolha o plano da conta; produção usa Workers Paid como referência.",
+    "Exige o plano pago Workers Paid. O plano gratuito não é suportado.",
   ],
   [
     "D1",
@@ -149,7 +149,7 @@ export function CloudflarePrerequisites() {
         </div>
       </details>
       <details open>
-        <summary>2. D1 e Workers: conferir acesso e plano</summary>
+        <summary>2. D1 e Workers: conferir acesso e o plano pago</summary>
         <div className="guide-detail">
           <ol>
             <li>
@@ -173,9 +173,18 @@ export function CloudflarePrerequisites() {
               Worker em <strong>Bindings → DB</strong>.
             </li>
             <li>
-              Para produção, prepare Workers Paid conforme a referência do
-              projeto. O plano Zero Trust Free não substitui essa escolha.
-              Confira o plano e as condições na área de assinatura do Workers.
+              <strong>O Wabotia exige o plano pago Workers Paid.</strong> No
+              gratuito, o trabalho de cada área e a conclusão do carrinho passam
+              do limite de consultas por execução e param no meio. Assine na{" "}
+              <a
+                href="https://dash.cloudflare.com/?to=/:account/workers/plans"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                página de planos do Workers ↗
+              </a>{" "}
+              antes de instalar. O plano Zero Trust Free e o plano do site não
+              mudam o plano Workers.
             </li>
           </ol>
           <p>
@@ -229,9 +238,10 @@ export function CloudflarePrerequisites() {
       <aside className="account-return">
         <strong>Pronto para continuar?</strong>
         <p>
-          Confira: R2 permite criar buckets e D1 permite criar bancos. Depois
-          execute o instalador e guarde a pasta privada que ele criar. Se for
-          usar o túnel, confira também o Zero Trust e o domínio.
+          Confira: a conta tem o plano Workers Paid, R2 permite criar buckets e
+          D1 permite criar bancos. Depois execute o instalador e guarde a pasta
+          privada que ele criar. Se for usar o túnel, confira também o Zero
+          Trust e o domínio.
         </p>
       </aside>
     </section>

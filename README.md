@@ -20,7 +20,7 @@ Em **Automação**, o Bot Atendente conversa com o cliente e consulta especialis
 
 ## Instalar na Cloudflare
 
-Requisitos: conta Cloudflare, Workers Paid como referência de produção, R2 habilitado, Node.js 22.13+ e npm. Comece pelo [passo a passo do Node.js para VPS/Ubuntu, Windows e macOS](https://wabotia.queven.app/install#nodejs), incluindo `libatomic1` no Ubuntu. O guia também explica as três permissões do token inicial.
+Requisitos: conta Cloudflare com o **plano pago Workers Paid** (exigido: o plano gratuito não é suportado, veja [Limites do Cloudflare](docs/LIMITES.md)), R2 habilitado, Node.js 22.13+ e npm. Comece pelo [passo a passo do Node.js para VPS/Ubuntu, Windows e macOS](https://wabotia.queven.app/install#nodejs), incluindo `libatomic1` no Ubuntu. O guia também explica as três permissões do token inicial.
 
 ```sh
 curl -fL https://wabotia.queven.app/install-wabotia.mjs -o install-wabotia.mjs

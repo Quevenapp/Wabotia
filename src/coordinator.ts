@@ -174,7 +174,8 @@ export class Coordinator extends DurableObject<Env> {
           body.key,
         );
         await this.schedule();
-        if (/^(queue|counter)\./.test(body.operation))
+        // "settings": o cupom da senha vai no snapshot dos aparelhos.
+        if (/^(queue\.|counter\.|settings$)/.test(body.operation))
           await this.broadcastQueue();
         return Response.json(value, { status });
       });

@@ -258,9 +258,14 @@ describe("mensalidade: aviso antes do vencimento com cobrança", () => {
     await runDue(ctx, at(2));
     await runDue(ctx, at(2, 1));
     const messages = (await outboxRows(c.id)).slice(before);
-    expect(messages).toHaveLength(1);
+    // Linha oficial com a janela aberta: botão com URL e o código sozinho.
+    expect(messages).toHaveLength(2);
     expect(messages[0].text).toContain("vence hoje");
-    expect(messages[0].text).toContain("Pix copia e cola:\n" + inst.pix_code);
+    expect(messages[0].content.interactive).toMatchObject({
+      type: "cta_url",
+      action: { parameters: { display_text: "Ver QR Code Pix" } },
+    });
+    expect(messages[1].text).toBe(inst.pix_code);
     expect(messages[0].automation).toBe("mensalidade");
     expect(
       await one(
@@ -417,7 +422,12 @@ describe("mensalidade: atraso e janela de 24 horas", () => {
     const late = await overdueTexts();
     expect(late).toHaveLength(2);
     expect(late[0].text).toContain("está em aberto há 1 dia");
-    expect(late[0].text).toContain(inst.pix_code);
+    // O código vem sozinho logo depois de cada aviso.
+    const rows = await outboxRows(c.id);
+    for (const notice of late)
+      expect(rows[rows.findIndex((m) => m.text === notice.text) + 1].text).toBe(
+        inst.pix_code,
+      );
     expect(await installment(sub.id)).toMatchObject({ overdue_notices: 2 });
     // A cobrança que ainda valia foi reaproveitada: uma só no provedor.
     expect(
@@ -665,7 +675,9 @@ describe("mensalidade: sem cobrança configurada ou sem conversa", () => {
       m.text.startsWith("Segunda via:"),
     );
     expect(resent).toHaveLength(1);
-    expect(resent[0].text).toContain(inst.pix_code);
+    expect(resent[0].content.interactive.type).toBe("cta_url");
+    const rows = await outboxRows(c.id);
+    expect(rows.at(-1)!.text).toBe(inst.pix_code);
     expect(
       await one(
         env,

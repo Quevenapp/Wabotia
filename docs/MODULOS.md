@@ -708,7 +708,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
 - `GET /api/v1/capabilities` lista, por área alcançada pela credencial
   (pessoa ou aparelho pareado), os módulos **ligados** com versão, e os
-  recursos do núcleo em `features` (`modules`, `web_steps`). O app só mostra a
+  recursos do núcleo em `features` (`modules`, `web_steps`, `establishment`, `queue_coupon`). O app só mostra a
   tela de um módulo presente na lista; um 409 `module_disabled` numa rota do
   módulo deve esconder a tela até a próxima consulta.
 - Caminhos aceitos, todos com a mesma resposta:
@@ -721,7 +721,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
   {
     "capabilities_version": 1,
     "server": { "service": "wabotia", "version": "0.19.3", "commit": "…" },
-    "features": ["modules", "web_steps"],
+    "features": ["modules", "web_steps", "establishment", "queue_coupon"],
     "actor": { "id": "app:…", "kind": "app", "role": "service" },
     "profiles": [{ "id": "…", "name": "…", "enabled": true,
                    "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }] }],

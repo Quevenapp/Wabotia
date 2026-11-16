@@ -322,6 +322,33 @@ export interface QueueTurn {
   menu?: boolean;
 }
 
+const KIOSK_LINE = /^\s*senha\s+([a-z]{1,3}\d{3,4})\s+([a-z2-9]{6})\s*$/i;
+
+/**
+ * Finds the coupon line. Every other line must be the instruction or a link,
+ * so a free message that happens to quote a code does not link the ticket.
+ */
+export function kioskLine(value: string) {
+  const lines = value
+    .trim()
+    .split(/\r?\n/)
+    .filter((l) => l.trim());
+  if (lines.length > 4) return null;
+  let found: RegExpExecArray | null = null;
+  for (const line of lines) {
+    const match = KIOSK_LINE.exec(line);
+    if (match) {
+      if (found) return null;
+      found = match;
+    } else if (
+      !/^\s*https?:\/\/\S+\s*$/i.test(line) &&
+      !/^\s*aperte enviar\b/i.test(line)
+    )
+      return null;
+  }
+  return found;
+}
+
 /**
  * Handles the queue part of an inbound message: kiosk link, commands of a
  * contact with an active ticket and the open prompt. `handled: false` lets the
@@ -338,10 +365,9 @@ export async function queueTurn(
   const n = normalize(value);
   const phone = normalizePhone(c.phone || c.external_id);
 
-  // Coupon QR: "SENHA N023 AB12CD".
-  const kiosk = /^senha\s+([a-z]{1,3}\d{3,4})\s+([a-z2-9]{6})$/i.exec(
-    value.trim(),
-  );
+  // Coupon QR: a line "SENHA N023 AB12CD", alone (cupons antigos) or inside
+  // the prefilled text (instrução + senha + link da imagem; couponWhatsappText).
+  const kiosk = kioskLine(value);
   if (kiosk && !replyId) {
     const { ticket, blocked } = await linkKioskTicket(
       env,
