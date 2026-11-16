@@ -94,6 +94,42 @@ test("o ERP fica em 30 a 50 arquivos JS, e a demonstração num chunk só dela",
     );
 });
 
+test("o núcleo do ERP não baixa telas dos blocos opcionais (Fiscal, Cobrança, PDV, Origin)", () => {
+  const byName = new Map(chunks().map((chunk) => [chunk.fileName, chunk]));
+  const closure = (chunk) => {
+    const seen = new Set([chunk.fileName]),
+      stack = [chunk];
+    while (stack.length)
+      for (const name of stack.pop().imports)
+        if (!seen.has(name)) {
+          seen.add(name);
+          stack.push(byName.get(name));
+        }
+    return [...seen];
+  };
+  // A casca do ERP e as telas do núcleo (web/erp/screens, um arquivo por módulo).
+  const core =
+    /\/web\/erp\/(mount\.tsx|app\/components\/RealAccess\.tsx|screens\/(cadastros|documentos|estoque|financeiro|preferencias)\.ts)$/;
+  const offenders = [],
+    report = [];
+  for (const chunk of chunks()) {
+    const entry = chunk.moduleIds.map(norm).find((id) => core.test(id));
+    if (!entry) continue;
+    const blocks = closure(chunk).filter((name) =>
+      /erp-(fiscal|cobranca|pdv|origin)-/.test(name),
+    );
+    report.push(
+      `${entry.replace(/^.*\/web\/erp\//, "")}: ${blocks.join(", ") || "nenhum"}`,
+    );
+    for (const name of blocks)
+      if (/-telas-/.test(name)) offenders.push(`${entry} → ${name}`);
+  }
+  if (process.env.ERP_BUILD_REPORT)
+    console.log("Arquivos de blocos que o núcleo baixa:\n" + report.join("\n"));
+  assert.ok(report.length >= 6, "casca e telas do núcleo encontradas");
+  assert.deepEqual(offenders, []);
+});
+
 test("a política de conteúdo libera só o CSS do boleto, pelo hash", async () => {
   // A prévia do boleto (ItauBoletoPreview) é um iframe srcdoc com um <style>
   // fixo (packages/boleto-preview); style-src não tem 'unsafe-inline'.

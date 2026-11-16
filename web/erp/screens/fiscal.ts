@@ -1,7 +1,6 @@
-// Telas do módulo "fiscal" do ERP, carregadas juntas (web/erp/app/components/native-modules.ts).
+// Telas do módulo "fiscal" do ERP (bloco erp-fiscal), carregadas juntas (web/erp/app/components/native-modules.ts).
 export { default as HistoryView } from "../app/components/HistoryView";
 export { default as RealFiscalDrafts } from "../app/components/RealFiscalDrafts";
-export { default as SyncedXmlHistory } from "../app/components/SyncedXmlHistory";
 export { default as CertificateA1 } from "../app/components/CertificateA1";
 export { default as RealReceivedDfe } from "../app/components/RealReceivedDfe";
 export { default as RealFiscalNumbering } from "../app/components/RealFiscalNumbering";

@@ -1,11 +1,13 @@
 import { lazy, type ComponentType } from 'react';
 
-// Wabotia: cada módulo do menu carrega as suas telas juntas (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
+// Wabotia: cada módulo do menu carrega as suas telas juntas, e os blocos opcionais (Fiscal, Cobrança, PDV, Origin) em arquivos próprios (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
 // o ERP fica em 30 a 50 arquivos (web/erp/chunks.ts). Original do Fagoo em web/erp/ORIGEM.json.
 const cadastros = () => import('../../screens/cadastros');
 const documentos = () => import('../../screens/documentos');
+const pdv = () => import('../../screens/pdv');
 const estoque = () => import('../../screens/estoque');
 const financeiro = () => import('../../screens/financeiro');
+const cobranca = () => import('../../screens/cobranca');
 const fiscal = () => import('../../screens/fiscal');
 const origin = () => import('../../screens/origin');
 const preferencias = () => import('../../screens/preferencias');
@@ -23,20 +25,20 @@ export const HistoryView = lazy(pick(fiscal, 'HistoryView'));
 export const RealDocuments = lazy(pick(documentos, 'RealDocuments'));
 export const RealStock = lazy(pick(estoque, 'RealStock'));
 export const RealFinance = lazy(pick(financeiro, 'RealFinance'));
-export const FinanceBorderos = lazy(pick(financeiro, 'FinanceBorderos'));
+export const FinanceBorderos = lazy(pick(cobranca, 'FinanceBorderos'));
 export const FinanceScreens = lazy(pick(financeiro, 'FinanceScreens'));
-export const RealCnab = lazy(pick(financeiro, 'RealCnab'));
+export const RealCnab = lazy(pick(cobranca, 'RealCnab'));
 export const CompanySettings = lazy(pick(preferencias, 'CompanySettings'));
-export const RealImportCatalog = lazy(pick(cadastros, 'RealImportCatalog'));
+export const RealImportCatalog = lazy(pick(origin, 'RealImportCatalog'));
 export const RealHome = lazy(pick(preferencias, 'RealHome'));
 export const CutoverReadiness = lazy(pick(origin, 'CutoverReadiness'));
 export const RealFiscalDrafts = lazy(pick(fiscal, 'RealFiscalDrafts'));
 export const DueDateReport = lazy(pick(financeiro, 'DueDateReport'));
-export const SyncedXmlHistory = lazy(pick(fiscal, 'SyncedXmlHistory'));
+export const SyncedXmlHistory = lazy(pick(origin, 'SyncedXmlHistory'));
 export const IntegrationProgress = lazy(pick(origin, 'IntegrationProgress'));
 
-export const RealCnabOperational = lazy(pick(financeiro, 'RealCnabOperational'));
-export const RealCnabOperationalReturns = lazy(pick(financeiro, 'RealCnabOperationalReturns'));
+export const RealCnabOperational = lazy(pick(cobranca, 'RealCnabOperational'));
+export const RealCnabOperationalReturns = lazy(pick(cobranca, 'RealCnabOperationalReturns'));
 export const CertificateA1 = lazy(pick(fiscal, 'CertificateA1'));
 
 export const RealReceivedDfe = lazy(pick(fiscal, 'RealReceivedDfe'));
@@ -69,6 +71,6 @@ export const RealOperationNatures = lazy(pick(fiscal, 'RealOperationNatures'));
 export const FiscalEventList = lazy(pick(fiscal, 'FiscalEventList'));
 
 // Vendas › Frente de caixa (202610200204-206), em tela cheia.
-export const RealPdv = lazy(pick(documentos, 'RealPdv'));
+export const RealPdv = lazy(pick(pdv, 'RealPdv'));
 
 export const CompanyPreferences = lazy(pick(preferencias, 'CompanyPreferences'));
