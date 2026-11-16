@@ -94,6 +94,28 @@ Os apps leem o quadro em `GET /profiles/{p}/pedido/board` e a comanda em
 `POST /profiles/{p}/pedido/orders`. Bots: ferramentas MCP `pedido_cardapio`,
 `pedido_consultar` e `pedido_enviar_carrinho`.
 
+## Para outros módulos (Entrega)
+
+`src/modules/pedido/public.ts` oferece três ganchos. Quem registra informa o
+próprio id; o Pedido só chama com esse módulo ligado na área, então registrar
+não exige `requires: ["pedido"]`. Erro num gancho vai para o log e o Pedido
+segue como se ele não existisse. Os ganchos devem aguentar repetição (uma
+mudança de estado pode ser anunciada de novo depois de uma falha).
+
+- `onOrderStatusChanged(módulo, fn)`: depois de cada mudança de estado
+  gravada, venha do quadro, do pagamento, da tarefa periódica ou de outro
+  módulo, com `{order, from, to, actor, note}`. A Entrega encerra a entrega
+  aberta quando a cozinha marca "Entregue" ou "Cancelado". Mudança feita pela
+  própria Entrega (`pedido.status` por `ctx.run`) também chega aqui.
+- `onStatusNotice(módulo, fn)`: antes do aviso de estado ao cliente, com o
+  texto já pronto (`{order, status, text, conversation_id, key}`). Devolver
+  true diz que o módulo mandou o aviso (por exemplo "Saiu para entrega" com o
+  botão Acompanhar numa mensagem só) e o Pedido não manda o dele.
+- `provideDeliveryInfo(módulo, fn)`: entregador e previsão de chegada dos
+  pedidos de entrega em andamento (`Map<id do pedido, {status, status_label,
+  courier_id, courier_name, eta_at, eta_minutes, position_at}>`), uma chamada
+  por leitura do quadro ou do detalhe. Vira `delivery` no pedido.
+
 ## Limites desta versão
 
 - Nota fiscal fica fora.

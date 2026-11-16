@@ -339,6 +339,20 @@ export function pedidoSchemas() {
         web_step_id: nullable("string"),
         fulfillment: { enum: ["pickup", "delivery"] },
         fulfillment_label: { type: "string" },
+        delivery: {
+          type: ["object", "null"],
+          description:
+            "Só no quadro e no detalhe: entregador e previsão de chegada do pedido de entrega, vindos do módulo que acompanha a entrega (Entrega); null sem ele.",
+          properties: {
+            status: { type: "string" },
+            status_label: { type: "string" },
+            courier_id: nullable("string"),
+            courier_name: nullable("string"),
+            eta_at: nullable("integer"),
+            eta_minutes: nullable("integer"),
+            position_at: nullable("integer"),
+          },
+        },
         address: {
           type: ["object", "null"],
           properties: {
