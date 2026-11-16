@@ -39,6 +39,9 @@ export const ROLES = ["admin", "consulta", "vendas", "financeiro", "estoque", "f
  * tabela semeada com uuid aleatório no Fagoo é copiada do Postgres; outra
  * diferença de semeadura para a fixture.
  */
+/** Argumentos como o objeto os recebe: ida e volta por JSON (undefined some, Date vira texto). */
+export const wireArgs = (args) => JSON.parse(JSON.stringify(args ?? {}));
+
 export async function dualFixture({
   engine = process.env.ERP_ENGINE || "both",
   deviations = ERP_DEVIATIONS.filter((d) => d.applied),
@@ -158,7 +161,11 @@ export async function dualFixture({
    * A listagem do armazenamento vai junto quando o RPC a pede
    * (registerRpc(…, { listing: true })) ou com `as`.
    */
-  async function rpc(name, args, { as = null } = {}) {
+  async function rpc(name, input, { as = null } = {}) {
+    // Os argumentos chegam ao objeto como JSON (o corpo da erp-api): chave com
+    // undefined some, nos dois motores (achado da G; antes o structuredClone
+    // a conservava só no motor e o Postgres não a via).
+    const args = wireArgs(input);
     if (engine === "pg" || !isPorted(name)) {
       const r = await outcome(() => pgRpc(name, args));
       if (engine === "both") await mirror(await changedInPg());
@@ -171,7 +178,7 @@ export async function dualFixture({
       const who = as === true ? {} : as;
       env.identity = await pgIdentity(pg, who.user ?? args.p_user_id ?? null, who.session ?? args.p_session_id ?? null);
     }
-    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock, env));
+    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, wireArgs(args), clock, env));
   }
 
   /** Sessão do auth do oráculo para `user`, com o nível dado (aal1 ou aal2). */
