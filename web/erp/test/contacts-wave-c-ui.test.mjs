@@ -185,6 +185,9 @@ test('contact picker: scoped search, Observações card, pessoas de contato, Edi
   const props = { controller: service.controller, entity: 'contacts', label: 'Fornecedor *', selected: null, onSelect: row => chosen.push(row), contactTools: { history: 'purchase_orders' } };
   const view = await mountComponent('DocumentCatalogPicker.tsx', props, { componentName: 'CatalogPicker', expandChildren: ['ContactPickerTools', 'ContactSearchDialog', 'Modal'] });
   try {
+    // Wabotia: o seletor lê as opções ao ser aberto (foco na busca), não na montagem.
+    assert.equal(service.calls.some(path => path.includes('/opcoes')), false, 'no options are read on mount');
+    view.find(node => node.type === 'input' && node.props.type === 'search' && node.props.id?.startsWith('picker-')).props.onFocus(); await view.flush();
     await until(view, () => service.calls.includes('/v1/cadastros/contatos/opcoes?limit=25'));
     assert.ok(service.calls.some(path => path === '/v1/cadastros/contatos/opcoes?limit=25'), 'pickers search the contacts picker (seller scope)');
     assert.throws(() => byAria(view, 'Visualizar pessoas de contato'), 'no contact, no eye');

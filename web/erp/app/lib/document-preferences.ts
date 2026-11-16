@@ -145,8 +145,10 @@ export async function readDocumentPreferences(controller: PreferencesPort, kind:
   const userId = controller.getSnapshot?.()?.membership?.user_id ?? null;
   if (typeof controller.preferences !== 'function') return defaultDocumentPreferences(kind);
   const pageId = DOCUMENT_PREFERENCE_PAGES[kind];
-  const view = parsePreferencesPage(await controller.preferences(`/v1/preferencias/${pageId}`, { signal }), pageId);
   // The products page is read for the location options only; without it (another profile, a failure) they stay off.
-  const productsView = kind === 'sales_orders' ? await controller.preferences('/v1/preferencias/cadastros-produtos', { signal }).then(value => parsePreferencesPage(value, 'cadastros-produtos')).catch(() => null) : null;
+  // Wabotia: as duas páginas saem juntas (Promise.all), um RT a menos; a falha da página do tipo continua recusando como antes.
+  const [page, productsView] = await Promise.all([controller.preferences(`/v1/preferencias/${pageId}`, { signal }),
+    kind === 'sales_orders' ? controller.preferences('/v1/preferencias/cadastros-produtos', { signal }).then(value => parsePreferencesPage(value, 'cadastros-produtos')).catch(() => null) : null]);
+  const view = parsePreferencesPage(page, pageId);
   return documentPreferences(kind, view, userId, productsView);
 }

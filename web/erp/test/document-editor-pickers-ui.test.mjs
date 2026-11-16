@@ -201,6 +201,8 @@ function pickerController({rows={},positions=null,role='vendas'}={}){
 }
 const keyEnter=(view)=>{let prevented=false;view.find(n=>n.type==='input').props.onKeyDown({key:'Enter',preventDefault(){prevented=true;}});return prevented;};
 async function type(view,value){view.find(n=>n.type==='input').props.onChange({target:{value}});await view.flush();}
+// Wabotia: as opções são lidas quando o seletor é aberto (foco na busca), não na montagem.
+async function open(view){view.find(n=>n.type==='input').props.onFocus();await view.flush();}
 
 test('Enter in the item field never submits the document: exact code or GTIN adds, everything else explains',async()=>{
  const inactive=productRow(productIds[1],{code:'VELHO',active:false});
@@ -233,7 +235,7 @@ test('product options show the depósito stock, keep “sem lançamentos” apar
  const chosen=[],p=pickerController({rows:{list:rows},positions:page});
  const view=await mountComponent('DocumentCatalogPicker.tsx',{controller:p.controller,entity:'products',label:'Adicionar produto do cadastro',stockWarehouse:warehouse,onSelect:row=>chosen.push(row?.id)},{componentName:'CatalogPicker'});
  try{
-  await wait(300);await view.flush();
+  await open(view);await wait(300);await view.flush();
   assert.ok(p.calls.includes(`/v1/posicoes-estoque?active=true&warehouse_id=${warehouse}&limit=25`));
   const options=view.nodes().filter(n=>n.type==='option').map(n=>n.props.children);
   assert.deepEqual(options.slice(1),['Produto 61 · A1 · Estoque: 12,5 UN','Produto 62 · B2 · Estoque: sem lançamentos','Produto 63 · SERV']);
@@ -242,16 +244,41 @@ test('product options show the depósito stock, keep “sem lançamentos” apar
  }finally{view.unmount();}
  const failed=pickerController({rows:{list:rows},positions:new AccessError(403)}),failedView=await mountComponent('DocumentCatalogPicker.tsx',{controller:failed.controller,entity:'products',label:'Produto',stockWarehouse:null,onSelect:row=>chosen.push(row?.id)},{componentName:'CatalogPicker'});
  try{
-  await wait(300);await failedView.flush();
+  await open(failedView);await wait(300);await failedView.flush();
   assert.ok(failed.calls.includes('/v1/posicoes-estoque?active=true&limit=25'));
   assert.match(failedView.text(),/Estoque não consultado\. A escolha do produto continua liberada/);
   assert.equal(failedView.find(n=>n.type==='select').disabled,false);
   assert.deepEqual(failedView.nodes().filter(n=>n.type==='option').map(n=>n.props.children).slice(1),['Produto 61 · A1','Produto 62 · B2','Produto 63 · SERV']);
  }finally{failedView.unmount();}
  const hidden=pickerController({rows:{list:rows},positions:page}),hiddenView=await mountComponent('DocumentCatalogPicker.tsx',{controller:hidden.controller,entity:'products',label:'Produto',onSelect(){}},{componentName:'CatalogPicker'});
- try{await wait(300);await hiddenView.flush();assert.equal(hidden.calls.some(path=>path.startsWith('/v1/posicoes-estoque')),false,'without stock permission nothing is read');}finally{hiddenView.unmount();}
+ try{await open(hiddenView);await wait(300);await hiddenView.flush();assert.equal(hidden.calls.some(path=>path.startsWith('/v1/posicoes-estoque')),false,'without stock permission nothing is read');}finally{hiddenView.unmount();}
  let moved;const stale=pickerController({rows:{list:rows},positions:()=>{stale.state.session={phase:'ready',membership:{role:'vendas',user_id:otherActor}};return page;}});moved=await mountComponent('DocumentCatalogPicker.tsx',{controller:stale.controller,entity:'products',label:'Produto',stockWarehouse:warehouse,onSelect(){}},{componentName:'CatalogPicker'});
- try{await wait(300);await moved.flush();assert.doesNotMatch(moved.text(),/Estoque: 12,5/);}finally{moved.unmount();}
+ try{await open(moved);await wait(300);await moved.flush();assert.doesNotMatch(moved.text(),/Estoque: 12,5/);}finally{moved.unmount();}
+});
+
+test('Wabotia: pickers read nothing on mount; opening reads at once, typing waits 250 ms, a barcode Enter and re-enabling do not reread',async()=>{
+ const code='7890000000017',p=pickerController({rows:{list:[productRow(productIds[0],{code:'A1'})],[code]:[productRow(productIds[1],{gtin:code})]},positions:new AccessError(403)}),added=[];
+ const defaults=()=>p.calls.filter(path=>path==='/v1/cadastros/products?limit=25&active=true'||path===`/v1/posicoes-estoque?active=true&warehouse_id=${warehouse}&limit=25`).length;
+ const view=await mountComponent('DocumentCatalogPicker.tsx',{controller:p.controller,entity:'products',label:'Adicionar produto do cadastro',stockWarehouse:warehouse,onSelect(){},onCode:row=>{added.push(row.id);return 'incluído';}},{componentName:'CatalogPicker'});
+ try{
+  await wait(300);await view.flush();
+  assert.deepEqual(p.calls,[],'nothing is read on mount');assert.equal(view.find(n=>n.type==='select').disabled,false,'the closed list can still be opened');assert.doesNotMatch(view.text(),/Nenhum cadastro ativo/,'no “nothing found” before reading');
+  await open(view);await wait(20);await view.flush();
+  assert.equal(defaults(),2,'opening reads the default list and its stock without the 250 ms wait');assert.match(view.text(),/Produto 61 · A1/);
+  // PDV: the scanner types the code and Enter clears the search; the default list on screen is not read again (2 calls per scan before).
+  await type(view,code);assert.equal(keyEnter(view),true);await view.flush();await wait(300);await view.flush();
+  assert.deepEqual(added,[productIds[1]]);assert.ok(p.calls.includes(`/v1/cadastros/products?limit=100&q=${code}`));
+  assert.equal(defaults(),2,'a barcode Enter does not reread the default list');assert.equal(p.calls.some(path=>path.includes(`limit=25&active=true&q=${code}`)),false);
+  await view.updateProps({disabled:true});await view.updateProps({disabled:false});await wait(300);await view.flush();assert.equal(defaults(),2,'locking and unlocking the field (saving) does not reread');
+  await type(view,'A1');assert.equal(p.calls.some(path=>path.includes('q=A1')),false,'typing waits 250 ms');
+  await wait(300);await view.flush();assert.ok(p.calls.includes('/v1/cadastros/products?limit=25&active=true&q=A1'));
+ }finally{view.unmount();}
+ const c=pickerController(),chosen=await mountComponent('DocumentCatalogPicker.tsx',{controller:c.controller,entity:'contacts',label:'Cliente *',selected:{id:created,name:'Cliente escolhido'},onSelect(){}},{componentName:'CatalogPicker'});
+ try{
+  await wait(300);await chosen.flush();assert.deepEqual(c.calls,[],'a chosen value is not preloaded');assert.match(chosen.text(),/Cliente escolhido/);
+  chosen.find(n=>n.type==='select').props.onPointerDown();await chosen.flush();await wait(20);await chosen.flush();
+  assert.equal(c.calls.length,1,'opening the list reads its options');assert.match(c.calls[0],/opcoes/);
+ }finally{chosen.unmount();}
 });
 
 test('the included product shows físico, reservado and disponível of the document depósito as information only',async()=>{

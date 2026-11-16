@@ -15,13 +15,15 @@ export default function DocumentCategoryPicker({ controller, kind, id, selected,
 }) {
   const [choices, setChoices] = useState<CategoryChoices | null>(null), [error, setError] = useState('');
   const actor = useRef(controller.getSnapshot().membership?.user_id ?? null);
+  // Wabotia: as categorias já lidas valem enquanto o editor fica montado; travar e destravar o campo (ao salvar) não relê.
+  const loaded = useRef<{ controller: Controller; kind: CategoryKind } | null>(null);
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || (loaded.current?.controller === controller && loaded.current.kind === kind)) return;
     const request = new AbortController();
     setError('');
     void Promise.resolve().then(() => controller.documents(`/v1/documentos/${kind}/categorias`, { signal: request.signal })).then(value => {
       if (request.signal.aborted || controller.getSnapshot().membership?.user_id !== actor.current) return;
-      setChoices(readCategoryChoices(value));
+      setChoices(readCategoryChoices(value)); loaded.current = { controller, kind };
     }).catch(() => { if (!request.signal.aborted) { setChoices(null); setError('Não foi possível consultar as categorias. O documento continua com a categoria atual.'); } });
     return () => request.abort();
   }, [controller, kind, disabled]);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mountComponent,AccessError} from './helpers/component-recovery-harness.mjs';
+import {normalizeDocument} from '../../../packages/erp-domain/src/index.mjs';
 
 const id='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002';
 const warehouse='20000000-0000-4000-8000-000000000001';
@@ -60,8 +61,91 @@ test('detail error retries that GET and rejects a response for a different docum
   assert.equal(reads,1);assert.equal(component(view,'Editor'),undefined);
   await view.click('Tentar consultar documento novamente');assert.equal(reads,2);assert.equal(component(view,'Editor'),undefined);
   await view.click('Tentar consultar documento novamente');assert.equal(reads,3);assert.equal(component(view,'Editor').props.record.id,id);
-  assert.equal(server.calls.filter(call=>call.path.includes('?')).length,1,'retry must not merely reload the list');
+  // Wabotia: com o documento aberto a lista não é lida (era 1 leitura desperdiçada); a nova tentativa também não a lê.
+  assert.equal(server.calls.filter(call=>call.path.includes('?')).length,0,'retry must not merely reload the list');
  }finally{view.unmount();}
+});
+
+// Wabotia (latência do editor): o documento sai no mesmo salto de /v1/documentos, a lista escondida não é lida e salvar não remonta.
+const listPage={kind:'sales_proposals',items:[],limit:100,page:1,order:'date_desc',has_more:false,next_cursor:null,total_count:0,total_amount:'0.00',data_mode:'erp_native',operational_effects:false};
+function racingServer(detail=async path=>({document:{id:path.split('/').at(-1),kind:'sales_proposals',version:1,number:'1'}})){
+ const access=deferred(),calls=[];
+ return{access,calls,controller:{async documents(path,options={}){calls.push(path);
+  if(path==='/v1/documentos')return access.promise;
+  if(path.includes('?'))return listPage;
+  if(path.endsWith('/preferencias-listagem')||path.endsWith('/situacoes'))throw new AccessError(404);
+  return detail(path,options);
+ }}};
+}
+test('Wabotia: a routed document is requested while /v1/documentos is pending; the hidden list and its settings are read only when the list shows',async()=>{
+ const server=racingServer(),view=await mountDocuments(server,documentUrl(id));
+ try{
+  assert.ok(server.calls.includes('/v1/documentos')&&server.calls.includes(`/v1/documentos/sales_proposals/${id}`),'both requests are in flight together');
+  assert.match(view.text(),/Carregando documento/);assert.equal(component(view,'Editor'),undefined,'the editor waits for the access to decide editability');
+  server.access.resolve({read:['sales_proposals'],write:['sales_proposals'],data_mode:'erp_native'});await view.flush();
+  assert.equal(component(view,'Editor').props.record.id,id);assert.equal(component(view,'Editor').props.writable,true);
+  assert.equal(server.calls.filter(path=>path===`/v1/documentos/sales_proposals/${id}`).length,1,'the access arriving does not read the document again');
+  assert.equal(server.calls.some(path=>path.includes('?')||path.endsWith('/preferencias-listagem')),false,'no list nor list settings while the document is open');
+  component(view,'Editor').props.onClose();await view.flush();
+  assert.ok(server.calls.includes('/v1/documentos/sales_proposals/preferencias-listagem'));assert.equal(server.calls.filter(path=>path==='/v1/documentos/sales_proposals?limit=100&page=1').length,1,'the list is read once it shows');
+ }finally{view.unmount();}
+});
+
+test('Wabotia: refusals keep their messages when the document answers before the access',async()=>{
+ const cases=[[{read:[],write:[]},new AccessError(403),/Seu perfil não permite consultar este tipo de documento/],[{read:['sales_proposals'],write:[]},new AccessError(403),/Seu perfil não permite esta operação/],
+  [{read:['sales_proposals'],write:[]},new AccessError(404),/Documento não encontrado/],[{read:[],write:[]},null,/Seu perfil não permite consultar este tipo de documento/]];
+ for(const [access,failure,message] of cases){
+  const server=racingServer(async path=>{if(failure)throw failure;return{document:{id:path.split('/').at(-1),kind:'sales_proposals',version:1,number:'1'}};}),view=await mountDocuments(server,documentUrl(id));
+  try{
+   assert.equal(component(view,'Editor'),undefined);server.access.resolve({...access,data_mode:'erp_native'});await view.flush();
+   assert.match(view.text(),message);assert.equal(component(view,'Editor'),undefined,'a refused document is never shown');
+  }finally{view.unmount();}
+ }
+});
+
+test('Wabotia: saving the open document applies the saved envelope in place: no remount, no reread of the document, its children or the list',async()=>{
+ const contact='30000000-0000-4000-8000-000000000001',actor='40000000-0000-4000-8000-000000000001';
+ const dto={...normalizeDocument('sales_proposals',{date:'2026-10-16',contact_id:contact,items:[{description:'Item sintético',unit:'UN',quantity:'1',unit_price:'12.50'}]}),id,kind:'sales_proposals',number:'7',version:1,status:'draft',contact_snapshot:{id:contact,name:'Contato sintético'},effect_flags:{finance_active:false,stock_active:false},created_at:'2026-10-16T07:00:00Z',updated_at:'2026-10-16T07:00:00Z',source_proposal_id:null};
+ let current={...dto,seller_name:'Vendedor sintético'},replay=false;const calls=[],ports=new Map();
+ const answer=(port,path,options)=>{
+  if(port==='documents'){
+   if(path==='/v1/documentos')return{read:['sales_proposals'],write:['sales_proposals'],data_mode:'erp_native'};
+   if(path===`/v1/documentos/sales_proposals/${id}`&&options.method==='PATCH'){const {seller_name:_view,...saved}={...current,version:options.body.expected_version+1,notes:options.body.data.notes};current={...saved,seller_name:'Vendedor sintético'};return{kind:'sales_proposals',document:saved,replayed:replay,data_mode:'erp_native',operational_effects:false};}
+   if(path===`/v1/documentos/sales_proposals/${id}`)return{kind:'sales_proposals',document:current,data_mode:'erp_native',operational_effects:false};
+   if(path.includes('?'))return listPage;
+  }
+  if(port==='catalog'){if(path==='/v1/cadastros')return{read:['contacts','products'],write:[],data_mode:'erp_native'};if(path.startsWith('/v1/cadastros/contacts/'))return{entity:'contacts',record:{id:contact,name:'Contato sintético',active:true}};return{items:[],has_more:false};}
+  throw new AccessError(404);
+ };
+ // Every port of the controller is recorded; each method keeps its identity, as in the real controller.
+ const controller=new Proxy({getSnapshot:()=>({phase:'ready',membership:{role:'vendas',user_id:actor}})},{get(target,port){if(port in target)return target[port];if(typeof port!=='string'||port==='then')return undefined;
+  if(!ports.has(port))ports.set(port,async(path,options={})=>{calls.push(`${port} ${options.method??'GET'} ${path}`);return answer(port,path,options);});return ports.get(port);}});
+ // The real Editor with the children that read on mount; the parent applies the saved record in place (updateProps), as RealDocuments does.
+ const saves=[],view=await mountComponent('RealDocuments.tsx',{controller,kind:'sales_proposals',record:current,writable:true,onSaved:(record,message,inPlace)=>saves.push({record,message,inPlace}),onClose(){},onConverted(){}},
+  {componentName:'Editor',location:documentUrl(id),expandChildren:['DocumentContactCheck','DocumentCopyOrigin','CatalogPicker','ContactPickerTools','DocumentPriceList']});
+ try{
+  const mounted=calls.length;assert.ok(mounted>=4,'cadastros, contact check, copy origin and price lists are read on mount');
+  for(const read of ['catalog GET /v1/cadastros',`catalog GET /v1/cadastros/contacts/${contact}`])assert.equal(calls.filter(call=>call===read).length,1,read);
+  await view.change('doc-notes','Observação nova');await view.submit();
+  assert.deepEqual(calls.slice(mounted),[`documents PATCH /v1/documentos/sales_proposals/${id}`],'only the save: the envelope is applied, the document is not read again');
+  assert.equal(saves.length,1);assert.equal(saves[0].inPlace,true);assert.equal(saves[0].record.version,2);assert.equal(saves[0].record.notes,'Observação nova');
+  assert.equal(saves[0].record.seller_name,'Vendedor sintético','the fields only the read carries stay from the previous record');
+  await view.updateProps({record:saves[0].record});
+  assert.deepEqual(calls.slice(mounted),[`documents PATCH /v1/documentos/sales_proposals/${id}`],'the new record does not repeat the editor reads (cadastros, contact, origin, price lists, pickers)');
+  assert.match(view.text(),/versão 2/);assert.equal(view.input('doc-notes').props.value,'Observação nova');assert.equal(view.guard().changed,false,'the saved form is not dirty');assert.equal(view.guard().busy,false);
+  // A replayed answer is not current state: only the document is read again.
+  replay=true;let before=calls.length;await view.change('doc-notes','Outra observação');await view.submit();
+  assert.deepEqual(calls.slice(before),[`documents PATCH /v1/documentos/sales_proposals/${id}`,`documents GET /v1/documentos/sales_proposals/${id}`]);
+  assert.equal(saves[1].inPlace,true);assert.equal(saves[1].record.version,3);await view.updateProps({record:saves[1].record});assert.equal(calls.length,before+2);assert.equal(view.guard().changed,false);
+ }finally{view.unmount();}
+ // RealDocuments: an in-place save keeps the editor key and does not read the hidden list; any other onSaved remounts as before.
+ const server=documentServer(),parent=await mountDocuments(server,documentUrl(id));
+ try{
+  const key=component(parent,'Editor').key,base=component(parent,'Editor').props.record,reads=server.calls.length;
+  component(parent,'Editor').props.onSaved({...base,version:2},undefined,true);await parent.flush();
+  assert.equal(component(parent,'Editor').key,key);assert.equal(component(parent,'Editor').props.record.version,2);assert.equal(server.calls.length,reads,'no list nor document read after the save');
+  component(parent,'Editor').props.onSaved({...base,version:3});await parent.flush();assert.notEqual(component(parent,'Editor').key,key,'other updates still remount');
+ }finally{parent.unmount();}
 });
 
 function listServer(items){

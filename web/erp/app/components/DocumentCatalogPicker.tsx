@@ -41,7 +41,10 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
   /** 202610200268: the Origin text of the search (default "Pesquise por código, descrição ou GTIN"). */
   placeholder?: string;
 }) {
-  const [query, setQuery] = useState(''); const [rows, setRows] = useState<CatalogRecord[]>([]); const [loading, setLoading] = useState(!disabled); const [error, setError] = useState('');
+  // Wabotia: as opções são lidas quando o usuário abre o seletor (foco na busca ou na lista) ou digita, não na montagem;
+  // `shown` guarda a consulta cujas linhas estão na tela, para não repetir a mesma leitura (Enter do leitor, reabilitar o campo).
+  const [wanted, setWanted] = useState(false); const [fetched, setFetched] = useState(false); const shown = useRef<{ controller: Controller; key: string } | null>(null);
+  const [query, setQuery] = useState(''); const [rows, setRows] = useState<CatalogRecord[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [stock, setStock] = useState<{ key: string; labels: Map<string, string> | null } | null>(null);
   const [codeBusy, setCodeBusy] = useState(false); const [codeStatus, setCodeStatus] = useState(''); const [advanced, setAdvanced] = useState(false);
   const inputId = useRef(`picker-${crypto.randomUUID()}`).current;
@@ -50,19 +53,28 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
   const stockKey = entity === 'products' && stockWarehouse !== undefined ? `stock:${stockWarehouse ?? 'all'}` : '';
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; queue.current = []; lookup.current?.abort(); lookup.current = null; }; }, []);
   useEffect(() => {
-    if (disabled) return; const request = new AbortController(); const timer = setTimeout(() => {
-      setLoading(true); setError(''); const params = new URLSearchParams({ limit: '25', active: 'true' }); if (query.trim()) params.set('q', query.trim()); if (entity === 'products' && productKind) params.set('kind', productKind);
-      void controller.catalog(entity === 'contacts' ? contactOptionsPath({ q: query, role: contactTools?.role }) : `/v1/cadastros/${entity}?${params}`, { signal: request.signal }).then(value => { if (!request.signal.aborted) { setRows((value as CatalogPage).items); setLoading(false); } }).catch(failure => { if (!aborted(failure) && !request.signal.aborted) { setError(failureText(failure)); setLoading(false); } });
+    if (disabled || (!wanted && !query.trim())) return;
+    const params = new URLSearchParams({ limit: '25', active: 'true' }); if (query.trim()) params.set('q', query.trim()); if (entity === 'products' && productKind) params.set('kind', productKind);
+    const catalogPath = entity === 'contacts' ? contactOptionsPath({ q: query, role: contactTools?.role }) : `/v1/cadastros/${entity}?${params}`, key = `${catalogPath}|${stockKey}`;
+    // Wabotia: a mesma consulta já está na tela (ex.: o Enter do leitor limpa a busca e a lista padrão já foi lida): nada a reler.
+    if (shown.current?.controller === controller && shown.current.key === key) { setLoading(false); return; }
+    const request = new AbortController(), settled = { rows: false, stock: !stockKey };
+    const done = (part: 'rows' | 'stock') => { settled[part] = true; if (settled.rows && settled.stock && !request.signal.aborted) shown.current = { controller, key }; };
+    // Wabotia: a primeira abertura lê na hora; a digitação continua com a espera de 250 ms.
+    const timer = setTimeout(() => {
+      setLoading(true); setError('');
+      void controller.catalog(catalogPath, { signal: request.signal }).then(value => { if (!request.signal.aborted) { setRows((value as CatalogPage).items); setLoading(false); setFetched(true); done('rows'); } }).catch(failure => { if (!aborted(failure) && !request.signal.aborted) { setError(failureText(failure)); setLoading(false); } });
       if (!stockKey) return;
       // Same text, same active filter and the same id order as the product search, so this page covers its rows.
       const filters: PositionFilters = { ...EMPTY_POSITION_FILTERS, q: query.trim(), active: 'true', warehouse_id: stockWarehouse ?? '' }, actor = controller.getSnapshot().membership?.user_id;
-      let path: string; try { path = `/v1/posicoes-estoque?${positionParams(filters)}`; } catch { setStock({ key: stockKey, labels: null }); return; }
+      let path: string; try { path = `/v1/posicoes-estoque?${positionParams(filters)}`; } catch { setStock({ key: stockKey, labels: null }); done('stock'); return; }
       void controller.stockPositions(path, { signal: request.signal }).then(value => {
         if (request.signal.aborted || controller.getSnapshot().membership?.user_id !== actor) return;
-        setStock({ key: stockKey, labels: productStockLabels(stockPositionPage(value, filters)) });
-      }).catch(failure => { if (!aborted(failure) && !request.signal.aborted) setStock({ key: stockKey, labels: null }); });
-    }, 250); return () => { clearTimeout(timer); request.abort(); };
-  }, [controller, entity, query, disabled, stockKey, productKind]);
+        setStock({ key: stockKey, labels: productStockLabels(stockPositionPage(value, filters)) }); done('stock');
+      }).catch(failure => { if (!aborted(failure) && !request.signal.aborted) { setStock({ key: stockKey, labels: null }); done('stock'); } });
+    }, query.trim() || shown.current ? 250 : 0); return () => { clearTimeout(timer); request.abort(); };
+  }, [controller, entity, query, disabled, stockKey, productKind, wanted]);
+  const want = () => { if (!disabled) setWanted(true); };
   const resolve = async (code: string) => {
     const request = new AbortController(), actor = controller.getSnapshot().membership?.user_id; lookup.current = request;
     try {
@@ -100,8 +112,9 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
   const stockShown = Boolean(stockKey) && stock?.key === stockKey;
   return <div className="document-picker">
     <div className="document-picker-label"><label htmlFor={inputId}>{label}</label>{onCreate && <button type="button" className="document-picker-add" aria-label="Adicionar novo" title="Adicionar novo" disabled={disabled} onClick={() => { if (!disabled) onCreate(query.trim()); }}><Icon name="plus" size={12} /></button>}</div>
-    <input id={inputId} type="search" maxLength={120} placeholder={placeholder ?? (entity === 'products' ? PRODUCT_SEARCH_PLACEHOLDER : 'Pesquisar cadastro ativo')} value={query} disabled={disabled} aria-busy={codeBusy || undefined} aria-invalid={invalid || undefined} onChange={event => setQuery(event.target.value)} onKeyDown={keyDown} />
-    <select aria-label={`Selecionar ${label.toLowerCase()}`} aria-invalid={invalid || undefined} disabled={disabled || loading} value={selected?.id || ''} onChange={event => { const found = rows.find(row => row.id === event.target.value); if (found) onSelect(found); else if (!event.target.value) onSelect(null); }}><option value="">{loading ? 'Pesquisando…' : 'Selecione um cadastro'}</option>{selected && !rows.some(row => row.id === selected.id) && <option value={selected.id}>{selected.name}</option>}{rows.map(row => <option key={row.id} value={row.id}>{option(row)}</option>)}</select>
+    <input id={inputId} type="search" maxLength={120} placeholder={placeholder ?? (entity === 'products' ? PRODUCT_SEARCH_PLACEHOLDER : 'Pesquisar cadastro ativo')} value={query} disabled={disabled} aria-busy={codeBusy || undefined} aria-invalid={invalid || undefined} onFocus={want} onChange={event => { setQuery(event.target.value); want(); }} onKeyDown={keyDown} />
+    {/* Wabotia: a lista fica liberada na primeira leitura (aberta pelo próprio foco); depois volta a travar enquanto pesquisa. */}
+    <select aria-label={`Selecionar ${label.toLowerCase()}`} aria-invalid={invalid || undefined} disabled={disabled || (loading && fetched)} onFocus={want} onPointerDown={want} value={selected?.id || ''} onChange={event => { const found = rows.find(row => row.id === event.target.value); if (found) onSelect(found); else if (!event.target.value) onSelect(null); }}><option value="">{loading ? 'Pesquisando…' : 'Selecione um cadastro'}</option>{selected && !rows.some(row => row.id === selected.id) && <option value={selected.id}>{selected.name}</option>}{rows.map(row => <option key={row.id} value={row.id}>{option(row)}</option>)}</select>
     {entity === 'contacts' && contactTools && <ContactPickerTools controller={controller} contact={selected} tools={contactTools} disabled={disabled} searchOpen={advanced} searchText={query} onSearch={() => setAdvanced(true)} onSearchClose={() => setAdvanced(false)} onSelect={onSelect} />}
     {error && <small role="alert">{error}</small>}
     {stockShown && (stock?.labels ? <small>{stockWarehouse ? 'Estoque físico no depósito do documento. A escolha não depende do saldo.' : 'Estoque físico somado de todos os depósitos, porque o documento não tem depósito previsto. A escolha não depende do saldo.'}</small> : <small>Estoque não consultado. A escolha do produto continua liberada.</small>)}
@@ -109,7 +122,7 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
     {codeBusy && <small role="status">Conferindo código…</small>}
     {codeStatus && <small role="status">{codeStatus}</small>}
     {status && <small role="status">{status}</small>}
-    {!loading && !error && !rows.length && !disabled && (entity === 'contacts' && onCreate && query.trim()
+    {fetched && !loading && !error && !rows.length && !disabled && (entity === 'contacts' && onCreate && query.trim()
       // Origin: a typed name without cadastro offers the "Contato rápido" already filled with it.
       ? <small className="document-picker-unregistered" role="status"><strong>Contato não cadastrado</strong> — <button type="button" className="text-button" onClick={() => { if (!disabled) onCreate(query.trim()); }}>Para completar os dados clique aqui</button></small>
       : <small>{onCreate ? 'Nenhum cadastro ativo encontrado. Use “Adicionar novo” (+) para cadastrar.' : 'Nenhum cadastro ativo encontrado. Cadastre-o em Cadastros da empresa.'}</small>)}

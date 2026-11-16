@@ -55,6 +55,22 @@ test('reading a page goes through the strict page parser; no preferences port ke
   await assert.rejects(() => readDocumentPreferences({ preferences: async () => ({ ...view('service_orders'), page: 'vendas-vendas' }) }, 'service_orders', signal));
 });
 
+test('Wabotia: vendas-vendas and cadastros-produtos are requested together; same results and the same failures as the serial reads', async () => {
+  const signal = new AbortController().signal, page = id => { const p = preferencePage(id); return { ...view('sales_orders'), page: id, directory: storedFields(p).some(f => f.kind === 'users') ? [] : null, items: storedFields(p).map(field => field.key === 'produtos.localizacao_relatorio_producao' ? { key: field.key, value: true, version: 1, updated_at: '2026-10-20T12:00:00Z' } : { key: field.key, value: field.default, version: 0, updated_at: null }) }; };
+  const pending = [], port = { getSnapshot: () => ({ membership: { user_id: me } }), preferences: path => new Promise((resolve, reject) => pending.push({ path, resolve, reject })) };
+  const reading = readDocumentPreferences(port, 'sales_orders', signal);
+  assert.deepEqual(pending.map(p => p.path), ['/v1/preferencias/vendas-vendas', '/v1/preferencias/cadastros-produtos'], 'both pages are in flight before either answers');
+  pending[1].resolve(page('cadastros-produtos')); pending[0].resolve(view('sales_orders', { 'vendas.observacao_padrao': 'Em paralelo' }));
+  const read = await reading;
+  assert.deepEqual([read.loaded, read.observation, read.print.production.location], [true, 'Em paralelo', true]);
+  // The products page failing keeps its options off; the page of the kind failing still refuses (the screen keeps the defaults).
+  const off = readDocumentPreferences({ ...port, preferences: path => path.endsWith('cadastros-produtos') ? Promise.reject(new Error('HTTP 403')) : Promise.resolve(view('sales_orders')) }, 'sales_orders', signal);
+  assert.deepEqual([(await off).loaded, (await off).print.production.location], [true, false]);
+  await assert.rejects(() => readDocumentPreferences({ ...port, preferences: path => path.endsWith('vendas-vendas') ? Promise.reject(new Error('HTTP 503')) : new Promise(() => {}) }, 'sales_orders', signal));
+  const other = []; await readDocumentPreferences({ ...port, preferences: async path => { other.push(path); return view('service_orders'); } }, 'service_orders', signal);
+  assert.deepEqual(other, ['/v1/preferencias/servicos-os'], 'other kinds still read only their page');
+});
+
 test('Somar peso bruto: exact sum of the linked products × quantity, empty without any weight, null while a quantity is being typed', () => {
   const weights = new Map([['a', '1.250000'], ['b', '0.333333'], ['c', null]]);
   const of = item => weights.get(item.id);

@@ -144,8 +144,14 @@ const otherItemsValue=(content:RichText|null,total:string):DocumentInput['other_
 const CONDITION_TABS=[['none','Nenhum'],['installments','Parcela'],['text','Texto']] as const;
 // 202610200268: a free line of the Peças or of the Serviços executados of the OS.
 const osLine=(group:ServiceItemGroup):DocumentItemInput=>({...newItem(),group,quote:false,done:false});
+// Wabotia: o envelope do salvar traz o registro (erp_documents.dto) sem os campos que só a leitura acrescenta (document_view: situação e
+// nomes de vendedor, categoria, transportador, lista, destino e formas, versões da proposta). Com a mesma situação e os mesmos ids, os
+// campos do registro anterior continuam certos e o GET depois de salvar é dispensado; com qualquer id trocado, null (relê o documento).
+const VIEW_FIELDS=['situation','seller_name','category_name','carrier_name','price_list_name','payment_account_name','payment_method_names','payment_account_names','proposal_version'];
+const viewIds=(value:DocumentRecord)=>JSON.stringify([value.status,value.seller_id??null,value.category_id??null,value.carrier_id??null,value.price_list_id??null,value.payment_account_id??null,(value.installments??[]).map(row=>[row.payment_method_id??null,row.details?.account_id??null])]);
+const savedView=(previous:DocumentRecord,saved:DocumentRecord):DocumentRecord|null=>viewIds(previous)!==viewIds(saved)?null:{...Object.fromEntries(VIEW_FIELDS.filter(key=>key in previous).map(key=>[key,(previous as unknown as Record<string,unknown>)[key]])),...saved} as DocumentRecord;
 
-export function Editor({controller,kind,record,writable,onClose,onSaved,onConverted,copyDraft=null,onCopyPrepared,onCopied,preferences,situations=null,access=null,importDraft=null}:{controller:AccessController;kind:DocumentKind;record:DocumentRecord|null;writable:boolean;onClose:()=>void;onSaved:(record:DocumentRecord,message?:string)=>void;onConverted:(result:ConversionEnvelope)=>void;copyDraft?:DocumentCopyDraft|null;onCopyPrepared?:(draft:DocumentCopyDraft)=>void;onCopied?:(record:DocumentRecord)=>void;preferences?:DocumentPreferences;situations?:SituationModel|null;access?:DocumentAccess|null;
+export function Editor({controller,kind,record,writable,onClose,onSaved,onConverted,copyDraft=null,onCopyPrepared,onCopied,preferences,situations=null,access=null,importDraft=null}:{controller:AccessController;kind:DocumentKind;record:DocumentRecord|null;writable:boolean;onClose:()=>void;onSaved:(record:DocumentRecord,message?:string,inPlace?:boolean)=>void;onConverted:(result:ConversionEnvelope)=>void;copyDraft?:DocumentCopyDraft|null;onCopyPrepared?:(draft:DocumentCopyDraft)=>void;onCopied?:(record:DocumentRecord)=>void;preferences?:DocumentPreferences;situations?:SituationModel|null;access?:DocumentAccess|null;
   /** 202610200167 "Importar › Pedido XML": a new pedido prefilled from the XML (nothing saved yet). */
   importDraft?:ImportDraft|null}){
   const imported=!record&&!copyDraft&&importDraft?.kind===kind?importDraft:null;
@@ -352,6 +358,19 @@ export function Editor({controller,kind,record,writable,onClose,onSaved,onConver
     catch(failure){setError(failure instanceof Error?failure.message:'Confira novamente as parcelas.');return false;}
   };
   useEffect(()=>{plannerMounted.current=true;return()=>{plannerMounted.current=false;};},[]);
+  // Wabotia: depois de salvar, o registro novo chega sem remontar o editor (cadastros, contato, origem, seletores e estimativa não são
+  // relidos; financeiro, estoque, reservas e pendências relêem sozinhos pela versão). O formulário volta ao estado salvo, como na remontagem.
+  const savedRecord=useRef(record);
+  useEffect(()=>{const previous=savedRecord.current;savedRecord.current=record;if(!record||!previous||previous===record||previous.id!==record.id)return;
+    if(JSON.stringify(documentFormValues(live.current.values))!==JSON.stringify(initial)){live.current.values=initial;setValues(initial);}live.current.dirty=false;
+    setDiscountDraft(discountText(initial));setContact({id:record.contact_id,name:record.contact_snapshot.name});setContactState(typeof record.contact_snapshot.state==='string'?record.contact_snapshot.state:null);
+    const named=(id:string|null|undefined,current:{id:string;name:string}|null,name:string)=>id?current?.id===id?current:{id,name}:null;
+    setWarehouse(current=>named(initial.warehouse_id,current,'Depósito do documento'));setCategory(current=>named(initial.category_id,current,record.category_name??'Categoria do documento'));
+    setCarrier(current=>named(initial.carrier_id,current,record.carrier_name??'Transportador do documento'));setPriceList(current=>named(initial.price_list_id,current,record.price_list_name??'Lista de preço do documento'));
+    setSeller(current=>initial.seller_id?current?.id===initial.seller_id?current:{id:initial.seller_id,name:record.seller_name??(mySeller?.id===initial.seller_id?mySeller.name:'Vendedor do documento')}:null);
+    listPrices.current=new Map(record.items.filter(item=>item.id&&item.product_id).map(item=>[item.id!,item.product_snapshot?.price]));weights.current=new Map(record.items.filter(item=>item.id&&item.product_id).map(item=>[item.id!,item.product_snapshot?.gross_weight]));
+    setRefreshContact(false);setContactStatus('');live.current.nextStatus='';setNextStatus('');live.current.reason='';setReason('');setInvalid([]);setDetailOpen(new Set());setItemNotice('');setPriceListNotice('');setStockProduct(null);setCondition('');setReceptionOpen(false);
+  },[record]);
   useEffect(()=>{heading.current?.focus();const request=new AbortController();void controller.catalog('/v1/cadastros',{signal:request.signal}).then(value=>{if(!request.signal.aborted)setCatalogAccess(value as CatalogAccess);}).catch(()=>{/* Read permissions are separately enforced. */});return()=>{request.abort();pending.current?.abort();};},[controller]);
   useEffect(()=>{if(conversionReview)conversionHeading.current?.focus();},[conversionReview]);
   const patch=<K extends keyof DocumentInput>(key:K,value:DocumentInput[K])=>{if(!mayEditBody()||live.current.stockEditable&&['items','contact_id','warehouse_id'].includes(key))return;const next={...live.current.values,[key]:value};live.current.values=next;live.current.dirty=JSON.stringify(documentFormValues(next))!==JSON.stringify(initial);setValues(next);};
@@ -381,7 +400,11 @@ export function Editor({controller,kind,record,writable,onClose,onSaved,onConver
         guard.store.runConfirmed(()=>onConverted(operation.conversion==='service_orders'?{proposal:saved.proposal,service_order:latest.document,replayed:saved.replayed,data_mode:'erp_native',operational_effects:false}:{proposal:saved.proposal,sale:latest.document,replayed:saved.replayed,data_mode:'erp_native',operational_effects:false}));
       }else{
         const saved=operation.saved as DocumentEnvelope;
-        const latest=await controller.documents(`/v1/documentos/${kind}/${saved.document.id}`,{signal:request.signal}) as DocumentEnvelope;
+        // Wabotia: salvar o documento aberto (corpo ou observações) não remonta o editor. Na primeira tentativa, sem replay e sem efeitos
+        // novos (contas automáticas, aprovação de desconto), o envelope do salvar basta; nos demais casos relê só o documento.
+        const inPlace=Boolean(record&&!operation.copy&&saved.document.id===record.id&&[`/v1/documentos/${kind}/${record.id}`,`/v1/documentos/${kind}/${record.id}/observacoes`].includes(operation.path));
+        const reused=record&&inPlace&&!operation.uncertain&&!saved.replayed&&!('auto_finance' in saved)&&!('discount_approval' in saved)&&saved.document.kind===kind&&Number.isInteger(saved.document.version)&&saved.document.version>record.version?savedView(record,saved.document):null;
+        const latest=reused?{...saved,document:reused}:await controller.documents(`/v1/documentos/${kind}/${saved.document.id}`,{signal:request.signal}) as DocumentEnvelope;
         if(request.signal.aborted)return;
         if(latest.document.id!==saved.document.id||latest.document.kind!==kind||(operation.copy&&(!Number.isInteger(latest.document.version)||latest.document.version<saved.document.version||latest.document.source_proposal_id!==null)))throw new AccessError(502);
         const numberMessage=(!record&&(requestedNumber(operation.body)??nextNumber)&&latest.document.number!==(requestedNumber(operation.body)??nextNumber))||(record&&requestedNumber(operation.body)&&latest.document.number!==requestedNumber(operation.body))?`O número do seu ${kind==='sales_orders'?'pedido':'documento'} foi modificado para: ${latest.document.number}`:undefined;
@@ -398,7 +421,7 @@ export function Editor({controller,kind,record,writable,onClose,onSaved,onConver
         const versionLabel=(saved as DocumentEnvelope&{proposal_version?:{label?:string}}).proposal_version?.label;
         const messages=[numberMessage,source?`Proposta ${source.number} concluída.`:undefined,bagMessage,autoFinanceMessage((saved as DocumentEnvelope&{auto_finance?:unknown}).auto_finance,kind==='purchase_orders'?'purchase_orders':'sales_orders'),
           approvalSituation?`Venda enviada para aprovação do desconto (situação ${approvalSituation}).`:undefined,versionLabel?`Nova versão ${versionLabel} da proposta salva.`:undefined].filter(Boolean);
-        if(operation.copy)guard.store.runConfirmed(()=>(onCopied||onSaved)(latest.document));else onSaved(latest.document,messages.length?messages.join(' '):undefined);
+        if(operation.copy)guard.store.runConfirmed(()=>(onCopied||onSaved)(latest.document));else{if(inPlace){command.current=null;setUncertain(false);}onSaved(latest.document,messages.length?messages.join(' '):undefined,inPlace);}
       }
     }catch(failure){if(!request.signal.aborted&&!aborted(failure)){
       const known=!operation.saved&&!operation.uncertain&&failure instanceof AccessError&&[400,403,404,409].includes(failure.status);
@@ -711,33 +734,41 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const routeDocument=location.pathname==='/documentos-empresa'?new URLSearchParams(location.search).get('documento'):null;
   const hasRouteDocument=location.pathname==='/documentos-empresa'&&(new URLSearchParams(location.search).has('documento')||new URLSearchParams(location.search).has('acao')||new URLSearchParams(location.search).has('proposta'));
   const validRouteDocument=Boolean(routeDocument&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(routeDocument));
+  // Wabotia: `?documento=` não espera /v1/documentos (o servidor confere a leitura); o acesso decide depois a edição e a recusa de leitura.
+  const documentRoute=location.pathname==='/documentos-empresa'&&new URLSearchParams(location.search).has('documento');
+  const accessRef=useRef(access);accessRef.current=access;const deniedRead=useRef<unknown>(null);
+  // Wabotia: a listagem e as preferências dela só são lidas quando a lista aparece (com um documento aberto ela não é renderizada).
+  const listShown=!editing&&!numbering&&!printHeader&&!discountApproval&&!checkout&&!(reports&&(kind==='sales_orders'||kind==='service_orders'))&&!hasRouteDocument;
+  const viewLoaded=useRef(''),listLoaded=useRef<unknown[]|null>(null);
   useEffect(()=>{const request=new AbortController();void controller.documents('/v1/documentos',{signal:request.signal}).then(value=>{if(!request.signal.aborted){const permissions=value as DocumentAccess;setAccess(permissions);setKind(permissions.read.includes(initialKind)?initialKind:permissions.read[0]||'sales_proposals');if(!permissions.read.length)setLoading(false);}}).catch(failure=>{if(!aborted(failure)){setError(errorText(failure));setLoading(false);}});return()=>{request.abort();detail.current?.abort();};},[controller]);
   useEffect(()=>{
-    if(!access?.read.includes(kind))return;
-    if(!LIST_VIEW_KINDS.includes(kind)){setListView(null);if(viewReload===0)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?defaultListFilters(kind,today()):previous);setViewReady(kind);return;}
+    const viewKey=`${kind}:${viewReload}`;if(!access?.read.includes(kind)||!listShown||viewLoaded.current===viewKey)return;
+    if(!LIST_VIEW_KINDS.includes(kind)){setListView(null);if(viewReload===0)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?defaultListFilters(kind,today()):previous);setViewReady(kind);viewLoaded.current=viewKey;return;}
     const request=new AbortController(),actor=controller.getSnapshot?.()?.membership?.user_id;setViewReady(null);
     void Promise.resolve().then(()=>controller.documents(`/v1/documentos/${kind}/preferencias-listagem`,{signal:request.signal})).then(value=>{
       if(request.signal.aborted||controller.getSnapshot?.()?.membership?.user_id!==actor)return;
       const view=readListView(value,kind);setListView(view);
       // Applied only while the screen still has no filter of its own.
       if(viewReload===0)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?{...EMPTY_LIST_FILTERS,statuses:[...view.default_statuses]}:previous);
-      setViewReady(kind);
-    }).catch(()=>{if(!request.signal.aborted){setListView(null);setViewReady(kind);}});
+      setViewReady(kind);viewLoaded.current=viewKey;
+    }).catch(()=>{if(!request.signal.aborted){setListView(null);setViewReady(kind);viewLoaded.current=viewKey;}});
     return()=>request.abort();
-  },[controller,access,kind,viewReload]);
+  },[controller,access,kind,viewReload,listShown]);
   // EST-029 Origin pedidos de compra: every record of the period in one scroll; the next page is appended to the rows already shown
   // (the same reload); a reload or a new filter starts again from the first page.
   const appendKey=useRef('');
-  useEffect(()=>{if(!access?.read.includes(kind)||viewReady!==kind||situationsReady!==kind)return;
+  useEffect(()=>{if(!access?.read.includes(kind)||viewReady!==kind||situationsReady!==kind){listLoaded.current=null;return;}
+    // Wabotia: escondida, a lista não é lida; ao reaparecer, só relê se algo da consulta mudou desde a última página carregada.
+    const loadDeps=[controller,access,kind,filters,listPage,order,reload,viewReady,situationsReady];if(!listShown||listLoaded.current?.every((value,index)=>Object.is(value,loadDeps[index])))return;
     const key=`${reload}`,append=kind==='purchase_orders'&&listPage>1&&appendKey.current===key;if(kind==='purchase_orders'&&listPage>1&&!append){setListPage(1);return;}
     let params:URLSearchParams;try{params=documentListQuery(kind,filters,{page:listPage,order,...situationQuery});}catch(failure){setFilterError((failure as Error).message);setLoading(false);return;}const request=new AbortController();setLoading(true);if(!append)setPage(null);setError('');void controller.documents(`/v1/documentos/${kind}?${params}`,{signal:request.signal}).then(value=>{if(!request.signal.aborted){const result=readDocumentListPage(value,kind,listPage,order);
     // The filtered set shrank (for example after a batch change): go to its last page instead of an empty one.
     const last=pageCount(result.total_count);if(listPage>last){if(append){setLoading(false);return;}setListPage(last);return;}
-    appendKey.current=key;
-    setPage(previous=>append&&previous&&previous.page===listPage-1&&previous.order===order?{...result,items:[...previous.items,...result.items.filter(row=>!previous.items.some(item=>item.id===row.id))]}:result);setLoading(false);}}).catch(failure=>{if(!request.signal.aborted&&!aborted(failure)){setError(errorText(failure));setLoading(false);}});return()=>request.abort();},[controller,access,kind,filters,listPage,order,reload,viewReady,situationsReady]);
+    appendKey.current=key;listLoaded.current=loadDeps;
+    setPage(previous=>append&&previous&&previous.page===listPage-1&&previous.order===order?{...result,items:[...previous.items,...result.items.filter(row=>!previous.items.some(item=>item.id===row.id))]}:result);setLoading(false);}}).catch(failure=>{if(!request.signal.aborted&&!aborted(failure)){setError(errorText(failure));setLoading(false);}});return()=>request.abort();},[controller,access,kind,filters,listPage,order,reload,viewReady,situationsReady,listShown]);
   useEffect(()=>{
     if(location.pathname!=='/documentos-empresa')return;
-    detail.current?.abort();detail.current=null;setCopyDraft(null);setImportDraft(null);setRecord(null);setEditing(false);setDetailError('');setDetailLoading(false);setNumbering(false);setPrintHeader(false);setDiscountApproval(false);setCheckout(false);setReports(null);
+    detail.current?.abort();detail.current=null;deniedRead.current=null;setCopyDraft(null);setImportDraft(null);setRecord(null);setEditing(false);setDetailError('');setDetailLoading(false);setNumbering(false);setPrintHeader(false);setDiscountApproval(false);setCheckout(false);setReports(null);
     const params=new URLSearchParams(location.search),id=params.get('documento');
     // A local Incluir on a stable list does not change the URL, so this effect
     // does not discard its draft. URL navigation, including Back, owns this view.
@@ -794,14 +825,20 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     }
     if(!params.has('documento'))return;
     if(!id||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)){setDetailError('O endereço contém um identificador de documento inválido. Volte à listagem.');return;}
-    if(!access)return;
-    if(!access.read.includes(kind)){setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
+    // Wabotia: sem `if(!access)return`: o documento sai no mesmo salto de /v1/documentos. Um 403 antes do acesso espera por ele para
+    // escolher a mesma mensagem de antes (efeito abaixo); o editor só aparece com o acesso.
+    if(access&&!access.read.includes(kind)){setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
     const request=new AbortController();detail.current=request;setDetailLoading(true);
     void controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}).then(value=>{if(!request.signal.aborted&&detail.current===request){const document=(value as {document:DocumentRecord}).document;if(document.id.toLowerCase()!==id.toLowerCase()||document.kind!==kind)throw new AccessError(502);setRecord(document);setEditing(true);}})
-      .catch(failure=>{if(!request.signal.aborted&&!aborted(failure))setDetailError(errorText(failure));})
+      .catch(failure=>{if(!request.signal.aborted&&!aborted(failure)){if(failure instanceof AccessError&&failure.status===403&&!accessRef.current){deniedRead.current=failure;return;}setDetailError(errorText(failure));}})
       .finally(()=>{if(detail.current===request){detail.current=null;if(!request.signal.aborted)setDetailLoading(false);}});
     return()=>{request.abort();if(detail.current===request)detail.current=null;};
-  },[controller,access,kind,location.pathname,location.search,detailReload]);
+  },[controller,documentRoute?null:access,kind,location.pathname,location.search,detailReload]);
+  // Wabotia: quando o acesso chega depois do documento, vale a recusa de leitura de antes (sem mostrar o documento lido).
+  useEffect(()=>{if(!access||!documentRoute||!validRouteDocument)return;
+    if(!access.read.includes(kind)){detail.current?.abort();detail.current=null;deniedRead.current=null;setRecord(null);setEditing(false);setDetailLoading(false);setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
+    if(deniedRead.current){setDetailError(errorText(deniedRead.current));deniedRead.current=null;}
+  },[access,kind,documentRoute,validRouteDocument]);
   const close=()=>{if(copyDraft){setCopyDraft(null);setEditorEpoch(value=>value+1);return;}setImportDraft(null);detail.current?.abort();detail.current=null;setEditing(false);setRecord(null);setDetailError('');setDetailLoading(false);if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);if(params.has('documento')||params.has('acao')||params.has('origem')||params.has('proposta')){params.delete('documento');params.delete('acao');params.delete('origem');params.delete('proposta');params.delete('relatorio');navigate(`${location.pathname}?${params}`,{replace:true});}}};const reset=()=>{setListPage(1);close();};
   const clearFilters=()=>{setFilters(EMPTY_LIST_FILTERS);setFilterError('');setOrder('date_desc');};
   const selectKind=(value:DocumentKind)=>{if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('tipo',value);params.delete('documento');navigate(`${location.pathname}?${params}`);}else{setKind(value);clearFilters();setNotice('');reset();}};
@@ -842,7 +879,9 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     <header className="real-heading"><div><h1>{LIST_TITLES[kind]}</h1></div>{!writable&&<span className="real-mode">Somente consulta</span>}{writable&&!editing&&!hasRouteDocument&&<button type="button" className="primary-button documents-primary" title={PRIMARY[kind].title} onClick={event=>{if(deepLinked&&opensInNewTab(event)){window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');return;}create();}} onAuxClick={event=>{if(deepLinked&&event.button===1)window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');}}><Icon name="plus" size={12}/>{PRIMARY[kind].label}</button>}</header>
     {notice&&<p className="real-success" role="status">{notice}</p>}
     {error&&<p className="real-alert" role="alert">{error}<button className="text-button" onClick={()=>access?setReload(n=>n+1):controller.retry()}>Tentar novamente</button></p>}
-    {editing?<Editor key={`${kind}:${record?.id||'new'}:${record?.version||0}:${editorEpoch}:${copyDraft?'copy':importDraftState?'import':'document'}`} importDraft={copyDraft||record?null:importDraftState} controller={controller} kind={kind} record={copyDraft?null:record} copyDraft={copyDraft} onCopyPrepared={draft=>{setCopyDraft(draft);setNotice('');setEditorEpoch(value=>value+1);}} onCopied={copied} writable={writable} preferences={documentPrefs??undefined} situations={situations} access={access} onClose={close} onSaved={(saved,message)=>{setImportDraft(null);setRecord(saved);setEditorEpoch(value=>value+1);setNotice(message??'Documento atualizado.');setReload(n=>n+1);}} onConverted={converted}/>:numbering?<DocumentNumbering controller={controller} kind={kind} onClose={close}/>:printHeader?<DocumentPrintHeader controller={controller} kind={kind} onClose={close}/>:discountApproval?<DocumentDiscountApproval controller={controller} onClose={close}/>:checkout?<SalesCheckout controller={controller} onClose={close}/>:reports&&(kind==='sales_orders'||kind==='service_orders')?<DocumentReports controller={controller} kind={kind} report={reports.report} today={today()} onClose={close} onOpen={id=>{const params=new URLSearchParams(location.search);if(id)params.set('relatorio',id);else params.delete('relatorio');navigate(`${location.pathname}?${params}`);}}/>:hasRouteDocument?<section className="real-editor" aria-label="Consulta do documento">
+    {/* Wabotia: a versão saiu da chave (salvar no lugar não remonta; os demais caminhos trocam editorEpoch) e o editor espera o acesso,
+        lido junto com o documento. */}
+    {editing&&access?<Editor key={`${kind}:${record?.id||'new'}:${editorEpoch}:${copyDraft?'copy':importDraftState?'import':'document'}`} importDraft={copyDraft||record?null:importDraftState} controller={controller} kind={kind} record={copyDraft?null:record} copyDraft={copyDraft} onCopyPrepared={draft=>{setCopyDraft(draft);setNotice('');setEditorEpoch(value=>value+1);}} onCopied={copied} writable={writable} preferences={documentPrefs??undefined} situations={situations} access={access} onClose={close} onSaved={(saved,message,inPlace)=>{setImportDraft(null);setRecord(saved);if(!inPlace)setEditorEpoch(value=>value+1);setNotice(message??'Documento atualizado.');setReload(n=>n+1);}} onConverted={converted}/>:numbering?<DocumentNumbering controller={controller} kind={kind} onClose={close}/>:printHeader?<DocumentPrintHeader controller={controller} kind={kind} onClose={close}/>:discountApproval?<DocumentDiscountApproval controller={controller} onClose={close}/>:checkout?<SalesCheckout controller={controller} onClose={close}/>:reports&&(kind==='sales_orders'||kind==='service_orders')?<DocumentReports controller={controller} kind={kind} report={reports.report} today={today()} onClose={close} onOpen={id=>{const params=new URLSearchParams(location.search);if(id)params.set('relatorio',id);else params.delete('relatorio');navigate(`${location.pathname}?${params}`);}}/>:hasRouteDocument?<section className="real-editor" aria-label="Consulta do documento">
       {(detailLoading||!access)&&<p role="status">Carregando documento…</p>}{detailError&&<p className="real-alert" role="alert">{detailError}</p>}
       <div className="real-editor-actions">{detailError&&validRouteDocument&&<button type="button" className="primary-button" disabled={detailLoading} onClick={()=>setDetailReload(value=>value+1)}>Tentar consultar documento novamente</button>}<button type="button" className="secondary-button" onClick={close}>Voltar à listagem</button></div>
     </section>:
