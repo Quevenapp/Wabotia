@@ -18,6 +18,7 @@ import {
 import { Bubble, ChatScroll, DayChip, EventChip, MessageInput } from "../ui/chat";
 import { internalRunStatus, rememberPreview } from "./shared";
 import { ProposalCard } from "./ProposalCard";
+import { ApprovalCard } from "./ApprovalCard";
 
 export function InternalChat({
   chatId,
@@ -236,7 +237,12 @@ export function InternalChat({
                     ) : undefined
                   }
                 >
-                  {message.kind === "proposal" && message.payload?.proposal ? (
+                  {message.kind === "approval" && message.payload?.approval ? (
+                    <ApprovalCard
+                      approval={message.payload.approval}
+                      onDecided={() => void load()}
+                    />
+                  ) : message.kind === "proposal" && message.payload?.proposal ? (
                     <ProposalCard
                       chatId={chatId}
                       payload={message.payload}
