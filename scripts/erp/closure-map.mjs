@@ -12,6 +12,8 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { oracleDb } from "./oracle-db.mjs";
 
 const out = process.argv.includes("--json") ? process.argv[process.argv.indexOf("--json") + 1] : null;
+/** --fns: cada linha leva a lista de funções do fecho (para análises de fronteira). */
+const withFns = process.argv.includes("--fns");
 
 // Domínios do plano, na ordem proposta.
 const DOMAINS = [
@@ -170,6 +172,7 @@ for (const name of [...rpcs].sort()) {
       bytes: sum(refined),
       tables_written: refined.tables.size,
     },
+    ...(withFns ? { fns: [...refined.fns.keys()] } : {}),
   });
   for (const e of refined.fns.values()) {
     if (e.f.schema === "public" && e.f.name === name) continue;

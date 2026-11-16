@@ -10,9 +10,14 @@
 //   de qualquer coisa da área (pipeline do WhatsApp, D1);
 // - nunca chama a instância da área de forma síncrona.
 import type { Env } from "../types";
-import { ERP_SCHEMA_VERSION, migrate } from "./schema/migrate.ts";
-import { handleRpc } from "./engine/rpc-endpoint.ts";
-import { backupToR2, dumpAll, readBackup, restoreAll } from "./engine/dump.ts";
+
+/**
+ * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
+ * na primeira chamada do ERP (prova 7: partida do Worker de quem não liga o
+ * ERP).
+ */
+let engineModule: Promise<typeof import("./hub-engine.ts")> | null = null;
+const engine = () => (engineModule ??= import("./hub-engine.ts"));
 
 export const ERP_KIND = "erp";
 export const ERP_PROFILE_HEADER = "x-erp-profile";
@@ -75,6 +80,7 @@ export class ErpHub {
       await storage.put({ kind: ERP_KIND, erp_profile: profile });
     } else if (kind !== ERP_KIND || bound !== profile)
       return fail(409, "erp_profile_mismatch", "Instância do ERP de outra área.");
+    const { migrate, ERP_SCHEMA_VERSION } = await engine();
     const applied = migrate(this.ctx.storage);
     if (applied.status === "newer")
       return fail(
@@ -90,6 +96,7 @@ export class ErpHub {
     if (!profile) return fail(400, "erp_profile_required", "Área ausente.");
     const refused = await this.bind(profile);
     if (refused) return refused;
+    const { ERP_SCHEMA_VERSION, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
     if (path === "/erp-ping")
       return Response.json({
         kind: ERP_KIND,
@@ -127,7 +134,7 @@ export class ErpHub {
    * tarefas em fatias.
    */
   async alarm() {
-    migrate(this.ctx.storage);
+    (await engine()).migrate(this.ctx.storage);
     this.ctx.storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),

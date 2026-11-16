@@ -6,10 +6,10 @@
 //   /auth/v1/user        → o ator do Wabotia (já autenticado pelo Worker)
 //   /storage/v1/…        → ainda não (R2 na fase 3): 501
 // Fase 0, prova 6.
-// @ts-ignore módulo JavaScript do Fagoo, sem tipos (allowJs desligado).
-import { createHandler } from "../fagoo/workers/erp-api/src/index.mjs";
 import { ApiError, type Actor, type Env } from "../../types";
 import { erpFetch } from "../hub.ts";
+
+let erpApiModule: Promise<any> | null = null;
 
 /** "Supabase" que só a costura enxerga; nunca recebe tráfego de rede. */
 const LOCAL = "https://erp.wabotia.invalid";
@@ -58,6 +58,9 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
     headers,
     body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer(),
   });
+  // A erp-api (3 MB) só é avaliada na primeira chamada do ERP (prova 7).
+  // @ts-ignore módulo JavaScript do Fagoo, sem tipos (allowJs desligado).
+  const { createHandler } = await (erpApiModule ??= import("../fagoo/workers/erp-api/src/index.mjs"));
   const handler = createHandler({ fetchImpl: localFetch(env, profile, actor) });
   return handler(inner, CONFIG) as Promise<Response>;
 }
