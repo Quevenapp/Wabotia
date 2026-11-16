@@ -68,7 +68,12 @@ export interface BotVia {
 }
 export type Bindings = {
   Bindings: Env;
-  Variables: { actor: Actor; requestId: string };
+  Variables: {
+    actor: Actor;
+    requestId: string;
+    /** Env com as leituras feitas antes da rota (src/index.ts, /api/v1). */
+    pre?: Env;
+  };
 };
 export interface Profile {
   id: string;

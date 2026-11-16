@@ -89,6 +89,35 @@ gravação do recibo de idempotência, auditoria e fechamento do recibo).
   `SELECT` pela chave dedupe. Agora o `SELECT` só acontece quando a chave já
   existia (repetição).
 
+- **Idas ao D1 antes da rota.** Toda requisição autenticada fazia 2 a 4
+  consultas em série antes do trabalho da rota:
+  - a sessão, depois a política do segundo fator, depois o estado dos módulos duas vezes (no `requireModule` e na rota);
+  - ou, com chave de aplicação, a chave, o contador por minuto e o estado dos módulos duas vezes;
+  - mais 2 na primeira vez de uma sessão antiga.
+
+  Com o Worker na borda do Brasil e o D1 no leste dos EUA, cada consulta é uma viagem de ida e volta de 150 a 470 ms. Agora é **uma ida só** (`db.batch`):
+  - **pessoa** (cookie ou `wabu_`): a sessão, já com a política do segundo fator numa subconsulta;
+  - **chave de aplicação**: a chave e o +1 do contador por minuto (`INSERT … SELECT … RETURNING`, que só conta para chave válida);
+  - **rota de área** (`/api/v1/profiles/:area/…`): também o estado dos módulos, que entra no cache de leituras da requisição.
+    - Leitura (GET) mantém o cache até o fim e a rota reaproveita o estado.
+    - Escrita usa o cache só na conferência do módulo, porque a rota pode passar pelo Coordinator, que grava fora deste env.
+
+  A sessão antiga ganha o id público numa instrução só (`UPDATE … RETURNING`). Sessão e permissão **não** ficam em cache entre requisições: a revogação vale na próxima chamada.
+
+  Fica uma ida a mais só na primeira requisição de pessoa em cada isolado: ela grava o endereço público (`rememberOrigin`), e isso só pode acontecer depois de a sessão valer. Tetos em `tests/d1-budget.test.ts` ("idas ao D1 antes da rota") e casos em `tests/d1-request.test.ts`.
+- **Nova tentativa em erro transitório** (`src/db.ts`). A Cloudflare manda repetir estes erros ("Retry the operation", em `d1/observability/debug-d1`):
+  - `Network connection lost`;
+  - os de objeto reiniciado;
+  - `Replica disconnected from primary`;
+  - `Cannot resolve D1 DB due to transient issue`.
+
+  O D1 já repete sozinho até duas vezes uma consulta só de leitura (SELECT/WITH), do lado dele. Para cobrir também a ida e volta entre o Worker e o banco, `one`, `all` e `batch` repetem **uma vez**, com registro em log (`{"component":"d1","retry":…}`).
+  - Só leitura: SELECT ou WITH sem palavra de escrita, e lote só de leituras.
+  - Escrita nunca é repetida, porque pode ter sido gravada antes do erro.
+  - A exceção é o lote antes da rota da chave de aplicação: contar a mesma requisição duas vezes no limite por minuto não faz mal.
+
+  Casos em `tests/d1-retry.test.ts`.
+
 Cuidados do cache: só vale dentro de uma invocação; as consultas lembradas leem
 somente as tabelas da lista em `src/db.ts` (perfis, módulos, conexões, números e
 contas da Meta, contas de pagamento, `instance_settings`, assinaturas de

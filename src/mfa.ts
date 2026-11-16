@@ -121,12 +121,20 @@ export function otpauthUrl(secretB32: string, email: string, issuer: string) {
 // ---------------------------------------------------------------------------
 // Política e nível
 
+/** Valor guardado → política (desconhecido ou ausente: "off"). */
+export const mfaPolicyOf = (value: unknown): MfaPolicy =>
+  MFA_POLICIES.includes(value as MfaPolicy) ? (value as MfaPolicy) : "off";
+
+/** Lida junto com a sessão (src/security.ts, SESSION_COLUMNS). */
+export const MFA_POLICY_COLUMN =
+  "(SELECT value FROM instance_settings WHERE key='mfa_policy') mfa_policy";
+
 export async function mfaPolicy(env: Env): Promise<MfaPolicy> {
   const row = await cachedOne(
     env,
     "SELECT value FROM instance_settings WHERE key='mfa_policy'",
   );
-  return MFA_POLICIES.includes(row?.value) ? row.value : "off";
+  return mfaPolicyOf(row?.value);
 }
 
 export async function setMfaPolicy(env: Env, policy: unknown) {

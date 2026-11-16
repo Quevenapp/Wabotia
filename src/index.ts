@@ -39,7 +39,7 @@ import {
   json,
   requireValue,
 } from "./types";
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, withReadCache } from "./db";
 import { documentText } from "./knowledge";
 import {
   ensureInstallationArea,
@@ -143,11 +143,7 @@ import {
 import { emailReady } from "./email";
 import { trackPage } from "./web-track";
 import { claimOwner, ipHash, peekClaim } from "./module-credentials";
-import {
-  credentialGate,
-  moduleRoutes,
-  webStepPageHook,
-} from "./modules/hooks";
+import { credentialGate, moduleRoutes, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -323,7 +319,12 @@ app.post(
   bodyLimit({ maxSize: 4 * 1024 }),
   async (c) => {
     const ip = c.req.header("CF-Connecting-IP") || "local";
-    await rate(c.env, "credential-claim:" + (await ipHash(c.env, ip)), 10, 600000);
+    await rate(
+      c.env,
+      "credential-claim:" + (await ipHash(c.env, ip)),
+      10,
+      600000,
+    );
     const body = await c.req.json<any>().catch(() => ({}));
     const code = String(body?.code ?? "").replace(/^.*\/c\//, "");
     const owner = await claimOwner(c.env, code);
@@ -362,8 +363,7 @@ app.get("/c/:code", async (c) => {
     ? (await establishment(c.env, live.profile_id).catch(() => null))?.name ||
       null
     : null;
-  const server =
-    (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  const server = (await publicOrigin(c.env)) || new URL(c.req.url).origin;
   const headers = {
     "Cache-Control": "no-store",
     Vary: "Accept",
@@ -954,10 +954,29 @@ app.post("/api/auth/mobile/login", async (c) => {
     user: mobileUser(user),
   });
 });
+/** Área de uma rota /api/v1/profiles/:profile/…, ou null. */
+function profileOfPath(path: string) {
+  const [, , , segment, raw] = path.split("/");
+  if (segment !== "profiles" || !raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
 app.use("/api/v1/*", async (c, next) => {
   // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
   const internal = takeInternalActor(c.req.raw);
-  const actor = internal || (await authenticate(c.env, c.req.raw));
+  // Uma ida só ao D1 antes da rota (docs/LIMITES.md): a credencial e, numa
+  // rota de área, o estado dos módulos, que fica no cache de leituras desta
+  // requisição. Leitura (GET) mantém o cache até o fim, e a rota reaproveita
+  // o estado; escrita usa o cache só na conferência do módulo (a rota pode
+  // passar pelo Coordinator, que grava fora deste env).
+  const pre = withReadCache(c.env);
+  if (["GET", "HEAD"].includes(c.req.method)) c.env = pre;
+  c.set("pre", pre);
+  const actor =
+    internal || (await authenticate(pre, c.req.raw, profileOfPath(c.req.path)));
   c.set("actor", actor);
   // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
   // cadastro do fator (src/mfa.ts).
@@ -1008,7 +1027,8 @@ app.use("/api/v1/profiles/*", async (c, next) => {
         "not_found",
         "Área de atendimento não encontrada.",
       );
-    await requireModule(c.env, profile, owner.id);
+    // Estado dos módulos já lido junto com a credencial (authenticate).
+    await requireModule(c.get("pre") ?? c.env, profile, owner.id);
   }
   await next();
 });
@@ -1021,7 +1041,10 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["POST", /^(conversations|inbound|tickets)$/],
   ["PATCH", /^tickets\/[^/]+$/],
   ["GET", /^(bots|knowledge|forms)$/],
-  ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu|pedido\/itens)$/],
+  [
+    "GET",
+    /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu|pedido\/itens)$/,
+  ],
   ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
   ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],

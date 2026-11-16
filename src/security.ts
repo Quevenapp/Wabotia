@@ -1,7 +1,20 @@
 import { scryptSync, timingSafeEqual } from "node:crypto";
-import { one, exec } from "./db";
+import {
+  batch,
+  exec,
+  hasReadCache,
+  MODULE_STATES_SQL,
+  one,
+  seedAll,
+} from "./db";
 import { ApiError, type Env, type Actor, uid, now, json } from "./types";
-import { mfaPolicy, requireSchedule, sessionAal } from "./mfa";
+import {
+  MFA_POLICY_COLUMN,
+  mfaPolicy,
+  mfaPolicyOf,
+  requireSchedule,
+  sessionAal,
+} from "./mfa";
 import { CREDENTIAL_PREFIX, credentialActor } from "./module-credentials";
 const enc = new TextEncoder();
 export const hex = (b: ArrayBuffer | Uint8Array) =>
@@ -188,50 +201,86 @@ export async function actorForUser(
     mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
   };
 }
-/** Colunas da sessão e do segundo fator lidas junto com a pessoa. */
-const SESSION_COLUMNS =
-  "s.id session_id,s.aal session_aal,s.mfa_at session_mfa_at,s.kind session_kind,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor";
+/**
+ * Colunas da sessão, do segundo fator e da política da instalação, lidas
+ * numa consulta só com a pessoa (cada ida ao D1 custa uma viagem de ida e
+ * volta da borda ao banco; docs/LIMITES.md).
+ */
+const SESSION_COLUMNS = `s.id session_id,s.aal session_aal,s.mfa_at session_mfa_at,s.kind session_kind,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor,${MFA_POLICY_COLUMN}`;
 /**
  * Ator de uma sessão de pessoa: horário de acesso (403 outside_schedule),
  * nível da sessão e política do segundo fator (src/mfa.ts). Sessão antiga
- * sem id público ganha um aqui.
+ * sem id público ganha um aqui (uma vez só, numa instrução).
  */
 async function sessionActor(env: Env, row: any, hash: string) {
   requireSchedule(row);
   let sessionId = row.session_id as string | null;
-  if (!sessionId) {
-    sessionId = uid();
-    await exec(
-      env,
-      "UPDATE sessions SET id=? WHERE hash=? AND id IS NULL",
-      sessionId,
-      hash,
-    );
+  if (!sessionId)
+    // Duas requisições ao mesmo tempo ficam com o mesmo id (coalesce).
     sessionId =
-      (await one(env, "SELECT id FROM sessions WHERE hash=?", hash))?.id ||
-      sessionId;
-  }
+      (
+        await one(
+          env,
+          "UPDATE sessions SET id=coalesce(id,?) WHERE hash=? RETURNING id",
+          uid(),
+          hash,
+        )
+      )?.id || uid();
   return {
     ...userActor(row),
     // Confirmação do segundo fator vale por um prazo (src/mfa.ts).
     aal: sessionAal(row.session_kind, row.session_aal, row.session_mfa_at),
     sessionId: sessionId!,
-    mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
+    mfa: { factor: !!row.has_factor, policy: mfaPolicyOf(row.mfa_policy) },
   } as Actor;
 }
+
+/**
+ * Leituras antes da rota numa ida só ao D1 (db.batch): a consulta da
+ * credencial e, numa rota de área, o estado dos módulos da área, que fica
+ * no cache de leituras da invocação (`withReadCache`) para o requireModule.
+ * Sessão e permissão nunca ficam em cache entre requisições.
+ */
+async function firstRows(
+  env: Env,
+  main: [string, any[]],
+  profile: string | null | undefined,
+  extra: [string, any[]][] = [],
+) {
+  const items: [string, any[]][] = [main, ...extra];
+  const withStates = !!profile && hasReadCache(env);
+  if (withStates) items.push([MODULE_STATES_SQL, [profile]]);
+  // Repetível mesmo com o +1 do contador por minuto da chave (extra): contar
+  // a mesma requisição duas vezes num erro transitório não faz mal, e a
+  // leitura da credencial não perde a nova tentativa que tinha sozinha.
+  const results = await batch(env, items, { retry: true });
+  if (withStates)
+    seedAll(env, MODULE_STATES_SQL, [profile], results.at(-1)!.results);
+  return results.map((r) => r.results as any[]);
+}
 export const MOBILE_TOKEN_PREFIX = "wabu_";
-export async function authenticate(env: Env, request: Request): Promise<Actor> {
+/**
+ * Ator da requisição. `profile` (a área de uma rota /profiles/:profile/…)
+ * só adianta a leitura do estado dos módulos na mesma ida ao D1.
+ */
+export async function authenticate(
+  env: Env,
+  request: Request,
+  profile?: string | null,
+): Promise<Actor> {
   const bearer = request.headers
     .get("Authorization")
     ?.match(/^Bearer (.+)$/)?.[1];
   if (bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX)) {
     // Mobile user session: identifies a person, no Origin check (native app).
     const hash = await sha(bearer);
-    const row = await one(
+    const [[row]] = await firstRows(
       env,
-      `SELECT u.*,s.last_used session_last_used,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0`,
-      hash,
-      now(),
+      [
+        `SELECT u.*,s.last_used session_last_used,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0`,
+        [hash, now()],
+      ],
+      profile,
     );
     if (!row)
       throw new ApiError(
@@ -260,15 +309,33 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
     return actor;
   }
   if (bearer) {
-    const row = await one(
+    const hash = await sha(bearer),
+      at = now(),
+      bucket = Math.floor(at / 60000);
+    // Chave, limite por minuto da aplicação (o mesmo contador de rate()) e o
+    // estado dos módulos numa ida só. A contagem só sobe para chave válida.
+    const [[row], [counter]] = await firstRows(
       env,
-      "SELECT k.id key_id,k.expires key_expires,a.* FROM api_keys k JOIN applications a ON a.id=k.app_id WHERE k.hash=? AND k.revoked=0 AND k.expires>? AND a.disabled=0",
-      await sha(bearer),
-      now(),
+      [
+        "SELECT k.id key_id,k.expires key_expires,a.* FROM api_keys k JOIN applications a ON a.id=k.app_id WHERE k.hash=? AND k.revoked=0 AND k.expires>? AND a.disabled=0",
+        [hash, at],
+      ],
+      profile,
+      [
+        [
+          "INSERT INTO rate_limits(key,count,expires) SELECT 'app:'||a.id||':'||?,1,? FROM api_keys k JOIN applications a ON a.id=k.app_id WHERE k.hash=? AND k.revoked=0 AND k.expires>? AND a.disabled=0 ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count",
+          [bucket, at + 60000, hash, at],
+        ],
+      ],
     );
     if (!row)
       throw new ApiError(401, "invalid_token", "Chave inválida ou expirada.");
-    await rate(env, `app:${row.id}`, row.rate);
+    if ((counter?.count ?? 0) > row.rate)
+      throw new ApiError(
+        429,
+        "rate_limited",
+        "Limite de requisições atingido. Aguarde antes de repetir.",
+      );
     return {
       id: `app:${row.id}`,
       kind: "app",
@@ -288,12 +355,16 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
     ?.match(/(?:^|;\s*)wabotia=([^;]+)/)?.[1];
   const cookieHash = token ? await sha(token) : "";
   const row = token
-    ? await one(
-        env,
-        `SELECT u.*,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0`,
-        cookieHash,
-        now(),
-      )
+    ? (
+        await firstRows(
+          env,
+          [
+            `SELECT u.*,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0`,
+            [cookieHash, now()],
+          ],
+          profile,
+        )
+      )[0][0]
     : null;
   if (!row) throw new ApiError(401, "unauthenticated", "Entre na sua conta.");
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
