@@ -484,7 +484,7 @@
    },
    "erp_catalog.seller_access_allowed": {
     "name": "sellerAccessAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.unit_price": {
     "name": "unitPrice",

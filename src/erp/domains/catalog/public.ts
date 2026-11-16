@@ -54,6 +54,7 @@ export {
   validCpf,
 } from "./fields.ts";
 export { paymentConditionValid } from "./payment-method.ts";
+export { sellerAccessAllowed } from "./seller.ts";
 
 const KINDS = ["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 const btrim = (s: string) => s.replace(/^ +| +$/g, "");
