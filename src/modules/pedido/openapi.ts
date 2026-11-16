@@ -652,6 +652,12 @@ export const pedidoOperations: [string, string, string, string?, string?][] = [
     "PedidoPause",
   ],
   ["get", `${base}/menu`, "Pedido: cardápio completo", read],
+  [
+    "get",
+    `${base}/itens`,
+    "Pedido: itens para o bot montar o pedido, sem preços",
+    read,
+  ],
   ["get", `${base}/items/{id}`, "Pedido: item do cardápio", read],
   [
     "post",
@@ -780,6 +786,11 @@ export function describePedidoOperation(
     return;
   }
   if (path.endsWith("/menu")) return schema(ref("PedidoMenu"));
+  if (path.endsWith("/itens")) {
+    entry.description +=
+      " Ferramenta pedido_itens do bot que atende o cliente: categorias com item_id, nome, descrição, disponível, máximo e as escolhas (grupo_id, mínimo, máximo, opções disponíveis). Sem preços: o valor chega ao cliente pelo resumo do módulo (ação pedido_montar), nunca pelo modelo. Liberada para a chave presa à conversa.";
+    return schema({ type: "object" });
+  }
   if (path.includes("/categories")) {
     if (method === "delete")
       entry.description += " Categoria com itens: 409 category_not_empty.";

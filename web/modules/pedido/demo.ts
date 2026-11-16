@@ -278,6 +278,7 @@ function order(
     subtotal_cents: subtotal,
     delivery_fee_cents: fee,
     total_cents: subtotal + fee,
+    discount_cents: 0,
     note: "",
     notes: "",
     eta_minutes: fulfillment === "delivery" ? 45 : 20,

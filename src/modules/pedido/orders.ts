@@ -33,7 +33,8 @@ import {
 import { config, offeredMethods, paymentsReady } from "./store";
 import { emitStatusChange, noticeHandled } from "./listeners";
 
-export type OrderSource = "cart" | "catalog" | "panel" | "api";
+/** bot: montado pelo bot na conversa e confirmado pelo cliente no botão. */
+export type OrderSource = "cart" | "catalog" | "panel" | "api" | "bot";
 
 export interface OrderLine {
   item_id: string;
@@ -124,6 +125,8 @@ export function orderView(row: any, history?: any[]) {
     item_count: row.item_count,
     subtotal_cents: row.subtotal_cents,
     delivery_fee_cents: row.delivery_fee_cents,
+    /** Desconto aprovado pela equipe (já descontado do total). */
+    discount_cents: row.discount_cents || 0,
     total_cents: row.total_cents,
     note: row.note,
     notes: row.notes,
@@ -391,6 +394,9 @@ export function orderSummary(order: any) {
     ...(view.fulfillment === "delivery"
       ? [`Entrega: ${money(view.delivery_fee_cents)}`]
       : []),
+    ...(view.discount_cents
+      ? [`Desconto: -${money(view.discount_cents)}`]
+      : []),
     `Total: ${money(view.total_cents)}`,
     view.fulfillment === "delivery"
       ? `Entregar em: ${view.address_text}`
@@ -525,7 +531,12 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
   const order = await loadOrder(ctx, id);
   // O cliente pediu pelo WhatsApp (carrinho ou catálogo): consentimento para
   // os avisos deste pedido fora da janela de 24 horas.
-  if (c && (input.source === "cart" || input.source === "catalog"))
+  if (
+    c &&
+    (input.source === "cart" ||
+      input.source === "catalog" ||
+      input.source === "bot")
+  )
     await ctx.recordConsent(c, {
       purpose: "order",
       source: "whatsapp",
@@ -786,7 +797,7 @@ export function paymentSpec(
 export async function saveChat(
   ctx: ModuleContext,
   c: Conversation,
-  step: "payment" | "change" | "fulfillment" | "address",
+  step: "payment" | "change" | "fulfillment" | "address" | "confirm",
   orderId: string | null,
   data: Record<string, unknown>,
   ttlMinutes: number,
@@ -810,6 +821,23 @@ export const clearChat = (ctx: ModuleContext, conversationId: string) =>
     conversationId,
     ctx.profile,
   );
+
+/**
+ * Pergunta de novo como pagar, com o total atual do pedido (depois de um
+ * desconto aprovado, por exemplo): escolher a forma é o cliente confirmar o
+ * novo total.
+ */
+export async function askPaymentAgain(
+  ctx: ModuleContext,
+  c: Conversation,
+  order: any,
+  key: string,
+) {
+  const cfg = await config(ctx);
+  const methods = await offeredMethods(ctx, cfg);
+  if (!methods.length) return;
+  await askPayment(ctx, c, order, methods, cfg, key);
+}
 
 async function askPayment(
   ctx: ModuleContext,
