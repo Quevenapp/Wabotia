@@ -38,10 +38,16 @@ export function decText(text, scale, fixed) {
  * microssegundos (texto exato), decimais e inteiros como texto. ±infinity
  * viram os extremos do i64.
  */
-export function pgSelect(info) {
+/**
+ * SELECT do Postgres na forma do SQLite. `normalized`: também as colunas que
+ * o motor calcula (__fold e calculadas), pela expressão do índice do Fagoo
+ * (generated_by) avaliada no próprio Postgres; é o que a escrita do motor grava.
+ */
+export function pgSelect(info, { normalized = false } = {}) {
   const select = Object.entries(info.columns)
-    .filter(([, c]) => !["fold", "computed"].includes(c.codec))
+    .filter(([, c]) => normalized || !["fold", "computed"].includes(c.codec))
     .map(([name, c]) => {
+      if (["fold", "computed"].includes(c.codec)) return `(${c.generated_by})::text as ${q(name)}`;
       const col = q(name);
       if (c.codec === "timestamp_us")
         return `case when ${col} = 'infinity' then '9223372036854775807' when ${col} = '-infinity' then '-9223372036854775808' else (extract(epoch from ${col} - 'epoch'::timestamptz)::numeric * 1000000)::bigint::text end as ${col}`;

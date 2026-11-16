@@ -7,7 +7,8 @@
 //
 // O SQL dinâmico do Postgres vira filtro em TS sobre as linhas do produto:
 // fold, matches e a ordem em collation C (bytes UTF-8) não existem no
-// SQLite, e a coluna __fold das linhas copiadas pelo harness vem nula.
+// SQLite; o fold é calculado como no Fagoo, sem depender da coluna __fold
+// (que pode vir nula em linha semeada).
 //
 // Origin desligado (desvio origin-fora): erp_catalog.origin está vazia, então
 // "source" é null e os filtros de estoque origin_* ficam constantes:

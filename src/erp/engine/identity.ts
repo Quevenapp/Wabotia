@@ -74,6 +74,10 @@ const fromB64url = (text: string) =>
   new TextDecoder().decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
 
 export const IDENTITY_HEADER = "x-erp-identity";
+/** A costura pede o portão por requisição antes do RPC (registry.ts, RpcEnvironment.gate). */
+export const GATE_HEADER = "x-erp-gate";
+/** Resposta de RPC recusado pelo portão: "outside_schedule" ou "mfa_required". */
+export const GATE_DENIED_HEADER = "x-erp-gate-denied";
 export const encodeIdentity = (port: IdentityPort) => b64url(JSON.stringify(port));
 export function decodeIdentity(header: string | null): IdentityPort {
   if (!header || header.length > 200_000) return NO_IDENTITY;

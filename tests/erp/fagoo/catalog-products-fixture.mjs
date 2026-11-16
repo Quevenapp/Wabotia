@@ -12,9 +12,7 @@ export async function productsFixture(options) {
   const rows = async (text, args = []) => (await f.db.query(text, args)).rows;
   const productSave = (data, { user = users.admin, id = null, version = 0, command = randomUUID(), acknowledged = null } = {}) =>
     rpc("erp_catalog_product_save", {
-      // O corpo chega como JSON nos dois motores (sem chaves undefined, que o structuredClone do harness manteria).
-      p_user_id: user, p_id: id, p_expected_version: version, p_command_id: command, p_data: data === null ? null : JSON.parse(JSON.stringify(data)),
-      p_acknowledged: acknowledged,
+      p_user_id: user, p_id: id, p_expected_version: version, p_command_id: command, p_data: data, p_acknowledged: acknowledged,
     });
   const product = async (data, user = users.admin) => (await productSave({ kind: "P", format: "S", unit: "UN", ...data }, { user })).record;
   const contact = async (data, user = users.admin) =>

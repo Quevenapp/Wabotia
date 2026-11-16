@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";
-import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { registerGate, registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgLower, pgLeft } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import * as preferences from "../../preferences/public.ts";
@@ -37,6 +37,21 @@ registerRpc("erp_access_gate_v2", (ctx: RpcContext, a: RpcArgs) => {
     mfa_required: required,
     mfa_ok: !required || sessionAal2(ctx, user, s(a.p_session_id)),
   };
+});
+
+/**
+ * Portão por requisição da erp-api (accessGate do Fagoo) dentro do objeto,
+ * antes do RPC: só para quem o Fagoo marcaria (gate_required: horário ou
+ * política de MFA) e é membro ativo; o resto o próprio RPC decide.
+ */
+registerGate((ctx) => {
+  const user = ctx.identity.actor?.user_id ?? null;
+  if (!user || !one(ctx.db, 'SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1', user)) return null;
+  if (!gateRequired(ctx.db, user)) return null;
+  const now = ctx.clock.next();
+  if (!scheduleAllows(ctx.db, user, now)) return "outside_schedule";
+  if (mfaRequired(ctx.db, user) && !sessionAal2(ctx, user, ctx.identity.actor?.session_id ?? null)) return "mfa_required";
+  return null;
 });
 
 /** erp_access.security_policy_dto */

@@ -44,6 +44,28 @@ export interface RpcEnvironment {
   objects?: ObjectLookup;
   listing?: StoredListing[];
   identity?: IdentityPort;
+  /**
+   * Portão por requisição (horário de acesso e segundo fator) antes do RPC,
+   * na mesma transação: o accessGate da erp-api, sem uma ida a mais ao
+   * objeto. A costura pede em toda chamada da erp-api (src/erp/api/local-fetch.ts).
+   */
+  gate?: boolean;
+}
+
+/** Motivo de recusa do portão. */
+export type GateDenial = "outside_schedule" | "mfa_required";
+/** Recusa do portão: a costura a devolve como 403 ERP_ACCESS_OUTSIDE_SCHEDULE / ERP_MFA_REQUIRED. */
+export class ErpGateDenied extends ErpError {
+  readonly reason: GateDenial;
+  constructor(reason: GateDenial) {
+    super("28000", `erp_gate_${reason}`);
+    this.reason = reason;
+  }
+}
+let gate: ((ctx: RpcContext) => GateDenial | null) | null = null;
+/** O Acesso registra o portão (access/rpc/security.ts). */
+export function registerGate(fn: (ctx: RpcContext) => GateDenial | null) {
+  gate = fn;
 }
 
 export type RpcArgs = Record<string, unknown>;
@@ -99,6 +121,10 @@ export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new 
     db,
     (ctx) => {
       for (const step of before) step(ctx);
+      if (typeof env === "object" && env.gate && gate) {
+        const denied = gate(ctx);
+        if (denied) throw new ErpGateDenied(denied);
+      }
       return fn(ctx, prepared);
     },
     clock,

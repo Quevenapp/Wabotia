@@ -914,7 +914,13 @@ npm run test:erp
      - Na hora da marca B, o objeto vinha de 80 mil linhas escritas e de instruções de 1 MB recusadas pela sonda de limites. O primeiro campo do bookmark (a geração do objeto) avançou por ociosidade.
      - Hipótese mais provável: um reinício do objeto entre as duas marcas, e a chamada pegou o objeto no meio do reinício.
    - **O desligamento.** O comando passa pelo objeto da área, não pelo `erp:`: é o `mutate` do `module.set`, que grava no D1 e emite o `module.changed`. Quase certamente não é o ERP. Uma corrida com o `wipe` (`deleteAll` no `erp:`) não se sustenta, porque são objetos diferentes.
-   - **Para fechar a causa:** os dois `request_id` na Observabilidade (Workers → Logs) da instalação de teste, com a exceção e o `$workers.outcome`. É com a K, dona da instalação.
+   - **Para fechar a causa:** os dois `request_id` na Observabilidade (Workers → Logs) da instalação de teste, com a exceção e o `$workers.outcome`.
+     - A K não conseguiu puxar os registros: o wrangler não consulta a Observabilidade e o painel travou no Chrome. A pendência está anotada em `D:\Code\Env\wabotia\staging-verticais\erp-conferencia\observabilidade-500-pendente.md`, com a versão `e8fe3df3`, o intervalo das 17:55 às 17:58 UTC de 16/11 e os dois ids.
+     - **Hipótese revista com o detalhe da K:** os dois 500 passam pelo `requireModule`, e só o `wipe` o pula. Ele foi chamado entre os dois e passou.
+       - O `requireModule` lê o estado dos módulos no **D1** (`moduleStates` → `cachedAll`). O desligamento do módulo também grava no D1.
+       - O fator comum é o D1, não o objeto `erp:`. Um erro transitório do D1 numa leitura sai como `internal_error` 500 do núcleo.
+       - Isso é do núcleo do Wabotia (`src/db.ts`), não do ERP. Proposta para o dono do núcleo: repetir uma vez as **leituras** do D1 em erro transitório, como a Cloudflare recomenda; escrita não se repete.
+       - Confirmar pelos registros quando alguém abrir o painel.
    - **Feito, com a aprovação da orquestração:** nova tentativa no stub (`src/erp/api/retry.ts`), conforme a página "Error handling" da Cloudflare ([Durable Objects › Best practices › Error handling](https://developers.cloudflare.com/durable-objects/best-practices/error-handling/)): repetir só o que é `retryable`, nunca o `overloaded`, com stub novo, e só pedido idempotente.
      - **Regras:**
        - uma tentativa só, depois de 50–150 ms;
@@ -946,6 +952,56 @@ npm run test:erp
    - o `staging-check.mjs` faz logout no fim e, no Windows, encerra a árvore do `wrangler tail` (`taskkill /T /F`);
    - o teste de alarme do `erp-do-instance` tem tempo-limite de 60 s;
    - o cache do oráculo (`output/erp-oracle/*.tgz`) é escrito num arquivo próprio e troca de nome de forma atômica, sem `Z_BUF_ERROR` entre testes paralelos.
+
+### Latência: idas por requisição e posicionamento do Worker
+
+Pedido da orquestração, a partir do levantamento das telas da M (`sessao-M-erp-latencia.md`): cada chamada da API custa ~0,57 s a partir do Brasil, e as telas encadeiam de 3 a 5.
+
+**Medido** (`tests/erp-do-hops.test.ts`). A costura agora devolve `Server-Timing`, com `erp;desc="hops=N"` e uma entrada `erp-rpc-i;desc="<rpc>"` por ida ao objeto. Isso mede também na instalação de teste, pelo navegador.
+
+| Requisição | Idas ao objeto `erp:` | Consultas ao D1 (Worker) |
+|---|---|---|
+| `GET /v1/me` | 1 (`erp_access_me`) | 2: sessão e estado dos módulos (+1 na primeira vez: origem pública) |
+| leitura (`GET /v1/plataforma/referencias/cnae`) | 1 (`erp_reference_search`) | 2 |
+| escrita (`POST /v1/estoque/movimentos`) | 1 (`erp_stock_post`) | 2 |
+
+- A erp-api já fazia **uma** ida por requisição. O `/auth/v1/user` é respondido na própria costura, sem ir ao objeto.
+- O portão (`erp_access_gate_v2`) só rodava para quem tinha a marca `brufap_access_gate` no `app_metadata`, e a costura nunca a mandava. **Horário de acesso e segundo fator não eram conferidos por requisição.** Corrigido, sem ida a mais:
+  - a costura pede o portão em toda chamada (`x-erp-gate`);
+  - o objeto o roda dentro do `callRpc`, depois da projeção de identidade e antes do corpo, na mesma transação. Só roda para membro ativo com `gate_required`;
+  - recusa (`x-erp-gate-denied`) vira o 403 `ERP_ACCESS_OUTSIDE_SCHEDULE` ou `ERP_MFA_REQUIRED` da erp-api, sem rodar o RPC e sem gravar nada.
+- Teste: com a política de MFA ligada e uma sessão aal1, leitura, `/v1/me` e escrita respondem 403 numa ida só, e a escrita não grava.
+- Até a fase 3 preencher `aal` e `session_id` no envelope, **a política de MFA ligada recusa todo membro no escopo**. A política nasce desligada.
+- **De onde vêm os ~0,57 s:** cada requisição atravessa Brasil → leste dos EUA **três vezes**, em série:
+  - a sessão no D1;
+  - o estado dos módulos no D1;
+  - o objeto `erp:`.
+
+  O trabalho no objeto é de 5 a 14 ms. O caminho mais barato para reduzir isso é o posicionamento do Worker (abaixo). Juntar telas em menos chamadas, como a M propõe, multiplica o ganho.
+- **Rotas que fazem vários RPCs em série:** lista em "Rotas com mais de um RPC", abaixo.
+
+**Rotas com mais de um RPC** (levantamento no `src/erp/fagoo/workers/erp-api/src/`, sem autenticação e sem portão). As telas comuns fazem **um** RPC por requisição: cadastros, documentos, financeiro, estoque, fiscal, PDV, preferências e início. Nenhuma rota usa `Promise.all` nem repete RPC em laço. As de vários RPCs, todos em série, são:
+
+| Grupo | Rotas | RPCs em série | Candidata a RPC composto? |
+|---|---|---|---|
+| Arquivos (6 módulos: anexos de documento, contato, produto, funcionário, financeiro, logo e arquivos da empresa) | `GET …/download` | `*_object` → leitura do R2 → `*_object` (reconfere) | Sim. O objeto tem o `MEDIA` e pode ler o R2 e conferir na mesma ida: 2 → 1 |
+| | `PUT …/upload` | `*_object` → `*_claim` → gravação no R2 → `*_finish` → `*_stop` | Em parte. `object` e `claim` juntos (2 → 1); o `finish` depende do R2. O objeto gravando direto no R2 dá 4 → 1, mas pesa: corpo grande atravessando o objeto |
+| Remessas e retornos (`cnab`, `cobranca-operacional`, `-v2`, `retornos-operacionais`, `conferencia-retornos`, `retornos-itau109`, `boletos-itau/preview`) | gerar e retomar remessa, importar retorno, prévia, vincular e baixar evento, baixar arquivo | 2 a 4 (`reserve` → `reservation` → arquivo → `finalize`; `verify` → `event` → `bind`/`settle`) | Sim, os pares sem arquivo no meio (`reserve`+`reservation`; `verify`+`event`+ação). Bloco `erp-cobranca`: não é tela de uso contínuo |
+| Notas recebidas | download e resumo | `erp_dfe_object` ×2, + `erp_dfe_summary_record` | Como os arquivos |
+| Produtos com espelho do Origin | `GET /v1/cadastros/products` (páginas v2/v3/custom), `…/exportacao` | página → `erp_stock_mirror_product_summary` | **Some com o Origin:** o espelho sai (linha de corte, `origin_stock` constante), e a rota volta a um RPC |
+| Integração Wabotia do Fagoo | `/v1/system/wabotia/*` | `erp_access_me` → `erp_wabotia_state` ×N | Bloco externo: a rota sai (src/erp/blocks.ts) |
+| Convite de usuário | `POST /v1/usuarios/convites` | `invite_begin` → `invite_complete` | Não se porta (estrutural `usuarios-supabase`) |
+
+Prioridade para o painel:
+- o que mais pesa nas telas é o **número de chamadas encadeadas**, não os RPCs por chamada. Isso vem do levantamento da M e das propostas dela (`/v1/me` com permissões, endpoints de abertura, catálogo local do PDV);
+- o **posicionamento do Worker**, abaixo, barateia toda ida que sobrar;
+- no motor, os downloads de arquivo (2 → 1) são o RPC composto de maior uso. Ficam para quando o armazenamento do ERP for ligado ao R2 (`storage_ready`, fase 3).
+
+**Smart Placement.** Análise e roteiro do ensaio em `docs/LIMITES.md`, seção "Posicionamento do Worker". Resumo:
+- `placement` no wrangler: `"mode": "smart"` ou uma dica explícita, `"region": "aws:us-east-1"`;
+- arquivos estáticos não são afetados;
+- o atualizador do `feat/pacote-v2` já preserva `placement`;
+- o ensaio é com a K.
 
 ## Divisão em sessões (opinião)
 

@@ -5,8 +5,8 @@
 import "../domains/index.ts";
 import { storageDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
-import { callRpc, rpcObjectKeys, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
-import { IDENTITY_HEADER, decodeIdentity } from "./identity.ts";
+import { ErpGateDenied, callRpc, rpcObjectKeys, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
+import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, decodeIdentity } from "./identity.ts";
 import { Clock } from "./time.ts";
 
 const clocks = new WeakMap<DurableObjectState, Clock>();
@@ -57,9 +57,16 @@ export async function handleRpc(
       objects: (k) => found.get(k) ?? null,
       listing,
       identity,
+      gate: request.headers.get(GATE_HEADER) === "1",
     });
     return Response.json(result);
   } catch (error) {
+    // Portão fechado: o RPC não rodou; a costura devolve o erro do Fagoo.
+    if (error instanceof ErpGateDenied)
+      return Response.json(
+        { code: error.code, message: error.message, details: null, hint: null },
+        { status: 403, headers: { [GATE_DENIED_HEADER]: error.reason } },
+      );
     if (error instanceof ErpError)
       return Response.json(
         { code: error.code, message: error.message, details: null, hint: null },
