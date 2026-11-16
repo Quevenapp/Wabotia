@@ -1,5 +1,29 @@
 import { one } from "./db";
-import { type Actor, type Env, json } from "./types";
+import { type Actor, type Env, json, now } from "./types";
+
+/**
+ * Chave restrita ao atendimento (conferência A1): com `conversations:bound`,
+ * a aplicação só alcança as conversas que um dos bots dela está atendendo
+ * agora (execução na fila ou em andamento, ou encerrada há menos de 2 min) e
+ * as do próprio namespace. É o perfil da chave do Hermes: um cliente que
+ * injeta instruções no bot não chega à conversa de outro cliente.
+ */
+export const BOUND_SCOPE = "conversations:bound";
+export const isBound = (actor: Actor) =>
+  actor.kind === "app" && actor.scopes.includes(BOUND_SCOPE);
+export async function boundAllows(env: Env, actor: Actor, c: any) {
+  if (!isBound(actor)) return true;
+  if (c.external_namespace === `app:${actor.id}`) return true;
+  if (!actor.bots.length) return false;
+  return !!(await one(
+    env,
+    "SELECT 1 FROM bot_runs WHERE conversation_id=? AND bot_id IN (SELECT value FROM json_each(?)) AND (status IN ('queued','starting','running') OR updated>?) LIMIT 1",
+    c.id,
+    JSON.stringify(actor.bots),
+    now() - 120_000,
+  ));
+}
+
 export function visibleConversation(actor: Actor, c: any) {
   return (
     actor.kind !== "app" ||

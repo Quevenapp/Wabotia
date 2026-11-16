@@ -20,7 +20,7 @@ import {
   passwordHash,
 } from "./security";
 import { event, audit } from "./events";
-import { visibleConversation } from "./visibility";
+import { boundAllows, visibleConversation } from "./visibility";
 import { probe, discover, telegramRemoved } from "./integrations";
 import { isLink, linkCode, linkRevoke } from "./hermes-link";
 import { aiConfig, aiKey } from "./ai-provider";
@@ -120,6 +120,9 @@ export const scopes = [
   // Operações financeiras dos módulos (baixa manual, isenção, planos, valores).
   // Nunca vai para aparelhos pareados de mensagens (Vinki, Fagoo).
   "billing:write",
+  // Restrição, não permissão: só as conversas que um bot da aplicação está
+  // atendendo agora (chave do Hermes; src/visibility.ts).
+  "conversations:bound",
   "tickets:read",
   "tickets:write",
   "knowledge:read",
@@ -245,7 +248,12 @@ export async function conversation(
     id,
     profile,
   );
-  if (!row || (actor && !visibleConversation(actor, row)))
+  if (
+    !row ||
+    (actor &&
+      (!visibleConversation(actor, row) ||
+        !(await boundAllows(env, actor, row))))
+  )
     throw new ApiError(404, "not_found", "Conversa não encontrada.");
   return row;
 }

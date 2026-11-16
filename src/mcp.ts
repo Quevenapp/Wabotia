@@ -7,6 +7,7 @@ import { type Actor, type Bindings, type Env, ApiError } from "./types";
 import { all } from "./db";
 import { resolveStates } from "./modules/registry";
 import { authenticate, canProfile } from "./security";
+import { isBound } from "./visibility";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
 import { moduleMcpTools } from "./modules/hooks";
@@ -845,16 +846,47 @@ async function enabledModules(env: Env, actor: Actor) {
   return enabled;
 }
 
-export const toolList = (enabled?: Set<string>) =>
-  allTools(enabled).map((t) => ({
-    name: t.name,
-    description: t.description,
-    inputSchema: {
-      type: "object",
-      properties: t.input,
-      ...(t.required?.length ? { required: t.required } : {}),
-    },
-  }));
+/**
+ * Ferramentas de uma chave restrita ao atendimento (conversations:bound,
+ * conferência A1): as da conversa em atendimento e catálogos. As de módulo
+ * são todas de atendimento (só recebem conversation_id).
+ */
+const BOUND_CORE_TOOLS = new Set([
+  "list_profiles",
+  "get_conversation",
+  "claim_conversation",
+  "reply_conversation",
+  "add_internal_note",
+  "transfer_conversation",
+  "resolve_conversation",
+  "tag_conversation",
+  "send_menu",
+  "list_forms",
+  "send_form",
+  "list_web_steps",
+  "lookup_conversation_protocols",
+  "message_action",
+  "create_ticket",
+  "update_ticket",
+  "list_knowledge",
+]);
+const toolAllowed = (actor: Actor, tool: Tool) =>
+  !isBound(actor) ||
+  BOUND_CORE_TOOLS.has(tool.name) ||
+  !tools.some((t) => t.name === tool.name);
+
+export const toolList = (enabled?: Set<string>, actor?: Actor) =>
+  allTools(enabled)
+    .filter((t) => !actor || toolAllowed(actor, t))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: {
+        type: "object",
+        properties: t.input,
+        ...(t.required?.length ? { required: t.required } : {}),
+      },
+    }));
 
 function coerce(schema: Row, value: any) {
   if (
@@ -1003,7 +1035,7 @@ export function mountMcp(app: Hono<Bindings>) {
   }
   async function callTool(c: any, actor: Actor, params: any) {
     const tool = findTool(String(params?.name || ""));
-    if (!tool)
+    if (!tool || !toolAllowed(actor, tool))
       throw new RpcError(-32602, `Ferramenta desconhecida: ${params?.name}`);
     const args = validate(tool, params?.arguments);
     const profile = resolveProfile(tool, args, actor);
@@ -1084,7 +1116,7 @@ export function mountMcp(app: Hono<Bindings>) {
       if (method === "ping") return reply({});
       if (method === "tools/list")
         return reply({
-          tools: toolList(await enabledModules(c.env, actor)),
+          tools: toolList(await enabledModules(c.env, actor), actor),
         });
       if (method === "tools/call")
         return reply(await callTool(c, actor, params));

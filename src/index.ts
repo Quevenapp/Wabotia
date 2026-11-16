@@ -21,7 +21,7 @@ import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { visibleEvent, visibleConversation } from "./visibility";
+import { isBound, visibleEvent, visibleConversation } from "./visibility";
 import { setCookie, deleteCookie } from "hono/cookie";
 import {
   type Bindings,
@@ -807,6 +807,36 @@ app.use("/api/v1/profiles/*", async (c, next) => {
         "Área de atendimento não encontrada.",
       );
     await requireModule(c.env, profile, owner.id);
+  }
+  await next();
+});
+// Chave restrita ao atendimento (conversations:bound, conferência A1): só as
+// rotas da conversa que o bot está atendendo (a conferência da execução fica
+// em conversation()) e catálogos sem dado pessoal. Nada de listas de
+// conversas, contatos, protocolos, eventos ou relatórios da área.
+const BOUND_ROUTES: [string, RegExp][] = [
+  ["*", /^conversations\/[^/]+(\/.*)?$/],
+  ["POST", /^(conversations|inbound|tickets)$/],
+  ["PATCH", /^tickets\/[^/]+$/],
+  ["GET", /^(bots|knowledge|forms)$/],
+  ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu)$/],
+  ["GET", /^(agenda|reserva|pedido|mensalidade)\/conversations\/[^/]+$/],
+  ["GET", /^service-orders\/conversation\/[^/]+$/],
+];
+app.use("/api/v1/profiles/*", async (c, next) => {
+  if (isBound(c.get("actor"))) {
+    const rest = c.req.path.split("/").slice(5).join("/");
+    const method = c.req.method;
+    if (
+      !BOUND_ROUTES.some(
+        ([m, pattern]) => (m === "*" || m === method) && pattern.test(rest),
+      )
+    )
+      throw new ApiError(
+        403,
+        "bound_key",
+        "Esta chave atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
+      );
   }
   await next();
 });

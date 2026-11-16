@@ -5,7 +5,21 @@ import { Bot, Check } from "lucide-react";
 import { Button, CopyButton, Field, Notice } from "../ui";
 
 type Row = Record<string, any>;
+// Chave de atendimento: conversations:bound prende a chave às conversas que
+// os bots marcados estão atendendo (revisão de segurança, conferência A1).
 const baseScopes = [
+  "conversations:read",
+  "conversations:write",
+  "conversations:bound",
+  "contacts:read",
+  "tickets:read",
+  "tickets:write",
+  "knowledge:read",
+  "bots:read",
+];
+// Acesso a toda a área (listas, contatos, eventos, relatórios): não
+// recomendado para um bot que atende clientes.
+const wholeAreaScopes = [
   "conversations:read",
   "conversations:write",
   "contacts:read",
@@ -53,6 +67,7 @@ export function HermesMcpPanel({
     [bots, setBots] = useState<Row[]>([]),
     [botIds, setBotIds] = useState<string[]>([]),
     [chosen, setChosen] = useState<string[]>([]),
+    [wholeArea, setWholeArea] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [issued, setIssued] = useState<Row | null>(null);
@@ -70,9 +85,11 @@ export function HermesMcpPanel({
       .catch(() => setBots([]));
   }, [profile, demo]);
   const scopes = [
-    ...baseScopes,
+    ...(wholeArea ? wholeAreaScopes : baseScopes),
     ...extras.filter(([, , key]) => chosen.includes(key)).flatMap(([, s]) => s),
   ];
+  // Restrita sem bot marcado não alcança conversa nenhuma.
+  const needsBot = !wholeArea && botIds.length === 0;
   async function create() {
     if (demo) {
       setError("Indisponível no modo de demonstração.");
@@ -146,7 +163,7 @@ export function HermesMcpPanel({
           <p>
             3. Confira com <code>hermes mcp test wabotia</code> ou envie{" "}
             <code>/reload-mcp</code> em uma sessão aberta. As ferramentas
-            aparecem como <code>mcp__wabotia__list_conversations</code>,{" "}
+            aparecem como <code>mcp__wabotia__get_conversation</code>,{" "}
             <code>mcp__wabotia__reply_conversation</code> e assim por diante.
             Para limitar o que o agente pode fazer, use{" "}
             <code>tools: include</code> ou <code>tools: exclude</code> no mesmo
@@ -164,9 +181,11 @@ export function HermesMcpPanel({
             />
           )}
           <p>
-            A aplicação criada recebe leitura e escrita de conversas, contatos,
-            protocolos, conhecimento, presença, eventos e relatórios, além da
-            execução dos bots marcados. Permissões adicionais:
+            A chave atende só as conversas que os bots marcados abaixo estão
+            atendendo agora: lê e responde a conversa, abre protocolo e usa as
+            ferramentas dos módulos para aquele cliente. Listas de conversas,
+            contatos, eventos e relatórios da área ficam de fora, para que um
+            cliente não leve o bot até os dados de outro. Permissões adicionais:
           </p>
           <div className="scope-grid">
             {extras.map(([label, , key]) => (
@@ -185,10 +204,19 @@ export function HermesMcpPanel({
                 {label}
               </label>
             ))}
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={wholeArea}
+                onChange={(e) => setWholeArea(e.target.checked)}
+              />
+              Acesso a toda a área (listas, contatos, eventos e relatórios): não
+              recomendado para bot que atende clientes
+            </label>
           </div>
           {bots.length > 0 && (
             <>
-              <h3>Bots que o Hermes pode executar pelo MCP</h3>
+              <h3>Bots Hermes que atendem os clientes com esta chave</h3>
               <div className="scope-grid">
                 {bots.map((b) => (
                   <label className="check-field" key={b.id}>
@@ -211,13 +239,19 @@ export function HermesMcpPanel({
           )}
           <div className="card-actions">
             <Button
-              disabled={busy || !profile}
+              disabled={busy || !profile || (needsBot && !demo)}
               busy={busy}
               onClick={() => void create()}
             >
               Criar aplicação e chave para o Hermes
             </Button>
           </div>
+          {needsBot && (
+            <p className="muted">
+              Marque o bot Hermes que atende os clientes: a chave só alcança as
+              conversas que ele estiver atendendo.
+            </p>
+          )}
           {error && (
             <Notice tone="error" onClose={() => setError("")}>
               {error}

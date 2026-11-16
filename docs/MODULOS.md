@@ -344,9 +344,17 @@ onMcpTool("agenda", {
   - Ordem de Serviço: `os_situacao`.
   - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`.
   - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
-- Limite conhecido: a chave do bot (Hermes) não fica presa a uma conversa; o
-  bot recebe o `conversation_id` na execução e o passa à ferramenta. A
-  garantia é que nada além desse id escolhe o cliente.
+- Chave presa à conversa: com `conversations:bound` (padrão da chave criada em
+  Integrações → Hermes), a aplicação só alcança as conversas que um dos bots
+  dela está atendendo agora (execução na fila ou em andamento, ou encerrada há
+  menos de 2 minutos) e as do próprio namespace. Listas de conversas,
+  contatos, protocolos, eventos e relatórios da área respondem
+  `403 bound_key`, e `tools/list` mostra só as ferramentas de atendimento. Um
+  cliente que injeta instruções no bot não chega à conversa de outro cliente.
+  Rotas de módulo liberadas para essa chave: as `…/conversations/:id` da
+  ferramenta e os catálogos sem dado pessoal (`agenda`,
+  `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
+  ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
 
 ### Tarefas periódicas (`onSchedule`)
 
