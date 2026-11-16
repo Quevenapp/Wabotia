@@ -15,6 +15,7 @@ import { notify, setTitleCount } from "../lib/notifications";
 import { conversationName } from "../lib/format";
 import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
 import { toast, toastError } from "../ui";
+import { accessAllows } from "../workspace-navigation";
 
 export type AppEvent = {
   id: number;
@@ -181,7 +182,8 @@ export function AppProvider({
     setStatusLoaded(true);
   }, [api, root, profile]);
   const refreshTickets = useCallback(() => {
-    if (!profile) return;
+    // Acesso por pessoa: sem Protocolos, nada de contador nem aviso.
+    if (!profile || !accessAllows("tickets", me.role, me.access)) return;
     const current = profile;
     Promise.all([
       api(root + "/tickets?overdue=1&limit=100"),
@@ -267,7 +269,7 @@ export function AppProvider({
 
   // Ligações tocando (quando o navegador e a linha permitirem áudio).
   useEffect(() => {
-    if (!profile || demo) return;
+    if (!profile || demo || !accessAllows("calls", me.role, me.access)) return;
     let alive = true;
     const check = async () => {
       if (document.hidden) return;

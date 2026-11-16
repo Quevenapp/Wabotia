@@ -29,7 +29,8 @@ import {
   requireValue,
 } from "../types";
 import { access, canProfile } from "../security";
-import { grantId, savedGrants } from "../module-grants";
+import { grantId } from "../module-grants";
+import { rolesOf } from "../access";
 import { activeTicketSql } from "../protocols";
 import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
@@ -309,10 +310,11 @@ export interface ModuleContext {
    */
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
   /**
-   * A pessoa tem o papel `role` deste módulo nesta área (declarado em
-   * `grants` da definição e concedido pelo administrador em Pessoas). O
-   * administrador não ganha papel automaticamente; aplicações e aparelhos
-   * pareados nunca têm papel (use escopos). Papel não declarado lança erro.
+   * A pessoa tem o papel `role` deste módulo (declarado em `grants` da
+   * definição e marcado pelo administrador no acesso da pessoa, em Pessoas e
+   * acessos; vale nas áreas que ela alcança). O "*" do atendente completo e
+   * o papel de administrador não dão papel; aplicações e aparelhos pareados
+   * nunca têm (use escopos). Papel não declarado lança erro.
    */
   granted(actor: Actor, role: string): Promise<boolean>;
   /** Pessoas ativas da área com o papel, em ordem de nome. */
@@ -482,18 +484,14 @@ export function modulesApi(
     async granted(actor, role) {
       const id = declaredRole(moduleId, role);
       if (actor.kind !== "user" || !canProfile(actor, profile)) return false;
-      return !!savedGrants(await settings(env, profile))[id]?.includes(
-        actor.id,
-      );
+      return rolesOf(actor).includes(id);
     },
-    async grantees(role) {
+    grantees(role) {
       const id = declaredRole(moduleId, role);
-      const ids = savedGrants(await settings(env, profile))[id] || [];
-      if (!ids.length) return [];
       return all<{ id: string; name: string }>(
         env,
-        "SELECT id,name FROM users WHERE disabled=0 AND id IN (SELECT value FROM json_each(?)) AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
-        JSON.stringify(ids),
+        "SELECT id,name FROM users WHERE disabled=0 AND json_valid(access) AND EXISTS(SELECT 1 FROM json_each(users.access) WHERE value=?) AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+        id,
         profile,
       );
     },

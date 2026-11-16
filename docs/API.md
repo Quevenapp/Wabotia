@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps", "establishment", "module_grants"],
+  "features": ["modules", "web_steps", "establishment", "module_grants", "person_access"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -81,8 +81,58 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 
 ### Pessoas da área
 
-Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. Cada pessoa traz `grants`, os papéis dela nos módulos ligados (`"os:technician"`), e `?grant=os:technician` lista só quem tem o papel; os papéis e quem tem cada um estão em `GET /profiles/{perfil}/grants` ([MODULOS.md](MODULOS.md), "Papéis por pessoa"). `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. Cada pessoa traz `grants`, os papéis dela nos módulos ligados (`"os:technician"`), e `?grant=os:technician` lista só quem tem o papel; os papéis e quem tem cada um estão em `GET /profiles/{perfil}/grants` (veja "Acesso por pessoa" abaixo). `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
 
+### Acesso por pessoa
+
+O administrador escolhe, para cada atendente, o que ele acessa: áreas do
+atendimento, módulos e papéis de módulo (entregador, garçom, técnico, caixa).
+Uma pessoa "só caixa" entra no painel e nos apps e vê só o Caixa. O servidor
+confere em cada rota e em cada comando (`403 access_denied`), e o que a pessoa
+não acessa também some dos eventos, do push e dos contadores do `/status`. O
+administrador acessa tudo. Aplicações e aparelhos pareados seguem pelos
+escopos.
+
+**Para os apps** (recurso `person_access` em `features` de `/capabilities`):
+cada item de `profiles` traz `access`, a lista do que a pessoa logada acessa
+naquela área, já expandida e só com módulos ligados:
+
+| Item | Tela no app |
+|---|---|
+| `conversations` | Conversas e atendimento |
+| `tickets` | Protocolos |
+| `contacts` | Contatos |
+| `calls` | Ligações |
+| `team` | Equipe (conversa interna) |
+| `reports` | Relatórios e avaliações |
+| `<módulo>` (`queue`, `agenda`, `os`, `pedido`, `reserva`, `mensalidade`…) | As telas do módulo |
+| `<módulo>:<papel>` (`entrega:courier`, `mesas:waiter`, `os:technician`, `caixa:cashier`) | A tela do papel (entregador, garçom…) |
+
+- Monte a barra inferior e o menu só com os itens que vierem. Item ausente:
+  não mostre a tela, e um `403 access_denied` numa rota esconde a tela até a
+  próxima consulta.
+- Atendente completo (o padrão, e quem já existia) recebe todas as áreas e
+  todos os módulos ligados, sem papéis. Exemplo de "só garçom":
+  `"access": ["mesas", "mesas:waiter"]`.
+- `grants` continua vindo, só com os papéis (`["mesas:waiter"]`).
+- `access` vem `null` para aparelho pareado e aplicação: use `modules` e os
+  escopos, como hoje.
+- Mudar o acesso derruba as sessões da pessoa: o app recebe `401`, faz login
+  de novo e relê `/capabilities`. Releia também ao abrir e ao voltar ao
+  primeiro plano.
+
+**Para o painel e integrações administrativas:**
+- `GET /profiles/{perfil}/access` (pessoa da área) lista o catálogo:
+  `{"data": [{"id", "group": "core"|"module", "module_id", "role", "label",
+  "description"}], "presets": [{"id", "label", "access"}]}`.
+- Os atalhos (`presets`) só preenchem as caixas, e só aparecem os que têm
+  todos os itens nesta versão.
+- O administrador grava com `POST /users` ou `PATCH /users/{id}` e
+  `{"access": ["*"]}` (atendente completo), `{"access": ["caixa:cashier"]}`,
+  `{"access": ["*", "os:technician"]}` ou `{"access": null}` (o mesmo que
+  `["*"]`).
+- `GET /users` traz `access` como texto JSON (ou `null`). Item desconhecido:
+  `400`.
 ### Consentimento de notificação por finalidade
 
 `GET /profiles/{perfil}/consents` traz em cada registro `purpose`: `protocol` (pergunta AUTORIZO / NÃO AUTORIZO do protocolo), `billing` (cobrança), `scheduling` (agendamento), `order` (pedido), `booking` (reserva) ou `*` (o REVOGAR do cliente, que vale para todas), além de `source` (`whatsapp`, `panel`, `contract`…) e `module_id`. Fora da janela de 24 horas da linha oficial, uma notificação de módulo marcada com finalidade só sai com o consentimento dela; as de protocolo seguem com o de protocolo. As cobranças do núcleo são `billing`. Cada registro feito por módulo publica `consent.updated` com `conversation_id`, `purpose`, `status`, `source` e `module_id`.

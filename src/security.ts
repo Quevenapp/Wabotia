@@ -142,6 +142,13 @@ export function admin(actor: Actor) {
   if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(403, "admin_required", "Somente administradores.");
 }
+/** users.access: lista JSON de acessos ou null (tudo); src/access.ts. */
+export function storedAccess(value: unknown): string[] | null {
+  const list = typeof value === "string" ? json(value, null) : null;
+  return Array.isArray(list)
+    ? list.filter((item): item is string => typeof item === "string")
+    : null;
+}
 function userActor(row: any): Actor {
   return {
     id: row.id,
@@ -154,6 +161,7 @@ function userActor(row: any): Actor {
     bots: [],
     rate: 300,
     runLimit: 10,
+    access: storedAccess(row.access),
   };
 }
 export const MOBILE_TOKEN_PREFIX = "wabu_";

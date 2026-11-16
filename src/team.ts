@@ -10,7 +10,7 @@ import {
 } from "./types";
 import { access } from "./security";
 import { event } from "./events";
-import { createRun, settings } from "./service";
+import { createRun } from "./service";
 import { declaredGrants, grantsFor } from "./module-grants";
 import { moduleStates } from "./modules/registry";
 import { hermesRequest } from "./integrations";
@@ -38,12 +38,11 @@ export async function areaPeople(
   access(actor, profile, "conversations:read");
   const users = await all(
     env,
-    "SELECT id,name,role FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+    "SELECT id,name,role,access FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
     profile,
   );
-  // Papéis nos módulos ligados (docs/MODULOS.md, "Papéis por pessoa").
+  // Papéis nos módulos ligados (docs/MODULOS.md, "Acessos e papéis").
   const states = await moduleStates(env, profile);
-  const cfg = await settings(env, profile);
   if (grant)
     requireValue(
       declaredGrants(states).some((g) => g.id === grant),
@@ -55,7 +54,7 @@ export async function areaPeople(
         id: u.id,
         name: u.name,
         role: u.role,
-        grants: grantsFor(cfg, { id: u.id, kind: "user" }, states),
+        grants: grantsFor({ access: u.access }, states),
       }))
       .filter((u) => !grant || u.grants.includes(grant)),
   };

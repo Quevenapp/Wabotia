@@ -5,7 +5,15 @@ import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
 import { parse } from "../lib/format";
-import { Badge, Button, Field, Notice, SkeletonBlock, Table, toast } from "../ui";
+import {
+  Badge,
+  Button,
+  Field,
+  Notice,
+  SkeletonBlock,
+  Table,
+  toast,
+} from "../ui";
 import { FormDialog, Pager, toggled, useList, useResource } from "./shared";
 
 /** Caixas de seleção das áreas de atendimento a que a pessoa ou sistema tem acesso. */
@@ -36,67 +44,127 @@ export function AreaAccess({
   );
 }
 
+/** O que a pessoa acessa, de GET /profiles/{p}/access (src/access.ts). */
+type Catalog = { data: Row[]; presets: Row[] };
+
+/** Lista guardada → marcada: null vale como ["*"] (atendente completo). */
+const listOf = (value: string[] | null | undefined) => value ?? ["*"];
+
+/** Marca ou desmarca um item; "*" se desfaz e se refaz conforme o caso. */
+function toggleAccess(
+  catalog: Row[],
+  value: string[],
+  id: string,
+  on: boolean,
+) {
+  const plain = catalog.filter((i) => !i.role).map((i) => i.id as string);
+  const roles = value.filter((v) => v.includes(":"));
+  let items = value.includes("*")
+    ? plain
+    : value.filter((v) => v !== "*" && !v.includes(":"));
+  const isRole = id.includes(":");
+  const nextRoles = isRole ? toggled(roles, id, on) : roles;
+  if (!isRole) items = toggled(items, id, on);
+  const all = plain.every((p) => items.includes(p));
+  return [...(all ? ["*"] : items), ...nextRoles];
+}
+
 /**
- * Papéis da pessoa nos módulos ligados da área aberta (entregador, garçom,
- * técnico, caixa), de GET /profiles/{p}/grants. Gravados em PUT /settings,
- * chave module_grants (docs/MODULOS.md, "Papéis por pessoa").
+ * Caixas do que a pessoa acessa: atalhos de perfil, áreas do atendimento e
+ * cada módulo ligado com os papéis dele (entregador, garçom, técnico…).
  */
-function ModuleRoles({
-  grants,
+function AccessEditor({
+  catalog,
   value,
   onChange,
 }: {
-  grants: Row[];
+  catalog: Catalog;
   value: string[];
   onChange: (next: string[]) => void;
 }) {
-  const app = useApp();
-  if (!grants.length) return null;
-  const area = app.profiles.find((p) => p.id === app.profile)?.name;
+  const items = catalog.data;
+  const checked = (item: Row) =>
+    value.includes(item.id) || (!item.role && value.includes("*"));
+  const preset =
+    catalog.presets.find(
+      (p) =>
+        p.access.length === value.length &&
+        p.access.every((id: string) => value.includes(id)),
+    )?.id || "";
+  const box = (item: Row, indent = false) => (
+    <label
+      className="check-field"
+      key={item.id}
+      title={item.description}
+      style={indent ? { paddingLeft: 24 } : undefined}
+    >
+      <input
+        type="checkbox"
+        checked={checked(item)}
+        onChange={(event) =>
+          onChange(toggleAccess(items, value, item.id, event.target.checked))
+        }
+      />
+      {item.label}
+    </label>
+  );
+  const core = items.filter((i) => i.group === "core");
+  const mods = items.filter((i) => i.group === "module" && !i.role);
   return (
-    <fieldset className="scope-grid">
-      <legend>Papéis nos módulos{area ? ` (${area})` : ""}</legend>
-      {grants.map((grant) => (
-        <label className="check-field" key={grant.id} title={grant.description}>
-          <input
-            type="checkbox"
-            checked={value.includes(grant.id)}
-            onChange={(event) =>
-              onChange(toggled(value, grant.id, event.target.checked))
-            }
-          />
-          {grant.label} · {grant.module_name}
-        </label>
-      ))}
-    </fieldset>
+    <>
+      <Field
+        label="Atalho de perfil"
+        value={preset}
+        onChange={(id) => {
+          const chosen = catalog.presets.find((p) => p.id === id);
+          if (chosen) onChange([...chosen.access]);
+        }}
+        emptyOption="Personalizado"
+        options={catalog.presets.map((p) => [p.id, p.label])}
+        help="Só preenche as caixas abaixo; ajuste depois se quiser."
+      />
+      <fieldset className="scope-grid">
+        <legend>Atendimento</legend>
+        {core.map((item) => box(item))}
+      </fieldset>
+      {mods.length > 0 && (
+        <fieldset className="scope-grid">
+          <legend>Módulos</legend>
+          {mods.map((mod) => (
+            <React.Fragment key={mod.id}>
+              {box(mod)}
+              {items
+                .filter((i) => i.role && i.module_id === mod.id)
+                .map((role) => box(role, true))}
+            </React.Fragment>
+          ))}
+        </fieldset>
+      )}
+    </>
   );
 }
 
-/** Listas novas só dos papéis que mudaram para esta pessoa. */
-function changedGrants(grants: Row[], person: string, chosen: string[]) {
-  const patch: Record<string, string[]> = {};
-  for (const grant of grants) {
-    const ids: string[] = grant.people.map((p: Row) => p.id);
-    const had = ids.includes(person),
-      wants = chosen.includes(grant.id);
-    if (had !== wants)
-      patch[grant.id] = wants
-        ? [...ids, person]
-        : ids.filter((id) => id !== person);
-  }
-  return patch;
+/** Resumo na lista: "Completo", "Completo · Técnico" ou os itens marcados. */
+function accessSummary(row: Row, items: Row[]) {
+  if (row.role === "admin") return "Tudo (administrador)";
+  const value = listOf(parse(row.access, null));
+  const label = (id: string) => items.find((i) => i.id === id)?.label || id;
+  const roles = value.filter((v) => v.includes(":")).map(label);
+  const base = value.includes("*")
+    ? ["Completo"]
+    : value.filter((v) => !v.includes(":")).map(label);
+  return [...base, ...roles].join(" · ") || "Nada";
 }
-
 function UserDialog({
   user,
-  grants,
+  catalog,
   onClose,
   onSaved,
 }: {
   /** Pessoa em edição; sem ela, cadastra uma nova. */
   user?: Row;
-  /** Papéis da área aberta, com quem tem cada um. */
-  grants: Row[];
+  /** Catálogo de acessos da área aberta (GET /access). */
+  catalog: Catalog | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -106,13 +174,10 @@ function UserDialog({
       ? { ...user, profiles: parse(user.profiles, []) }
       : { role: "operator" },
   );
-  const [roles, setRoles] = useState<string[]>(
-    user
-      ? grants
-          .filter((g) => g.people.some((p: Row) => p.id === user.id))
-          .map((g) => g.id)
-      : [],
+  const [access, setAccess] = useState<string[]>(
+    listOf(user ? parse(user.access, null) : null),
   );
+  const operator = (user?.role || form.role) !== "admin";
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
   return (
@@ -120,23 +185,20 @@ function UserDialog({
       title={user ? "Editar pessoa" : "Adicionar pessoa"}
       onClose={onClose}
       onSubmit={async () => {
-        let id = user?.id;
+        // O que a pessoa acessa (só atendente; o administrador tem tudo).
+        const chosen = operator && catalog ? { access } : {};
         if (user) {
-          const body = { ...form };
+          // form.access é o texto guardado; só a escolha nova vai junto.
+          const { access: _saved, ...rest } = form;
+          const body: Row = { ...rest, ...chosen };
           if (!body.password) delete body.password;
           await app.api("v1/users/" + form.id, "PATCH", body);
         } else
-          id = (
-            await app.api("v1/users", "POST", {
-              ...form,
-              role: form.role || "operator",
-              profiles: form.profiles || [app.profile],
-            })
-          ).id;
-        const patch = id ? changedGrants(grants, id, roles) : {};
-        if (Object.keys(patch).length)
-          await app.api(`${app.root}/settings`, "PUT", {
-            module_grants: patch,
+          await app.api("v1/users", "POST", {
+            ...form,
+            ...chosen,
+            role: form.role || "operator",
+            profiles: form.profiles || [app.profile],
           });
         toast("Salvo com sucesso.");
         await onSaved();
@@ -145,7 +207,12 @@ function UserDialog({
         onClose();
       }}
     >
-      <Field label="Nome" value={form.name} onChange={change("name")} required />
+      <Field
+        label="Nome"
+        value={form.name}
+        onChange={change("name")}
+        required
+      />
       {!user && (
         <Field
           label="E-mail"
@@ -188,7 +255,10 @@ function UserDialog({
           onChange={change("profiles")}
         />
       )}
-      <ModuleRoles grants={grants} value={roles} onChange={setRoles} />
+      {operator && catalog && (
+        <AccessEditor catalog={catalog} value={access} onChange={setAccess} />
+      )}
+      {!operator && <p>O administrador acessa tudo.</p>}
     </FormDialog>
   );
 }
@@ -196,13 +266,8 @@ function UserDialog({
 export function UsersPage() {
   const app = useApp();
   const list = useList("v1/users");
-  const grants = useResource(`${app.root}/grants`);
-  const roles: Row[] = grants.data?.data || [];
-  const rolesOf = (id: string) =>
-    roles
-      .filter((g) => g.people.some((p: Row) => p.id === id))
-      .map((g) => g.label)
-      .join(", ") || "—";
+  const catalog = useResource(`${app.root}/access`);
+  const items: Row[] = catalog.data?.data || [];
   const { busy, run } = useAction();
   const [editing, setEditing] = useState<Row | "new" | null>(null);
   return (
@@ -232,19 +297,17 @@ export function UsersPage() {
                 "Papel",
                 (row) => (row.role === "admin" ? "Administrador" : "Atendente"),
               ],
-              ...(roles.length
-                ? [
-                    [
-                      "grants",
-                      "Papéis nos módulos",
-                      (row: Row) => rolesOf(row.id),
-                    ] as [string, string, (row: Row) => string],
-                  ]
-                : []),
+              [
+                "access",
+                "O que acessa",
+                (row: Row) => accessSummary(row, items),
+              ] as [string, string, (row: Row) => string],
               [
                 "disabled",
                 "Acesso",
-                (row) => <Badge value={row.disabled ? "disabled" : "enabled"} />,
+                (row) => (
+                  <Badge value={row.disabled ? "disabled" : "enabled"} />
+                ),
               ],
             ]}
             action={(row) => (
@@ -277,10 +340,10 @@ export function UsersPage() {
       {editing && (
         <UserDialog
           user={editing === "new" ? undefined : editing}
-          grants={roles}
+          catalog={catalog.data || null}
           onClose={() => setEditing(null)}
           onSaved={async () => {
-            await Promise.all([list.reload(), grants.reload()]);
+            await list.reload();
             void app.refresh().catch(() => {});
           }}
         />
