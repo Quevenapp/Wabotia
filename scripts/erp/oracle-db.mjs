@@ -71,6 +71,9 @@ export async function oracleDb() {
   const blob = new Blob([readFileSync(file)]);
   const db = new PGlite({ loadDataDir: blob });
   await db.waitReady;
+  // O Postgres do Fagoo em produção roda em UTC; o PGlite herdaria o fuso da
+  // máquina e mudaria o texto de timestamptz no JSON ("…-03:00").
+  await db.exec("set timezone = 'UTC'");
   return db;
 }
 

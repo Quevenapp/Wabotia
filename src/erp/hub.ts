@@ -10,8 +10,8 @@
 //   de qualquer coisa da área (pipeline do WhatsApp, D1);
 // - nunca chama a instância da área de forma síncrona.
 import type { Env } from "../types";
-import { ERP_SCHEMA_VERSION, migrate } from "./schema/migrate";
-import { handleRpc } from "./engine/rpc-endpoint";
+import { ERP_SCHEMA_VERSION, migrate } from "./schema/migrate.ts";
+import { handleRpc } from "./engine/rpc-endpoint.ts";
 
 export const ERP_KIND = "erp";
 export const ERP_PROFILE_HEADER = "x-erp-profile";

@@ -1,8 +1,8 @@
 // Esquema do ERP no SQLite do objeto: versão em código, aplicada na primeira
 // chamada (não passa pelas migrações do D1). PRAGMA user_version não é
 // autorizado no objeto (prova 1), então a versão fica em erp_meta.
-import { ERP_DDL, ERP_DDL_HASH, ERP_DDL_VERSION } from "./ddl";
-import { ERP_SEED } from "./seed.generated";
+import { ERP_DDL, ERP_DDL_HASH, ERP_DDL_VERSION } from "./ddl.ts";
+import { ERP_SEED } from "./seed.generated.ts";
 
 export const ERP_SCHEMA_VERSION = ERP_DDL_VERSION;
 

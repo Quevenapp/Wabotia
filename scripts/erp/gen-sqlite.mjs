@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { overrides } from "./overrides.mjs";
-import { scaled } from "./gen-sqlite-lib.mjs";
+import { pgSelect, pgToLite, scaled } from "./gen-sqlite-lib.mjs";
 
 const catalog = JSON.parse(readFileSync("src/erp/schema/catalog.json", "utf8"));
 const MAX_SAFE = "9007199254740991";
@@ -58,11 +58,11 @@ function columnSpec(table, col) {
       throw new Unsupported(`numeric sem escala em ${key}: declare a escala em overrides.columns`);
     out.sql = "INTEGER";
     out.scale = scale;
+    // Até 15 dígitos o valor escalado cabe no número do JS. Acima, i64 lido
+    // por CAST(… AS TEXT): numeric(18,6) chega a 999999999999.999999
+    // (10^18 escalado), muito acima de 2^53 — o Fagoo testa esse teto.
     if (precision !== null && precision <= 15) out.codec = "dec";
-    else if (precision !== null && precision <= 18) {
-      out.codec = "dec";
-      out.checks.push(`abs(${q(col.name)}) <= ${MAX_SAFE}`);
-    } else out.codec = "dec_i64"; // lido por CAST(… AS TEXT)
+    else out.codec = "dec_i64";
   } else if (["timestamptz", "timestamp"].includes(base)) {
     out.sql = "INTEGER";
     out.codec = "timestamp_us";
@@ -483,63 +483,16 @@ const { oracleDb } = await import("./oracle-db.mjs");
 const db = await oracleDb();
 const seed = [];
 for (const [name, info] of Object.entries(columnsOut)) {
-  const rows = (await db.query(seedQuery(info))).rows;
+  const rows = (await db.query(pgSelect(info))).rows;
   if (!rows.length) continue;
   const names = Object.keys(rows[0]).filter((c) => info.columns[c]);
   seed.push({
     table: name,
     columns: names,
-    rows: rows.map((r) => names.map((c) => encodeSeed(r[c], info.columns[c]))),
+    rows: rows.map((r) => names.map((c) => pgToLite(r[c], info.columns[c]))),
   });
 }
 await db.close();
-
-/**
- * Consulta da semeadura: tempo em microssegundos desde a época (exato, sem
- * passar por Date), decimais como texto. ±infinity viram os extremos do i64.
- */
-function seedQuery(info) {
-  const select = Object.entries(info.columns)
-    .filter(([, c]) => !["fold", "computed"].includes(c.codec))
-    .map(([name, c]) => {
-      const col = q(name);
-      if (c.codec === "timestamp_us")
-        return `case when ${col} = 'infinity' then '9223372036854775807' when ${col} = '-infinity' then '-9223372036854775808' else (extract(epoch from ${col} - 'epoch'::timestamptz)::numeric * 1000000)::bigint::text end as ${col}`;
-      if (c.codec === "dec" || c.codec === "dec_i64") return `${col}::text as ${col}`;
-      if (c.codec === "int53" || c.codec === "int") return `${col}::text as ${col}`;
-      return col;
-    });
-  return `select ${select.join(",")} from ${q(info.schema)}.${q(info.table)}`;
-}
-
-function encodeSeed(v, col) {
-  if (v === null || v === undefined) return null;
-  switch (col.codec) {
-    case "bool":
-      return v ? 1 : 0;
-    case "timestamp_us": {
-      // PGlite devolve Date com milissegundos; os microssegundos do Postgres
-      // vêm por to_char na consulta da semeadura (ver seedQuery).
-      if (typeof v === "string" && /^-?\d+$/.test(v)) return v;
-      const at = new Date(v).getTime();
-      if (!Number.isFinite(at)) throw Error(`carimbo inválido na semeadura: ${String(v)}`);
-      return String(BigInt(at) * 1000n);
-    }
-    case "json":
-      return JSON.stringify(v);
-    case "date":
-      return v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
-    case "dec":
-    case "dec_i64":
-      return scaled(String(v), col.scale);
-    case "int53":
-    case "int":
-      return typeof v === "bigint" ? v.toString() : v;
-    default:
-      if (col.codec.startsWith("array:")) return JSON.stringify(v);
-      return typeof v === "object" ? JSON.stringify(v) : v;
-  }
-}
 
 for (const t of seed) {
   const insert = check.prepare(
