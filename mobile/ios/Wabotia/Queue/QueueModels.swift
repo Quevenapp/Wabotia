@@ -123,6 +123,46 @@ struct QueueOverview: Codable, Equatable {
     var queues: [QueueInfo]?
     var counters: [CounterInfo]?
     var recentCalls: [CallFrame]?
+    /// O que o cupom da senha traz, já resolvido pela área (servidor com `queue_coupon`; ausente nos antigos).
+    var coupon: QueueCoupon?
+}
+
+/// O cupom da senha configurado na área (docs/FILA-SENHAS.md, "Cupom da senha"), em `GET /queue` e em todo `snapshot`.
+struct QueueCoupon: Codable, Equatable {
+    /// Nulo: sem cabeçalho do estabelecimento.
+    var establishment: CouponEstablishment?
+    /// Pessoas à frente e espera estimada.
+    var position: Bool?
+    /// Rodapé (pode ter quebra de linha); nulo: sem rodapé.
+    var footer: String?
+    var whatsappQr: Bool?
+    /// `disabled`, `no_line` ou `no_number`: por que o QR não sai.
+    var whatsappQrIssue: String?
+    /// O motivo em pt-BR, para quem configura o aparelho (nunca no cupom).
+    var whatsappQrNotice: String?
+
+    /// O aviso para os ajustes do aparelho, quando o QR não sai.
+    var qrNotice: String? {
+        guard whatsappQrIssue != nil else { return nil }
+        let text = whatsappQrNotice?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? "O QR do WhatsApp não sai no cupom: confira a linha de WhatsApp da área no Wabotia." : text
+    }
+}
+
+struct CouponEstablishment: Codable, Equatable {
+    var name: String?
+    var documentDisplay: String?
+    var address: String?
+    var phone: String?
+
+    /// No formato do cadastro, para reaproveitar o cabeçalho do cupom. O cupom não diz o tipo do documento: 11 dígitos
+    /// é CPF (sai mascarado, o cupom vai para desconhecidos); o resto é CNPJ, que também pode ter letras.
+    var establishment: Establishment {
+        let digits = (documentDisplay ?? "").filter { $0.isASCII && $0.isNumber }
+        let letters = (documentDisplay ?? "").contains { $0.isLetter }
+        return Establishment(name: name, document: nil, documentType: digits.count == 11 && !letters ? "cpf" : "cnpj",
+                             documentDisplay: documentDisplay, address: address, phone: phone, footer: nil, configured: true)
+    }
 }
 
 /// Resposta de `POST /api/pairing/start`.

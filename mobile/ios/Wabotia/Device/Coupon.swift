@@ -3,25 +3,6 @@ import SwiftUI
 import ThermalPrinterKit
 import Printher
 
-/// O que a área escolhe mostrar no cupom da senha (configuração por área, que o servidor vai mandar). O padrão é o
-/// cupom de sempre: tudo ligado, legenda e rodapé do app e do cadastro.
-struct CouponOptions: Equatable {
-    /// Documento, endereço e telefone do cadastro da empresa, abaixo do nome.
-    var establishment = true
-    /// "N pessoas à sua frente · cerca de X min".
-    var position = true
-    /// Rodapé no fim do cupom.
-    var footer = true
-    /// QR do wa.me (só sai quando o servidor manda o link: a área precisa de uma linha de WhatsApp).
-    var whatsappQR = true
-    /// Texto abaixo do QR; `nil` usa o do app (`CouponText.whatsapp`).
-    var qrCaption: String? = nil
-    /// Rodapé próprio do cupom; `nil` usa o rodapé do cadastro da empresa.
-    var footerLines: [String]? = nil
-
-    static let standard = CouponOptions()
-}
-
 /// O que vai no cupom; separado da senha para o teste montar sem rede.
 struct CouponData: Equatable {
     var header: String
@@ -41,13 +22,14 @@ struct CouponData: Equatable {
     var footerLines: [String] = []
     /// `false` tira "pessoas à sua frente" do cupom.
     var showPosition = true
-    /// Texto abaixo do QR.
-    var qrCaption: String = CouponText.whatsapp
 
-    /// `header` é o nome do aparelho; com o estabelecimento lido do servidor, vale o nome dele (o nome da área quando
-    /// não há cadastro) e entram documento, endereço, telefone e rodapé, conforme o que a área ligou (`options`).
-    static func of(_ ticket: QueueTicket, header: String, establishment: Establishment? = nil, options: CouponOptions = .standard) -> CouponData {
-        CouponData(
+    /// Com o cupom da área (`QueueOverview.coupon`, servidor com `queue_coupon`), ele manda: cabeçalho do
+    /// estabelecimento só quando vier (nulo = sem cabeçalho, nem o nome do aparelho), posição se ligada, rodapé se
+    /// vier. Servidor antigo, sem `coupon`: o cupom de antes, com o estabelecimento de `GET /establishment` (ou o nome
+    /// do aparelho, `header`). O QR sai sempre que o servidor manda `whatsapp_link`; ele já o anula com o QR
+    /// desligado ou sem linha de WhatsApp com número.
+    static func of(_ ticket: QueueTicket, header: String, establishment: Establishment? = nil, coupon: QueueCoupon? = nil) -> CouponData {
+        var data = CouponData(
             header: establishment?.displayName ?? header,
             queueName: ticket.queueName ?? "",
             code: ticket.code ?? "",
@@ -55,12 +37,18 @@ struct CouponData: Equatable {
             issuedAt: ticket.createdAt ?? Int64(Date().timeIntervalSince1970 * 1000),
             ahead: ticket.ahead ?? 0,
             waitMinutes: ticket.waitMinutes,
-            whatsappLink: options.whatsappQR ? ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil } : nil,
-            headerLines: options.establishment ? establishment?.headerLines ?? [] : [],
-            footerLines: options.footer ? options.footerLines ?? establishment?.footerLines ?? [] : [],
-            showPosition: options.position,
-            qrCaption: options.qrCaption.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? CouponText.whatsapp
+            whatsappLink: ticket.whatsappLink.flatMap { $0.hasPrefix("https://") ? $0 : nil },
+            headerLines: establishment?.headerLines ?? [],
+            footerLines: establishment?.footerLines ?? []
         )
+        if let coupon {
+            let shop = coupon.establishment?.establishment
+            data.header = shop?.displayName ?? ""
+            data.headerLines = shop?.headerLines ?? []
+            data.footerLines = Establishment(footer: coupon.footer).footerLines
+            data.showPosition = coupon.position ?? true
+        }
+        return data
     }
 }
 
@@ -89,7 +77,8 @@ enum CouponText {
         }
     }
 
-    static let whatsapp = "Aponte a câmera e envie a mensagem: avisamos pelo WhatsApp quando for chamada"
+    /// Abaixo do QR; combina com a mensagem que o servidor deixa escrita ("Aperte ENVIAR para ser chamado pelo WhatsApp.").
+    static let whatsapp = "Aponte a câmera do celular para o QR e aperte ENVIAR no WhatsApp: avisamos quando for a sua vez"
 }
 
 /// O cupom da senha (porta do `SenhaTicketReceipt` do Android): empresa, fila, tipo, número em corpo triplo, hora,
@@ -103,7 +92,9 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
         guard let d = data, let big = ThermalTextSize(widthMultiplier: 3, heightMultiplier: 3) else { return nil }
         let center: UInt8 = 1
         var out = Data()
-        out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
+        if !d.header.trimmingCharacters(in: .whitespaces).isEmpty {
+            out.append(layout.text(layout.wrap(d.header) + "\n", alignment: center, bold: true, size: .normal))
+        }
         for line in d.headerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
         if !d.queueName.trimmingCharacters(in: .whitespaces).isEmpty {
             out.append(layout.text(layout.wrap(d.queueName) + "\n", alignment: center, bold: false, size: .normal))
@@ -119,7 +110,7 @@ final class SenhaTicketReceipt: ThermalReceiptPayload {
         // sem o QR, em vez de o cupom inteiro falhar.
         if let link = d.whatsappLink, let qr = layout.qr(payload: link) {
             out.append(qr)
-            out.append(layout.text(layout.wrap(d.qrCaption) + "\n", alignment: center, bold: false, size: .normal))
+            out.append(layout.text(layout.wrap(CouponText.whatsapp) + "\n", alignment: center, bold: false, size: .normal))
         }
         for line in d.footerLines { out.append(layout.text(layout.wrap(line) + "\n", alignment: center, bold: false, size: .normal)) }
         out.append(layout.finish())

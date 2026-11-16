@@ -179,6 +179,8 @@ struct IssuedTicketCard: View {
     let ticket: QueueTicket
     let print: TicketPrint?
     let header: String
+    /// O cupom da área: a tela segue o que o papel mostra (posição na fila).
+    var coupon: QueueCoupon? = nil
     let onReprint: (Bool) -> Void
     let onDone: () -> Void
     @Environment(\.panelStyle) private var s
@@ -186,13 +188,15 @@ struct IssuedTicketCard: View {
     @State private var confirmReprint = false
 
     var body: some View {
-        let data = CouponData.of(ticket, header: header)
+        let data = CouponData.of(ticket, header: header, coupon: coupon)
         VStack(spacing: base * 0.5) {
             Text("Sua senha · \(CouponText.type(data))").font(s.text(base * 1.1)).foregroundStyle(s.muted)
             Text(ticket.displayCode).font(s.display(base * 5)).foregroundStyle(s.fg).lineLimit(1).minimumScaleFactor(0.5)
                 .accessibilityIdentifier("device.issued.code")
             Text(ticket.queueName ?? "").font(s.text(base * 1.1)).foregroundStyle(s.fg)
-            Text(CouponText.position(data)).font(s.text(base * 1.05)).foregroundStyle(s.fg)
+            if data.showPosition {
+                Text(CouponText.position(data)).font(s.text(base * 1.05)).foregroundStyle(s.fg)
+            }
             Text(printText).font(s.text(base * 0.95)).foregroundStyle(print?.isFailure == true ? Color.red : s.muted)
                 .multilineTextAlignment(.center)
             if let link = data.whatsappLink, let image = QRCode.image(link) {

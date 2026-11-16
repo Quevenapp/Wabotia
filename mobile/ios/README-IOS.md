@@ -60,6 +60,11 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 - **Impressora.** Uma configuração do ThermalPrinterKit para o app inteiro (`WabotiaPrinting`), escolhida em
   Ajustes → Impressão → Impressora do cupom; resultado incerto pede confirmação antes da segunda via. No modo aparelho, a linha
   aparece na engrenagem em todos os papéis, mas só o Totem e o Painel híbrido imprimem; no Painel de chamadas ela diz isso.
+- **Cupom da senha.** Segue `QueueOverview.coupon` (docs/FILA-SENHAS.md, "Cupom da senha"): cabeçalho do
+  estabelecimento só quando vier (CPF de 11 dígitos sai mascarado), posição se ligada, rodapé se vier, QR sempre que a
+  senha trouxer `whatsapp_link`. Servidor sem `coupon`: o cupom de antes, com `GET /establishment`. O motivo de o QR não
+  sair (`whatsapp_qr_notice`) aparece nos ajustes do totem, nunca no papel. Um QR que não cabe na largura do papel é
+  deixado de fora e a senha sai mesmo assim.
 - **Tudo nativo**, iOS 15 ou superior, iPhone e iPad (`TARGETED_DEVICE_FAMILY` 1,2; retrato no iPhone, exceto o modo
   aparelho).
 

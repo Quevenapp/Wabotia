@@ -105,29 +105,45 @@ final class TotemCouponTests: XCTestCase {
         XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("WhatsApp"), "sem QR, sem a legenda dele")
     }
 
-    func testCouponOptionsTurnPartsOff() throws {
-        let establishment = Establishment(name: "Centro Exemplo", document: "11.222.333/0001-81", address: "Rua A, 1", phone: "(20) 3000-1234", footer: "Volte sempre", configured: true)
-        let full = CouponData.of(ticket, header: "Totem", establishment: establishment)
-        XCTAssertFalse(full.headerLines.isEmpty)
-        XCTAssertEqual(full.footerLines, ["Volte sempre"])
-        XCTAssertTrue(full.showPosition)
-        XCTAssertEqual(full.qrCaption, CouponText.whatsapp)
+    private func coupon(_ json: String) throws -> QueueCoupon {
+        try QueueJSON.decoder.decode(QueueOverview.self, from: Data(#"{"queues":[],"coupon":\#(json)}"#.utf8)).coupon!
+    }
 
-        let off = CouponData.of(ticket, header: "Totem", establishment: establishment,
-                                options: CouponOptions(establishment: false, position: false, footer: false, whatsappQR: false))
-        XCTAssertEqual(off.header, "Centro Exemplo", "o nome da empresa continua no topo")
-        XCTAssertTrue(off.headerLines.isEmpty)
-        XCTAssertTrue(off.footerLines.isEmpty)
-        XCTAssertNil(off.whatsappLink)
-        let text = String(decoding: try XCTUnwrap(SenhaTicketReceipt(off).receiptBytes(layout: .portable58mm)), as: UTF8.self)
+    func testCouponFromTheAreaDecidesTheParts() throws {
+        let full = try coupon(#"{"establishment":{"name":"Clínica Exemplo","document_display":"11.222.333/0001-81","address":"Rua A, 1\nCentro","phone":"(11) 3000-0000"},"position":true,"footer":"Obrigado pela visita!\nVolte sempre","whatsapp_qr":true,"whatsapp_qr_issue":null,"whatsapp_qr_notice":null}"#)
+        XCTAssertNil(full.qrNotice)
+        let data = CouponData.of(ticket, header: "Totem da entrada", coupon: full)
+        XCTAssertEqual(data.header, "Clínica Exemplo")
+        XCTAssertEqual(data.headerLines, ["CNPJ 11.222.333/0001-81", "Rua A, 1", "Centro", "(11) 3000-0000"])
+        XCTAssertEqual(data.footerLines, ["Obrigado pela visita!", "Volte sempre"])
+        XCTAssertTrue(data.showPosition)
+        XCTAssertNotNil(data.whatsappLink, "o QR segue o whatsapp_link da senha")
+
+        let off = try coupon(#"{"establishment":null,"position":false,"footer":null,"whatsapp_qr":false,"whatsapp_qr_issue":"disabled","whatsapp_qr_notice":"O QR do WhatsApp está desligado nas configurações do cupom."}"#)
+        var noLink = ticket
+        noLink.whatsappLink = nil
+        let bare = CouponData.of(noLink, header: "Totem da entrada", establishment: Establishment(name: "Cadastro antigo"), coupon: off)
+        XCTAssertEqual(bare.header, "", "estabelecimento nulo: sem cabeçalho, nem o nome do aparelho")
+        XCTAssertTrue(bare.headerLines.isEmpty)
+        XCTAssertTrue(bare.footerLines.isEmpty)
+        XCTAssertFalse(bare.showPosition)
+        XCTAssertEqual(off.qrNotice, "O QR do WhatsApp está desligado nas configurações do cupom.")
+        let text = String(decoding: try XCTUnwrap(SenhaTicketReceipt(bare).receiptBytes(layout: .portable58mm)), as: UTF8.self)
         XCTAssertFalse(text.contains("frente"), "sem a posição na fila")
+        XCTAssertFalse(text.contains("Totem da entrada"))
         XCTAssertTrue(text.contains("P004"))
+        XCTAssertFalse(text.contains("O QR do WhatsApp"), "o motivo vai para quem configura, nunca para o papel")
+    }
 
-        let custom = CouponData.of(ticket, header: "Totem", establishment: establishment,
-                                   options: CouponOptions(qrCaption: "Aperte ENVIAR para ser chamado pelo WhatsApp", footerLines: ["Obrigado"]))
-        XCTAssertEqual(custom.qrCaption, "Aperte ENVIAR para ser chamado pelo WhatsApp")
-        XCTAssertEqual(custom.footerLines, ["Obrigado"], "rodapé próprio do cupom no lugar do rodapé do cadastro")
-        XCTAssertTrue(String(decoding: try XCTUnwrap(SenhaTicketReceipt(custom).receiptBytes(layout: .portable58mm)), as: UTF8.self).contains("Aperte ENVIAR"))
+    func testCouponCpfIsMaskedAndOldServersKeepTheOldCoupon() throws {
+        let cpf = try coupon(#"{"establishment":{"name":"Maria MEI","document_display":"123.456.789-09","address":"","phone":""},"position":true,"footer":null,"whatsapp_qr":true,"whatsapp_qr_issue":"no_line","whatsapp_qr_notice":""}"#)
+        XCTAssertEqual(CouponData.of(ticket, header: "x", coupon: cpf).headerLines, ["CPF ***.456.789-**"], "CPF de quem cadastrou o próprio sai mascarado")
+        XCTAssertNotNil(cpf.qrNotice, "motivo sem texto ainda avisa")
+        let legacy = CouponData.of(ticket, header: "Totem da entrada", establishment: Establishment(name: "Centro", footer: "Volte"))
+        XCTAssertEqual(legacy.header, "Centro")
+        XCTAssertEqual(legacy.footerLines, ["Volte"])
+        XCTAssertTrue(legacy.showPosition)
+        XCTAssertNil(try QueueJSON.decoder.decode(QueueOverview.self, from: Data(#"{"queues":[]}"#.utf8)).coupon)
     }
 
     func testPrintResultMapping() {
@@ -242,6 +258,27 @@ final class DeviceViewModelTests: XCTestCase {
         let issueBody = StubURLProtocol.seen.first { $0.method == "POST" }?.json
         XCTAssertEqual(issueBody?["queue_id"] as? String, "q1")
         XCTAssertEqual(issueBody?["preferential"] as? Bool, false)
+    }
+
+    func testTotemPrintsWithTheAreaCouponAndShowsWhyTheQrIsMissing() async {
+        let vm = model(role: .totem) { seen in
+            if seen.method == "POST" {
+                return .json(200, #"{"id":"tn","queue_id":"q1","queue_name":"Geral","code":"N004","preferential":false,"status":"waiting","ahead":2,"wait_minutes":8,"created_at":1763215200000,"whatsapp_link":null}"#)
+            }
+            if seen.url.path.hasSuffix("/establishment") { return .json(200, #"{"name":"Cadastro","footer":"Rodapé antigo"}"#) }
+            return .json(200, #"{"queues":[{"id":"q1","name":"Geral","prefix_normal":"N","channels":["kiosk"],"waiting":{"normal":0,"preferential":0}}],"counters":[],"recent_calls":[],"coupon":{"establishment":{"name":"Clínica Exemplo","document_display":"","address":"Rua A, 1","phone":""},"position":true,"footer":"Obrigado!","whatsapp_qr":true,"whatsapp_qr_issue":"no_line","whatsapp_qr_notice":"A área não tem linha de WhatsApp: o QR não sai no cupom."}}"#)
+        }
+        await waitUntil { vm.overview != nil }
+        XCTAssertEqual(vm.couponQrNotice, "A área não tem linha de WhatsApp: o QR não sai no cupom.")
+        vm.chooseQueue("q1")
+        vm.issue(preferential: false)
+        await waitUntil { vm.couponPrint == .printed }
+        vm.close()
+        let printed = printer.printed.first
+        XCTAssertEqual(printed?.header, "Clínica Exemplo", "o cupom da área vale mais que o cadastro lido à parte")
+        XCTAssertEqual(printed?.headerLines, ["Rua A, 1"])
+        XCTAssertEqual(printed?.footerLines, ["Obrigado!"])
+        XCTAssertNil(printed?.whatsappLink)
     }
 
     func testUncertainIssueReusesTheKeyOnTheNextSameTap() async {

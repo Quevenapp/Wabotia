@@ -309,6 +309,12 @@ private struct DeviceSettingsScreen: View {
                                     .buttonStyle(.plain)
                             }
                         }
+                        // Por que o QR do WhatsApp não sai no cupom (sem linha, sem número, desligado): para quem
+                        // configura o totem, nunca no papel.
+                        if config.role?.totem == true, let notice = vm.couponQrNotice {
+                            DeviceNotice(text: notice, color: Theme.warn)
+                                .accessibilityIdentifier("device.couponQrNotice")
+                        }
                         if config.role != nil { GuidedAccessCard(status: guided) }
                         SectionCard(title: "Conexão") {
                             CardRow(icon: "globe", iconColor: vm.revoked || vm.offline ? Theme.danger : Theme.ok,
@@ -572,7 +578,7 @@ private struct DevicePanelScreen: View {
         let blocked = vm.busy || vm.offline || vm.revoked
         if let overview = vm.overview {
             let issuedCard = vm.issued.map { ticket in
-                IssuedTicketCard(ticket: ticket, print: vm.couponPrint, header: config.name, onReprint: vm.reprint(confirmed:), onDone: vm.clearIssued)
+                IssuedTicketCard(ticket: ticket, print: vm.couponPrint, header: config.name, coupon: overview.coupon, onReprint: vm.reprint(confirmed:), onDone: vm.clearIssued)
             }
             if let issuedCard, role.totem, !(role.panel && landscape) {
                 ScrollView { issuedCard }

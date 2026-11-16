@@ -22,6 +22,9 @@ final class DemoQueueTests: XCTestCase {
         XCTAssertEqual(overview.counters?.count, 3)
         XCTAssertFalse(overview.recentCalls?.isEmpty ?? true, "o painel abre com chamadas da manhã")
         XCTAssertGreaterThan(overview.queues?.first?.waiting?.total ?? 0, 0)
+        XCTAssertEqual(overview.coupon?.position, true, "cupom da área com tudo ligado")
+        XCTAssertNotNil(overview.coupon?.establishment)
+        XCTAssertNil(overview.coupon?.qrNotice, "a demonstração tem linha de WhatsApp: o QR sai")
     }
 
     func testKioskIssueIsIdempotent() async throws {
@@ -32,6 +35,10 @@ final class DemoQueueTests: XCTestCase {
         XCTAssertTrue(first.code?.hasPrefix("P") == true)
         XCTAssertEqual(first.source, "kiosk")
         XCTAssertTrue(first.whatsappLink?.hasPrefix("https://wa.me/5520") == true, "linha fictícia, DDD 20")
+        let text = URLComponents(string: first.whatsappLink ?? "")?.queryItems?.first { $0.name == "text" }?.value
+        XCTAssertEqual(text?.components(separatedBy: "\n").first, "Aperte ENVIAR para ser chamado pelo WhatsApp.")
+        XCTAssertTrue(text?.contains("SENHA \(first.code ?? "")") == true)
+        XCTAssertTrue(text?.hasSuffix("/imagemwa") == true)
         let other = try await c.issue(queueId: "dq-geral", preferential: true, key: "demo-key-2")
         XCTAssertNotEqual(other.id, first.id)
         do {

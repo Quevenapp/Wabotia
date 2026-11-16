@@ -14,6 +14,14 @@ final class DemoQueue {
     static let userCode = "DEMO-2345"
     /// Linha de WhatsApp fictícia do QR do cupom.
     static let whatsappLine = "5520900000001"
+
+    /// O texto já escrito no WhatsApp pelo QR, codificado para a URL (docs/FILA-SENHAS.md, "Cupom da senha").
+    static func whatsappText(code: String, link: String) -> String {
+        let text = "Aperte ENVIAR para ser chamado pelo WhatsApp.\nSENHA \(code) \(link)\n\(DemoMode.serverURL.absoluteString)/imagemwa"
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
     static let normalsPerPreferential = 2
     static let serviceMinutes = 6.0
     static let autoCallMs: Int64 = 20_000
@@ -352,6 +360,11 @@ final class DemoQueue {
             },
             "counters": counters.map { counterRow($0, now) },
             "recent_calls": calls,
+            // Cupom da área com tudo ligado e a linha de WhatsApp fictícia (o QR sai).
+            "coupon": ["establishment": ["name": DemoMode.profileName, "document_display": "", "address": "Rua Exemplo, 100 — Centro\nCidade Exemplo/SP",
+                                         "phone": "(20) 3000-0000"],
+                       "position": true, "footer": "Demonstração: dados fictícios.", "whatsapp_qr": true,
+                       "whatsapp_qr_issue": NSNull(), "whatsapp_qr_notice": NSNull()] as Row,
         ]
     }
 
@@ -372,7 +385,8 @@ final class DemoQueue {
             "phone": n(t.phone), "conversation_id": n(t.conversationId), "window_open": n(t.phone.map { !$0.hasSuffix("7") }),
             "created_at": t.createdAt, "called_at": n(t.calledAt), "started_at": n(t.startedAt), "finished_at": n(t.finishedAt),
             "service_day": localDay(t.createdAt), "public_token": "demo\(t.id)",
-            "whatsapp_link": "https://wa.me/\(Self.whatsappLine)?text=SENHA%20\(t.code)%20DEMO\(t.id.filter(\.isNumber))",
+            // O mesmo texto do servidor: instrução para quem não usa muito o WhatsApp, a senha com o código e a imagem.
+            "whatsapp_link": "https://wa.me/\(Self.whatsappLine)?text=" + Self.whatsappText(code: t.code, link: "DEMO\(t.id.filter(\.isNumber))"),
         ]
     }
 
