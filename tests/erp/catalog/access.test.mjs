@@ -1,14 +1,10 @@
-// erp_catalog.allowed, require_access e detail_uuid contra o oráculo.
-// Leitura de contatos e produtos passa por erp_access.resources_for_role,
-// ainda stub (Acesso, N): enquanto for, essas combinações só provam o 0A000
-// do stub, e o teste as pula (PENDENTE abaixo).
+// erp_catalog.allowed, require_access e detail_uuid contra o oráculo (a
+// leitura de contatos e produtos passa por erp_access.resources_for_role).
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { dualFixture, ROLES } from "../harness/dual-fixture.mjs";
 import { inTransaction } from "../../../src/erp/engine/registry.ts";
-import { isPorted } from "../../../src/erp/engine/registry.ts";
 import { allowed, detailUuid, requireAccess } from "../../../src/erp/domains/catalog/public.ts";
-import * as access from "../../../src/erp/domains/access/public.ts";
 
 let f;
 before(async () => {
@@ -17,16 +13,6 @@ before(async () => {
 after(async () => f?.close());
 
 const lite = (fn) => () => inTransaction(f.driver, (ctx) => fn(ctx.db));
-/** resources_for_role ainda é stub? */
-const pendingResources = (() => {
-  try {
-    access.resourcesForRole("admin");
-    return false;
-  } catch {
-    return true;
-  }
-})();
-const needsResources = (entity, write) => write !== true && (entity === "contacts" || entity === "products");
 
 test("allowed e require_access: papéis, entidades, escrita e a chave .ie", async () => {
   // Sem a chave .ie de produtos para o estoque (controle fino de permissões).
@@ -48,14 +34,12 @@ test("allowed e require_access: papéis, entidades, escrita e a chave .ie", asyn
   for (const role of [...ROLES.filter((r) => r !== "inactive" && r !== "vendedor"), null, "outro"])
     for (const entity of ["contacts", "products", "warehouses", "sales_orders", null])
       for (const write of [true, false, null]) {
-        if (pendingResources && needsResources(entity, write)) continue;
         await f.dual("allowed", async () => (await f.db.query("select erp_catalog.allowed($1,$2,$3) v", [role, entity, write])).rows[0].v, () => allowed(role, entity, write));
         compared++;
       }
   for (const [name, user] of Object.entries(f.users))
     for (const entity of ["contacts", "products", "warehouses", "x"])
       for (const write of [true, false, null]) {
-        if (pendingResources && needsResources(entity, write) && name !== "inactive") continue;
         await f
           .dual(
             "require_access",
@@ -66,7 +50,6 @@ test("allowed e require_access: papéis, entidades, escrita e a chave .ie", asyn
         compared++;
       }
   assert.ok(compared > 60);
-  if (pendingResources) console.log("# PENDENTE: leitura de contatos e produtos espera erp_access.resources_for_role (N)");
 });
 
 test("detail_uuid", async () => {
@@ -78,5 +61,4 @@ test("detail_uuid", async () => {
         () => detailUuid(value),
       )
       .catch((e) => assert.equal(e.code, "22023"));
-  assert.equal(isPorted("erp_catalog_employee_get"), true);
 });
