@@ -86,7 +86,12 @@ object CourierTexts {
 
     fun sharing(delivery: CourierDelivery) = "Compartilhando sua localização com a loja e o cliente — ${delivery.label}"
 
-    const val ENTRY_HELP = "Para quem entrega: escaneie o QR do pedido que a loja entregou. Sem conta; o acesso termina quando a entrega acaba."
+    /** "Entrega da loja X, servidor host": o entregador confere antes de o código ser gasto. */
+    fun confirmBody(store: String?, host: String) =
+        (if (store != null) "Pedido da loja $store, no servidor $host." else "Pedido no servidor $host.") +
+            " Continue só se for a loja que entregou o pedido a você."
+
+    const val ENTRY_HELP = "Escaneie o QR do pedido que a loja entregou. Não precisa informar o servidor nem ter conta, e dá para atender várias lojas; o acesso termina quando a entrega acaba."
 
     const val CONSENT =
         "Durante a entrega, o Wabotia compartilha a sua localização com o estabelecimento e com o cliente deste pedido, " +

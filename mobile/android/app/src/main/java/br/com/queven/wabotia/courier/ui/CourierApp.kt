@@ -75,6 +75,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import br.com.queven.wabotia.courier.CourierConfirm
 import br.com.queven.wabotia.courier.CourierDelivery
 import br.com.queven.wabotia.courier.CourierLinks
 import br.com.queven.wabotia.courier.CourierMessage
@@ -154,14 +155,10 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
                 state.ended && state.deliveries.isEmpty() -> EmptyState(Icons.Filled.CheckCircle, "Entregas encerradas", subtitle = "O acesso às entregas terminou. Voltando à tela inicial…")
                 showScanner -> ScanScreen(
                     demo = demo,
-                    claiming = state.claiming,
+                    claiming = state.claiming || state.confirm != null,
                     canGoBack = state.deliveries.isNotEmpty(),
                     onBack = { if (state.deliveries.isNotEmpty()) scanning = false else onExit() },
-                    onCode = { raw ->
-                        val link = CourierLinks.parse(raw)
-                        if (link == null) false else { vm.claim(link); true }
-                    },
-                    onDemo = { index -> vm.claim(DemoCourierBackend.demoLink(index)) },
+                    onCode = vm::scanned,
                 )
                 state.open == null && state.deliveries.size > 1 -> DeliveryList(state.deliveries, onOpen = vm::open, onScan = { scanning = true }, onExit = onExit)
                 open != null -> DeliveryScreen(
@@ -183,7 +180,32 @@ fun CourierApp(vm: CourierViewModel, demo: Boolean, onExit: () -> Unit) {
         }
     }
 
+    state.confirm?.let { ConfirmStoreDialog(it, onContinue = vm::confirmContinue, onCancel = vm::cancelConfirm) }
     state.pendingLink?.let { NameDialog(initial = state.name.orEmpty(), onConfirm = vm::claimWithName, onDismiss = vm::dismissName) }
+}
+
+/**
+ * Antes de gastar o código: a loja (lida sem gastar o QR) e o servidor do QR, para o entregador conferir que é a loja
+ * certa. Continuar troca o código; Cancelar não gasta nada.
+ */
+@Composable
+private fun ConfirmStoreDialog(confirm: CourierConfirm, onContinue: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        icon = { Icon(Icons.Filled.Storefront, contentDescription = null, tint = Wb.colors.brand) },
+        title = { Text(if (confirm.loading) "Lendo o pedido…" else "Entrega da loja ${confirm.store ?: confirm.link.host}") },
+        text = {
+            Column {
+                if (confirm.loading) {
+                    CircularProgressIndicator(color = Wb.colors.brand)
+                } else {
+                    Text(CourierTexts.confirmBody(confirm.store, confirm.link.host), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onContinue, enabled = !confirm.loading, modifier = Modifier.testTag("courier.continue")) { Text("Continuar", fontWeight = FontWeight.SemiBold) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancelar") } },
+    )
 }
 
 /** O servidor exige o nome na troca do QR: o cliente vê "Carlos - Entregador" nas mensagens. Pergunta uma vez só. */
@@ -222,15 +244,15 @@ private fun ScanScreen(
     claiming: Boolean,
     canGoBack: Boolean,
     onBack: () -> Unit,
-    onCode: (String) -> Boolean,
-    onDemo: (Int) -> Unit,
+    onCode: (String) -> Unit,
 ) {
     val c = Wb.colors
     val context = LocalContext.current
     var camera by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     var asked by rememberSaveable { mutableStateOf(false) }
     var typed by rememberSaveable { mutableStateOf("") }
-    var wrong by remember { mutableStateOf(false) }
+    // A câmera lê o mesmo QR várias vezes por segundo: cada texto vai uma vez só.
+    var last by remember { mutableStateOf<String?>(null) }
     val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { camera = it }
     LaunchedEffect(Unit) {
         // Na demonstração não pede a câmera: os botões dos pedidos fictícios bastam (e o revisor da loja não tem o QR).
@@ -253,11 +275,11 @@ private fun ScanScreen(
                 Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(c.surface), contentAlignment = Alignment.Center) {
                     when {
                         claiming -> CircularProgressIndicator(color = c.brand)
-                        camera && !demo -> QrScanner(onCode = { raw -> if (!claiming) wrong = !onCode(raw) }, modifier = Modifier.fillMaxSize())
+                        camera && !demo -> QrScanner(onCode = { raw -> if (!claiming && raw != last) { last = raw; onCode(raw) } }, modifier = Modifier.fillMaxSize())
                         demo -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             Icon(Icons.Filled.QrCodeScanner, contentDescription = null, tint = c.muted, modifier = Modifier.size(64.dp))
                             Spacer(Modifier.height(8.dp))
-                            Text("Na demonstração, escolha um pedido de exemplo abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            Text("Na demonstração não há câmera: use Simular leitura abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
                         }
                         else -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             Text("Sem acesso à câmera. Libere para ler o QR, ou cole o link abaixo.", color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
@@ -266,29 +288,37 @@ private fun ScanScreen(
                     }
                 }
             }
-            if (wrong) item("wrong") { InlineNotice("Este QR não é de um pedido do Wabotia.", onDismiss = { wrong = false }) }
             if (demo) {
-                item("demo-label") { SectionLabel("Pedidos de demonstração") }
+                // Duas lojas diferentes, cada uma no próprio servidor: o mesmo caminho da câmera, com o texto do QR.
+                item("demo-label") { SectionLabel("Simular leitura") }
                 item("demo") {
                     WbCard {
-                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 12 · Lanchonete Exemplo", subtitle = "Mariana · dinheiro com troco", enabled = !claiming, onClick = { onDemo(0) })
-                        RowDivider()
-                        SettingsRow(Icons.Filled.Storefront, "Pedido nº 15 · Lanchonete Exemplo", subtitle = "Rafael · pago pelo link", enabled = !claiming, onClick = { onDemo(1) })
+                        DemoCourierBackend.QRS.forEachIndexed { i, qr ->
+                            if (i > 0) RowDivider()
+                            SettingsRow(
+                                Icons.Filled.QrCodeScanner,
+                                "Simular leitura · ${DemoCourierBackend.storeOf(i)}",
+                                subtitle = qr.removePrefix("https://").substringBefore('/'),
+                                enabled = !claiming,
+                                onClick = { onCode(qr) },
+                                modifier = Modifier.testTag("courier.simulate.$i"),
+                            )
+                        }
                     }
                 }
             }
             item("typed") {
                 OutlinedTextField(
                     value = typed,
-                    onValueChange = { typed = it; wrong = false },
+                    onValueChange = { typed = it },
                     modifier = Modifier.fillMaxWidth().testTag("courier.code"),
                     singleLine = true,
                     label = { Text("Ou cole o link do pedido") },
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, imeAction = ImeAction.Go, autoCorrectEnabled = false),
-                    keyboardActions = KeyboardActions(onGo = { wrong = !onCode(typed) }),
+                    keyboardActions = KeyboardActions(onGo = { onCode(typed) }),
                 )
             }
-            item("go") { PrimaryButton("Abrir pedido", onClick = { wrong = !onCode(typed) }, enabled = typed.isNotBlank() && !claiming, loading = claiming) }
+            item("go") { PrimaryButton("Abrir pedido", onClick = { onCode(typed) }, enabled = typed.isNotBlank() && !claiming, loading = claiming) }
         }
     }
 }
@@ -308,7 +338,7 @@ private fun DeliveryList(deliveries: List<CourierDelivery>, onOpen: (String) -> 
                                 Text(d.label, style = MaterialTheme.typography.titleMedium, color = Wb.colors.textPrimary, modifier = Modifier.weight(1f))
                                 (CourierTexts.eta(d) ?: d.statusLabel)?.let { Pill(it, if (d.enRoute) Wb.colors.ok else Wb.colors.warn) }
                             }
-                            Text(d.customerName, color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            Text(listOfNotNull(d.store, d.customerName.ifBlank { null }).joinToString(" · "), color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
                             Text(d.address.lines().firstOrNull().orEmpty(), color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -366,7 +396,7 @@ private fun DeliveryScreen(
     }
 
     Column(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
-        DetailTopBar(delivery.label, onBack = onBack, subtitle = delivery.statusLabel) {
+        DetailTopBar(delivery.label, onBack = onBack, subtitle = listOfNotNull(delivery.store, delivery.statusLabel).joinToString(" · ").ifBlank { null }) {
             IconButton(onClick = onScan) { Icon(Icons.Filled.QrCodeScanner, contentDescription = "Escanear outro pedido", tint = c.textPrimary) }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

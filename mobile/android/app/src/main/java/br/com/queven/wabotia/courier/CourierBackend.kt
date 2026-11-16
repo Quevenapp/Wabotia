@@ -19,6 +19,9 @@ import java.util.UUID
 
 /** Tudo o que o modo entregador pede ao servidor. É a única costura com o contrato. */
 interface CourierBackend {
+    /** Leitura pública do QR, que não gasta o código: a loja e se ainda vale. */
+    suspend fun preview(link: CourierLink): CourierPreview
+
     /** Troca o QR pela credencial da entrega; [name] é o nome que o cliente vê ("Carlos - Entregador"). */
     suspend fun claim(link: CourierLink, name: String, device: String): Pair<CourierSession, CourierDelivery>
 
@@ -64,10 +67,14 @@ class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : Courier
     @Serializable private data class NoteBody(val note: String? = null)
     @Serializable private data class ReasonBody(val reason: String)
 
+    override suspend fun preview(link: CourierLink): CourierPreview =
+        call(link.server + "/c/" + link.code, null, "GET", null, idempotent = false, CourierPreview.serializer(), claim = true)
+
     override suspend fun claim(link: CourierLink, name: String, device: String): Pair<CourierSession, CourierDelivery> {
         val body = json(ClaimBody.serializer(), ClaimBody(link.code, name, device))
         val reply = call(link.server + "/api/credentials/claim", null, "POST", body, idempotent = false, ClaimReply.serializer(), claim = true)
         val delivery = reply.data.delivery.let { d -> if (d.app == null && reply.data.app != null) d.copy(app = reply.data.app) else d }
+        // O servidor é sempre o do QR: as chamadas desta entrega vão só para ele.
         return CourierSession(link.server, reply.token, reply.profile, reply.subject, reply.expiresAt) to delivery
     }
 

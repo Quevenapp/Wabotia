@@ -52,7 +52,7 @@ class CourierActivity : ComponentActivity() {
 
     /** Link do pedido (`https://<servidor>/c/<código>`) e, no build de depuração, `--es courier revoke|claim:0`. */
     private fun handle(intent: Intent?) {
-        intent?.getStringExtra(EXTRA_LINK)?.let(CourierLinks::parse)?.let { vm?.claim(it) }
+        intent?.getStringExtra(EXTRA_LINK)?.let { vm?.scanned(it) }
         if (BuildConfig.DEBUG && intent?.getStringExtra(EXTRA_DEBUG) == "revoke") demoBackend?.revokeAll()
         if (BuildConfig.DEBUG) intent?.getStringExtra(EXTRA_DEBUG)?.removePrefix("claim:")?.toIntOrNull()?.let { index ->
             if (index in DemoCourierBackend.CODES.indices) vm?.claim(DemoCourierBackend.demoLink(index))

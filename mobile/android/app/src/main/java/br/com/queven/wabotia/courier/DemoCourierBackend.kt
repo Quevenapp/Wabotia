@@ -14,18 +14,25 @@ class DemoCourierBackend(private val clock: () -> Long = System::currentTimeMill
     private val entries = mutableMapOf<String, Entry>()
     private var seq = 0L
 
+    override suspend fun preview(link: CourierLink): CourierPreview {
+        delay(250)
+        val template = TEMPLATES[link.code]
+        val open = template != null && entries[template.id]?.revoked != false
+        return CourierPreview(valid = open, store = template?.let { STORES[it.id] }, server = link.server)
+    }
+
     override suspend fun claim(link: CourierLink, name: String, device: String): Pair<CourierSession, CourierDelivery> {
         delay(300)
         val template = TEMPLATES[link.code] ?: throw CourierFailure("Este QR não é de um pedido desta loja.", 404, "claim_not_found")
         if (entries[template.id]?.revoked == false) throw CourierFailure("Este QR já foi lido. Peça à loja um QR novo.", 410, "claim_used")
         val now = clock()
         val messages = mutableListOf(
-            CourierMessage(++seq, "store", "store", "Lanchonete Exemplo", "Pedido pronto no balcão. Pode retirar, e boa entrega!", now - 120_000),
+            CourierMessage(++seq, "store", "store", STORES[template.id].orEmpty(), "Pedido pronto no balcão. Pode retirar, e boa entrega!", now - 120_000),
             CourierMessage(++seq, "customer", "customer", template.customerName, template.customerHello, now - 60_000),
         )
         val delivery = template.copy(chat = CourierChat(seq, customerOpen = template.id == "dl-12"))
         entries[template.id] = Entry(delivery, messages)
-        return CourierSession(DemoMode.SERVER, "wabx_demo_${template.id}", "demo", template.id) to delivery
+        return CourierSession(link.server, "wabx_demo_${template.id}", "demo", template.id, storeName = STORES[template.id]) to delivery
     }
 
     override suspend fun delivery(session: CourierSession): CourierDelivery = entry(session).delivery
@@ -64,7 +71,7 @@ class DemoCourierBackend(private val clock: () -> Long = System::currentTimeMill
         val now = clock()
         e.messages += CourierMessage(++seq, party.wire, "courier", "Você", text.trim(), now)
         val reply = if (party == CourierParty.STORE) "Combinado, obrigado!" else "Obrigada! Estou esperando."
-        e.messages += CourierMessage(++seq, party.wire, party.wire, if (party == CourierParty.STORE) "Lanchonete Exemplo" else e.delivery.customerName, reply, now + 1)
+        e.messages += CourierMessage(++seq, party.wire, party.wire, if (party == CourierParty.STORE) STORES[e.delivery.id].orEmpty() else e.delivery.customerName, reply, now + 1)
     }
 
     override suspend fun delivered(session: CourierSession, note: String?) {
@@ -80,6 +87,11 @@ class DemoCourierBackend(private val clock: () -> Long = System::currentTimeMill
     /** Atalho de depuração: a loja revoga todas as entregas (o app volta à primeira tela). */
     fun revokeAll() = entries.values.forEach { it.revoked = true }
 
+    /** Uma loja revoga só a própria entrega (o QR foi trocado ou a entrega passou a outra pessoa). */
+    fun revoke(deliveryId: String) {
+        entries[deliveryId]?.revoked = true
+    }
+
     private fun entry(session: CourierSession): Entry {
         val e = entries[session.deliveryId] ?: throw CourierRevoked()
         if (e.revoked) throw CourierRevoked()
@@ -92,10 +104,17 @@ class DemoCourierBackend(private val clock: () -> Long = System::currentTimeMill
     companion object {
         val PACE = CourierPace(sampleSeconds = 15, uploadSeconds = 30, nearUploadSeconds = 15)
 
-        /** Os códigos dos QR de demonstração (a tela de escanear oferece botões com eles). */
-        val CODES = listOf("DEMO-ENTREGA-12", "DEMO-ENTREGA-15")
+        /** Os códigos dos QR de demonstração: 32 caracteres do alfabeto do QR (sem 0, 1, I, O, l e o). */
+        val CODES = listOf("DEMxENTREGAxLANCHExNUMxDzEZEW23Q", "DEMxENTREGAxPZZARAxNUMxDzEZEW45Q")
 
-        fun demoLink(index: Int) = CourierLink(DemoMode.SERVER, CODES[index])
+        /** Duas lojas diferentes, em endereços fictícios (.example): o entregador atende as duas ao mesmo tempo. */
+        val QRS = listOf("https://lanchonete.example/c/${CODES[0]}", "https://pizzaria.example/c/${CODES[1]}")
+
+        private val STORES = mapOf("dl-12" to "Lanchonete Exemplo", "dl-15" to "Pizzaria Exemplo")
+
+        fun demoLink(index: Int) = CourierLinks.parse(QRS[index])!!
+
+        fun storeOf(index: Int) = STORES[if (index == 0) "dl-12" else "dl-15"]!!
 
         private val TEMPLATES = mapOf(
             CODES[0] to CourierDelivery(
