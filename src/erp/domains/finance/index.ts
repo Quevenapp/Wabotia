@@ -8,6 +8,7 @@ import "./rpc/erp_finance_execute.ts";
 import "./rpc/erp_finance_bordero_execute.ts";
 import "./rpc/erp_finance_cash_execute.ts";
 import "./rpc/erp_finance_cash_session_execute.ts";
+import "./rpc/erp_finance_import_execute.ts";
 import "./rpc/erp_finance_payment_methods.ts";
 import "./rpc/erp_finance_reconciliation_execute.ts";
 import "./rpc/erp_finance_recurrence_execute.ts";
