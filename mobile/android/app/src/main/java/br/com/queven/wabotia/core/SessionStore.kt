@@ -98,13 +98,22 @@ class SessionStore(context: Context) {
         get() = prefs.getString(KEY_THEME, "system") ?: "system"
         set(value) = prefs.edit().putString(KEY_THEME, value).apply()
 
+    /**
+     * "Proteger telas com dados de clientes" em Ajustes: conversas e Mensalidade sem captura nem gravação de tela.
+     * Ligado por padrão; preferência do aparelho, que fica depois de sair da conta.
+     */
+    var protectScreens: Boolean
+        get() = prefs.getBoolean(KEY_PROTECT_SCREENS, true)
+        set(value) = prefs.edit().putBoolean(KEY_PROTECT_SCREENS, value).apply()
+
     /** Último cursor de eventos consultado por perfil. */
     fun eventCursor(profileId: String): Long = prefs.getLong("$KEY_EVENT_CURSOR.$profileId", 0L)
     fun setEventCursor(profileId: String, cursor: Long) = prefs.edit().putLong("$KEY_EVENT_CURSOR.$profileId", cursor).apply()
 
     /**
      * Apaga tudo o que é da conta: token, servidor, usuário, perfil, registro de push e cursores de eventos.
-     * Ficam só as preferências do aparelho (identificador da instalação, token FCM, notificações e aparência).
+     * Ficam só as preferências do aparelho (identificador da instalação, notificações e aparência); o token FCM é
+     * apagado à parte, por `PushRegistrar.forgetToken`, em toda saída da conta.
      */
     fun clearSession() {
         token = null
@@ -131,6 +140,7 @@ class SessionStore(context: Context) {
         private const val KEY_NOTIFICATION_ASKED = "notification_permission_asked"
         private const val KEY_EVENT_CURSOR = "event_cursor"
         private const val KEY_THEME = "theme_mode"
+        private const val KEY_PROTECT_SCREENS = "protect_screens"
 
         /** Normaliza o que a pessoa digitou: aceita "wabotia.exemplo.com.br", "https://…/app", etc. */
         fun normalizeServer(input: String): String? {

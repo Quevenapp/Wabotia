@@ -11,7 +11,7 @@ import java.util.Locale
 
 // Textos e datas compartilhados por todas as telas (pt-BR, fuso do aparelho).
 
-private val ptBR = Locale("pt", "BR")
+private val ptBR = Locale.forLanguageTag("pt-BR")
 private val timeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", ptBR)
 private val dayFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM", ptBR)
 private val dayYearFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yy", ptBR)

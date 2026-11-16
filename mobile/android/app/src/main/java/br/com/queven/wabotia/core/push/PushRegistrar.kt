@@ -6,6 +6,7 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.DeviceRegistration
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
+import com.google.android.gms.tasks.Task
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,6 +42,8 @@ object PushRegistrar {
         val session = container.session
         // Na demonstração não há servidor: o aparelho nunca é registrado (nem o token FCM é pedido).
         if (!container.auth.value.isLoggedIn || container.isDemo) return false
+        // Uma saída logo antes apagou o token: espera o Firebase terminar, para o pedido abaixo trazer um token novo.
+        pendingDelete?.let { task -> runCatching { task.await() }; if (pendingDelete === task) pendingDelete = null }
         val token = session.pushToken ?: runCatching { FirebaseMessaging.getInstance().token.await() }.getOrNull()
         if (token.isNullOrBlank()) return false
         session.pushToken = token
@@ -80,6 +83,21 @@ object PushRegistrar {
         } finally {
             container.session.registeredPushToken = null
         }
+    }
+
+    /** O apagamento do token FCM em andamento (ver [forgetToken]). */
+    @Volatile private var pendingDelete: Task<Void>? = null
+
+    /**
+     * Em toda saída da conta (botão, "Sair mesmo assim", sessão expirada/401): apaga o token FCM deste aparelho. O
+     * DELETE do registro no servidor é melhor esforço e não acontece numa saída forçada; sem o token, o Firebase
+     * recusa os avisos que o servidor ainda mandar para o registro antigo, também os que o sistema exibiria sozinho
+     * com o app em segundo plano. No próximo login, [register] pede um token novo e registra de novo.
+     */
+    fun forgetToken(container: AppContainer) {
+        container.session.pushToken = null
+        container.session.registeredPushToken = null
+        pendingDelete = runCatching { FirebaseMessaging.getInstance().deleteToken() }.getOrNull()
     }
 
     fun newKey() = ApiClient.newIdempotencyKey()

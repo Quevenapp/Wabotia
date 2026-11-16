@@ -10,9 +10,31 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
+    <!-- Impressora térmica do totem (ThermalPrinterKit): Bluetooth clássico já pareado e BLE sem localização,
+         USB host e Wi-Fi na rede local. Nenhuma delas é obrigatória para instalar o app. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
+    <queries>
+        <!-- Os motores de voz: o painel de chamadas escolhe o do Google quando existe. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <!-- Sem cópia de segurança: nem na nuvem nem na transferência entre aparelhos (dados de clientes e sessão). -->
     <application
@@ -47,6 +69,44 @@
                 <data android:scheme="wabotia" android:host="open" />
             </intent-filter>
         </activity>
+
+        <!-- Modo aparelho (totem, painel de chamadas, híbrido): fora do login, tela cheia, paisagem e sempre ligada. -->
+        <activity
+            android:name=".device.DeviceActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Wabotia">
+            <!--
+                Android 16 ignora a orientação fixa em telas grandes (sw600dp+) de apps com targetSdk 36: no Galaxy
+                Tab X230 o totem girava com o tablet em pé. Esta exceção temporária mantém a paisagem só no modo
+                aparelho; com targetSdk 37 ela deixa de valer e os quadros precisam caber em retrato.
+            -->
+            <property
+                android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+                android:value="true" />
+        </activity>
+
+        <!--
+            Administrador do aparelho, só para o modo quiosque do totem e do painel: `adb shell dpm set-device-owner`
+            aponta para ele e setLockTaskPackages exige o ComponentName dele. Nenhuma política pedida, e o app nunca
+            pede para ser ativado; protegido por BIND_DEVICE_ADMIN (só o sistema se liga a ele). Ver
+            mobile/android/MODO-APARELHO.md.
+        -->
+        <receiver
+            android:name=".device.WabotiaDeviceAdminReceiver"
+            android:description="@string/device_admin_description"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".core.push.WabotiaMessagingService"

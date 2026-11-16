@@ -30,6 +30,8 @@ import androidx.navigation.compose.rememberNavController
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.DeviceActivity
+import br.com.queven.wabotia.device.withDebugCommand
 import br.com.queven.wabotia.ui.components.DemoBanner
 import br.com.queven.wabotia.ui.nav.AppNavHost
 import br.com.queven.wabotia.ui.nav.DeepLink
@@ -48,7 +50,16 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A miniatura dos Recentes não guarda a tela aberta (conversa, pagador…); no Android 12 e anteriores, as telas
+        // com dados de clientes se protegem com FLAG_SECURE (SecureScreenEffect).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
         val container = (application as WabotiaApp).container
+        // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
+        if (savedInstanceState == null && intent?.getStringExtra("demo") == null && DeviceActivity.isPaired(container.deviceStore)) {
+            startActivity(DeviceActivity.intent(this).withDebugCommand(intent))
+            finish()
+            return
+        }
         // URI (notificação montada pelo app), extras do `data` (notificação exibida pelo Firebase em segundo plano)
         // ou, só no build de depuração, o atalho `--es demo <tela>`.
         if (savedInstanceState == null) pendingLink = accept(DeepLink.from(intent))
@@ -93,6 +104,13 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Esta Activity é singleTask: uma intent entregue a ela (ícone aberto por outro caminho, notificação) limpa o
+        // modo aparelho que estava por cima. Com um aparelho pareado, volta para ele, como na abertura do app.
+        if (intent.getStringExtra("demo") == null && DeviceActivity.isPaired((application as WabotiaApp).container.deviceStore)) {
+            startActivity(DeviceActivity.intent(this).withDebugCommand(intent))
+            finish()
+            return
+        }
         accept(DeepLink.from(intent))?.let { pendingLink = it }
     }
 
@@ -104,6 +122,11 @@ class MainActivity : ComponentActivity() {
         if (link?.type == DeepLink.DEMO) {
             if (!BuildConfig.DEBUG) return null
             val container = (application as WabotiaApp).container
+            // `--es demo device[-totem|-panel|-hybrid]`: a demonstração do modo aparelho, fora da sessão de pessoa.
+            DemoMode.deviceRoleFor(link.demoScreen)?.let { role ->
+                startActivity(DeviceActivity.demoIntent(this, role.getOrNull()))
+                return null
+            }
             if (link.demoScreen == "signout") {
                 // `--es demo signout`: sai da demonstração e volta à tela inicial normal (Servidor), sem tocar em sessão real.
                 DemoMode.signOut(container)

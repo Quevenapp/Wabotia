@@ -6,6 +6,8 @@ import br.com.queven.wabotia.BuildConfig
 /** Rotas do NavHost. Mantenha sincronizado com AppNavHost e com os deep links wabotia://open/{type}. */
 object Routes {
     const val SERVER = "server"
+    /** Depois do servidor: "Entrar" ou "Usar este aparelho como painel ou totem". */
+    const val START = "start"
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
     const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), ajustes
@@ -13,6 +15,9 @@ object Routes {
     const val MENUS = "menus"
     const val BOT_LINES = "bot-lines"
     const val BOT_RUNS = "bot-runs"
+    const val PRINTER = "printer"
+    /** Guichê da fila de senhas (com o token da pessoa). */
+    const val COUNTER = "counter"
     const val CONVERSATION = "conversation/{id}?sheet={sheet}&arg={arg}"
     const val CONVERSATION_INFO = "conversation-info/{id}"
     const val TICKET = "ticket/{id}"

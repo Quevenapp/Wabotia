@@ -43,17 +43,23 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.Shortcut
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.SentimentSatisfiedAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
-import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -69,6 +75,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,6 +98,25 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
+import br.com.queven.wabotia.core.ModuleIds
+import br.com.queven.wabotia.modules.ModuleRoutes
+import br.com.queven.wabotia.modules.ModuleShortcut
+import br.com.queven.wabotia.modules.cobranca.ChargeSheet
+import br.com.queven.wabotia.modules.cobranca.ConversationItems
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsBar
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsRules
+import br.com.queven.wabotia.modules.cobranca.ConversationItemsSheet
+import br.com.queven.wabotia.modules.cobranca.FormPickerSheet
+import br.com.queven.wabotia.modules.cobranca.FormsPaymentsDeps
+import br.com.queven.wabotia.modules.cobranca.FormsPaymentsViewModel
+import br.com.queven.wabotia.modules.suporte.CourtesyDialog
+import br.com.queven.wabotia.modules.suporte.HandoffBand
+import br.com.queven.wabotia.modules.suporte.ModuleHandoff
+import br.com.queven.wabotia.modules.suporte.SuporteConfirmDialog
+import br.com.queven.wabotia.modules.suporte.SuporteDeps
+import br.com.queven.wabotia.modules.suporte.SuporteRules
+import br.com.queven.wabotia.modules.suporte.SuporteStatus
+import br.com.queven.wabotia.modules.suporte.SuporteViewModel
 import br.com.queven.wabotia.core.model.Conversation
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.MediaFile
@@ -106,6 +132,7 @@ import br.com.queven.wabotia.ui.components.CountBadge
 import br.com.queven.wabotia.ui.components.ErrorState
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.components.PrimaryButton
+import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WindowInfo
 import br.com.queven.wabotia.ui.components.WindowRing
@@ -171,8 +198,14 @@ fun ConversationScreen(
     openInfo: () -> Unit,
     openTicket: (String) -> Unit,
     openBot: (botId: String) -> Unit,
+    /** Telas dos módulos ligados (Agendar, Abrir ordem de serviço…), por [ModuleRoutes]. */
+    openRoute: (String) -> Unit = {},
 ) {
+    // A conversa com o cliente: sem captura (Ajustes → Proteger telas com dados de clientes).
+    SecureScreenEffect(container)
     val vm: ConversationViewModel = viewModel(key = "conversation:$conversationId") { ConversationViewModel(container, conversationId) }
+    val enabledModules by container.modules.enabled.collectAsState()
+    LaunchedEffect(Unit) { container.modules.refresh() }
     val profileId = container.session.profileId ?: ""
     val snackbar = remember { SnackbarHostState() }
     val haptics = rememberHaptics()
@@ -230,6 +263,48 @@ fun ConversationScreen(
     val window = conversation?.let { windowInfo(it, vm.lineKinds, now) }
     val canHandOff = vm.isOwn || vm.isAdmin
 
+    // Passagem feita por módulo e Suporte pago: a faixa e as ações só com o módulo ligado, nunca em grupos.
+    val modules = enabledModules[profileId].orEmpty()
+    val suporteEnabled = ModuleIds.SUPORTE in modules
+    val suporteVm: SuporteViewModel = viewModel(key = "suporte:$conversationId") { SuporteViewModel(conversationId, SuporteDeps.of(container), container) }
+    val handoff = remember(detail?.handoff) { ModuleHandoff.of(detail?.handoff) }
+    val suporte = suporteVm.status.takeIf { suporteEnabled && conversation?.isGroup == false }
+    var suporteDialog by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(suporteEnabled, conversation?.isGroup, conversation?.state, conversation?.owner, handoff) {
+        if (conversation != null && !conversation.isGroup) suporteVm.load()
+    }
+    LaunchedEffect(suporteVm.done) {
+        val text = suporteVm.done ?: return@LaunchedEffect
+        suporteVm.done = null
+        vm.notice = text
+        // A liberação passa a conversa à equipe: relê o detalhe (estado, faixa).
+        vm.load(silent = true)
+    }
+    LaunchedEffect(suporteVm.notice) {
+        val text = suporteVm.notice ?: return@LaunchedEffect
+        suporteVm.notice = null
+        vm.notice = text
+    }
+
+    // Formulários e cobranças: o estado de cada link e de cada cobrança vem do detalhe; enviar só com o módulo ligado.
+    val formsEnabled = ModuleIds.FORMS in modules
+    val paymentsEnabled = ModuleIds.PAYMENTS in modules
+    val itemsVm: FormsPaymentsViewModel = viewModel(key = "items:$conversationId") { FormsPaymentsViewModel(conversationId, FormsPaymentsDeps.of(container)) }
+    val webSteps = remember(detail?.web_steps, formsEnabled) { ConversationItems.steps(detail?.web_steps).filter { formsEnabled || it.kind != "form" } }
+    val payments = remember(detail?.payments, paymentsEnabled) { if (paymentsEnabled) ConversationItems.payments(detail?.payments) else emptyList() }
+    val direct = conversation?.isGroup == false
+    val canForm = formsEnabled && canHandOff && direct
+    val canCharge = paymentsEnabled && canHandOff && direct
+    var itemsSheet by rememberSaveable { mutableStateOf(initialSheet == "items") }
+    var formSheet by rememberSaveable { mutableStateOf(initialSheet == "form") }
+    var chargeSheet by rememberSaveable { mutableStateOf(initialSheet == "charge") }
+    LaunchedEffect(itemsVm.done) {
+        val text = itemsVm.done ?: return@LaunchedEffect
+        itemsVm.done = null
+        vm.notice = text
+        vm.load(silent = true)
+    }
+
     fun openTransfer(tab: String?) {
         if (!canHandOff) {
             vm.notice = "Assuma a conversa para encaminhar o atendimento."
@@ -272,6 +347,16 @@ fun ConversationScreen(
                             onPolicy = { sheet = ConversationSheet.Policy },
                             onInfo = openInfo,
                             onResolve = { confirmResolve = true },
+                            shortcuts = if (conversation.isGroup) emptyList() else ModuleRoutes.conversationShortcuts(
+                                enabledModules[profileId].orEmpty(), conversation.id, conversation.displayName,
+                            ),
+                            onShortcut = { openRoute(it.route) },
+                            onPedidoLink = if (!conversation.isGroup && vm.isOwn && ModuleIds.PEDIDO in modules) ({ vm.sendPedidoLink() }) else null,
+                            // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
+                            suporte = suporte.takeIf { canHandOff },
+                            onSuporte = { suporteDialog = it },
+                            onForm = if (canForm) ({ formSheet = true }) else null,
+                            onCharge = if (canCharge) ({ chargeSheet = true }) else null,
                         )
                     }
                 }
@@ -286,6 +371,21 @@ fun ConversationScreen(
             else -> {
                 if (window != null) WindowBanner(window, onClick = { sheet = ConversationSheet.Window })
                 if (conversation.isGroup) GroupStrip(detail, onChangePolicy = { sheet = ConversationSheet.Policy })
+                if (SuporteRules.showBand(handoff, conversation.state, suporteEnabled)) {
+                    HandoffBand(
+                        handoff = handoff,
+                        suporte = suporte,
+                        canAct = canHandOff,
+                        busy = suporteVm.busy,
+                        onLink = { suporteDialog = "link" },
+                        onConfirm = { suporteDialog = "confirm" },
+                        onCourtesy = { suporteDialog = "courtesy" },
+                    )
+                }
+                if (direct) {
+                    val (recentSteps, recentPayments) = ConversationItemsRules.recent(webSteps, payments, now)
+                    ConversationItemsBar(recentSteps, recentPayments, onClick = { itemsSheet = true })
+                }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     MessagesList(
                         detail = detail,
@@ -423,6 +523,29 @@ fun ConversationScreen(
         viewerMedia?.let { media ->
             ImageViewerDialog(media = media, profileId = profileId, container = container, onDismiss = { viewerMedia = null })
         }
+        when (val action = suporteDialog) {
+            "link", "confirm" -> SuporteConfirmDialog(
+                action, suporte,
+                onConfirm = { suporteDialog = null; if (action == "link") suporteVm.link() else suporteVm.confirm() },
+                onDismiss = { suporteDialog = null },
+            )
+            "courtesy" -> CourtesyDialog(onRelease = { reason, hours -> suporteDialog = null; suporteVm.courtesy(reason, hours) }, onDismiss = { suporteDialog = null })
+            else -> Unit
+        }
+        if (itemsSheet) {
+            ConversationItemsSheet(
+                steps = webSteps,
+                payments = payments,
+                canForm = canForm,
+                canCharge = canCharge,
+                onForm = { itemsSheet = false; formSheet = true },
+                onCharge = { itemsSheet = false; chargeSheet = true },
+                onCopied = { vm.notice = it },
+                onDismiss = { itemsSheet = false },
+            )
+        }
+        if (formSheet && canForm) FormPickerSheet(itemsVm, windowClosed = window?.closed == true, onDismiss = { formSheet = false })
+        if (chargeSheet && canCharge) ChargeSheet(itemsVm, windowClosed = window?.closed == true, onDismiss = { chargeSheet = false })
     }
 }
 
@@ -502,6 +625,17 @@ private fun ConversationMenu(
     onPolicy: () -> Unit,
     onInfo: () -> Unit,
     onResolve: () -> Unit,
+    shortcuts: List<ModuleShortcut> = emptyList(),
+    onShortcut: (ModuleShortcut) -> Unit = {},
+    /** Pedido ligado e a conversa assumida (nunca em grupos): envia o link do carrinho. */
+    onPedidoLink: (() -> Unit)? = null,
+    /** Suporte pago ligado e a conversa assumida (ou administrador): `link`, `confirm` ou `courtesy`. */
+    suporte: SuporteStatus? = null,
+    onSuporte: (String) -> Unit = {},
+    /** Formulários ligados e a conversa assumida (ou administrador), fora de grupos. */
+    onForm: (() -> Unit)? = null,
+    /** Cobrança ligada e a conversa assumida (ou administrador), fora de grupos. */
+    onCharge: (() -> Unit)? = null,
 ) {
     val c = Wb.colors
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, containerColor = if (c.isDark) c.surface else c.background, shape = RoundedCornerShape(16.dp)) {
@@ -518,7 +652,14 @@ private fun ConversationMenu(
             item("Abrir protocolo", Icons.Filled.ConfirmationNumber, action = onTicket)
             item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
-        if (own) item("Devolver ao bot", Icons.Filled.Undo, action = onResume)
+        shortcuts.forEach { shortcut -> item(shortcut.label, shortcut.icon, action = { onShortcut(shortcut) }) }
+        onForm?.let { item("Enviar formulário", Icons.Filled.Description, action = it) }
+        onCharge?.let { item("Cobrar", Icons.Filled.Payments, action = it) }
+        onPedidoLink?.let { item("Montar pedido para este cliente", Icons.Filled.RestaurantMenu, action = it) }
+        if (SuporteRules.canLink(suporte)) item(SuporteRules.linkTitle(suporte), Icons.Filled.Link, action = { onSuporte("link") })
+        if (SuporteRules.canConfirm(suporte)) item("Confirmar e liberar", Icons.Filled.CheckCircle, action = { onSuporte("confirm") })
+        if (SuporteRules.canCourtesy(suporte)) item("Liberar como cortesia", Icons.Filled.CardGiftcard, action = { onSuporte("courtesy") })
+        if (own) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
         if (canHandOff && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
         item("Consultar bot", Icons.Filled.SmartToy, action = onBots)
         if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) item("Salvar contato", Icons.Filled.PersonAdd, action = onSaveContact)

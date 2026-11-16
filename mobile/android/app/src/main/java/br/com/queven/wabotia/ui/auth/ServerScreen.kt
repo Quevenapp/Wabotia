@@ -6,11 +6,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +39,7 @@ import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.SessionStore
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.DeviceActivity
 import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.PrimaryButton
 import br.com.queven.wabotia.ui.components.SecondaryButton
@@ -153,6 +158,11 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         AuthHelp("Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada.")
         Spacer(Modifier.height(6.dp))
+        TextButton(onClick = { if (!busy) context.startActivity(DeviceActivity.demoIntent(context)) }) {
+            Icon(Icons.Filled.Tv, contentDescription = null, tint = c.brand, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Ver o modo painel ou totem (demonstração)", style = MaterialTheme.typography.bodyMedium, color = c.brand, fontWeight = FontWeight.SemiBold)
+        }
         TextButton(onClick = { Links.open(context, Links.PRIVACY_POLICY) }) {
             Text("Política de privacidade", style = MaterialTheme.typography.bodySmall, color = c.brand, fontWeight = FontWeight.SemiBold)
         }

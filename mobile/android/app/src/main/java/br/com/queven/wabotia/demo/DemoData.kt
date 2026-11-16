@@ -45,6 +45,8 @@ internal object Ids {
     const val C_ANA = "c-ana"
     const val C_DONE = "c-done"
     const val C_GROUP = "c-group"
+    /** Passada à equipe pelo Suporte pago (faixa da passagem com vincular, confirmar e cortesia). */
+    const val C_SUPORTE = "c-suporte"
 
     const val T_OVERDUE = "t-overdue"
     const val T_SOON = "t-soon"
@@ -461,7 +463,19 @@ internal class DemoState(val t0: Long) {
         addMessage(Ids.C_DONE, "outbound", Ids.CARLOS, "Que bom! Qualquer coisa é só chamar. 😊", hoursAgo(46.8), "read")
         addMessage(Ids.C_DONE, "system", "system", "Conversa concluída por Carlos Pereira", hoursAgo(46.7))
 
-        // (10) grupo, linha Zernio
+        // (10) fila do setor Suporte, passada pelo Suporte pago (o detalhe traz o `handoff`, ver DemoSuporte)
+        val renato = DemoSuporte.PHONE
+        val sup = Ids.C_SUPORTE
+        conversation(sup, DemoSuporte.PAYER, renato, "waiting", null, Ids.LINE_ZERNIO, lastCustomer = minAgo(7), updated = minAgo(6), created = minAgo(20), tags = listOf("Suporte pago"), department = Ids.DEP_SUPORTE)
+        addMessage(sup, "customer", renato, "Boa tarde! Minha impressora fiscal não liga desde a queda de energia de ontem.", minAgo(20))
+        addMessage(sup, "outbound", "system", "Para falar com um atendente, informe o CPF ou CNPJ de quem paga o suporte.", minAgo(19), "read", content = j("type" to "text", "automation" to "suporte"))
+        addMessage(sup, "customer", renato, "Mandei o documento da empresa. Este é o celular do técnico, o cadastro está no outro número.", minAgo(18))
+        addMessage(sup, "outbound", "system", "Suporte avulso: R$ 60,00, válido até o protocolo fechar. Pague pelo Pix abaixo.", minAgo(16), "read", content = j("type" to "text", "automation" to "suporte"))
+        addMessage(sup, "system", "system", "Pagamento do suporte avulso confirmado pelo Mercado Pago", minAgo(8))
+        addMessage(sup, "customer", renato, "Paguei! Fico no aguardo do técnico.", minAgo(7))
+        addMessage(sup, "system", "system", "Encaminhada para o setor Suporte pelo Suporte pago", minAgo(6))
+
+        // (11) grupo, linha Zernio
         conversation(Ids.C_GROUP, "Condomínio Jardins", null, "human", me, Ids.LINE_ZERNIO, lastCustomer = minAgo(25), updated = minAgo(25), created = hoursAgo(200.0), tags = listOf("Condomínio"), group = true)
         val participants = listOf(
             j("id" to "5520900001111", "name" to "Sérgio (Síndico)", "admin" to true),

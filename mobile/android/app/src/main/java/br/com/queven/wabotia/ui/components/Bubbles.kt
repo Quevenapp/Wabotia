@@ -44,7 +44,7 @@ fun Modifier.bubbleBackground(color: Color, outgoing: Boolean, tail: Boolean, hi
         if (tail) {
             path.moveTo(r, 0f)
             path.lineTo(w - 1.5f, 0f)
-            path.quadraticBezierTo(w + 0.5f, 0.5f, w - 1.5f, 3f)
+            path.quadraticTo(w + 0.5f, 0.5f, w - 1.5f, 3f)
             path.lineTo(right, t + 2f)
             path.lineTo(right, h - r)
             path.arcTo(Rect(right - 2 * r, h - 2 * r, right, h), 0f, 90f, false)
@@ -60,7 +60,7 @@ fun Modifier.bubbleBackground(color: Color, outgoing: Boolean, tail: Boolean, hi
         if (tail) {
             path.moveTo(w - r, 0f)
             path.lineTo(1.5f, 0f)
-            path.quadraticBezierTo(-0.5f, 0.5f, 1.5f, 3f)
+            path.quadraticTo(-0.5f, 0.5f, 1.5f, 3f)
             path.lineTo(t, t + 2f)
             path.lineTo(t, h - r)
             path.arcTo(Rect(t, h - 2 * r, t + 2 * r, h), 180f, -90f, false)

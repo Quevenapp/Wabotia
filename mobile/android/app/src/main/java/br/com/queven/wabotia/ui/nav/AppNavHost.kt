@@ -21,15 +21,19 @@ import androidx.navigation.navArgument
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.modules.moduleScreens
 import br.com.queven.wabotia.ui.auth.LoginScreen
 import br.com.queven.wabotia.ui.auth.ProfilePickerScreen
 import br.com.queven.wabotia.ui.auth.ServerScreen
+import br.com.queven.wabotia.ui.auth.StartScreen
 import br.com.queven.wabotia.ui.bots.BotChatScreen
 import br.com.queven.wabotia.ui.bots.BotRunsScreen
 import br.com.queven.wabotia.ui.conversations.ConversationInfoScreen
 import br.com.queven.wabotia.ui.conversations.ConversationScreen
 import br.com.queven.wabotia.ui.home.HomeScreen
 import br.com.queven.wabotia.ui.home.HomeTab
+import br.com.queven.wabotia.ui.printing.PrinterScreen
+import br.com.queven.wabotia.ui.queue.CounterScreen
 import br.com.queven.wabotia.ui.service.BotLinesScreen
 import br.com.queven.wabotia.ui.service.LinesScreen
 import br.com.queven.wabotia.ui.service.MenusScreen
@@ -42,7 +46,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
     val auth by container.auth.collectAsState()
     val start = when {
         !auth.isLoggedIn && auth.serverUrl == null -> Routes.SERVER
-        !auth.isLoggedIn -> Routes.LOGIN
+        !auth.isLoggedIn -> Routes.START
         auth.profileId == null -> Routes.PROFILE_PICKER
         else -> Routes.HOME
     }
@@ -53,12 +57,12 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
     // Sessão encerrada (logout/401): volta para o login limpando a pilha.
     LaunchedEffect(auth.isLoggedIn, auth.profileId) {
         val current = nav.currentDestination?.route
-        if (!auth.isLoggedIn && current != Routes.SERVER && current != Routes.LOGIN) {
+        if (!auth.isLoggedIn && current != Routes.SERVER && current != Routes.LOGIN && current != Routes.START) {
             homeTab = HomeTab.Conversations
             nav.navigate(if (auth.serverUrl == null) Routes.SERVER else Routes.LOGIN) { popUpTo(0) { inclusive = true } }
         } else if (auth.isLoggedIn && auth.profileId == null && current != Routes.PROFILE_PICKER) {
             nav.navigate(Routes.PROFILE_PICKER) { popUpTo(0) { inclusive = true } }
-        } else if (auth.isLoggedIn && auth.profileId != null && (current == Routes.LOGIN || current == Routes.PROFILE_PICKER || current == Routes.SERVER)) {
+        } else if (auth.isLoggedIn && auth.profileId != null && (current == Routes.LOGIN || current == Routes.PROFILE_PICKER || current == Routes.SERVER || current == Routes.START)) {
             nav.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } }
         }
     }
@@ -116,7 +120,14 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         popEnterTransition = { fadeIn(tween(180)) },
         popExitTransition = { slideOutHorizontally(tween(200)) { it / 5 } + fadeOut(tween(160)) },
     ) {
-        composable(Routes.SERVER) { ServerScreen(container) { nav.navigate(Routes.LOGIN) } }
+        composable(Routes.SERVER) { ServerScreen(container) { nav.navigate(Routes.START) } }
+        composable(Routes.START) {
+            StartScreen(
+                container,
+                onLogin = { nav.navigate(Routes.LOGIN) },
+                onChangeServer = { container.onLoggedOut(keepServer = false); nav.navigate(Routes.SERVER) { popUpTo(0) { inclusive = true } } },
+            )
+        }
         composable(Routes.LOGIN) {
             LoginScreen(
                 container,
@@ -125,8 +136,11 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         }
         composable(Routes.PROFILE_PICKER) { ProfilePickerScreen(container) }
         if (BuildConfig.DEBUG) {
-            // Prévia das telas de entrada dentro da demonstração (atalhos `--es demo auth-server|auth-login|auth-profiles`).
+            // Prévia das telas de entrada dentro da demonstração (atalhos `--es demo auth-server|auth-start|auth-login|auth-profiles`).
             composable("preview/server") { ServerScreen(container) { nav.popBackStack() } }
+            // "Usar este aparelho" daqui pareia pelo caminho real (Keystore, reabrir direto no modo aparelho, desfazer
+            // avisando o servidor), respondido pelo servidor em memória da demonstração.
+            composable("preview/start") { StartScreen(container, onLogin = { nav.popBackStack() }, onChangeServer = { nav.popBackStack() }) }
             composable("preview/login") { LoginScreen(container, onChangeServer = { nav.popBackStack() }) }
             composable("preview/profiles") { ProfilePickerScreen(container) }
         }
@@ -146,7 +160,15 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openLines = { nav.navigate(Routes.LINES) },
                 openMenus = { nav.navigate(Routes.MENUS) },
                 openBotLines = { nav.navigate(Routes.BOT_LINES) },
+                openPrinter = { nav.navigate(Routes.PRINTER) },
+                openCounter = { nav.navigate(Routes.COUNTER) },
+                openRoute = { nav.navigate(it) },
             )
+        }
+        moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) }, openPrinter = { nav.navigate(Routes.PRINTER) })
+        composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
+        composable(Routes.COUNTER) {
+            CounterScreen(container, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
         }
         composable(Routes.LINES) { LinesScreen(container) { nav.popBackStack() } }
         composable(Routes.MENUS) { MenusScreen(container) { nav.popBackStack() } }
@@ -177,6 +199,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openInfo = { nav.navigate(Routes.conversationInfo(id)) },
                 openTicket = { nav.navigate(Routes.ticket(it)) },
                 openBot = { botId -> nav.navigate(Routes.botChat(botId, id)) },
+                openRoute = { nav.navigate(it) },
             )
         }
         composable(Routes.CONVERSATION_INFO, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->

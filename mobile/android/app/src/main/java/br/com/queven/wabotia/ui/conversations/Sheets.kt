@@ -56,8 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
+import android.content.ClipData
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -343,7 +343,7 @@ internal fun MessageActionsSheet(
     onDismiss: () -> Unit,
 ) {
     val c = Wb.colors
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val content = remember(message.content) { message.contentJson }
     val deleted = content.bool("deleted") == true
     val sendable = message.external_id != null && !message.isNote && !deleted && own
@@ -384,7 +384,7 @@ internal fun MessageActionsSheet(
         if (sendable && detail.can("reply")) SheetAction(Icons.AutoMirrored.Filled.Reply, "Responder", onClick = onReply)
         if (message.text.isNotBlank() && !deleted) {
             SheetAction(Icons.Filled.ContentCopy, "Copiar", tint = c.textSecondary, onClick = {
-                clipboard.setText(AnnotatedString(message.text))
+                clipboard.nativeClipboard.setPrimaryClip(ClipData.newPlainText("", message.text))
                 onDismiss()
             })
         }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Administrador do aparelho só para o modo quiosque (device owner + setLockTaskPackages): nenhuma política pedida.
+     Ver mobile/android/MODO-APARELHO.md. -->
+<device-admin>
+    <uses-policies />
+</device-admin>

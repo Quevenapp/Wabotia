@@ -25,15 +25,23 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestaurantMenu
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SupportAgent
@@ -75,6 +83,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
+import br.com.queven.wabotia.core.ModuleIds
+import br.com.queven.wabotia.modules.ModuleRoutes
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -104,7 +114,17 @@ import java.util.Date
  * passou para a aba Equipe.
  */
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openLines: () -> Unit, openMenus: () -> Unit, openBotLines: () -> Unit) {
+fun SettingsScreen(
+    container: AppContainer,
+    modifier: Modifier = Modifier,
+    openLines: () -> Unit,
+    openMenus: () -> Unit,
+    openBotLines: () -> Unit,
+    openPrinter: () -> Unit = {},
+    openCounter: () -> Unit = {},
+    /** Telas dos módulos (Agenda, Ordens de serviço, Reservas, Mensalidades), por [br.com.queven.wabotia.modules.ModuleRoutes]. */
+    openRoute: (String) -> Unit = {},
+) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
     val presence = rememberPresence(container)
@@ -117,6 +137,11 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
     // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
     val demo = container.isDemo
     val c = Wb.colors
+    // Guichê, impressora e as telas das verticais só aparecem quando o servidor liga o módulo neste perfil.
+    val enabledModules by container.modules.enabled.collectAsState()
+    val modules = enabledModules[container.session.profileId].orEmpty()
+    val queueAvailable = ModuleIds.QUEUE in modules
+    LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
     LifecycleResumeEffect(Unit) {
@@ -155,6 +180,36 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
             item("service-label") { SectionLabel("Atendimento") }
             item("service") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    if (queueAvailable) {
+                        SettingsRow(
+                            Icons.Filled.ConfirmationNumber,
+                            "Guichê da fila de senhas",
+                            subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
+                            tint = c.warn,
+                            onClick = openCounter,
+                        )
+                        RowDivider()
+                    }
+                    if (ModuleIds.AGENDA in modules) {
+                        SettingsRow(Icons.Filled.CalendarMonth, "Agenda", subtitle = "Agendamentos do dia e da semana por profissional", tint = c.ok, onClick = { openRoute(ModuleRoutes.AGENDA) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.SERVICE_ORDERS in modules) {
+                        SettingsRow(Icons.Filled.Build, "Ordens de serviço", subtitle = "Recebidas, orçamentos, execução e entrega", tint = c.warn, onClick = { openRoute(ModuleRoutes.SERVICE_ORDERS) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.RESERVA in modules) {
+                        SettingsRow(Icons.Filled.Hotel, "Reservas", subtitle = "Ocupação das unidades, sinal e check-in", tint = c.brand, onClick = { openRoute(ModuleRoutes.RESERVA) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.MENSALIDADE in modules) {
+                        SettingsRow(Icons.Filled.Payments, "Mensalidades", subtitle = "Parcelas do mês, assinaturas e inadimplentes", tint = c.ok, onClick = { openRoute(ModuleRoutes.MENSALIDADE) })
+                        RowDivider()
+                    }
+                    if (ModuleIds.PEDIDO in modules) {
+                        SettingsRow(Icons.Filled.RestaurantMenu, "Pedidos", subtitle = "Quadro da cozinha, comanda, pausa da loja e esgotados", tint = c.ticket, onClick = { openRoute(ModuleRoutes.PEDIDO) })
+                        RowDivider()
+                    }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
                     if (state.isAdmin) {
                         RowDivider()
@@ -256,6 +311,29 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                 }
             }
 
+            // --- Privacidade ---
+            item("privacy-label") { SectionLabel("Privacidade") }
+            item("privacy") {
+                val protect by container.protectScreens.collectAsState()
+                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                    SettingsRow(
+                        Icons.Filled.Security,
+                        "Proteger telas com dados de clientes",
+                        subtitle = if (protect) "Conversas e Mensalidade não aparecem em capturas, gravações nem na miniatura dos Recentes."
+                        else "Desligado: capturas e gravações de tela valem em todas as telas. Ligue de novo depois de capturar.",
+                        tint = if (protect) c.ok else c.warn,
+                        trailing = {
+                            BusySwitch(
+                                checked = protect,
+                                busy = false,
+                                onChange = container::setProtectScreens,
+                                description = if (protect) "Desligar a proteção de telas" else "Ligar a proteção de telas",
+                            )
+                        },
+                    )
+                }
+            }
+
             // --- Servidor ---
             item("server-label") { SectionLabel("Servidor") }
             if (demo) item("server-demo") {
@@ -329,6 +407,14 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier, openL
                         RowDivider()
                         SettingsRow(Icons.Filled.Tune, "Sessão", subtitle = text, tint = c.textSecondary)
                     }
+                    if (queueAvailable) RowDivider()
+                    if (queueAvailable) SettingsRow(
+                        Icons.Filled.Print,
+                        "Impressora térmica",
+                        subtitle = "Bluetooth, USB ou Wi-Fi, para o cupom da senha do totem",
+                        tint = c.textSecondary,
+                        onClick = openPrinter,
+                    )
                 }
             }
 

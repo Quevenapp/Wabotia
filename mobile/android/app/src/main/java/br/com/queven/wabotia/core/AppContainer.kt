@@ -7,9 +7,17 @@ import br.com.queven.wabotia.core.model.User
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.WabotiaApi
 import br.com.queven.wabotia.core.push.Notifications
+import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.device.DeviceConfigStore
+import br.com.queven.wabotia.device.KeystoreDeviceConfigStore
+import br.com.queven.wabotia.printing.createWabotiaThermalPrinter
+import br.com.thermalprinterkit.ThermalPrinter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +40,16 @@ class AppContainer(context: Context) {
 
     private var client: ApiClient? = null
 
+    private val _protectScreens = MutableStateFlow(session.protectScreens)
+
+    /** "Proteger telas com dados de clientes" (Ajustes): as telas de conversa e da Mensalidade leem daqui. */
+    val protectScreens: StateFlow<Boolean> = _protectScreens.asStateFlow()
+
+    fun setProtectScreens(enabled: Boolean) {
+        session.protectScreens = enabled
+        _protectScreens.value = enabled
+    }
+
     /** Dados do perfil usados por várias telas (contagens, tipos de linha, setores), com cache curto. */
     val profileData = ProfileData(this)
 
@@ -43,6 +61,32 @@ class AppContainer(context: Context) {
 
     /** Consulta única de eventos em primeiro plano, compartilhada por todas as telas. */
     val events = EventHub(this)
+
+    /** Os módulos ligados no servidor para o perfil aberto (capacidades; sem elas, a fila por `GET /queue`). */
+    val modules = ModuleFeature(this)
+
+    /** A credencial do modo aparelho (totem/painel), cifrada e separada da sessão de pessoa. */
+    val deviceStore: DeviceConfigStore by lazy { KeystoreDeviceConfigStore(appContext) }
+
+    /** A impressora térmica deste aparelho (cupom do totem); criada só quando alguém precisa dela. */
+    val thermalPrinter: ThermalPrinter by lazy { createWabotiaThermalPrinter(appContext) }
+
+    /** Readota a impressora escolhida uma vez por abertura do app; falhar aqui não derruba nada. */
+    private val printerRestore: Job by lazy {
+        scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                thermalPrinter.restore()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Espera a impressora escolhida voltar (inicia a readoção na primeira chamada). */
+    suspend fun printerReady() {
+        printerRestore.join()
+    }
 
     /** Cliente para o servidor configurado. Lança [IllegalStateException] se não houver servidor. */
     val api: WabotiaApi
@@ -78,6 +122,10 @@ class AppContainer(context: Context) {
 
     fun onLoggedOut(keepServer: Boolean) {
         val server = session.serverUrl
+        // Toda saída passa aqui, inclusive as forçadas (401, "Sair mesmo assim"): o token FCM é apagado, para o aparelho
+        // parar de receber avisos mesmo que o registro continue no servidor. Várias telas podem receber o mesmo 401:
+        // só a primeira saída (ainda com sessão) apaga. A demonstração nunca pediu token.
+        if ((_auth.value.isLoggedIn || session.token != null) && !DemoMode.isDemo(server)) PushRegistrar.forgetToken(this)
         session.clearSession()
         // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à tela Servidor.
         if (keepServer && !DemoMode.isDemo(server)) session.serverUrl = server
@@ -85,6 +133,7 @@ class AppContainer(context: Context) {
         profileData.clear()
         conversationCache.clear()
         internalChats.clear()
+        modules.clear()
         wipeLocalData()
         _auth.value = AuthState.from(session)
     }

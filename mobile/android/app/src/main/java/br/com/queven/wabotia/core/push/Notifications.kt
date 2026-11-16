@@ -59,6 +59,10 @@ object Notifications {
                 description = context.getString(desc)
                 enableVibration(true)
                 setShowBadge(true)
+                // Na tela bloqueada, só a versão pública (também para o aviso que o Firebase exibe sozinho com o app em
+                // segundo plano). Vale para canais criados agora; num canal que já existe, o Android mantém o que
+                // estava, e a versão pública de cada aviso montado aqui continua valendo.
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
             }
         LEGACY_CHANNELS.forEach { runCatching { manager.deleteNotificationChannel(it) } }
         manager.createNotificationChannels(
@@ -132,6 +136,10 @@ object Notifications {
             .setNumber(lines.size)
             .setWhen(System.currentTimeMillis())
             .setShowWhen(true)
+            // Nome e mensagem do cliente (que pode trazer CPF, endereço, valores) não vão para a tela bloqueada: lá
+            // aparece só a versão pública, com um texto neutro.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(context, channel, publicText(type)))
         if (lines.size > 1) {
             val style = NotificationCompat.InboxStyle().setBigContentTitle(title).setSummaryText(countLabel(lines.size))
             lines.takeLast(MAX_LINES).forEach { style.addLine(it) }
@@ -219,11 +227,32 @@ object Notifications {
             .setNumber(total)
             .setContentIntent(pending)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(context, channel, countLabel(total)))
             .build()
         notifySafely(context, group, SUMMARY_ID, summary)
     }
 
     private fun countLabel(n: Int) = if (n == 1) "1 nova notificação" else "$n novas notificações"
+
+    /** O texto da tela bloqueada: diz o tipo do aviso, nunca quem mandou nem o conteúdo. */
+    fun publicText(type: String): String = when (type) {
+        "queue" -> "Novo atendimento na fila"
+        "transfer" -> "Atendimento transferido para você"
+        "ticket" -> "Protocolo atualizado"
+        "ticket_due" -> "Protocolo perto do prazo"
+        "call" -> "Ligação pelo WhatsApp"
+        "test" -> "Notificação de teste"
+        else -> "Nova mensagem"
+    }
+
+    private fun publicVersion(context: Context, channel: String, text: String) =
+        NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Wabotia")
+            .setContentText(text)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
 
     private fun notifySafely(context: Context, tag: String, id: Int, notification: android.app.Notification) {
         try {
