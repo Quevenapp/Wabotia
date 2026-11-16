@@ -288,19 +288,19 @@
    },
    "erp_catalog.contact_scope": {
     "name": "contactScope",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_situation": {
     "name": "contactSituation",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_situation_of": {
     "name": "contactSituationOf",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_source_situation": {
     "name": "contactSourceSituation",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_take_code": {
     "name": "contactTakeCode",
