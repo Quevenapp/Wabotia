@@ -360,6 +360,33 @@ Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão;
 
 Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada pelo horário ou item esgotado; `via: "page"` quando a própria página recusou), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed` e `pedido.store_changed`; todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
 
+Pedido de mesa (módulo Mesas, abaixo): `source: "table"`, `fulfillment: "table"` (caminho da retirada; `status_label` "Pronto para servir" e "Servido"), `fulfillment_label` com o nome da mesa, `table: {tab_id, label}` (null fora da mesa) e `payment.status: "tab"` ("Na conta da mesa") até a conta fechar, quando vira `paid`. `paid` e `payment` nesse pedido respondem `409 tab_order`. `GET /pedido/orders?tab_id=…` lista os pedidos de uma conta; `pedido.created` e `pedido.status_changed` trazem `tab_id`.
+
+### Mesas (módulo `mesas`)
+
+Mesas e comandas com a conta aberta pelo garçom (desligado por padrão; depende do Pedido, `requires: ["pedido"]`; uso em [MESAS.md](MESAS.md)). Rotas em `/profiles/{perfil}/mesas…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Cadastro de mesas só administrador. Operar a conta (abrir, lançar, transferir, juntar, pagar, fechar) exige o papel **Garçom** (`mesas:waiter`, em `module_grants`) ou ser administrador; pessoa sem o papel recebe `403 role_required` e só lê. Aplicações operam com o escopo. Valores em centavos.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /mesas` | Mapa: `tables [{id, name, kind table\|card, section, seats, position, state free\|occupied\|closing, state_label, tab}]`, `counts {free, occupied, closing}`, `sections`, `config`, `can_operate` (quem lê pode operar), `waiters [{id, name}]` (quem tem o papel) |
+| `POST /mesas/tables` | Uma mesa `{name, kind?, section?, seats?, position?}` ou várias `{prefix:"Mesa", from:1, to:20, …}` (até 100; repetidas em `skipped`). Nome repetido: `409 table_name_taken` |
+| `PUT`/`DELETE /mesas/tables/{id}` | Alterar; apagar só livre (`409 table_in_use`) |
+| `GET /mesas/tabs` | Contas por `status` (padrão `open,closing`; também `closed`, `cancelled`, `merged`), `table_id`, `from`, `to` (abertura), `limit`, `cursor` |
+| `POST /mesas/tabs` | Abrir: `{table_id, guests?, customer_name?, note?}`; mesa ocupada: `409 table_occupied` |
+| `GET /mesas/tabs/{id}` | Conta com `orders` (pedidos do Pedido), `payments` e `history` |
+| `PATCH /mesas/tabs/{id}` | `guests`, `customer_name`, `note`, `service` (taxa nesta conta), `waiter_id` (`"me"` assume; outra pessoa, só administrador) |
+| `POST /mesas/tabs/{id}/orders` | Lançar e mandar para a cozinha: `{items [{item_id, quantity, options, note}], note?}`, como `POST /pedido/orders`. Responde `{tab, order}`; a mesma `Idempotency-Key` devolve o mesmo pedido |
+| `POST /mesas/tabs/{id}/bill` / `reopen` | Cliente pediu a conta (`closing`) / voltar a `open`. Lançar itens também reabre |
+| `POST /mesas/tabs/{id}/transfer` | `{table_id}` livre; ocupada: `409 table_occupied` |
+| `POST /mesas/tabs/{id}/merge` | `{tab_id}` ou `{table_id}`: a outra conta vem para esta (pedidos, pagamentos, pessoas); ela fica `merged` e a mesa livre |
+| `GET /mesas/tabs/{id}/bill?split=N&columns=32\|42\|48` | Conta parcial ou final: `lines` somadas, `tab.bill`, `payments`, `split {people, of due\|total, shares}`, `establishment` e `text` para imprimir |
+| `POST /mesas/tabs/{id}/payments` | Parcial: `{method cash\|card\|pix\|other, amount_cents, tendered_cents?, note?}`; mais que o que falta: `409 amount_exceeds_due` |
+| `POST /mesas/payments/{id}/void` | `{reason}`: desfaz um pagamento (conta aberta) |
+| `POST /mesas/tabs/{id}/close` | `{payments?: [...]}` registra o que falta e fecha; ainda faltando: `409 tab_unpaid` (nada gravado). A mesa fica livre e os pedidos ficam pagos |
+| `POST /mesas/tabs/{id}/cancel` | Conta aberta por engano, sem pedidos nem pagamentos (`409 tab_not_empty`) |
+
+Conta (`tab.bill`): `subtotal_cents` (pedidos não cancelados), `service_on`, `service_percent`, `service_cents` (arredondado ao centavo), `total_cents`, `paid_cents`, `due_cents`, `overpaid_cents`. A conta também traz `item_count`, `orders_count`, `kitchen_count` (na cozinha), `ready_count` (para servir) e `minutes_open`. Configuração: chave `mesas` de `PUT /settings` com `service_percent` (0 a 20, uma casa), `service_default` e `split_max`. Para cancelar um item já enviado, cancele o pedido dele em `POST /pedido/orders/{id}/status`. Pagamentos da mesa são registros da equipe (nada é cobrado online). Eventos: `mesas.tab_opened`, `mesas.order_sent`, `mesas.tab_updated`, `mesas.bill_requested`, `mesas.tab_reopened`, `mesas.tab_transferred`, `mesas.tab_merged`, `mesas.payment_added`, `mesas.payment_voided`, `mesas.tab_closed` (totais e `payments` por forma), `mesas.tab_cancelled` e `mesas.tables_changed`; com `tab_id`, `number`, `table_id` e `table_name`.
+
 ## Ações pelo bot na conversa interna
 
 Na conversa interna com um bot (Equipe → Conversas, ou a tela do bot), a pessoa pede em linguagem natural para consultar ou fazer algo nos módulos, inclusive o que não tem tela no app. O bot:
@@ -544,33 +571,6 @@ O Hermes chama o MCP com uma chave fixa e, hoje, sem a identidade da pessoa. Par
   Só então `tools/list` mostra as três ferramentas, que rodam como a pessoa.
 - **Sem o cabeçalho**: tudo segue como antes.
 - **Próxima etapa (não feita)**: o plugin ler `wabotia_run` do job e mandá-lo como cabeçalho nas chamadas MCP do mesmo run.
-
-Pedido de mesa (módulo Mesas, abaixo): `source: "table"`, `fulfillment: "table"` (caminho da retirada; `status_label` "Pronto para servir" e "Servido"), `fulfillment_label` com o nome da mesa, `table: {tab_id, label}` (null fora da mesa) e `payment.status: "tab"` ("Na conta da mesa") até a conta fechar, quando vira `paid`. `paid` e `payment` nesse pedido respondem `409 tab_order`. `GET /pedido/orders?tab_id=…` lista os pedidos de uma conta; `pedido.created` e `pedido.status_changed` trazem `tab_id`.
-
-### Mesas (módulo `mesas`)
-
-Mesas e comandas com a conta aberta pelo garçom (desligado por padrão; depende do Pedido, `requires: ["pedido"]`; uso em [MESAS.md](MESAS.md)). Rotas em `/profiles/{perfil}/mesas…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Cadastro de mesas só administrador. Operar a conta (abrir, lançar, transferir, juntar, pagar, fechar) exige o papel **Garçom** (`mesas:waiter`, em `module_grants`) ou ser administrador; pessoa sem o papel recebe `403 role_required` e só lê. Aplicações operam com o escopo. Valores em centavos.
-
-| Método e caminho | O quê |
-|---|---|
-| `GET /mesas` | Mapa: `tables [{id, name, kind table\|card, section, seats, position, state free\|occupied\|closing, state_label, tab}]`, `counts {free, occupied, closing}`, `sections`, `config`, `can_operate` (quem lê pode operar), `waiters [{id, name}]` (quem tem o papel) |
-| `POST /mesas/tables` | Uma mesa `{name, kind?, section?, seats?, position?}` ou várias `{prefix:"Mesa", from:1, to:20, …}` (até 100; repetidas em `skipped`). Nome repetido: `409 table_name_taken` |
-| `PUT`/`DELETE /mesas/tables/{id}` | Alterar; apagar só livre (`409 table_in_use`) |
-| `GET /mesas/tabs` | Contas por `status` (padrão `open,closing`; também `closed`, `cancelled`, `merged`), `table_id`, `from`, `to` (abertura), `limit`, `cursor` |
-| `POST /mesas/tabs` | Abrir: `{table_id, guests?, customer_name?, note?}`; mesa ocupada: `409 table_occupied` |
-| `GET /mesas/tabs/{id}` | Conta com `orders` (pedidos do Pedido), `payments` e `history` |
-| `PATCH /mesas/tabs/{id}` | `guests`, `customer_name`, `note`, `service` (taxa nesta conta), `waiter_id` (`"me"` assume; outra pessoa, só administrador) |
-| `POST /mesas/tabs/{id}/orders` | Lançar e mandar para a cozinha: `{items [{item_id, quantity, options, note}], note?}`, como `POST /pedido/orders`. Responde `{tab, order}`; a mesma `Idempotency-Key` devolve o mesmo pedido |
-| `POST /mesas/tabs/{id}/bill` / `reopen` | Cliente pediu a conta (`closing`) / voltar a `open`. Lançar itens também reabre |
-| `POST /mesas/tabs/{id}/transfer` | `{table_id}` livre; ocupada: `409 table_occupied` |
-| `POST /mesas/tabs/{id}/merge` | `{tab_id}` ou `{table_id}`: a outra conta vem para esta (pedidos, pagamentos, pessoas); ela fica `merged` e a mesa livre |
-| `GET /mesas/tabs/{id}/bill?split=N&columns=32\|42\|48` | Conta parcial ou final: `lines` somadas, `tab.bill`, `payments`, `split {people, of due\|total, shares}`, `establishment` e `text` para imprimir |
-| `POST /mesas/tabs/{id}/payments` | Parcial: `{method cash\|card\|pix\|other, amount_cents, tendered_cents?, note?}`; mais que o que falta: `409 amount_exceeds_due` |
-| `POST /mesas/payments/{id}/void` | `{reason}`: desfaz um pagamento (conta aberta) |
-| `POST /mesas/tabs/{id}/close` | `{payments?: [...]}` registra o que falta e fecha; ainda faltando: `409 tab_unpaid` (nada gravado). A mesa fica livre e os pedidos ficam pagos |
-| `POST /mesas/tabs/{id}/cancel` | Conta aberta por engano, sem pedidos nem pagamentos (`409 tab_not_empty`) |
-
-Conta (`tab.bill`): `subtotal_cents` (pedidos não cancelados), `service_on`, `service_percent`, `service_cents` (arredondado ao centavo), `total_cents`, `paid_cents`, `due_cents`, `overpaid_cents`. A conta também traz `item_count`, `orders_count`, `kitchen_count` (na cozinha), `ready_count` (para servir) e `minutes_open`. Configuração: chave `mesas` de `PUT /settings` com `service_percent` (0 a 20, uma casa), `service_default` e `split_max`. Para cancelar um item já enviado, cancele o pedido dele em `POST /pedido/orders/{id}/status`. Pagamentos da mesa são registros da equipe (nada é cobrado online). Eventos: `mesas.tab_opened`, `mesas.order_sent`, `mesas.tab_updated`, `mesas.bill_requested`, `mesas.tab_reopened`, `mesas.tab_transferred`, `mesas.tab_merged`, `mesas.payment_added`, `mesas.payment_voided`, `mesas.tab_closed` (totais e `payments` por forma), `mesas.tab_cancelled` e `mesas.tables_changed`; com `tab_id`, `number`, `table_id` e `table_name`.
 
 ## Exemplo cURL
 
