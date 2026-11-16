@@ -58,4 +58,12 @@ export const osModule: ModuleDefinition = {
   routes: ["service-orders"],
   operations: ["os."],
   scopes: [],
+  grants: [
+    {
+      id: "technician",
+      label: "Técnico",
+      description:
+        "Executa as ordens de serviço; aparece na escolha do responsável da ordem.",
+    },
+  ],
 };

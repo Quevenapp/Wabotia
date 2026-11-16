@@ -12,6 +12,7 @@ import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
 import {
   teamDirectory,
+  areaGrants,
   areaPeople,
   listInternalChats,
   internalChatDetail,
@@ -1676,7 +1677,17 @@ app.get("/api/v1/profiles/:profile/team", async (c) =>
 );
 // Pessoas da área para escolher responsável (aplicativos; docs/API.md).
 app.get("/api/v1/profiles/:profile/people", async (c) =>
-  c.json(await areaPeople(c.env, c.get("actor"), c.req.param("profile"))),
+  c.json(
+    await areaPeople(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.query("grant") || null,
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/grants", async (c) =>
+  c.json(await areaGrants(c.env, c.get("actor"), c.req.param("profile"))),
 );
 app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
   c.json(
