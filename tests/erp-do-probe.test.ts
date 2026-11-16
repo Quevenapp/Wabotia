@@ -43,6 +43,8 @@ describe("sondas do ERP para a instalação de teste", () => {
     expect(limits.like_pattern_bytes[51].error).toMatch(/too complex/);
     expect(limits.statement_bytes[100_000].error).toMatch(/too long/);
     console.log("ERP_LIMITS " + JSON.stringify(limits.statement_bytes));
+    expect(limits.function_args[100].ok).toBe(true);
+    console.log("ERP_FN_ARGS " + JSON.stringify({ args: limits.function_args, json_object_pairs: limits.json_object_pairs }));
     expect((await call(profile, "bookmark-mark", { label: "a" })).bookmark).toMatch(/./);
     expect((await call(profile, "bookmark-check")).marks).toHaveLength(1);
     expect(await call(profile, "wipe")).toEqual({ wiped: true });
