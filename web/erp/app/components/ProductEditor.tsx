@@ -1,7 +1,5 @@
-import { originHistoryAvailable } from '../lib/integration-capabilities';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ProductVariations from './ProductVariations';
-import OriginMirrorPanel from './OriginMirrorPanel';
 import { Link } from 'react-router-dom';
 import { AccessError } from '../lib/real-access';
 import { invalidField } from '../lib/catalog-base';
@@ -294,8 +292,7 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
         <td><input aria-label={`Quantidade do DUN da linha ${index + 1}`} value={item.quantity} inputMode="decimal" maxLength={19} placeholder="Digite aqui" disabled={locked} onChange={event => changeLists(current => ({ ...current, dun_codes: current.dun_codes.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row) }))} /></td>
         <td><button type="button" className="icon-button" aria-label={`Remover o DUN da linha ${index + 1}`} title="Remover" disabled={locked} onClick={() => changeLists(current => ({ ...current, dun_codes: current.dun_codes.filter((_, i) => i !== index) }))}><Icon name="trash-can" size={12} /></button></td></tr>)}</tbody></table>
       <button type="button" id="catalog-dun_codes" className="text-button" disabled={locked || lists.dun_codes.length >= 10} onClick={() => changeLists(current => ({ ...current, dun_codes: [...current.dun_codes, { code: '', quantity: '' }] }))}><Icon name="plus" size={11} />Adicionar DUN</button></div>, lists.dun_codes.length > 0)}
-    {/* Leva H (350): os campos do Origin, a origem e a data da sincronização, somente leitura. */}
-    {record && (record.source || originHistoryAvailable(controller.getSnapshot().membership)) && <OriginMirrorPanel showOrigin={originHistoryAvailable(controller.getSnapshot().membership)} controller={props.controller} entity="products" id={record.id} writable={false} />}
+    {/* Wabotia: sem o painel do espelho do Origin (Leva H, 350): Origin fora (motor 91213b8). */}
     {record && <details className="product-section" onToggle={event => setPricesOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>Listas de preço<Icon name="chevron-down" size={11} /></summary><div className="real-editor-fields"><div className="real-field-wide product-grid">{priceLists === null ? <p role="status">Consultando as listas de preço…</p> : priceLists === 'error' ? <p className="real-help">Não foi possível consultar as listas de preço deste produto.</p>
       : priceLists.length ? <table className="data-table"><thead><tr><th scope="col">Nome da lista</th><th scope="col">Tipo de lista</th><th scope="col" className="numeric">Preço do produto na lista</th><th scope="col">Regra aplicada</th></tr></thead>
         <tbody>{priceLists.map(item => <tr key={item.id}><td>{item.name}</td><td>{{ rates: 'Lista de taxas', period: 'Lista por período', custom: 'Lista customizada' }[item.list_type]}</td><td className="numeric">{item.list_price ? `R$ ${item.list_price.replace('.', ',')}` : '—'}</td><td>{item.rule}</td></tr>)}</tbody></table>

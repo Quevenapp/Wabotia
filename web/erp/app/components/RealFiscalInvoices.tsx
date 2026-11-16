@@ -4,15 +4,14 @@ import { ProductLabels } from './ProductLabels';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
-import { originDetail, listPage as checkListPage, invoiceRecord, type OriginDetail, type InvoiceRecord } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
+import { listPage as checkListPage, invoiceRecord, type InvoiceRecord } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
 import {
-  CUSTOM_FILTER_LABELS, FISCAL_BASE, FISCAL_PAGE_SIZE, LIST_IDS, ORIGIN_LABELS, PERSON_LABELS, SCREENS, UFS, brDay, columnLayout, defaultColumns, deletePlan, emptyFilters, filterChips, filtersFromPreference,
-  danfeReady, filtersToPreference, fiscalColumns, fiscalListQuery, formatDocument, invoiceNumber, isImported, isNative, linkLabel, noteLabel, orderIndicators, pageCount, rowActions, statusClass, statusLabel, type CustomFilter, type DeleteItem,
+  CUSTOM_FILTER_LABELS, FISCAL_BASE, FISCAL_PAGE_SIZE, LIST_IDS, PERSON_LABELS, SCREENS, UFS, brDay, columnLayout, defaultColumns, deletePlan, emptyFilters, filterChips, filtersFromPreference,
+  danfeReady, filtersToPreference, fiscalColumns, fiscalListQuery, formatDocument, invoiceNumber, isImported, linkLabel, noteLabel, orderIndicators, pageCount, rowActions, statusClass, statusLabel, type CustomFilter, type DeleteItem,
   deleteRefusalText, type DeleteEffects,
   // Espelho lane (wave H): Categoria, Loja/Filial not applicable, fiscal state apart from the DANFE and the source of each note.
-  CATEGORY_ORIGIN_HELP, NOT_APPLICABLE_FILTERS, fiscalStateText, sourceLabel,
-  ORIGIN_DANFE_REASON, ORIGIN_FISCAL_READONLY_REASON,
-  type FiscalColumn, type FiscalFilters, type FiscalOrder, type FiscalOrigin, type FiscalScreen, type ListPage, type ListRow, type RowAction,
+  NOT_APPLICABLE_FILTERS, fiscalStateText, sourceLabel,
+  type FiscalColumn, type FiscalFilters, type FiscalOrder, type FiscalScreen, type ListPage, type ListRow, type RowAction,
   financeIndicator, type InvoiceFinanceState,
 } from '../lib/fiscal-invoice-list-model';
 // Financeiro lane (SQL 247): ⋮ Lançar contas / Estornar contas / Emitir boletos and the letra C of the notes of the Brufap.
@@ -24,12 +23,10 @@ import ListPreferencesBar from './ListPreferencesBar';
 import { selectRange, opensInNewTab } from '../lib/origin-list';
 import type { BatchResult } from '../lib/origin-batch';
 import type { CatalogPage, CatalogRecord } from '../lib/catalog-model';
-import { AppliedChips, OriginListHeader, OriginPagination, OriginSelector, IndicatorLetter, ListControls, PeriodPicker, RowMenu, ToolButton, type RowMenuItem } from './OriginList';
+import { AppliedChips, OriginListHeader, OriginPagination, IndicatorLetter, ListControls, PeriodPicker, RowMenu, ToolButton, type RowMenuItem } from './OriginList';
 import { BatchDialog } from './BatchDialog';
 import NativeListLayout from './NativeListLayout';
 import FiscalInvoiceForm, { type FormOpening } from './FiscalInvoiceForm';
-import FiscalOriginInvoiceView, { downloadVerifiedXml } from './FiscalOriginInvoiceView';
-import FiscalMirrorCoverage from './FiscalMirrorCoverage';
 import { CancelDialog, CorrectionDialog, InutilizationDialog } from './FiscalEventDialogs';
 import { FiscalListPrint, FiscalMirrorPrint } from './FiscalInvoicePrint';
 import DocumentLabelsPrint from './DocumentLabelsPrint';
@@ -50,7 +47,6 @@ import FiscalNativeXmlDialog from './FiscalNativeXmlDialog';
 import { nativeXmlBlock, nativeXmlPath, nativeXmlResult, type NativeXmlResult } from '../lib/fiscal-native-xml';
 import { DEFAULT_DANFE_SETTINGS, DanfeError, danfeData, danfeErrorText, danfeSettings, type DanfeSettings } from '../lib/danfe';
 import { importedXml, saveFile, xmlFileName } from '../lib/fiscal-invoice-xml';
-import { zipStore } from '../lib/spreadsheet-export';
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 import './fiscal-invoices.css';
@@ -76,7 +72,7 @@ type Dialog = { type: 'delete'; rows: ListRow[] } | { type: 'inutilization' } | 
   | { type: 'export'; rows: ListRow[] } | { type: 'certificate'; text: string } | { type: 'pricing'; row: ListRow } | { type: 'danfe_pdf' }
   | { type: 'native'; mode: 'validate' | 'support'; result: NativeXmlResult }
   // "Devolução de produto" (202610200220): quantities to return before the return note opens.
-  | { type: 'return'; record?: InvoiceRecord; origin?: OriginDetail } | null;
+  | { type: 'return'; record: InvoiceRecord } | null;
 
 /** Notas fiscais de saída, NFC-e e notas de entrada (aba Notas de compra) no padrão Origin. */
 export default function RealFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
@@ -84,7 +80,8 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const location = useLocation(), navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const role = roleOf(controller), writable = ['admin', 'fiscal'].includes(role);
-  const origin: FiscalOrigin = writable && params.get('origem') === 'brufap' ? 'brufap' : 'origin';
+  // Wabotia: Origin fora (motor 91213b8): a lista mostra sempre os registros do FAGOO; saíram o seletor "Notas do Origin" × "Registros do
+  // FAGOO", o parâmetro ?origem= e a nota do Origin aberta em leitura.
   const opened = params.get('nota'), backupTab = Boolean(backup) && params.get('aba') === 'backup';
   // "Gerar nota fiscal" / "Gerar NFC-e" of a pedido opens a new note filled from it (?nota=nova&pedido=<id>, migration 202610200176);
   // "Conciliar produtos" opens the imported note on the Itens tab (?secao=itens).
@@ -94,7 +91,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const fromGroup = groupedIds.length >= 2 && groupedIds.length <= 20 && new Set(groupedIds).size === groupedIds.length && groupedIds.every(v => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v)) ? groupedIds : null;
   const section = params.get('secao') === 'itens' ? 'itens' as const : undefined;
   const [formHeld, setFormHeld] = useState(false);
-  useEffect(() => { if (!opened || opened.startsWith('origin-')) setFormHeld(false); else if (writable) setFormHeld(true); }, [opened, writable]);
+  useEffect(() => { if (!opened) setFormHeld(false); else if (writable) setFormHeld(true); }, [opened, writable]);
   const [filters, setFilters] = useState<FiscalFilters>(() => emptyFilters(config));
   const [draft, setDraft] = useState<FiscalFilters>(() => emptyFilters(config));
   const [listPage, setListPage] = useState(1), [order, setOrder] = useState<FiscalOrder>('date_desc'), [reload, setReload] = useState(0);
@@ -114,7 +111,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const [categories, setCategories] = useState<CategoryOption[] | null>(null), [categoryError, setCategoryError] = useState('');
   const lifetime = useRef(new AbortController()), detail = useRef<AbortController | null>(null), batchActor = useRef<string | null>(null), printRequest = useRef<AbortController | null>(null);
   // Produtos lane (202610200236): Marcadores of the page; an unconfirmed "Editar tags" is protected like a form.
-  const invoiceTags = useInvoiceTags(controller, origin, config.model, page?.items ?? [], writable && origin === 'brufap');
+  const invoiceTags = useInvoiceTags(controller, 'brufap', config.model, page?.items ?? [], writable);
   // Leaving the screen while the PDF task reads the XMLs asks first (the file would be lost).
   const guard = useUnsavedChanges(Boolean(invoiceTags.pending?.uncertain) || Boolean(pdfJob?.running), printing || Boolean(pdfJob?.running) || Boolean(invoiceTags.pending?.busy || invoiceTags.pending?.uncertain));
   // "Listagem customizada" and "Tornar padrão" per user (migration 116); Número and Situação stay fixed.
@@ -122,31 +119,31 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const prefs = useListPreferences(controller, LIST_IDS[screen], { available: columnCatalog.map(c => c.id), defaults: defaultColumns(config) });
   const prefsApplied = useRef(false);
   useEffect(() => { const life = lifetime.current; return () => { life.abort(); detail.current?.abort(); printRequest.current?.abort(); pdfJobRequest.current?.abort(); }; }, []);
-  // A new screen, origin or profile restarts filters, selection and dialogs.
-  const scope = useRef(`${screen}:${origin}`);
+  // A new screen or profile restarts filters, selection and dialogs.
+  const scope = useRef(screen);
   useEffect(() => {
-    if (scope.current === `${screen}:${origin}`) return;
-    scope.current = `${screen}:${origin}`;
+    if (scope.current === screen) return;
+    scope.current = screen;
     setFilters(emptyFilters(config)); setDraft(emptyFilters(config)); setListPage(1); setOrder('date_desc'); setSelected(new Set()); setDialog(null); setNotice(''); setActionError('');
-  }, [screen, origin]);
+  }, [screen]);
   useEffect(() => {
     if (opened || backupTab) return;
     const request = new AbortController(); setLoading(true); setError('');
     let query: URLSearchParams;
-    try { query = fiscalListQuery(config, origin, filters, { page: listPage, order }); } catch (problem) { setError((problem as Error).message); setLoading(false); return () => request.abort(); }
+    try { query = fiscalListQuery(config, filters, { page: listPage, order }); } catch (problem) { setError((problem as Error).message); setLoading(false); return () => request.abort(); }
     void Promise.resolve().then(() => controller.fiscalInvoices(`${FISCAL_BASE}?${query}`, { signal: request.signal })).then(value => {
       if (request.signal.aborted) return;
-      const checked = checkListPage(value, { origin, model: config.model, direction: config.direction, page: listPage, limit: FISCAL_PAGE_SIZE, order });
+      const checked = checkListPage(value, { origin: 'brufap', model: config.model, direction: config.direction, page: listPage, limit: FISCAL_PAGE_SIZE, order });
       if (checked.total_count > 0 && !checked.items.length && listPage > pageCount(checked.total_count)) { setListPage(pageCount(checked.total_count)); return; }
       setPage(checked); setLoading(false);
     }).catch(problem => { if (request.signal.aborted || aborted(problem)) return; setPage(null); setLoading(false); setError(problem instanceof AccessError ? failureText(problem) : 'A resposta da listagem não pôde ser conferida. Recarregue a página.'); });
     return () => request.abort();
-  }, [controller, screen, origin, filters, listPage, order, reload, opened, backupTab]);
+  }, [controller, screen, filters, listPage, order, reload, opened, backupTab]);
   useEffect(() => { setSelected(new Set()); setAnchor(null); setMenu(null); }, [page]);
   // "P" Preços atualizados (202610200252): the price formation recorded on the Brufap entry notes of the page.
   const [pricing, setPricing] = useState<Record<string, PricingState>>({});
   useEffect(() => {
-    const ids = screen === 'entrada' ? (page?.items ?? []).filter(isNative).map(row => row.id) : [];
+    const ids = screen === 'entrada' ? (page?.items ?? []).map(row => row.id) : [];
     setPricing({});
     if (!ids.length) return;
     const request = new AbortController();
@@ -181,17 +178,17 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     return () => { clearTimeout(timer); request.abort(); };
   }, [controller, sellerQuery, config.sellerFilter]);
   useEffect(() => {
-    if (!customOpen || !config.categoryFilter || origin !== 'brufap' || categories) return;
+    if (!customOpen || !config.categoryFilter || categories) return;
     const request = new AbortController();
     void Promise.resolve().then(() => controller.documents('/v1/documentos/sales_orders/categorias', { signal: request.signal })).then(value => { if (!request.signal.aborted) { setCategories(readCategoryChoices(value).items); setCategoryError(''); } })
       .catch(() => { if (!request.signal.aborted) setCategoryError('Não foi possível carregar as categorias financeiras.'); });
     return () => request.abort();
-  }, [controller, customOpen, config.categoryFilter, origin, categories]);
+  }, [controller, customOpen, config.categoryFilter, categories]);
 
   const rows = page?.items ?? [], keyOf = (row: ListRow) => `${row.origin}:${row.id}`, ids = rows.map(keyOf), selectedRows = rows.filter(row => selected.has(keyOf(row)));
   // Letra C: the contas lançadas by the notes of the Brufap of this page (one read of up to 100, ignored when it fails).
   const [financeFlags, setFinanceFlags] = useState<{ key: string; value: InvoiceFlags | null }>({ key: '', value: null }), [financeRow, setFinanceRow] = useState<ListRow | null>(null), [financeReload, setFinanceReload] = useState(0);
-  const nativeIds = rows.filter(row => row.origin === 'brufap').map(row => row.id), flagsKey = `${nativeIds.join(',')}:${financeReload}:${role}`;
+  const nativeIds = rows.map(row => row.id), flagsKey = `${nativeIds.join(',')}:${financeReload}:${role}`;
   useEffect(() => {
     if (!nativeIds.length || typeof controller.finance !== 'function') return; const request = new AbortController();
     void controller.finance(`/v1/financeiro/notas-contas?${new URLSearchParams({ ids: nativeIds.join(',') })}`, { signal: request.signal })
@@ -200,19 +197,19 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     return () => request.abort();
   }, [controller, flagsKey]);
   const flags = financeFlags.key === flagsKey ? financeFlags.value : null;
-  const financeState = (row: ListRow): InvoiceFinanceState => row.origin !== 'brufap' || !flags ? null : { writable: ['admin', 'financeiro'].includes(role), posted: Boolean(flags.get(row.id)?.posted), grouped: Boolean(flags.get(row.id)?.grouped) };
+  const financeState = (row: ListRow): InvoiceFinanceState => !flags ? null : { writable: ['admin', 'financeiro'].includes(role), posted: Boolean(flags.get(row.id)?.posted), grouped: Boolean(flags.get(row.id)?.grouped) };
   // Estoque lane (259): the stock state of the Brufap notes of the page (letter E and the ⋮ stock actions).
   const [stockReload, setStockReload] = useState(0), [stockDialog, setStockDialog] = useState<{ row: ListRow; mode: 'post' | 'reverse' } | null>(null);
-  const stockFlags = useInvoiceStockFlags(controller, origin === 'brufap' ? rows.filter(isNative).map(row => row.id) : [], reload + stockReload);
-  const rowStock = (row: ListRow) => { const value = isNative(row) ? stockFlags.flags?.get(row.id) : undefined;
+  const stockFlags = useInvoiceStockFlags(controller, rows.map(row => row.id), reload + stockReload);
+  const rowStock = (row: ListRow) => { const value = stockFlags.flags?.get(row.id);
     return value ? { flag: value.flag, reference: value.reference?.number ?? null, manage: ['admin', 'estoque'].includes(role) } : null; };
   const setParam = (changes: Record<string, string | null>, replace = false) => { const next = new URLSearchParams(location.search); for (const [k, v] of Object.entries(changes)) v === null ? next.delete(k) : next.set(k, v); navigate(`${location.pathname}?${next}`, { replace }); };
-  const rowPath = (row: ListRow) => { const next = new URLSearchParams(location.search); next.set('nota', row.origin === 'origin' ? `origin-${row.id}` : row.id); return `${location.pathname}?${next}`; };
+  const rowPath = (row: ListRow) => { const next = new URLSearchParams(location.search); next.set('nota', row.id); return `${location.pathname}?${next}`; };
   const open = (row: ListRow, event: { ctrlKey?: boolean; metaKey?: boolean; button?: number } = {}) => {
     if (opensInNewTab(event)) { globalThis.window?.open(rowPath(row), '_blank', 'noopener'); return; }
-    guard.confirmLeave(() => { setOpening(null); setParam({ nota: row.origin === 'origin' ? `origin-${row.id}` : row.id }); });
+    guard.confirmLeave(() => { setOpening(null); setParam({ nota: row.id }); });
   };
-  const apply = (next: FiscalFilters) => { try { fiscalListQuery(config, origin, next); } catch (problem) { setError((problem as Error).message); return; } setError(''); setFilters(next); setDraft(next); setListPage(1); setNotice(''); setActionError(''); };
+  const apply = (next: FiscalFilters) => { try { fiscalListQuery(config, next); } catch (problem) { setError((problem as Error).message); return; } setError(''); setFilters(next); setDraft(next); setListPage(1); setNotice(''); setActionError(''); };
   const submit = (event: FormEvent) => { event.preventDefault(); apply({ ...draft, query: draft.query.trim() }); };
   const readRecord = async (id: string, signal: AbortSignal) => {
     const value = await controller.fiscalInvoices(`${FISCAL_BASE}/${id}`, { signal }) as { invoice: unknown };
@@ -225,8 +222,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     void readRecord(row.id, request.signal).then(record => { if (!request.signal.aborted && detail.current === request) then(record); })
       .catch(problem => { if (!request.signal.aborted && !aborted(problem)) setActionError(failureText(problem)); }).finally(() => { if (detail.current === request) detail.current = null; });
   };
-  const readOrigin = async (row: ListRow, signal: AbortSignal) => controller.fiscalInvoices(`${FISCAL_BASE}/origin/${config.model === '55' ? 'nfe' : 'nfce'}/${row.id}`, { signal });
-  const startForm = (value: FormOpening) => guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova', origem: 'brufap' }); });
+  const startForm = (value: FormOpening) => guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova' }); });
   // "Incluir NFC-e" without an active A1 asks first, like Origin: "Sem a configuração do certificado não é possível emitir a NFC-e".
   const addNote = async () => {
     if (config.model !== '65') { startForm({ kind: 'new' }); return; }
@@ -254,60 +250,40 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     if (action.id === 'labels') { guard.confirmLeave(() => navigate(`/preferencias/sistema/etiquetas-customizadas?nota=${row.id}`)); return; }
     if (action.id === 'finance' || action.id === 'boleto') { setFinanceRow(row); return; }
     const clone = (kind: 'clone' | 'clone_invert' | 'nfe_from_nfce' | 'complementary' | 'return') => {
-      if (row.origin === 'origin') { setActionError(ORIGIN_FISCAL_READONLY_REASON); return; }
-      if (row.origin === 'brufap') withRecord(row, record => kind !== 'return' ? startForm({ kind, record }) : record.access_key ? setDialog({ type: 'return', record }) : setActionError('A devolução precisa da chave de acesso da nota.'));
+      withRecord(row, record => kind !== 'return' ? startForm({ kind, record }) : record.access_key ? setDialog({ type: 'return', record }) : setActionError('A devolução precisa da chave de acesso da nota.'));
     };
     if (['clone', 'clone_invert', 'nfe_from_nfce', 'complementary', 'return'].includes(action.id)) clone(action.id as 'clone');
   };
   // "Devolução de produto" (wave E): another note found inside the modal by the Nº do pedido or the number / access key (barcode reader).
   const findReturnSource = async ({ order, note }: { order: string; note: string }): Promise<string | null> => {
-    if (origin === 'origin') return ORIGIN_FISCAL_READONLY_REASON;
     detail.current?.abort(); const request = new AbortController(); detail.current = request;
     const digits = note.replace(/\D/g, '');
     if (note && (!digits || (digits.length !== 44 && digits.length > 9))) return 'Informe o número da nota (até 9 dígitos) ou a chave de acesso (44 dígitos).';
     try {
       const filters = { ...emptyFilters(config), ...(note ? { query: digits } : { custom: { order_number: order } }) };
-      const found = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${fiscalListQuery(config, origin, filters, { page: 1 })}`, { signal: request.signal }),
-        { origin, model: config.model, direction: config.direction, page: 1, limit: FISCAL_PAGE_SIZE, order: 'date_desc' }).items
+      const found = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${fiscalListQuery(config, filters, { page: 1 })}`, { signal: request.signal }),
+        { origin: 'brufap', model: config.model, direction: config.direction, page: 1, limit: FISCAL_PAGE_SIZE, order: 'date_desc' }).items
         .filter(row => !note || (digits.length === 44 ? row.access_key === digits : row.number === Number(digits)));
       if (request.signal.aborted) return null;
       const row = found.find(r => r.access_key && (r.status === 6 || r.status === 7 || r.status === 8));
-      if (!row) return found.length ? 'A nota encontrada não tem chave de acesso autorizada para a devolução.' : `Nenhuma nota encontrada em ${ORIGIN_LABELS[origin]} com ${note ? 'esse número ou chave' : 'esse número de pedido'}.`;
-      if (row.origin === 'brufap') { const record = await readRecord(row.id, request.signal); if (!request.signal.aborted) setDialog({ type: 'return', record }); }
-      else { const origin = originDetail(await readOrigin(row, request.signal)); if (!request.signal.aborted) setDialog({ type: 'return', origin }); }
+      if (!row) return found.length ? 'A nota encontrada não tem chave de acesso autorizada para a devolução.' : `Nenhuma nota encontrada em Registros do FAGOO com ${note ? 'esse número ou chave' : 'esse número de pedido'}.`;
+      const record = await readRecord(row.id, request.signal); if (!request.signal.aborted) setDialog({ type: 'return', record });
       return null;
     } catch (problem) { return request.signal.aborted || aborted(problem) ? null : problem instanceof AccessError ? failureText(problem) : 'Não foi possível buscar a nota.'; }
     finally { if (detail.current === request) detail.current = null; }
   };
   const menuItems = (row: ListRow): RowMenuItem[] => rowActions(config, row, { writable, checkin: CHECKIN_READERS.includes(role), labels: role === 'admin', finance: financeState(row), stock: rowStock(row) }).map(action => ({ label: action.label, icon: action.icon, separatorBefore: action.separatorBefore,
     disabled: !action.enabled, title: action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
-  const hasXml = (row: ListRow) => Boolean(row.xml_id) || isImported(row);
+  // Wabotia: Origin fora (motor 91213b8): o XML de uma nota do FAGOO é o importado; o acervo sincronizado do Origin (xml_id) saiu.
+  const hasXml = (row: ListRow) => isImported(row);
   const showXml = async (row: ListRow, download: boolean) => {
     if (!hasXml(row)) return;
     detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError('');
     try {
-      let text: string;
-      // Imported notes keep their XML in Brufap (checked by size, SHA-256 and access key); Origin notes come from the synced archive.
-      if (isImported(row)) { const file = await importedXml(controller, row.id, request.signal); text = file.xml; if (download && !request.signal.aborted) saveFile(xmlFileName(file.access_key), file.xml, 'application/xml'); }
-      else text = await downloadVerifiedXml(controller, { id: row.xml_id!, hash: row.xml_hash!, size: row.xml_size! }, config.model, request.signal, download);
+      // Imported notes keep their XML in Brufap (checked by size, SHA-256 and access key).
+      const file = await importedXml(controller, row.id, request.signal), text = file.xml; if (download && !request.signal.aborted) saveFile(xmlFileName(file.access_key), file.xml, 'application/xml');
       if (!request.signal.aborted && !download) setDialog({ type: 'xml', row, text });
     } catch (problem) { if (!request.signal.aborted && !aborted(problem)) setActionError('Não foi possível conferir o XML. Nenhum arquivo foi entregue.'); }
-  };
-  // "Baixar XML carta de correção": the CC-e XMLs collected with a Origin note, each checked by size and SHA-256 (several go in one ZIP).
-  const downloadLetters = async (row: ListRow) => {
-    detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError('');
-    try {
-      const events = originDetail(await readOrigin(row, request.signal)).events.filter(e => e.type === '110110');
-      if (request.signal.aborted) return;
-      if (!events.length) { setActionError('Esta nota não tem carta de correção coletada do Origin.'); return; }
-      const files: { name: string; data: Uint8Array }[] = [];
-      for (const event of events) files.push({ name: `CCe${row.access_key ?? row.id}-${event.sequence ?? event.hash.slice(0, 8)}.xml`, data: new TextEncoder().encode(await downloadVerifiedXml(controller, { id: event.id, hash: event.hash, size: event.size }, config.model, request.signal, false)) });
-      if (request.signal.aborted) return;
-      if (files.length === 1) saveFile(files[0]!.name, files[0]!.data as Uint8Array<ArrayBuffer>, 'application/xml');
-      else saveFile(`CCe${row.access_key ?? row.id}.zip`, zipStore(files) as Uint8Array<ArrayBuffer>, 'application/zip');
-      setNotice(files.length === 1 ? 'XML da carta de correção conferido e baixado.' : `${files.length} cartas de correção conferidas e baixadas em um ZIP.`);
-    } catch (problem) { if (!request.signal.aborted && !aborted(problem)) setActionError('Não foi possível conferir o XML da carta de correção. Nenhum arquivo foi entregue.'); }
-    finally { if (detail.current === request) detail.current = null; }
   };
   // "Validar" / "Gerar XML (suporte)": the Worker builds the XML from the saved note and checks it; a late answer, another row action,
   // another user or a profile that no longer writes notes never shows it.
@@ -329,7 +305,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const copyKey = async (key: string) => { try { await globalThis.navigator?.clipboard?.writeText(key); setNotice('Chave de acesso copiada.'); } catch { setActionError('Não foi possível copiar a chave de acesso.'); } };
   // ---- Batch deletion (Brufap notes only) ----
   // The lançamentos already read for the page (letters C and E): a note that cannot be deleted is listed with the reason before asking.
-  const deleteEffects = (row: ListRow): DeleteEffects | null => isNative(row) ? { finance: financeState(row), stock: rowStock(row) } : null;
+  const deleteEffects = (row: ListRow): DeleteEffects | null => ({ finance: financeState(row), stock: rowStock(row) });
   const openDelete = () => { if (!selectedRows.length) return; batchActor.current = actorOf(controller); setReason(''); setDialog({ type: 'delete', rows: selectedRows.slice() }); };
   const runDelete = async ({ row }: DeleteItem) => {
     if (lifetime.current.signal.aborted || actorOf(controller) !== batchActor.current || !['admin', 'fiscal'].includes(roleOf(controller))) throw new Error('A sessão ou o perfil mudou. Esta nota não foi excluída.');
@@ -354,8 +330,8 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     try {
       const all: ListRow[] = [], pages = Math.min(10, pageCount(page.total_count));
       for (let n = 1; n <= pages; n++) {
-        const query = fiscalListQuery(config, origin, filters, { page: n, order });
-        const value = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${query}`, { signal: request.signal }), { origin, model: config.model, direction: config.direction, page: n, limit: FISCAL_PAGE_SIZE, order });
+        const query = fiscalListQuery(config, filters, { page: n, order });
+        const value = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${query}`, { signal: request.signal }), { origin: 'brufap', model: config.model, direction: config.direction, page: n, limit: FISCAL_PAGE_SIZE, order });
         if (request.signal.aborted) return; all.push(...value.items);
       }
       setPrintRows(all);
@@ -363,16 +339,14 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     finally { if (detail.current === request) detail.current = null; if (printRequest.current === request) { printRequest.current = null; setPrinting(false); } }
   };
 
-  // ---- DANFE from the checked XML of each note (Origin archive or imported XML), at most 50 notes per preview ----
+  // ---- DANFE from the checked XML of each note (imported XML), at most 50 notes per preview ----
   const danfeDocument = async (row: ListRow, signal: AbortSignal): Promise<DanfeDocument> => {
-    const xml = isImported(row) ? (await importedXml(controller, row.id, signal)).xml
-      : await downloadVerifiedXml(controller, { id: row.xml_id!, hash: row.xml_hash!, size: row.xml_size! }, config.model, signal, false);
+    const xml = (await importedXml(controller, row.id, signal)).xml;
     const data = danfeData(xml);
     if ((row.access_key && data.key !== row.access_key) || data.model !== config.model) throw new DanfeError('DANFE_KEY_INVALID');
     return { data, status: row.status === 3 ? 'cancelled' : row.status === 10 ? 'denied' : null };
   };
   const printDanfe = async (rows: ListRow[], layout: DanfeLayout, pdf = false) => {
-    if (rows.some(row => row.origin === 'origin')) { setActionError(ORIGIN_DANFE_REASON); return; }
     if (printing || !rows.length) return;
     const request = new AbortController(); detail.current?.abort(); detail.current = request; printRequest.current = request; setPrinting(true); setActionError('');
     const ready = rows.filter(danfeReady), problems = rows.filter(row => !danfeReady(row)).map(row => `Nota ${invoiceNumber(row)}: sem XML autorizado para o DANFE.`);
@@ -395,7 +369,6 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   // "Gerar PDF DANFE" of the panel (Selecionadas | Período): a background task of the list that reads the checked XML of each note, up to
   // 1.000, and ends with one PDF or a ZIP with one PDF per note. Row actions never cancel it; Cancelar, leaving the screen or another user do.
   const startPdfJob = async (source: { rows: ListRow[] } | { from: string; to: string }) => {
-    if (origin === 'origin' || 'rows' in source && source.rows.some(row => row.origin === 'origin')) { setActionError(ORIGIN_DANFE_REASON); return; }
     if (pdfJob?.running) return;
     const request = new AbortController(), actor = actorOf(controller), format = pdfFormat;
     pdfJobRequest.current?.abort(); pdfJobRequest.current = request; setDialog(null); setActionError('');
@@ -408,7 +381,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
       else {
         const scoped = { ...filters, from: source.from, to: source.to };
         for (let n = 1; n <= Math.ceil(DANFE_JOB_MAX / FISCAL_PAGE_SIZE); n++) {
-          const value = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${fiscalListQuery(config, origin, scoped, { page: n, order })}`, { signal: request.signal }), { origin, model: config.model, direction: config.direction, page: n, limit: FISCAL_PAGE_SIZE, order });
+          const value = checkListPage(await controller.fiscalInvoices(`${FISCAL_BASE}?${fiscalListQuery(config, scoped, { page: n, order })}`, { signal: request.signal }), { origin: 'brufap', model: config.model, direction: config.direction, page: n, limit: FISCAL_PAGE_SIZE, order });
           if (request.signal.aborted) return;
           rows.push(...value.items); if (n === 1) beyond = Math.max(0, value.total_count - DANFE_JOB_MAX); if (!value.has_more) break;
         }
@@ -440,7 +413,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const [productLabels, setProductLabels] = useState<PurchaseLabels | null>(null);
   const printProductLabels = async () => {
     if (printing) return;
-    const rows = selectedRows.filter(isNative).slice(0, 60); if (!rows.length) return;
+    const rows = selectedRows.slice(0, 60); if (!rows.length) return;
     const request = new AbortController(); detail.current?.abort(); detail.current = request; printRequest.current = request; setPrinting(true); setActionError('');
     try {
       const records = [];
@@ -450,15 +423,14 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     } catch (failure) { if (!request.signal.aborted && !aborted(failure)) setActionError('Não foi possível ler as notas selecionadas para as etiquetas.'); }
     finally { if (detail.current === request) detail.current = null; if (printRequest.current === request) { printRequest.current = null; setPrinting(false); } }
   };
-  // "Etiquetas selecionadas": each selected note is read (Brufap record or Origin projection) and printed as an A4 address label.
+  // "Etiquetas selecionadas": each selected note is read (Brufap record) and printed as an A4 address label.
   const printLabels = async () => {
     if (printing || !selectedRows.length) return;
     const request = new AbortController(); detail.current?.abort(); detail.current = request; printRequest.current = request; setPrinting(true); setActionError('');
     try {
       const out: AddressLabel[] = [];
       for (const row of selectedRows.slice(0, 100)) {
-        if (isNative(row)) { const record = await readRecord(row.id, request.signal); out.push(noteLabel(row, record.recipient, record.transport.delivery)); }
-        else { const detailValue = originDetail(await readOrigin(row, request.signal)); out.push(noteLabel(row, detailValue.contact, null)); }
+        const record = await readRecord(row.id, request.signal); out.push(noteLabel(row, record.recipient, record.transport.delivery));
         if (request.signal.aborted) return;
       }
       setLabels(out);
@@ -468,7 +440,6 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
 
   if (opened) {
     const back = () => { setOpening(null); setParam({ nota: null, pedido: null, secao: null }); setReload(n => n + 1); };
-    if (opened.startsWith('origin-')) return <FiscalOriginInvoiceView key={opened} controller={controller} config={config} sourceId={opened.slice('origin-'.length)} writable={writable} onBack={back} />;
     if (opened !== 'nova' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opened)) return <section className="real-state-panel"><h1>Nota não encontrada</h1><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
     // Like the emitter: a same-actor role loss hides the form but keeps a pending command for when access returns.
     const denied = <section className="real-state-panel"><h1>Nota do FAGOO não liberada</h1><p>Somente administradores e o perfil fiscal abrem as notas de homologação do FAGOO. Uma confirmação pendente fica preservada até o acesso voltar.</p><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
@@ -479,14 +450,14 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         setOpening(null);
         // "Clonar para entrada/saída" and "Gerar NF-e" save a note of another list: open it where Origin lists it.
         const path = record.direction === '0' ? '/notas-entrada' : '/historico-fiscal';
-        if (path === location.pathname && (path === '/notas-entrada' || record.model === config.model)) setParam({ nota: record.id, origem: 'brufap', pedido: null, secao: null }, true);
-        else navigate(`${path}?${new URLSearchParams({ ...(path === '/historico-fiscal' ? { modelo: record.model } : {}), origem: 'brufap', nota: record.id })}`, { replace: true });
+        if (path === location.pathname && (path === '/notas-entrada' || record.model === config.model)) setParam({ nota: record.id, pedido: null, secao: null }, true);
+        else navigate(`${path}?${new URLSearchParams({ ...(path === '/historico-fiscal' ? { modelo: record.model } : {}), nota: record.id })}`, { replace: true });
       }} /></div></>;
   }
 
   const backupTabs = backup && <nav className="origin-list-tabs fiscal-entry-tabs" role="tablist" aria-label="Origem das notas fiscais">
     <button type="button" role="tab" aria-selected={!backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: null }))}>Notas fiscais</button>
-    <button type="button" role="tab" aria-selected={backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: 'backup', nota: null, origem: null }))}>Arquivo do backup do Origin</button></nav>;
+    <button type="button" role="tab" aria-selected={backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: 'backup', nota: null }))}>Arquivo do backup do Origin</button></nav>;
   if (backupTab) return <section className="fiscal-invoices">{backupTabs}{backup}</section>;
   const total = page?.total_count ?? 0;
   const chips = filterChips(config, filters).map(chip => ({ label: chip.label, onRemove: () => apply(chip.key === 'query' ? { ...filters, query: '' } : chip.key === 'status' ? { ...filters, status: '' } : chip.key === 'product' ? { ...filters, product: null }
@@ -511,25 +482,22 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
       case 'status': return config.plainStatus ? <span className="fiscal-plain-status" title={fiscalStateText(row)}>{statusLabel(row, config.model)}</span> : <span className={statusClass(row, config.model)} title={fiscalStateText(row)}>{statusLabel(row, config.model)}</span>;
     }
   };
-  const homologationNotice = origin === 'brufap' && <p className="real-notice fiscal-homologation-notice">Registros próprios e XMLs importados no FAGOO, separados do espelho do Origin. Os testes marcados como Homologação são sem valor fiscal; não entram na lista operacional do Origin. O ambiente de cada documento aparece na linha. Salvar um rascunho não envia, não lança estoque nem contas.</p>;
+  const homologationNotice = <p className="real-notice fiscal-homologation-notice">Registros próprios e XMLs importados no FAGOO. Os testes marcados como Homologação são sem valor fiscal. O ambiente de cada documento aparece na linha. Salvar um rascunho não envia, não lança estoque nem contas.</p>;
   return <section className="fiscal-invoices">
     {backupTabs}
     {screen === 'entrada' && <nav className="origin-list-tabs fiscal-entry-tabs" role="tablist" aria-label="Notas fiscais de entrada"><button type="button" role="tab" aria-selected={true}>Notas de compra</button><button type="button" role="tab" aria-selected={false} onClick={() => guard.confirmLeave(() => navigate('/notas-recebidas'))}>Notas recebidas</button></nav>}
-    <OriginListHeader title={config.title} selector={writable ? <OriginSelector label="Origem das notas" value={ORIGIN_LABELS[origin]} options={[ORIGIN_LABELS.origin, ORIGIN_LABELS.brufap]} onChange={value => guard.confirmLeave(() => setParam({ origem: value === ORIGIN_LABELS.brufap ? 'brufap' : null, nota: null }))} /> : undefined}
-      primary={writable ? <button type="button" className="primary-button" title="Abre um rascunho técnico em homologação, sem valor fiscal, na área do FAGOO." onClick={() => void addNote()}><Icon name="plus" size={12} /> {origin === 'origin' ? 'Rascunho de homologação' : config.addLabel}</button> : undefined} />
+    <OriginListHeader title={config.title}
+      primary={writable ? <button type="button" className="primary-button" title="Abre um rascunho técnico em homologação, sem valor fiscal, na área do FAGOO." onClick={() => void addNote()}><Icon name="plus" size={12} /> {config.addLabel}</button> : undefined} />
     {homologationNotice}
-    {origin === 'origin' && <><p className="real-notice"><strong>Origem Origin · somente consulta.</strong> {ORIGIN_FISCAL_READONLY_REASON} {ORIGIN_DANFE_REASON}</p><FiscalMirrorCoverage coverage={page?.coverage} /></>}
     <form onSubmit={submit} aria-label="Filtros das notas fiscais">
       <NativeListLayout filters={<>
         <div className="form-field"><label htmlFor="fiscal-status">Situação</label><select id="fiscal-status" value={draft.status} onChange={event => { const value = event.target.value; setDraft(d => ({ ...d, status: value })); }}>{config.statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
         <div className="form-field"><label htmlFor="fiscal-product-search">Produto</label>{draft.product ? <span className="documents-picked"><span>{draft.product.name}</span><button type="button" className="text-button" onClick={() => setDraft(d => ({ ...d, product: null }))}>Trocar</button></span>
           : <><input id="fiscal-product-search" type="search" maxLength={120} placeholder="Pesquise por código ou descrição" value={productQuery} onChange={event => setProductQuery(event.target.value)} />
-            <select id="fiscal-product" aria-label="Selecionar produto" value="" disabled={!products.length} onChange={event => { const found = products.find(p => p.id === event.target.value); if (found) { setDraft(d => ({ ...d, product: { id: found.id, name: found.name, code: found.code } })); setProductQuery(''); } }}><option value="">{products.length ? 'Selecione o produto' : 'Digite ao menos 2 letras'}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ''}</option>)}</select></>}
-          {origin === 'origin' && <small className="real-help">Nas notas do Origin, o produto é encontrado pelo código dos itens.</small>}</div>
+            <select id="fiscal-product" aria-label="Selecionar produto" value="" disabled={!products.length} onChange={event => { const found = products.find(p => p.id === event.target.value); if (found) { setDraft(d => ({ ...d, product: { id: found.id, name: found.name, code: found.code } })); setProductQuery(''); } }}><option value="">{products.length ? 'Selecione o produto' : 'Digite ao menos 2 letras'}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}{p.code ? ` · ${p.code}` : ''}</option>)}</select></>}</div>
         {config.sellerFilter && <div className="form-field"><label htmlFor="fiscal-seller-search">Vendedor</label>{draft.seller ? <span className="documents-picked"><span>{draft.seller.name}</span><button type="button" className="text-button" onClick={() => setDraft(d => ({ ...d, seller: null }))}>Trocar</button></span>
           : <><input id="fiscal-seller-search" type="search" maxLength={120} placeholder="Pesquise pelo nome do vendedor" value={sellerQuery} onChange={event => setSellerQuery(event.target.value)} />
-            <select id="fiscal-seller" aria-label="Selecionar vendedor" value="" disabled={!sellers.length} onChange={event => { const found = sellers.find(s => s.id === event.target.value); if (found) { setDraft(d => ({ ...d, seller: { id: found.id, name: found.name, code: found.code } })); setSellerQuery(''); } }}><option value="">{sellers.length ? 'Selecione o vendedor' : 'Digite ao menos 2 letras'}</option>{sellers.map(s => <option key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</option>)}</select></>}
-          {origin === 'origin' && <small className="real-help">Nas notas do Origin, vale o vendedor do Origin ligado ao contato do vendedor do FAGOO.</small>}</div>}
+            <select id="fiscal-seller" aria-label="Selecionar vendedor" value="" disabled={!sellers.length} onChange={event => { const found = sellers.find(s => s.id === event.target.value); if (found) { setDraft(d => ({ ...d, seller: { id: found.id, name: found.name, code: found.code } })); setSellerQuery(''); } }}><option value="">{sellers.length ? 'Selecione o vendedor' : 'Digite ao menos 2 letras'}</option>{sellers.map(s => <option key={s.id} value={s.id}>{s.name}{s.code ? ` · ${s.code}` : ''}</option>)}</select></>}</div>}
         <InvoiceTagFilter state={invoiceTags} value={draft.tag ?? null} onChange={tag => setDraft(d => ({ ...d, tag }))} />
         <div className="form-field"><label htmlFor="fiscal-state">UF</label><select id="fiscal-state" value={draft.state} onChange={event => { const value = event.target.value; setDraft(d => ({ ...d, state: value })); }}><option value="">UF ...</option>{UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select></div>
         <div className="fiscal-custom-search"><button type="button" className="text-button" aria-expanded={customOpen} onClick={() => setCustomOpen(v => !v)}><Icon name="plus" size={10} /> Adicionar filtros</button>
@@ -537,20 +505,19 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
             ? <select id={`fiscal-custom-${key}`} value={draft.custom[key] ?? ''} onChange={event => { const value = event.target.value; setDraft(d => ({ ...d, custom: { ...d.custom, [key]: value } })); }}><option value="">Todos</option>{(['J', 'F', 'E'] as const).map(v => <option key={v} value={v}>{PERSON_LABELS[v]}</option>)}</select>
             : <input id={`fiscal-custom-${key}`} maxLength={key === 'series' ? 3 : 120} value={draft.custom[key] ?? ''} onChange={event => { const value = event.target.value; setDraft(d => ({ ...d, custom: { ...d.custom, [key]: value } })); }} />}</div>)}
           {customOpen && config.categoryFilter && <div className="form-field"><label htmlFor="fiscal-custom-category">Categoria</label>
-            {origin === 'brufap' ? <select id="fiscal-custom-category" value={draft.category?.id ?? ''} disabled={!categories} onChange={event => { const found = categories?.find(c => c.id === event.target.value); setDraft(d => ({ ...d, category: found ? { id: found.id, name: found.name } : null })); }}>
+            <select id="fiscal-custom-category" value={draft.category?.id ?? ''} disabled={!categories} onChange={event => { const found = categories?.find(c => c.id === event.target.value); setDraft(d => ({ ...d, category: found ? { id: found.id, name: found.name } : null })); }}>
               <option value="">{categories ? 'Todas' : 'Carregando categorias…'}</option>{(categories ?? []).map(c => <option key={c.id} value={c.id}>{`${' '.repeat((c.depth - 1) * 2)}${c.name}`}</option>)}</select>
-              : <select id="fiscal-custom-category" disabled value=""><option value="">Somente notas do FAGOO</option></select>}
-            <small className="real-help">{origin === 'brufap' ? categoryError || 'Categoria financeira das contas lançadas pela nota.' : CATEGORY_ORIGIN_HELP}</small></div>}
+            <small className="real-help">{categoryError || 'Categoria financeira das contas lançadas pela nota.'}</small></div>}
           {customOpen && <p className="real-help">{NOT_APPLICABLE_FILTERS}</p>}</div>
         <button type="submit" className="primary-button" disabled={loading}>Filtrar</button>
       </>} actions={<>
         <div className="documents-panel-actions">
-          {writable && <button type="button" className="origin-action" title="Rascunho do FAGOO, sem valor fiscal." onClick={() => void addNote()}><Icon name="plus" size={15} /><span>{origin === 'origin' ? 'Rascunho de homologação' : config.addLabel}</span></button>}
+          {writable && <button type="button" className="origin-action" title="Rascunho do FAGOO, sem valor fiscal." onClick={() => void addNote()}><Icon name="plus" size={15} /><span>{config.addLabel}</span></button>}
           <button type="button" className="origin-action" disabled title="O envio à SEFAZ das notas do FAGOO ainda não está ligado nesta tela."><Icon name="paper-plane" size={15} /><span>{config.model === '65' ? 'Autorizar NFC-es selecionadas' : 'Enviar NF-es selecionadas'}</span></button>
-          {config.model === '55' && <button type="button" className="origin-action" disabled={origin === 'origin' || !selectedRows.length || printing} title={origin === 'origin' ? ORIGIN_DANFE_REASON : selectedRows.length ? 'DANFE das notas selecionadas com XML autorizado (até 50).' : 'Selecione as notas.'} onClick={() => void printDanfe(selectedRows.slice(), 'a4')}><Icon name="print" size={15} /><span>Imprimir NF-es selecionadas</span></button>}
-          {config.model === '55' && <button type="button" className="origin-action" disabled={origin === 'origin' || !page || printing || Boolean(pdfJob?.running)} title={origin === 'origin' ? ORIGIN_DANFE_REASON : pdfJob?.running ? 'Um PDF DANFE já está sendo gerado.' : undefined} onClick={() => { setPdfMode(selectedRows.length ? 'selected' : 'period'); setPdfFrom(filters.from); setPdfTo(filters.to); setDialog({ type: 'danfe_pdf' }); }}><Icon name="file-pdf" size={15} /><span>Gerar PDF DANFE</span></button>}
+          {config.model === '55' && <button type="button" className="origin-action" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'DANFE das notas selecionadas com XML autorizado (até 50).' : 'Selecione as notas.'} onClick={() => void printDanfe(selectedRows.slice(), 'a4')}><Icon name="print" size={15} /><span>Imprimir NF-es selecionadas</span></button>}
+          {config.model === '55' && <button type="button" className="origin-action" disabled={!page || printing || Boolean(pdfJob?.running)} title={pdfJob?.running ? 'Um PDF DANFE já está sendo gerado.' : undefined} onClick={() => { setPdfMode(selectedRows.length ? 'selected' : 'period'); setPdfFrom(filters.from); setPdfTo(filters.to); setDialog({ type: 'danfe_pdf' }); }}><Icon name="file-pdf" size={15} /><span>Gerar PDF DANFE</span></button>}
           <button type="button" className="origin-action" disabled={!page} onClick={() => setDialog({ type: 'export', rows: selectedRows.slice() })}><Icon name="file-export" size={15} /><span>Exportar XML</span></button>
-          {config.model === '55' && <button type="button" className="origin-action" disabled={origin === 'origin' || !selectedRows.length || printing} title={origin === 'origin' ? ORIGIN_DANFE_REASON : selectedRows.length ? 'DANFE Simplificado - Etiqueta das notas selecionadas (até 50).' : 'Selecione as notas.'} onClick={() => void printDanfe(selectedRows.slice(), 'simple')}><Icon name="print" size={15} /><span>Imprimir DANFE Simplificado em lote</span></button>}
+          {config.model === '55' && <button type="button" className="origin-action" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'DANFE Simplificado - Etiqueta das notas selecionadas (até 50).' : 'Selecione as notas.'} onClick={() => void printDanfe(selectedRows.slice(), 'simple')}><Icon name="print" size={15} /><span>Imprimir DANFE Simplificado em lote</span></button>}
         </div>
         <div className="origin-more-group fiscal-more"><h3>Mais ações</h3>
           {config.model === '55' && (() => {
@@ -561,18 +528,18 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           })()}
           {config.model === '55' ? <button type="button" disabled={!writable} title={writable ? undefined : 'Somente administrador e fiscal importam XML.'} onClick={() => setDialog({ type: 'import' })}>Importar XML NF-e</button>
             : <button type="button" disabled={!writable} title={writable ? 'NFC-e autorizada emitida pela empresa (202610200274).' : 'Somente administrador e fiscal importam XML.'} onClick={() => setDialog({ type: 'import' })}>Importar XML</button>}
-          <button type="button" disabled={!writable || origin !== 'brufap'} title={!writable ? 'Somente administrador e fiscal.' : origin !== 'brufap' ? 'A numeração do Origin é inutilizada no Origin. Abra os testes de homologação do FAGOO.' : undefined} onClick={() => setDialog({ type: 'inutilization' })}>Inutilizar numeração</button>
+          <button type="button" disabled={!writable} title={!writable ? 'Somente administrador e fiscal.' : undefined} onClick={() => setDialog({ type: 'inutilization' })}>Inutilizar numeração</button>
           {config.model === '55' && <button type="button" disabled title="A emissão em produção continua desligada no FAGOO.">Mover para ambiente de produção</button>}
           {screen === 'nfe' && <><h4>Imprimir</h4>
             <button type="button" disabled title="As etiquetas de transporte das transportadoras são logística, fora do escopo do FAGOO.">Etiquetas de transporte</button>
             <button type="button" disabled title="A etiqueta de transporte é logística, fora do escopo do FAGOO. O DANFE Simplificado sozinho fica em Imprimir DANFE Simplificado em lote.">DANFE Simplificado + Etiqueta de transporte</button>
             <button type="button" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'Etiquetas de endereço das notas selecionadas (o endereço de entrega tem prioridade).' : 'Selecione as notas.'} onClick={() => void printLabels()}>Etiquetas selecionadas</button></>}
           {/* Leva H (NFE-209): the product labels of the selected FAGOO entry notes (Cadastros › Produtos labels). */}
-          {screen === 'entrada' && <><h4>Imprimir</h4><button type="button" disabled={!selectedRows.some(isNative) || printing} title={selectedRows.some(isNative) ? 'Etiquetas dos produtos das notas de entrada do FAGOO selecionadas (uma por quantidade).' : 'Selecione notas de entrada do FAGOO.'} onClick={() => void printProductLabels()}>Imprimir etiquetas selecionadas</button></>}
+          {screen === 'entrada' && <><h4>Imprimir</h4><button type="button" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'Etiquetas dos produtos das notas de entrada do FAGOO selecionadas (uma por quantidade).' : 'Selecione notas de entrada do FAGOO.'} onClick={() => void printProductLabels()}>Imprimir etiquetas selecionadas</button></>}
           {screen === 'entrada' && (['link', 'unlink'] as const).map(mode => {
-            // "Vincular à pedido de compra" works on one note of Brufap at a time; Origin notes are linked in Origin.
+            // "Vincular à pedido de compra" works on one note of Brufap at a time.
             const one = selectedRows.length === 1 ? selectedRows[0]! : null, reason = !writable ? 'Somente administrador e fiscal.' : !one ? 'Selecione uma nota por vez.'
-              : !isNative(one) ? 'Nota do Origin: o vínculo com o pedido de compra continua no Origin.' : mode === 'unlink' && !one.orders.length ? 'A nota não está vinculada a pedido de compra.' : null;
+              : mode === 'unlink' && !one.orders.length ? 'A nota não está vinculada a pedido de compra.' : null;
             return <button key={mode} type="button" disabled={Boolean(reason)} title={reason ?? undefined} onClick={() => one && setDialog({ type: 'link', row: one, mode })}>{mode === 'link' ? 'Vincular à pedido de compra' : 'Desvincular pedido compra'}</button>;
           })}
         </div>
@@ -581,7 +548,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           {(!page || page.show_totals) && <><dl className="native-list-stat"><dt>{config.countLabel}</dt><dd>{page ? total.toLocaleString('pt-BR') : '—'}</dd></dl>
             <dl className="native-list-stat"><dt>Valor total</dt><dd>{decimalMoney(page?.total_amount ?? null)}</dd></dl></>}
           {selectedRows.length > 0 && <dl className="native-list-stat"><dt>selecionados</dt><dd>{selectedRows.length}</dd></dl>}
-          {page && page.amount_unknown > 0 && <p className="real-help">{page.amount_unknown} nota(s) do Origin sem valor informado na coleta.</p>}
+          {page && page.amount_unknown > 0 && <p className="real-help">{page.amount_unknown} nota(s) sem valor informado.</p>}
           <p className="real-help">Informações baseadas nos filtros aplicados.</p></div>
         <div className="origin-support"><h3>Ferramentas de apoio</h3>{/* Leva H (NFE-187): the FAGOO help, not the Origin manual. */}<button type="button" className="text-button" onClick={() => guard.confirmLeave(() => navigate('/ajuda/notas-fiscais'))}>Manual de notas fiscais</button><button type="button" className="text-button" onClick={() => guard.confirmLeave(() => navigate(config.model === '65' ? '/preferencias/notas-fiscais/nfce' : '/preferencias/notas-fiscais/nfe'))}>Acesse os parâmetros de nota fiscal</button></div>
       </>}>
@@ -591,7 +558,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           <PeriodPicker key={`${screen}:${filters.dateType}`} from={filters.from} to={filters.to} today={today()} dateType={dateLabel} dateTypes={config.dateTypes.map(t => t.label)} prefixLabel={Boolean(config.dateTypes.length)}
             onApply={range => apply({ ...filters, from: range.from, to: range.to, dateType: config.dateTypes.find(t => t.label === range.dateType)?.value ?? filters.dateType })} />
           <ToolButton icon="print" title="Imprimir listagem de notas" disabled={!page || !total || printing} onClick={() => void printList()} />
-          <ToolButton icon="trash-can" title={config.deleteLabel} disabled={origin === 'origin' || !writable || !selectedRows.length} onClick={openDelete} />
+          <ToolButton icon="trash-can" title={config.deleteLabel} disabled={!writable || !selectedRows.length} onClick={openDelete} />
         </div>
         <AppliedChips chips={chips} onClear={() => apply({ ...emptyFilters(config), from: filters.from, to: filters.to, dateType: filters.dateType })} />
         <ListPreferencesBar prefs={prefs} columns={columnCatalog} currentFilters={filtersToPreference(config, filters)} />
@@ -607,21 +574,21 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           {layout.map(column => column === 'date' ? <th key={column} aria-sort={order.startsWith('date') ? order.endsWith('desc') ? 'descending' : 'ascending' : undefined}><button type="button" className="documents-sort" disabled={loading} onClick={() => { setOrder(order === 'date_desc' ? 'date_asc' : 'date_desc'); setListPage(1); }}>{screen === 'entrada' && filters.dateType === 'issue' ? 'Data de emissão' : config.dateColumn}</button></th>
             : column === 'status' ? <th key={column}>Situação</th> : <th key={column} className={column === 'total' ? 'numeric' : undefined}>{columnCatalog.find(c => c.id === column)?.label}</th>)}
           <th><span className="sr-only">Marcadores</span></th>{linkLast && <th>{columnCatalog.find(c => c.id === 'link')?.label}</th>}<th className="row-actions"><span className="sr-only">Ações</span></th></tr></thead>
-          <tbody>{rows.map(row => { const key = keyOf(row), priced = isNative(row) ? pricing[row.id] : undefined, letter = invoiceStockLetter(isNative(row) ? stockFlags.flags?.get(row.id) : undefined), indicators = [...orderIndicators(row), ...financeIndicator(row.origin === 'brufap' ? flags?.get(row.id)?.posted : false), ...(letter ? [letter] : []), ...(priced ? [{ text: 'P', color: 'red', title: pricingTitle(priced) }] : [])]; return <tr key={key} className={`fiscal-row${selected.has(key) ? ' selected' : ''}`} onClick={event => open(row, event)} onAuxClick={event => { if (event.button === 1) open(row, event); }}>
+          <tbody>{rows.map(row => { const key = keyOf(row), priced = pricing[row.id], letter = invoiceStockLetter(stockFlags.flags?.get(row.id)), indicators = [...orderIndicators(row), ...financeIndicator(flags?.get(row.id)?.posted), ...(letter ? [letter] : []), ...(priced ? [{ text: 'P', color: 'red', title: pricingTitle(priced) }] : [])]; return <tr key={key} className={`fiscal-row${selected.has(key) ? ' selected' : ''}`} onClick={event => open(row, event)} onAuxClick={event => { if (event.button === 1) open(row, event); }}>
             <td className="checkbox-cell" onClick={event => event.stopPropagation?.()}><input type="checkbox" aria-label={`Selecionar nota ${invoiceNumber(row)}`} checked={selected.has(key)} onClick={event => { const result = selectRange(ids, selected, anchor, key, Boolean(event.shiftKey)); setSelected(result.selected); setAnchor(result.anchor); }} onChange={() => undefined} /></td>
-            <td title={sourceLabel(row)}>{invoiceNumber(row)}<span className={`origin-tag fiscal-homologation-tag${row.origin === 'origin' ? ' fiscal-origin-tag' : ''}`}>{row.origin === 'origin' ? 'Origin · somente leitura' : row.source_environment === '2' ? 'Homologação · sem valor fiscal' : 'Origem FAGOO'}</span><small className="fiscal-source-line">{sourceLabel(row)}{row.origin === 'origin' && <> · {row.xml_id ? 'XML coletado' : 'XML pendente'}</>}</small>{row.origin === 'origin' && <small className="fiscal-source-line">ID Origin {row.id}{row.observed_at && <> · Observada em <time dateTime={row.observed_at}>{new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(row.observed_at))}</time></>}</small>}</td>
+            <td title={sourceLabel(row)}>{invoiceNumber(row)}<span className="origin-tag fiscal-homologation-tag">{row.source_environment === '2' ? 'Homologação · sem valor fiscal' : 'Origem FAGOO'}</span><small className="fiscal-source-line">{sourceLabel(row)}</small></td>
             {layout.map(column => <td key={column} className={column === 'total' ? 'numeric' : undefined}>{cell(row, column)}</td>)}
             <td><span className="origin-indicators">{indicators.map(indicator => <IndicatorLetter key={indicator.text} text={indicator.text} color={indicator.color} title={indicator.title} />)}</span><InvoiceTagCell state={invoiceTags} row={row} label={invoiceNumber(row)} /></td>
             {linkLast && <td>{cell(row, 'link')}</td>}
             <td className="row-actions" onClick={event => event.stopPropagation?.()}><RowMenu label={`nota ${invoiceNumber(row)}`} items={menuItems(row)} open={menu === key} onToggle={() => setMenu(v => v === key ? null : key)} /></td>
           </tr>; })}</tbody></table></div>}
-        {page && !rows.length && <div className="empty-state"><h2>Nenhuma nota encontrada</h2><p>{origin === 'origin' ? 'Ajuste os filtros ou aguarde a sincronização das notas do Origin.' : 'Inclua uma nota de teste ou ajuste os filtros.'}</p></div>}
+        {page && !rows.length && <div className="empty-state"><h2>Nenhuma nota encontrada</h2><p>Inclua uma nota de teste ou ajuste os filtros.</p></div>}
         {page && total > 0 && <OriginPagination page={listPage} pages={pageCount(total)} size={FISCAL_PAGE_SIZE} total={total} onPage={value => { if (!loading && value !== listPage) setListPage(value); }} />}
       </NativeListLayout>
     </form>
     {dialog?.type === 'delete' && <BatchDialog title={config.deleteLabel} confirmLabel="Excluir" plan={deletePlan(dialog.rows, deleteEffects)} canConfirm={reason.trim().length >= 3} run={runDelete} onClose={closeDelete}
       description={<div className="fiscal-delete"><p className="real-notice">{config.deleteWarning}</p><div className="form-field"><label htmlFor="fiscal-delete-reason">Motivo da exclusão</label><input id="fiscal-delete-reason" maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></div>
-        <p className="real-help">A exclusão é lógica: a nota sai da listagem, mas a versão, o motivo e o usuário ficam no histórico. As notas do Origin não são excluídas.</p></div>} />}
+        <p className="real-help">A exclusão é lógica: a nota sai da listagem, mas a versão, o motivo e o usuário ficam no histórico.</p></div>} />}
     {dialog?.type === 'inutilization' && <InutilizationDialog controller={controller} model={config.model} onClose={done => { setDialog(null); if (done) setNotice('Pedido de inutilização registrado em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); }} />}
     {dialog?.type === 'cancel' && <CancelDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) { setNotice('Pedido de cancelamento registrado em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); setReload(n => n + 1); } }} />}
     {dialog?.type === 'correction' && <CorrectionDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) setNotice('Carta de correção registrada em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); }} />}
@@ -632,8 +599,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         <button type="button" className="secondary-button" disabled={!hasXml(dialog.row)} title={hasXml(dialog.row) ? undefined : 'Sem XML coletado para esta nota.'} onClick={() => void showXml(dialog.row, false)}>Ver o XML da nota</button>
         <button type="button" className="secondary-button" disabled={!hasXml(dialog.row)} title={hasXml(dialog.row) ? undefined : 'Sem XML coletado para esta nota.'} onClick={() => void showXml(dialog.row, true)}>Baixar XML</button>
         <button type="button" className="secondary-button" disabled={!dialog.row.access_key} title={dialog.row.access_key ? undefined : 'A nota ainda não tem chave de acesso.'} onClick={() => void copyKey(dialog.row.access_key!)}>Copiar chave de acesso</button>
-        <button type="button" className="secondary-button" disabled={dialog.row.origin !== 'origin' || dialog.row.event_count === 0}
-          title={dialog.row.origin !== 'origin' ? 'As cartas de correção do FAGOO ainda não foram transmitidas.' : dialog.row.event_count === 0 ? 'Nenhum evento coletado para esta nota.' : undefined} onClick={() => void downloadLetters(dialog.row)}>Baixar XML carta de correção</button>
+        <button type="button" className="secondary-button" disabled title="As cartas de correção do FAGOO ainda não foram transmitidas.">Baixar XML carta de correção</button>
       </div></Modal>}
     {dialog?.type === 'native' && <FiscalNativeXmlDialog mode={dialog.mode} result={dialog.result} onClose={() => setDialog(null)} />}
     {dialog?.type === 'xml' && <Modal title={`XML da nota ${invoiceNumber(dialog.row)}`} onClose={() => setDialog(null)} actions={<button type="button" className="secondary-button" onClick={() => setDialog(null)}>Fechar</button>}>
@@ -660,13 +626,12 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     {dialog?.type === 'pricing' && <FiscalPricingDialog controller={controller} row={dialog.row} onClose={() => setDialog(null)}
       onPriced={mark => setPricing(current => ({ ...current, [mark.invoice_id]: { invoice_id: mark.invoice_id, recorded_at: mark.recorded_at, products: mark.products, count: Math.max(1, (current[mark.invoice_id]?.count ?? 0) + (mark.replayed ? 0 : 1)) } }))} />}
     {financeRow && <FiscalInvoiceFinance key={financeRow.id} controller={controller} invoiceId={financeRow.id} onClose={() => setFinanceRow(null)} onChanged={() => setFinanceReload(value => value + 1)} />}
-    {dialog?.type === 'return' && (dialog.record?.access_key || dialog.origin?.access_key) && <FiscalReturnDialog key={(dialog.record?.access_key ?? dialog.origin?.access_key)!} controller={controller} accessKey={(dialog.record?.access_key ?? dialog.origin?.access_key)!} onFind={findReturnSource}
-      number={dialog.record?.number ?? dialog.origin?.number ?? null} contactName={(dialog.record?.recipient.name as string | undefined) ?? dialog.origin?.contact.name ?? null}
-      direction={(dialog.record?.direction ?? dialog.origin?.direction ?? config.direction) as '0' | '1'}
-      items={dialog.record ? dialog.record.items.map(i => ({ description: String(i.description), code: typeof i.code === 'string' ? i.code : null, product_id: typeof i.product_id === 'string' ? i.product_id : null, quantity: i.quantity }))
-        : dialog.origin!.items.filter(i => i.description && i.quantity && i.unit_price).map(i => ({ description: i.description!.slice(0, 120), code: i.code, product_id: null, quantity: i.quantity! }))}
-      onClose={() => setDialog(null)} onConfirm={quantities => { const source = dialog; setDialog(null); startForm({ kind: 'return', ...(source.record ? { record: source.record } : { origin: source.origin! }), quantities }); }} />}
-    {dialog?.type === 'export' && <FiscalXmlExportDialog controller={controller} config={config} origin={origin} filters={filters} order={order} selected={dialog.rows} onClose={() => setDialog(null)} />}
+    {dialog?.type === 'return' && dialog.record.access_key && <FiscalReturnDialog key={dialog.record.access_key} controller={controller} accessKey={dialog.record.access_key} onFind={findReturnSource}
+      number={dialog.record.number ?? null} contactName={(dialog.record.recipient.name as string | undefined) ?? null}
+      direction={(dialog.record.direction ?? config.direction) as '0' | '1'}
+      items={dialog.record.items.map(i => ({ description: String(i.description), code: typeof i.code === 'string' ? i.code : null, product_id: typeof i.product_id === 'string' ? i.product_id : null, quantity: i.quantity }))}
+      onClose={() => setDialog(null)} onConfirm={quantities => { const source = dialog; setDialog(null); startForm({ kind: 'return', record: source.record, quantities }); }} />}
+    {dialog?.type === 'export' && <FiscalXmlExportDialog controller={controller} config={config} filters={filters} order={order} selected={dialog.rows} onClose={() => setDialog(null)} />}
     {dialog?.type === 'certificate' && <Modal title="Certificado digital" onClose={() => setDialog(null)} actions={<><button type="button" className="primary-button" onClick={() => { setDialog(null); startForm({ kind: 'new' }); }}>Prosseguir</button>
       <button type="button" className="secondary-button" onClick={() => { setDialog(null); guard.confirmLeave(() => navigate('/certificado-a1')); }}>Configurar certificado digital</button></>}>
       <p>{dialog.text}</p><p className="real-help">As NFC-e do FAGOO ficam em homologação, sem valor fiscal; a emissão com o certificado ainda não está ligada nesta tela.</p></Modal>}
@@ -675,7 +640,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         // An imported note opens in the list where Origin shows it: entry notes in Notas de entrada, exit notes in Notas fiscais de saída
         // (an imported NFC-e in NFC-e); "Conciliar produtos" opens it on the Itens tab, where the reconciliation panel is.
         const path = direction === '0' ? '/notas-entrada' : direction === '1' ? '/historico-fiscal' : location.pathname;
-        navigate(`${path}?${new URLSearchParams({ ...(path === '/historico-fiscal' ? { modelo: noteModel === '65' ? '65' : '55' } : {}), origem: 'brufap', nota: noteId, ...(reconcile ? { secao: 'itens' } : {}) })}`); }} />}
+        navigate(`${path}?${new URLSearchParams({ ...(path === '/historico-fiscal' ? { modelo: noteModel === '65' ? '65' : '55' } : {}), nota: noteId, ...(reconcile ? { secao: 'itens' } : {}) })}`); }} />}
     {dialog?.type === 'link' && <FiscalOrderLinkDialog controller={controller} row={dialog.row} mode={dialog.mode} onClose={changed => { setDialog(null); if (changed) setReload(n => n + 1); }} />}
   </section>;
 }

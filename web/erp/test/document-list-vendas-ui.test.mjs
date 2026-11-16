@@ -112,7 +112,7 @@ test('Mais ações › Exportar › Dados para planilha downloads the whole filt
     assert.equal(calls.downloads.length, 1);
     const [filename, csv] = calls.downloads[0];
     assert.match(filename, /^pedidos-de-venda-\d{4}-\d{2}-\d{2}\.csv$/);
-    assert.match(csv, /"7";"16\/10\/2026";"";"'=Cliente fórmula";"10,00";"Em aberto";"FAGOO";"";"";""\r\n"8";"16\/10\/2026";"";"Cliente sintético 2";"0,01";"Cancelado";"FAGOO";"";"";""\r\n"Quantidade de Vendas";"2";"Valor total";"10,01"/);
+    assert.match(csv, /"7";"16\/10\/2026";"";"'=Cliente fórmula";"10,00";"Em aberto"\r\n"8";"16\/10\/2026";"";"Cliente sintético 2";"0,01";"Cancelado"\r\n"Quantidade de Vendas";"2";"Valor total";"10,01"/);
     assert.match(view.text(), /Planilha gerada com 2 registros do filtro aplicado/);
   } finally { view.unmount(); }
   const proposals = server({ kind: 'sales_proposals', rows: [row(1, { kind: 'sales_proposals' })] }), proposalView = await mount(proposals, 'sales_proposals', [], DOWNLOAD);

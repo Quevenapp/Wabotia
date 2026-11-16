@@ -73,7 +73,8 @@ test('147/184 Notas fiscais de entrada: ⋮ Check-in de Recebimentos for native 
   total:'10.00',total_known:true,environment:'2',issue_type:'T',access_key:null,xml_id:null,xml_hash:null,xml_size:null,protocol_present:false,event_count:0,orders:[]};
  const action=row=>rowActions(SCREENS.entrada,row,{writable:false}).find(item=>item.id==='checkin');
  assert.deepEqual([action(base).label,action(base).enabled],['Check-in de Recebimentos',true]);
- assert.equal(action({...base,origin:'origin'}).enabled,false);assert.equal(action({...base,status:3}).enabled,false);
+ // Wabotia: Origin fora (motor 91213b8): saiu o caso da nota do Origin; fica a nota cancelada sem check-in.
+ assert.equal(action({...base,status:3}).enabled,false);
  assert.equal(rowActions(SCREENS.nfe,base,{writable:true}).some(item=>item.id==='checkin'),false,'exit notes have no check-in');
  // Review: a profile that reads the notes but not the check-in (consulta) sees the action disabled with the reason.
  const denied=rowActions(SCREENS.entrada,base,{writable:false,checkin:false}).find(item=>item.id==='checkin');

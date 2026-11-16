@@ -107,21 +107,12 @@ const GATED = {
 };
 // Arquivos com rota literal externa (404 no motor) e por que nenhuma tela a chama.
 const EXTERNAL = {
-  "components/FiscalOriginInvoiceView.tsx":
-    "abre só para linhas do espelho do Origin (ids origin-*)",
   "components/RealFinance.tsx":
     "conferência de origem do título desligada (ORIGIN_FINANCE_IMPORT)",
   "components/WabotiaPairing.tsx":
     "tela escondida no Wabotia (hiddenInWabotia)",
   "lib/system-updates.ts":
     "telas de atualização escondidas no Wabotia (hiddenInWabotia)",
-  "lib/origin-mirror-model.ts":
-    "painel do espelho só com a capacidade originHistory, que o motor não dá",
-  "lib/stock-origin-mirror-model.ts":
-    "espelho do estoque só com a capacidade originHistory",
-  "lib/origin-sync-model.ts":
-    "botão de sincronizar só com a capacidade originConnection",
-  "lib/synced-xml-model.ts": "usado só por FiscalOriginInvoiceView",
   "lib/real-access.ts": "controlador",
 };
 // Clientes de rota externa que só o controlador importa (as telas saíram, item 17).

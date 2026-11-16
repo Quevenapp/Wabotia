@@ -1,4 +1,3 @@
-import { originHistoryAvailable } from '../lib/integration-capabilities';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useReferenceOptions } from '../hooks/useReferenceOptions';
 import type { PlatformPort } from '../lib/platform-model';
@@ -24,7 +23,6 @@ import ContactBilling from './ContactBilling';
 import type { CatalogEditorProps } from './CatalogEditor';
 import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
-import OriginMirrorPanel from './OriginMirrorPanel';
 import './contacts.css';
 import { blockEnabled } from '../../blocks';
 
@@ -230,8 +228,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved }: Catalog
                 : <CategoryTreePicker id="contact-finance_category_id" items={categoryList} value={values.finance_category_id ?? ''} currentName={record?.finance_category_name} disabled={locked} onChange={next => change('finance_category_id', next)} />}</div>
           </div></section>
         <section className="contact-section" id="contact-section-notes" tabIndex={-1}><h3 className="catalog-group-title">Observações</h3><div className="contact-grid">{field(SECTION_FIELDS.observacoes[0])}</div></section>
-        {/* Leva H (350): os campos do Origin, a origem, a sincronização e o complemento Transportador do FAGOO. */}
-        {record && <OriginMirrorPanel showOrigin={originHistoryAvailable(controller.getSnapshot().membership)} controller={controller} entity="contacts" id={record.id} writable={writable && !excluded} />}
+        {/* Wabotia: sem o painel do espelho do Origin (Leva H, 350) nem o complemento Transportador dele: Origin fora (motor 91213b8). */}
         <section className="contact-section" id="contact-section-files" tabIndex={-1}><button type="button" className="contact-collapse" aria-expanded={attachmentsOpen} onClick={() => setAttachmentsOpen(!attachmentsOpen)}><Icon name={attachmentsOpen ? 'chevron-down' : 'chevron-right'} size={11} /><h3 className="catalog-group-title">Anexos</h3></button>
           {attachmentsOpen && (record ? <ContactFiles controller={controller} contactId={record.id} writable={writable && !excluded} />
             : <p className="real-help">Salve o cadastro para anexar arquivos.</p>)}</section>

@@ -64,6 +64,7 @@ export default function FiscalOrderLinkDialog({ controller, row, mode, onClose }
     try {
       const value = await controller.documents(`/v1/documentos/purchase_orders/${summary.id}`, { signal: request.signal }) as DocumentEnvelope;
       if (value?.document?.id !== summary.id || !Array.isArray(value.document.items)) throw new AccessError(502);
+      // Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
       if (isDocumentMirror(value.document)) { setError(DOCUMENT_MIRROR_READ_ONLY); return; }
       const state = await readItems(summary.id, request.signal);
       if (request.signal.aborted) return;

@@ -37,7 +37,6 @@ test('Exportar para a planilha reads every page of the month and downloads the X
   };
   const view = await mountComponent('RealDocuments.tsx', { controller, initialKind: 'purchase_orders' }, { location: '/documentos-empresa?tipo=purchase_orders', expandChildren: ['NativeListLayout', 'DocumentList', 'Modal'], modules: { ...MODAL, ...SHEET } });
   try {
-    await view.change('documents-origin', 'brufap'); await view.submit();
     await view.click('Exportar para a planilha');
     await view.change('documents-export-month', '09'); await view.change('documents-export-year', '2026');
     await view.click('Download');

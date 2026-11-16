@@ -3,8 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { TechnicianOptions } from './TechnicianOptions';
 import { DocumentStepNav, useDocumentSteps } from './DocumentSteps';
 import { documentSteps, isSalesFlow } from '../lib/document-steps';
-import DocumentMirrorView from './DocumentMirrorView';
-import { DOCUMENT_MIRROR_READ_ONLY, isMirrorRecord, type DocumentReadRecord } from '../lib/document-mirror-model';
+import { DOCUMENT_MIRROR_READ_ONLY } from '../lib/document-mirror-model';
 import {useLocation,useNavigate} from 'react-router-dom';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges, useUnsavedChangesGuard } from '../hooks/useUnsavedChanges';
@@ -114,6 +113,7 @@ import {hasCustomValues} from '../lib/document-custom-fields';
 import { blockEnabled } from '../../blocks';
 
 const aborted=(error:unknown)=>error instanceof DOMException&&error.name==='AbortError';
+// Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
 const errorText=(error:unknown)=>error instanceof AccessError&&error.code==='MODULE_OWNED_BY_ORIGIN'?DOCUMENT_MIRROR_READ_ONLY:error instanceof AccessError&&error.code==='ERP_DOCUMENT_CREDIT_LIMIT'?'O valor total parcelado da proposta, somado às contas a receber em aberto do cliente, excede o limite de crédito do cliente (Preferências › Vendas › Propostas). Revise as parcelas ou o limite no cadastro do cliente.'
   // 202610200269: a proposta with a newer version is only consulted.
   // 016: the Origin already has contas or a nota for this document.
@@ -690,7 +690,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const listGuard=useUnsavedChangesGuard();
   const [access,setAccess]=useState<DocumentAccess|null>(null);const [kind,setKind]=useState<DocumentKind>(initialKind);const [listPage,setListPage]=useState(1);const [order,setOrder]=useState<DocumentListOrder>('date_desc');
   const [filters,setFilters]=useState<DocumentListFilters>(EMPTY_LIST_FILTERS);const [filterError,setFilterError]=useState('');
-  const [page,setPage]=useState<DocumentListPage|null>(null);const [record,setRecord]=useState<DocumentReadRecord|null>(null);const [editing,setEditing]=useState(false);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [reload,setReload]=useState(0);const [editorEpoch,setEditorEpoch]=useState(0);const detail=useRef<AbortController|null>(null);
+  const [page,setPage]=useState<DocumentListPage|null>(null);const [record,setRecord]=useState<DocumentRecord|null>(null);const [editing,setEditing]=useState(false);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [reload,setReload]=useState(0);const [editorEpoch,setEditorEpoch]=useState(0);const detail=useRef<AbortController|null>(null);
   const [copyDraft,setCopyDraft]=useState<DocumentCopyDraft|null>(null);const [importDraftState,setImportDraft]=useState<ImportDraft|null>(null),[xmlRequest,setXmlRequest]=useState(0);const [numbering,setNumbering]=useState(false);const [printHeader,setPrintHeader]=useState(false);const [discountApproval,setDiscountApproval]=useState(false);const [checkout,setCheckout]=useState(false);const [reports,setReports]=useState<{report:ReportId|null}|null>(null);
   // 202610200104: the user's list settings are read before the first page, so "Tornar padrão" (or Origin's "Em aberto") applies at once.
   const [listView,setListView]=useState<ListView|null>(null),[viewReady,setViewReady]=useState<string|null>(null),[viewReload,setViewReload]=useState(0);
@@ -714,13 +714,13 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   useEffect(()=>{const request=new AbortController();void controller.documents('/v1/documentos',{signal:request.signal}).then(value=>{if(!request.signal.aborted){const permissions=value as DocumentAccess;setAccess(permissions);setKind(permissions.read.includes(initialKind)?initialKind:permissions.read[0]||'sales_proposals');if(!permissions.read.length)setLoading(false);}}).catch(failure=>{if(!aborted(failure)){setError(errorText(failure));setLoading(false);}});return()=>{request.abort();detail.current?.abort();};},[controller]);
   useEffect(()=>{
     if(!access?.read.includes(kind))return;
-    if(!LIST_VIEW_KINDS.includes(kind)){setListView(null);if(viewReload===0&&!access.mirror_available)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?defaultListFilters(kind,today()):previous);setViewReady(kind);return;}
+    if(!LIST_VIEW_KINDS.includes(kind)){setListView(null);if(viewReload===0)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?defaultListFilters(kind,today()):previous);setViewReady(kind);return;}
     const request=new AbortController(),actor=controller.getSnapshot?.()?.membership?.user_id;setViewReady(null);
     void Promise.resolve().then(()=>controller.documents(`/v1/documentos/${kind}/preferencias-listagem`,{signal:request.signal})).then(value=>{
       if(request.signal.aborted||controller.getSnapshot?.()?.membership?.user_id!==actor)return;
       const view=readListView(value,kind);setListView(view);
       // Applied only while the screen still has no filter of its own.
-      if(viewReload===0&&!access.mirror_available)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?{...EMPTY_LIST_FILTERS,statuses:[...view.default_statuses]}:previous);
+      if(viewReload===0)setFilters(previous=>JSON.stringify(previous)===JSON.stringify(EMPTY_LIST_FILTERS)?{...EMPTY_LIST_FILTERS,statuses:[...view.default_statuses]}:previous);
       setViewReady(kind);
     }).catch(()=>{if(!request.signal.aborted){setListView(null);setViewReady(kind);}});
     return()=>request.abort();
@@ -767,6 +767,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
         if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(origin)){setDetailError('O endereço contém um identificador de documento inválido. Volte à listagem.');return;}
         const request=new AbortController(),target=kind;detail.current=request;setDetailLoading(true);
         void controller.documents(`/v1/documentos/${target}/a-partir-da-proposta/${origin}`,{signal:request.signal}).then(value=>{if(request.signal.aborted||detail.current!==request)return;setImportDraft(proposalDraft(value,target,origin));setRecord(null);setEditing(true);setEditorEpoch(n=>n+1);})
+          // Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
           .catch(failure=>{if(!request.signal.aborted&&!aborted(failure))setDetailError(failure instanceof AccessError&&failure.code==='MODULE_OWNED_BY_ORIGIN'?DOCUMENT_MIRROR_READ_ONLY:failure instanceof AccessError&&failure.status===409?'Esta proposta já gerou uma venda ou ordem de serviço. Abra a proposta para conferir o documento gerado.':failure instanceof AccessError&&failure.status===400?'Esta proposta não pode gerar documentos (cancelada, concluída ou modelo).':errorText(failure));})
           .finally(()=>{if(detail.current===request){detail.current=null;if(!request.signal.aborted)setDetailLoading(false);}});
         return()=>{request.abort();if(detail.current===request)detail.current=null;};
@@ -796,7 +797,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     if(!access)return;
     if(!access.read.includes(kind)){setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
     const request=new AbortController();detail.current=request;setDetailLoading(true);
-    void controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}).then(value=>{if(!request.signal.aborted&&detail.current===request){const document=(value as {document:DocumentReadRecord}).document;if(document.id.toLowerCase()!==id.toLowerCase()||document.kind!==kind)throw new AccessError(502);setRecord(document);setEditing(true);}})
+    void controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}).then(value=>{if(!request.signal.aborted&&detail.current===request){const document=(value as {document:DocumentRecord}).document;if(document.id.toLowerCase()!==id.toLowerCase()||document.kind!==kind)throw new AccessError(502);setRecord(document);setEditing(true);}})
       .catch(failure=>{if(!request.signal.aborted&&!aborted(failure))setDetailError(errorText(failure));})
       .finally(()=>{if(detail.current===request){detail.current=null;if(!request.signal.aborted)setDetailLoading(false);}});
     return()=>{request.abort();if(detail.current===request)detail.current=null;};
@@ -814,7 +815,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('tipo',saved.kind);params.set('documento',saved.id);navigate(`${location.pathname}?${params}`);}
   };
   const applyFilters=(next:DocumentListFilters)=>{try{documentListQuery(kind,next,{page:1,order,...situationQuery});}catch(failure){setFilterError((failure as Error).message);return false;}setFilters(next);setFilterError('');setNotice('');reset();return true;};
-  const open=async(id:string)=>{if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('documento',id);navigate(`${location.pathname}?${params}`);return;}detail.current?.abort();const request=new AbortController();detail.current=request;setError('');try{const response=await controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}) as {document:DocumentReadRecord};if(!request.signal.aborted&&detail.current===request){setRecord(response.document);setEditing(true);}}catch(failure){if(!request.signal.aborted&&!aborted(failure))setError(errorText(failure));}finally{if(detail.current===request)detail.current=null;}};
+  const open=async(id:string)=>{if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('documento',id);navigate(`${location.pathname}?${params}`);return;}detail.current?.abort();const request=new AbortController();detail.current=request;setError('');try{const response=await controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}) as {document:DocumentRecord};if(!request.signal.aborted&&detail.current===request){setRecord(response.document);setEditing(true);}}catch(failure){if(!request.signal.aborted&&!aborted(failure))setError(errorText(failure));}finally{if(detail.current===request)detail.current=null;}};
   const writable=Boolean(access?.write.includes(kind));
   // Origin opens a record by clicking its row; Ctrl/Cmd or middle click opens the same deep link in a new tab.
   const deepLinked=location.pathname==='/documentos-empresa';
@@ -826,7 +827,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     if(!writable)return;detail.current?.abort();const request=new AbortController();detail.current=request;setError('');setNotice('');
     try{
       const response=await controller.documents(`/v1/documentos/${kind}/${row.id}`,{signal:request.signal}) as DocumentEnvelope;if(request.signal.aborted||detail.current!==request)return;
-      const source=response?.document;if(!source||source.id!==row.id||source.kind!==kind)throw new AccessError(502);if(isMirrorRecord(source)){setError(DOCUMENT_MIRROR_READ_ONLY);return;}
+      const source=response?.document;if(!source||source.id!==row.id||source.kind!==kind)throw new AccessError(502);
       const preview=readCopyPreview(await controller.documentCopy(`/v1/duplicacao-documentos/${kind}/${source.id}/preview`,{signal:request.signal}),source);if(request.signal.aborted||detail.current!==request)return;
       const asModel=kind==='sales_proposals'&&mode!=='copy';
       const reviewed=asModel?{...preview,data:{...preview.data,template:true,template_name:mode==='model_copy'?source.template_name??null:null}}:preview;
@@ -841,7 +842,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     <header className="real-heading"><div><h1>{LIST_TITLES[kind]}</h1></div>{!writable&&<span className="real-mode">Somente consulta</span>}{writable&&!editing&&!hasRouteDocument&&<button type="button" className="primary-button documents-primary" title={PRIMARY[kind].title} onClick={event=>{if(deepLinked&&opensInNewTab(event)){window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');return;}create();}} onAuxClick={event=>{if(deepLinked&&event.button===1)window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');}}><Icon name="plus" size={12}/>{PRIMARY[kind].label}</button>}</header>
     {notice&&<p className="real-success" role="status">{notice}</p>}
     {error&&<p className="real-alert" role="alert">{error}<button className="text-button" onClick={()=>access?setReload(n=>n+1):controller.retry()}>Tentar novamente</button></p>}
-    {editing&&record&&isMirrorRecord(record)?<DocumentMirrorView record={record} onClose={close}/>:editing?<Editor key={`${kind}:${record?.id||'new'}:${record?.version||0}:${editorEpoch}:${copyDraft?'copy':importDraftState?'import':'document'}`} importDraft={copyDraft||record?null:importDraftState} controller={controller} kind={kind} record={copyDraft||record&&isMirrorRecord(record)?null:record} copyDraft={copyDraft} onCopyPrepared={draft=>{setCopyDraft(draft);setNotice('');setEditorEpoch(value=>value+1);}} onCopied={copied} writable={writable} preferences={documentPrefs??undefined} situations={situations} access={access} onClose={close} onSaved={(saved,message)=>{setImportDraft(null);setRecord(saved);setEditorEpoch(value=>value+1);setNotice(message??'Documento atualizado.');setReload(n=>n+1);}} onConverted={converted}/>:numbering?<DocumentNumbering controller={controller} kind={kind} onClose={close}/>:printHeader?<DocumentPrintHeader controller={controller} kind={kind} onClose={close}/>:discountApproval?<DocumentDiscountApproval controller={controller} onClose={close}/>:checkout?<SalesCheckout controller={controller} onClose={close}/>:reports&&(kind==='sales_orders'||kind==='service_orders')?<DocumentReports controller={controller} kind={kind} report={reports.report} today={today()} onClose={close} onOpen={id=>{const params=new URLSearchParams(location.search);if(id)params.set('relatorio',id);else params.delete('relatorio');navigate(`${location.pathname}?${params}`);}}/>:hasRouteDocument?<section className="real-editor" aria-label="Consulta do documento">
+    {editing?<Editor key={`${kind}:${record?.id||'new'}:${record?.version||0}:${editorEpoch}:${copyDraft?'copy':importDraftState?'import':'document'}`} importDraft={copyDraft||record?null:importDraftState} controller={controller} kind={kind} record={copyDraft?null:record} copyDraft={copyDraft} onCopyPrepared={draft=>{setCopyDraft(draft);setNotice('');setEditorEpoch(value=>value+1);}} onCopied={copied} writable={writable} preferences={documentPrefs??undefined} situations={situations} access={access} onClose={close} onSaved={(saved,message)=>{setImportDraft(null);setRecord(saved);setEditorEpoch(value=>value+1);setNotice(message??'Documento atualizado.');setReload(n=>n+1);}} onConverted={converted}/>:numbering?<DocumentNumbering controller={controller} kind={kind} onClose={close}/>:printHeader?<DocumentPrintHeader controller={controller} kind={kind} onClose={close}/>:discountApproval?<DocumentDiscountApproval controller={controller} onClose={close}/>:checkout?<SalesCheckout controller={controller} onClose={close}/>:reports&&(kind==='sales_orders'||kind==='service_orders')?<DocumentReports controller={controller} kind={kind} report={reports.report} today={today()} onClose={close} onOpen={id=>{const params=new URLSearchParams(location.search);if(id)params.set('relatorio',id);else params.delete('relatorio');navigate(`${location.pathname}?${params}`);}}/>:hasRouteDocument?<section className="real-editor" aria-label="Consulta do documento">
       {(detailLoading||!access)&&<p role="status">Carregando documento…</p>}{detailError&&<p className="real-alert" role="alert">{detailError}</p>}
       <div className="real-editor-actions">{detailError&&validRouteDocument&&<button type="button" className="primary-button" disabled={detailLoading} onClick={()=>setDetailReload(value=>value+1)}>Tentar consultar documento novamente</button>}<button type="button" className="secondary-button" onClick={close}>Voltar à listagem</button></div>
     </section>:

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { mountComponent } from './helpers/component-recovery-harness.mjs';
-import { CATEGORY_ORIGIN_HELP, NOT_APPLICABLE_FILTERS, SCREENS, emptyFilters, filterChips, filtersFromPreference, filtersToPreference, fiscalListQuery, fiscalStateText, orderIndicators, sourceLabel } from '../app/lib/fiscal-invoice-list-model.ts';
+import { NOT_APPLICABLE_FILTERS, SCREENS, emptyFilters, filterChips, filtersFromPreference, filtersToPreference, fiscalListQuery, fiscalStateText, orderIndicators, sourceLabel } from '../app/lib/fiscal-invoice-list-model.ts';
 import { dfeHasSummary, dfeSummaries, dfeSummaryParams, dfeSummaryResult } from '../app/lib/received-dfe-model.ts';
 import { buildAccessKey } from '../../../packages/fiscal-core/src/identity.mjs';
 
@@ -20,31 +20,31 @@ test('NFE-027: the V badge of a Origin note lists the Origin pedidos that declar
 });
 
 test('NFE-069/063/185: fiscal state apart from the DANFE, and the source origin and environment of each note', () => {
-  assert.equal(fiscalStateText(row()), 'Situação fiscal: Autorizada · DANFE emitida · código 6 do Origin');
-  assert.equal(fiscalStateText(row({ status: 6, status_raw: '5', danfe_emitted: false })), 'Situação fiscal: Autorizada · DANFE não emitida · código 5 do Origin');
-  assert.equal(fiscalStateText(row({ status: null, fiscal_status: null, status_raw: '12', danfe_emitted: false })), 'Situação fiscal: Situação não mapeada · código 12 do Origin');
-  assert.equal(sourceLabel(row()), 'Nota do Origin · produção');
+  // Wabotia: Origin fora (motor 91213b8): sem o código do Origin na situação fiscal nem a nota do Origin como fonte.
+  assert.equal(fiscalStateText(row()), 'Situação fiscal: Autorizada · DANFE emitida');
+  assert.equal(fiscalStateText(row({ status: 6, status_raw: '5', danfe_emitted: false })), 'Situação fiscal: Autorizada · DANFE não emitida');
+  assert.equal(fiscalStateText(row({ status: null, fiscal_status: null, status_raw: '12', danfe_emitted: false })), 'Situação fiscal: Situação não mapeada');
   assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'xml_import', source_environment: '1' })), 'XML importado · produção');
   assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'brufap_native', source_environment: '2' })), 'Nota do FAGOO · homologação');
   assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'third_party', source_environment: null })), 'Nota de terceiros registrada no FAGOO · ambiente não informado');
 });
 
-test('NFE-024/172: Categoria is sent only with the notes of the FAGOO; Loja and Filial are explained as not applicable', () => {
+test('NFE-024/172: Categoria is sent with the notes of the FAGOO; Loja and Filial are explained as not applicable', () => {
   for (const screen of ['nfe', 'nfce']) {
     const config = SCREENS[screen], filters = { ...emptyFilters(config), category: { id: id(7), name: 'Vendas de mercadorias' } };
     assert.equal(config.categoryFilter, true);
-    assert.equal(fiscalListQuery(config, 'brufap', filters).get('category_id'), id(7));
-    assert.equal(fiscalListQuery(config, 'origin', filters).has('category_id'), false);
+    assert.equal(fiscalListQuery(config, filters).get('category_id'), id(7));
+    assert.equal(fiscalListQuery(config, filters).get('origin'), 'brufap');
     assert.ok(filterChips(config, filters).some(c => c.key === 'category' && c.label === 'Categoria: Vendas de mercadorias'));
     const saved = filtersToPreference(config, filters);
     assert.deepEqual([saved.category_id, saved.category_name], [id(7), 'Vendas de mercadorias']);
     assert.equal(filtersFromPreference(config, saved).category.id, id(7));
-    assert.throws(() => fiscalListQuery(config, 'brufap', { ...filters, category: { id: 'bad', name: 'x' } }), /categoria/);
+    assert.throws(() => fiscalListQuery(config, { ...filters, category: { id: 'bad', name: 'x' } }), /categoria/);
     // Nº pedido de venda is a filter of both screens (it now works for the Origin notes too).
     assert.ok(config.customFilters.includes('order_number'));
   }
   assert.equal(SCREENS.entrada.categoryFilter, undefined);
-  assert.match(NOT_APPLICABLE_FILTERS, /Loja e Filial não se aplicam/); assert.match(CATEGORY_ORIGIN_HELP, /notas do FAGOO/);
+  assert.match(NOT_APPLICABLE_FILTERS, /Loja e Filial não se aplicam/);
 });
 
 test('NFE-024/172: the screen shows Categoria in Adicionar filtros and Loja/Filial as not applicable', async () => {

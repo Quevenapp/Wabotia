@@ -1,4 +1,3 @@
-import { originIntegrationEnabled } from '../lib/integration-capabilities';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -14,7 +13,6 @@ import { BatchDialog } from './BatchDialog';
 import { SearchableSelect } from './SearchableSelect';
 import { AppliedChips, ListControls, RowMenu, type RowMenuItem } from './OriginList';
 import { Icon } from './Icon';
-import { OriginCategorySync } from './OriginCatalogSync';
 import { aborted, errorText, knownFailure } from './catalog-shared';
 import './product-registry.css';
 
@@ -185,8 +183,7 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
     <header className="real-heading catalog-heading"><div className="catalog-title"><h1 id="taxonomy-title">{text.title}</h1></div>
       <div className="catalog-heading-actions">{!writable && items && <span className="real-mode" title={screenKey && screenAllowed === false && profileTypes.length ? `Seu usuário não tem a permissão “${kind === 'tags' ? 'Cadastro de tags' : 'Cadastro de grupos de tags'}” (Sistema › Usuários › Permissões › Outros).` : undefined}>Somente consulta</span>}{writable && <button type="button" className="primary-button" onClick={() => open({})}><Icon name="plus" size={12} />{text.add}</button>}
         {kind === 'categories' && writable && <button type="button" className="secondary-button" disabled={selected.size !== 1} title={selected.size === 1 ? undefined : 'Selecione uma categoria'} onClick={() => { const item = all.find(row => selected.has(row.id)); if (item) open({ parent: item.parent_id, name: `${item.name} (cópia)`.slice(0, 50) }); }}><Icon name="clone" size={12} />Clonar categoria</button>}</div></header>
-    {/* Leva H (351): as categorias do Origin pelo id externo, sem duplicar a árvore. */}
-    {kind === 'categories' && originIntegrationEnabled(controller.getSnapshot().membership) && <OriginCategorySync controller={controller} onSynced={() => setReload(value => value + 1)} />}
+    {/* Wabotia: sem as categorias do Origin (Leva H, 351): Origin fora (motor 91213b8). */}
     {notice && <p className="real-success" role="status">{notice}</p>}
     {error && <p className="real-alert" role="alert">{error}<button type="button" className="text-button" onClick={() => setReload(value => value + 1)}>Tentar novamente</button></p>}
     {form && <form className="real-editor" onSubmit={event => void submit(event)} aria-labelledby="taxonomy-form-title">

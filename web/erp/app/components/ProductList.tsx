@@ -1,4 +1,3 @@
-import { originHistoryAvailable } from '../lib/integration-capabilities';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -11,8 +10,6 @@ import {
 import { ITEM_TYPE_OPTIONS, TAXONOMY_SLUG, cloneProductForm, fold, ofTagType, taxonomyItems, taxonomyPath, taxonomyTree, type TaxonomyItem, type TaxonomyKind } from '../lib/product-form-model';
 import { DEFAULT_PRODUCT_SETTINGS, loadProductSettings, type ProductSettings } from '../lib/product-settings';
 import { quantityText, type StockBalance } from '../lib/stock-model';
-// 202610220008: the balance observed in Origin beside the native one (never added), with origin, kind and moment.
-import { ORIGIN_STOCK_FILTERS, originStockCell, cubeStock, isOriginStockFilter, nativeStockLine, type ProductOriginStockPage } from '../lib/product-origin-stock-model';
 import { stockWarehousePage, type WarehouseOption } from '../lib/stock-positions-model';
 import { planBatch, summarizeBatch, batchSummaryText, type BatchResult, type BatchStep } from '../lib/origin-batch';
 import { UNIT_PRICE_INPUT_LIMIT } from '../../../../packages/erp-domain/src/unit-price.mjs';
@@ -262,18 +259,15 @@ export function useProductList(list: CatalogList) {
 export type ProductListState = ReturnType<typeof useProductList>;
 
 /** Marcadores: o cubo de estoque do Origin (verde normal, amarelo no mínimo, vermelho vazio/negativo, cinza com ✕ excluído). */
-// 202610220008: with the Origin summary, the cube follows the balance the cell shows first (Origin físico observado, else the native
-// ledger) and its title names that origin; without it (an API before 008) the cube reads the native ledger as before.
-function StockCube({ item, visible, origin, byWarehouse }: { item: CatalogListItem; visible: boolean; origin?: ProductOriginStockPage | null; byWarehouse: boolean }) {
+// Wabotia: o cubo lê só o estoque nativo; o saldo observado no Origin (202610220008) saiu: Origin fora (motor 91213b8).
+function StockCube({ item, visible }: { item: CatalogListItem; visible: boolean }) {
   if (item.deleted === true) return <span className="catalog-cube is-deleted" title="Item Excluído"><Icon name="cube" size={14} /></span>;
-  const source = visible && origin !== undefined ? cubeStock(item.stock, item.origin_stock, origin, byWarehouse) : null;
-  const current = source ? (source.quantity === null ? null : quantity(source.quantity) ?? (/^-?\d+$/.test(source.quantity) ? source.quantity : null)) : visible && item.stock?.state === 'recorded' ? quantity(item.stock.quantity) : null;
-  if (current === null) return <span className="catalog-cube" style={{ color: 'var(--muted)' }} title={!visible ? 'Estoque não disponível para o seu perfil' : source ? source.reason : 'Estoque sem posição conferida'}><Icon name="cube" size={14} /></span>;
-  const originLabel = source?.origin === 'origin' ? 'Estoque Origin (físico observado)' : source?.origin === 'brufap' ? 'Estoque nativo do FAGOO' : 'Estoque';
+  const current = visible && item.stock?.state === 'recorded' ? quantity(item.stock.quantity) : null;
+  if (current === null) return <span className="catalog-cube" style={{ color: 'var(--muted)' }} title={!visible ? 'Estoque não disponível para o seu perfil' : 'Estoque sem posição conferida'}><Icon name="cube" size={14} /></span>;
   const min = typeof item.stock_min === 'string' ? item.stock_min : null, max = typeof item.stock_max === 'string' ? item.stock_max : null;
   const negative = current.startsWith('-') && !/^-0(?:\.0+)?$/.test(current), empty = /^-?0(?:\.0+)?$/.test(current);
   const state = negative || empty ? 'is-empty' : min !== null && decimalLess(current, min) ? 'is-low' : '';
-  const title = `${source ? `${originLabel}: ` : ''}${negative ? 'Estoque do produto negativo' : empty ? 'Estoque do produto vazio'
+  const title = `${negative ?'Estoque do produto negativo' : empty ? 'Estoque do produto vazio'
     : `Estoque atual: ${quantityText(current)} / Estoque mínimo: ${min === null ? '—' : quantityText(min)} / Estoque máximo: ${max === null ? '—' : quantityText(max)}`}`;
   return <span className={`catalog-cube ${state}`} title={title} aria-label={title}><Icon name="cube" size={14} /></span>;
 }
@@ -281,8 +275,6 @@ function StockCube({ item, visible, origin, byWarehouse }: { item: CatalogListIt
 export function productListView(list: CatalogList, product: ProductListState): CatalogEntityView {
   const { writable, changeList, productFilters, productFilterDraft, setProductFilterDraft, selectedItems } = list;
   const { priceEdit, setPriceEdit, stockVisible, warehouses, savePrice, discardPrice, taxonomies, prefs } = product;
-  // undefined: an API before 202610220008 (native only, as before); null: this profile does not read stock.
-  const originPage = originHistoryAvailable(list.controller.getSnapshot().membership) && list.page?.entity === 'products' ? list.page.origin_stock : undefined;
   const draft = (patch: Partial<ProductFilters>) => setProductFilterDraft(previous => ({ ...previous, ...patch }));
   const productFilter = (key: keyof ProductFilters) => () => changeList(() => { const clear = clearedProductFilter(key); list.setProductFilters(previous => ({ ...previous, ...clear })); setProductFilterDraft(previous => ({ ...previous, ...clear })); });
   const warehouseName = (id: string) => warehouses.find(item => item.id === id)?.name ?? 'depósito selecionado';
@@ -338,13 +330,8 @@ export function productListView(list: CatalogList, product: ProductListState): C
     // 234: the total leaves out the warehouses with "Desconsiderar saldo deste depósito", as the stock screens do.
     if (id === 'stock') {
       const byWarehouse = Boolean(productFilters.warehouse_id), nativeTitle = byWarehouse ? `Depósito: ${warehouseName(productFilters.warehouse_id)}` : 'Soma dos depósitos, sem os que têm “Desconsiderar saldo deste depósito”';
-      if (originPage === undefined) { const stock = stockCell(item.stock, byWarehouse); return <td key={id} className={`numeric catalog-stock${stock.state ? ` is-${stock.state}` : ''}`} title={nativeTitle}>{stock.text}</td>; }
-      // 202610220008: two labelled lines, Origin (físico observado, virtual and moment) and Brufap (native ledger); never added.
-      const origin = originStockCell(item.origin_stock, originPage), native = nativeStockLine(item.stock, byWarehouse);
-      return <td key={id} className="numeric catalog-stock is-dual">
-        <span className={`catalog-stock-line is-origin is-${origin.state}`} title={origin.title}><span className="catalog-stock-origin">Origin (físico)</span> <strong>{origin.text}</strong>{origin.detail && <small>{origin.detail}</small>}</span>
-        <span className={`catalog-stock-line is-native${native.state ? ` is-${native.state}` : ''}`} title={`Estoque nativo do FAGOO. ${nativeTitle}`}><span className="catalog-stock-origin">FAGOO</span> {native.text}</span>
-      </td>;
+      // Wabotia: só o estoque nativo; as duas linhas Origin/FAGOO (202610220008) saíram: Origin fora (motor 91213b8).
+      const stock = stockCell(item.stock, byWarehouse); return <td key={id} className={`numeric catalog-stock${stock.state ? ` is-${stock.state}` : ''}`} title={nativeTitle}>{stock.text}</td>;
     }
     if (id === 'stock_min' || id === 'stock_max') return <td key={id} className="numeric">{quantity(item[id] as string) ? quantityText(item[id] as string) : '—'}</td>;
     if (id === 'cost_price') return <td key={id} className="numeric">{decimalMoney(typeof item.cost_price === 'string' ? item.cost_price : null)}</td>;
@@ -356,10 +343,8 @@ export function productListView(list: CatalogList, product: ProductListState): C
     labels: PRODUCT_LIST_LABELS, ownSituation: true, sortChip: false, periodFields: PRODUCT_PERIOD_FIELDS, situationAction: false, situationSelect: true, periodTabs: true, pageSelect: true,
     filters: <>
       <div className="form-field"><label htmlFor="catalog-situation-filter">Situação</label><select id="catalog-situation-filter" value={productFilterDraft.situation} onChange={event => draft({ situation: event.target.value })}>{PRODUCT_SITUATIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
-      {stockVisible && <><div className="form-field"><label htmlFor="catalog-stock-filter">Estoque</label><select id="catalog-stock-filter" value={productFilterDraft.stock} onChange={event => draft({ stock: event.target.value, ...(event.target.value ? {} : { warehouse_id: '' }) })}><option value="">Selecione uma opção</option>{originPage === undefined ? STOCK_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)
-        : <><optgroup label="Estoque nativo do FAGOO">{STOCK_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup><optgroup label="Estoque Origin (físico observado)">{ORIGIN_STOCK_FILTERS.map(option => <option key={option.value} value={option.value}>{`Origin: ${option.label}`}</option>)}</optgroup></>}</select></div>
-        {productFilterDraft.stock && <div className="form-field"><label htmlFor="catalog-warehouse-filter">Depósito</label><select id="catalog-warehouse-filter" value={productFilterDraft.warehouse_id} onChange={event => draft({ warehouse_id: event.target.value })}><option value="">Todos depósitos</option>{warehouses.map(option => <option key={option.id} value={option.id}>{option.name}{option.active ? '' : ' (inativo)'}</option>)}</select>
-          {isOriginStockFilter(productFilterDraft.stock) && <small>O depósito só se relaciona ao Origin por vínculo de identidade comprovado, nunca pelo nome. Sem vínculo, o saldo Origin não é mostrado.</small>}</div>}</>}
+      {stockVisible && <><div className="form-field"><label htmlFor="catalog-stock-filter">Estoque</label><select id="catalog-stock-filter" value={productFilterDraft.stock} onChange={event => draft({ stock: event.target.value, ...(event.target.value ? {} : { warehouse_id: '' }) })}><option value="">Selecione uma opção</option>{STOCK_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+        {productFilterDraft.stock && <div className="form-field"><label htmlFor="catalog-warehouse-filter">Depósito</label><select id="catalog-warehouse-filter" value={productFilterDraft.warehouse_id} onChange={event => draft({ warehouse_id: event.target.value })}><option value="">Todos depósitos</option>{warehouses.map(option => <option key={option.id} value={option.id}>{option.name}{option.active ? '' : ' (inativo)'}</option>)}</select></div>}</>}
       <div className="form-field"><label htmlFor="catalog-images-filter">Imagens</label><select id="catalog-images-filter" value={productFilterDraft.images} onChange={event => draft({ images: event.target.value })}><option value="">Selecione uma opção</option><option value="yes">Sim</option><option value="no">Não</option></select></div>
       <div className="form-field"><label htmlFor="catalog-tag-filter">Tags<Link className="catalog-copy" to="/tags?tipo=produtos" title="Gerenciar tags" aria-label="Gerenciar tags"><Icon name="gear" size={11} /></Link></label><SearchableSelect id="catalog-tag-filter" value={productFilterDraft.tag} options={tagOptions} onChange={event => draft({ tag: event.target.value })} /></div>
       <div className="form-field"><label htmlFor="catalog-category-filter">Categoria</label><SearchableSelect id="catalog-category-filter" value={productFilterDraft.category} options={categoryOptions} onChange={event => draft({ category: event.target.value })} /></div>
@@ -385,7 +370,7 @@ export function productListView(list: CatalogList, product: ProductListState): C
     chips: [
       { label: `Situação: ${label(PRODUCT_SITUATIONS, productFilters.situation)}`, onRemove: () => changeList(() => { list.setProductFilters(previous => ({ ...previous, situation: previous.situation === 'latest' ? 'active' : 'latest' })); setProductFilterDraft(previous => ({ ...previous, situation: previous.situation === 'latest' ? 'active' : 'latest' })); }) },
       ...(selectedItems.length ? [{ label: `Selecionados: ${selectedLabel}`, onRemove: () => list.setSelection({ key: list.listKey, ids: new Set(), anchor: null }) }] : []),
-      ...(productFilters.stock ? [{ label: `${isOriginStockFilter(productFilters.stock) ? `Estoque Origin (físico): ${ORIGIN_STOCK_FILTERS.find(option => option.value === productFilters.stock)?.label}` : `Estoque: ${STOCK_FILTERS.find(option => option.value === productFilters.stock)?.label}`}${productFilters.warehouse_id ? ` (${warehouseName(productFilters.warehouse_id)}${isOriginStockFilter(productFilters.stock) && originPage?.warehouse?.linked === false ? ', sem correspondência no Origin' : ''})` : ''}`, onRemove: productFilter('stock') }] : []),
+      ...(productFilters.stock ? [{ label: `Estoque: ${STOCK_FILTERS.find(option => option.value === productFilters.stock)?.label}${productFilters.warehouse_id ? ` (${warehouseName(productFilters.warehouse_id)})` : ''}`, onRemove: productFilter('stock') }] : []),
       ...(productFilters.images ? [{ label: `Imagens: ${productFilters.images === 'yes' ? 'Sim' : 'Não'}`, onRemove: productFilter('images') }] : []),
       ...(productFilters.tag ? [{ label: `Tags: ${tagLabel(productFilters.tag)}`, onRemove: productFilter('tag') }] : []),
       ...(productFilters.category ? [{ label: `Categoria: ${categoryLabel(productFilters.category)}`, onRemove: productFilter('category') }] : []),
@@ -426,7 +411,7 @@ export function productListView(list: CatalogList, product: ProductListState): C
     empty: { title: 'Nenhum resultado encontrado.', text: 'Verifique se as palavras estão corretas ou busque por outros termos.' },
     selections: [{ label: 'Com variações', onSelect: () => list.selectWhere(item => item.format === 'V') }, { label: 'Simples', onSelect: () => list.selectWhere(item => item.format === 'S') }, { label: 'Serviços', onSelect: () => list.selectWhere(item => item.kind === 'S') }, { label: 'Todos', onSelect: () => list.selectWhere(() => true) }, { label: 'Nenhum', onSelect: () => list.selectWhere(() => false) }],
     headers: <>{columns.includes('image') && header('image')}{list.sortHeader('name', 'Descrição')}{columns.filter(id => id !== 'image').map(header)}{adjusting && <><th scope="col" aria-hidden="true">›</th><th scope="col" className="numeric">Novo Preço</th></>}<th scope="col">Marcadores</th></>,
-    cells: item => <>{columns.includes('image') && cell(item, 'image')}<td className="catalog-name-cell">{list.nameCell(item).props.children}{copyButton(item.name, 'a descrição', item.name)}</td>{columns.filter(id => id !== 'image').map(id => cell(item, id))}{adjusting && <><td aria-hidden="true">›</td><td className="numeric catalog-new-price"><NewPriceCell entry={product.adjust.entries?.get(item.id)} /></td></>}<td><StockCube item={item} visible={stockVisible} origin={originPage} byWarehouse={Boolean(productFilters.warehouse_id)} /><SalesBagRowAdd bag={product.salesBag} product={{ id: item.id, name: item.name, active: item.active !== false && item.deleted !== true }} unit={typeof item.unit === 'string' ? item.unit : null} /></td></>,
+    cells: item => <>{columns.includes('image') && cell(item, 'image')}<td className="catalog-name-cell">{list.nameCell(item).props.children}{copyButton(item.name, 'a descrição', item.name)}</td>{columns.filter(id => id !== 'image').map(id => cell(item, id))}{adjusting && <><td aria-hidden="true">›</td><td className="numeric catalog-new-price"><NewPriceCell entry={product.adjust.entries?.get(item.id)} /></td></>}<td><StockCube item={item} visible={stockVisible} /><SalesBagRowAdd bag={product.salesBag} product={{ id: item.id, name: item.name, active: item.active !== false && item.deleted !== true }} unit={typeof item.unit === 'string' ? item.unit : null} /></td></>,
     rowItems,
     overlay: <>
       <SalesBagDrawer bag={product.salesBag} onGenerate={() => list.changeList(product.generateFromBag)} />

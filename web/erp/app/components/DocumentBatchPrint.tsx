@@ -12,14 +12,13 @@ import type { DocumentRecord } from '../lib/real-documents-model';
 import type { CompanyController, CompanyEnvelope, CompanyRecord } from '../lib/company-model';
 import './document-print.css';
 import './document-list.css';
-import { isMirrorRecord, type DocumentReadRecord } from '../lib/document-mirror-model';
-import { DocumentMirrorSheet } from './DocumentMirrorView';
 
 /** "Imprimir selecionados": the saved versions read one by one in the batch, one A4 sheet per document. */
 /** `receipt` prints the Origin "Comprovantes selecionados"; `options` carries the "Opções de impressão". */
-type BatchPrintProps = { records: readonly DocumentReadRecord[]; controller: CompanyController; onClose: () => void; receipt?: boolean; options?: PrintOptions };
+type BatchPrintProps = { records: readonly DocumentRecord[]; controller: CompanyController; onClose: () => void; receipt?: boolean; options?: PrintOptions };
 export default function DocumentBatchPrint({ records, controller, onClose, receipt = false, options = {} }: BatchPrintProps) {
-  const nativeRecords = useMemo(() => records.filter((record): record is DocumentRecord => !isMirrorRecord(record)), [records]);
+  // Wabotia: Origin fora (motor 91213b8): sem espelhos, todos os registros são nativos.
+  const nativeRecords = records;
   const dialog = useRef<HTMLDivElement>(null), close = useRef<HTMLButtonElement>(null), onCloseRef = useRef(onClose);
   const [printError, setPrintError] = useState(false);
   const [company, setCompany] = useState<CompanyRecord | null>(null); const [companyState, setCompanyState] = useState<'loading' | 'ready' | 'error'>('loading'); const [companyReload, setCompanyReload] = useState(0);
@@ -28,8 +27,8 @@ export default function DocumentBatchPrint({ records, controller, onClose, recei
   const lookup = useSupplierCodes(controller, nativeRecords, options.prefs), codes = lookup.codes;
   const structures = useDocumentStructures(controller, nativeRecords, Boolean(options.explode || options.hideThirdParty)), rows = structures.structures;
   const header = usePrintHeader(controller, nativeRecords[0]?.kind ?? 'sales_orders', Boolean(nativeRecords.length) && !receipt && options.prefs?.headerType === 'personalizado');
-  const models = useMemo(() => records.map(record => { if (isMirrorRecord(record)) return { id: record.id, mirror: record, model: null }; try { return { id: record.id, mirror: null, model: documentPrintModel(record, company, { ...options, ...(codes[record.id] ? { supplierCodes: codes[record.id] } : {}), structures: rows[record.id] ?? null, customHeader: header.header }) }; } catch { return { id: record.id, mirror: null, model: null }; } }), [records, company, options.detailed, options.order, options.explode, options.hideThirdParty, codes, rows, header.header]);
-  const invalid = models.some(item => !item.model && !item.mirror);
+  const models = useMemo(() => records.map(record => { try { return { id: record.id, model: documentPrintModel(record, company, { ...options, ...(codes[record.id] ? { supplierCodes: codes[record.id] } : {}), structures: rows[record.id] ?? null, customHeader: header.header }) }; } catch { return { id: record.id, model: null }; } }), [records, company, options.detailed, options.order, options.explode, options.hideThirdParty, codes, rows, header.header]);
+  const invalid = models.some(item => !item.model);
   useEffect(() => {
     if (!nativeRecords.length) { setCompanyState('ready'); return; }
     const request = new AbortController(); setCompanyState('loading'); setCompany(null);
@@ -69,6 +68,6 @@ export default function DocumentBatchPrint({ records, controller, onClose, recei
     {printError && <p className="document-print-error" role="alert">Não foi possível abrir a impressão. Confira as permissões do navegador e tente novamente.</p>}
     <div className="document-print-scroll document-batch-print" tabIndex={0} aria-label="Documentos para impressão">{companyState !== 'ready' ? <p className="document-print-blocked">Documentos indisponíveis para impressão: a identificação da empresa ainda não foi conferida.</p>
       : invalid ? <p className="document-print-blocked" role="alert">Não foi possível conferir os valores de um dos documentos. Feche a prévia e repita a impressão.</p>
-        : models.map(item => item.mirror ? <DocumentMirrorSheet key={item.id} record={item.mirror} /> : receipt ? <DocumentReceiptSheet key={item.id} model={item.model!} format="a4" /> : <DocumentPrintSheet key={item.id} model={item.model!} />)}</div>
+        : models.map(item => receipt ? <DocumentReceiptSheet key={item.id} model={item.model!} format="a4" /> : <DocumentPrintSheet key={item.id} model={item.model!} />)}</div>
   </div>, portal);
 }

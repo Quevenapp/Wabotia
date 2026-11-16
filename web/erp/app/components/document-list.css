@@ -58,7 +58,4 @@
 @media(max-width:767px){.documents-table .documents-note{display:none}}
 /* EST-029: pedidos de compra in one scroll with a fixed header (Origin). */
 .documents-single-scroll{max-height:70vh;overflow:auto}.documents-single-scroll thead th{position:sticky;top:0;z-index:1;background:var(--surface,#fff)}
-.documents-table .documents-origin{display:block;font-size:10px;line-height:1.35;color:var(--muted,#607268);white-space:normal;max-width:220px;min-width:130px;margin-top:3px;overflow-wrap:anywhere}
-.document-origin-totals{display:grid;gap:12px;margin-top:10px}.document-origin-totals section+section{border-top:1px solid var(--border,#d7dfe5);padding-top:10px}
-.real-editor>.document-mirror-sheet{width:100%;max-width:1100px;min-height:0;margin:16px 0;padding:24px;box-shadow:none;border:1px solid var(--border,#d7dfe5);border-radius:8px}
-.document-origin-totals,.document-origin-totals section,.document-origin-totals dl{min-width:0;max-width:100%}.document-origin-totals dd{white-space:normal;overflow-wrap:anywhere}.documents-table .origin-indicators .origin-tag{white-space:nowrap}
+.documents-table .origin-indicators .origin-tag{white-space:nowrap}

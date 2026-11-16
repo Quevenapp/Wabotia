@@ -1,7 +1,6 @@
 import { normalizeUnitPrice } from '../../../../packages/erp-domain/src/unit-price.mjs';
 import { COMMON_FIELDS, invalidField, type CatalogEntity, type CatalogField, type CatalogRecord } from './catalog-base.ts';
 import { CONTACT_FIELDS, contactFieldValue, contactPageParams, type ContactFilters, type ContactRoleFilter } from './contact-model.ts';
-import type { ProductOriginStock, ProductOriginStockPage } from './product-origin-stock-model.ts';
 import { EMPTY_PRODUCT_FILTERS, PRODUCT_FIELDS, checkProductData, checkProductField, productPageParams, type CatalogStock, type ProductFilters } from './product-model.ts';
 
 // Shared catalog contract (fields of every entity, save payload, listing page, order and warnings).
@@ -50,9 +49,9 @@ export function catalogListParams(entity: CatalogEntity, query: string, active: 
 // ---- Listagem no padrão do Origin (migração 096): páginas numeradas de 100, total, ordenação e filtros ----
 export const CATALOG_PAGE_SIZE = 100;
 export type CatalogSort = 'created_desc' | 'name_asc' | 'name_desc' | 'code_asc' | 'code_desc';
-// 202610220008: origin_stock is the balance observed in Origin, beside the native stock and never added to it.
-export interface CatalogListItem extends CatalogRecord { stock?: CatalogStock | null; origin_stock?: ProductOriginStock | null }
-export interface CatalogListPage { entity: CatalogEntity; items: CatalogListItem[]; page: number; size: number; total: number; sort: CatalogSort; stock_visible?: boolean; origin_stock?: ProductOriginStockPage | null; data_mode: 'erp_native' }
+// Wabotia: sem origin_stock (202610220008), que o motor manda sempre nulo: Origin fora (motor 91213b8).
+export interface CatalogListItem extends CatalogRecord { stock?: CatalogStock | null }
+export interface CatalogListPage { entity: CatalogEntity; items: CatalogListItem[]; page: number; size: number; total: number; sort: CatalogSort; stock_visible?: boolean; data_mode: 'erp_native' }
 export type CatalogPeriodField = 'created' | 'updated' | 'expiry';
 export interface CatalogPeriod { field: CatalogPeriodField; from: string; to: string }
 export const EMPTY_PERIOD: CatalogPeriod = { field: 'created', from: '', to: '' };

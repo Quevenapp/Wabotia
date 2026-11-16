@@ -6,8 +6,6 @@ import { planBatch, type BatchItem, type BatchPlan } from './origin-batch.ts';
 import { addDays } from './origin-list.ts';
 import { actionsAllowed, baseOf, managed, permittedTargets, rowKey, situationName, situationTargets, transitionActions, type RowSituation, type SituationModel } from './document-situations-model.ts';
 import type { DocumentPermissions } from './real-documents-model.ts';
-import { DOCUMENT_MIRROR_READ_ONLY, isDocumentMirror } from './document-mirror-model.ts';
-import type { DocumentOriginTotals } from './document-mirror-model.ts';
 // 202610200289: "Lote (até 50 lotes separados por ;)" and "Busca customizada" (Adicionar filtros), the same rules as the Worker and the SQL.
 import { lotCodes, searchConditions, type SearchCondition } from '../../../../packages/erp-domain/src/document-search.mjs';
 export type { SearchCondition };
@@ -34,14 +32,12 @@ export interface DocumentListRow extends DocumentSummary {
   version_label?: string | null;
 }
 export interface DocumentListPage {
-  origin_totals?: DocumentOriginTotals;
   kind: DocumentKind; items: DocumentListRow[]; limit: number; page: number | null; order: DocumentListOrder; has_more: boolean; next_cursor: string | null;
   /** total_amount: null when Preferências "Exibir totais em listas" leaves this user without the sum of the list (202610200129). */
   total_count: number; total_amount: string | null; data_mode: 'erp_native'; operational_effects: false;
 }
 export type ListReference = { id: string; name: string };
 export interface DocumentListFilters {
-  origin?: 'all' | 'origin' | 'brufap';
   query: string; statuses: string[]; from: string; to: string; dateType: DocumentDateType;
   warehouse: ListReference | null; product: ListReference | null; city: string; state: string;
   technician: string; equipment: string; serialNumber: string; internalNote: string;
@@ -123,7 +119,6 @@ export const TRASH_REASONS: Record<string, string> = {
   checkout: 'tem leituras de checkout', generated_document: 'gerou outro documento',
 };
 export function documentListQuery(kind: DocumentKind, filters: DocumentListFilters, { page = 1, order = 'date_desc', limit = DOCUMENT_LIST_PAGE_SIZE, situations = false }: { page?: number; order?: DocumentListOrder; limit?: number; situations?: boolean } = {}): URLSearchParams {
-  if (filters.origin !== undefined && !['all', 'origin', 'brufap'].includes(filters.origin)) throw new Error('Escolha uma origem válida.');
   const query = filters.query.trim();
   if (filters.query.length > 120 || CONTROL.test(filters.query)) throw new Error('A pesquisa deve ter até 120 caracteres, sem quebras de linha.');
   for (const value of [filters.from, filters.to]) if (value && !validDate(value)) throw new Error('Informe datas válidas entre 1900 e 2099.');
@@ -175,7 +170,6 @@ export function documentListQuery(kind: DocumentKind, filters: DocumentListFilte
   if (filters.service) params.set('service_id', filters.service.id);
   if (lots) params.set('lote', lots.join(';'));
   if (search) params.set('busca', JSON.stringify(search));
-  if (filters.origin && filters.origin !== 'all') params.set('origin', filters.origin);
   return params;
 }
 
@@ -199,7 +193,6 @@ export const orderColumn = (order: DocumentListOrder) => order.startsWith('date'
 export type ListIndicator = { key: string; title: string; letter?: { text: string; color: string }; icon?: string; className?: string; badge?: string };
 /** Origin row indicators computed only from the list projection (no effects are inferred). */
 export function listIndicators(row: DocumentListRow): ListIndicator[] {
-  if (isDocumentMirror(row)) return row.mirror?.partial ? [{ key: 'MIRROR_PARTIAL', badge: 'Parcial', className: 'is-pending', title: 'Cobertura parcial: há dados não informados ou pendências no espelho do Origin.' }] : [];
   const out: ListIndicator[] = [];
   if (row.source_proposal_number) out.push({ key: 'P', letter: { text: 'P', color: 'red' }, title: `Proposta comercial ${row.source_proposal_number}` });
   if (row.finance_active) out.push({ key: 'C', letter: { text: 'C', color: 'green' }, title: 'Contas lançadas' });
@@ -242,7 +235,6 @@ export const rowLabel = (kind: DocumentKind, row: Pick<DocumentListRow, 'number'
 export function statusBatchPlan(kind: DocumentKind, rows: readonly DocumentListRow[], target: string, reason: string, model?: SituationModel | null, role = ''): BatchPlan<StatusBatchItem> {
   const items = rows.map(row => ({ id: row.id, label: rowLabel(kind, row), row }));
   return planBatch(items, ({ row }) => {
-    if (isDocumentMirror(row)) return DOCUMENT_MIRROR_READ_ONLY;
     if (!target) return null; // Nothing runs until a situação is chosen (BatchDialog canConfirm).
     const current = managed(model, kind) ? rowKey(row) : row.status;
     if (current === target) return 'Já está nesta situação.';
@@ -339,9 +331,6 @@ export function documentRowActions(kind: DocumentKind, row: DocumentListRow, { r
   if (kind === 'sales_proposals') out.push(...(row.template ? [clone('Novo a partir deste', true), modelAction('clone_model', 'Clonar modelo')] : [clone('Clonar proposta', true), modelAction('create_model', 'Criar modelo')]));
   // None of the hidden actions opens a group, so the separators stay where they are.
   const visible = role === 'vendas' ? out.filter(action => !HIDDEN_FOR_SELLER.includes(action.action)) : out;
-  return isDocumentMirror(row) ? visible.map(action => action.action === 'edit'
-    ? { ...action, label: 'Visualizar', icon: 'eye' }
-    : ['print', 'print_detailed'].includes(action.action) ? { ...action, title: 'Imprime a consulta do espelho, com os valores informados pelo Origin.' }
-      : { ...action, enabled: false, title: DOCUMENT_MIRROR_READ_ONLY }) : visible;
+  return visible;
 }
 export const brDay = (value: string | null) => value ? value.split('-').reverse().join('/') : '';

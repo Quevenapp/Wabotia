@@ -54,4 +54,4 @@
 /* 202610200287/288/294: image of the product, company footer and campos customizados of the OS in the print. */
 .commercial-item-image{display:block;max-width:22mm;max-height:22mm;object-fit:contain;margin:0 0 1mm}.commercial-company-footer{margin:4mm 0 0;font-size:0.85em;text-align:center}
 .commercial-items td small{display:block}
-.document-mirror-sheet .commercial-totals dl{width:100%}.document-mirror-sheet .commercial-totals dl>div{display:grid;grid-template-columns:minmax(150px,1fr) minmax(0,2fr);gap:18px}.document-mirror-sheet .commercial-totals dd{white-space:normal;overflow-wrap:anywhere;min-width:0}.document-list-sheet .commercial-totals{display:block}.document-list-sheet .document-origin-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}.document-list-sheet .document-origin-totals dl{width:100%}.document-list-sheet .document-origin-totals dl>div{display:block}.document-list-sheet .document-origin-totals dd{white-space:normal;overflow-wrap:anywhere;text-align:left}.document-list-sheet .document-origin-totals section+section{border-top:0;padding-top:0}
+.document-list-sheet .commercial-totals{display:block}

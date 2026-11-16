@@ -12,13 +12,14 @@ const labels = (actions) => actions.map(a => `${a.label}${a.enabled ? '' : ' (x)
 
 test('query parameters follow the API contract and refuse invalid filters before the network', () => {
   const nfe = SCREENS.nfe, entry = SCREENS.entrada, filters = emptyFilters(entry);
-  assert.equal(fiscalListQuery(nfe, 'origin', emptyFilters(nfe)).toString(), 'model=55&page=1');
-  assert.equal(fiscalListQuery(SCREENS.nfce, 'origin', emptyFilters(SCREENS.nfce), { page: 2, order: 'number_asc' }).toString(), 'model=65&page=2&order=number_asc');
+  // Wabotia: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap).
+  assert.equal(fiscalListQuery(nfe, emptyFilters(nfe)).toString(), 'model=55&origin=brufap&page=1');
+  assert.equal(fiscalListQuery(SCREENS.nfce, emptyFilters(SCREENS.nfce), { page: 2, order: 'number_asc' }).toString(), 'model=65&origin=brufap&page=2&order=number_asc');
   assert.equal(filters.dateType, 'entry');
-  assert.equal(fiscalListQuery(entry, 'brufap', { ...filters, from: '2026-10-01', to: '2026-10-31', custom: { person_type: 'F', series: '2', document: '123.456' } }).toString(),
+  assert.equal(fiscalListQuery(entry, { ...filters, from: '2026-10-01', to: '2026-10-31', custom: { person_type: 'F', series: '2', document: '123.456' } }).toString(),
     'model=55&direction=0&origin=brufap&page=1&date_type=entry&date_from=2026-10-01&date_to=2026-10-31&person_type=F&document=123.456&series=2');
   for (const bad of [{ query: 'x'.repeat(121) }, { from: '2026-02-30' }, { from: '2026-10-02', to: '2026-10-01' }, { status: 'registered' }, { state: 'XX' }, { custom: { person_type: 'Z' } }, { custom: { series: '1000' } }])
-    assert.throws(() => fiscalListQuery(nfe, 'origin', { ...emptyFilters(nfe), ...bad }), Error, JSON.stringify(bad));
+    assert.throws(() => fiscalListQuery(nfe, { ...emptyFilters(nfe), ...bad }), Error, JSON.stringify(bad));
   assert.deepEqual(filterChips(entry, { ...filters, status: 'registered', custom: { person_type: 'J', nature: ' Compra ' } }).map(c => c.label), ['Situação: Registradas', 'Natureza: Compra', 'Tipo da Pessoa: Jurídica']);
 });
 
@@ -43,13 +44,12 @@ test('⋮ rules per situation: Origin hides Enviar and Cancelar while waiting an
   assert.equal(authorized.find(a => a.label === 'NFe complementar').enabled, true);
   const cancelled = rowActions(nfe, row({ status: 3 }), { writable: true });
   assert.match(cancelled.find(a => a.label === 'Lançar contas').reason, /cancelada ou denegada/); assert.equal(cancelled.some(a => a.label === 'Cancelar NF-e'), false);
-  const origin = rowActions(nfe, row({ origin: 'origin', id: '9001', version: null, environment: '1', issue_type: null, status: 6 }), { writable: true });
-  assert.equal(origin[0].label, 'Visualizar'); assert.match(origin.find(a => a.label === 'Cancelar NF-e').reason, /convivência/); assert.equal(origin.find(a => a.label === 'Imprimir espelho NF').enabled, false);
   const nfce = labels(rowActions(SCREENS.nfce, row({ status: 1 }), { writable: false }));
   assert.ok(nfce.includes('Autorizar NFC-e (x)') && nfce.includes('Gerar NF-e (x)') && nfce.includes('Exportar XML (x)'));
   assert.equal(nfce.some(l => l.startsWith('Carta de correção')), false, 'CC-e is NF-e only');
-  const plan = deletePlan([row(), row({ origin: 'origin', id: '9001' })]);
-  assert.deepEqual([plan.eligible.length, plan.skipped[0].message], [1, 'Nota do Origin: a exclusão continua no Origin.']);
+  // Wabotia: Origin fora (motor 91213b8): a nota do Origin saiu; a exclusão só barra a nota com lançamentos.
+  const plan = deletePlan([row(), row({ id: id(2) })], r => r.id === id(2) ? { finance: { writable: true, posted: true, grouped: false }, stock: null } : null);
+  assert.deepEqual([plan.eligible.length, plan.skipped[0].message], [1, 'A nota tem contas lançadas por ela (letra C): use ⋮ Estornar contas antes de excluir.']);
 });
 
 test('draft conversion: decimal comma, empty fields dropped, homologation numbering and clones without number or key', () => {

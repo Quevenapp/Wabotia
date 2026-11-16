@@ -3,7 +3,6 @@ import { PRODUCT_ITEM_TYPES, ProductDetailError, checkProductDetail } from '../.
 import { CatalogValidationError, invalidField, type CatalogRecord } from './catalog-base.ts';
 import { numberCell, textCell, type SheetCell } from './spreadsheet-export.ts';
 import { PRODUCT_FIELDS } from './product-model.ts';
-import { ORIGIN_EXPORT_COLUMNS } from './product-origin-stock-model.ts';
 import { placesProblem, type DecimalPlaces } from '../../decimals.ts';
 
 // Formulário completo do produto no padrão do Origin (migração 202610200119): o detalhe (Características, Imagens externas,
@@ -279,8 +278,7 @@ export function exportCsv(rows: readonly ExportRow[], columns: readonly ExportCo
   return '﻿' + [columns.map(([label]) => label), ...rows.map(row => columns.map(([, read]) => read(row)))].map(line => line.map(cell).join(';')).join('\r\n') + '\r\n';
 }
 /** Tipo dos campos of the export: Padrão (the Brufap sheet), Customizado (ID, Código, Descrição and the custom fields) or Ambos.
- * 202610220008: "Estoque" stays the native balance of the Origin sheet; the balance observed in Origin has its own columns after the
- * standard ones, never added to it. */
+ * Wabotia: sem as colunas do estoque observado no Origin (202610220008): Origin fora (motor 91213b8). */
 export function exportColumns(kind: 'standard' | 'custom' | 'both', custom: readonly ExportColumn[]): ExportColumn[] {
-  return kind === 'standard' ? [...EXPORT_COLUMNS, ...ORIGIN_EXPORT_COLUMNS] : kind === 'custom' ? [...EXPORT_COLUMNS.slice(0, 3), ...custom] : [...EXPORT_COLUMNS, ...ORIGIN_EXPORT_COLUMNS, ...custom];
+  return kind === 'standard' ? [...EXPORT_COLUMNS] : kind === 'custom' ? [...EXPORT_COLUMNS.slice(0, 3), ...custom] : [...EXPORT_COLUMNS, ...custom];
 }

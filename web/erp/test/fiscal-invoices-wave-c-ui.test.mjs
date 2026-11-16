@@ -264,16 +264,17 @@ test('pedidos de compra: "Gerar nota fiscal" opens the entry note and the Vincul
 });
 
 test('Mais ações › Imprimir › "Etiquetas selecionadas" prints the address labels of the selected notes', async () => {
-  const originRow = n => ({ origin: 'origin', id: String(9000 + n), version: null, number: 120 + n, series: 3, issue_date: '2026-10-15', entry_date: '2026-10-16', name: `Cliente Origin ${n}`, document: '12345678000190', state: 'MG',
-    nature: 'Venda de mercadoria', status: 6, status_raw: '5', total: '100.10', total_known: true, environment: '1', issue_type: null, access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [] });
-  const detail = n => ({ origin: 'origin', entity: 'nfe', source_id: String(9000 + n), model: '55', direction: '1', number: 120 + n, series: 3, issue_date: '2026-10-15', operation_date: null, status: 6, status_raw: '5', access_key: null,
-    total: '100.10', total_known: true, freight: null, contact: { name: `Cliente Origin ${n}`, document: null, ie: null, email: null, phone: null, street: 'Rua das Flores', number: String(n), complement: null, district: 'Centro',
-      postal_code: '30110000', city: 'Belo Horizonte', state: 'MG', country: null }, items: [], installments: [], transport: { freight_by: null, carrier: null }, additional_info: null, xml: null, events: [],
-    observed_at: '2026-10-16T12:00:00Z', data_mode: 'origin_mirror_readonly', writable: false });
+  // Wabotia: Origin fora (motor 91213b8): as notas são registros do FAGOO, lidos por /v1/notas-fiscais/<id> (sem a projeção do Origin).
+  const nativeRow = n => ({ origin: 'brufap', id: id(9000 + n), version: 1, number: 120 + n, series: 3, issue_date: '2026-10-15', entry_date: '2026-10-16', name: `Cliente FAGOO ${n}`, document: '12345678000190', state: 'MG',
+    nature: 'Venda de mercadoria', status: 6, status_raw: null, total: '100.10', total_known: true, environment: '2', issue_type: 'N', access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [] });
+  const input = n => ({ model: '55', direction: '1', issue_type: 'N', series: '3', nature_id: NATURE, nature_description: 'Venda sintética', issue_date: '2026-10-15', crt: '1', purpose: '1', presence: '1', final_consumer: false,
+    recipient: { name: `Cliente FAGOO ${n}`, person_type: 'J', document: '12345678000190', street: 'Rua das Flores', number: String(n), district: 'Centro', postal_code: '30110000', city: 'Belo Horizonte', state: 'MG' },
+    items: [{ description: 'Peça sintética', quantity: '1', unit_price: '100.10' }] });
   const srv = server({ get: call => {
-    if (call.path.startsWith('/v1/notas-fiscais?')) { const q = new URLSearchParams(call.path.split('?')[1]); return { items: [originRow(1), originRow(2)], origin: 'origin', model: '55', direction: '1', page: Number(q.get('page')), limit: 100,
-      order: q.get('order') ?? 'date_desc', has_more: false, total_count: 2, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: true, data_mode: 'origin_mirror_readonly' }; }
-    const match = /^\/v1\/notas-fiscais\/origin\/nfe\/(900[12])$/.exec(call.path); if (match) return detail(Number(match[1]) - 9000);
+    if (call.path.startsWith('/v1/notas-fiscais?')) { const q = new URLSearchParams(call.path.split('?')[1]); return { items: [nativeRow(1), nativeRow(2)], origin: 'brufap', model: '55', direction: '1', page: Number(q.get('page')), limit: 100,
+      order: q.get('order') ?? 'date_desc', has_more: false, total_count: 2, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: true, data_mode: 'erp_native_homologation' }; }
+    const match = /^\/v1\/notas-fiscais\/(10000000-0000-4000-8000-00000000900[12])$/.exec(call.path);
+    if (match) { const n = Number(match[1].slice(-1)); return envelope(recordOf(input(n), { id: id(9000 + n), status: 6, number: 120 + n })); }
     return undefined;
   } });
   const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout'] });
@@ -283,8 +284,8 @@ test('Mais ações › Imprimir › "Etiquetas selecionadas" prints the address 
     assert.equal(button(view, 'Etiquetas de transporte').props.disabled, true);
     view.nodes().find(n => n.type === 'input' && n.props['aria-label'] === 'Selecionar nota 000122').props.onClick({ shiftKey: false }); await view.flush();
     await press(view, 'Etiquetas selecionadas'); await wait(view);
-    assert.ok(srv.calls.some(c => c.path === '/v1/notas-fiscais/origin/nfe/9002'));
-    assert.deepEqual(components(view, 'DocumentLabelsPrint')[0].props.labels, [{ name: 'Cliente Origin 2', address: 'Rua das Flores, 2 · Centro · Belo Horizonte - MG · CEP 30110-000', reference: 'NF 000122' }]);
+    assert.ok(srv.calls.some(c => c.path === `/v1/notas-fiscais/${id(9002)}`));
+    assert.deepEqual(components(view, 'DocumentLabelsPrint')[0].props.labels, [{ name: 'Cliente FAGOO 2', address: 'Rua das Flores, 2 · Centro · Belo Horizonte - MG · CEP 30110-000', reference: 'NF 000122' }]);
   } finally { view.unmount(); }
   const { noteLabel } = await import('../app/lib/fiscal-invoice-list-model.ts');
   assert.deepEqual(noteLabel({ number: 7 }, { name: 'Cliente', street: 'Rua A', number: '1', city: 'Campinas', state: 'SP' }, { name: 'Filial', street: 'Av. B', number: '2', city: 'Sumaré', state: 'SP', postal_code: '13170000' }),

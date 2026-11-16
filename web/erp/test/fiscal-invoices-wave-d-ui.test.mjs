@@ -224,7 +224,8 @@ test('Filtrar › Vendedor: picked from the cadastro de vendedores, sent as sell
     await view.change('fiscal-seller', SELLER); await view.submit(); await wait(view);
     assert.ok(calls.some(p => p.startsWith('/v1/notas-fiscais?') && new URLSearchParams(p.split('?')[1]).get('seller_id') === SELLER), JSON.stringify(calls));
     assert.match(view.text(), /Vendedor: Vendedora sintética/);
-    assert.match(view.text(), /vendedor do Origin ligado ao contato/, 'the Origin view says how the filter works there');
+    // Wabotia: Origin fora (motor 91213b8): sem a explicação do vendedor do Origin (a lista é só dos registros do FAGOO).
+    assert.doesNotMatch(view.text(), /vendedor do Origin ligado ao contato/);
   } finally { view.unmount(); }
   const entry = await mountComponent('RealFiscalInvoices.tsx', { controller, screen: 'entrada' }, { location: '/notas-entrada', expandChildren: ['NativeListLayout'] });
   try { await wait(entry); assert.equal(entry.nodes().some(n => n.props?.id === 'fiscal-seller-search'), false, 'only the NF-e de saída list has the Vendedor filter'); } finally { entry.unmount(); }

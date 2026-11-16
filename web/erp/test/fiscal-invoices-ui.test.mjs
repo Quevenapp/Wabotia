@@ -22,7 +22,8 @@ const originRow = (n, over = {}) => ({ origin: 'origin', id: String(9000 + n), v
   nature: null, status: 6, status_raw: '5', total: '100.10', total_known: true, environment: '1', issue_type: null, access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [], ...over });
 const nativeRow = (n, over = {}) => ({ ...originRow(n), origin: 'brufap', id: id(n), version: 2, number: null, status: 1, status_raw: null, environment: '2', issue_type: 'N', protocol_present: false, ...over });
 const listResponse = (path, rows, total) => { const q = new URLSearchParams(path.split('?')[1]), page = Number(q.get('page'));
-  if (total !== undefined) rows = Array.from({ length: Math.max(0, Math.min(100, total - (page - 1) * 100)) }, (_, i) => originRow(i + 1 + (page - 1) * 100));
+  // Wabotia: Origin fora (motor 91213b8): a lista grande é de registros do FAGOO.
+  if (total !== undefined) rows = Array.from({ length: Math.max(0, Math.min(100, total - (page - 1) * 100)) }, (_, i) => nativeRow(i + 1 + (page - 1) * 100, { number: 121 + i + (page - 1) * 100, status: 6 }));
   return { items: rows, origin: q.get('origin') ?? 'origin', model: q.get('model'), direction: q.get('direction') ?? '1', page: Number(q.get('page')), limit: 100,
   order: q.get('order') ?? 'date_desc', has_more: (total ?? rows.length) > Number(q.get('page')) * 100, total_count: total ?? rows.length, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: true,
   data_mode: q.get('origin') === 'brufap' ? 'erp_native_homologation' : 'origin_mirror_readonly' }; };
@@ -63,42 +64,41 @@ function server({ role = 'admin', rows = [originRow(1), originRow(2)], natives =
 }
 const mountList = (srv, location = '/historico-fiscal?modelo=55', screen = 'nfe') => mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen }, { location, expandChildren: ['NativeListLayout'] });
 
-test('Notas fiscais de saída: Origin mirror by default, 100 per page, Origin labels, six-digit numbers and filtered totals', async () => {
+test('Notas fiscais de saída: FAGOO records only, 100 per page, Origin labels, six-digit numbers and filtered totals', async () => {
   const srv = server({ total: 250 }), view = await mountList(srv);
   try {
-    assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&page=1']);
+    // Wabotia: Origin fora (motor 91213b8): sem o seletor "Notas do Origin"; a lista pede sempre origin=brufap.
+    assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
     const text = view.text();
-    assert.equal(component(view, 'OriginListHeader').props.title, 'Notas Fiscais de Saída'); assert.equal(component(view, 'OriginListHeader').props.selector.props.value, 'Notas do Origin');
+    assert.equal(component(view, 'OriginListHeader').props.title, 'Notas Fiscais de Saída'); assert.equal(component(view, 'OriginListHeader').props.selector, undefined);
     for (const expected of ['000121', '000122', 'Autorizada', 'Quantidade de notas', '250', 'Informações baseadas nos filtros aplicados.']) assert.ok(text.includes(expected), expected);
     assert.equal(view.input('fiscal-search').props.placeholder, 'Pesquisar por nome, CPF/CNPJ ou n° da nota');
     const pagination = component(view, 'OriginPagination').props; assert.deepEqual([pagination.page, pagination.pages, pagination.size, pagination.total], [1, 3, 100, 250]);
-    pagination.onPage(3); await view.flush(); assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&page=3');
+    pagination.onPage(3); await view.flush(); assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&origin=brufap&page=3');
     await view.change('fiscal-status', 'cancelled'); await view.change('fiscal-state', 'MG'); await view.change('fiscal-search', ' 12.345.678/0001 '); await view.submit();
-    assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&page=1&q=12.345.678%2F0001&status=cancelled&state=MG');
+    assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&origin=brufap&page=1&q=12.345.678%2F0001&status=cancelled&state=MG');
     assert.deepEqual(component(view, 'AppliedChips').props.chips.map(c => c.label), ['Pesquisa: 12.345.678/0001', 'Situação: Canceladas', 'UF: MG']);
     component(view, 'PeriodPicker').props.onApply({ from: '2026-10-01', to: '2026-10-31' }); await view.flush();
     assert.match(srv.lists().at(-1), /&date_from=2026-10-01&date_to=2026-10-31&status=cancelled&state=MG$/);
     component(view, 'AppliedChips').props.onClear(); await view.flush();
-    assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&page=1&date_from=2026-10-01&date_to=2026-10-31', 'Limpar keeps the period');
+    assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&origin=brufap&page=1&date_from=2026-10-01&date_to=2026-10-31', 'Limpar keeps the period');
     const before = srv.lists().length; await view.change('fiscal-search', 'linha\nquebrada'); await view.submit();
     assert.equal(srv.lists().length, before, 'invalid search never reaches the server'); assert.match(view.text(), /A pesquisa deve ter até 120 caracteres/);
   } finally { view.unmount(); }
 });
 
-test('the ⋮ menu keeps Origin notes read-only during coexistence and lists unavailable actions disabled with the reason', async () => {
-  const srv = server(), view = await mountList(srv);
+// Wabotia: Origin fora (motor 91213b8): saiu o caso da nota do Origin em consulta; fica a consulta lendo os registros do FAGOO sem ações de escrita.
+test('the ⋮ menu lists unavailable actions disabled with the reason; consulta only reads', async () => {
+  const srv = server({ natives: [nativeRow(1, { status: 6 })] }), view = await mountList(srv);
   try {
     const items = component(view, 'RowMenu').props.items, find = label => items.find(i => i.label === label);
     assert.equal(find('Visualizar').disabled, false);
-    for (const label of ['Cancelar NF-e', 'Carta de correção', 'Lançar contas', 'Lançar estoque', 'Imprimir DANFE']) { assert.equal(find(label).disabled, true, label); assert.ok(find(label).title, label); }
-    assert.match(find('Cancelar NF-e').title, /convivência/);
-    assert.equal(find('Clonar nota').disabled, true); assert.equal(find('Clonar para entrada').disabled, true);
+    for (const label of ['Lançar contas', 'Lançar estoque', 'Imprimir DANFE']) { assert.equal(find(label).disabled, true, label); assert.ok(find(label).title, label); }
     assert.equal(items.some(i => i.label === 'Enviar nota fiscal'), false, 'Origin hides Enviar for authorized notes');
-    const pending = component(view, 'RowMenu', 1).props.items; void pending;
   } finally { view.unmount(); }
-  const reader = server({ role: 'consulta' }), consult = await mountList(reader, '/historico-fiscal?modelo=55&origem=brufap');
+  const reader = server({ role: 'consulta' }), consult = await mountList(reader);
   try {
-    assert.deepEqual(reader.lists(), ['/v1/notas-fiscais?model=55&page=1'], 'consulta cannot open the homologation view');
+    assert.deepEqual(reader.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
     assert.equal(component(consult, 'OriginSelector'), undefined); assert.equal(component(consult, 'RowMenu').props.items.find(i => i.label === 'Clonar nota').disabled, true);
     assert.equal(consult.nodes().some(n => n.type === 'button' && textOf(n).trim() === 'Incluir nota fiscal'), false);
   } finally { consult.unmount(); }
@@ -110,7 +110,7 @@ test('Testes de homologação do FAGOO: native rows are marked and deleted one b
     const target = call.path.includes(id(2)) ? 2 : 1;
     if (target === 2 && attempts++ === 0) throw new AccessError(503);
     return envelope(recordOf(baseInput(), { id: id(target), version: call.body.expected_version + 1, deleted_at: '2026-10-20T13:00:00Z', delete_reason: call.body.reason }), { action: 'delete', replayed: attempts > 1 });
-  } }), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55&origem=brufap', expandChildren: ['NativeListLayout', 'BatchDialog'] });
+  } }), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout', 'BatchDialog'] });
   try {
     assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
     assert.match(view.text(), /Homologação/); assert.match(view.text(), /sem valor fiscal/);
@@ -130,7 +130,7 @@ test('Testes de homologação do FAGOO: native rows are marked and deleted one b
 
 test('a late list response never replaces a newer filter', async () => {
   let release; const slow = new Promise(resolve => { release = resolve; });
-  const srv = server({ get: call => call.path === '/v1/notas-fiscais?model=55&page=1' ? slow.then(() => listResponse(call.path, [originRow(7)])) : undefined }), view = await mountList(srv);
+  const srv = server({ natives: [nativeRow(2, { number: 122 })], get: call => call.path === '/v1/notas-fiscais?model=55&origin=brufap&page=1' ? slow.then(() => listResponse(call.path, [nativeRow(7, { number: 127 })])) : undefined }), view = await mountList(srv);
   try {
     await view.change('fiscal-search', 'Cliente Origin 2'); await view.submit();
     release(); await view.flush();
@@ -242,7 +242,7 @@ test('Gerar NF-e from a Origin NFC-e opens an NF-e draft that references the NFC
 });
 
 test('a same-actor role loss hides the open FAGOO note but keeps it mounted; consulta never opens one directly', async () => {
-  const srv = server(), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: `/historico-fiscal?modelo=55&origem=brufap&nota=${id(1)}` });
+  const srv = server(), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: `/historico-fiscal?modelo=55&nota=${id(1)}` });
   try {
     const form = () => component(view, 'FiscalInvoiceForm');
     assert.ok(form()); assert.equal(form().props.id, id(1));
@@ -263,36 +263,7 @@ const originNote = (over = {}) => ({ origin: 'origin', entity: 'nfe', source_id:
   items: [{ code: 'P-1', description: 'Peça sintética', unit: 'UN', quantity: '2', unit_price: '50', total: '100.00', cfop: '5102', ncm: '84713012', gtin: null }], installments: [], transport: { freight_by: null, carrier: null },
   additional_info: null, xml: null, events: [], observed_at: '2026-10-20T12:00:00Z', data_mode: 'origin_mirror_readonly', writable: false, ...over });
 
-test('imported fiscal details preserve the complete source ID from direct links and list navigation', async () => {
-  const sourceId = '12345678901';
-  for (const [screen, model, direction, entity, location] of [
-    ['nfe', '55', '1', 'nfe', '/historico-fiscal?modelo=55'],
-    ['nfce', '65', '1', 'nfce', '/historico-fiscal?modelo=65'],
-    ['entrada', '55', '0', 'nfe', '/notas-entrada?origem=origin'],
-  ]) {
-    for (const direct of [true, false]) {
-      const endpoint = `/v1/notas-fiscais/origin/${entity}/${sourceId}`;
-      const note = originNote({ source_id: sourceId, entity, model, direction, access_key: null });
-      const srv = server({ rows: [originRow(1, { id: sourceId, number: 123 })], get: call => call.path === endpoint ? note : undefined });
-      const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen }, {
-        location: direct ? `${location}&nota=origin-${sourceId}` : location,
-        expandChildren: ['NativeListLayout', 'FiscalOriginInvoiceView'],
-      });
-      try {
-        if (!direct) {
-          component(view, 'RowMenu').props.items.find(item => item.label === 'Visualizar').onClick();
-          await view.flush();
-        }
-        assert.equal(new URLSearchParams(view.location().search).get('nota'), `origin-${sourceId}`);
-        assert.deepEqual(srv.calls.filter(call => call.path.startsWith('/v1/notas-fiscais/origin/')).map(call => call.path), [endpoint], `${screen}: exact source ID`);
-        assert.match(view.text(), /Cliente Origin sintético/);
-        assert.match(view.text(), /Peça sintética/);
-        assert.doesNotMatch(view.text(), /Nota não encontrada|Não foi possível carregar/);
-        assert.equal(srv.posts().length, 0, 'opening an imported invoice remains read-only');
-      } finally { view.unmount(); }
-    }
-  }
-});
+// Wabotia: Origin fora (motor 91213b8): saiu o teste da nota do Origin aberta em leitura (FiscalOriginInvoiceView, ?nota=origin-<id>).
 
 const guardPorts = () => {
   const flags = { changed: false, busy: false, bypass: 0 };
@@ -317,9 +288,10 @@ test('the first save opens the saved note through the confirmed navigation, neve
 
 test('a note saved from another list opens in the list where Origin shows it', async () => {
   for (const [location, screen, record, expected] of [
-    ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(5), model: '55', direction: '0' }, ['/notas-entrada', `?origem=brufap&nota=${id(5)}`]],
-    ['/historico-fiscal?modelo=65&nota=nova', 'nfce', { id: id(6), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&origem=brufap&nota=${id(6)}`]],
-    ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(7), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&nota=${id(7)}&origem=brufap`]],
+    // Wabotia: Origin fora (motor 91213b8): sem o parâmetro ?origem=brufap.
+    ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(5), model: '55', direction: '0' }, ['/notas-entrada', `?nota=${id(5)}`]],
+    ['/historico-fiscal?modelo=65&nota=nova', 'nfce', { id: id(6), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&nota=${id(6)}`]],
+    ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(7), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&nota=${id(7)}`]],
   ]) {
     const srv = server(), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen }, { location });
     try {
@@ -329,16 +301,8 @@ test('a note saved from another list opens in the list where Origin shows it', a
   }
 });
 
-test('Origin complementary, return and clone actions cannot open a native draft during coexistence', async () => {
-  const srv = server({ rows: [originRow(1, { access_key: KEY55 })], get: call => call.path === '/v1/notas-fiscais/origin/nfe/9001' ? originNote() : undefined }), view = await mountList(srv);
-  try {
-    for (const label of ['NFe complementar', 'Clonar nota', 'Clonar para entrada']) {
-      const item = component(view, 'RowMenu').props.items.find(i => i.label === label);
-      assert.equal(item.disabled, true); assert.match(item.title, /convivência/); item.onClick(); await view.flush();
-    }
-    assert.equal(component(view, 'FiscalInvoiceForm'), undefined);
-    assert.equal(srv.posts().length, 0); assert.equal(srv.calls.some(c => c.path === '/v1/notas-fiscais/origin/nfe/9001'), false);
-  } finally { view.unmount(); }
+// Wabotia: Origin fora (motor 91213b8): saiu a parte da lista com notas do Origin; fica a abertura do formulário.
+test('a complementary opening fills the purpose and the referenced key', async () => {
   const form = await mountForm(server(), { opening: { kind: 'complementary', origin: originNote() } });
   try {
     assert.equal(form.input('fiscal-purpose').props.value, '2', 'Finalidade: NF-e complementar');
@@ -368,7 +332,7 @@ test('Contato rápido always fills the recipient, even after a carrier search', 
 
 test('another row action during Imprimir listagem never leaves the list busy', async () => {
   let hold = false, release; const pending = new Promise(resolve => { release = resolve; });
-  const srv = server({ get: call => hold && call.path.startsWith('/v1/notas-fiscais?') ? pending.then(() => listResponse(call.path, [nativeRow(1), nativeRow(2)])) : undefined }), view = await mountList(srv, '/historico-fiscal?modelo=55&origem=brufap');
+  const srv = server({ get: call => hold && call.path.startsWith('/v1/notas-fiscais?') ? pending.then(() => listResponse(call.path, [nativeRow(1), nativeRow(2)])) : undefined }), view = await mountList(srv);
   try {
     hold = true;
     const print = () => components(view, 'ToolButton').find(b => b.props.title === 'Imprimir listagem de notas');
@@ -380,49 +344,15 @@ test('another row action during Imprimir listagem never leaves the list busy', a
   } finally { view.unmount(); }
 });
 
-const mirrorCoverage = { scope: 'model_direction', source_count: 10, visible_count: 7, xml_count: 5, missing_xml_count: 2, homologation_count: 2, duplicate_count: 1, incomplete_count: 1,
-  oldest_observed_at: '2026-10-20T12:00:00Z', latest_observed_at: '2026-10-22T15:30:00Z', partial: true };
-test('NF-e, NFC-e and entry lists expose Origin origin, observation and scoped collection coverage', async () => {
-  for (const [screen, location, expected] of [['nfe', '/historico-fiscal?modelo=55', '/v1/notas-fiscais?model=55&page=1'],
-    ['nfce', '/historico-fiscal?modelo=65', '/v1/notas-fiscais?model=65&page=1'], ['entrada', '/notas-entrada', '/v1/notas-fiscais?model=55&direction=0&page=1']]) {
-    const srv = server({ get: call => call.path.startsWith('/v1/notas-fiscais?') ? { ...listResponse(call.path, [originRow(1, { observed_at: '2026-10-22T15:30:00Z' })]), coverage: mirrorCoverage } : undefined });
-    const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen }, { location, expandChildren: ['NativeListLayout', 'FiscalMirrorCoverage'] });
-    try {
-      assert.deepEqual(srv.lists(), [expected]);
-      for (const text of ['Origin · somente leitura', 'ID Origin 9001', '22/10/2026, 12:30', 'Cobertura parcial do espelho', 'XML pendente', 'dentro do seu acesso', '2 registro(s) de homologação', '1 duplicata(s)', 'não comprovam que o Origin esteja integralmente atualizado']) assert.ok(view.text().includes(text), `${screen}: ${text}`);
-      const menu = component(view, 'RowMenu').props.items;
-      for (const label of ['Clonar nota', 'Gerar devolução', 'Imprimir DANFE', ...(screen === 'nfce' ? ['Gerar NF-e'] : ['NFe complementar'])]) {
-        const item = menu.find(i => i.label === label); assert.equal(item.disabled, true, `${screen}: ${label}`); assert.ok(item.title);
-      }
-      assert.equal(srv.posts().length, 0);
-    } finally { view.unmount(); }
-  }
-});
-
+// Wabotia: Origin fora (motor 91213b8): saíram os testes da cobertura do espelho (FiscalMirrorCoverage), da nota do Origin em leitura
+// (FiscalOriginInvoiceView) e do seletor "Notas do Origin" × "Registros do FAGOO"; a fonte de cada registro do FAGOO continua conferida.
 test('the FAGOO source keeps imported production XML distinct from marked homologation tests', async () => {
   const srv = server({ natives: [nativeRow(1), nativeRow(2, { issue_type: 'S', environment: null, status: 8, source_environment: '1', source_origin: 'xml_import', fiscal_status: 8, danfe_emitted: false })] });
   const view = await mountList(srv);
   try {
-    const selector = component(view, 'OriginListHeader').props.selector;
-    assert.deepEqual(selector.props.options, ['Notas do Origin', 'Registros do FAGOO']); selector.props.onChange('Registros do FAGOO'); await view.flush();
-    assert.equal(srv.lists().at(-1), '/v1/notas-fiscais?model=55&origin=brufap&page=1');
+    assert.equal(component(view, 'OriginListHeader').props.selector, undefined);
+    assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
     for (const text of ['Homologação · sem valor fiscal', 'Origem FAGOO', 'XML importado', 'produção']) assert.ok(view.text().includes(text), text);
-    assert.equal(component(view, 'FiscalMirrorCoverage'), undefined);
-  } finally { view.unmount(); }
-});
-
-test('missing optional fiscal coverage is explicit and never invents a synchronization time', async () => {
-  const view = await mountComponent('FiscalMirrorCoverage.tsx', {});
-  try { assert.match(view.text(), /cobertura da sincronização ainda não foi informada/); assert.equal(view.nodes().some(n => n.type === 'time'), false); } finally { view.unmount(); }
-});
-
-test('Origin detail exposes observation and read-only actions while preserving collected XML access', async () => {
-  const note = originNote({ xml: { id: id(50), hash: 'a'.repeat(64), size: 123, protocol: '135260000000123' } });
-  const srv = server({ get: call => call.path === '/v1/notas-fiscais/origin/nfe/9001' ? note : undefined });
-  const view = await mountComponent('FiscalOriginInvoiceView.tsx', { controller: srv.controller, config: { screen: 'nfe', model: '55', direction: '1' }, sourceId: '9001', writable: true, onBack() {} });
-  try {
-    for (const label of ['Clonar nota', 'Clonar para entrada', 'Imprimir DANFE']) { const item = button(view, label); assert.equal(item.props.disabled, true); assert.ok(item.props.title); assert.equal(item.props.onClick, undefined); }
-    for (const label of ['Ver o XML da nota', 'Baixar XML']) assert.equal(button(view, label).props.disabled, false);
-    assert.match(view.text(), /Observada no Origin em/); assert.equal(srv.posts().length, 0);
+    for (const text of ['Origin · somente leitura', 'Notas do Origin', 'Cobertura']) assert.equal(view.text().includes(text), false, text);
   } finally { view.unmount(); }
 });

@@ -77,11 +77,4 @@
 .data-table.catalog-stock-table { width: 100%; min-width: 0; margin-bottom: 12px; }
 @media (max-width: 760px) { .catalog-price-edit input { width: 96px; } }
 @media print { .catalog-table .checkbox-cell, .catalog-table .row-actions, .catalog-price-pencil { display: none; } }
-/* 202610220008: Estoque with two labelled origins (Origin físico observado | Brufap nativo), never added. */
-.catalog-stock.is-dual { white-space: normal; min-width: 150px; }
-.catalog-stock-line { display: block; white-space: nowrap; }
-.catalog-stock-line small { display: block; color: var(--muted); font-size: 11px; }
-.catalog-stock-origin { color: var(--muted); font-size: 11px; margin-right: 4px; }
-.catalog-stock-line.is-native { color: var(--muted); font-size: 11px; }
-.catalog-stock-line.is-origin:not(.is-observed) strong, .catalog-stock-line.is-native.is-no_movements { font-weight: 400; color: var(--muted); }
-.catalog-stock-line.is-native.is-review_required { color: var(--danger); }
+/* Wabotia: sem as duas linhas Origin/FAGOO do Estoque (202610220008): Origin fora (motor 91213b8). */

@@ -1,4 +1,4 @@
-import { originIntegrationEnabled, originConnectionAvailable, originHistoryAvailable, isOriginIntegrationRoute } from '../lib/integration-capabilities';
+import { originIntegrationEnabled, originHistoryAvailable, isOriginIntegrationRoute } from '../lib/integration-capabilities';
 import { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { AccessState } from '../lib/real-access';
@@ -7,8 +7,6 @@ import { activeGroupFor, matchesLocation, resolveMenu, resolvePreferences } from
 import { workspaceMenu } from '../lib/fagoo-menu';
 import { useTheme } from '../hooks/useTheme';
 import OriginTopBar from './OriginTopBar';
-import OriginSyncButton from './OriginSyncButton';
-import type { OriginSyncController } from '../lib/origin-sync-model';
 import { NotificationsPanel, useCompanyChrome, useStoredThemeAtLogin } from './CompanyChrome';
 import { storageSummary, type SystemController } from '../lib/system-model';
 import './company-navigation.css';
@@ -20,7 +18,7 @@ const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do FAGOO', to: '/ajuda', 
 // Company area navigation: the Origin top bar (same menu as the demo) plus the location trail.
 // Brufap-only tools live in Preferências (gear), like Origin's own settings. With a controller that offers the Sistema port,
 // the bar shows the user's name, the razão social, Armazenamento and the live notifications (migration 151).
-export default function CompanyNavigation({ state, onLogout, controller }: { state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & Partial<OriginSyncController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
+export default function CompanyNavigation({ state, onLogout, controller }: { state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
   const location = useLocation();
   const { theme, toggle } = useTheme();
   const ready = state.phase === 'ready';
@@ -44,7 +42,7 @@ export default function CompanyNavigation({ state, onLogout, controller }: { sta
   const person = chrome.profile?.name ?? chrome.profile?.email ?? null;
   const user = { name: ready && role ? person ?? ROLE_LABELS[role] : authenticated ? 'Verificando acesso' : 'Visitante', company: chrome.profile?.company?.legal_name ?? 'FAGOO', detail: ready ? person && role ? `Perfil: ${ROLE_LABELS[role]}` : 'Área da empresa' : undefined };
   const system = ready && typeof controller?.system === 'function' ? controller as SystemController : null;
-  const sync = originConnectionAvailable(state.membership) && ready && typeof controller?.originSync === 'function' ? controller as OriginSyncController : null;
+  // Wabotia: o botão de sincronizar com o Origin saiu; a capacidade originIntegration nunca vem (Origin fora, motor 91213b8).
   // The trail names the same module the sidebar shows (Comercial, Catálogo…), so both read alike.
   const moduleName = useMemo(() => current?.to ? workspaceMenu(groups, role).find(group => group.columns.some(column => column.items.some(item => item.to === current.to)))?.name ?? active?.name : active?.name, [groups, role, current?.to, active?.name]);
   const trail = ready ? location.pathname === '/acesso' ? <nav aria-label="Localização"><span aria-current="page">Visão geral</span></nav> : <nav aria-label="Localização"><Link to="/acesso">Início</Link>
@@ -58,6 +56,6 @@ export default function CompanyNavigation({ state, onLogout, controller }: { sta
     <OriginTopBar groups={ready ? groups : []} activeGroup={active?.name} homeTo="/acesso" preferencesTo="/preferencias" user={user} theme={theme} onTheme={toggle} role={ready ? role : undefined} trail={trail}
       userTitle="Meu Perfil" companyTo={ready ? '/empresa-configuracoes' : undefined} storage={ready && chrome.storage ? { label: `Armazenamento ${storageSummary(chrome.storage).label}`, to: '/empresa-configuracoes?secao=armazenamento' } : null}
       notificationCount={ready ? chrome.unread : null} notificationsPanel={system && chrome.actor ? close => <NotificationsPanel controller={system} actor={chrome.actor!} onUnread={chrome.setUnread} onNavigate={close} /> : undefined}
-      onLogout={authenticated ? onLogout : undefined} actionsTo={ready ? '/preferencias/sistema/gestao-acoes' : undefined} helpLinks={ready ? COMPANY_HELP_LINKS.filter(link => originHistory || !isOriginIntegrationRoute(link.to)) : []} syncTool={sync ? <OriginSyncButton controller={sync} canRequest={role !== 'consulta'} canConfigure={role === 'admin'} /> : undefined} userLinks={ready ? [{ label: 'Dados da empresa', to: '/empresa-configuracoes', icon: 'building' }] : []} searchLinks={preferenceLinks} />
+      onLogout={authenticated ? onLogout : undefined} actionsTo={ready ? '/preferencias/sistema/gestao-acoes' : undefined} helpLinks={ready ? COMPANY_HELP_LINKS.filter(link => originHistory || !isOriginIntegrationRoute(link.to)) : []} userLinks={ready ? [{ label: 'Dados da empresa', to: '/empresa-configuracoes', icon: 'building' }] : []} searchLinks={preferenceLinks} />
   </>;
 }

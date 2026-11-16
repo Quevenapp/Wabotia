@@ -16,7 +16,7 @@ import './product-registry.css';
 // estoque do depósito padrão, como no Origin (sem depósito padrão, a soma dos depósitos considerados).
 const FILTERS = ['situation', 'q', 'sort', 'type', 'ncm_presence', 'ncm', 'brand', 'stock', 'warehouse_id', 'images', 'tag', 'category', 'item_type', 'supplier_id', 'supplier_code', 'period', 'from', 'to', 'component_id'];
 type StockScope = null | 'default_warehouse' | 'considered_warehouses' | 'all_warehouses';
-type ExportPage = { items: Record<string, unknown>[]; total: number; offset: number; limit: number; stock_scope?: StockScope; stock_warehouse?: { id: string; name: string } | null; origin_stock?: { status: string } | null };
+type ExportPage = { items: Record<string, unknown>[]; total: number; offset: number; limit: number; stock_scope?: StockScope; stock_warehouse?: { id: string; name: string } | null };
 const page = (value: unknown, offset: number, limit: number): ExportPage => {
   const result = value as ExportPage;
   if (!result || !Array.isArray(result.items) || !Number.isSafeInteger(result.total) || result.offset !== offset || result.limit !== limit) throw new Error('Invalid export page');
@@ -65,8 +65,8 @@ export default function ProductExport({ controller }: { controller: AccessContro
         const params = new URLSearchParams(filters); params.set('offset', String(offset)); params.set('limit', String(EXPORT_BATCH)); params.set('include_deleted', String(includeDeleted));
         const result = page(await controller.catalog(`/v1/cadastros/products/exportacao?${params}`, { signal: signal.signal }), offset, EXPORT_BATCH);
         if (signal.signal.aborted) return;
-        // 202610220008: the Origin columns say why a balance was not read (profile or failure); absence is never zero.
-        rows.push(...result.items.map(item => ({ ...item, origin_stock_status: result.origin_stock?.status ?? null })));
+        // Wabotia: sem as colunas do estoque Origin (202610220008): Origin fora (motor 91213b8).
+        rows.push(...result.items);
       }
       const columns = exportColumns(kind, kind !== 'standard' && Array.isArray(fields) ? customExportColumns(fields) : []);
       const data = format === 'csv' ? exportCsv(rows, columns) : toXlsx('Produtos', exportSheet(rows, columns)) as unknown as BlobPart;

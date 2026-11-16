@@ -6,7 +6,6 @@ import { planBatch, type BatchItem, type BatchPlan } from './origin-batch.ts';
 
 export type { ListPage, ListRow };
 export type FiscalScreen = 'nfe' | 'nfce' | 'entrada';
-export type FiscalOrigin = 'origin' | 'brufap';
 export type FiscalOrder = 'date_desc' | 'date_asc' | 'number_desc' | 'number_asc';
 export const FISCAL_PAGE_SIZE = 100;
 export const FISCAL_BASE = '/v1/notas-fiscais';
@@ -21,7 +20,6 @@ export interface ScreenConfig {
 }
 /** NFE-024/172: Loja and Filial of the Origin search are not applicable, with the reason shown in "Adicionar filtros". */
 export const NOT_APPLICABLE_FILTERS = 'Loja e Filial não se aplicam: o FAGOO atende uma empresa com uma loja (multiloja e multiempresa estão fora do escopo).';
-export const CATEGORY_ORIGIN_HELP = 'A Categoria vale para as notas do FAGOO: as notas do Origin não têm contas vinculadas no FAGOO durante a convivência.';
 export type CustomFilter = 'nature' | 'carrier' | 'trade_name' | 'person_type' | 'document' | 'email' | 'phone' | 'series' | 'contact_code' | 'order_number';
 export const CUSTOM_FILTER_LABELS: Record<CustomFilter, string> = { nature: 'Natureza', carrier: 'Transportador', trade_name: 'Fantasia', person_type: 'Tipo da Pessoa', document: 'CNPJ / CPF',
   email: 'E-mail', phone: 'Fone/Fax', series: 'Série', contact_code: 'Código do contato', order_number: 'Nº pedido de venda' };
@@ -42,7 +40,6 @@ export const SCREENS: Record<FiscalScreen, ScreenConfig> = {
     dateTypes: [{ value: 'entry', label: 'Data de entrada' }, { value: 'issue', label: 'Data de emissão' }], deleteLabel: 'Excluir notas selecionadas', deleteWarning: NFE_DELETE,
     customFilters: ['nature', 'carrier', 'trade_name', 'person_type', 'document', 'email', 'phone', 'series', 'contact_code', 'order_number'], plainStatus: false },
 };
-export const ORIGIN_LABELS: Record<FiscalOrigin, string> = { origin: 'Notas do Origin', brufap: 'Registros do FAGOO' };
 export const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO', 'EX'] as const;
 export type Reference = { id: string; name: string; code?: string | null };
 export interface FiscalFilters {
@@ -61,7 +58,8 @@ const PARAM: Record<CustomFilter, string> = { nature: 'nature', carrier: 'carrie
 const MAX: Record<CustomFilter, number> = { nature: 120, carrier: 120, trade_name: 120, person_type: 1, document: 30, email: 120, phone: 40, series: 3, contact_code: 100, order_number: 20 };
 
 /** Query for GET /v1/notas-fiscais; throws a user-facing message for invalid filters. */
-export function fiscalListQuery(config: ScreenConfig, origin: FiscalOrigin, filters: FiscalFilters, { page = 1, order = 'date_desc' as FiscalOrder } = {}): URLSearchParams {
+// Wabotia: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap), sem o espelho do Origin.
+export function fiscalListQuery(config: ScreenConfig, filters: FiscalFilters, { page = 1, order = 'date_desc' as FiscalOrder } = {}): URLSearchParams {
   if (filters.query.length > 120 || CONTROL.test(filters.query)) throw new Error('A pesquisa deve ter até 120 caracteres, sem quebras de linha.');
   for (const value of [filters.from, filters.to]) if (value && !validDate(value)) throw new Error('Informe datas válidas entre 1900 e 2099.');
   if (filters.from && filters.to && filters.from > filters.to) throw new Error('A data inicial deve ser anterior ou igual à data final.');
@@ -73,7 +71,7 @@ export function fiscalListQuery(config: ScreenConfig, origin: FiscalOrigin, filt
   if (config.categoryFilter && filters.category && !UUID.test(filters.category.id)) throw new Error('Selecione novamente a categoria.');
   const params = new URLSearchParams({ model: config.model });
   if (config.direction !== '1') params.set('direction', config.direction);
-  if (origin !== 'origin') params.set('origin', origin);
+  params.set('origin', 'brufap');
   params.set('page', String(page));
   if (order !== 'date_desc') params.set('order', order);
   if (filters.query.trim()) params.set('q', filters.query.trim());
@@ -85,8 +83,7 @@ export function fiscalListQuery(config: ScreenConfig, origin: FiscalOrigin, filt
   if (filters.state) params.set('state', filters.state);
   if (config.sellerFilter && filters.seller) params.set('seller_id', filters.seller.id.toLowerCase());
   if (filters.tag) params.set('tag', filters.tag.id.toLowerCase());
-  // The Origin notes have no contas linked in the Brufap: the Categoria is sent only with the notes of the Brufap.
-  if (config.categoryFilter && filters.category && origin === 'brufap') params.set('category_id', filters.category.id.toLowerCase());
+  if (config.categoryFilter && filters.category) params.set('category_id', filters.category.id.toLowerCase());
   for (const key of config.customFilters) {
     const value = filters.custom[key]?.trim();
     if (!value) continue;
@@ -123,9 +120,9 @@ export function statusLabel(row: Pick<ListRow, 'status' | 'status_raw'>, model: 
  * Espelho lane (wave H, NFE-069): the fiscal state apart from the DANFE print. "Emitida DANFE" (7) is an authorized note whose DANFE was
  * printed; the Origin code of origin stays in status_raw.
  */
-export function fiscalStateText(row: Pick<ListRow, 'fiscal_status' | 'danfe_emitted' | 'status_raw' | 'origin'>): string {
+export function fiscalStateText(row: Pick<ListRow, 'fiscal_status' | 'danfe_emitted'>): string {
   const state = row.fiscal_status === 6 ? 'Autorizada' : row.fiscal_status === null ? 'Situação não mapeada' : INVOICE_STATUS[row.fiscal_status] ?? `Situação ${row.fiscal_status}`;
-  return `Situação fiscal: ${state}${row.fiscal_status === 6 ? ` · DANFE ${row.danfe_emitted ? 'emitida' : 'não emitida'}` : ''}${row.origin === 'origin' && row.status_raw ? ` · código ${row.status_raw} do Origin` : ''}`;
+  return `Situação fiscal: ${state}${row.fiscal_status === 6 ? ` · DANFE ${row.danfe_emitted ? 'emitida' : 'não emitida'}` : ''}`;
 }
 const SOURCE_ORIGIN: Record<ListRow['source_origin'], string> = { origin: 'Nota do Origin', brufap_native: 'Nota do FAGOO', third_party: 'Nota de terceiros registrada no FAGOO', xml_import: 'XML importado' };
 /** NFE-063/185: origin and environment of the source, apart from the model (NF-e or NFC-e) and the emission environment. */
@@ -133,14 +130,10 @@ export function sourceLabel(row: Pick<ListRow, 'source_origin' | 'source_environ
   const environment = row.source_environment === '1' ? 'produção' : row.source_environment === '2' ? 'homologação' : 'ambiente não informado';
   return `${SOURCE_ORIGIN[row.source_origin]} · ${environment}`;
 }
-export const isNative = (row: Pick<ListRow, 'origin'>) => row.origin === 'brufap';
 export const EDITABLE = [1, 5, 8, 12];
 export type RowActionId = 'edit' | 'view' | 'send' | 'receipt' | 'cancel' | 'other' | 'correction' | 'complementary' | 'pdf' | 'boleto' | 'finance' | 'stock' | 'return'
   | 'clone' | 'clone_invert' | 'danfe' | 'danfe_simple' | 'labels' | 'mirror' | 'transport_label' | 'xml' | 'copy_key' | 'delete' | 'nfe_from_nfce' | 'pricing' | 'checkin' | 'stock_reverse' | 'support_xml';
 export interface RowAction { id: RowActionId; label: string; enabled: boolean; reason?: string; separatorBefore?: boolean; icon?: string }
-export const ORIGIN_FISCAL_READONLY_REASON = 'Nota do Origin em consulta: durante a convivência, emissão, cópia, devolução, correção e lançamentos continuam no Origin.';
-export const ORIGIN_DANFE_REASON = 'Durante a convivência, a reimpressão do DANFE das notas do Origin é feita no Origin. O XML coletado continua disponível para consulta e download.';
-const COEXISTENCE = ORIGIN_FISCAL_READONLY_REASON;
 const EFFECTS_OFF = 'Lançamentos de estoque pela nota ficam desligados enquanto as notas do FAGOO forem de homologação.';
 // Financeiro lane (SQL 247): contas lançadas pela nota of the Brufap.
 const FINANCE_UNREAD = 'Conferindo as contas da nota…';
@@ -152,7 +145,8 @@ const SEND_OFF = 'O envio à SEFAZ desta nota ainda não está ligado no FAGOO; 
 // During coexistence, the DANFE is available only for the authorized XML of a Brufap record.
 const DANFE_NATIVE_OFF = 'A nota do FAGOO ainda não tem XML autorizado (o envio à SEFAZ não está ligado). Use Imprimir espelho NF.';
 /** The note has a checked XML to print the DANFE from. */
-export const danfeReady = (row: Pick<ListRow, 'origin' | 'issue_type' | 'xml_id'>) => Boolean(row.xml_id) || isImported(row);
+// Wabotia: Origin fora (motor 91213b8): o xml_id era só do acervo do Origin (nulo nos registros do FAGOO); fica o XML importado.
+export const danfeReady = (row: Pick<ListRow, 'issue_type'>) => isImported(row);
 /**
  * ⋮ menu in Origin order with Brufap availability. Origin hides "Enviar nota fiscal" and "Cancelar NF-e" in situations 3, 4, 9, 10 and 11 and
  * blocks Lançar contas/estoque in Cancelada and Denegada. Everything Brufap cannot do is listed disabled with the reason.
@@ -160,53 +154,54 @@ export const danfeReady = (row: Pick<ListRow, 'origin' | 'issue_type' | 'xml_id'
 /** Estoque lane (259): the letter E of a Brufap note (S by the note, R by the reference) and whether the user posts stock. */
 export interface RowStock { flag: 'S' | 'R' | null; reference: string | null; manage: boolean }
 export function rowActions(config: ScreenConfig, row: ListRow, { writable, checkin, labels, finance = null, stock }: { writable: boolean; checkin?: boolean; labels?: boolean; finance?: InvoiceFinanceState; stock?: RowStock | null }): RowAction[] {
-  const native = isNative(row), status = row.status ?? 0, authorized = status === 6 || status === 7, waiting = [3, 4, 9, 10, 11].includes(status);
+  // Wabotia: Origin fora (motor 91213b8): toda linha é registro do FAGOO; saíram os ramos da nota do Origin em consulta.
+  const status = row.status ?? 0, authorized = status === 6 || status === 7, waiting = [3, 4, 9, 10, 11].includes(status);
   const off = (reason: string) => ({ enabled: false, reason });
   const actions: RowAction[] = [];
   // Imported XML notes (S/X) open read-only: the stored XML is their source.
-  actions.push(native ? { id: 'edit', label: writable && EDITABLE.includes(status) && !isImported(row) ? 'Editar' : 'Visualizar', enabled: true, icon: 'pen-to-square' } : { id: 'view', label: 'Visualizar', enabled: true, icon: 'eye' });
+  actions.push({ id: 'edit', label: writable && EDITABLE.includes(status) && !isImported(row) ? 'Editar' : 'Visualizar', enabled: true, icon: 'pen-to-square' });
   const nfce = config.model === '65';
-  if (!waiting && (status === 1 || status === 5 || (nfce && status === 2))) actions.push({ id: 'send', label: nfce ? 'Autorizar NFC-e' : 'Enviar nota fiscal', icon: 'paper-plane', ...(native ? off(SEND_OFF) : off(COEXISTENCE)) });
-  if ([4, 9, 11].includes(status)) actions.push({ id: 'receipt', label: status === 11 ? 'Consultar situação' : 'Consultar recibo', ...(native ? off(SEND_OFF) : off(COEXISTENCE)) });
-  if (authorized && !waiting) actions.push({ id: 'cancel', label: nfce ? 'Cancelar NFC-e' : 'Cancelar NF-e', separatorBefore: true, ...(native ? { enabled: writable, reason: writable ? undefined : 'Seu perfil não registra eventos fiscais.' } : off(COEXISTENCE)) });
+  if (!waiting && (status === 1 || status === 5 || (nfce && status === 2))) actions.push({ id: 'send', label: nfce ? 'Autorizar NFC-e' : 'Enviar nota fiscal', icon: 'paper-plane', ...off(SEND_OFF) });
+  if ([4, 9, 11].includes(status)) actions.push({ id: 'receipt', label: status === 11 ? 'Consultar situação' : 'Consultar recibo', ...off(SEND_OFF) });
+  if (authorized && !waiting) actions.push({ id: 'cancel', label: nfce ? 'Cancelar NFC-e' : 'Cancelar NF-e', separatorBefore: true, enabled: writable, reason: writable ? undefined : 'Seu perfil não registra eventos fiscais.' });
   if (!nfce) actions.push({ id: 'other', label: 'Outras opções de NF-e', enabled: true });
-  if (!nfce && authorized) actions.push({ id: 'correction', label: 'Carta de correção', ...(native ? { enabled: writable, reason: writable ? undefined : 'Seu perfil não registra eventos fiscais.' } : off(COEXISTENCE)) });
-  if (!nfce) actions.push({ id: 'complementary', label: 'NFe complementar', ...(!native ? off(COEXISTENCE) : row.access_key && authorized && writable ? { enabled: true } : off('A NF-e complementar precisa de uma nota autorizada com chave de acesso.')) });
-  const danfe = !native ? off(ORIGIN_DANFE_REASON) : danfeReady(row) ? { enabled: true } : off(DANFE_NATIVE_OFF);
+  if (!nfce && authorized) actions.push({ id: 'correction', label: 'Carta de correção', enabled: writable, reason: writable ? undefined : 'Seu perfil não registra eventos fiscais.' });
+  if (!nfce) actions.push({ id: 'complementary', label: 'NFe complementar', ...(row.access_key && authorized && writable ? { enabled: true } : off('A NF-e complementar precisa de uma nota autorizada com chave de acesso.')) });
+  const danfe = danfeReady(row) ? { enabled: true } : off(DANFE_NATIVE_OFF);
   // The PDF file is the DANFE retrato A4; the Origin NFC-e menu has no "Gerar PDF DANFE" (its DANFE is printed).
   if (authorized && !nfce) actions.push({ id: 'pdf', label: 'Gerar PDF DANFE', ...danfe });
   const blocked = status === 3 || status === 10, posted = Boolean(finance?.posted);
   // Emitir boletos: the contas a receber lançadas by the note go to Incluir Remessa of the cobrança Itaú (bank operations stay off).
-  if (!nfce) actions.push({ id: 'boleto', label: 'Emitir boletos', ...(!native ? off(COEXISTENCE) : config.direction === '0' ? off('Boletos são das contas a receber das notas de saída.') : !finance ? off(FINANCE_UNREAD)
+  if (!nfce) actions.push({ id: 'boleto', label: 'Emitir boletos', ...(config.direction === '0' ? off('Boletos são das contas a receber das notas de saída.') : !finance ? off(FINANCE_UNREAD)
     : !finance.writable ? off(FINANCE_ROLE) : !posted ? off('Os boletos saem das contas lançadas pela nota: use Lançar contas antes.') : { enabled: true }) });
-  actions.push({ id: 'finance', label: posted ? 'Estornar contas' : 'Lançar contas', ...(!native ? off(COEXISTENCE) : !finance ? off(blocked ? 'Nota cancelada ou denegada não lança contas.' : FINANCE_UNREAD) : !finance.writable ? off(FINANCE_ROLE)
+  actions.push({ id: 'finance', label: posted ? 'Estornar contas' : 'Lançar contas', ...(!finance ? off(blocked ? 'Nota cancelada ou denegada não lança contas.' : FINANCE_UNREAD) : !finance.writable ? off(FINANCE_ROLE)
     : finance.grouped ? off(FINANCE_GROUPED) : blocked && !posted ? off('Nota cancelada ou denegada não lança contas.') : { enabled: true }) });
   // Estoque lane (259): Lançar estoque / Estornar estoque of a Brufap note; Origin hides the reversal when the order posted the stock (R).
-  if (native && stock?.flag === 'S') actions.push({ id: 'stock_reverse', label: 'Estornar estoque', ...(stock.manage ? { enabled: true } : off('Somente administrador e estoque estornam o estoque da nota.')) });
+  if (stock?.flag === 'S') actions.push({ id: 'stock_reverse', label: 'Estornar estoque', ...(stock.manage ? { enabled: true } : off('Somente administrador e estoque estornam o estoque da nota.')) });
   else {
-    const stockOff = blocked ? 'Nota cancelada ou denegada não lança estoque.' : !native ? COEXISTENCE : !stock ? 'Não foi possível consultar o estoque da nota. Recarregue a listagem.'
+    const stockOff = blocked ? 'Nota cancelada ou denegada não lança estoque.' : !stock ? 'Não foi possível consultar o estoque da nota. Recarregue a listagem.'
       : stock.flag === 'R' ? `Estoque lançado pela referência${stock.reference ? ` (pedido ${stock.reference})` : ''}: o estorno é feito pelo pedido.` : !stock.manage ? 'Somente administrador e estoque lançam o estoque da nota.' : null;
     actions.push({ id: 'stock', label: 'Lançar estoque', ...(stockOff ? off(stockOff) : { enabled: true }) });
   }
   // Gerar devolução opens a note of finalidade 4 in the other direction referencing this key (a homologation test draft).
-  if (authorized || status === 8) actions.push({ id: 'return', label: 'Gerar devolução', ...(!native ? off(COEXISTENCE) : !writable ? off('Seu perfil não inclui notas fiscais.') : !row.access_key ? off('A devolução precisa da chave de acesso da nota.') : { enabled: true }) });
+  if (authorized || status === 8) actions.push({ id: 'return', label: 'Gerar devolução', ...(!writable ? off('Seu perfil não inclui notas fiscais.') : !row.access_key ? off('A devolução precisa da chave de acesso da nota.') : { enabled: true }) });
   // Estoque lane (147/184): Check-in de Recebimentos of a native entry note, the physical conferência item by item (Origin order, after Gerar devolução).
-  if (config.direction === '0') actions.push({ id: 'checkin', label: 'Check-in de Recebimentos', icon: 'file-signature', ...(!native ? off('Nota do Origin: durante a convivência, o check-in das notas do Origin continua no Origin.') : blocked ? off('Nota cancelada ou denegada não tem check-in.') : checkin === false ? off('Seu perfil não inclui o Check-in de Recebimentos (administrador, estoque e fiscal).') : { enabled: true }) });
+  if (config.direction === '0') actions.push({ id: 'checkin', label: 'Check-in de Recebimentos', icon: 'file-signature', ...(blocked ? off('Nota cancelada ou denegada não tem check-in.') : checkin === false ? off('Seu perfil não inclui o Check-in de Recebimentos (administrador, estoque e fiscal).') : { enabled: true }) });
   // Formação de preços of an entry note: unit cost and the price suggested by the markup of the preferences.
-  if (config.direction === '0') actions.push({ id: 'pricing', label: 'Formação de preços', ...(native ? writable ? { enabled: true } : off('Somente administrador e fiscal.') : off('Nota do Origin: a formação de preços continua no Origin durante a convivência.')) });
-  if (nfce) actions.push({ id: 'nfe_from_nfce', label: 'Gerar NF-e', separatorBefore: true, ...(!native ? off(COEXISTENCE) : writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
-  actions.push({ id: 'clone', label: 'Clonar nota', separatorBefore: !nfce, ...(!native ? off(COEXISTENCE) : writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
-  if (!nfce) actions.push({ id: 'clone_invert', label: config.direction === '1' ? 'Clonar para entrada' : 'Clonar para saída', ...(!native ? off(COEXISTENCE) : writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
+  if (config.direction === '0') actions.push({ id: 'pricing', label: 'Formação de preços', ...(writable ? { enabled: true } : off('Somente administrador e fiscal.')) });
+  if (nfce) actions.push({ id: 'nfe_from_nfce', label: 'Gerar NF-e', separatorBefore: true, ...(writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
+  actions.push({ id: 'clone', label: 'Clonar nota', separatorBefore: !nfce, ...(writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
+  if (!nfce) actions.push({ id: 'clone_invert', label: config.direction === '1' ? 'Clonar para entrada' : 'Clonar para saída', ...(writable ? { enabled: true } : off('Seu perfil não inclui notas fiscais.')) });
   actions.push({ id: 'danfe', label: 'Imprimir DANFE', separatorBefore: true, ...danfe });
   if (!nfce) {
     actions.push({ id: 'danfe_simple', label: 'Imprimir DANFE Simplificado', ...danfe });
     // Preferências lane (230): the product labels of a Brufap note open in Etiquetas customizadas (administrador, like the models).
-    actions.push({ id: 'labels', label: 'Imprimir etiquetas', ...(!native ? off('Nota do Origin: as etiquetas das notas do Origin continuam no Origin durante a convivência.') : labels ? { enabled: true } : off('Somente administradores imprimem as Etiquetas customizadas.')) });
-    actions.push({ id: 'mirror', label: 'Imprimir espelho NF', ...(native ? { enabled: true } : off('O espelho é gerado com os dados salvos de uma nota do FAGOO.')) });
+    actions.push({ id: 'labels', label: 'Imprimir etiquetas', ...(labels ? { enabled: true } : off('Somente administradores imprimem as Etiquetas customizadas.')) });
+    actions.push({ id: 'mirror', label: 'Imprimir espelho NF', enabled: true });
     if (config.direction === '1') actions.push({ id: 'transport_label', label: 'Imprimir etiqueta de transporte', ...off('A etiqueta de transporte das transportadoras é logística, fora do escopo do FAGOO. As etiquetas de endereço ficam em Mais ações › Imprimir › Etiquetas selecionadas.') });
   }
   // An imported NFC-e (S, wave F) keeps its authorized XML in Brufap, like the imported NF-e (Baixar XML).
-  if (nfce) actions.push({ id: 'xml', label: 'Exportar XML', ...(row.xml_id || isImported(row) ? { enabled: true } : off(native ? 'Nota do FAGOO sem XML autorizado.' : 'O XML desta nota ainda não foi coletado do Origin.')) });
+  if (nfce) actions.push({ id: 'xml', label: 'Exportar XML', ...(isImported(row) ? { enabled: true } : off('Nota do FAGOO sem XML autorizado.')) });
   // Notas lane (wave F, 202610200273): "Gerar XML (suporte)" shows the native XML of a Brufap NFC-e, built from the saved note (not signed).
   if (nfce) { const block = nativeXmlBlock(row, writable); actions.push({ id: 'support_xml', label: 'Gerar XML (suporte)', ...(block ? off(block) : { enabled: true }) }); }
   return actions;
@@ -267,7 +262,7 @@ export function filtersFromPreference(config: ScreenConfig, saved: Record<string
   if (text('tag_id') === 'none' || UUID.test(text('tag_id'))) next.tag = { id: text('tag_id').toLowerCase(), name: text('tag_id') === 'none' ? 'Sem Tag' : text('tag_name') || 'Tag' };
   if (config.categoryFilter && UUID.test(text('category_id'))) next.category = { id: text('category_id').toLowerCase(), name: text('category_name') || 'Categoria' };
   for (const key of config.customFilters) if (text(`f_${key}`)) next.custom[key] = text(`f_${key}`);
-  try { fiscalListQuery(config, 'origin', next); return next; } catch { return null; }
+  try { fiscalListQuery(config, next); return next; } catch { return null; }
 }
 // ---- "Importar XML NF-e": reasons the Worker or the database give for not importing ----
 // Wave F (202610200274): the signature of the XML and the NFC-e of another company with the company as consumer.
@@ -296,10 +291,10 @@ export function keyParts(key: string | null): { number: string; series: string; 
   if (!key || !/^\d{44}$/.test(key)) return null;
   return { model: key.slice(20, 22), series: String(Number(key.slice(22, 25))), number: key.slice(25, 34).replace(/^0+(?=\d{6})/, ''), issuer: formatDocument(key.slice(6, 20)) };
 }
-export const isImported = (row: Pick<ListRow, 'origin' | 'issue_type'>) => row.origin === 'brufap' && (row.issue_type === 'S' || row.issue_type === 'X');
+// Wabotia: Origin fora (motor 91213b8): toda nota é do FAGOO, então só a forma de emissão (S/X) marca a importada.
+export const isImported = (row: Pick<ListRow, 'issue_type'>) => row.issue_type === 'S' || row.issue_type === 'X';
 /** Notas lane (wave F): why the native XML of a row ("Validar", "Gerar XML (suporte)") cannot be built; null when it can. */
-export function nativeXmlBlock(row: Pick<ListRow, 'origin' | 'issue_type'>, writable: boolean): string | null {
-  if (!isNative(row)) return 'Nota do Origin: a validação e o XML das notas do Origin continuam no Origin durante a convivência.';
+export function nativeXmlBlock(row: Pick<ListRow, 'issue_type'>, writable: boolean): string | null {
   if (isImported(row) || row.issue_type === 'T') return 'Nota registrada (emitida por terceiros ou importada do XML): o XML dela não é gerado pelo FAGOO.';
   if (!writable) return 'Somente administrador e fiscal geram o XML das notas do FAGOO.';
   return null;
@@ -339,10 +334,10 @@ export function deleteRefusalText(field: string | undefined, effects: DeleteEffe
   if (field === 'stock_posted') return DELETE_STOCK_POSTED;
   return null;
 }
-/** Only Brufap notes are deleted; Origin notes are listed as not deleted, like Origin's "As seguintes notas não foram excluídas". */
+/** Notes with lançamentos are listed as not deleted, like Origin's "As seguintes notas não foram excluídas". */
 export function deletePlan(rows: readonly ListRow[], effects: (row: ListRow) => DeleteEffects | null = () => null): BatchPlan<DeleteItem> {
   return planBatch(rows.map(row => ({ id: `${row.origin}:${row.id}`, label: `Nota ${invoiceNumber(row)} · ${row.name ?? 'Sem nome'}`, row })),
-    item => item.row.origin === 'origin' ? 'Nota do Origin: a exclusão continua no Origin.' : deleteBlockedReason(effects(item.row)));
+    item => deleteBlockedReason(effects(item.row)));
 }
 /** Moment in São Paulo, as Origin prints it: dd/mm/aaaa às hh:mm. */
 export function brMoment(value: string | null): string {

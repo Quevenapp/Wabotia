@@ -1,9 +1,6 @@
-import { originHistoryAvailable } from '../lib/integration-capabilities';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
-import { DOCUMENT_MIRROR_READ_ONLY, documentObservedAt, documentOriginLabel, documentSelectionTotals, isDocumentMirror, isMirrorRecord, mirrorDecimal, type DocumentReadRecord } from '../lib/document-mirror-model';
-import { DocumentMirrorPrint } from './DocumentMirrorView';
-import DocumentOriginTotals from './DocumentOriginTotals';
+import { DOCUMENT_MIRROR_READ_ONLY } from '../lib/document-mirror-model';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { DOCUMENT_LABELS, STATES, TRANSITIONS, type DocumentAccess, type DocumentEnvelope, type DocumentKind, type DocumentRecord } from '../lib/real-documents-model';
 import {
@@ -68,6 +65,7 @@ import { blockEnabled } from '../../blocks';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const known = (error: unknown) => error instanceof AccessError && [400, 403, 404, 409].includes(error.status);
+// Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
 const failureText = (error: unknown) => error instanceof AccessError && error.code === 'MODULE_OWNED_BY_ORIGIN' ? DOCUMENT_MIRROR_READ_ONLY : error instanceof AccessError ? error.status === 409 ? 'O documento mudou ou a situação atual não permite esta ação. Atualize a listagem e confira.'
   : error.status === 403 ? 'Seu perfil não permite esta operação.' : error.status === 400 ? 'O servidor recusou a operação. Confira a situação e o motivo.'
     : error.status === 404 ? 'Documento não encontrado. Atualize a listagem.' : 'Não foi possível concluir a operação. Tente novamente.' : 'Não foi possível concluir a operação. Tente novamente.';
@@ -150,10 +148,10 @@ export default function DocumentList(props: DocumentListProps) {
   // Origin "Alterando situação para …": Data, Hora and the occurrence text (also the reason) of one ⋮ change.
   const [situation, setSituation] = useState({ date: '', time: '', text: '' });
   const [batchTarget, setBatchTarget] = useState(''); const [batchReason, setBatchReason] = useState(''); const [batchStarted, setBatchStarted] = useState(false);
-  const [printRecord, setPrintRecord] = useState<{ record: DocumentReadRecord; variant: PrintVariant; options: PrintOptions } | null>(null);
+  const [printRecord, setPrintRecord] = useState<{ record: DocumentRecord; variant: PrintVariant; options: PrintOptions } | null>(null);
   const [printQuestion, setPrintQuestion] = useState<{ record: DocumentRecord; variant: PrintVariant; options: PrintOptions; fields: DocumentCustomField[] } | null>(null);
   // The definitions of the campos customizados the Busca customizada of the OS read (types of the values); null until read.
-  const searchFieldsRef = useRef<DocumentCustomField[] | null>(null); const [printRecords, setPrintRecords] = useState<{ records: DocumentReadRecord[]; receipt: boolean; options: PrintOptions } | null>(null);
+  const searchFieldsRef = useRef<DocumentCustomField[] | null>(null); const [printRecords, setPrintRecords] = useState<{ records: DocumentRecord[]; receipt: boolean; options: PrintOptions } | null>(null);
   // Origin "Opções de impressão" of Imprimir selecionados, and the address labels of the selected rows.
   // 202610200240: "Desmembrar produtos da estrutura" and "Ocultar itens produzidos por terceiros" read the structure of each pedido.
   const [productLabels, setProductLabels] = useState<PurchaseLabels | null>(null);
@@ -171,14 +169,14 @@ export default function DocumentList(props: DocumentListProps) {
     if (kind !== 'sales_proposals' || !writable) { setModels([]); return; }
     const request = new AbortController(), actor = actorOf(controller);
     void Promise.resolve().then(() => controller.documents(`/v1/documentos/sales_proposals?${new URLSearchParams({ limit: '100', page: '1', template: 'true' })}`, { signal: request.signal })).then(value => {
-      if (request.signal.aborted || actorOf(controller) !== actor) return; setModels(readDocumentListPage(value, kind, 1, 'date_desc').items.filter(item => item.template && !isDocumentMirror(item)));
+      if (request.signal.aborted || actorOf(controller) !== actor) return; setModels(readDocumentListPage(value, kind, 1, 'date_desc').items.filter(item => item.template));
     }).catch(() => { /* Without models the select stays empty and disabled. */ });
     return () => request.abort();
   }, [controller, kind, writable]);
   const [listBusy, setListBusy] = useState<'print' | 'export' | null>(null); const [monthExport, setMonthExport] = useState<{ month: string; year: string } | null>(null); const [listPrint, setListPrint] = useState<{ snapshot: ListSnapshot; filters: string[] } | null>(null);
   const command = useRef<ListCommand | null>(null), inflight = useRef<AbortController | null>(null), detail = useRef<AbortController | null>(null), lifetime = useRef(new AbortController());
   const listRead = useRef<AbortController | null>(null), appliedKey = useRef(''); appliedKey.current = `${kind}:${applied}:${order}`;
-  const batchActor = useRef<string | null>(null), printed = useRef(new Map<string, DocumentReadRecord>());
+  const batchActor = useRef<string | null>(null), printed = useRef(new Map<string, DocumentRecord>());
   const guard = useUnsavedChanges(uncertain, busy);
   useEffect(() => { const life = lifetime.current; return () => { life.abort(); inflight.current?.abort(); detail.current?.abort(); listRead.current?.abort(); }; }, []);
   useEffect(() => {
@@ -206,11 +204,10 @@ export default function DocumentList(props: DocumentListProps) {
   }, [controller, productQuery, catalogRead]);
 
   const rows = page?.items ?? [];
-  const linkStates = useOrderLinkStates(controller, blockEnabled('erp-fiscal') ? kind : '',rows.filter(row => !isDocumentMirror(row)).map(row => row.id));
+  const linkStates = useOrderLinkStates(controller, blockEnabled('erp-fiscal') ? kind : '',rows.map(row => row.id));
   const ids = rows.map(row => row.id);
   const selectedRows = rows.filter(row => selected.has(row.id));
-  const selectedMirror = selectedRows.some(isDocumentMirror);
-  const selectedNativeRows = selectedRows.filter((row): row is DocumentListRow & { number: string } => !isDocumentMirror(row) && typeof row.number === 'string');
+  const selectedNativeRows = selectedRows.filter((row): row is DocumentListRow & { number: string } => typeof row.number === 'string');
   const inTrash = props.filters.statuses.length === 1 && props.filters.statuses[0] === TRASH_STATUS;
   const allSelected = rows.length > 0 && rows.every(row => selected.has(row.id));
   const locked = busy || uncertain;
@@ -279,7 +276,7 @@ export default function DocumentList(props: DocumentListProps) {
   });
   const readDocument = async (row: DocumentListRow, signal: AbortSignal) => {
     const actor = actorOf(controller);
-    const response = await controller.documents(`/v1/documentos/${kind}/${row.id}`, { signal }) as { document: DocumentReadRecord };
+    const response = await controller.documents(`/v1/documentos/${kind}/${row.id}`, { signal }) as { document: DocumentRecord };
     if (actorOf(controller) !== actor) throw new SessionChanged();
     const document = response?.document;
     if (!document || document.id !== row.id || document.kind !== kind || !Number.isInteger(document.version)) throw new AccessError(502);
@@ -295,7 +292,7 @@ export default function DocumentList(props: DocumentListProps) {
     detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError(''); setActionNotice(''); setLabelReading(true);
     try {
       const records: DocumentRecord[] = [];
-      for (const row of rows) { const record = await readDocument(row, request.signal); if (isMirrorRecord(record)) throw new Error(DOCUMENT_MIRROR_READ_ONLY); records.push(record); if (request.signal.aborted || detail.current !== request) return; }
+      for (const row of rows) { const record = await readDocument(row, request.signal); records.push(record); if (request.signal.aborted || detail.current !== request) return; }
       const labels = purchaseLabelProducts(records);
       if (!labels.products.length) { setActionError('Os pedidos selecionados não têm produtos do cadastro para imprimir etiquetas.'); return; }
       setProductLabels(labels);
@@ -309,7 +306,7 @@ export default function DocumentList(props: DocumentListProps) {
     detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError(''); setActionNotice(''); setLabelReading(true);
     try {
       const records: DocumentRecord[] = [];
-      for (const row of rows) { const record = await readDocument(row, request.signal); if (isMirrorRecord(record)) throw new Error(DOCUMENT_MIRROR_READ_ONLY); records.push(record); if (request.signal.aborted || detail.current !== request) return; }
+      for (const row of rows) { const record = await readDocument(row, request.signal); records.push(record); if (request.signal.aborted || detail.current !== request) return; }
       setLabels(serviceLabels(records));
     } catch (failure) { if (!request.signal.aborted && !aborted(failure)) setActionError(readFailureText(failure)); }
     finally { if (detail.current === request) detail.current = null; setLabelReading(false); }
@@ -318,7 +315,7 @@ export default function DocumentList(props: DocumentListProps) {
     detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError(''); setActionNotice('');
     try { const document = await readDocument(row, request.signal); if (request.signal.aborted || detail.current !== request) return;
       // 202610200288: an OS with campos customizados asks first; when they cannot be read, it prints without them.
-      if (!isMirrorRecord(document) && kind === 'service_orders' && variant === 'normal' && hasCustomValues(document.custom_fields)) {
+      if (kind === 'service_orders' && variant === 'normal' && hasCustomValues(document.custom_fields)) {
         let fields: DocumentCustomField[] | null = null;
         try { fields = readDocumentCustomFields(await controller.documents(DOCUMENT_CUSTOM_FIELDS_PATH, { signal: request.signal })).items; } catch { if (request.signal.aborted) return; }
         if (request.signal.aborted || detail.current !== request) return;
@@ -333,7 +330,6 @@ export default function DocumentList(props: DocumentListProps) {
     detail.current?.abort(); const request = new AbortController(); detail.current = request; setActionError(''); setActionNotice('');
     try {
       const document = await readDocument(row, request.signal); if (request.signal.aborted || detail.current !== request) return;
-      if (isMirrorRecord(document)) { setActionError(DOCUMENT_MIRROR_READ_ONLY); return; }
       const url = whatsappUrl(document, kind === 'service_orders' ? props.preferences?.print.whatsappTemplate ?? null : null);
       if (!url) { setActionError(`O ${kind === 'purchase_orders' ? 'fornecedor' : 'cliente'} deste documento não tem celular ou telefone válido no cadastro.`); return; }
       openExternal(url); setActionNotice(`WhatsApp aberto com o resumo de ${rowLabel(kind, row)}. Confira a mensagem antes de enviar.`);
@@ -359,7 +355,7 @@ export default function DocumentList(props: DocumentListProps) {
       }
       if (appliedKey.current !== key) throw new ListReadError('Os filtros mudaram durante a leitura. Repita a operação.');
       // Imprimir listagem and the planilha follow "Exibir totais em listas" like the Informações panel.
-      const merged = mergeListPages(kind, pages), snapshot = totalsVisible ? merged : { ...merged, total_amount: null, origin_totals: undefined };
+      const merged = mergeListPages(kind, pages), snapshot = totalsVisible ? merged : { ...merged, total_amount: null };
       if (purpose === 'print') setListPrint({ snapshot, filters: summary });
       else { downloadText(override ? listFileName(kind, override.from.slice(0, 7)) : listFileName(kind, props.today), documentListCsv(snapshot)); setMonthExport(null); setActionNotice(`Planilha gerada com ${snapshot.total_count.toLocaleString('pt-BR')} ${snapshot.total_count === 1 ? 'registro' : 'registros'} do filtro aplicado.`); }
     } catch (failure) { if (!request.signal.aborted && !aborted(failure)) setActionError(failure instanceof ListReadError ? failure.message : failureText(failure)); }
@@ -369,7 +365,6 @@ export default function DocumentList(props: DocumentListProps) {
   // (no export route) keeps the CSV of the list.
   const exportMonth = async (range: { from: string; to: string }) => {
     if (listRead.current) return;
-    if (filters.origin !== 'brufap') { await readAll('export'); return; }
     const actor = actorOf(controller), request = new AbortController(); listRead.current = request; setListBusy('export'); setActionError(''); setActionNotice('');
     let fallback = false;
     try {
@@ -391,11 +386,10 @@ export default function DocumentList(props: DocumentListProps) {
     } catch (failure) { if (!request.signal.aborted && !aborted(failure)) setActionError(failure instanceof ListReadError ? failure.message : failureText(failure)); }
     finally {
       if (listRead.current === request) listRead.current = null; if (!request.signal.aborted) setListBusy(null);
-      if (fallback && !request.signal.aborted) void Promise.resolve().then(() => readAll('export', { ...EMPTY_LIST_FILTERS, origin: 'brufap', from: range.from, to: range.to }));
+      if (fallback && !request.signal.aborted) void Promise.resolve().then(() => readAll('export', { ...EMPTY_LIST_FILTERS, from: range.from, to: range.to }));
     }
   };
   const runAction = (row: DocumentListRow, action: RowAction) => {
-    if (isDocumentMirror(row) && !['edit', 'print', 'print_detailed'].includes(action.action)) { setActionError(DOCUMENT_MIRROR_READ_ONLY); return; }
     setMenu(null);
     if (!action.enabled) return;
     if (action.action === 'edit') { open(row.id, {}); return; }
@@ -438,7 +432,7 @@ export default function DocumentList(props: DocumentListProps) {
   });
 
   const openBatch = (type: 'batch-status' | 'batch-print', receipt = false) => {
-    if (!selectedRows.length || locked || type === 'batch-status' && selectedMirror || receipt && selectedMirror) return;
+    if (!selectedRows.length || locked) return;
     batchActor.current = actorOf(controller); printed.current = new Map(); setBatchTarget(''); setBatchReason(''); setBatchStarted(false); setActionError(''); setActionNotice('');
     // Origin "Padrão da ordem de impressão dos itens" (Preferências › Vendas) is the first choice of the dialog.
     if (type === 'batch-print') setPrintOptions({ detailed: false, order: props.preferences?.print.order ?? 'insertion', explode: false, hideThirdParty: false });
@@ -447,7 +441,7 @@ export default function DocumentList(props: DocumentListProps) {
   const exportAddresses = () => { if (!selectedRows.length) return; downloadText(addressesFileName(props.today), addressesCsv(kind, selectedRows)); setActionNotice(`Endereços de ${selectedRows.length} ${selectedRows.length === 1 ? 'pedido exportados' : 'pedidos exportados'}.`); };
   const sessionGuard = () => { if (lifetime.current.signal.aborted || actorOf(controller) !== batchActor.current) throw new Error('A sessão mudou. Este registro não foi processado.'); };
   const runStatusItem = async ({ row }: StatusBatchItem) => {
-    setBatchStarted(true); sessionGuard(); if (isDocumentMirror(row)) throw new Error(DOCUMENT_MIRROR_READ_ONLY);
+    setBatchStarted(true); sessionGuard();
     const description = batchReason.trim(), now = saoPauloNow();
     // With a "Descrição da ocorrência" the change goes through the occurrence (same transition, the text is the reason).
     const occurrence = occurrenceKind && description ? { expected_version: row.version, occurred_on: now.date, occurred_time: now.time, text: description, status: batchTarget } : null;
@@ -473,13 +467,12 @@ export default function DocumentList(props: DocumentListProps) {
   const closeBatch = (results: BatchResult[] | null) => {
     const current = dialog; setDialog(null); setBatchStarted(false);
     if (!results || !current) return;
-    if (current.type === 'batch-print') { const documents = current.rows.map(row => printed.current.get(row.id)).filter((value): value is DocumentReadRecord => Boolean(value)); printed.current = new Map(); if (documents.length) setPrintRecords({ records: documents, receipt: Boolean(current.receipt), options: printPrefs(current.receipt ? {} : { ...printOptions }) }); return; }
+    if (current.type === 'batch-print') { const documents = current.rows.map(row => printed.current.get(row.id)).filter((value): value is DocumentRecord => Boolean(value)); printed.current = new Map(); if (documents.length) setPrintRecords({ records: documents, receipt: Boolean(current.receipt), options: printPrefs(current.receipt ? {} : { ...printOptions }) }); return; }
     if (results.some(result => result.outcome === 'ok' || result.outcome === 'uncertain')) { setSelected(new Set()); props.onReload(); }
   };
 
   const total = page?.total_count ?? 0;
   const chips = [
-    ...(filters.origin && filters.origin !== 'all' ? [{ label: `Origem: ${filters.origin === 'origin' ? 'Origin' : 'FAGOO'}`, onRemove: () => apply({ ...filters, origin: undefined }) }] : []),
     ...(filters.statuses.length ? [{ label: `Situação: ${filters.statuses.map(status => statusLabel(kind, status, model)).join(', ')}`, onRemove: () => apply({ ...filters, statuses: [] }) }] : []),
     ...(filters.query ? [{ label: `Pesquisa: ${filters.query}`, onRemove: () => apply({ ...filters, query: '' }) }] : []),
     ...(filters.warehouse ? [{ label: `Depósito: ${filters.warehouse.name}`, onRemove: () => apply({ ...filters, warehouse: null }) }] : []),
@@ -495,7 +488,7 @@ export default function DocumentList(props: DocumentListProps) {
     ...(kind === 'purchase_orders' && selectedRows.length ? [{ label: `Selecionados: ${selectedRows.length} ${selectedRows.length === 1 ? 'cadastro' : 'cadastros'}`, onRemove: () => setSelected(new Set()) }] : []),
   ];
   // The server omits the sum for a user without the totals (Preferências "Exibir totais em listas"); the page read agrees with it.
-  const totalsVisible = (props.preferences?.totalsVisible ?? true) && (page?.total_amount !== null || Boolean(page?.origin_totals));
+  const totalsVisible = (props.preferences?.totalsVisible ?? true) && page?.total_amount !== null;
   const dateLabel = DATE_TYPES[kind].find(type => type.value === filters.dateType)?.label ?? DATE_TYPES[kind][0]!.label;
   const periodText = filters.from || filters.to ? `${dateLabel}: ${brDay(filters.from || null) || '…'} até ${brDay(filters.to || null) || '…'}` : `${dateLabel}: todo o período`;
   const clearSearch = () => { setDraft(previous => ({ ...previous, query: '' })); if (filters.query) apply({ ...filters, query: '' }); };
@@ -516,7 +509,6 @@ export default function DocumentList(props: DocumentListProps) {
 
   return <form onSubmit={submit} aria-label="Filtros dos documentos">
     <NativeListLayout filters={<>
-      <div className="form-field"><label htmlFor="documents-origin">Origem</label><select id="documents-origin" value={draft.origin ?? 'all'} onChange={event => setDraft(previous => ({ ...previous, origin: event.target.value === 'all' ? undefined : event.target.value as 'origin' | 'brufap' }))}><option value="all">Todas as origens</option><option value="origin">{originHistoryAvailable(controller.getSnapshot?.()?.membership) ? 'Origin · somente consulta' : 'Importado · somente consulta'}</option><option value="brufap">FAGOO</option></select></div>
       {kind === 'sales_proposals' ? <div className="form-field"><label htmlFor="documents-proposal-status">Situação</label><select id="documents-proposal-status" value={proposalStatusOption(draft) ?? 'mixed'} onChange={event => { const option = PROPOSAL_STATUS_OPTIONS.find(item => item.value === event.target.value); if (option) setDraft(previous => ({ ...previous, statuses: [...option.statuses], template: option.template })); }}>{PROPOSAL_STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}{proposalStatusOption(draft) === null && <option value="mixed" disabled>Várias situações</option>}</select>
         {listView && <label htmlFor="documents-status-default" className="documents-status-default"><input id="documents-status-default" type="checkbox" checked={makeDefault} disabled={locked} onChange={event => setMakeDefault(event.target.checked)} />Tornar padrão</label>}</div>
       : kind === 'purchase_orders' ? <div className="form-field"><label htmlFor="documents-status-single">Situação</label><select id="documents-status-single" value={draft.statuses.length === 1 ? draft.statuses[0] : draft.statuses.length ? 'mixed' : ''} onChange={event => { const value = event.target.value; setDraft(previous => ({ ...previous, statuses: value ? [value] : [] })); }}><option value="">Todas</option>{(model ? filterSituations(model, draft.statuses).map(item => item.key) : [...PURCHASE_STATUS_OPTIONS]).map(value => <option key={value} value={value}>{statusLabel(kind, value, model)}</option>)}{!model && draft.statuses.length === 1 && !(PURCHASE_STATUS_OPTIONS as readonly string[]).includes(draft.statuses[0]!) && <option value={draft.statuses[0]}>{statusLabel(kind, draft.statuses[0]!)}</option>}{draft.statuses.length > 1 && <option value="mixed" disabled>Várias situações</option>}</select></div> :
@@ -543,40 +535,39 @@ export default function DocumentList(props: DocumentListProps) {
       {LOT_FILTER[kind] && <div className="form-field"><label htmlFor="documents-filter-lots">Lote</label><input id="documents-filter-lots" maxLength={4000} placeholder="até 50 lotes separados por ;" value={draft.lots ?? ''} onChange={event => { const value = event.target.value; setDraft(previous => ({ ...previous, lots: value })); }} /></div>}
       <DocumentListSearch controller={controller} kind={kind} rows={draft.search ?? []} disabled={loading} onFields={fields => { searchFieldsRef.current = fields; }} onChange={rows => setDraft(previous => ({ ...previous, search: rows }))} />
       <button type="submit" className="primary-button" disabled={loading || !access?.read.includes(kind)}>Filtrar</button>
-      {kind === 'purchase_orders' && <button type="button" className="secondary-button" disabled={loading || !access?.read.includes(kind)} onClick={() => { const next = { ...(access?.mirror_available && draft.origin !== 'brufap' ? EMPTY_LIST_FILTERS : defaultListFilters(kind, props.today)), origin: draft.origin }; setDraft(next); setProductQuery(''); apply(next); }}>Limpar filtros</button>}
+      {kind === 'purchase_orders' && <button type="button" className="secondary-button" disabled={loading || !access?.read.includes(kind)} onClick={() => { const next = defaultListFilters(kind, props.today); setDraft(next); setProductQuery(''); apply(next); }}>Limpar filtros</button>}
     </>} actions={<>
-      {selectedMirror && <p className="real-notice" role="note">A seleção contém documentos do Origin. {DOCUMENT_MIRROR_READ_ONLY}</p>}
       <div className="documents-panel-actions">
-        <button type="button" className="origin-action" disabled={selectedMirror || !writable || !selectedRows.length || locked} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : writable ? batchTitle('Altera a situação de cada documento selecionado, um por vez') : 'Seu perfil permite apenas consultar.'} onClick={() => openBatch('batch-status')}><Icon name="circle-half-stroke" size={15} /><span>{PANEL[kind].status}</span></button>
+        <button type="button" className="origin-action" disabled={!writable || !selectedRows.length || locked} title={writable ? batchTitle('Altera a situação de cada documento selecionado, um por vez') : 'Seu perfil permite apenas consultar.'} onClick={() => openBatch('batch-status')}><Icon name="circle-half-stroke" size={15} /><span>{PANEL[kind].status}</span></button>
         <button type="button" className="origin-action" disabled={!selectedRows.length || locked} title={batchTitle('Imprime a versão salva de cada documento selecionado')} onClick={() => openBatch('batch-print')}><Icon name={kind === 'service_orders' ? 'file-lines' : 'square-check'} size={15} /><span>{PANEL[kind].print}</span></button>
-        {PANEL[kind].nfe && !seller && blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={selectedMirror || !ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : !ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma nota de homologação de cada pedido selecionado, como Gerar nota fiscal do menu ⋮')} onClick={() => setFiscalBatch('55')}><Icon name="file-invoice-dollar" size={15} /><span>{PANEL[kind].nfe}</span></button>}
-        {kind === 'purchase_orders' && (Object.keys(PURCHASE_EFFECT_LABELS) as PurchaseEffectAction[]).map(action => <button key={action} type="button" className="origin-action" disabled={selectedMirror || !PURCHASE_EFFECT_ROLES[action].includes(role) || !selectedRows.length || locked}
-          title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : !PURCHASE_EFFECT_ROLES[action].includes(role) ? (action.startsWith('stock') ? 'O estoque é lançado pelo administrador e pelo estoque.' : 'As contas são lançadas pelo administrador e pelo financeiro.') : batchTitle(`${PURCHASE_EFFECT_LABELS[action]} de cada pedido selecionado, um por vez`)}
+        {PANEL[kind].nfe && !seller && blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={!ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={!ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma nota de homologação de cada pedido selecionado, como Gerar nota fiscal do menu ⋮')} onClick={() => setFiscalBatch('55')}><Icon name="file-invoice-dollar" size={15} /><span>{PANEL[kind].nfe}</span></button>}
+        {kind === 'purchase_orders' && (Object.keys(PURCHASE_EFFECT_LABELS) as PurchaseEffectAction[]).map(action => <button key={action} type="button" className="origin-action" disabled={!PURCHASE_EFFECT_ROLES[action].includes(role) || !selectedRows.length || locked}
+          title={!PURCHASE_EFFECT_ROLES[action].includes(role) ? (action.startsWith('stock') ? 'O estoque é lançado pelo administrador e pelo estoque.' : 'As contas são lançadas pelo administrador e pelo financeiro.') : batchTitle(`${PURCHASE_EFFECT_LABELS[action]} de cada pedido selecionado, um por vez`)}
           onClick={() => { setActionError(''); setPurchaseBatch(action); }}><Icon name={action.startsWith('stock') ? 'boxes-stacked' : 'file-invoice-dollar'} size={15} /><span>{PURCHASE_EFFECT_LABELS[action]}</span></button>)}
-        {kind === 'purchase_orders' && <button type="button" className="origin-action" disabled={loading || !page || Boolean(listBusy) || selectedRows.length > 0} title={selectedRows.length ? 'Disponível sem seleção.' : filters.origin === 'brufap' ? 'Exporta os pedidos FAGOO de um mês, com os itens, para XLSX.' : 'Exporta a lista filtrada em CSV com origem, sincronização e valores observados.'} onClick={() => { if (filters.origin !== 'brufap') { void readAll('export'); return; } const [year, month] = props.today.split('-'); setActionError(''); setMonthExport({ month: month!, year: year! }); }}><Icon name="file-excel" size={15} /><span>{filters.origin === 'brufap' ? 'Exportar para a planilha' : 'Exportar lista (CSV)'}</span></button>}
+        {kind === 'purchase_orders' && <button type="button" className="origin-action" disabled={loading || !page || Boolean(listBusy) || selectedRows.length > 0} title={selectedRows.length ? 'Disponível sem seleção.' : 'Exporta os pedidos FAGOO de um mês, com os itens, para XLSX.'} onClick={() => { const [year, month] = props.today.split('-'); setActionError(''); setMonthExport({ month: month!, year: year! }); }}><Icon name="file-excel" size={15} /><span>Exportar para a planilha</span></button>}
         {kind === 'sales_proposals' && writable && <div className="form-field documents-template-start"><label htmlFor="documents-template-start">Selecione o modelo</label><select id="documents-template-start" value="" disabled={locked || !models.length} onChange={event => { const model = event.target.value; if (model) guard.confirmLeave(() => props.onClone({ id: model })); }}><option value="">{models.length ? 'Selecione o modelo' : 'Nenhum modelo cadastrado'}</option>{models.map(model => <option key={model.id} value={model.id}>{model.template_name || 'Modelo ' + model.number}</option>)}</select></div>}
         {kind === 'sales_proposals' && <button type="button" className="origin-action" disabled={listToolDisabled} title={listToolTitle('Exporta todas as propostas do filtro aplicado para uma planilha (CSV)')} onClick={() => void readAll('export')}><Icon name="file-excel" size={15} /><span>{LIST_EXPORT_LABEL.sales_proposals}</span></button>}
       </div>
       {kind === 'sales_orders' && <div className="documents-more"><h3>Mais ações</h3>
-        <h4>Gerar</h4><button type="button" className="origin-action" disabled={selectedMirror || !selectedRows.length || locked} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : batchTitle('Comprovante não fiscal da versão salva de cada pedido selecionado')} onClick={() => openBatch('batch-print', true)}><Icon name="receipt" size={15} /><span>Comprovantes selecionados</span></button>
-        {blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={selectedMirror || !ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : !ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma NFC-e de homologação de cada pedido selecionado')} onClick={() => setFiscalBatch('65')}><Icon name="receipt" size={15} /><span>NFC-es selecionadas</span></button>}
+        <h4>Gerar</h4><button type="button" className="origin-action" disabled={!selectedRows.length || locked} title={batchTitle('Comprovante não fiscal da versão salva de cada pedido selecionado')} onClick={() => openBatch('batch-print', true)}><Icon name="receipt" size={15} /><span>Comprovantes selecionados</span></button>
+        {blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={!ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={!ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma NFC-e de homologação de cada pedido selecionado')} onClick={() => setFiscalBatch('65')}><Icon name="receipt" size={15} /><span>NFC-es selecionadas</span></button>}
         <h4>Exportar</h4><button type="button" className="origin-action" disabled={listToolDisabled} title={listToolTitle('Exporta todos os pedidos do filtro aplicado para uma planilha (CSV)')} onClick={() => void readAll('export')}><Icon name="file-excel" size={15} /><span>{LIST_EXPORT_LABEL.sales_orders}</span></button>
         <button type="button" className="origin-action" disabled={!selectedRows.length} title={selectedRows.length ? 'Exporta nome e endereço (de entrega ou do contato) dos pedidos selecionados (CSV)' : 'Selecione os pedidos na listagem.'} onClick={exportAddresses}><Icon name="file-export" size={15} /><span>Endereços selecionados</span></button>
-        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={selectedMirror || !selectedRows.length} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : selectedRows.length ? 'Etiquetas de endereçamento A4 dos pedidos selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => setLabels(addressLabels(kind, selectedRows))}><Icon name="tag" size={15} /><span>Etiquetas selecionadas</span></button>
+        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length} title={selectedRows.length ? 'Etiquetas de endereçamento A4 dos pedidos selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => setLabels(addressLabels(kind, selectedRows))}><Icon name="tag" size={15} /><span>Etiquetas selecionadas</span></button>
         <h4>Importar</h4><button type="button" className="origin-action" disabled={!xmlAllowed || locked} title={xmlAllowed ? 'Monta um pedido a partir do XML de uma NF-e autorizada, para conferir e salvar' : 'Seu perfil permite apenas consultar.'} onClick={() => setXmlOpen(true)}><Icon name="file-import" size={15} /><span>Pedido XML</span></button>
         {/* Financeiro > Faturamento agrupado (SQL 174): the pedidos selecionados, grouped by cliente. */}
-        <h4>Outras</h4><button type="button" className="origin-action" disabled={selectedMirror || !['admin', 'financeiro'].includes(role ?? '') || !selectedRows.length || selectedRows.length > 200 || !props.onNavigate} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : !['admin', 'financeiro'].includes(role ?? '') ? 'O faturamento agrupado é feito pelo Financeiro.' : selectedRows.length > 200 ? 'Selecione até 200 pedidos.' : selectedRows.length ? 'Agrupa os pedidos selecionados por cliente no Faturamento agrupado' : 'Selecione os pedidos na listagem.'}
+        <h4>Outras</h4><button type="button" className="origin-action" disabled={!['admin', 'financeiro'].includes(role ?? '') || !selectedRows.length || selectedRows.length > 200 || !props.onNavigate} title={!['admin', 'financeiro'].includes(role ?? '') ? 'O faturamento agrupado é feito pelo Financeiro.' : selectedRows.length > 200 ? 'Selecione até 200 pedidos.' : selectedRows.length ? 'Agrupa os pedidos selecionados por cliente no Faturamento agrupado' : 'Selecione os pedidos na listagem.'}
           onClick={() => guard.confirmLeave(() => props.onNavigate('/financeiro-empresa?' + new URLSearchParams({ area: 'faturamento-agrupado', pedidos: selectedRows.map(row => row.id).join(',') })))}><Icon name="file-invoice-dollar" size={15} /><span>Faturar pedidos selecionados</span></button></div>}
       {kind === 'service_orders' && <div className="documents-more"><h3>Mais ações</h3>
-        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={selectedMirror || !selectedRows.length || labelReading} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : selectedRows.length ? 'Etiquetas de identificação das ordens de serviço selecionadas' : 'Selecione as ordens de serviço na listagem.'} onClick={() => void printServiceLabels(selectedRows)}><Icon name="tag" size={15} /><span>{labelReading ? 'Lendo as ordens…' : 'Etiquetas selecionadas'}</span></button>
+        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas de identificação das ordens de serviço selecionadas' : 'Selecione as ordens de serviço na listagem.'} onClick={() => void printServiceLabels(selectedRows)}><Icon name="tag" size={15} /><span>{labelReading ? 'Lendo as ordens…' : 'Etiquetas selecionadas'}</span></button>
         {/* Notas lane: Origin "Gerar nota fiscal agrupando", one NF-e with the parts of several OS of the same cliente (homologação). */}
-        {(() => { const reason = selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : groupedInvoiceReason(role, selectedNativeRows);
+        {(() => { const reason = groupedInvoiceReason(role, selectedNativeRows);
           return <><h4>Gerar</h4><button type="button" className="origin-action" disabled={Boolean(reason) || locked} title={reason ?? 'Abre em nova aba uma nota com as peças das ordens de serviço selecionadas, para conferir e salvar'}
             onClick={() => window.open(`/historico-fiscal?${new URLSearchParams({ modelo: '55', origem: 'brufap', nota: 'nova', pedido: selectedRows.map(r => r.id).join(',') })}`, '_blank', 'noopener')}><Icon name="file-invoice-dollar" size={15} /><span>Gerar nota fiscal agrupando</span></button></>; })()}</div>}
       {kind === 'purchase_orders' && <div className="documents-more"><h3>Mais ações</h3>
-        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={selectedMirror || !selectedRows.length || labelReading} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : selectedRows.length ? 'Etiquetas dos produtos dos pedidos de compra selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => void printProductLabels(selectedRows)}><Icon name="note-sticky" size={15} /><span>{labelReading ? 'Lendo os pedidos…' : 'Imprimir etiquetas'}</span></button></div>}
-      {kind === 'purchase_orders' && selectedRows.length > 0 ? <div className="native-list-summary"><h3>Informações</h3>{selectedMirror ? <DocumentOriginTotals totals={documentSelectionTotals(selectedRows)} /> : <dl className="native-list-stat"><dt>Valor</dt><dd>{decimalMoney(selectedTotal(selectedRows))}</dd></dl>}<dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedRows.length.toLocaleString('pt-BR')}</dd></dl><p className="real-help">Informações baseadas nos registros selecionados.</p></div>
-        : <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>{listCountLabel(kind)}</dt><dd>{page ? page.total_count.toLocaleString('pt-BR') : '—'}</dd></dl>{totalsVisible && (page?.origin_totals ? <DocumentOriginTotals totals={page.origin_totals} /> : <dl className="native-list-stat"><dt>Valor total</dt><dd>{decimalMoney(page?.total_amount ?? null)}</dd></dl>)}<p className="real-help">Informações baseadas nos filtros aplicados.</p></div>}
+        <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas dos produtos dos pedidos de compra selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => void printProductLabels(selectedRows)}><Icon name="note-sticky" size={15} /><span>{labelReading ? 'Lendo os pedidos…' : 'Imprimir etiquetas'}</span></button></div>}
+      {kind === 'purchase_orders' && selectedRows.length > 0 ? <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Valor</dt><dd>{decimalMoney(selectedTotal(selectedRows))}</dd></dl><dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedRows.length.toLocaleString('pt-BR')}</dd></dl><p className="real-help">Informações baseadas nos registros selecionados.</p></div>
+        : <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>{listCountLabel(kind)}</dt><dd>{page ? page.total_count.toLocaleString('pt-BR') : '—'}</dd></dl>{totalsVisible && <dl className="native-list-stat"><dt>Valor total</dt><dd>{decimalMoney(page?.total_amount ?? null)}</dd></dl>}<p className="real-help">Informações baseadas nos filtros aplicados.</p></div>}
       <p className="real-help">{model ? 'Salvar não lança estoque, contas ou nota fiscal. Mudar a situação só lança ou estorna estoque e contas quando a transição tiver essas ações no Gerenciador de transições.' : 'Salvar ou mudar a situação não lança estoque, financeiro ou nota fiscal automaticamente.'}</p>
       {(() => { // Origin "Ferramentas de apoio": the Preferências page of this kind (when the profile reads it) and its reports.
         const prefs = preferencePage(DOCUMENT_PREFERENCE_PAGES[kind]), canPrefs = Boolean(prefs && role && (prefs.readRoles as readonly string[]).includes(role)), reportsAt = (kind === 'sales_orders' || kind === 'service_orders') && props.onNavigate;
@@ -586,12 +577,12 @@ export default function DocumentList(props: DocumentListProps) {
           {canPrefs && <button type="button" className="text-button" onClick={() => guard.confirmLeave(() => props.onNavigate(preferencePageHref(prefs!)))}>{'Acesse os parâmetros de ' + noun}</button>}</div>;
       })()}
     </>}>
-      <p className="real-help">{originHistoryAvailable(controller.getSnapshot?.()?.membership) ? 'Origem Origin: consulta dos valores e situações observados. Origem FAGOO: documentos nativos.' : 'Documentos registrados no FAGOO. Registros importados preservam sua identificação de origem.'}</p>
+      <p className="real-help">Documentos registrados no FAGOO. Registros importados preservam sua identificação de origem.</p>
       <div className="native-list-type"><label htmlFor="documents-kind">Documento</label><select id="documents-kind" value={kind} disabled={!access?.read.length} onChange={event => { const value = event.target.value as DocumentKind; guard.confirmLeave(() => props.onKind(value)); }}>{access?.read.map(value => <option value={value} key={value}>{DOCUMENT_LABELS[value]}</option>)}</select></div>
       <div className="native-list-toolbar documents-toolbar"><div className="form-field"><label htmlFor="documents-search">Pesquisar documentos</label><input id="documents-search" type="search" maxLength={120} value={draft.query} placeholder={SEARCH_HINTS[kind]} onChange={event => { const value = event.target.value; setDraft(previous => ({ ...previous, query: value })); }} />{draft.query && <button type="button" className="documents-search-clear" title="Limpar o campo" aria-label="Limpar o campo" disabled={loading} onClick={clearSearch}><Icon name="xmark" size={11} /></button>}</div><button type="submit" className="secondary-button" aria-label="Pesquisar documentos" title="Pesquisar" disabled={loading || !access?.read.includes(kind)}><Icon name="search" size={16} /></button>
         <PeriodPicker key={`${kind}:${filters.dateType}`} from={filters.from} to={filters.to} today={props.today} dateType={dateLabel} dateTypes={DATE_TYPES[kind].map(type => type.label)} prefixLabel={PERIOD_PREFIX[kind] || filters.dateType !== 'date'} iconOnly={kind === 'service_orders'} onApply={range => apply({ ...filters, from: range.from, to: range.to, dateType: DATE_TYPES[kind].find(type => type.label === range.dateType)?.value ?? 'date' })} />
         {LIST_PRINT_LABEL[kind] && <span className="origin-toolbar-tools"><ToolButton icon="print" title={listBusy === 'print' ? 'Lendo a listagem…' : LIST_PRINT_LABEL[kind]!} disabled={listToolDisabled} onClick={() => void readAll('print')} /></span>}
-        <span className="origin-toolbar-tools"><ToolButton icon={inTrash ? 'rotate-left' : 'trash-can'} title={selectedMirror ? DOCUMENT_MIRROR_READ_ONLY : inTrash ? 'Restaurar selecionados' : 'Excluir selecionados (vão para a lixeira)'} disabled={selectedMirror || !selectedRows.length || busy} onClick={() => setTrashAction(inTrash ? 'restore' : 'delete')} />
+        <span className="origin-toolbar-tools"><ToolButton icon={inTrash ? 'rotate-left' : 'trash-can'} title={inTrash ? 'Restaurar selecionados' : 'Excluir selecionados (vão para a lixeira)'} disabled={!selectedRows.length || busy} onClick={() => setTrashAction(inTrash ? 'restore' : 'delete')} />
           <ToolButton icon={inTrash ? "list" : "trash-alt"} title={inTrash ? 'Sair da lixeira' : 'Excluídos (lixeira)'} disabled={busy} onClick={() => { setSelected(new Set()); apply(inTrash ? EMPTY_LIST_FILTERS : { ...EMPTY_LIST_FILTERS, statuses: [TRASH_STATUS] }); }} /></span></div>
       <AppliedChips chips={chips} onClear={() => apply({ ...EMPTY_LIST_FILTERS, from: filters.from, to: filters.to, dateType: filters.dateType })} />
       {listBusy && <p className="real-help" role="status">{listBusy === 'print' ? 'Lendo todas as páginas da listagem para impressão…' : 'Lendo todas as páginas da listagem para a planilha…'}</p>}
@@ -607,13 +598,13 @@ export default function DocumentList(props: DocumentListProps) {
         {kind === 'sales_proposals' && <th>Próx. Contato</th>}{kind === 'service_orders' && <th>Data prevista</th>}<th>{contactHeader}</th>{kind === 'purchase_orders' && <th className="documents-note">Observação interna</th>}<th className="numeric">{TOTAL_HEADERS[kind]}</th></>}<th>Situação</th>{kind === 'purchase_orders' && blockEnabled('erp-fiscal') && <th>Vinculação</th>}<th><span className="sr-only">Indicadores</span></th><th className="row-actions"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={`documents-row${selected.has(row.id) ? ' selected' : ''}`} onClick={event => open(row.id, event)} onAuxClick={event => { if (event.button === 1) open(row.id, event); }}>
           <td className="checkbox-cell" onClick={event => event.stopPropagation?.()}><input type="checkbox" aria-label={`Selecionar ${rowLabel(kind, row)}`} checked={selected.has(row.id)} onClick={event => toggleRow(row.id, Boolean(event.shiftKey))} onChange={() => undefined} /></td>
-          <td><button type="button" className="text-button" onClick={event => { event.stopPropagation?.(); open(row.id, event); }}>{row.version_label ?? row.number ?? 'Não informado'}</button><small className="documents-origin">{documentOriginLabel(row)}{isDocumentMirror(row) ? ' · Somente consulta' : ''}</small>{isDocumentMirror(row) && <small className="documents-origin" title={DOCUMENT_MIRROR_READ_ONLY}>ID {row.mirror?.source_id} · Observado em {documentObservedAt(row.mirror?.observed_at)}</small>}</td>
-          {custom ? customColumns.map(column => <td key={column} className={column === 'total' ? 'numeric' : column === 'address' ? 'documents-note' : undefined} title={column === 'address' ? row.address ?? undefined : undefined}>{column === 'total' ? isDocumentMirror(row) ? mirrorDecimal(row.total, true) : decimalMoney(row.total) : <>{columnText(column, row)}{column === 'date' && row.expected_date && <small className="documents-expected"> (prevista até: {brDay(row.expected_date)})</small>}</>}</td>) : <>
+          <td><button type="button" className="text-button" onClick={event => { event.stopPropagation?.(); open(row.id, event); }}>{row.version_label ?? row.number ?? 'Não informado'}</button></td>
+          {custom ? customColumns.map(column => <td key={column} className={column === 'total' ? 'numeric' : column === 'address' ? 'documents-note' : undefined} title={column === 'address' ? row.address ?? undefined : undefined}>{column === 'total' ? decimalMoney(row.total) : <>{columnText(column, row)}{column === 'date' && row.expected_date && <small className="documents-expected"> (prevista até: {brDay(row.expected_date)})</small>}</>}</td>) : <>
           <td>{brDay(row.date) || 'Não informada'}{kind === 'sales_orders' && row.expected_date && <small className="documents-expected"> (prevista até: {brDay(row.expected_date)})</small>}</td>
           {kind === 'sales_proposals' && <td>{brDay(row.next_contact)}</td>}{kind === 'service_orders' && <td>{brDay(row.expected_date)}</td>}
           <td>{row.contact_name ?? 'Não informado'}</td>{kind === 'purchase_orders' && <td className="documents-note" title={row.internal_notes ?? undefined}>{row.internal_notes ?? ''}</td>}
-          <td className="numeric">{isDocumentMirror(row) ? mirrorDecimal(row.total, true) : decimalMoney(row.total)}</td></>}
-          <td><button type="button" className="documents-occurrence-clock" disabled={isDocumentMirror(row)} title={isDocumentMirror(row) ? DOCUMENT_MIRROR_READ_ONLY : "Visualizar ocorrências"} aria-label={`Visualizar ocorrências de ${rowLabel(kind, row)}`} onClick={event => { event.stopPropagation?.(); setActionError(''); setDialog({ type: 'occurrences', row }); }}><Icon name="clock" size={12} /></button><>{isDocumentMirror(row) ? <span className="status-badge">{row.mirror?.source_status_label ?? row.mirror?.source_status ?? 'Não informada'}</span> : <DocumentStatusBadge kind={kind} status={row.status} situation={row.situation ?? null} />}</>{row.template && <span className="origin-tag documents-template">Modelo</span>}</td>
+          <td className="numeric">{decimalMoney(row.total)}</td></>}
+          <td><button type="button" className="documents-occurrence-clock" title="Visualizar ocorrências" aria-label={`Visualizar ocorrências de ${rowLabel(kind, row)}`} onClick={event => { event.stopPropagation?.(); setActionError(''); setDialog({ type: 'occurrences', row }); }}><Icon name="clock" size={12} /></button><DocumentStatusBadge kind={kind} status={row.status} situation={row.situation ?? null} />{row.template && <span className="origin-tag documents-template">Modelo</span>}</td>
           {kind === 'purchase_orders' && blockEnabled('erp-fiscal') && <td>{linkStates[row.id] && <span className={`status-badge ${LINK_STATE_BADGES[linkStates[row.id]!].tone}`} title={LINK_STATE_BADGES[linkStates[row.id]!].title}>{LINK_STATE_BADGES[linkStates[row.id]!].label}</span>}</td>}
           <td><span className="origin-indicators">{listIndicators(row).filter(item => kind !== 'purchase_orders' || item.key !== 'OBS').map(item => item.badge ? <span key={item.key} className={`origin-tag ${item.className ?? ''}`} title={item.title}>{item.badge}</span> : item.letter ? <IndicatorLetter key={item.key} text={item.letter.text} color={item.letter.color} title={item.title} /> : <span key={item.key} className={item.className} title={item.title} role="img" aria-label={item.key === 'OBS' ? `Observação interna: ${item.title}` : item.title}><Icon name={item.icon!} size={13} /></span>)}</span></td>
           <td className="row-actions" onClick={event => event.stopPropagation?.()}><RowMenu label={rowLabel(kind, row)} items={menuItems(row)} open={menu === row.id} onToggle={() => setMenu(value => value === row.id ? null : row.id)} /></td>
@@ -640,8 +631,8 @@ export default function DocumentList(props: DocumentListProps) {
       <p className="real-help">{dialogNote(dialog.row, dialog.target)}</p>
       {actionError && <p className="real-alert" role="alert">{actionError}</p>}
     </Modal>}
-    {dialog?.type === 'occurrences' && occurrenceKind && <DocumentOccurrences key={dialog.row.id} controller={controller} kind={occurrenceKind} documentId={dialog.row.id} writable={writable && !isDocumentMirror(dialog.row)} label={rowLabel(kind, dialog.row)}
-      targets={key => writable && !isDocumentMirror(dialog.row) ? permittedTargets(kind, key, runnableTargets(model, kind, key, statusTargets(kind, rowAt(model, kind, dialog.row, key), model), role), access?.permissions) : []} reasonNeeded={(from, to) => reasonRequired(kind, from, to, model)} onClose={changed => { setDialog(null); if (changed) props.onReload(); }}
+    {dialog?.type === 'occurrences' && occurrenceKind && <DocumentOccurrences key={dialog.row.id} controller={controller} kind={occurrenceKind} documentId={dialog.row.id} writable={writable} label={rowLabel(kind, dialog.row)}
+      targets={key => writable ? permittedTargets(kind, key, runnableTargets(model, kind, key, statusTargets(kind, rowAt(model, kind, dialog.row, key), model), role), access?.permissions) : []} reasonNeeded={(from, to) => reasonRequired(kind, from, to, model)} onClose={changed => { setDialog(null); if (changed) props.onReload(); }}
       situationLabel={key => statusLabel(kind, key, model)} transitionNote={(from, to) => model ? transitionNote(transitionActions(model, kind, from, to)) : null} />}
     {dialog?.type === 'sales-service' && <Modal title="Conferir criação da ordem de serviço" onClose={() => { if (!busy) setDialog(null); }} actions={<><button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog(null)}>Voltar à listagem</button>{uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void execute()}>{busy ? 'Conferindo…' : 'Conferir resultado'}</button> : <button type="button" className="primary-button" disabled={locked} onClick={() => salesToService(dialog.row)}>Confirmar criação da OS</button>}</>}>
       <p>{rowLabel(kind, dialog.row)} · versão {dialog.row.version} · Total {decimalMoney(dialog.row.total)}</p>
@@ -671,7 +662,7 @@ export default function DocumentList(props: DocumentListProps) {
         <label className="document-check" htmlFor="documents-print-explode" title="Lista os componentes da estrutura (Estoque › composições) sob cada produto com composição."><input id="documents-print-explode" type="checkbox" checked={printOptions.explode} onChange={event => { const explode = event.target.checked; setPrintOptions(previous => ({ ...previous, explode })); }} />Desmembrar produtos da estrutura</label>
         <label className="document-check" htmlFor="documents-print-third" title="Não imprime os itens cujo produto tem Produção: Terceiros no cadastro (os totais do pedido continuam os mesmos)."><input id="documents-print-third" type="checkbox" checked={printOptions.hideThirdParty} onChange={event => { const hideThirdParty = event.target.checked; setPrintOptions(previous => ({ ...previous, hideThirdParty })); }} />Ocultar itens produzidos por terceiros</label></fieldset>}
       <p className="real-help">Lê a versão salva de cada documento selecionado. A prévia abre ao fechar este resumo.</p></>} />}
-    {printRecord && (isMirrorRecord(printRecord.record) ? <DocumentMirrorPrint records={[printRecord.record]} onClose={() => setPrintRecord(null)} /> : <DocumentPrintPreview record={printRecord.record} variant={printRecord.variant} options={printRecord.options} controller={controller} onClose={() => setPrintRecord(null)} />)}
+    {printRecord && <DocumentPrintPreview record={printRecord.record} variant={printRecord.variant} options={printRecord.options} controller={controller} onClose={() => setPrintRecord(null)} />}
     {printQuestion && <CustomFieldsPrintQuestion onCancel={() => setPrintQuestion(null)} onPrint={include => { const asked = printQuestion; setPrintQuestion(null);
       setPrintRecord({ record: asked.record, variant: asked.variant, options: include ? { ...asked.options, customFields: asked.fields } : asked.options }); }} />}
     {printRecords && <DocumentBatchPrint records={printRecords.records} receipt={printRecords.receipt} options={printRecords.options} controller={controller} onClose={() => setPrintRecords(null)} />}

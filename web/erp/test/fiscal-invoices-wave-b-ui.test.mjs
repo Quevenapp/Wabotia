@@ -37,6 +37,8 @@ function recordOf(input, over = {}) {
 const envelope = (record, extra = {}) => ({ invoice: record, writable: true, emission_enabled: false, production_enabled: false, operational_effects: false, data_mode: 'erp_native', ...extra });
 const originRow = (n, over = {}) => ({ origin: 'origin', id: String(9000 + n), version: null, number: 120 + n, series: 3, issue_date: '2026-10-15', entry_date: '2026-10-16', name: `Cliente Origin ${n}`, document: '12345678000190', state: 'MG',
   nature: 'Venda de mercadoria', status: 6, status_raw: '5', total: '100.10', total_known: true, environment: '1', issue_type: null, access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [], ...over });
+// Wabotia: Origin fora (motor 91213b8): a lista pede sempre origin=brufap e recebe registros do FAGOO.
+const nativeListRow = (n, over = {}) => originRow(n, { origin: 'brufap', id: id(9000 + n), version: 1, status_raw: null, environment: '2', issue_type: 'N', ...over });
 
 function server({ role = 'admin', preferences = {}, natureRules, listPrefs = null, showTotals = true, post } = {}) {
   const calls = []; const snapshot = { phase: 'ready', membership: { user_id: admin, role } };
@@ -46,8 +48,8 @@ function server({ role = 'admin', preferences = {}, natureRules, listPrefs = nul
     async fiscalInvoices(path, options = {}) {
       const call = { path, method: options.method ?? 'GET', body: options.body ? structuredClone(options.body) : undefined }; calls.push(call);
       if (call.method !== 'GET') return post(call, calls);
-      if (path.startsWith('/v1/notas-fiscais?')) { const q = new URLSearchParams(path.split('?')[1]); return { items: [originRow(1), originRow(2)], origin: 'origin', model: q.get('model'), direction: q.get('direction') ?? '1', page: Number(q.get('page')),
-        limit: 100, order: q.get('order') ?? 'date_desc', has_more: false, total_count: 2, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: showTotals, data_mode: 'origin_mirror_readonly' }; }
+      if (path.startsWith('/v1/notas-fiscais?')) { const q = new URLSearchParams(path.split('?')[1]); return { items: [nativeListRow(1), nativeListRow(2)], origin: 'brufap', model: q.get('model'), direction: q.get('direction') ?? '1', page: Number(q.get('page')),
+        limit: 100, order: q.get('order') ?? 'date_desc', has_more: false, total_count: 2, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: showTotals, data_mode: 'erp_native_homologation' }; }
       if (path.startsWith('/v1/notas-fiscais/contexto')) return { company: { crt: '1', regime_confirmed: true, state: 'SP', cnpj_present: true }, series: [{ series: 2, next_number: 42195, enabled: true }],
         defaults: { S: { id: NATURE, description: 'Venda sintética' } }, preferences: structuredClone(prefs), writable: true, emission_enabled: false, production_enabled: false, data_mode: 'erp_native' };
       if (path.startsWith('/v1/notas-fiscais/naturezas?')) return { items: [summary(nature(natureRules))], page: 1, limit: 100, total_count: 1, writable: true, review: { confirmed: false, version: 0, confirmed_at: null }, data_mode: 'erp_native' };
@@ -178,7 +180,7 @@ test('lists: "Exibir totais" hides the totals, "Listagem customizada" orders the
   } finally { view.unmount(); }
   const custom = server({ listPrefs: { columns: ['document', 'nature', 'order_numbers', 'exit_date'], filters: { status: 'cancelled', f_nature: 'Venda' } } }), list = await mountList(custom);
   try {
-    assert.deepEqual(custom.lists(), ['/v1/notas-fiscais?model=55&page=1', '/v1/notas-fiscais?model=55&page=1&status=cancelled&nature=Venda'], 'saved filters apply once, after the first load');
+    assert.deepEqual(custom.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1', '/v1/notas-fiscais?model=55&origin=brufap&page=1&status=cancelled&nature=Venda'], 'saved filters apply once, after the first load');
     assert.deepEqual(headers(list), ['Seleção', 'Número', 'CPF/CNPJ', 'Natureza de operação', 'Número da venda', 'Data de saída', 'Situação', 'Marcadores', 'Ações']);
     assert.ok(list.text().includes('12.345.678/0001-90')); assert.ok(list.text().includes('16/10/2026'));
     assert.deepEqual(component(list, 'AppliedChips').props.chips.map(c => c.label), ['Situação: Canceladas', 'Natureza: Venda']);
@@ -252,7 +254,7 @@ function linkServer({ fail = 0, locks } = {}) {
 
 test('Vincular à pedido de compra: one FAGOO note, item a item with the summary, and the same command after an unknown outcome', async () => {
   const srv = linkServer({ fail: 1 });
-  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'entrada' }, { location: '/notas-entrada?origem=brufap', expandChildren: ['NativeListLayout', 'FiscalOrderLinkDialog'] });
+  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'entrada' }, { location: '/notas-entrada', expandChildren: ['NativeListLayout', 'FiscalOrderLinkDialog'] });
   try {
     assert.deepEqual(headers(view).slice(-4), ['Valor (R$)', 'Marcadores', 'Vinculação', 'Ações'], 'Origin: the Vinculação badge comes after the Marcadores');
     assert.equal(button(view, 'Vincular à pedido de compra').disabled, true, 'select one note first');
@@ -367,7 +369,7 @@ test('an imported note opens read-only with "Conciliar produtos" and its XML is 
     if (path === `/v1/notas-fiscais/${id(1)}/xml`) { list.calls.push({ path, method: 'GET' }); return { invoice_id: id(1), access_key: '35261012345678000195550010000000771123456780', sha256: '0'.repeat(64), size: SAMPLE_XML.length, signed: true, protocol_status: '100', imported_at: '2026-10-20T12:00:00Z', xml: SAMPLE_XML, data_mode: 'erp_native' }; }
     return listBase(path, options);
   };
-  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: list.controller, screen: 'entrada' }, { location: '/notas-entrada?origem=brufap', expandChildren: ['NativeListLayout'] });
+  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: list.controller, screen: 'entrada' }, { location: '/notas-entrada', expandChildren: ['NativeListLayout'] });
   try {
     const items = component(view, 'RowMenu').props.items;
     assert.equal(items.find(i => i.label === 'Visualizar').disabled, false, 'imported notes are viewed, not edited');
@@ -377,15 +379,17 @@ test('an imported note opens read-only with "Conciliar produtos" and its XML is 
   } finally { view.unmount(); }
 });
 
+// Wabotia: Origin fora (motor 91213b8): o XML exportado é o importado no FAGOO (/v1/notas-fiscais/<id>/xml); saiu o acervo sincronizado do Origin.
 test('Exportação de XML NFe: selected notes go into one ZIP after each XML is checked; unverifiable or missing XMLs are listed', async () => {
-  const good = '<nfeProc>nota sintética 121</nfeProc>', goodHash = await sha(good);
+  const KEY = '35261012345678000195550010000001211123456781', good = `<nfeProc><NFe><infNFe Id="NFe${KEY}"/></NFe>nota sintética 121</nfeProc>`, goodHash = await sha(good);
   const srv = server(); const base = srv.controller.fiscalInvoices;
   srv.controller.fiscalInvoices = async (path, options = {}) => {
-    if (path.startsWith('/v1/notas-fiscais?')) { const page = await base(path, options); page.items = [originRow(1, { xml_id: id(11), xml_hash: goodHash, xml_size: new TextEncoder().encode(good).byteLength, access_key: '35261012345678000195550010000001211123456781' }),
-      originRow(2, { xml_id: id(12), xml_hash: 'f'.repeat(64), xml_size: 5 }), originRow(3)]; page.total_count = 3; return page; }
+    if (path.startsWith('/v1/notas-fiscais?')) { const page = await base(path, options); page.items = [nativeListRow(1, { issue_type: 'X', environment: null, access_key: KEY }),
+      nativeListRow(2, { issue_type: 'X', environment: null }), nativeListRow(3)]; page.total_count = 3; return page; }
+    if (path === `/v1/notas-fiscais/${id(9001)}/xml`) return { invoice_id: id(9001), access_key: KEY, sha256: goodHash, size: new TextEncoder().encode(good).byteLength, xml: good, data_mode: 'erp_native' };
+    if (path === `/v1/notas-fiscais/${id(9002)}/xml`) return { invoice_id: id(9002), access_key: KEY, sha256: 'f'.repeat(64), size: 5, xml: 'falso', data_mode: 'erp_native' };
     return base(path, options);
   };
-  srv.controller.syncedXmlDownload = async path => new Blob([path.includes(id(11)) ? good : 'falso']);
   const saved = []; const previous = { document: globalThis.document, create: URL.createObjectURL, revoke: URL.revokeObjectURL };
   globalThis.document = { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } };
   URL.createObjectURL = blob => { saved.push(blob); return 'blob:sintetico'; }; URL.revokeObjectURL = () => {};
@@ -396,7 +400,7 @@ test('Exportação de XML NFe: selected notes go into one ZIP after each XML is 
     assert.equal(component(view, 'Modal').props.title, 'Exportação de XML NFe'); assert.equal(view.input('fiscal-export-selected').props.checked, true);
     await modalAction(view, 'Exportar'); await new Promise(r => setTimeout(r, 50)); await view.flush();
     assert.match(view.text(), /3 de 3 notas exportadas · 1 arquivo\(s\)/); assert.match(view.text(), /2 nota\(s\) não exportada\(s\)/);
-    assert.match(view.text(), /Nota 000122: o XML não pôde ser conferido/); assert.match(view.text(), /Nota 000123: sem XML coletado do Origin/);
+    assert.match(view.text(), /Nota 000122: o XML não pôde ser conferido/); assert.match(view.text(), /Nota 000123: sem XML guardado no FAGOO/);
     assert.equal(saved.length, 1); const zip = new Uint8Array(await saved[0].arrayBuffer());
     assert.deepEqual([...zip.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]); assert.ok(new TextDecoder().decode(zip).includes('NFe35261012345678000195550010000001211123456781.xml'));
     assert.ok(new TextDecoder().decode(zip).includes(good));
@@ -408,11 +412,11 @@ test('Exportação de XML NFe by period says how many notes stay out beyond the 
   const total = 1205, srv = server(); const base = srv.controller.fiscalInvoices;
   srv.controller.fiscalInvoices = async (path, options = {}) => {
     if (path.startsWith('/v1/notas-fiscais?')) { const page = await base(path, options), n = page.page; page.total_count = total; page.has_more = total > n * 100;
-      page.items = Array.from({ length: Math.min(100, total - (n - 1) * 100) }, (_, i) => originRow((n - 1) * 100 + i + 1, { id: String(100000 + (n - 1) * 100 + i) })); return page; }
+      page.items = Array.from({ length: Math.min(100, total - (n - 1) * 100) }, (_, i) => nativeListRow((n - 1) * 100 + i + 1, { id: id(100000 + (n - 1) * 100 + i) })); return page; }
     return base(path, options);
   };
   const config = SCREENS.nfe, filters = { ...emptyFilters(config), from: '2026-10-01', to: '2026-10-20' };
-  const view = await mountComponent('FiscalXmlExportDialog.tsx', { controller: srv.controller, config, origin: 'origin', filters, order: 'date_desc', selected: [], onClose() {} });
+  const view = await mountComponent('FiscalXmlExportDialog.tsx', { controller: srv.controller, config, filters, order: 'date_desc', selected: [], onClose() {} });
   try {
     assert.equal(view.input('fiscal-export-period').props.checked, true);
     await modalAction(view, 'Exportar'); await new Promise(r => setTimeout(r, 50)); await view.flush();
@@ -491,7 +495,7 @@ test('Formação de preços: unit cost from the entry note and the sale price of
   assert.equal(pricingLines(record, { 1: '10,5' }, '35.5')[0].sale, '13.2600'); assert.equal(pricingLines(record, { 1: 'abc' }, '35.5')[0].sale, null);
   const srv = linkServer(); const base = srv.controller.fiscalInvoices;
   srv.controller.fiscalInvoices = async (path, options = {}) => path.startsWith('/v1/notas-fiscais/contexto') ? { ...(await base(path, options)), preferences: { ...DEFAULT_INVOICE_PREFERENCES, autxml_people: [], markup: '35.5' } } : base(path, options);
-  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'entrada' }, { location: '/notas-entrada?origem=brufap', expandChildren: ['NativeListLayout', 'FiscalPricingDialog'] });
+  const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'entrada' }, { location: '/notas-entrada', expandChildren: ['NativeListLayout', 'FiscalPricingDialog'] });
   try {
     component(view, 'RowMenu').props.items.find(i => i.label === 'Formação de preços').onClick(); await view.flush(); await view.flush();
     assert.equal(component(view, 'Modal').props.title, 'Formação de preços'); assert.match(view.text(), /markup padrão 35,5%/);
@@ -505,31 +509,16 @@ test('Formação de preços: unit cost from the entry note and the sale price of
   } finally { view.unmount(); }
 });
 
-test('Outras opções › Baixar XML carta de correção hands over the CC-e collected with a Origin note after checking it', async () => {
-  const letter = '<procEventoNFe>carta sintética</procEventoNFe>', letterHash = await sha(letter), size = new TextEncoder().encode(letter).byteLength;
-  const srv = server(); const base = srv.controller.fiscalInvoices;
-  srv.controller.fiscalInvoices = async (path, options = {}) => {
-    if (path.startsWith('/v1/notas-fiscais?')) { const page = await base(path, options); page.items = [originRow(1, { event_count: 1, access_key: '35261012345678000195550010000001211123456781' }), originRow(2)]; return page; }
-    if (path === '/v1/notas-fiscais/origin/nfe/9001') { srv.calls.push({ path, method: 'GET' }); return { origin: 'origin', entity: 'nfe', source_id: '9001', model: '55', direction: '1', number: 121, series: 1, issue_date: '2026-10-15', operation_date: null,
-      status: 6, status_raw: '5', access_key: '35261012345678000195550010000001211123456781', total: '100.10', total_known: true, freight: null,
-      contact: { name: 'Cliente Origin 1', document: null, ie: null, email: null, phone: null, street: null, number: null, complement: null, district: null, postal_code: null, city: null, state: null, country: null },
-      items: [], installments: [], transport: { freight_by: null, carrier: null }, additional_info: null, xml: null, events: [{ id: id(51), type: '110110', sequence: '1', hash: letterHash, size }],
-      observed_at: '2026-10-16T12:00:00Z', data_mode: 'origin_mirror_readonly', writable: false }; }
-    return base(path, options);
-  };
-  srv.controller.syncedXmlDownload = async () => new Blob([letter]);
-  const saved = []; const previous = { document: globalThis.document, create: URL.createObjectURL, revoke: URL.revokeObjectURL };
-  globalThis.document = { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } };
-  URL.createObjectURL = blob => { saved.push(blob); return 'blob:sintetico'; }; URL.revokeObjectURL = () => {};
+// Wabotia: Origin fora (motor 91213b8): saiu a carta de correção coletada com a nota do Origin; a do FAGOO ainda não é transmitida.
+test('Outras opções › Baixar XML carta de correção stays disabled with the reason for a FAGOO note', async () => {
+  const srv = server();
   const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout'] });
   try {
-    component(view, 'RowMenu', 1).props.items.find(i => i.label === 'Outras opções de NF-e').onClick(); await view.flush();
-    assert.equal(button(view, 'Baixar XML carta de correção').disabled, true, 'no event collected for this note');
-    await modalAction(view, 'Fechar');
     component(view, 'RowMenu').props.items.find(i => i.label === 'Outras opções de NF-e').onClick(); await view.flush();
-    await press(view, 'Baixar XML carta de correção'); await new Promise(r => setTimeout(r, 20)); await view.flush();
-    assert.equal(saved.length, 1); assert.equal(await saved[0].text(), letter); assert.match(view.text(), /XML da carta de correção conferido e baixado/);
-  } finally { view.unmount(); globalThis.document = previous.document; URL.createObjectURL = previous.create; URL.revokeObjectURL = previous.revoke; }
+    const letters = button(view, 'Baixar XML carta de correção');
+    assert.equal(letters.props.disabled, true); assert.match(letters.props.title, /cartas de correção do FAGOO ainda não foram transmitidas/);
+    assert.equal(srv.calls.some(c => c.path.startsWith('/v1/notas-fiscais/origin/')), false);
+  } finally { view.unmount(); }
 });
 
 test('Gerar devolução opens a finalidade 4 draft in the other direction, referencing the key, with the Padrão devolução nature', async () => {
@@ -553,6 +542,7 @@ test('Gerar devolução opens a finalidade 4 draft in the other direction, refer
   const srv = server(), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout'] });
   try {
     const action = component(view, 'RowMenu').props.items.find(i => i.label === 'Gerar devolução');
-    assert.equal(action.disabled, true, 'Origin returns remain in Origin during coexistence'); assert.match(action.title, /convivência.*devolução/);
+    // Wabotia: Origin fora (motor 91213b8): a nota do FAGOO sem chave de acesso não gera devolução.
+    assert.equal(action.disabled, true); assert.match(action.title, /devolução precisa da chave de acesso/);
   } finally { view.unmount(); }
 });

@@ -44,20 +44,21 @@ test('list pages merge only when every page describes the same filtered set', ()
   assert.throws(() => mergeListPages('sales_orders', [page(1, [], { total_count: LIST_READ_MAX_ROWS + 1 })]), error => error instanceof ListReadError && /Refine os filtros/.test(error.message));
 });
 
+// Wabotia: Origin fora (motor 91213b8): as colunas Origem, ID Origin, Observado em e Cobertura saíram do CSV.
 test('CSV keeps exact cents, Origin headers, a totals line and neutralizes formulas', () => {
   const snapshot = mergeListPages('sales_orders', [page(1, [row(1, { contact_name: '=HYPERLINK("x")', total: '1234567.89', expected_date: '2026-10-20' }), row(2, { status: 'cancelled', total: '0.01' }), row(3, { contact_name: 'Cliente "aspas"', total: '29.99' })], { total_amount: '1234597.89' })]);
   const csv = documentListCsv(snapshot), lines = csv.slice(1).split('\r\n');
   assert.equal(csv[0], '﻿'); assert.equal(lines.at(-1), '');
-  assert.equal(lines[0], '"Número";"Data";"Data prevista";"Cliente";"Total (R$)";"Situação";"Origem";"ID Origin";"Observado em";"Cobertura"');
-  assert.equal(lines[1], '"1";"16/10/2026";"20/10/2026";"\'=HYPERLINK(""x"")";"1234567,89";"Em aberto";"FAGOO";"";"";""');
-  assert.equal(lines[2], '"2";"16/10/2026";"";"Cliente sintético";"0,01";"Cancelado";"FAGOO";"";"";""');
-  assert.equal(lines[3], '"3";"16/10/2026";"";"Cliente ""aspas""";"29,99";"Em aberto";"FAGOO";"";"";""');
+  assert.equal(lines[0], '"Número";"Data";"Data prevista";"Cliente";"Total (R$)";"Situação"');
+  assert.equal(lines[1], '"1";"16/10/2026";"20/10/2026";"\'=HYPERLINK(""x"")";"1234567,89";"Em aberto"');
+  assert.equal(lines[2], '"2";"16/10/2026";"";"Cliente sintético";"0,01";"Cancelado"');
+  assert.equal(lines[3], '"3";"16/10/2026";"";"Cliente ""aspas""";"29,99";"Em aberto"');
   assert.equal(lines[4], '"Quantidade de Vendas";"3";"Valor total";"1234597,89"');
   assert.equal(csvMoney('0.10'), '0,10'); assert.throws(() => csvMoney('1.5'), ListReadError);
   assert.equal(printMoneyText('1234567.89'), 'R$ 1.234.567,89');
   assert.equal(listFileName('sales_proposals', '2026-10-20'), 'propostas-comerciais-2026-10-20.csv');
   const proposals = documentListCsv({ kind: 'sales_proposals', rows: [row(1, { kind: 'sales_proposals', status: 'approved', next_contact: '2026-11-01', template: true })], total_count: 1, total_amount: '10.00' });
-  assert.match(proposals, /"Número";"Data";"Próx\. Contato";"Cliente";"Valor";"Situação";"Origem";"ID Origin";"Observado em";"Cobertura"\r\n"1";"16\/10\/2026";"01\/11\/2026";"Cliente sintético";"10,00";"Aprovado \(modelo\)"/);
+  assert.match(proposals, /"Número";"Data";"Próx\. Contato";"Cliente";"Valor";"Situação"\r\n"1";"16\/10\/2026";"01\/11\/2026";"Cliente sintético";"10,00";"Aprovado \(modelo\)"/);
 });
 
 test('WhatsApp uses the contact mobile (or phone) with 55 and a summary in exact decimals', () => {

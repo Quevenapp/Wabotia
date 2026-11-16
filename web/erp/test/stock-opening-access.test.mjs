@@ -37,7 +37,7 @@ async function mountRoute(controller,location='/estoque-abertura'){
 // Wabotia: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
 test('100 real route: only administrador reaches the screen; other roles get no business request',async()=>{
  for(const role of['admin','consulta','estoque','vendas','fiscal','financeiro']){const f=setup({role}),v=await mountRoute(f.controller);try{
-  assert.equal(f.calls.length,role==='admin'?1:0,role);assert.match(v.text(),role==='admin'?/Estoque negativo/:/Saldo de abertura não liberado/);
+  assert.equal(f.calls.length,role==='admin'?1:0,role);assert.match(v.text(),role==='admin'?/Estoque negativo/:/Estoque negativo não liberado/);
  }finally{v.unmount();}}
 });
 test('100 Preferências › Suprimentos lists the screen for administrador only and the public App accepts the route',async()=>{

@@ -10,7 +10,7 @@
  * barra, listas, ações em lote) ou que a barra sempre carrega: núcleo.
  */
 const CORE =
-  /^(origin-menu|OriginTopBar|origin-top-bar|OriginList|origin-list|origin-batch|OriginSyncButton|origin-sync-model|integration-capabilities)$/;
+  /^(origin-menu|OriginTopBar|origin-top-bar|OriginList|origin-list|origin-batch|integration-capabilities)$/;
 /**
  * Partes de um bloco embutidas em telas do núcleo, importadas por elas sem
  * carga sob demanda (o painel do espelho Origin no editor de contato, o lote
@@ -19,16 +19,11 @@ const CORE =
  * Lista conferida por web/erp/build.test.mjs.
  */
 export const EMBEDDED = new Set([
-  "OriginCatalogSync",
-  "OriginMirrorPanel",
   "FiscalOrderTaxEstimate",
   "PartialInvoiceDialog",
   "FiscalOrderBatch",
   "DocumentXmlImport",
-  "DocumentMirrorView",
-  "DocumentOriginTotals",
   "PdvOrderOrigin",
-  "StockOriginMirror",
   "FinanceReturns",
   "FinanceRemittances",
   "PdvCashSummary",

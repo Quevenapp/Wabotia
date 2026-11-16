@@ -2,7 +2,7 @@
 // Pages are read one by one with the same filter and order; totals come from the server in exact cents.
 import { STATES, type DocumentKind } from './real-documents-model.ts';
 import { DOCUMENT_LIST_PAGE_SIZE, brDay, type DocumentListPage, type DocumentListRow } from './document-list-model.ts';
-import { documentObservedAt, documentOriginLabel, isDocumentMirror, mirrorDecimal, type DocumentOriginTotals } from './document-mirror-model.ts';
+import { mirrorDecimal } from './document-mirror-model.ts';
 
 /** Safety limit: 50 pages of 100. Larger sets must be narrowed by the filters first. */
 export const LIST_READ_MAX_ROWS = 5000;
@@ -19,7 +19,7 @@ export class ListReadError extends Error {}
 export const tooLarge = (total: number) => new ListReadError(`A listagem filtrada tem ${total.toLocaleString('pt-BR')} registros. Refine os filtros para até ${LIST_READ_MAX_ROWS.toLocaleString('pt-BR')} registros antes de imprimir ou exportar.`);
 
 /** `total_amount` null: Preferências "Exibir totais em listas" hides the sum for this user, so the print and the CSV omit it too. */
-export interface ListSnapshot { kind: DocumentKind; rows: DocumentListRow[]; total_count: number; total_amount: string | null; origin_totals?: DocumentOriginTotals }
+export interface ListSnapshot { kind: DocumentKind; rows: DocumentListRow[]; total_count: number; total_amount: string | null }
 /** Every page must describe the same filtered set (same total and amount), in order, without repeated rows. */
 export function mergeListPages(kind: DocumentKind, pages: readonly DocumentListPage[]): ListSnapshot {
   if (!pages.length) throw new ListReadError('Nenhuma página foi lida.');
@@ -27,12 +27,12 @@ export function mergeListPages(kind: DocumentKind, pages: readonly DocumentListP
   if (first.total_count > LIST_READ_MAX_ROWS) throw tooLarge(first.total_count);
   const seen = new Set<string>(), rows: DocumentListRow[] = [];
   pages.forEach((page, index) => {
-    if (page.kind !== kind || page.page !== index + 1 || page.total_count !== first.total_count || page.total_amount !== first.total_amount || page.order !== first.order || JSON.stringify(page.origin_totals) !== JSON.stringify(first.origin_totals))
+    if (page.kind !== kind || page.page !== index + 1 || page.total_count !== first.total_count || page.total_amount !== first.total_amount || page.order !== first.order)
       throw new ListReadError('A listagem mudou durante a leitura. Tente novamente.');
     for (const row of page.items) { if (seen.has(row.id)) throw new ListReadError('A listagem mudou durante a leitura. Tente novamente.'); seen.add(row.id); rows.push(row); }
   });
   if (rows.length !== first.total_count) throw new ListReadError('A listagem mudou durante a leitura. Tente novamente.');
-  return { kind, rows, total_count: first.total_count, total_amount: first.total_amount, ...(first.origin_totals ? { origin_totals: first.origin_totals } : {}) };
+  return { kind, rows, total_count: first.total_count, total_amount: first.total_amount };
 }
 
 /** Exact money text with comma decimal and no thousands separator (spreadsheet friendly); never a Number. */
@@ -50,27 +50,22 @@ export const csvCell = (value: string) => `"${(/^[\s\u0000-\u001f]*[=+@-]|^[\t\r
 export interface ListColumn { key: string; label: string; value: (row: DocumentListRow) => string; numeric?: boolean }
 const statusText = (kind: DocumentKind, row: DocumentListRow) => `${STATES[kind][row.status] ?? row.status}${row.template ? ' (modelo)' : ''}`;
 /** Columns of the standard Origin list for each document. */
-export function listColumns(kind: DocumentKind, money: (value: string) => string, sourceMoney: (value: string) => string = value => mirrorDecimal(value, true)): ListColumn[] {
+export function listColumns(kind: DocumentKind, money: (value: string) => string): ListColumn[] {
   const columns: ListColumn[] = [{ key: 'number', label: 'Número', value: row => row.number ?? 'Não informado' }, { key: 'date', label: 'Data', value: row => brDay(row.date) || 'Não informado' }];
   if (kind === 'sales_orders') columns.push({ key: 'expected_date', label: 'Data prevista', value: row => brDay(row.expected_date) });
   if (kind === 'sales_proposals') columns.push({ key: 'next_contact', label: 'Próx. Contato', value: row => brDay(row.next_contact) });
   if (kind === 'service_orders') columns.push({ key: 'expected_date', label: 'Data prevista', value: row => brDay(row.expected_date) });
   columns.push({ key: 'contact', label: kind === 'purchase_orders' ? 'Fornecedor' : 'Cliente', value: row => row.contact_name ?? 'Não informado' },
-    { key: 'total', label: kind === 'sales_proposals' ? 'Valor' : 'Total (R$)', value: row => row.total === null ? 'Não informado' : isDocumentMirror(row) ? sourceMoney(row.total) : money(row.total), numeric: true },
-    { key: 'status', label: 'Situação', value: row => isDocumentMirror(row) ? row.mirror?.source_status_label ?? row.mirror?.source_status ?? 'Não informada' : statusText(kind, row) },
-    { key: 'origin', label: 'Origem', value: documentOriginLabel },
-    { key: 'source_id', label: 'ID Origin', value: row => row.mirror?.source_id ?? '' },
-    { key: 'observed_at', label: 'Observado em', value: row => isDocumentMirror(row) ? documentObservedAt(row.mirror?.observed_at) : '' },
-    { key: 'coverage', label: 'Cobertura', value: row => isDocumentMirror(row) ? row.mirror?.partial ? 'Parcial' : 'Dados observados' : '' });
+    { key: 'total', label: kind === 'sales_proposals' ? 'Valor' : 'Total (R$)', value: row => row.total === null ? 'Não informado' : money(row.total), numeric: true },
+    { key: 'status', label: 'Situação', value: row => statusText(kind, row) });
   return columns;
 }
 
 /** Semicolon CSV with BOM, CRLF and the totals line, like the other Brufap exports. */
 export function documentListCsv(snapshot: ListSnapshot): string {
-  const columns = listColumns(snapshot.kind, csvMoney, value => value.replace('.', ','));
+  const columns = listColumns(snapshot.kind, csvMoney);
   const lines = [columns.map(column => column.label), ...snapshot.rows.map(row => columns.map(column => column.value(row))),
-    [listCountLabel(snapshot.kind), String(snapshot.total_count), ...(snapshot.total_amount === null || snapshot.origin_totals ? [] : ['Valor total', csvMoney(snapshot.total_amount)])],
-    ...Object.entries(snapshot.origin_totals ?? {}).map(([origin, totals]) => [`Origem ${origin === 'origin' ? 'Origin' : 'FAGOO'}`, String(totals.count), 'Total informado', totals.total === null ? 'Não informado' : totals.total.replace('.', ','), `${totals.known_total_count} de ${totals.count} com valor informado`])];
+    [listCountLabel(snapshot.kind), String(snapshot.total_count), ...(snapshot.total_amount === null ? [] : ['Valor total', csvMoney(snapshot.total_amount)])]];
   return '﻿' + lines.map(line => line.map(csvCell).join(';')).join('\r\n') + '\r\n';
 }
 export const listFileName = (kind: DocumentKind, today: string) => `${({ sales_orders: 'pedidos-de-venda', sales_proposals: 'propostas-comerciais', service_orders: 'ordens-de-servico', purchase_orders: 'pedidos-de-compra' } as const)[kind]}-${today}.csv`;

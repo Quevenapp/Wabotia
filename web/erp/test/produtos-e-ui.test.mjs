@@ -240,7 +240,8 @@ const listResponse = (path, rows) => { const q = new URLSearchParams(path.split(
 const nativeNoteId = n => id(9000 + n);
 const nativeNoteRow = n => originRow(n, { origin: 'brufap', id: nativeNoteId(n), version: 1, environment: '2', issue_type: 'N', status: 1, status_raw: null, protocol_present: false });
 const tagSet = (invoice, version, tags) => ({ invoice_id: invoice, version, tag_ids: tags.map(tag => tag.id), tags: tags.map(tag => ({ id: tag.id, name: tag.name, group_id: null, group_name: null })) });
-function notesServer({ role = 'fiscal', origin = role === 'consulta' ? 'origin' : 'brufap', patch } = {}) {
+// Wabotia: Origin fora (motor 91213b8): a lista é sempre a dos registros do FAGOO, também para a consulta.
+function notesServer({ role = 'fiscal', origin = 'brufap', patch } = {}) {
   const calls = [], urgent = tagItem(1, 'Urgente'), review = tagItem(2, 'Conferir');
   const key = n => origin === 'origin' ? String(9000 + n) : nativeNoteId(n);
   let sets = { [key(1)]: tagSet(key(1), 1, [urgent]), [key(2)]: tagSet(key(2), 0, []) };
@@ -264,7 +265,7 @@ function notesServer({ role = 'fiscal', origin = role === 'consulta' ? 'origin' 
   };
   return { calls, controller, origin, tags: { urgent, review } };
 }
-const mountNotes = service => mountComponent('RealFiscalInvoices.tsx', { controller: service.controller, screen: 'nfe' }, { location: `/historico-fiscal?modelo=55${service.origin === 'brufap' ? '&origem=brufap' : ''}`, expandChildren: ['NativeListLayout', 'InvoiceTagCell', 'InvoiceTagFilter', 'InvoiceTagsOverlay', 'AppliedChips'] });
+const mountNotes = service => mountComponent('RealFiscalInvoices.tsx', { controller: service.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout', 'InvoiceTagCell', 'InvoiceTagFilter', 'InvoiceTagsOverlay', 'AppliedChips'] });
 const confirmAgain = async view => { const modal = view.nodes().find(node => node.type?.name === 'Modal' && node.props.title === 'Tags da nota');
   const button = [modal.props.actions].flat().find(node => textOf(node) === 'Conferir resultado'); button.props.onClick(); await view.flush(); };
 const editButton = (view, n) => view.find(node => node.type === 'button' && node.props['aria-label'] === `Editar tags da nota 000${120 + n}`);
@@ -330,22 +331,11 @@ test('notes list: a conflict refreshes the Marcadores and closes the drawer', as
   } finally { view.unmount(); }
 });
 
-test('Origin note tags remain readable but cannot be edited even by fiscal and admin', async () => {
-  for (const role of ['admin', 'fiscal', 'consulta']) {
-    const service = notesServer({ role, origin: 'origin' }), view = await mountNotes(service);
-    try {
-      assert.match(view.text(), /Urgente/);
-      assert.equal(view.nodes().some(node => node.props?.['aria-label']?.startsWith('Editar tags da nota')), false);
-      assert.equal(service.calls.some(call => call.method === 'PATCH'), false);
-    } finally { view.unmount(); }
-  }
-});
-
 test('notes model: Tags filter in the query, chips and "Tornar padrão"; closed answers of the tags', () => {
   const config = SCREENS.nfe, tag = { id: id(1), name: 'Urgente' };
-  assert.equal(fiscalListQuery(config, 'origin', { ...emptyFilters(config), tag }).get('tag'), id(1));
-  assert.equal(fiscalListQuery(config, 'origin', { ...emptyFilters(config), tag: { id: 'none', name: 'Sem Tag' } }).get('tag'), 'none');
-  assert.throws(() => fiscalListQuery(config, 'origin', { ...emptyFilters(config), tag: { id: 'x', name: 'X' } }), /Selecione novamente a tag/);
+  assert.equal(fiscalListQuery(config, { ...emptyFilters(config), tag }).get('tag'), id(1));
+  assert.equal(fiscalListQuery(config, { ...emptyFilters(config), tag: { id: 'none', name: 'Sem Tag' } }).get('tag'), 'none');
+  assert.throws(() => fiscalListQuery(config, { ...emptyFilters(config), tag: { id: 'x', name: 'X' } }), /Selecione novamente a tag/);
   assert.deepEqual(filterChips(config, { ...emptyFilters(config), tag }), [{ key: 'tag', label: 'Tags: Urgente' }]);
   assert.deepEqual(filtersFromPreference(config, filtersToPreference(config, { ...emptyFilters(config), tag })).tag, tag);
   assert.deepEqual(filtersFromPreference(config, { tag_id: 'none' }).tag, { id: 'none', name: 'Sem Tag' });

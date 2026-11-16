@@ -63,7 +63,6 @@ test('pedidos de compra open on Em aberto and the last 30 days; Situação is on
 test('a selection shows the chip “Selecionados: N cadastro” and Informações with the exact Valor; the month export needs no selection', async () => {
   const downloads = recorder(), srv = server(), view = await mount(srv, 'purchase_orders', ['AppliedChips', 'Modal'], { ...DOWNLOAD, ...MODAL });
   try {
-    await view.change('documents-origin', 'brufap'); await view.submit();
     select(row(1))(view); await view.flush(); select(row(2))(view); await view.flush();
     assert.match(view.text(), /Selecionados: 2 cadastros/);
     assert.match(view.text(), /Valor/); assert.match(view.text(), /10,15/);
