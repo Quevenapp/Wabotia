@@ -121,7 +121,11 @@ const track = (code: string) => SELF.fetch(`https://test/api/w/${code}`);
 
 async function started(entrega: any = {}) {
   const { f, menu, ctx } = await setup(entrega);
-  const { c, order } = await deliveryOrder(f, menu, "5511972" + String(Math.random()).slice(2, 8));
+  const { c, order } = await deliveryOrder(
+    f,
+    menu,
+    "5511972" + String(Math.random()).slice(2, 8),
+  );
   const created = await run(f, f.admin, "entrega.create", {
     source: "pedido",
     ref_id: order.id,
@@ -173,9 +177,16 @@ describe("entrega: geografia sem custo", () => {
       max: 6,
     });
     const { f } = await setup();
-    const bad = await perform(env, f.admin, f.profile, "settings", {
-      entrega: { updates: { every_minutes: 1 } },
-    }, uid()).catch((e) => e);
+    const bad = await perform(
+      env,
+      f.admin,
+      f.profile,
+      "settings",
+      {
+        entrega: { updates: { every_minutes: 1 } },
+      },
+      uid(),
+    ).catch((e) => e);
     expect(bad.status).toBe(400);
   });
 });
@@ -208,7 +219,11 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
     // A equipe cria a entrega; repetir a chave devolve a mesma.
     const key = uid();
     const path = `/profiles/${f.profile}/entrega/deliveries`;
-    const body = { source: "pedido", ref_id: order.id, courier_id: f.member.id };
+    const body = {
+      source: "pedido",
+      ref_id: order.id,
+      courier_id: f.member.id,
+    };
     const first = await api(admin, path, "POST", body, key);
     expect(first.status).toBe(200);
     const created = await first.json<any>();
@@ -227,12 +242,7 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
 
     // Só o entregador atribuído sai e manda posição.
     const other = await bearer(f.other);
-    const notMine = await api(
-      other,
-      `${path}/${created.id}/start`,
-      "POST",
-      {},
-    );
+    const notMine = await api(other, `${path}/${created.id}/start`, "POST", {});
     expect(notMine.status).toBe(403);
     // Antes de sair, a posição não é aceita (o app não liga o GPS).
     const early = await (
@@ -255,9 +265,12 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
     // O Pedido foi para "Saiu para entrega" e avisou; a Entrega mandou o link.
     expect(await orderStatus(order.id)).toBe("out_for_delivery");
     const sent = await outbox(c.id);
-    expect(sent.some((m) => /saiu para entrega/i.test(String(m.text)))).toBe(true);
+    expect(sent.some((m) => /saiu para entrega/i.test(String(m.text)))).toBe(
+      true,
+    );
     const link = sent.find(
-      (m) => JSON.stringify(m).includes("Acompanhar") && codeIn(JSON.stringify(m)),
+      (m) =>
+        JSON.stringify(m).includes("Acompanhar") && codeIn(JSON.stringify(m)),
     );
     expect(link).toBeTruthy();
     const code = codeIn(JSON.stringify(link));
@@ -287,9 +300,15 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
     expect(accepted).toMatchObject({ active: true, accepted: 2, ignored: 3 });
     expect(accepted.eta.minutes).toBeGreaterThan(3);
     // Repetir o mesmo lote não muda nada (sem Idempotency-Key).
-    const repeat = await (await positions(member, f, created.id, batch)).json<any>();
+    const repeat = await (
+      await positions(member, f, created.id, batch)
+    ).json<any>();
     expect(repeat.accepted).toBe(0);
-    const row = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", created.id);
+    const row = await one(
+      env,
+      "SELECT * FROM entrega_deliveries WHERE id=?",
+      created.id,
+    );
     expect(row).toMatchObject({ points: 2, last_battery: 64 });
     expect(json(row.trail, [])).toHaveLength(2);
 
@@ -313,7 +332,12 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
     expect(arriving).toHaveLength(1);
 
     // Entregue: o Pedido vai para Entregue e a posição não é mais aceita.
-    const done = await api(member, `${path}/${created.id}/delivered`, "POST", {});
+    const done = await api(
+      member,
+      `${path}/${created.id}/delivered`,
+      "POST",
+      {},
+    );
     expect(done.status).toBe(200);
     expect((await done.json<any>()).status).toBe("delivered");
     expect(await orderStatus(order.id)).toBe("delivered");
@@ -330,7 +354,11 @@ describe("entrega: pedido do Pedido do começo ao fim", () => {
     // Retenção: depois do prazo, posição e destino somem e o link fecha.
     const cfg = entregaConfig({});
     expect(await purge(ctx, cfg, now() + 25 * 3600000)).toBe(1);
-    const purged = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", created.id);
+    const purged = await one(
+      env,
+      "SELECT * FROM entrega_deliveries WHERE id=?",
+      created.id,
+    );
     expect(purged).toMatchObject({
       last_lat: null,
       dest_lat: null,
@@ -374,7 +402,12 @@ describe("entrega: atualizações ao cliente sem inundar", () => {
     await runDue(ctx, now());
     expect(await etaMessages()).toBe(0);
     // Vencido: uma atualização; a mesma rodada repetida não repete.
-    await exec(env, "UPDATE entrega_deliveries SET next_update_at=? WHERE id=?", now() - 1, delivery.id);
+    await exec(
+      env,
+      "UPDATE entrega_deliveries SET next_update_at=? WHERE id=?",
+      now() - 1,
+      delivery.id,
+    );
     await runDue(ctx, now());
     await runDue(ctx, now());
     expect(await etaMessages()).toBe(1);
@@ -389,14 +422,36 @@ describe("entrega: atualizações ao cliente sem inundar", () => {
     await runDue(ctx, now());
     expect(await etaMessages()).toBe(1);
     // Janela de 24 h fechada: atualização não sai.
-    await exec(env, "UPDATE entrega_deliveries SET next_update_at=?,last_at=? WHERE id=?", now() - 1, now(), delivery.id);
-    await exec(env, "UPDATE conversations SET last_customer=? WHERE id=?", now() - 25 * 3600000, c.id);
+    await exec(
+      env,
+      "UPDATE entrega_deliveries SET next_update_at=?,last_at=? WHERE id=?",
+      now() - 1,
+      now(),
+      delivery.id,
+    );
+    await exec(
+      env,
+      "UPDATE conversations SET last_customer=? WHERE id=?",
+      now() - 25 * 3600000,
+      c.id,
+    );
     await runDue(ctx, now());
     expect(await etaMessages()).toBe(1);
     // Janela aberta de novo: a segunda e última.
-    await exec(env, "UPDATE conversations SET last_customer=? WHERE id=?", now(), c.id);
+    await exec(
+      env,
+      "UPDATE conversations SET last_customer=? WHERE id=?",
+      now(),
+      c.id,
+    );
     for (let i = 0; i < 3; i++) {
-      await exec(env, "UPDATE entrega_deliveries SET next_update_at=?,last_at=? WHERE id=?", now() - 1, now(), delivery.id);
+      await exec(
+        env,
+        "UPDATE entrega_deliveries SET next_update_at=?,last_at=? WHERE id=?",
+        now() - 1,
+        now(),
+        delivery.id,
+      );
       await runDue(ctx, now());
     }
     expect(await etaMessages()).toBe(2);
@@ -408,9 +463,16 @@ describe("entrega: atualizações ao cliente sem inundar", () => {
     });
     const member = await bearer(f.member);
     await positions(member, f, delivery.id, { points: [{ t: now(), ...FAR }] });
-    await exec(env, "UPDATE entrega_deliveries SET next_update_at=? WHERE id=?", now() - 1, delivery.id);
+    await exec(
+      env,
+      "UPDATE entrega_deliveries SET next_update_at=? WHERE id=?",
+      now() - 1,
+      delivery.id,
+    );
     await runDue(ctx, now());
-    const pin = (await outbox(c.id)).find((m) => m.content?.type === "location");
+    const pin = (await outbox(c.id)).find(
+      (m) => m.content?.type === "location",
+    );
     expect(pin?.content.location).toMatchObject({
       latitude: FAR.lat,
       longitude: FAR.lng,
@@ -446,7 +508,11 @@ describe("entrega: atualizações ao cliente sem inundar", () => {
     expect(note).toBeTruthy();
     // Posição volta: o aviso é limpo.
     await positions(member, f, delivery.id, { points: [{ t: now(), ...FAR }] });
-    const row = await one(env, "SELECT notified FROM entrega_deliveries WHERE id=?", delivery.id);
+    const row = await one(
+      env,
+      "SELECT notified FROM entrega_deliveries WHERE id=?",
+      delivery.id,
+    );
     expect(json(row.notified, {}).signal).toBeUndefined();
   });
 });
@@ -465,19 +531,32 @@ describe("entrega: avulsa, localização do cliente e privacidade", () => {
     await run(f, f.member, "entrega.start", { id: created.id });
     // Sem destino: saída com aviso, link e o pedido de localização.
     const sent = await outbox(c.id);
-    expect(sent.some((m) => /Encomenda 7 saiu para entrega/.test(JSON.stringify(m)))).toBe(true);
-    expect(sent.some((m) => JSON.stringify(m).includes("location_request"))).toBe(true);
+    expect(
+      sent.some((m) => /Encomenda 7 saiu para entrega/.test(JSON.stringify(m))),
+    ).toBe(true);
+    expect(
+      sent.some((m) => JSON.stringify(m).includes("location_request")),
+    ).toBe(true);
     await say(f, "", phone, f.line, {
       type: "location",
       location: { latitude: DEST.lat, longitude: DEST.lng },
     });
-    const row = await one(env, "SELECT dest_lat,dest_source FROM entrega_deliveries WHERE id=?", created.id);
+    const row = await one(
+      env,
+      "SELECT dest_lat,dest_source FROM entrega_deliveries WHERE id=?",
+      created.id,
+    );
     expect(row).toMatchObject({ dest_lat: DEST.lat, dest_source: "customer" });
     expect(
-      (await outbox(c.id)).some((m) => /Usamos a sua localização/.test(String(m.text))),
+      (await outbox(c.id)).some((m) =>
+        /Usamos a sua localização/.test(String(m.text)),
+      ),
     ).toBe(true);
     // Cancelada depois de sair: o cliente é avisado.
-    await run(f, f.admin, "entrega.cancel", { id: created.id, reason: "Moto quebrou" });
+    await run(f, f.admin, "entrega.cancel", {
+      id: created.id,
+      reason: "Moto quebrou",
+    });
     expect(
       (await outbox(c.id)).some((m) => /foi interrompida/.test(String(m.text))),
     ).toBe(true);
@@ -487,14 +566,25 @@ describe("entrega: avulsa, localização do cliente e privacidade", () => {
   it("aplicação sem contacts:read não vê cliente, endereço nem posição", async () => {
     const { f, delivery } = await started();
     const app = await application(f, ["conversations:read"]);
-    const res = await api(app.token, `/profiles/${f.profile}/entrega/deliveries/${delivery.id}`);
+    const res = await api(
+      app.token,
+      `/profiles/${f.profile}/entrega/deliveries/${delivery.id}`,
+    );
     expect(res.status).toBe(200);
     const body = await res.json<any>();
     expect(body.status).toBe("en_route");
-    for (const field of ["customer_name", "address_text", "destination", "position", "conversation_id"])
+    for (const field of [
+      "customer_name",
+      "address_text",
+      "destination",
+      "position",
+      "conversation_id",
+    ])
       expect(body).not.toHaveProperty(field);
     // Aplicação não manda posição.
-    const pos = await positions(app.token, f, delivery.id, { points: [{ t: now(), ...FAR }] });
+    const pos = await positions(app.token, f, delivery.id, {
+      points: [{ t: now(), ...FAR }],
+    });
     expect(pos.status).toBe(400);
   });
 
@@ -553,7 +643,10 @@ describe("entrega: ganchos do Pedido", () => {
     );
     expect(before).toHaveLength(1);
     expect(isLink(before[0])).toBe(false);
-    await run(f, f.member, "entrega.start", { id: created.id, destination: DEST });
+    await run(f, f.member, "entrega.start", {
+      id: created.id,
+      destination: DEST,
+    });
     expect((await outbox(c.id)).filter(isLink)).toHaveLength(1);
   });
 
@@ -563,7 +656,11 @@ describe("entrega: ganchos do Pedido", () => {
       id: one1.order.id,
       status: "delivered",
     });
-    const d1 = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", one1.delivery.id);
+    const d1 = await one(
+      env,
+      "SELECT * FROM entrega_deliveries WHERE id=?",
+      one1.delivery.id,
+    );
     expect(d1.status).toBe("delivered");
     const member = await bearer(one1.f.member);
     const after = await (
@@ -590,7 +687,11 @@ describe("entrega: ganchos do Pedido", () => {
       status: "cancelled",
       reason: "Cliente desistiu",
     });
-    const d3 = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", three.delivery.id);
+    const d3 = await one(
+      env,
+      "SELECT * FROM entrega_deliveries WHERE id=?",
+      three.delivery.id,
+    );
     expect(d3.status).toBe("cancelled");
     expect((await track(codeIn(JSON.stringify(link)))).status).toBe(410);
   });
@@ -620,7 +721,10 @@ describe("entrega: ganchos do Pedido", () => {
 });
 
 describe("entrega: entregador pelo QR, sem login", () => {
-  const claim = (body: any, ip = "203.0.113." + Math.floor(Math.random() * 250)) =>
+  const claim = (
+    body: any,
+    ip = "203.0.113." + Math.floor(Math.random() * 250),
+  ) =>
     SELF.fetch("https://test/api/credentials/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
@@ -648,10 +752,16 @@ describe("entrega: entregador pelo QR, sem login", () => {
     expect(qr.qr.url).toMatch(/\/c\/[A-Za-z0-9]{32}$/);
     expect(qr.slip.lines.join(" ")).toContain("Escanear pedido");
     // Câmera do celular, fora do app: só orienta, não gasta o QR.
-    const camera = await SELF.fetch("https://test" + new URL(qr.qr.url).pathname);
+    const camera = await SELF.fetch(
+      "https://test" + new URL(qr.qr.url).pathname,
+    );
     expect(await camera.text()).toContain("Escanear pedido");
 
-    const res = await claim({ code: qr.qr.url, name: "Carlos Souza", device: "Moto G" });
+    const res = await claim({
+      code: qr.qr.url,
+      name: "Carlos Souza",
+      device: "Moto G",
+    });
     expect(res.status).toBe(200);
     const got = await res.json<any>();
     expect(got.token).toMatch(/^wabx_/);
@@ -668,13 +778,19 @@ describe("entrega: entregador pelo QR, sem login", () => {
     const token = got.token;
 
     // Só as rotas da entrega dela.
-    expect((await api(token, `/profiles/${f.profile}/conversations`)).status).toBe(403);
-    expect((await api(token, `/profiles/${f.profile}/pedido/board`)).status).toBe(403);
+    expect(
+      (await api(token, `/profiles/${f.profile}/conversations`)).status,
+    ).toBe(403);
+    expect(
+      (await api(token, `/profiles/${f.profile}/pedido/board`)).status,
+    ).toBe(403);
     expect((await api(token, base)).status).toBe(403);
     expect((await api(token, `${base}/${created.id}`)).status).toBe(403);
 
     // O que o app mostra: destino e resumo, sem telefone nem conversa.
-    const view = await (await api(token, `${base}/${created.id}/courier`)).json<any>();
+    const view = await (
+      await api(token, `${base}/${created.id}/courier`)
+    ).json<any>();
     expect(view.address_text).toContain("Rua C");
     expect(view.customer_name).toBe("Caio");
     expect(view.order.lines).toHaveLength(1);
@@ -682,7 +798,9 @@ describe("entrega: entregador pelo QR, sem login", () => {
     expect(JSON.stringify(view)).not.toContain(phone);
 
     // A loja vê quem leu.
-    const detail = await (await api(admin, `${base}/${created.id}`)).json<any>();
+    const detail = await (
+      await api(admin, `${base}/${created.id}`)
+    ).json<any>();
     expect(detail.access[0]).toMatchObject({
       status: "active",
       label: "Carlos Souza",
@@ -690,10 +808,23 @@ describe("entrega: entregador pelo QR, sem login", () => {
     });
 
     // Corrige o pino, sai e manda posição (o Pedido vai para Saiu para entrega).
-    const pin = await api(token, `${base}/${created.id}/destination`, "POST", FAR);
+    const pin = await api(
+      token,
+      `${base}/${created.id}/destination`,
+      "POST",
+      FAR,
+    );
     expect(pin.status).toBe(200);
-    expect((await api(token, `${base}/${created.id}/assign`, "POST", { courier_id: "me" })).status).toBe(403);
-    const go = await api(token, `${base}/${created.id}/start`, "POST", { destination: DEST });
+    expect(
+      (
+        await api(token, `${base}/${created.id}/assign`, "POST", {
+          courier_id: "me",
+        })
+      ).status,
+    ).toBe(403);
+    const go = await api(token, `${base}/${created.id}/start`, "POST", {
+      destination: DEST,
+    });
     expect(go.status).toBe(200);
     expect(await orderStatus(order.id)).toBe("out_for_delivery");
     const pos = await (
@@ -708,7 +839,9 @@ describe("entrega: entregador pelo QR, sem login", () => {
     });
     expect(msg.status).toBe(200);
     expect(
-      (await outbox(c.id)).some((m) => m.text === "Carlos - Entregador: Estou na portaria"),
+      (await outbox(c.id)).some(
+        (m) => m.text === "Carlos - Entregador: Estou na portaria",
+      ),
     ).toBe(true);
     await say(f, "Já desço!", phone);
     // Com a loja: interna, também como nota na conversa do cliente.
@@ -716,7 +849,9 @@ describe("entrega: entregador pelo QR, sem login", () => {
       channel: "store",
       text: "Interfone não funciona",
     });
-    await api(admin, `${base}/${created.id}/messages`, "POST", { text: "Ok, aguarde" });
+    await api(admin, `${base}/${created.id}/messages`, "POST", {
+      text: "Ok, aguarde",
+    });
     const note = await one(
       env,
       "SELECT text FROM messages WHERE conversation_id=? AND direction='note' AND text LIKE 'Entregador Carlos%'",
@@ -734,12 +869,19 @@ describe("entrega: entregador pelo QR, sem login", () => {
     ]);
     expect(JSON.stringify(chat)).not.toContain(phone);
     const pos2 = await (
-      await positions(token, f, created.id, { points: [{ t: now() + 500, ...FAR }] })
+      await positions(token, f, created.id, {
+        points: [{ t: now() + 500, ...FAR }],
+      })
     ).json<any>();
     expect(pos2.chat.last_seq).toBe(chat.last_seq);
 
     // Conclui: o Pedido vai para Entregue e o acesso fecha (401).
-    const done = await api(token, `${base}/${created.id}/delivered`, "POST", {});
+    const done = await api(
+      token,
+      `${base}/${created.id}/delivered`,
+      "POST",
+      {},
+    );
     expect(done.status).toBe(200);
     expect(await orderStatus(order.id)).toBe("delivered");
     const after = await api(token, `${base}/${created.id}/courier`);
@@ -748,11 +890,19 @@ describe("entrega: entregador pelo QR, sem login", () => {
 
   it("QR novo revoga o anterior; entrega encerrada fecha o QR", async () => {
     const { f, admin, base, created, qr } = await qrDelivery();
-    const first = await (await claim({ code: qr.qr.url, name: "Ana" })).json<any>();
-    const again = await (await api(admin, `${base}/${created.id}/qr`, "POST", {})).json<any>();
-    expect((await api(first.token, `${base}/${created.id}/courier`)).status).toBe(401);
+    const first = await (
+      await claim({ code: qr.qr.url, name: "Ana" })
+    ).json<any>();
+    const again = await (
+      await api(admin, `${base}/${created.id}/qr`, "POST", {})
+    ).json<any>();
+    expect(
+      (await api(first.token, `${base}/${created.id}/courier`)).status,
+    ).toBe(401);
     // Cancelada: o QR ainda não lido também deixa de valer.
-    await api(admin, `${base}/${created.id}/cancel`, "POST", { reason: "Cliente desistiu" });
+    await api(admin, `${base}/${created.id}/cancel`, "POST", {
+      reason: "Cliente desistiu",
+    });
     const late = await claim({ code: again.qr.url, name: "Bia" });
     expect(late.status).toBe(410);
     void f;
@@ -761,8 +911,12 @@ describe("entrega: entregador pelo QR, sem login", () => {
   it("limite de leituras por IP", async () => {
     const ip = "198.51.100.77";
     for (let i = 0; i < 10; i++)
-      expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(404);
-    expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(429);
+      expect(
+        (await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status,
+      ).toBe(404);
+    expect(
+      (await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status,
+    ).toBe(429);
   });
   // ---------------------------------------------------------------------------
   // Revisão A da credencial por QR (sessao-A-revisao-credencial-qr.md)
@@ -989,7 +1143,26 @@ describe("entrega: entregador pelo QR, sem login", () => {
     expect(texts.join("\n").match(/Código de entrega/g)!.length).toBe(1);
     const view = await (await api(token, `${base}/${id}/courier`)).json<any>();
     expect(view.confirm).toEqual({ required: true, attempts_left: 3 });
-    expect(JSON.stringify(view)).not.toContain(sent![1]);
+    // O código não aparece em nenhum valor da resposta. Ids (UUID) e datas
+    // (ms) saem antes: um código aleatório como "3645" pode estar dentro
+    // deles por acaso, e o teste falhava de vez em quando.
+    const values: string[] = [];
+    const collect = (value: unknown): void => {
+      if (Array.isArray(value)) value.forEach(collect);
+      else if (value && typeof value === "object")
+        Object.values(value).forEach(collect);
+      else if (typeof value === "string")
+        values.push(
+          value.replace(
+            /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+            "",
+          ),
+        );
+      else if (typeof value === "number" && value < 1e9)
+        values.push(String(value));
+    };
+    collect(view);
+    expect(values.filter((v) => v.includes(sent![1]))).toEqual([]);
     const wrong = sent![1] === "0000" ? "1111" : "0000";
     const none = await api(token, `${base}/${id}/delivered`, "POST", {});
     expect((await none.json<any>()).error.code).toBe("code_required");
@@ -1064,8 +1237,16 @@ describe("entrega: entregador pelo QR, sem login", () => {
           origin,
         );
       else
-        await exec(env, "DELETE FROM instance_settings WHERE key='public_origin'");
-      const res = await api(admin, `${base}/${other.created.id}/qr`, "POST", {});
+        await exec(
+          env,
+          "DELETE FROM instance_settings WHERE key='public_origin'",
+        );
+      const res = await api(
+        admin,
+        `${base}/${other.created.id}/qr`,
+        "POST",
+        {},
+      );
       expect(res.status).toBe(409);
       const body = await res.json<any>();
       expect(body.error.code).toBe("origin_unknown");
@@ -1086,7 +1267,9 @@ describe("entrega: entregador pelo QR, sem login", () => {
         headers: { Accept: accept, "CF-Connecting-IP": ip },
       });
     const store = (
-      await (await api(admin, `/profiles/${f.profile}/establishment`)).json<any>()
+      await (
+        await api(admin, `/profiles/${f.profile}/establishment`)
+      ).json<any>()
     ).name;
     const res = await peek(path);
     expect(res.status).toBe(200);
@@ -1122,10 +1305,17 @@ describe("entrega: entregador pelo QR, sem login", () => {
       now() - 1000,
       other.created.id,
     );
-    const expired = await (await peek(new URL(fresh.qr.url).pathname)).json<any>();
+    const expired = await (
+      await peek(new URL(fresh.qr.url).pathname)
+    ).json<any>();
     for (const r of [used, unknown, garbage, expired])
-      expect(r).toEqual({ valid: false, server: "https://lanchonete.example.com" });
-    const generic = await (await peek("/c/" + "a".repeat(32), "text/html")).text();
+      expect(r).toEqual({
+        valid: false,
+        server: "https://lanchonete.example.com",
+      });
+    const generic = await (
+      await peek("/c/" + "a".repeat(32), "text/html")
+    ).text();
     expect(generic).not.toContain(store);
   });
 
@@ -1162,7 +1352,11 @@ describe("entrega: travas do núcleo (revisão A)", () => {
     name: "Bot",
     role: "service",
     profiles: [f.profile],
-    scopes: ["conversations:read", "conversations:write", "conversations:bound"],
+    scopes: [
+      "conversations:read",
+      "conversations:write",
+      "conversations:bound",
+    ],
     bots: [],
     rate: 100,
     runLimit: 10,
@@ -1218,9 +1412,18 @@ describe("entrega: travas do núcleo (revisão A)", () => {
 
   it("blocos do mapa configuráveis, com crédito obrigatório", async () => {
     const bad = await setup().then(({ f }) =>
-      perform(env, f.admin, f.profile, "settings", {
-        entrega: { map: { tiles_url: "http://mapa.example.com/{z}/{x}/{y}.png" } },
-      }, uid()).catch((e) => e),
+      perform(
+        env,
+        f.admin,
+        f.profile,
+        "settings",
+        {
+          entrega: {
+            map: { tiles_url: "http://mapa.example.com/{z}/{x}/{y}.png" },
+          },
+        },
+        uid(),
+      ).catch((e) => e),
     );
     expect(bad.status).toBe(400);
     const { f, c, delivery } = await started({
@@ -1283,9 +1486,15 @@ describe("entrega: contrato da API", () => {
     const toSpec = (p: string) =>
       "/profiles/{profile}/" + p.replace(/:(\w+)/g, "{$1}");
     const routes = [
-      ...moduleRoutes().read.filter((r) => r.path.startsWith("entrega")).map((r) => ["get", r.path]),
-      ...moduleRoutes().write.filter((r) => r.path.startsWith("entrega")).map((r) => [r.method.toLowerCase(), r.path]),
-      ...moduleRoutes().telemetry.filter((r) => r.path.startsWith("entrega")).map((r) => ["post", r.path]),
+      ...moduleRoutes()
+        .read.filter((r) => r.path.startsWith("entrega"))
+        .map((r) => ["get", r.path]),
+      ...moduleRoutes()
+        .write.filter((r) => r.path.startsWith("entrega"))
+        .map((r) => [r.method.toLowerCase(), r.path]),
+      ...moduleRoutes()
+        .telemetry.filter((r) => r.path.startsWith("entrega"))
+        .map((r) => ["post", r.path]),
     ];
     expect(routes.length).toBe(16);
     for (const [method, path] of routes) {
@@ -1294,9 +1503,9 @@ describe("entrega: contrato da API", () => {
       expect(entry.tags).toEqual(["Entrega"]);
     }
     const pos = spec.paths[toSpec("entrega/deliveries/:id/positions")].post;
-    expect(
-      pos.parameters.some((p: any) => p.name === "Idempotency-Key"),
-    ).toBe(false);
+    expect(pos.parameters.some((p: any) => p.name === "Idempotency-Key")).toBe(
+      false,
+    );
   });
 });
 
