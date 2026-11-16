@@ -25,8 +25,8 @@ export default defineConfig({
           `assets/${chunk.name === basename(import.meta.dirname) ? "painel" : "[name]"}-[hash].js`,
         codeSplitting: {
           includeDependenciesRecursively: false,
-          // Cada tela carregada sob demanda (lazy) fica no próprio arquivo;
-          // o que ela usa vai para o grupo do módulo.
+          // Componente carregado sob demanda por outro (RealAccess, prévias)
+          // fica no próprio arquivo; o resto vai para o grupo do módulo.
           groups: [
             {
               name: (id, ctx) =>

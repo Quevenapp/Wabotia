@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import {
   BookOpen,
+  Building2,
   CircleHelp,
   Code2,
   Contact,
@@ -97,6 +98,7 @@ function useItems(): Item[] {
         icon: item.icon,
       })),
     { area: "contacts", label: "Contatos", icon: Contact },
+    { area: "erp", label: "ERP", icon: Building2 },
     { area: "admin", label: "Gestão", icon: Settings },
   ].filter((item) => moduleAllows(item.area, app.modules)) as Item[];
 }
@@ -361,7 +363,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ))}
         <NavLink
           item={{ area: "more", label: "Mais", icon: Ellipsis }}
-          active={["more", "queue", "contacts", "admin"].includes(route.area)}
+          active={["more", "queue", "contacts", "erp", "admin"].includes(
+            route.area,
+          )}
           className="tab-item"
         />
       </nav>

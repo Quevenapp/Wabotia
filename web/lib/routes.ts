@@ -26,6 +26,8 @@ const areaSlugs: Record<Area, string> = {
   calls: "ligacoes",
   queue: "fila",
   contacts: "contatos",
+  // ERP Fagoo: o resto do caminho (/app/erp/…) é do roteador do ERP (web/erp/mount.tsx).
+  erp: "erp",
   admin: "gestao",
   more: "mais",
 };

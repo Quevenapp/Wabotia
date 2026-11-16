@@ -98,6 +98,7 @@ export type AreaId =
   | "calls"
   | "queue"
   | "contacts"
+  | "erp"
   | "admin";
 
 /** Onde mora hoje cada página conhecida pelo assistente e pelos atalhos. */
@@ -227,6 +228,8 @@ const adminPages: ReadonlySet<string> = new Set([
  */
 export const pageModules: Partial<Record<string, string>> = {
   queue: "queue",
+  // ERP Fagoo (web/erp): área própria no trilho, some com o módulo desligado.
+  erp: "erp",
   "queue-settings": "queue",
   forms: "forms",
   agenda: "agenda",
