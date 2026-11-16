@@ -2,11 +2,10 @@
 // número de contatos (papéis em contact.roles ou vínculos em contact_type_link).
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { allowed, requireAccess } from "../access.ts";
-import { uuidArg } from "../args.ts";
 import { compareText } from "../fields.ts";
 
 export function erpCatalogContactTypes(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
+  const user = ((a.p_user_id ?? null) as string | null);
   const role = requireAccess(ctx.db, user, "contacts", false);
   const items = ctx.db
     .exec(

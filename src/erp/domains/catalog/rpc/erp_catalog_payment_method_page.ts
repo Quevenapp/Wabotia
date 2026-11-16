@@ -2,7 +2,6 @@
 // busca (matches sobre fold(description)) fica em TS.
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { boolArg, intArg, textArg, uuidArg } from "../args.ts";
 import { CNTRL, chars, matches, searchTerms } from "../fields.ts";
 import { fold } from "../internal.ts";
 import { paymentMethodAccess, paymentMethodAccounts, paymentMethodDto } from "../payment-method.ts";
@@ -14,13 +13,13 @@ const APPLICABLE: Record<string, string[]> = {
 };
 
 export function erpCatalogPaymentMethodPage(ctx: RpcContext, a: RpcArgs) {
-  const user = uuidArg(a, "p_user_id");
-  const page = intArg(a, "p_page", 1);
-  const size = intArg(a, "p_size", 100);
-  const query = textArg(a, "p_query");
-  const applicable = textArg(a, "p_applicable");
-  const account = uuidArg(a, "p_account_id");
-  const active = boolArg(a, "p_active", true);
+  const user = ((a.p_user_id ?? null) as string | null);
+  const page = ((a.p_page ?? null) as number | null);
+  const size = ((a.p_size ?? null) as number | null);
+  const query = ((a.p_query ?? null) as string | null);
+  const applicable = ((a.p_applicable ?? null) as string | null);
+  const account = ((a.p_account_id ?? null) as string | null);
+  const active = ((a.p_active ?? null) as boolean | null);
   const role = paymentMethodAccess(ctx.db, user, false);
   if (
     page === null || page < 1 || page > 100000 || size === null || size < 1 || size > 100 ||
