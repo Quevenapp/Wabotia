@@ -594,8 +594,19 @@ export async function quoteTurn(
       c.id,
       ...(word?.[2] ? [Number(word[2])] : []),
     );
-    // "1"/"2" só logo depois do envio; senão é de outro assunto (menu).
-    if (!row || (digit && (row.sent_at || 0) < now() - 86_400_000)) return false;
+    // "1"/"2" só logo depois do envio e sem menu aberto depois dele: senão o
+    // número é a opção do menu.
+    if (!row) return false;
+    if (digit) {
+      const menuSince =
+        c.menu_active &&
+        c.menu_token?.startsWith(c.session + ".") &&
+        (c.menu_expires_at || 0) > now()
+          ? (c.menu_expires_at || 0) - 86_400_000
+          : null;
+      if ((row.sent_at || 0) < now() - 86_400_000) return false;
+      if (menuSince !== null && menuSince > row.sent_at) return false;
+    }
   }
   try {
     const next = await decide(
