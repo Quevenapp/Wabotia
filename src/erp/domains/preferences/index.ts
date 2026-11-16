@@ -2,6 +2,7 @@
 // (cada um chama registerRpc). Só a sessão dona do domínio edita este arquivo.
 
 import "./rpc/erp_list_preferences.ts";
+import "./rpc/erp_preferences_core.ts";
 import "./rpc/erp_platform_tasks.ts";
 import "./rpc/erp_platform_new_invoices.ts";
 import "./rpc/erp_platform_notifications_run.ts";
