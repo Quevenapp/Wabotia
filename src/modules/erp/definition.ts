@@ -1,0 +1,68 @@
+// ERP (Fagoo) como módulo da área, desligado de fábrica (PLANO-FAGOO.md,
+// itens 16 e 17). O núcleo `erp` (cadastros, documentos, estoque,
+// financeiro, preferências) é indivisível; Fiscal, Cobrança bancária e
+// Caixa/PDV são opcionais com chave própria, dependentes do `erp`. O Origin
+// (migração do Bling) não é módulo: sai da instalação principal.
+//
+// Declaração só com dados (src/modules/registry.ts). Com o `erp` desligado,
+// /api/v1/profiles/:profile/erp/* responde 409 module_disabled pelo portão
+// comum (routes: ["erp"]). Os opcionais não têm segmento próprio: o portão de
+// cada bloco olha o caminho dentro de /erp (src/erp/blocks.ts) e responde o
+// mesmo 409 antes de chegar ao objeto erp:<área>. As tabelas existem sempre
+// (o esquema é um só); desligar não apaga dados.
+import type { ModuleDefinition } from "../types";
+
+const optional = {
+  version: "0.1.0",
+  builtin: true,
+  default_enabled: false,
+  navigation: [],
+  menu_item_types: [],
+  events: [],
+  settings: [],
+  routes: [],
+  operations: [],
+  scopes: [],
+  requires: ["erp"],
+} satisfies Partial<ModuleDefinition>;
+
+export const erpModule: ModuleDefinition = {
+  id: "erp",
+  name: "ERP",
+  version: "0.1.0",
+  description:
+    "Cadastros de produtos e contatos, pedidos de venda e de compra, propostas, ordens de serviço, estoque e financeiro, no banco próprio da área.",
+  builtin: true,
+  default_enabled: false,
+  navigation: [{ id: "erp", label: "ERP", place: "rail", admin: false }],
+  menu_item_types: [],
+  events: [],
+  settings: [],
+  routes: ["erp"],
+  operations: [],
+  scopes: [],
+};
+
+export const erpFiscalModule: ModuleDefinition = {
+  ...optional,
+  id: "erp-fiscal",
+  name: "ERP: Fiscal",
+  description:
+    "Notas fiscais de entrada e de saída, NFC-e, naturezas de operação, numeração e notas recebidas (DF-e). Sem ele, o ERP e o PDV vendem sem documento fiscal.",
+};
+
+export const erpCobrancaModule: ModuleDefinition = {
+  ...optional,
+  id: "erp-cobranca",
+  name: "ERP: Cobrança bancária",
+  description:
+    "Boletos, remessas e retornos CNAB, borderôs e a baixa de títulos pelo retorno do banco. Sem ele, os títulos são baixados à mão no financeiro.",
+};
+
+export const erpPdvModule: ModuleDefinition = {
+  ...optional,
+  id: "erp-pdv",
+  name: "ERP: Caixa / PDV",
+  description:
+    "Frente de caixa para venda no balcão e devolução, com baixa no estoque e no caixa do financeiro.",
+};
