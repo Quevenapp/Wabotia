@@ -81,6 +81,10 @@ export const covered = {
     "erp_catalog__record.protect_stock_default_warehouse": {
       "where": "src/erp/domains/stock/public.ts protectDefaultWarehouse, chamada por src/erp/domains/catalog/record.ts updateRecord (escrita P para o Catálogo; dono N)",
       "test": "tests/erp/stock/catalog-guards.test.mjs"
+    },
+    "erp_stock__policy.guard_stock_policy": {
+      "where": "src/erp/domains/stock/rpc/policy.ts erp_stock_policy_set: único escritor; só por comando, versão +1, valor diferente, recibo gravado antes",
+      "test": "tests/erp/stock/policy.test.mjs"
     }
   }
 };
