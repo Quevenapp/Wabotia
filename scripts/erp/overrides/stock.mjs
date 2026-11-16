@@ -73,5 +73,14 @@ export const discardTables = {};
  */
 export const covered = {
   "checks": {},
-  "triggers": {}
+  "triggers": {
+    "erp_catalog__product.protect_stock_product_unit": {
+      "where": "src/erp/domains/stock/public.ts protectProductUnit, chamada por src/erp/domains/catalog/record.ts updateProduct (escrita P para o Catálogo; dono N)",
+      "test": "tests/erp/stock/catalog-guards.test.mjs"
+    },
+    "erp_catalog__record.protect_stock_default_warehouse": {
+      "where": "src/erp/domains/stock/public.ts protectDefaultWarehouse, chamada por src/erp/domains/catalog/record.ts updateRecord (escrita P para o Catálogo; dono N)",
+      "test": "tests/erp/stock/catalog-guards.test.mjs"
+    }
+  }
 };

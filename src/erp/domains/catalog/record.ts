@@ -70,9 +70,9 @@ function updateRecord(
   set: { name: string; code: string | null; active: boolean },
   user: string,
 ) {
+  // BEFORE UPDATE por nome: erp_catalog_record_deleted_product, protect_stock_default_warehouse.
   if (row.entity === "products") guardDeletedProduct(ctx, id);
-  // protect_stock_default_warehouse: só lança ao inativar um depósito.
-  if (row.entity === "warehouses" && row.active && !set.active) stock.protectDefaultWarehouse(ctx.db, id);
+  stock.protectDefaultWarehouse(ctx.db, { id, entity: row.entity, active: row.active }, set.active);
   ctx.db.exec(
     `UPDATE "erp_catalog__record" SET name=?, code=?, active=?, version=version+1, human_edited=1, updated_by=?, updated_at=?,
      name__fold=?, code__fold=? WHERE id=?`,
@@ -121,8 +121,7 @@ function updateProduct(ctx: RpcContext, id: string, v: Record<string, unknown>) 
   const next = (k: string) => (k in v ? v[k] : old[k]) ?? null;
   // BEFORE UPDATE por nome: guard_variation_parent, protect_stock_product_unit.
   guardVariationParent(ctx, id, old.format, next("format"));
-  if (next("unit") !== (old.unit ?? null) || next("kind") !== (old.kind ?? null))
-    stock.protectProductUnit(ctx.db, id);
+  stock.protectProductUnit(ctx.db, { record_id: id, unit: old.unit, kind: old.kind }, { unit: next("unit"), kind: next("kind") });
   ctx.db.exec(
     `UPDATE "erp_catalog__product" SET ${PRODUCT_WRITE.map((k) => `${k}=?`).join(", ")} WHERE record_id=?`,
     ...PRODUCT_WRITE.map((k) => productColumn(k, v)), id,
