@@ -11,6 +11,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
+import { pgUpper } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { compareText } from "../fields.ts";
 import { fold } from "../internal.ts";
@@ -304,7 +305,7 @@ export function contactUf(db: SqlDriver, contact: string | null): string | null 
   if (contact === null) return null;
   const r = one(db, 'SELECT state FROM "erp_catalog__contact" WHERE record_id=?', contact);
   if (!r || r.state === null) return null;
-  const uf = String(r.state).toUpperCase();
+  const uf = pgUpper(String(r.state));
   return UFS.includes(uf) ? uf : null;
 }
 

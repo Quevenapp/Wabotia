@@ -40,9 +40,11 @@ export const discardTables = {};
 
 /**
  * Pendências do esquema gerado (CHECK sem tradução, gatilho em PL/pgSQL) que o
- * domínio já cumpre em TS, com onde. tests/erp/schema-parity.test.mjs só conta
- * o que ninguém cobre; ao fechar o domínio, baixe os tetos de lá.
- * checks: "schema.tabela.restrição"; triggers: "schema__tabela.gatilho".
+ * domínio cumpre em TS. Cada item diz onde (where) e qual teste prova (test,
+ * caminho do arquivo; o teste precisa exercitar a recusa nos dois motores).
+ * tests/erp/schema-parity.test.mjs só conta o que ninguém cobre, recusa item
+ * que não está pendente e item sem arquivo de teste; ao cobrir, baixe os tetos
+ * de lá. Chaves: checks "schema.tabela.restrição"; triggers "schema__tabela.gatilho".
  */
 export const covered = {
   "checks": {},

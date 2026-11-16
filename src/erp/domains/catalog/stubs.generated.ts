@@ -101,8 +101,6 @@ export const productDetailReferences = (..._args: unknown[]): never => notPorted
 export const productDetailValidate = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_validate");
 /** erp_catalog.product_detail_write(p_id uuid, p_detail jsonb) → void */
 export const productDetailWrite = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_write");
-/** erp_catalog.seller_access_allowed(p_user_id uuid, p_at timestamp with time zone) → boolean */
-export const sellerAccessAllowed = (..._args: unknown[]): never => notPorted("erp_catalog.seller_access_allowed");
 /** erp_catalog.warnings(p_entity text, p_id uuid, p_data jsonb) → jsonb */
 export const warnings = (..._args: unknown[]): never => notPorted("erp_catalog.warnings");
 /** erp_catalog.write_fields(p_id uuid, p_entity text, p_data jsonb) → void */

@@ -1,8 +1,6 @@
 // Gerado por scripts/erp/gen-ownership.mjs. Não edite: porte a função no public.ts do domínio.
 import { notPorted } from "../../engine/errors.ts";
 
-/** erp_attachments.storage_ready() → void */
-export const storageReady = (..._args: unknown[]): never => notPorted("erp_attachments.storage_ready");
 /** erp_home.biz_cost_visible(p_role text) → boolean */
 export const bizCostVisible = (..._args: unknown[]): never => notPorted("erp_home.biz_cost_visible");
 /** erp_home.biz_freight(p_body jsonb) → numeric */

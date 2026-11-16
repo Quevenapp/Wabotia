@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../engine/json.ts";
+import { pgLower } from "../../engine/text.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { activeRole } from "../access/public.ts";
 import { allowed as documentsAllowed } from "../documents/public.ts";
@@ -54,6 +55,7 @@ export {
   validCpf,
 } from "./fields.ts";
 export { paymentConditionValid } from "./payment-method.ts";
+export { sellerAccessAllowed } from "./seller.ts";
 // Listas de preço (sessão G): erp_pricing.list_price, require, rule_text, valid_now.
 export { listPrice, requirePricing as require, ruleText, validNow } from "./pricing/pricing.ts";
 export { erpPricingProductLists } from "./pricing/rpc/erp_pricing_product_lists.ts";
@@ -104,8 +106,9 @@ export function documentProduct(
   const rawCode = btrim(arrow(it, "code") ?? "");
   const code = rawCode === "" ? null : rawCode;
   if (code !== null) {
-    // lower(code)=lower(v_code): o lower do SQLite é só ASCII; compara em TS.
-    const target = code.toLowerCase();
+    // lower(code)=lower(v_code): o lower do SQLite é só ASCII; compara em TS
+    // com o lower do Postgres.
+    const target = pgLower(code);
     const hit = db
       .exec(
         `SELECT r.id, r.code FROM "erp_catalog__record" r JOIN "erp_catalog__product" p ON p.record_id=r.id
@@ -113,7 +116,7 @@ export function documentProduct(
          AND NOT EXISTS(SELECT 1 FROM "erp_catalog__product_detail" d WHERE d.record_id=r.id AND d.deleted_at IS NOT NULL)
          ORDER BY r.created_at, r.id`,
       )
-      .rows.find((r) => String(r.code).toLowerCase() === target);
+      .rows.find((r) => pgLower(String(r.code)) === target);
     if (hit) return String(hit.id);
   }
   const scoped = scopedCommand("document-auto-product", command, arrow(it, "position") ?? "");

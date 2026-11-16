@@ -5,6 +5,7 @@ import { one } from "../../../../engine/driver.ts";
 import { raise } from "../../../../engine/errors.ts";
 import { arrow, jsonbKeys, jsonType } from "../../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../../engine/registry.ts";
+import { pgLower } from "../../../../engine/text.ts";
 import { intArg, jsonArg, uuidArg } from "../../args.ts";
 import { requestHash } from "../../command.ts";
 import { CNTRL, btrim, chars, compareText } from "../../fields.ts";
@@ -14,8 +15,8 @@ import { audit, bumpVersion, header, loadList, replay, requirePricing, storeComm
 
 const MAX_VERSION = 2147483647;
 const invalid = (): never => raise("22023", "erp_pricing_invalid_data");
-/** lower() do Postgres, caractere a caractere (sem o sigma final do JS). */
-const lower = (s: string) => [...s].map((c) => c.toLowerCase()).join("");
+/** lower() do Postgres (mapeamento simples, engine/text.ts). */
+const lower = pgLower;
 
 export function erpPricingListImport(ctx: RpcContext, a: RpcArgs) {
   const user = uuidArg(a, "p_user_id");

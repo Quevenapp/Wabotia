@@ -8,7 +8,9 @@
 // - "tipos de contato" como todo (aguardando harness): contact_type_create
 //   diverge só em $.item.slug, 't'||uuid sem hífens, porque o IdMap não liga
 //   identificador derivado de uuid (pedido à N);
-// - SQL direto de escrita seguido de f.sync(); f.users.other → f.users.vendedor.
+// - SQL direto de escrita seguido de f.sync(); f.users.other → f.users.vendedor;
+// - rótulo de autor: o nome do perfil (erp_access.profile, 'Pessoa sintética
+//   <papel>') em vez do e-mail de auth.users, que não existe no objeto.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -46,7 +48,7 @@ test('contatos lane SQL (124-128): ACL, contact form, situation, types, preferen
    assert.equal(created.taxpayer,'9');assert.equal(created.situation,'A');assert.equal(created.active,true);
    assert.deepEqual(created.roles,['customer']);assert.deepEqual(created.types,['customer','default','accountant']);
    assert.equal(created.credit_limit,'1500.50');assert.equal(created.billing_state,'SP');assert.equal(created.ie_exempt,true);
-   assert.equal(created.contact_info,'Falar com Ana\nramal 2');assert.equal(created.updated_by_name,'admin@sintetico.test');
+   assert.equal(created.contact_info,'Falar com Ana\nramal 2');assert.equal(created.updated_by_name,'Pessoa sintética admin');
    assert.equal(await f.scalar("select roles::text v from erp_catalog.contact where record_id=$1",[created.id]),'{customer}');
    const replay=await f.save(data,{command});assert.equal(replay.replayed,true);assert.equal(replay.record.id,created.id);
    await fails(assert,f.save({...data,name:'Outro'},{command}),'40001');
@@ -206,7 +208,7 @@ test('contatos lane SQL (124-128): ACL, contact form, situation, types, preferen
 
   await t.test('comentários: readers list, writers add once per command, author and São Paulo timestamps come from the server',async()=>{
    const command=randomUUID(),add=user=>rpc('erp_catalog_contact_comment_add',{p_user_id:user,p_command_id:command,p_contact_id:ids.ana,p_body:'  Ligar na segunda.\nConfirmar pedido. '});
-   const first=await add(f.users.vendas);assert.equal(first.item.body,'Ligar na segunda.\nConfirmar pedido.');assert.equal(first.item.author_name,'vendas@sintetico.test');
+   const first=await add(f.users.vendas);assert.equal(first.item.body,'Ligar na segunda.\nConfirmar pedido.');assert.equal(first.item.author_name,'Pessoa sintética vendas');
    assert.equal((await add(f.users.vendas)).replayed,true);
    await fails(assert,add(f.users.financeiro),'40001');
    await fails(assert,rpc('erp_catalog_contact_comment_add',{p_user_id:f.users.consulta,p_command_id:randomUUID(),p_contact_id:ids.ana,p_body:'x'}),'42501');
@@ -265,7 +267,7 @@ test('contatos lane SQL (124-128): ACL, contact form, situation, types, preferen
    assert.deepEqual(names(await f.page({p_seller_id:ids.seller})),['Cliente da carteira']);
    // Link the vendas user to the seller and turn the preference on: that user only reaches the contacts of the seller.
    const linkedUser=await save({p_id:ids.seller,p_expected_version:1,p_contact_expected_version:same.contact.version,p_contact:{name:'Vendedora Sintética'},p_settings:{...SETTINGS,user_id:f.users.vendas}});
-   assert.equal(linkedUser.seller.user_name,'vendas@sintetico.test');
+   assert.equal(linkedUser.seller.user_name,'Pessoa sintética vendas');
    await fails(assert,save({p_id:from.seller.id,p_expected_version:1,p_contact_expected_version:from.contact.version,p_contact:{name:'Contato que vira vendedor'},p_settings:{...SETTINGS,user_id:f.users.vendas}}),'23505');
    await f.preference('contatos.acesso_vendedor',true);
    assert.deepEqual(names(await f.page({},f.users.vendas)),['Cliente da carteira']);assert.equal((await f.page({},f.users.vendas)).scoped,true);

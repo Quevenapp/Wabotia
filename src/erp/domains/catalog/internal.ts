@@ -6,6 +6,7 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { pgLower } from "../../engine/text.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import * as preferences from "../preferences/public.ts";
 import * as sync from "../sync/public.ts";
@@ -21,19 +22,15 @@ const chars = (s: string) => [...s].length;
 const FOLD_FROM = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖØòóôõöøÙÚÛÜùúûüÇçÑñÝŸýÿ";
 const FOLD_TO = "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOOooooooUUUUuuuuCcNnYYyy";
 
-/** erp_catalog.fold: sem acento e minúsculo (coluna __fold dos índices). */
+/** erp_catalog.fold: lower(translate(valor, acentuadas, sem acento)), com o lower do Postgres. */
 export function fold(value: string | null): string | null {
   if (value === null) return null;
   let out = "";
   for (const ch of value) {
     const i = FOLD_FROM.indexOf(ch);
-    // lower() do Postgres é caractere a caractere: sem o sigma final do JS
-    // ("ΑΣ" → "ασ", não "ας").
-    // Mapeamento simples, como o Postgres: "İ" → "i" (o JS dá "i̇").
-    const l = i >= 0 ? FOLD_TO[i].toLowerCase() : ch === "İ" ? "i" : ch.toLowerCase();
-    out += [...l].length === 1 ? l : ch;
+    out += i >= 0 ? FOLD_TO[i] : ch;
   }
-  return out;
+  return pgLower(out);
 }
 
 /** erp_catalog.unit_price(p_value jsonb, p_integers): preço com 4 ou 10 casas. */

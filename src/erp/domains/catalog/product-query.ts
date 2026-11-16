@@ -17,6 +17,7 @@ import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { ErpError, raise } from "../../engine/errors.ts";
 import { arrow, jsonbKeys, jsonType } from "../../engine/json.ts";
+import { pgLower } from "../../engine/text.ts";
 import { jsonTimestamp, validDate } from "../../engine/time.ts";
 import { requireAccess as stockAccess } from "../stock/public.ts";
 import { CNTRL, btrim, chars, compareText, matches } from "./fields.ts";
@@ -29,8 +30,8 @@ const ORIGIN_STOCK = ["origin_zero", "origin_negative", "origin_positive", "orig
 export const SORTS = ["created_desc", "name_asc", "name_desc", "code_asc", "code_desc"];
 const QTY = 6;
 
-/** lower() do Postgres, caractere a caractere. */
-export const pgLower = (s: string) => [...s].map((c) => c.toLowerCase()).join("");
+/** lower() do Postgres (mapeamento simples, engine/text.ts). */
+export { pgLower };
 
 const dateOk = (d: string | null) => d === null || (!d.endsWith("infinity") && d >= "1900-01-01" && d <= "2100-12-31");
 
