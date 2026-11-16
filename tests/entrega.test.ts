@@ -512,6 +512,103 @@ describe("entrega: avulsa, localização do cliente e privacidade", () => {
   });
 });
 
+describe("entrega: ganchos do Pedido", () => {
+  const isLink = (m: any) =>
+    JSON.stringify(m).includes('"display_text":"Acompanhar"');
+
+  it("saída numa mensagem só: aviso do Pedido como corpo do botão Acompanhar", async () => {
+    const { c } = await started();
+    const out = (await outbox(c.id)).filter((m) =>
+      /saiu para entrega/i.test(JSON.stringify(m)),
+    );
+    expect(out).toHaveLength(1);
+    expect(isLink(out[0])).toBe(true);
+    expect((await outbox(c.id)).filter(isLink)).toHaveLength(1);
+  });
+
+  it("cozinha marcou a saída antes: aviso do Pedido e, na saída, o link", async () => {
+    const { f, menu } = await setup();
+    const { c, order } = await deliveryOrder(f, menu, "5511972000301");
+    const created = await run(f, f.admin, "entrega.create", {
+      source: "pedido",
+      ref_id: order.id,
+      courier_id: f.member.id,
+    });
+    await run(f, f.admin, "pedido.status", {
+      id: order.id,
+      status: "out_for_delivery",
+    });
+    const before = (await outbox(c.id)).filter((m) =>
+      /saiu para entrega/i.test(JSON.stringify(m)),
+    );
+    expect(before).toHaveLength(1);
+    expect(isLink(before[0])).toBe(false);
+    await run(f, f.member, "entrega.start", { id: created.id, destination: DEST });
+    expect((await outbox(c.id)).filter(isLink)).toHaveLength(1);
+  });
+
+  it("cozinha marca Entregue ou Cancelado: a entrega acompanha", async () => {
+    const one1 = await started();
+    await run(one1.f, one1.f.admin, "pedido.status", {
+      id: one1.order.id,
+      status: "delivered",
+    });
+    const d1 = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", one1.delivery.id);
+    expect(d1.status).toBe("delivered");
+    const member = await bearer(one1.f.member);
+    const after = await (
+      await positions(member, one1.f, one1.delivery.id, {
+        points: [{ t: now(), ...FAR }],
+      })
+    ).json<any>();
+    expect(after.active).toBe(false);
+    // Entregue pelo app: o gancho não repete o evento.
+    const two = await started();
+    await run(two.f, two.f.member, "entrega.deliver", { id: two.delivery.id });
+    expect(await orderStatus(two.order.id)).toBe("delivered");
+    const delivered = await all(
+      env,
+      "SELECT id FROM events WHERE profile_id=? AND kind='entrega.delivered'",
+      two.f.profile,
+    );
+    expect(delivered).toHaveLength(1);
+    // Cancelado na cozinha: rota cancelada e link fechado.
+    const three = await started();
+    const link = (await outbox(three.c.id)).filter(isLink).at(-1);
+    await run(three.f, three.f.admin, "pedido.status", {
+      id: three.order.id,
+      status: "cancelled",
+      reason: "Cliente desistiu",
+    });
+    const d3 = await one(env, "SELECT * FROM entrega_deliveries WHERE id=?", three.delivery.id);
+    expect(d3.status).toBe("cancelled");
+    expect((await track(codeIn(JSON.stringify(link)))).status).toBe(410);
+  });
+
+  it("entregador e previsão no quadro e no detalhe do pedido", async () => {
+    const { f, order, delivery } = await started();
+    const member = await bearer(f.member);
+    await positions(member, f, delivery.id, { points: [{ t: now(), ...FAR }] });
+    const detail = await (
+      await api(member, `/profiles/${f.profile}/pedido/orders/${order.id}`)
+    ).json<any>();
+    expect(detail.delivery).toMatchObject({
+      status: "en_route",
+      status_label: "A caminho",
+      courier_id: f.member.id,
+    });
+    expect(detail.delivery.eta_minutes).toBeGreaterThan(0);
+    expect(detail.delivery).not.toHaveProperty("lat");
+    const board = await (
+      await api(member, `/profiles/${f.profile}/pedido/board`)
+    ).json<any>();
+    const card = board.columns
+      .flatMap((col: any) => col.orders)
+      .find((o: any) => o.id === order.id);
+    expect(card.delivery.courier_id).toBe(f.member.id);
+  });
+});
+
 describe("entrega: travas do núcleo (revisão A)", () => {
   const boundApp = (f: Fixture): Actor => ({
     id: "app:presa",

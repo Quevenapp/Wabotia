@@ -43,6 +43,9 @@ import {
   whereIs,
 } from "./notify";
 
+// Ganchos do Pedido: estado, aviso de saída com o link e entregador no quadro.
+import "./pedido-hooks";
+
 const MODULE = "entrega";
 // Toda resposta passa por `visible`: aplicação sem contacts:read não vê
 // cliente, endereço nem posição; sem notes:read, nem a observação interna.

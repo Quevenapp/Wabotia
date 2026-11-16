@@ -69,7 +69,7 @@ export function values(row: DeliveryRow, at = now()) {
 }
 
 /** Frase da previsão, ou "" sem previsão ou com posição velha. */
-function etaSentence(row: DeliveryRow, cfg: EntregaConfig, at: number) {
+export function etaSentence(row: DeliveryRow, cfg: EntregaConfig, at: number) {
   if (!row.eta_at || signalOf(row, cfg, at) !== "ok") return "";
   return fill(cfg.texts.eta, values(row, at));
 }
@@ -115,14 +115,19 @@ async function setNotified(
   );
 }
 
-/** Link de acompanhamento (passo web "track"); o anterior é cancelado. */
-async function openTrack(
+/**
+ * Link de acompanhamento (passo web "track"); o anterior é cancelado. Sem
+ * `fallback`, não manda nada quando o link não sai (janela fechada, endereço
+ * público desconhecido) e devolve false.
+ */
+export async function openTrack(
   ctx: ModuleContext,
   cfg: EntregaConfig,
   c: Conversation,
   row: DeliveryRow,
   text: string,
   key: string,
+  fallback = true,
 ) {
   try {
     const { step } = await ctx.openWebStep(c, {
@@ -148,15 +153,17 @@ async function openTrack(
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     // Sem endereço público ou janela fechada: só o texto, se houver.
-    if (text) await milestone(ctx, cfg, c, text, `${key}:text`);
+    if (fallback && text) await milestone(ctx, cfg, c, text, `${key}:text`);
     return false;
   }
 }
 
 /**
- * Saída: no Pedido, o próprio Pedido já avisou "saiu para entrega"; aqui vão
- * só o link (e a previsão). Nos demais, o aviso de saída com o link. Sem
- * destino, pede a localização ao cliente (janela aberta).
+ * Saída: no Pedido, o aviso "Saiu para entrega" do Pedido já saiu com o botão
+ * Acompanhar (onStatusNotice, ./pedido-hooks.ts) ou sem ele (pedido que a
+ * cozinha já tinha marcado); aqui vai o link quando ainda não saiu. Nos
+ * demais, o aviso de saída com o link. Sem destino, pede a localização ao
+ * cliente (janela aberta).
  */
 export async function announceStart(ctx: ModuleContext, row: DeliveryRow) {
   const cfg = await config(ctx);
@@ -170,7 +177,9 @@ export async function announceStart(ctx: ModuleContext, row: DeliveryRow) {
     etaSentence(row, cfg, at),
   ].filter(Boolean);
   if (windowOpen(c, at)) {
-    if (cfg.tracking_link)
+    if (cfg.tracking_link && row.track_step_id) {
+      // Link já enviado junto com o aviso do Pedido.
+    } else if (cfg.tracking_link)
       await openTrack(ctx, cfg, c, row, parts.join(" "), `start:${row.id}`);
     else if (parts.length)
       await milestone(ctx, cfg, c, parts.join(" "), `start:${row.id}`);

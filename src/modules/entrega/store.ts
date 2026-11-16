@@ -174,7 +174,7 @@ export function visible(ctx: ModuleContext, actor: Actor, value: any): any {
   return value;
 }
 
-async function history(
+export async function history(
   ctx: ModuleContext,
   id: string,
   status: string,
@@ -599,26 +599,19 @@ export async function start(
   );
   const dest = destinationOf(data.destination);
   let pedidoStatus: string | null = null;
-  if (row.source === "pedido") {
-    const order = await pedidoOrder(ctx, actor, row.source_ref);
-    if (!DELIVERABLE.includes(order.status))
-      throw new ApiError(
-        409,
-        "order_not_deliverable",
-        `O pedido está ${String(order.status_label || order.status).toLowerCase()}.`,
-      );
-    // "Pronto" (marcado por engano num pedido de entrega) segue direto para
-    // entregue no Pedido; recebido e em preparo passam a "Saiu para entrega".
-    if (["received", "preparing"].includes(order.status)) {
-      await ctx.run(
-        actor,
-        "pedido.status",
-        { id: row.source_ref, status: "out_for_delivery" },
-        `${requestId}:pedido`,
-      );
-      pedidoStatus = "out_for_delivery";
-    }
-  }
+  const order =
+    row.source === "pedido"
+      ? await pedidoOrder(ctx, actor, row.source_ref)
+      : null;
+  if (order && !DELIVERABLE.includes(order.status))
+    throw new ApiError(
+      409,
+      "order_not_deliverable",
+      `O pedido está ${String(order.status_label || order.status).toLowerCase()}.`,
+    );
+  // A rota é gravada antes de mudar o Pedido: o aviso "Saiu para entrega"
+  // (onStatusNotice) roda dentro do pedido.status e já encontra a entrega a
+  // caminho para mandar o botão Acompanhar na mesma mensagem.
   const at = now();
   await exec(
     ctx.env,
@@ -631,6 +624,28 @@ export async function start(
     at,
     row.id,
   );
+  // "Pronto" (marcado por engano num pedido de entrega) segue direto para
+  // entregue no Pedido; recebido e em preparo passam a "Saiu para entrega".
+  if (order && ["received", "preparing"].includes(order.status)) {
+    try {
+      await ctx.run(
+        actor,
+        "pedido.status",
+        { id: row.source_ref, status: "out_for_delivery" },
+        `${requestId}:pedido`,
+      );
+    } catch (error) {
+      // O Pedido recusou: a entrega volta a aguardar saída.
+      await exec(
+        ctx.env,
+        "UPDATE entrega_deliveries SET status='assigned',started_at=NULL,next_update_at=NULL,track_step_id=NULL,updated=? WHERE id=? AND status='en_route'",
+        now(),
+        row.id,
+      );
+      throw error;
+    }
+    pedidoStatus = "out_for_delivery";
+  }
   await history(ctx, row.id, "en_route", actor.id);
   const fresh = await loadDelivery(ctx, row.id);
   const view = deliveryView(fresh, cfg);
@@ -670,6 +685,19 @@ export async function finish(
       ? "A entrega já foi concluída."
       : "Esta entrega não está em andamento.",
   );
+  const note = text(data.note, 500, "Observação");
+  // A entrega é concluída antes de mudar o Pedido: o gancho de estado do
+  // Pedido (onOrderStatusChanged) já a encontra entregue e não repete.
+  const at = now();
+  await exec(
+    ctx.env,
+    "UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND status IN ('assigned','en_route')",
+    at,
+    at,
+    at,
+    row.id,
+  );
+  await history(ctx, row.id, "delivered", actor.id, note);
   let pedidoError: string | null = null;
   if (row.source === "pedido") {
     try {
@@ -696,16 +724,6 @@ export async function finish(
       pedidoError = error.message;
     }
   }
-  const at = now();
-  await exec(
-    ctx.env,
-    "UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND status IN ('assigned','en_route')",
-    at,
-    at,
-    at,
-    row.id,
-  );
-  await history(ctx, row.id, "delivered", actor.id, text(data.note, 500, "Observação"));
   const fresh = await loadDelivery(ctx, row.id);
   const view = deliveryView(fresh, cfg);
   await ctx.publish("entrega.delivered", row.id, eventPayload(view), {

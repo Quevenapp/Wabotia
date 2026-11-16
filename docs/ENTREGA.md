@@ -57,9 +57,12 @@ pedido com entrega ──► entrega criada ──► atribuída ──► saiu 
 2. **Sair.** O entregador toca em **Iniciar rota** no app
    (`POST …/start`). O app geocodifica o endereço do pedido no próprio aparelho
    e manda o destino junto. No Pedido, o pedido vai para "Saiu para entrega" e
-   o próprio Pedido avisa o cliente, como sempre; a Entrega manda o botão
-   **Acompanhar**. Sem destino, o cliente recebe o botão "Enviar localização"
-   do WhatsApp (opcional para ele).
+   o cliente recebe **uma mensagem só**: o aviso configurado no Pedido com o
+   botão **Acompanhar** (gancho `onStatusNotice` do Pedido). Fora da janela de
+   24 h, o Pedido manda o aviso dele pelo modelo, sem o link. Se a cozinha já
+   tinha marcado "Saiu para entrega" antes, o aviso do Pedido já saiu e a
+   Entrega manda só o link ao sair. Sem destino, o cliente recebe o botão
+   "Enviar localização" do WhatsApp (opcional para ele).
 3. **Na rua.** O app lê o GPS e manda os pontos em lote (abaixo). O servidor
    guarda só a última posição e um rastro curto, calcula a previsão e decide
    as mensagens.
@@ -72,6 +75,14 @@ pedido com entrega ──► entrega criada ──► atribuída ──► saiu 
 Cancelar (`POST …/cancel`, com motivo) encerra a rota; o pedido do Pedido não
 muda (a equipe decide no quadro). Rota esquecida aberta por 8 horas é
 encerrada sozinha, sem avisar o cliente.
+
+**Pela cozinha.** Quando o pedido é marcado "Entregue" ou "Cancelado" no
+quadro (ou pelo pagamento, ou pela rodada do Pedido), a entrega aberta dele
+acompanha (gancho `onOrderStatusChanged`): fica entregue ou cancelada, o app
+recebe `active: false` no próximo lote e, cancelada, o link de
+acompanhamento fecha. O cliente recebe só o aviso do Pedido. O quadro e o
+detalhe do pedido mostram o entregador, a situação e a previsão
+(`delivery`, gancho `provideDeliveryInfo`), sem posição nem endereço.
 
 ## API do app do entregador
 
@@ -153,7 +164,8 @@ Sem destino não há previsão: o modo `eta` manda a localização no lugar.
   aberta**, só com posição recente e nunca depois de "chegando". A rodada que
   não pode mandar pula a vez em vez de acumular.
 - **Avisos** de saída, chegada e entrega: uma vez cada (chave por entrega).
-  No Pedido, saída e entrega são as do próprio Pedido; a Entrega não repete.
+  No Pedido, saída e entrega são as do próprio Pedido (a saída já com o
+  botão Acompanhar); a Entrega não repete.
 - **Janela de 24 h fechada** (cliente não escreveu há mais de 24 h, comum em
   encomenda para outro dia): com `outside_window: milestones`, só os avisos,
   pelo modelo de notificação da área, e só com o consentimento da finalidade
