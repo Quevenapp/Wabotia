@@ -141,7 +141,7 @@ export async function dualFixture({
       if (!r.ok) throw r.raw;
       return r.value;
     }
-    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock));
+    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock, objectLookup));
   }
 
   /**
@@ -170,6 +170,19 @@ export async function dualFixture({
       assert.fail(`Diferencial ${name}: os motores divergem\n${JSON.stringify(problems.slice(0, 4), null, 1)}`);
     if (!a.ok) throw a.raw;
     return a.value;
+  }
+
+  // Armazenamento: o bucket de anexos existe em produção (o Supabase o cria
+  // fora das migrações); objetos enviados entram nos dois lados por putObject.
+  const objects = new Map();
+  const objectLookup = (key) => objects.get(key) ?? null;
+  await pg.query(
+    "insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('erp-attachments','erp-attachments',false,10485760,$1) on conflict do nothing",
+    [["application/pdf", "image/png", "image/jpeg", "application/xml", "text/plain"]],
+  );
+  async function putObject(bucket, name, size, mimetype) {
+    await pg.query("insert into storage.objects(bucket_id,name,metadata) values($1,$2,$3)", [bucket, name, JSON.stringify({ size: String(size), mimetype })]);
+    objects.set(`${bucket}/${name}`, { size, mimetype });
   }
 
   const users = Object.fromEntries(ROLES.map((r) => [r, randomUUID()]));
@@ -215,6 +228,8 @@ export async function dualFixture({
     rpc,
     dual,
     clock,
+    putObject,
+    objectLookup,
     /** Depois de SQL direto no Postgres: espelha o que mudou. */
     sync: async () => mirror(await changedInPg()),
     scalar,

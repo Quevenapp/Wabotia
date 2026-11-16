@@ -34,3 +34,24 @@ export const columns = {
 
 /** Tabelas que não vêm para o objeto, com o motivo. */
 export const discardTables = {};
+
+/**
+ * Pendências do esquema gerado (CHECK sem tradução, gatilho em PL/pgSQL) que o
+ * domínio já cumpre em TS, com onde. tests/erp/schema-parity.test.mjs só conta
+ * o que ninguém cobre; ao fechar o domínio, baixe os tetos de lá.
+ * checks: "schema.tabela.restrição"; triggers: "schema__tabela.gatilho".
+ */
+export const covered = {
+  "checks": {
+    "erp_catalog.employee.employee_name_check": "src/erp/domains/catalog/employee.ts employeeInput: contactText('name', 200), btrim, sem [[:cntrl:]], obrigatório (tests/erp/fagoo/catalog-employees.test.mjs)",
+    "erp_catalog.employee.employee_salary_check": "src/erp/domains/catalog/employee.ts employeeInput: salary ^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,2})?$, sem sinal (tests/erp/fagoo/catalog-employees.test.mjs)",
+    "erp_catalog.payment_method.payment_method_description_check": "src/erp/domains/catalog/payment-method.ts paymentMethodInput: contactText('description', 100), obrigatória (tests/erp/fagoo/catalog-payment-methods.test.mjs)",
+    "erp_catalog.payment_method.payment_method_fee_fixed_check": "src/erp/domains/catalog/payment-method.ts paymentMethodInput: fee_fixed ^(0|[1-9][0-9]{0,15})(\\.[0-9]{1,2})?$ (tests/erp/fagoo/catalog-payment-methods.test.mjs)",
+    "erp_catalog.payment_method.payment_method_fee_rate_check": "src/erp/domains/catalog/fields.ts percentValid: 0 a 100, até 4 casas (tests/erp/fagoo/catalog-payment-methods.test.mjs)",
+    "erp_catalog.payment_method.payment_method_fine_rate_check": "src/erp/domains/catalog/fields.ts percentValid: 0 a 100, até 4 casas (tests/erp/fagoo/catalog-payment-methods.test.mjs)",
+    "erp_catalog.payment_method.payment_method_interest_rate_check": "src/erp/domains/catalog/fields.ts percentValid: 0 a 100, até 4 casas (tests/erp/fagoo/catalog-payment-methods.test.mjs)"
+  },
+  "triggers": {
+    "erp_catalog__payment_method.payment_method_defaults_fit": "src/erp/domains/catalog/payment-method.ts fit() em insertRow e updateRow, toda escrita da tabela (tests/erp/fagoo/catalog-payment-methods.test.mjs, H 371 e diferencial)"
+  }
+};
