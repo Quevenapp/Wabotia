@@ -424,6 +424,17 @@ mensagem, passo web nem protocolo.
 - **Identidade por telefone**: compare, vincule ou revincule registros por
   telefone só com `ctx.verifiedPhone(c)`. Em conversa de integração ele é
   null, e o módulo não procura nem puxa registros de outro cliente.
+- **Falar com o cliente pela API**: criar com `conversation_id` só avisa ou
+  cobra quando `ctx.mayMessage(actor, c)` (dono da conversa, administrador ou
+  o bot que atende). Remarcar, cancelar, mudar estado e enviar orçamento
+  pela API conferem `await ctx.mayNotify(actor, conversationId)`: pessoas da
+  equipe avisam; aplicação, só quando `mayMessage`. Quando mandar a mensagem
+  é a operação inteira (o link do check-in), a aplicação que não atende
+  recebe 403. Cobrar parcela da Mensalidade já exige gerente ou
+  `billing:write`.
+- **Eventos**: os de módulo e os de passo web exigem `contacts:read`; os que
+  levam nota interna preenchida (e todos os da OS e do Pedido) exigem também
+  `notes:read`.
 
 ## 4. Passo web
 

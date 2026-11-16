@@ -272,10 +272,17 @@ onRoute("os", {
 onCommand("os", "os.status", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
+  // Aplicação que não atende a conversa muda o estado sem avisar o cliente
+  // (segunda conferência, B9).
+  const notify = await ctx.mayNotify(actor, order.conversation_id ?? null);
   return visibleOrder(
     ctx,
     actor,
-    orderView(await changeStatus(ctx, order, data.status, actor.id, data.note)),
+    orderView(
+      await changeStatus(ctx, order, data.status, actor.id, data.note, {
+        notify,
+      }),
+    ),
   );
 });
 
@@ -302,12 +309,13 @@ onRoute("os", {
 onCommand("os", "os.quote.send", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
+  const notify =
+    data.notify !== false &&
+    (await ctx.mayNotify(actor, order.conversation_id ?? null));
   return visibleOrder(
     ctx,
     actor,
-    orderView(
-      await sendQuote(ctx, order, actor.id, { notify: data.notify !== false }),
-    ),
+    orderView(await sendQuote(ctx, order, actor.id, { notify })),
   );
 });
 

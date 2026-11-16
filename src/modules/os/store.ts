@@ -521,6 +521,7 @@ export async function moveOrder(
   note = "",
   extra: Record<string, any> = {},
   kind: "status" | "quote" = "status",
+  options: { notify?: boolean } = {},
 ) {
   const at = now();
   const cfg = osSettings(await ctx.settings());
@@ -591,7 +592,11 @@ export async function moveOrder(
       warranty_until: next.warranty_until,
       actor,
     });
-  if (order.status !== to && (TEXT_KEYS as readonly string[]).includes(to))
+  if (
+    options.notify !== false &&
+    order.status !== to &&
+    (TEXT_KEYS as readonly string[]).includes(to)
+  )
     await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
   return next;
 }
@@ -603,6 +608,7 @@ export async function changeStatus(
   to: unknown,
   actor: string,
   note: unknown,
+  options: { notify?: boolean } = {},
 ) {
   requireValue(isStatus(to), "Estado desconhecido.");
   const memo = text(note, 500, "a nota");
@@ -624,7 +630,7 @@ export async function changeStatus(
       "invalid_transition",
       `Não é possível passar de "${STATUS_LABELS[order.status as OsStatus]}" para "${STATUS_LABELS[to]}".`,
     );
-  return moveOrder(ctx, order, to, actor, memo);
+  return moveOrder(ctx, order, to, actor, memo, {}, "status", options);
 }
 
 // ---------------------------------------------------------------------------
