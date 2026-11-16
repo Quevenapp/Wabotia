@@ -6,6 +6,7 @@ import { ErpError, fromSqlite } from "./errors.ts";
 import { Clock } from "./time.ts";
 import { NO_IDENTITY, type IdentityPort } from "./identity.ts";
 import { prepareArgs } from "./args.ts";
+import { flushSequences } from "./sequence.ts";
 
 /** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Wabotia, o R2). */
 export interface StoredObject {
@@ -30,6 +31,8 @@ export interface RpcContext {
   listing: () => StoredListing[];
   /** Quem chama e as pessoas da área (porta de identidade, engine/identity.ts). */
   identity: IdentityPort;
+  /** Números de identity emitidos nesta chamada (engine/sequence.ts); gravados fora da transação. */
+  sequences: Map<string, bigint>;
 }
 
 /** Objeto do armazenamento numa listagem: bucket, nome e tamanho em bytes. */
@@ -147,10 +150,15 @@ export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, cloc
     objects: e.objects ?? noObjects,
     listing: () => listing,
     identity: e.identity ?? NO_IDENTITY,
+    sequences: new Map(),
   };
   try {
     return db.transaction(() => fn(ctx));
   } catch (error) {
     throw fromSqlite(error);
+  } finally {
+    // nextval não volta com a transação: o número emitido fica gravado mesmo
+    // quando o RPC falhou (engine/sequence.ts).
+    flushSequences(db, ctx.sequences);
   }
 }
