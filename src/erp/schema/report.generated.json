@@ -1,0 +1,1689 @@
+{
+ "tables": 430,
+ "columns": 3784,
+ "checks": {
+  "translated": 991,
+  "regex": 233,
+  "pending": [
+   {
+    "table": "erp_access.profile",
+    "constraint": "profile_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 120)) AND (name = btrim(name)) AND (name !~ '[\\x01-\\x1f\\x7f]'::text)))"
+   },
+   {
+    "table": "erp_access.profile",
+    "constraint": "profile_phone_check",
+    "why": "expressão regular",
+    "def": "CHECK (((phone IS NULL) OR ((phone ~ '^[0-9+() -]{8,20}$'::text) AND (phone = btrim(phone)))))"
+   },
+   {
+    "table": "erp_access.user_command",
+    "constraint": "user_command_email_check",
+    "why": "caixa de texto (só ASCII no SQLite)",
+    "def": "CHECK (((email IS NULL) OR ((length(email) <= 254) AND (email = lower(email)))))"
+   },
+   {
+    "table": "erp_catalog.contact",
+    "constraint": "contact_roles_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK ((roles <@ ARRAY['customer'::text, 'supplier'::text, 'carrier'::text]))"
+   },
+   {
+    "table": "erp_catalog.contact_billing",
+    "constraint": "contact_billing_billing_email_check",
+    "why": "expressão regular",
+    "def": "CHECK (((billing_email IS NULL) OR (((length(billing_email) >= 3) AND (length(billing_email) <= 254)) AND (billing_email !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_catalog.contact_code_counter",
+    "constraint": "contact_code_counter_next_number_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((next_number >= 1) AND (next_number <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_catalog.contact_comment",
+    "constraint": "contact_comment_body_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(body) >= 1) AND (length(body) <= 2000)) AND (body = btrim(body)) AND (translate(body, '\n\r\t'::text, ''::text) !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.contact_email_verification",
+    "constraint": "contact_email_verification_email_check",
+    "why": "expressão regular",
+    "def": "CHECK (((email = lower(btrim(email))) AND ((length(email) >= 3) AND (length(email) <= 254)) AND (email !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.contact_profile",
+    "constraint": "contact_profile_avg_tax_load_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((avg_tax_load >= (0)::numeric) AND (avg_tax_load <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.contact_profile",
+    "constraint": "contact_profile_credit_limit_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((credit_limit > (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.contact_type",
+    "constraint": "contact_type_label_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(label) >= 1) AND (length(label) <= 60)) AND (label = btrim(label)) AND (label !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.custom_field",
+    "constraint": "custom_field_hint_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(hint) >= 1) AND (length(hint) <= 100)) AND (hint = btrim(hint)) AND (hint !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.custom_field",
+    "constraint": "custom_field_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 60)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.custom_field_option",
+    "constraint": "custom_field_option_label_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(label) >= 1) AND (length(label) <= 60)) AND (label = btrim(label)) AND (label !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.employee",
+    "constraint": "employee_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 200)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.employee",
+    "constraint": "employee_salary_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((salary >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.invoice_tag",
+    "constraint": "invoice_tag_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((origin = 'origin'::text) AND (invoice_id ~ '^[0-9]{1,40}$'::text)) OR ((origin = 'brufap'::text) AND (invoice_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text))))"
+   },
+   {
+    "table": "erp_catalog.payment_method",
+    "constraint": "payment_method_description_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(description) >= 1) AND (length(description) <= 100)) AND (description = btrim(description)) AND (description !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_catalog.payment_method",
+    "constraint": "payment_method_fee_fixed_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((fee_fixed >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.payment_method",
+    "constraint": "payment_method_fee_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((fee_rate >= (0)::numeric) AND (fee_rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.payment_method",
+    "constraint": "payment_method_fine_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((fine_rate >= (0)::numeric) AND (fine_rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.payment_method",
+    "constraint": "payment_method_interest_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((interest_rate >= (0)::numeric) AND (interest_rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_depth_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((depth >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_gross_weight_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((gross_weight >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_gtin_tax_check",
+    "why": "expressão regular",
+    "def": "CHECK (((gtin_tax = 'SEM GTIN'::text) OR (gtin_tax ~ '^([0-9]{8}|[0-9]{12,14})$'::text)))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_height_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((height >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_net_weight_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((net_weight >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_price_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((price >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_price_exact_10",
+    "why": "conversão de tipo",
+    "def": "CHECK (((price IS NULL) OR ((price >= (0)::numeric) AND (price < ('100000000000000'::bigint)::numeric) AND (price = trunc(price, 10)))))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_stock_max_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((stock_max >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_stock_min_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((stock_min >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product",
+    "constraint": "product_width_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((width >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_cost_history",
+    "constraint": "product_cost_history_cost_price_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((cost_price IS NULL) OR (cost_price >= (0)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_cost_history",
+    "constraint": "product_cost_history_purchase_price_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((purchase_price IS NULL) OR (purchase_price >= (0)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_cofins_fixed_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((cofins_fixed_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_glgni_percent_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((glgni_percent >= (0)::numeric) AND (glgni_percent <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_glgnn_percent_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((glgnn_percent >= (0)::numeric) AND (glgnn_percent <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_glp_percent_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((glp_percent >= (0)::numeric) AND (glp_percent <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_icms_own_substitute_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((icms_own_substitute_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_icms_st_retention_base_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((icms_st_retention_base >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_icms_st_retention_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((icms_st_retention_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_ipi_fixed_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((ipi_fixed_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_ipi_seal_code_check",
+    "why": "expressão regular",
+    "def": "CHECK (((length(ipi_seal_code) <= 60) AND (ipi_seal_code ~ '^[0-9A-Za-z./-]+$'::text)))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_items_per_box_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((items_per_box >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_pis_fixed_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((pis_fixed_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_starting_value_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((starting_value >= (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_detail",
+    "constraint": "product_detail_tax_percent_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((tax_percent >= (0)::numeric) AND (tax_percent <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.product_dun",
+    "constraint": "product_dun_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((quantity > (0)::numeric))"
+   },
+   {
+    "table": "erp_catalog.product_image",
+    "constraint": "product_image_url_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(url) >= 9) AND (length(url) <= 1000)) AND (url ~ '^https://[^[:space:][:cntrl:]]+$'::text)))"
+   },
+   {
+    "table": "erp_catalog.product_supplier",
+    "constraint": "product_supplier_cost_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((cost_price IS NULL) OR ((cost_price >= (0)::numeric) AND (cost_price < ('100000000000000'::bigint)::numeric) AND (cost_price = trunc(cost_price, 10)))))"
+   },
+   {
+    "table": "erp_catalog.product_supplier",
+    "constraint": "product_supplier_purchase_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((purchase_price IS NULL) OR ((purchase_price >= (0)::numeric) AND (purchase_price < ('100000000000000'::bigint)::numeric) AND (purchase_price = trunc(purchase_price, 10)))))"
+   },
+   {
+    "table": "erp_catalog.seller",
+    "constraint": "seller_commission_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((commission_rate >= (0)::numeric) AND (commission_rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.seller",
+    "constraint": "seller_discount_limit_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((discount_limit >= (0)::numeric) AND (discount_limit <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_catalog.taxonomy",
+    "constraint": "taxonomy_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 100)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_cnab.human_review_revision",
+    "constraint": "human_review_revision_reason_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(btrim(reason)) >= 3) AND (length(btrim(reason)) <= 1000)) AND (reason !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_cnab.operational_approval_revision",
+    "constraint": "operational_approval_revision_reference_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(btrim(reference)) >= 3) AND (length(btrim(reference)) <= 200)) AND (reference !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_cnab.operational_encoding_revision",
+    "constraint": "operational_encoding_revision_allowed_encoding_profiles_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK ((allowed_encoding_profiles <@ ARRAY['itau109-no-charges-v1'::text, 'itau109-origin-observed-v1'::text]))"
+   },
+   {
+    "table": "erp_cnab.remittance",
+    "constraint": "remittance_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((state = 'reserved'::text) AND (object_path IS NULL) AND (file_hash IS NULL)) OR ((state = 'ready'::text) AND (object_path IS NOT NULL) AND (file_hash ~ '^[a-f0-9]{64}$'::text) AND ((byte_size >= 1) AND (byte_size <= 4020000)))))"
+   },
+   {
+    "table": "erp_company.file",
+    "constraint": "file_check",
+    "why": "função de texto",
+    "def": "CHECK ((split_part(filename, '.'::text, 2) =\nCASE mime_type\n    WHEN 'application/pdf'::text THEN 'pdf'::text\n    WHEN 'image/png'::text THEN 'png'::text\n    WHEN 'image/jpeg'::text THEN 'jpg'::text\n    WHEN 'application/xml'::text THEN 'xml'::text\n    ELSE 'txt'::text\nEND))"
+   },
+   {
+    "table": "erp_dfe.summary",
+    "constraint": "summary_supplier_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(supplier_name) >= 1) AND (length(supplier_name) <= 200)) AND (supplier_name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_dfe.summary",
+    "constraint": "summary_total_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((total >= (0)::numeric))"
+   },
+   {
+    "table": "erp_documents.copy_source",
+    "constraint": "copy_source_source_number_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((source_number >= 1) AND (source_number <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.custom_field",
+    "constraint": "custom_field_hint_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(hint) >= 1) AND (length(hint) <= 100)) AND (hint = btrim(hint)) AND (hint !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_documents.custom_field",
+    "constraint": "custom_field_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 60)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_documents.discount_approval",
+    "constraint": "discount_approval_situation_ids_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((cardinality(situation_ids) <= 5) AND (array_position(situation_ids, NULL::uuid) IS NULL)))"
+   },
+   {
+    "table": "erp_documents.document",
+    "constraint": "document_number_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((number >= 1) AND (number <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.document",
+    "constraint": "document_total_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((total >= (0)::numeric) AND (total <= 999999999999.99)))"
+   },
+   {
+    "table": "erp_documents.document",
+    "constraint": "erp_document_state_valid",
+    "why": "função do Fagoo",
+    "def": "CHECK ((((origin = 'origin'::text) AND (status = 'source_unknown'::text)) OR ((erp_documents.transitions() -> kind) ? status)))"
+   },
+   {
+    "table": "erp_documents.freight_paid",
+    "constraint": "freight_paid_amount_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((amount >= (0)::numeric) AND (amount <= 999999999999.99)))"
+   },
+   {
+    "table": "erp_documents.freight_paid",
+    "constraint": "freight_paid_note_check",
+    "why": "expressão regular",
+    "def": "CHECK (((note IS NULL) OR (((length(note) >= 1) AND (length(note) <= 200)) AND (note !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_documents.item",
+    "constraint": "item_discount_percent_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((discount_percent >= (0)::numeric) AND (discount_percent <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_documents.item",
+    "constraint": "item_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((quantity > (0)::numeric))"
+   },
+   {
+    "table": "erp_documents.item",
+    "constraint": "item_total_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((total >= (0)::numeric))"
+   },
+   {
+    "table": "erp_documents.item",
+    "constraint": "item_unit_price_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((unit_price >= (0)::numeric))"
+   },
+   {
+    "table": "erp_documents.item",
+    "constraint": "item_unit_price_exact_10",
+    "why": "conversão de tipo",
+    "def": "CHECK (((unit_price >= (0)::numeric) AND (unit_price < ('10000000000'::bigint)::numeric) AND (unit_price = trunc(unit_price, 10))))"
+   },
+   {
+    "table": "erp_documents.item_cost_applied",
+    "constraint": "item_cost_applied_unit_cost_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((unit_cost >= (0)::numeric))"
+   },
+   {
+    "table": "erp_documents.numbering",
+    "constraint": "numbering_last_number_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((last_number >= 0) AND (last_number <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.numbering_audit",
+    "constraint": "numbering_audit_after_last_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((after_last >= 0) AND (after_last <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.numbering_audit",
+    "constraint": "numbering_audit_before_last_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((before_last >= 0) AND (before_last <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.occurrence",
+    "constraint": "occurrence_situation_shape",
+    "why": "não prepara no SQLite: no such function: erp_jsonb_typeof",
+    "def": "CHECK ((((situation_before IS NULL) OR ((jsonb_typeof(situation_before) = 'object'::text) AND (jsonb_typeof((situation_before -> 'key'::text)) = 'string'::text) AND (jsonb_typeof((situation_before -> 'name'::text)) = 'string'::text))) AND ((situation_after IS NULL) OR ((jsonb_typeof(situation_after)"
+   },
+   {
+    "table": "erp_documents.origin_status_map",
+    "constraint": "origin_status_map_check",
+    "why": "função do Fagoo",
+    "def": "CHECK (((erp_documents.transitions() -> entity) ? native_status))"
+   },
+   {
+    "table": "erp_documents.sales_bag_item",
+    "constraint": "sales_bag_item_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity <= 999999999.999999)))"
+   },
+   {
+    "table": "erp_documents.service_event",
+    "constraint": "service_event_sequence_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((sequence >= 1) AND (sequence <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.service_event",
+    "constraint": "service_event_total_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((total >= (0)::numeric) AND (total <= 999999999999.99)))"
+   },
+   {
+    "table": "erp_documents.service_journal_entry",
+    "constraint": "service_journal_entry_sequence_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((sequence >= 1) AND (sequence <= '9999999999'::bigint)))"
+   },
+   {
+    "table": "erp_documents.user_signature",
+    "constraint": "user_signature_department_check",
+    "why": "expressão regular",
+    "def": "CHECK (((department IS NULL) OR (((length(department) >= 1) AND (length(department) <= 100)) AND (department = btrim(department)) AND (department !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_documents.user_signature",
+    "constraint": "user_signature_greeting_check",
+    "why": "expressão regular",
+    "def": "CHECK (((greeting IS NULL) OR (((length(greeting) >= 1) AND (length(greeting) <= 200)) AND (greeting = btrim(greeting)) AND (greeting !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_finance.account",
+    "constraint": "account_bank_data_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((agency IS NULL) OR (agency ~ '^[0-9A-Za-z-]{1,10}$'::text)) AND ((account_number IS NULL) OR (account_number ~ '^[0-9A-Za-z.-]{1,20}$'::text)) AND ((account_digit IS NULL) OR (account_digit ~ '^[0-9A-Za-z]{1,2}$'::text))))"
+   },
+   {
+    "table": "erp_finance.account",
+    "constraint": "account_institution_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((institution_code IS NULL) AND (institution_name IS NULL)) OR ((institution_code ~ '^[0-9]{3}$'::text) AND ((length(institution_name) >= 1) AND (length(institution_name) <= 80)) AND (institution_name = btrim(institution_name)) AND (institution_name !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_finance.bank_statement",
+    "constraint": "bank_statement_file_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(file_name) >= 1) AND (length(file_name) <= 200)) AND (file_name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.bank_statement_line",
+    "constraint": "bank_statement_line_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents <> 0) AND (abs(amount_cents) <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.bank_statement_line",
+    "constraint": "bank_statement_line_fitid_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(fitid) >= 1) AND (length(fitid) <= 255)) AND (fitid !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.bank_statement_line",
+    "constraint": "bank_statement_line_memo_check",
+    "why": "expressão regular",
+    "def": "CHECK (((memo IS NULL) OR (((length(memo) >= 1) AND (length(memo) <= 255)) AND (memo !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_finance.cash_entry",
+    "constraint": "cash_entry_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.cash_entry",
+    "constraint": "cash_entry_note_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(note) >= 1) AND (length(note) <= 2000)) AND (note !~ '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]'::text)))"
+   },
+   {
+    "table": "erp_finance.cash_session",
+    "constraint": "cash_session_change_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((change_cents >= 0) AND (change_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.cash_session",
+    "constraint": "cash_session_previous_change_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((previous_change_cents >= 0) AND (previous_change_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.cash_session_move",
+    "constraint": "cash_session_move_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.cash_session_move",
+    "constraint": "cash_session_move_note_check",
+    "why": "expressão regular",
+    "def": "CHECK (((note IS NULL) OR (((length(note) >= 1) AND (length(note) <= 240)) AND (note !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_finance.cash_session_value",
+    "constraint": "cash_session_value_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 0) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.cnab_cash_plan",
+    "constraint": "cnab_cash_plan_principal_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((principal_cents >= 1) AND (principal_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission",
+    "constraint": "commission_base_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((base_cents >= 0) AND (base_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission",
+    "constraint": "commission_commission_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((commission_cents >= 0) AND (commission_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission",
+    "constraint": "commission_description_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(description) >= 1) AND (length(description) <= 240)) AND (description !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.commission",
+    "constraint": "commission_parcel_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((parcel_cents >= 0) AND (parcel_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission",
+    "constraint": "commission_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((rate >= (0)::numeric) AND (rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_finance.commission_adjustment",
+    "constraint": "commission_adjustment_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= '-999999999999999'::bigint) AND (amount_cents <= 0)))"
+   },
+   {
+    "table": "erp_finance.commission_adjustment",
+    "constraint": "commission_adjustment_note_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(note) >= 1) AND (length(note) <= 240)) AND (note !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.commission_entry",
+    "constraint": "commission_entry_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_entry",
+    "constraint": "commission_entry_description_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(description) >= 1) AND (length(description) <= 240)) AND (description !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.commission_entry",
+    "constraint": "commission_entry_month_check",
+    "why": "tempo relativo",
+    "def": "CHECK (((EXTRACT(day FROM month) = (1)::numeric) AND ((month >= '1900-01-01'::date) AND (month <= '2100-12-01'::date))))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_base_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((base_cents >= 0) AND (base_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_discount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((discount_cents >= 0) AND (discount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_estimated_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((estimated_cents >= 0) AND (estimated_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_fee_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((fee_cents >= 0) AND (fee_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_freight_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((freight_cents >= 0) AND (freight_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_icms_st_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((icms_st_cents >= 0) AND (icms_st_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_ipi_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((ipi_cents >= 0) AND (ipi_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_items_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((items_cents >= 0) AND (items_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_policy_check",
+    "why": "não prepara no SQLite: no such function: erp_jsonb_typeof",
+    "def": "CHECK (((jsonb_typeof(policy) = 'object'::text) AND (jsonb_typeof((policy -> 'additions'::text)) = 'array'::text)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_rate_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((rate >= (0)::numeric) AND (rate <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_finance.commission_operation",
+    "constraint": "commission_operation_total_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((total_cents >= 0) AND (total_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.grouped_billing",
+    "constraint": "grouped_billing_condition_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(condition) >= 1) AND (length(condition) <= 200)) AND (condition !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_finance.grouped_billing",
+    "constraint": "grouped_billing_total_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((total_cents >= 1) AND (total_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.grouped_billing_document",
+    "constraint": "grouped_billing_document_total_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((total_cents >= 1) AND (total_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.grouped_billing_invoice",
+    "constraint": "grouped_billing_invoice_total_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((total_cents >= 1) AND (total_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.origin_import_origin",
+    "constraint": "origin_import_origin_evidence_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(evidence) = 'object'::text) AND (octet_length((evidence)::text) <= 16384)))"
+   },
+   {
+    "table": "erp_finance.origin_import_origin",
+    "constraint": "origin_import_origin_source_id_check",
+    "why": "expressão regular",
+    "def": "CHECK (((source_id ~ '^[0-9]{1,40}$'::text) AND (source_id !~ '^0+$'::text)))"
+   },
+   {
+    "table": "erp_finance.recurrence",
+    "constraint": "recurrence_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_finance.settlement",
+    "constraint": "settlement_history_check",
+    "why": "função utf16_length",
+    "def": "CHECK (((history IS NULL) OR ((kind = 'payment'::text) AND ((erp_finance.utf16_length(history) >= 501) AND (erp_finance.utf16_length(history) <= 2000)) AND (history = btrim(history)) AND (note IS NOT NULL) AND (length(note) < length(history)) AND (\"left\"(history, length(note)) = note))))"
+   },
+   {
+    "table": "erp_finance.title",
+    "constraint": "title_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK ((((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)) OR ((amount_cents = 0) AND (origin_zero_source_id IS NOT NULL))))"
+   },
+   {
+    "table": "erp_finance.title",
+    "constraint": "title_bank_number_check",
+    "why": "expressão regular",
+    "def": "CHECK (((bank_number IS NULL) OR (((length(bank_number) >= 1) AND (length(bank_number) <= 60)) AND (bank_number = btrim(bank_number)) AND (bank_number !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_finance.title",
+    "constraint": "title_history_check",
+    "why": "função utf16_length",
+    "def": "CHECK (((history IS NULL) OR (((erp_finance.utf16_length(history) >= 241) AND (erp_finance.utf16_length(history) <= 2000)) AND (history = btrim(history)) AND (length(description) < length(history)) AND (\"left\"(history, length(description)) = description))))"
+   },
+   {
+    "table": "erp_finance.title_return",
+    "constraint": "title_return_source_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(source) = 'object'::text) AND ((source ->> 'kind'::text) = ANY (ARRAY['pos_return'::text, 'invoice_return'::text, 'document_return'::text])) AND (octet_length((source)::text) <= 1000)))"
+   },
+   {
+    "table": "erp_finance.transfer",
+    "constraint": "transfer_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_fiscal_authorization.attempt",
+    "constraint": "attempt_ordinal_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((ordinal >= 1) AND (ordinal <= '999999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice",
+    "constraint": "invoice_discount_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((discount >= (0)::numeric))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice",
+    "constraint": "invoice_freight_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((freight >= (0)::numeric))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice",
+    "constraint": "invoice_insurance_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((insurance >= (0)::numeric))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice",
+    "constraint": "invoice_other_expenses_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((other_expenses >= (0)::numeric))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice_item",
+    "constraint": "invoice_item_quantity_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity < ('100000000000'::bigint)::numeric) AND (quantity = trunc(quantity, 4))))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice_item",
+    "constraint": "invoice_item_total_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((total >= (0)::numeric))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice_item",
+    "constraint": "invoice_item_unit_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((unit_price >= (0)::numeric) AND (unit_price < ('100000000000'::bigint)::numeric) AND (unit_price = trunc(unit_price, 10))))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice_order_item",
+    "constraint": "invoice_order_item_quantity_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity < ('100000000000'::bigint)::numeric) AND (quantity = trunc(quantity, 4))))"
+   },
+   {
+    "table": "erp_fiscal_invoices.invoice_xml",
+    "constraint": "invoice_xml_check",
+    "why": "função octet_length",
+    "def": "CHECK ((octet_length(convert_to(content, 'UTF8'::name)) = size))"
+   },
+   {
+    "table": "erp_fiscal_invoices.origin_order_link",
+    "constraint": "origin_order_link_contact_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(contact_name) >= 1) AND (length(contact_name) <= 200)) AND (contact_name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_fiscal_receipt_query.policy",
+    "constraint": "policy_check",
+    "why": "função isfinite",
+    "def": "CHECK ((isfinite(valid_from) AND isfinite(valid_until) AND (valid_until > valid_from)))"
+   },
+   {
+    "table": "erp_fiscal_receipt_query.query",
+    "constraint": "query_check",
+    "why": "tempo relativo",
+    "def": "CHECK ((expires_at = (created_at + '00:01:00'::interval)))"
+   },
+   {
+    "table": "erp_fiscal_subset_review.review",
+    "constraint": "review_record_text_check",
+    "why": "função octet_length",
+    "def": "CHECK (((octet_length(record_text) >= 1) AND (octet_length(record_text) <= 131072)))"
+   },
+   {
+    "table": "erp_home.chart_preference",
+    "constraint": "chart_preference_charts_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK (((cardinality(charts) <= 5) AND (array_position(charts, NULL::text) IS NULL) AND (charts <@ ARRAY['resumo'::text, 'ticket_medio'::text, 'valor_faturado'::text, 'quantidade_pedidos'::text, 'top_skus'::text])))"
+   },
+   {
+    "table": "erp_home.goal",
+    "constraint": "goal_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 120)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_home.goal",
+    "constraint": "goal_seller_check",
+    "why": "expressão regular",
+    "def": "CHECK (((seller IS NULL) OR (((length(seller) >= 1) AND (length(seller) <= 80)) AND (seller = btrim(seller)) AND (seller !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_home.goal",
+    "constraint": "goal_target_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((target > (0)::numeric) AND (target <= 999999999999.99)))"
+   },
+   {
+    "table": "erp_home.notification",
+    "constraint": "notification_amount_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((amount IS NULL) OR (amount >= (0)::numeric)))"
+   },
+   {
+    "table": "erp_home.shortcut_preference",
+    "constraint": "shortcut_preference_shortcuts_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((cardinality(shortcuts) <= 20) AND (array_position(shortcuts, NULL::text) IS NULL)))"
+   },
+   {
+    "table": "erp_list_preferences.preference",
+    "constraint": "preference_list_id_check",
+    "why": "expressão regular",
+    "def": "CHECK (((length(list_id) <= 60) AND (list_id ~ '^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$'::text)))"
+   },
+   {
+    "table": "erp_pos.sale",
+    "constraint": "sale_cancel_reason_check",
+    "why": "expressão regular",
+    "def": "CHECK (((cancel_reason IS NULL) OR (((length(cancel_reason) >= 3) AND (length(cancel_reason) <= 1000)) AND (cancel_reason !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_pos.sale",
+    "constraint": "sale_cash_received_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((cash_received_cents >= 0) AND (cash_received_cents <= '99999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_pos.sale",
+    "constraint": "sale_change_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((change_cents >= 0) AND (change_cents <= '99999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_pos.sale",
+    "constraint": "sale_total_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((total_cents >= 0) AND (total_cents <= '99999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_pos.sale_payment",
+    "constraint": "sale_payment_amount_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((amount_cents >= 1) AND (amount_cents <= '99999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_pos.sale_payment",
+    "constraint": "sale_payment_note_check",
+    "why": "expressão regular",
+    "def": "CHECK (((note IS NULL) OR (((length(note) >= 1) AND (length(note) <= 2000)) AND (note !~ '[\\x01-\\x08\\x0b-\\x1f\\x7f]'::text))))"
+   },
+   {
+    "table": "erp_pos.sale_return",
+    "constraint": "sale_return_reason_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(reason) >= 3) AND (length(reason) <= 500)) AND (reason !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_pos.sale_return",
+    "constraint": "sale_return_value_cents_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((value_cents >= 0) AND (value_cents <= '99999999999999'::bigint)))"
+   },
+   {
+    "table": "erp_pos.settings",
+    "constraint": "settings_pix_key_check",
+    "why": "expressão regular",
+    "def": "CHECK (((pix_key IS NULL) OR (((length(pix_key) >= 1) AND (length(pix_key) <= 77)) AND (pix_key = btrim(pix_key)) AND (pix_key !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_pos.settings",
+    "constraint": "settings_pix_merchant_city_check",
+    "why": "expressão regular",
+    "def": "CHECK (((pix_merchant_city IS NULL) OR (((length(pix_merchant_city) >= 1) AND (length(pix_merchant_city) <= 15)) AND (pix_merchant_city ~ '^[A-Za-z0-9 .-]+$'::text) AND (pix_merchant_city = btrim(pix_merchant_city)))))"
+   },
+   {
+    "table": "erp_pos.settings",
+    "constraint": "settings_pix_merchant_name_check",
+    "why": "expressão regular",
+    "def": "CHECK (((pix_merchant_name IS NULL) OR (((length(pix_merchant_name) >= 1) AND (length(pix_merchant_name) <= 25)) AND (pix_merchant_name ~ '^[A-Za-z0-9 .,&/-]+$'::text) AND (pix_merchant_name = btrim(pix_merchant_name)))))"
+   },
+   {
+    "table": "erp_preferences.definition",
+    "constraint": "definition_check",
+    "why": "não prepara no SQLite: no such function: erp_jsonb_typeof",
+    "def": "CHECK (\nCASE kind\n    WHEN 'choice'::text THEN ((jsonb_typeof(options) = 'array'::text) AND (jsonb_array_length(options) > 0))\n    WHEN 'multi'::text THEN ((jsonb_typeof(options) = 'array'::text) AND (jsonb_array_length(options) > 0))\n    WHEN 'keymap'::text THEN ((jsonb_typeof(options) = 'object'::"
+   },
+   {
+    "table": "erp_preferences.definition",
+    "constraint": "definition_key_check",
+    "why": "expressão regular",
+    "def": "CHECK (((length(key) <= 80) AND (key ~ '^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$'::text)))"
+   },
+   {
+    "table": "erp_preferences.import_job",
+    "constraint": "import_job_check",
+    "why": "função least",
+    "def": "CHECK (((LEAST(created, updated, unchanged, invalid) >= 0) AND (rows_done = (((created + updated) + unchanged) + invalid)) AND (rows_done <= total_rows)))"
+   },
+   {
+    "table": "erp_preferences.import_job",
+    "constraint": "import_job_file_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(file_name) >= 1) AND (length(file_name) <= 200)) AND (file_name !~ '[[:cntrl:]]'::text) AND (btrim(file_name) = file_name)))"
+   },
+   {
+    "table": "erp_preferences.import_row",
+    "constraint": "import_row_check",
+    "why": "não prepara no SQLite: near \"[1]\": syntax error",
+    "def": "CHECK ((((cardinality(lines) >= 1) AND (cardinality(lines) <= 250)) AND (lines[1] = \"row\")))"
+   },
+   {
+    "table": "erp_preferences.label_template",
+    "constraint": "label_template_description_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((char_length(description) >= 1) AND (char_length(description) <= 80)) AND (description = btrim(description)) AND (description !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_preferences.page",
+    "constraint": "page_read_roles_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK ((((cardinality(read_roles) >= 1) AND (cardinality(read_roles) <= 6)) AND (array_position(read_roles, NULL::text) IS NULL) AND (read_roles <@ ARRAY['admin'::text, 'consulta'::text, 'vendas'::text, 'financeiro'::text, 'estoque'::text, 'fiscal'::text])))"
+   },
+   {
+    "table": "erp_preferences.report",
+    "constraint": "report_title_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((char_length(title) >= 1) AND (char_length(title) <= 80)) AND (title = btrim(title)) AND (title !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_preferences.report",
+    "constraint": "report_users_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((cardinality(users) <= 100) AND (array_position(users, NULL::uuid) IS NULL)))"
+   },
+   {
+    "table": "erp_preferences.situation",
+    "constraint": "situation_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((char_length(name) >= 1) AND (char_length(name) <= 40)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_preferences.transition",
+    "constraint": "transition_actions_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK (((actions <@ ARRAY['post_finance'::text, 'post_stock'::text, 'reverse_finance'::text, 'reverse_stock'::text]) AND (array_position(actions, NULL::text) IS NULL) AND (NOT (actions @> ARRAY['post_stock'::text, 'reverse_stock'::text])) AND (NOT (actions @> ARRAY['post_finance'::text, 'reverse_fin"
+   },
+   {
+    "table": "erp_pricing.price_list",
+    "constraint": "price_list_check1",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((factor_unit <> 'percent'::text) OR (direction <> 'discount'::text) OR (factor <= (100)::numeric)))"
+   },
+   {
+    "table": "erp_pricing.price_list",
+    "constraint": "price_list_factor_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((factor > (0)::numeric))"
+   },
+   {
+    "table": "erp_pricing.price_list",
+    "constraint": "price_list_name_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(name) >= 1) AND (length(name) <= 120)) AND (name = btrim(name)) AND (name !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_pricing.price_list_item",
+    "constraint": "price_list_item_custom_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((custom_price IS NULL) OR ((custom_price >= (0)::numeric) AND (custom_price < ('100000000000000'::bigint)::numeric) AND (custom_price = trunc(custom_price, 10)))))"
+   },
+   {
+    "table": "erp_sales_history.snapshot",
+    "constraint": "snapshot_check",
+    "why": "função encode",
+    "def": "CHECK ((((observation ->> 'profile'::text) = 'origin-sales-history-observation-v1'::text) AND ((observation ->> 'source_id'::text) = source_id) AND (snapshot_hash = encode(sha256(convert_to((observation)::text, 'UTF8'::name)), 'hex'::text))))"
+   },
+   {
+    "table": "erp_sales_history.snapshot",
+    "constraint": "snapshot_observation_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(observation) = 'object'::text) AND (octet_length((observation)::text) <= 786432)))"
+   },
+   {
+    "table": "erp_sales_history_continuation.prepared",
+    "constraint": "prepared_check",
+    "why": "tempo relativo",
+    "def": "CHECK ((isfinite(prepared_at) AND (expires_at = (prepared_at + '00:10:00'::interval))))"
+   },
+   {
+    "table": "erp_sales_history_continuation.prepared",
+    "constraint": "prepared_check1",
+    "why": "função encode",
+    "def": "CHECK ((((proof ->> 'profile'::text) = 'origin-sales-history-continuation-prepare-v1'::text) AND ((proof ->> 'batch_id'::text) = (batch_id)::text) AND ((proof ->> 'actor'::text) = (actor)::text) AND (jsonb_typeof((proof -> 'items'::text)) = 'array'::text) AND (jsonb_array_length((proof -> 'items'::t"
+   },
+   {
+    "table": "erp_sales_history_continuation.prepared",
+    "constraint": "prepared_proof_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(proof) = 'object'::text) AND (octet_length((proof)::text) <= 131072)))"
+   },
+   {
+    "table": "erp_sales_history_continuation.terminal",
+    "constraint": "terminal_check",
+    "why": "função encode",
+    "def": "CHECK ((result_hash = encode(sha256(convert_to((result)::text, 'UTF8'::name)), 'hex'::text)))"
+   },
+   {
+    "table": "erp_sales_history_continuation.terminal",
+    "constraint": "terminal_result_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(result) = 'object'::text) AND (octet_length((result)::text) <= 262144)))"
+   },
+   {
+    "table": "erp_stock.balance",
+    "constraint": "balance_quantity_bounds",
+    "why": "conversão de tipo",
+    "def": "CHECK (((quantity >= '-999999999999.999999'::numeric) AND (quantity <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.balance_count",
+    "constraint": "balance_count_counted_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((counted >= '-999999999999.999999'::numeric) AND (counted <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.balance_count",
+    "constraint": "balance_count_previous_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((previous >= '-999999999999.999999'::numeric) AND (previous <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.checkin_item",
+    "constraint": "checkin_item_issue_quantity_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((issue_quantity IS NULL) OR ((issue_quantity > (0)::numeric) AND (issue_quantity < ('100000000000'::bigint)::numeric) AND (issue_quantity = trunc(issue_quantity, 4)))))"
+   },
+   {
+    "table": "erp_stock.checkin_item",
+    "constraint": "checkin_item_quantity_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity < ('100000000000'::bigint)::numeric) AND (quantity = trunc(quantity, 4))))"
+   },
+   {
+    "table": "erp_stock.checkin_item",
+    "constraint": "checkin_item_received_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((received >= (0)::numeric) AND (received < ('100000000000'::bigint)::numeric) AND (received = trunc(received, 4))))"
+   },
+   {
+    "table": "erp_stock.checkin_item",
+    "constraint": "checkin_item_unit_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((unit_price >= (0)::numeric) AND (unit_price < ('100000000000'::bigint)::numeric) AND (unit_price = trunc(unit_price, 10))))"
+   },
+   {
+    "table": "erp_stock.composition_item",
+    "constraint": "composition_item_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.count_reading",
+    "constraint": "count_reading_code_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(code) >= 1) AND (length(code) <= 100)) AND (code !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_stock.count_reading",
+    "constraint": "count_reading_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((quantity > (0)::numeric) AND (quantity <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.dashboard_preference",
+    "constraint": "dashboard_preference_purchase_statuses_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK ((((cardinality(purchase_statuses) >= 1) AND (cardinality(purchase_statuses) <= 5)) AND (purchase_statuses <@ ARRAY['open'::text, 'in_progress'::text, 'partially_fulfilled'::text, 'fulfilled'::text, 'cancelled'::text])))"
+   },
+   {
+    "table": "erp_stock.dashboard_preference",
+    "constraint": "dashboard_preference_sales_statuses_check",
+    "why": "operador de array/jsonb",
+    "def": "CHECK ((((cardinality(sales_statuses) >= 1) AND (cardinality(sales_statuses) <= 7)) AND (sales_statuses <@ ARRAY['draft'::text, 'open'::text, 'verified'::text, 'in_progress'::text, 'partially_fulfilled'::text, 'fulfilled'::text, 'cancelled'::text])))"
+   },
+   {
+    "table": "erp_stock.entry",
+    "constraint": "entry_balance_after_bounds",
+    "why": "conversão de tipo",
+    "def": "CHECK (((balance_after >= '-999999999999.999999'::numeric) AND (balance_after <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.entry",
+    "constraint": "entry_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((quantity <> (0)::numeric))"
+   },
+   {
+    "table": "erp_stock.lot",
+    "constraint": "lot_code_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(code) >= 1) AND (length(code) <= 60)) AND (code = btrim(code)) AND (code !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_stock.lot",
+    "constraint": "lot_note_check",
+    "why": "expressão regular",
+    "def": "CHECK (((note IS NULL) OR (((length(note) >= 1) AND (length(note) <= 500)) AND (note = btrim(note)) AND (note !~ '[[:cntrl:]]'::text))))"
+   },
+   {
+    "table": "erp_stock.lot_balance",
+    "constraint": "lot_balance_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((quantity >= (0)::numeric) AND (quantity <= 999999999999.999999)))"
+   },
+   {
+    "table": "erp_stock.lot_entry",
+    "constraint": "lot_entry_balance_after_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((balance_after >= (0)::numeric))"
+   },
+   {
+    "table": "erp_stock.lot_entry",
+    "constraint": "lot_entry_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((quantity <> (0)::numeric))"
+   },
+   {
+    "table": "erp_stock.movement_detail",
+    "constraint": "movement_detail_note_check",
+    "why": "expressão regular",
+    "def": "CHECK (((length(note) <= 500) AND (note = btrim(note)) AND (note !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_stock.movement_detail",
+    "constraint": "movement_detail_unit_cost_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((unit_cost IS NULL) OR ((unit_cost >= (0)::numeric) AND (unit_cost < ('100000000000000'::bigint)::numeric) AND (unit_cost = trunc(unit_cost, 10)))))"
+   },
+   {
+    "table": "erp_stock.movement_detail",
+    "constraint": "movement_detail_unit_price_check",
+    "why": "conversão de tipo",
+    "def": "CHECK (((unit_price IS NULL) OR ((unit_price >= (0)::numeric) AND (unit_price < ('100000000000000'::bigint)::numeric) AND (unit_price = trunc(unit_price, 10)))))"
+   },
+   {
+    "table": "erp_stock.opening_command",
+    "constraint": "opening_command_result_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(result) = 'object'::text) AND (octet_length((result)::text) <= 262144)))"
+   },
+   {
+    "table": "erp_stock.opening_receipt",
+    "constraint": "opening_receipt_check",
+    "why": "aritmética decimal",
+    "def": "CHECK ((target = (previous_quantity + adjustment)))"
+   },
+   {
+    "table": "erp_stock.opening_receipt",
+    "constraint": "opening_receipt_check1",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((((outcome = 'adopted_zero'::text) AND (movement_id IS NULL) AND (target = (0)::numeric) AND (adjustment = (0)::numeric)) OR ((outcome = 'adopted'::text) AND (movement_id IS NOT NULL) AND (adjustment <> (0)::numeric))))"
+   },
+   {
+    "table": "erp_stock.opening_receipt",
+    "constraint": "opening_receipt_product_source_id_check",
+    "why": "expressão regular",
+    "def": "CHECK (((product_source_id ~ '^[0-9]{1,40}$'::text) AND (product_source_id !~ '^0+$'::text)))"
+   },
+   {
+    "table": "erp_stock.reservation_item",
+    "constraint": "reservation_item_quantity_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK ((quantity > (0)::numeric))"
+   },
+   {
+    "table": "erp_stock.unit_conversion",
+    "constraint": "unit_conversion_factor_check",
+    "why": "não prepara no SQLite: near \"FROM\": syntax error",
+    "def": "CHECK (((factor > (0)::numeric) AND (factor <= 999999.999999)))"
+   },
+   {
+    "table": "erp_stock.unit_conversion",
+    "constraint": "unit_conversion_unit_check",
+    "why": "expressão regular",
+    "def": "CHECK ((((length(unit) >= 1) AND (length(unit) <= 6)) AND (unit = upper(btrim(unit))) AND (unit !~ '[[:cntrl:]]'::text)))"
+   },
+   {
+    "table": "erp_stock_mirror.observation",
+    "constraint": "observation_id_check",
+    "why": "conversão de tipo",
+    "def": "CHECK ((id <= '9007199254740991'::bigint))"
+   },
+   {
+    "table": "erp_stock_mirror.position",
+    "constraint": "position_id_check",
+    "why": "conversão de tipo",
+    "def": "CHECK ((id <= '9007199254740991'::bigint))"
+   },
+   {
+    "table": "erp_sync.status_map",
+    "constraint": "status_map_check",
+    "why": "função do Fagoo",
+    "def": "CHECK (((erp_documents.transitions() -> entity) ? native_status))"
+   },
+   {
+    "table": "erp_warehouse_import.binding",
+    "constraint": "binding_observation_check",
+    "why": "função octet_length",
+    "def": "CHECK (((jsonb_typeof(observation) = 'object'::text) AND (octet_length((observation)::text) <= 65536)))"
+   },
+   {
+    "table": "erp_warehouse_import.binding",
+    "constraint": "binding_source_id_check",
+    "why": "expressão regular",
+    "def": "CHECK (((source_id ~ '^[0-9]{1,40}$'::text) AND (source_id !~ '^0+$'::text)))"
+   },
+   {
+    "table": "erp_warehouse_import.binding",
+    "constraint": "binding_source_seen_at_check",
+    "why": "função isfinite",
+    "def": "CHECK (isfinite(source_seen_at))"
+   },
+   {
+    "table": "origin_finance_refresh.origin",
+    "constraint": "origin_source_id_check",
+    "why": "expressão regular",
+    "def": "CHECK (((source_id ~ '^[0-9]{1,40}$'::text) AND (source_id !~ '^0+$'::text)))"
+   },
+   {
+    "table": "origin_price_refresh.attempt",
+    "constraint": "attempt_check1",
+    "why": "expressão regular",
+    "def": "CHECK (((proposal_hash ~ '^[0-9a-f]{64}$'::text) AND (product_hash ~ '^[0-9a-f]{64}$'::text) AND (proposal_version > 0) AND (product_version > 0)))"
+   },
+   {
+    "table": "origin_sync.resource_state",
+    "constraint": "resource_state_resource_check",
+    "why": "expressão regular",
+    "def": "CHECK (((resource = ANY (ARRAY['__oauth__'::text, '__scheduler__'::text])) OR (resource ~ '^[a-z][a-z0-9_]{0,79}$'::text)))"
+   }
+  ]
+ },
+ "uniques": 201,
+ "foreign_keys": {
+  "kept": 512,
+  "dropped_external": 327,
+  "made_immediate": [
+   "erp_cnab.human_review.human_review_event_id_version_fkey",
+   "erp_cnab.operational_approval.operational_approval_profile_id_version_fkey",
+   "erp_finance.cnab_cash_plan.cnab_cash_plan_command_id_fkey",
+   "erp_finance.transfer.transfer_command_id_fkey",
+   "erp_fiscal_completion.revision.revision_command_id_fkey",
+   "erp_fiscal_drafts.audit.audit_command_id_fkey",
+   "erp_fiscal_invoices.audit.audit_command_id_fkey",
+   "erp_fiscal_invoices.event_request.event_request_command_id_fkey",
+   "erp_fiscal_items.revision.revision_command_id_fkey",
+   "erp_fiscal_numbering.audit.audit_command_id_fkey",
+   "erp_fiscal_numbering.reservation.reservation_command_id_fkey",
+   "erp_fiscal_numbering.series_revision.series_revision_command_id_fkey",
+   "erp_fiscal_tax.revision.revision_command_id_fkey",
+   "erp_home.shortcut_audit.shortcut_audit_command_id_fkey",
+   "erp_purchase_receipts.receipt.receipt_command_id_fkey",
+   "erp_purchase_receipts.reversal.reversal_command_id_fkey",
+   "erp_sales_history.snapshot.history_snapshot_command",
+   "erp_stock.composition.composition_command_id_fkey",
+   "erp_stock.opening_receipt.opening_receipt_command_id_fkey",
+   "erp_stock.reservation.reservation_consumed_command_id_fkey",
+   "erp_warehouse_import.binding.binding_command_id_fkey",
+   "erp_warehouse_import.command.command_command_id_fkey"
+  ]
+ },
+ "indexes": {
+  "created": 231,
+  "expression_columns": [
+   "erp_catalog.contact.erp_catalog_contact_document_key__k0 = erp_catalog.compact(document)",
+   "erp_catalog.contact_type.label__fold = erp_catalog.fold(label)",
+   "erp_catalog.custom_field.name__fold = erp_catalog.fold(name)",
+   "erp_catalog.employee.name__fold = erp_catalog.fold(name)",
+   "erp_catalog.record.code__fold = erp_catalog.fold(code)",
+   "erp_catalog.record.name__fold = erp_catalog.fold(name)",
+   "erp_catalog.taxonomy.name__fold = erp_catalog.fold(name)",
+   "erp_documents.custom_field.name__fold = lower(name)",
+   "erp_fiscal_invoices.nature.description__fold = lower(description)",
+   "erp_preferences.label_template.description__fold = lower(description)",
+   "erp_preferences.report.title__fold = lower(title)",
+   "erp_preferences.situation.name__fold = lower(name)",
+   "erp_pricing.price_list.name__fold = erp_catalog.fold(name)",
+   "erp_stock.lot.code__fold = lower(code)",
+   "erp_sync.browser_job.browser_job_live_groups__k0 = erp_sync.browser_work_group(kind, task)",
+   "origin_sync.raw_record.raw_browser_document_day__k1 = erp_sync.browser_document_date(entity, payload)"
+  ],
+  "dropped": [
+   {
+    "index": "erp_sales_history_continuation.prepared.continuation_residuals",
+    "why": "índice gin"
+   }
+  ]
+ },
+ "triggers": {
+  "generated": 148,
+  "pending": [
+   "erp_a1.command.guard_command",
+   "erp_a1.head.guard_head",
+   "erp_access.agent_token.guard_agent_token",
+   "erp_access.user_command.guard_user_command",
+   "erp_attachments.attachment.aa_mirror_authority",
+   "erp_attachments.attachment.attachment_identity",
+   "erp_attachments.contact_file.contact_file_identity",
+   "erp_attachments.employee_file.employee_file_identity",
+   "erp_catalog.contact.zz_origin_sync",
+   "erp_catalog.contact_profile.zz_origin_sync",
+   "erp_catalog.origin.document_mirror_binding_insert",
+   "erp_catalog.origin.document_mirror_binding_update",
+   "erp_catalog.origin.erp_catalog_origin_origin_mirror",
+   "erp_catalog.payment_method.payment_method_defaults_fit",
+   "erp_catalog.product.erp_catalog_product_items_per_box_insert",
+   "erp_catalog.product.erp_catalog_product_items_per_box_update",
+   "erp_catalog.product.guard_variation_parent",
+   "erp_catalog.product.protect_stock_product_unit",
+   "erp_catalog.product.zz_origin_sync",
+   "erp_catalog.product_detail.zz_origin_sync",
+   "erp_catalog.product_stored_image.erp_catalog_product_image_identity",
+   "erp_catalog.product_supplier.product_cost_capture",
+   "erp_catalog.record.erp_catalog_record_deleted_product",
+   "erp_catalog.record.protect_stock_default_warehouse",
+   "erp_catalog.record.zz_origin_sync",
+   "erp_catalog.taxonomy.erp_catalog_taxonomy_type_guard",
+   "erp_cnab.audit.audit_permission",
+   "erp_cnab.billing_title.protect_origin_import_billing",
+   "erp_cnab.remittance.cnab_remittance_purpose_immutable",
+   "erp_cnab.return_event.cnab_event_purpose_immutable",
+   "erp_cnab.return_event.operational_return_event_immutable",
+   "erp_cnab.return_file.cnab_return_purpose_immutable",
+   "erp_cnab.return_file.operational_return_file_immutable",
+   "erp_cnab.return_occurrence.cnab_occurrence_purpose",
+   "erp_cnab.return_occurrence.operational_occurrence_immutable",
+   "erp_company.extra.extra_cnae_official",
+   "erp_company.file.file_identity",
+   "erp_company.logo.logo_identity",
+   "erp_dfe.attempt.dfe_attempt_guard",
+   "erp_dfe.command.dfe_command_guard",
+   "erp_documents.audit.aa_mirror_authority",
+   "erp_documents.checkout.aa_mirror_authority",
+   "erp_documents.checkout.guard_trash",
+   "erp_documents.command.origin_import_command_immutable",
+   "erp_documents.copy_source.aa_mirror_authority",
+   "erp_documents.document.aa_mirror_authority",
+   "erp_documents.document.ab_origin_effects",
+   "erp_documents.document.commission_operation_capture",
+   "erp_documents.document.cost_apply_capture",
+   "erp_documents.document.document_number_continuity",
+   "erp_documents.document.guard_trash",
+   "erp_documents.document.protect_document_finance",
+   "erp_documents.document.protect_document_stock",
+   "erp_documents.document.protect_purchase_receipt_document",
+   "erp_documents.document.protect_reserved_document",
+   "erp_documents.document.situation_follow_status",
+   "erp_documents.document.zz_origin_sync",
+   "erp_documents.document_situation.aa_mirror_authority",
+   "erp_documents.freight_paid.aa_mirror_authority",
+   "erp_documents.item.aa_mirror_authority",
+   "erp_documents.item.ab_origin_effects",
+   "erp_documents.item.document_native_item_required",
+   "erp_documents.item.forget_stock_item_components",
+   "erp_documents.item.guard_trash",
+   "erp_documents.item.guard_variation_item",
+   "erp_documents.item.protect_document_item_finance",
+   "erp_documents.item.protect_document_item_stock",
+   "erp_documents.item.protect_purchase_receipt_item",
+   "erp_documents.item.protect_reserved_item",
+   "erp_documents.item.zz_origin_sync",
+   "erp_documents.item_cost_applied.aa_mirror_authority",
+   "erp_documents.occurrence.aa_mirror_authority",
+   "erp_documents.occurrence_removal.aa_mirror_authority",
+   "erp_documents.origin_import_origin.aa_mirror_authority",
+   "erp_documents.proposal_version.aa_mirror_authority",
+   "erp_documents.sales_service_link.aa_mirror_authority",
+   "erp_documents.service_event.aa_mirror_authority",
+   "erp_documents.service_journal_entry.aa_mirror_authority",
+   "erp_finance.account.account_defaults",
+   "erp_finance.audit.audit_permission",
+   "erp_finance.bordero.bordero_immutable",
+   "erp_finance.bordero_item.bordero_item_immutable",
+   "erp_finance.cash_entry.owned_entry_guard",
+   "erp_finance.cash_entry.reconciled_entry_guard",
+   "erp_finance.category.category_tree_guard",
+   "erp_finance.cnab_cash_plan.cnab_cash_plan_complete",
+   "erp_finance.command.erp_finance_transfer_command_immutable",
+   "erp_finance.command.immutable_origin_import_receipt",
+   "erp_finance.commission.aa_mirror_authority",
+   "erp_finance.commission_operation.aa_mirror_authority",
+   "erp_finance.commission_operation.commission_operation_frozen",
+   "erp_finance.document_posting.aa_mirror_authority",
+   "erp_finance.document_posting.guard_trash",
+   "erp_finance.document_title.commission_capture",
+   "erp_finance.document_title.document_title_number",
+   "erp_finance.file.file_identity",
+   "erp_finance.grouped_billing_document.aa_mirror_authority",
+   "erp_finance.grouped_billing_document.guard_trash",
+   "erp_finance.invoice_title.commission_capture_invoice",
+   "erp_finance.movement.cnab_movement_immutable",
+   "erp_finance.movement.erp_finance_entry_movement_immutable",
+   "erp_finance.movement.erp_finance_transfer_leg_check",
+   "erp_finance.movement.erp_finance_transfer_movement_immutable",
+   "erp_finance.movement.movement_account_start",
+   "erp_finance.movement.settlement_movement_check",
+   "erp_finance.settlement.cnab_settlement_immutable",
+   "erp_finance.settlement.reconciled_settlement_guard",
+   "erp_finance.settlement.settlement_bordero",
+   "erp_finance.settlement.settlement_capture_categories",
+   "erp_finance.settlement.settlement_posting_check",
+   "erp_finance.settlement.zz_origin_sync",
+   "erp_finance.title.guard_zero_title",
+   "erp_finance.title.protect_finance_document_source",
+   "erp_finance.title.protect_grouped_billing_title",
+   "erp_finance.title.protect_invoice_title",
+   "erp_finance.title.protect_origin_import_title",
+   "erp_finance.title.title_defaults",
+   "erp_finance.title.title_history_guard",
+   "erp_finance.title.title_long_history",
+   "erp_finance.title.zz_origin_sync",
+   "erp_finance.title_return.commission_return_capture",
+   "erp_finance.transfer.erp_finance_transfer_immutable",
+   "erp_finance.transfer.erp_finance_transfer_pair_check",
+   "erp_finance.transfer_deletion.erp_finance_transfer_deletion_immutable",
+   "erp_finance.transfer_deletion.reconciled_transfer_guard",
+   "erp_fiscal_authorization.attempt.guard_attempt",
+   "erp_fiscal_authorization.attempt.reviewed_use_commit",
+   "erp_fiscal_authorization.attempt.reviewed_use_guard",
+   "erp_fiscal_authorization.attempt.reviewed_use_time_commit",
+   "erp_fiscal_authorization.attempt.reviewed_use_time_guard",
+   "erp_fiscal_authorization.audit.immutable",
+   "erp_fiscal_authorization.command.immutable",
+   "erp_fiscal_authorization.intent.guard_intent",
+   "erp_fiscal_authorization.policy.immutable",
+   "erp_fiscal_authorization.request.immutable",
+   "erp_fiscal_authorization.request.reviewed_request_guard",
+   "erp_fiscal_authorization.result.immutable",
+   "erp_fiscal_authorization.result.reviewed_result_guard",
+   "erp_fiscal_authorization_closure.command.immutable",
+   "erp_fiscal_authorization_revalidation.command.immutable",
+   "erp_fiscal_completion.head.guard_head",
+   "erp_fiscal_drafts.draft.aa_mirror_authority",
+   "erp_fiscal_drafts.draft.guard_draft",
+   "erp_fiscal_invoices.invoice.finance_invoice_auto_finance",
+   "erp_fiscal_invoices.invoice.finance_posted_invoice",
+   "erp_fiscal_invoices.invoice.guard_invoice",
+   "erp_fiscal_invoices.invoice.protect_invoice_stock_posting",
+   "erp_fiscal_invoices.invoice_item.sales_item_links_item",
+   "erp_fiscal_invoices.invoice_order.aa_mirror_authority",
+   "erp_fiscal_invoices.invoice_order.finance_invoice_order_effect",
+   "erp_fiscal_invoices.invoice_order.guard_trash",
+   "erp_fiscal_invoices.invoice_order_item.aa_mirror_authority",
+   "erp_fiscal_invoices.invoice_xml.invoice_source_record",
+   "erp_fiscal_invoices.nature.guard_nature",
+   "erp_fiscal_items.head.guard_head",
+   "erp_fiscal_numbering.reservation.aa_mirror_authority",
+   "erp_fiscal_numbering.series.guard_series",
+   "erp_fiscal_receipt_query.audit.immutable",
+   "erp_fiscal_receipt_query.policy.immutable",
+   "erp_fiscal_receipt_query.policy.policy_lock",
+   "erp_fiscal_receipt_query.query.guard_query",
+   "erp_fiscal_receipt_query.query.receipt_query_use_commit",
+   "erp_fiscal_receipt_query.request.immutable",
+   "erp_fiscal_receipt_query.result.immutable",
+   "erp_fiscal_reconciliation.artifact.immutable_artifact",
+   "erp_fiscal_reconciliation.attempt.guard_attempt",
+   "erp_fiscal_reconciliation.audit.immutable_audit",
+   "erp_fiscal_reconciliation.command.immutable_command",
+   "erp_fiscal_reviewed_authorization.observation.immutable",
+   "erp_fiscal_reviewed_authorization.review_binding.immutable",
+   "erp_fiscal_signed.attempt.guard_attempt",
+   "erp_fiscal_signed.candidate.guard_candidate",
+   "erp_fiscal_subset_review.review.immutable",
+   "erp_fiscal_tax.head.guard_head",
+   "erp_fiscal_unsigned.attempt.guard_attempt",
+   "erp_fiscal_unsigned.job.guard_job",
+   "erp_fiscal_wsdl.attempt.guard_attempt",
+   "erp_home.goal.guard_goal",
+   "erp_home.notification.guard_notification",
+   "erp_list_preferences.preference.guard_preference",
+   "erp_platform.export.export_guard",
+   "erp_platform.task.task_guard",
+   "erp_platform.task_attempt.attempt_guard",
+   "erp_pos.sale.aa_mirror_authority",
+   "erp_preferences.company_value.guard_company_value",
+   "erp_preferences.import_job.guard_import_job",
+   "erp_preferences.user_value.guard_user_value",
+   "erp_purchase_receipts.command.aa_mirror_authority",
+   "erp_purchase_receipts.receipt.aa_mirror_authority",
+   "erp_purchase_receipts.reversal.aa_mirror_authority",
+   "erp_stock.balance.guard_negative_balance_insert",
+   "erp_stock.balance.protect_reserved_balance",
+   "erp_stock.balance_count.guard_stock_balance_count",
+   "erp_stock.checkin.guard_stock_checkin",
+   "erp_stock.checkin_item.guard_stock_checkin_item",
+   "erp_stock.composition.guard_stock_composition",
+   "erp_stock.composition_command.guard_stock_composition_command",
+   "erp_stock.composition_item.guard_stock_composition_item",
+   "erp_stock.count_reading.guard_stock_count_reading",
+   "erp_stock.count_session.guard_stock_count_session",
+   "erp_stock.dashboard_preference.guard_stock_dashboard_preference",
+   "erp_stock.document_audit.aa_mirror_authority",
+   "erp_stock.document_posting.aa_mirror_authority",
+   "erp_stock.document_posting.guard_trash",
+   "erp_stock.document_posting.immutable_document_stock_posting",
+   "erp_stock.document_posting.post_stock_document_lots",
+   "erp_stock.document_posting.protect_purchase_receipt_legacy",
+   "erp_stock.document_posting.protect_reserved_posting",
+   "erp_stock.entry.guard_negative_entry_insert",
+   "erp_stock.entry.reverse_stock_lot_entries",
+   "erp_stock.entry.zz_origin_sync",
+   "erp_stock.invoice_posting.guard_stock_invoice_posting",
+   "erp_stock.item_component.aa_mirror_authority",
+   "erp_stock.item_component.guard_stock_item_component",
+   "erp_stock.item_component_command.aa_mirror_authority",
+   "erp_stock.lot.guard_stock_lot",
+   "erp_stock.lot_entry.guard_stock_lot_entry",
+   "erp_stock.policy.guard_stock_policy",
+   "erp_stock.reservation.aa_mirror_authority",
+   "erp_stock.reservation.guard_trash",
+   "erp_stock.reservation.immutable_reservation",
+   "erp_stock.reservation_command.aa_mirror_authority",
+   "erp_stock.unit_conversion.guard_stock_unit_conversion",
+   "erp_stock.warehouse_default.guard_stock_warehouse_default",
+   "erp_stock.warehouse_setting.guard_stock_warehouse_setting",
+   "erp_sync.browser_job.browser_job_audit",
+   "erp_sync.browser_job.browser_resolve_product_code_issue",
+   "erp_sync.stock_history_snapshot.browser_record_origin_edges",
+   "erp_sync.stock_history_snapshot.browser_record_origin_gaps",
+   "origin_finance_refresh.attempt.finance_refresh_attempt_immutable",
+   "origin_fiscal.attempt.fiscal_observation_immutable",
+   "origin_fiscal.source.fiscal_mirror_xml_capture",
+   "origin_price_refresh.attempt.price_attempt_immutable",
+   "origin_reference_fetch.attempt.reference_attempt_immutable",
+   "origin_sales_price_refresh.attempt.sales_price_attempt_immutable",
+   "origin_sync.raw_record.document_mirror_capture",
+   "origin_sync.raw_record.fiscal_mirror_capture",
+   "origin_sync.raw_record.origin_order_link_sync",
+   "origin_sync.raw_record.stock_mirror_capture",
+   "origin_sync.raw_record.zz_origin_two_way"
+  ]
+ },
+ "defaults_ts": [
+  "erp_document_mirror.pending.retry_at: '-infinity'::timestamp with time zone",
+  "erp_fiscal_mirror.seed.retry_at: '-infinity'::timestamp with time zone",
+  "erp_fiscal_mirror.xml_seed.retry_at: '-infinity'::timestamp with time zone",
+  "erp_sales_history.snapshot.history_id: ('bsh_'::text || (gen_random_uuid())::text)",
+  "erp_sync.inbox.retry_at: '-infinity'::timestamp with time zone",
+  "erp_sync.outbox.next_attempt_at: '-infinity'::timestamp with time zone",
+  "public.erp_wabotia_pairing.lock_until: '-infinity'::timestamp with time zone"
+ ],
+ "columns_unsupported": [],
+ "seed": {
+  "tables": 30,
+  "rows": 7586
+ },
+ "statements": 973,
+ "hash": "c0055fe0f66a"
+}
