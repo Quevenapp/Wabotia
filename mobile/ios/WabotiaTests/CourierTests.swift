@@ -19,6 +19,14 @@ final class CourierScanTests: XCTestCase {
         XCTAssertEqual(scan.code, Q.code("z"))
         XCTAssertEqual(scan.host, "wabotia.loja.com.br")
         XCTAssertEqual(try CourierQR.read("https://w.example:8443/c/\(Q.code("2"))").get().host, "w.example:8443")
+        let new = try CourierQR.read("https://wabotia.loja.com.br/api/public/c/\(Q.code("z"))").get()
+        XCTAssertEqual(new.server.absoluteString, "https://wabotia.loja.com.br", "formato novo: o servidor também é o host")
+        XCTAssertEqual(new.code, Q.code("z"))
+        XCTAssertEqual(CourierRoutes.preview(scan.code), "/api/public/c/\(Q.code("z"))", "a leitura pública sempre no caminho novo, mesmo com QR antigo")
+        func refused(_ text: String) -> Bool { if case .failure = CourierQR.read(text) { return true }; return false }
+        XCTAssertTrue(refused("https://w.example/api/c/\(Q.code("2"))"))
+        XCTAssertTrue(refused("https://w.example/api/public/c/\(Q.code("2"))/extra"))
+        XCTAssertTrue(refused("https://w.example/x/api/public/c/\(Q.code("2"))"))
         XCTAssertTrue(DemoCourierAPI.demoQRs.allSatisfy { (try? CourierQR.read($0).get())?.demo == true }, "QRs da demonstração no formato")
         XCTAssertFalse(try CourierQR.read(Q.a).get().demo)
     }
@@ -41,6 +49,44 @@ final class CourierScanTests: XCTestCase {
         XCTAssertEqual(refusal("Pedido 41"), .notAnOrder)
         XCTAssertEqual(CourierQR.Refusal.notAnOrder.message, "Este QR não é de um pedido.")
         XCTAssertFalse(CourierQR.isLocal("203.0.113.9"), "IP público não é local")
+    }
+}
+
+/// Leitura pública do QR contra um servidor de mentira: caminho novo sempre, HTML tratado como servidor desatualizado.
+@MainActor
+final class CourierPreviewHTTPTests: XCTestCase {
+    func testOldQrStillReadsThePublicPathAndHtmlMeansOutdated() async throws {
+        StubURLProtocol.reset { seen in
+            seen.url.path.hasPrefix("/api/public/c/")
+                ? .json(200, #"{"valid":true,"store":"Lanche Bom","server":"https://lanche.example.com","expires_at":1}"#)
+                : .html(200, "<!doctype html><title>Wabotia</title>")
+        }
+        let api = HTTPCourierAPI(session: StubURLProtocol.session())
+        let old = try CourierQR.read("https://lanche.example.com/c/\(Q.code("2"))").get()
+        let preview = try await api.preview(old)
+        XCTAssertEqual(preview.store, "Lanche Bom")
+        XCTAssertEqual(StubURLProtocol.seen.last?.url.path, "/api/public/c/\(Q.code("2"))", "monta do host e do código, não reaproveita o caminho do QR")
+        XCTAssertEqual(StubURLProtocol.seen.last?.headers["Accept"], "application/json")
+
+        StubURLProtocol.reset { _ in .html(200, "<!doctype html><title>Painel</title>") }
+        do {
+            _ = try await api.preview(old)
+            XCTFail("HTML não é leitura válida")
+        } catch let error as CourierError {
+            XCTAssertEqual(error, .invalidCode(CourierPreviewReply.outdated), "servidor desatualizado ou QR inválido, com mensagem clara")
+        }
+
+        StubURLProtocol.reset { _ in .json(429, #"{"error":{"code":"rate_limited","message":"x"}}"#) }
+        do {
+            _ = try await api.preview(old)
+            XCTFail("429")
+        } catch let error as CourierError {
+            XCTAssertEqual(error, .invalidCode(CourierPreviewReply.tooMany))
+        }
+
+        StubURLProtocol.reset { _ in .json(200, #"{"valid":false,"server":"https://lanche.example.com"}"#) }
+        let invalid = try await api.preview(old)
+        XCTAssertFalse(invalid.valid)
     }
 }
 

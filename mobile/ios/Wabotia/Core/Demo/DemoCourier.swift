@@ -10,7 +10,7 @@ final class DemoCourierAPI: CourierAPI {
     private struct Order {
         let id, label, customer, address: String
         let store: String
-        /// Os QRs fictícios: `https://<loja>.demo.wabotia.localhost/c/<32 caracteres>`.
+        /// Os QRs fictícios: `https://<loja>.demo.wabotia.localhost/api/public/c/<32 caracteres>` (o terceiro, no formato antigo `/c/`).
         let qr: String
         let destination: CourierCoordinate
         let lines: [CourierOrder.Line]
@@ -24,13 +24,13 @@ final class DemoCourierAPI: CourierAPI {
 
     private static let orders: [Order] = [
         Order(id: "de_41", label: "Pedido nº 41", customer: "Mariana", address: "Rua Exemplo, 200 — apto 32\nBairro Exemplo", store: lanchonete,
-              qr: "https://lanchonete-exemplo\(CourierQR.demoHostSuffix)/c/DEMAPEDXQUARENTAEUMLANCHNETEXEMP",
+              qr: "https://lanchonete-exemplo\(CourierQR.demoHostSuffix)/api/public/c/DEMAPEDXQUARENTAEUMLANCHNETEXEMP",
               destination: CourierCoordinate(lat: -23.5613, lng: -46.6565),
               lines: [.init(name: "X-Burger", quantity: 1, options: ["Molho da casa"], note: nil), .init(name: "Refrigerante lata", quantity: 1)],
               totalCents: 2800, payment: .init(methodLabel: "Dinheiro", status: "pending", statusLabel: "A receber", paid: false, changeForCents: 5000),
               note: "Interfone 32"),
         Order(id: "fe_7", label: "Pedido nº 7", customer: "Ricardo", address: "Avenida Fictícia, 1500\nCentro", store: farmacia,
-              qr: "https://farmacia-exemplo\(CourierQR.demoHostSuffix)/c/DEMAPEDXFARMACVAEXEMPLQZZZZZZZZZ",
+              qr: "https://farmacia-exemplo\(CourierQR.demoHostSuffix)/api/public/c/DEMAPEDXFARMACVAEXEMPLQZZZZZZZZZ",
               destination: CourierCoordinate(lat: -23.5432, lng: -46.6420),
               lines: [.init(name: "Protetor solar FPS 50", quantity: 1), .init(name: "Soro fisiológico 500 ml", quantity: 2)],
               totalCents: 6100, payment: .init(methodLabel: "Pix", status: "paid", statusLabel: "Pago", paid: true), note: ""),

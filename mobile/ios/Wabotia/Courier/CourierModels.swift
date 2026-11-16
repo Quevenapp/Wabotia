@@ -35,8 +35,9 @@ struct CourierScan: Equatable {
     }
 }
 
-/// A leitura do QR do entregador, isolada (formato da F em `fix/credencial-qr`): `https://<endereço público>/c/<código>`,
-/// com o código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. Só https, nunca endereço de rede local.
+/// A leitura do QR do entregador, isolada (formato da F em `fix/credencial-qr`): `https://<endereço público>/api/public/c/<código>`
+/// (ou `/c/<código>`, dos QRs já impressos), com o código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. Só
+/// https, nunca endereço de rede local. O servidor é o host do QR.
 enum CourierQR {
     enum Refusal: Error, Equatable {
         /// Não é um QR de pedido do Wabotia (outro site, outro formato).
@@ -66,8 +67,12 @@ enum CourierQR {
             return .failure(.notAnOrder)
         }
         guard c.user == nil, c.password == nil else { return .failure(.notAnOrder) }
+        // `/api/public/c/<código>` (formato novo) ou `/c/<código>` (QRs já impressos); o caminho do QR não é reaproveitado:
+        // a leitura pública sempre vai a `/api/public/c/<código>` no mesmo host.
         let parts = c.path.split(separator: "/").map(String.init)
-        guard parts.count == 2, parts[0] == "c", isCode(parts[1]) else { return .failure(.notAnOrder) }
+        guard let code = parts.last, isCode(code), parts.dropLast() == ["c"] || parts.dropLast() == ["api", "public", "c"] else {
+            return .failure(.notAnOrder)
+        }
         guard scheme == "https" else { return .failure(scheme == "http" ? .insecure : .notAnOrder) }
         let demo = host.hasSuffix(demoHostSuffix)
         if !demo, isLocal(host) { return .failure(.localAddress) }
@@ -76,7 +81,7 @@ enum CourierQR {
         origin.host = host
         origin.port = c.port
         guard let server = origin.url else { return .failure(.notAnOrder) }
-        return .success(CourierScan(server: server, code: parts[1], demo: demo, raw: text))
+        return .success(CourierScan(server: server, code: code, demo: demo, raw: text))
     }
 
     static func isCode(_ s: String) -> Bool { s.count == codeLength && s.allSatisfy(alphabet.contains) }

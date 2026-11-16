@@ -27,8 +27,9 @@ protocol CourierAPI: AnyObject {
 enum CourierRoutes {
     /// Fora de `/api/v1` e sem autenticação.
     static let claim = "/api/credentials/claim"
-    /// Leitura pública (`Accept: application/json`), a mesma URL do QR.
-    static func preview(_ code: String) -> String { "/c/\(code)" }
+    /// Leitura pública (`Accept: application/json`), sem gastar o código. Sempre este caminho, montado do host e do
+    /// código, mesmo quando o QR lido é do formato antigo (`/c/<código>`, que não chega ao Worker).
+    static func preview(_ code: String) -> String { "/api/public/c/\(code)" }
     static func delivery(_ g: CourierGrant) -> String { "/api/v1/profiles/\(g.profileId ?? "-")/entrega/deliveries/\(g.deliveryId)" }
     static func courier(_ g: CourierGrant) -> String { delivery(g) + "/courier" }
     static func start(_ g: CourierGrant) -> String { delivery(g) + "/start" }
@@ -62,7 +63,13 @@ final class HTTPCourierAPI: CourierAPI {
     }
 
     func preview(_ scan: CourierScan) async throws -> CourierPreview {
-        try decode(CourierPreview.self, try await call(scan.server.absoluteString, CourierRoutes.preview(scan.code), method: "GET", token: nil))
+        guard let url = URL(string: QueueHTTP.normalize(scan.server.absoluteString) + CourierRoutes.preview(scan.code)) else { throw CourierError.server("Endereço inválido.") }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request) } catch { throw CourierError.network }
+        guard let http = response as? HTTPURLResponse else { throw CourierError.network }
+        return try CourierPreviewReply.read(status: http.statusCode, contentType: http.value(forHTTPHeaderField: "Content-Type"), data: data)
     }
 
     func claim(_ scan: CourierScan, name: String, device: String) async throws -> CourierClaim {
@@ -154,6 +161,25 @@ final class HTTPCourierAPI: CourierAPI {
         let code = error?["code"] as? String ?? ""
         let message = error?["message"] as? String
         throw CourierHTTPError.map(status: http.statusCode, code: code, message: message, claim: path == CourierRoutes.claim || path.hasPrefix("/c/"))
+    }
+}
+
+/// A resposta da leitura pública do QR (testável sem rede).
+enum CourierPreviewReply {
+    static let outdated = "Este servidor não respondeu como um Wabotia atualizado, ou o QR não é de um pedido. Peça outro QR à loja; se continuar, a loja precisa atualizar o Wabotia."
+    static let tooMany = "Muitas tentativas de leitura. Aguarde alguns minutos e tente de novo."
+
+    static func read(status: Int, contentType: String?, data: Data) throws -> CourierPreview {
+        if status == 429 { throw CourierError.invalidCode(tooMany) }
+        if status >= 500 { throw CourierError.network }
+        // HTML (a rota caiu no painel) ou outro conteúdo: servidor desatualizado ou QR inválido, nunca "erro genérico".
+        guard (contentType ?? "").lowercased().contains("json") else { throw CourierError.invalidCode(outdated) }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard (200..<300).contains(status), let preview = try? decoder.decode(CourierPreview.self, from: data) else {
+            throw CourierError.invalidCode(status == 404 ? outdated : "O Wabotia da loja recusou a leitura (\(status)).")
+        }
+        return preview
     }
 }
 

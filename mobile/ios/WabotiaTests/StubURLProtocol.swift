@@ -16,6 +16,8 @@ final class StubURLProtocol: URLProtocol {
 
     enum Answer {
         case json(Int, String)
+        /// Uma página HTML (rota que não chega ao Worker e cai no painel).
+        case html(Int, String)
         case networkFailure
     }
 
@@ -56,12 +58,15 @@ final class StubURLProtocol: URLProtocol {
         Self._seen.append(seen)
         let handler = Self._handler
         Self.lock.unlock()
-        switch handler(seen) {
+        let answer = handler(seen)
+        switch answer {
         case .networkFailure:
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
-        case let .json(status, text):
+        case let .json(status, text), let .html(status, text):
             let data = Data(text.utf8)
-            let response = HTTPURLResponse(url: seen.url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            let type: String
+            if case .html = answer { type = "text/html; charset=utf-8" } else { type = "application/json" }
+            let response = HTTPURLResponse(url: seen.url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
