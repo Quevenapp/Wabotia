@@ -467,31 +467,36 @@ function CouponCard({
             ],
           ] as const
         ).map(([key, label, help]) => (
-          <label className="queue-switch" key={key}>
-            <Switch
-              label={label}
-              checked={!!form[key]}
-              onChange={(value) => setForm({ ...form, [key]: value })}
-            />
-            <span>
-              <strong>{label}</strong>
-              <small>{help}</small>
-            </span>
-          </label>
+          <React.Fragment key={key}>
+            <label className="queue-switch">
+              <Switch
+                label={label}
+                checked={!!form[key]}
+                onChange={(value) => setForm({ ...form, [key]: value })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{help}</small>
+              </span>
+            </label>
+            {/* O texto do rodapé logo abaixo da chave dele; o aviso, da do QR. */}
+            {key === "footer" && form.footer && (
+              <Field
+                label="Mensagem de rodapé do cupom"
+                type="textarea"
+                rows={2}
+                maxLength={300}
+                value={form.footer_text}
+                onChange={(footer_text) => setForm({ ...form, footer_text })}
+                placeholder="Obrigado pela visita!"
+              />
+            )}
+            {key === "whatsapp_qr" && notice && (
+              <Notice tone="warn">{notice}</Notice>
+            )}
+          </React.Fragment>
         ))}
       </div>
-      {form.footer && (
-        <Field
-          label="Mensagem de rodapé do cupom"
-          type="textarea"
-          rows={2}
-          maxLength={300}
-          value={form.footer_text}
-          onChange={(footer_text) => setForm({ ...form, footer_text })}
-          placeholder="Obrigado pela visita!"
-        />
-      )}
-      {notice && <Notice tone="warn">{notice}</Notice>}
       <div className="toolbar">
         <Button
           busy={busy}
