@@ -12,6 +12,8 @@
     "pretest": "node scripts/build-info.mjs && node scripts/check-conflict-markers.mjs",
     "test": "vitest run",
     "test:ci": "node scripts/build-info.mjs && node scripts/check-conflict-markers.mjs && vitest run --maxWorkers=3",
+    "test:erp": "node --no-warnings --test --test-concurrency=3 \"tests/erp/**/*.test.mjs\"",
+    "test:erp:domain": "node scripts/erp/test-domain.mjs",
     "deploy": "node scripts/deploy.mjs",
     "release": "node scripts/release.mjs",
     "migrate": "wrangler d1 migrations apply DB --remote",
@@ -24,6 +26,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.8.0",
+    "@xmldom/xmldom": "0.9.12",
     "hono": "^4.10.0",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^0.468.0",
@@ -37,6 +40,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
+    "@electric-sql/pglite": "0.5.10",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

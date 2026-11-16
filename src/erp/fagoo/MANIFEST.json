@@ -1,0 +1,1163 @@
+{
+ "source": "Fagoo (somente leitura)",
+ "copied_at": "2026-11-16",
+ "used": [
+  "packages/backend-config",
+  "packages/boleto-core",
+  "packages/boleto-preview",
+  "packages/cnab-core",
+  "packages/erp-domain",
+  "packages/fiscal-authorization",
+  "packages/fiscal-core",
+  "packages/fiscal-xml",
+  "workers/erp-api",
+  "workers/origin-sync"
+ ],
+ "files": [
+  {
+   "path": "packages/backend-config/src/origin.mjs",
+   "bytes": 1247,
+   "sha256": "0367e6104f96660286e05424e5621051f9817561f514b2ff9c5747351b839263"
+  },
+  {
+   "path": "packages/boleto-core/src/index.mjs",
+   "bytes": 13017,
+   "sha256": "399fc49b4dfa4ed7116fd571e72746b04969721c13f44df30aef78e7969e537a"
+  },
+  {
+   "path": "packages/boleto-preview/src/index.mjs",
+   "bytes": 16574,
+   "sha256": "ff1c1f5accea8944c458015043d09fcbacef280392deffdbf90684dc9220aa06"
+  },
+  {
+   "path": "packages/cnab-core/src/index.mjs",
+   "bytes": 694,
+   "sha256": "e987442a800e8618511c82e4dc2cbb58873eccf2d352101f75200c7564fa310b"
+  },
+  {
+   "path": "packages/cnab-core/src/itau-net-credit.mjs",
+   "bytes": 3508,
+   "sha256": "c41a7fc336929c14f655722e65bb7c61c53388f647a7830ed67ef78d657598c3"
+  },
+  {
+   "path": "packages/cnab-core/src/itau-observed-serializer.mjs",
+   "bytes": 1030,
+   "sha256": "a1ad02735b180aa73a972c822d2d90d3528e511d8ef4585af9fc3ae62bbef2a2"
+  },
+  {
+   "path": "packages/cnab-core/src/itau-observed.mjs",
+   "bytes": 7819,
+   "sha256": "d367f82cc3fd1a65d5364ad0747b1fbc8d8a4f230c560090c195d397e9653772"
+  },
+  {
+   "path": "packages/cnab-core/src/itau-terms.mjs",
+   "bytes": 5766,
+   "sha256": "009501c3f73d892ef1782032ed5379f94d69bc3eeaedd2c4925f6a215a95eb2a"
+  },
+  {
+   "path": "packages/cnab-core/src/layouts.mjs",
+   "bytes": 3930,
+   "sha256": "1d2a84c1ef5e3a9e75ad710ed72d4d8b2161a094a392df20e319df04f1483ad8"
+  },
+  {
+   "path": "packages/cnab-core/src/operational-return.mjs",
+   "bytes": 1535,
+   "sha256": "35d46bffad98a7c945fd32d9df127d9ae57a944a083d7c421e40058d5ff94526"
+  },
+  {
+   "path": "packages/cnab-core/src/operational-v2.mjs",
+   "bytes": 8385,
+   "sha256": "7dab7e990dbc038a36f9c0fef55f9abb6dd5e7ca4b83fe839afa096ef84f2ec1"
+  },
+  {
+   "path": "packages/cnab-core/src/primitives.mjs",
+   "bytes": 5598,
+   "sha256": "38184be2e1a48e9c577ce24deab617805ccee86c0db9238dcd77fc0e76925bb9"
+  },
+  {
+   "path": "packages/cnab-core/src/profiles.mjs",
+   "bytes": 2503,
+   "sha256": "bdab29bc054bc4f805d1c87797085be034744acb38a92d702e6908b400b715f2"
+  },
+  {
+   "path": "packages/cnab-core/src/reconciliation.mjs",
+   "bytes": 5259,
+   "sha256": "5727922a6a61c4cf06c7eee661eb6548a69397ef95a3da917db90de379d0fdf1"
+  },
+  {
+   "path": "packages/cnab-core/src/remittance-serializer.mjs",
+   "bytes": 9812,
+   "sha256": "981c834551999f5524062d0190d403171705c3de4c9c3d6e140763d3e118890b"
+  },
+  {
+   "path": "packages/cnab-core/src/remittance.mjs",
+   "bytes": 956,
+   "sha256": "71beb937caa5ca5a80ad00623d530aa31d2ef9e5d8c96168fc7891632c44580b"
+  },
+  {
+   "path": "packages/cnab-core/src/return.mjs",
+   "bytes": 11302,
+   "sha256": "085c914602df837a1b43d77dce585f32df63eb4547a11d480fed8b1941ffc6a1"
+  },
+  {
+   "path": "packages/erp-domain/src/access-security.mjs",
+   "bytes": 5285,
+   "sha256": "6b27ece6d71929a4db503c60fcb220b289b1c51219f94bb5a5ca4916e2a0aa1d"
+  },
+  {
+   "path": "packages/erp-domain/src/access-users.mjs",
+   "bytes": 7704,
+   "sha256": "0c05292da9f5e41b947c5af1f3ba0e2a1f1d46d440dea0f3fb853bbac0ecf491"
+  },
+  {
+   "path": "packages/erp-domain/src/activity.mjs",
+   "bytes": 10965,
+   "sha256": "178e759c6bbf909893752d149102225a05a25070d50cb117480c9e816a0da937"
+  },
+  {
+   "path": "packages/erp-domain/src/business-dashboards.mjs",
+   "bytes": 25263,
+   "sha256": "98bfdf8bd57632cad81d44691e4799c1c7d23e95629dfff2c919f91106b418d8"
+  },
+  {
+   "path": "packages/erp-domain/src/company.mjs",
+   "bytes": 4125,
+   "sha256": "bc7e12629990bbdca9f53bc75838ffb28dd4d76fe3d41ca71ca8642c8da78291"
+  },
+  {
+   "path": "packages/erp-domain/src/document-mirror.mjs",
+   "bytes": 9199,
+   "sha256": "e4da793bc50fbca8376a40fd077bd2e54608789204f67a92f0464e66c3ea9384"
+  },
+  {
+   "path": "packages/erp-domain/src/document-search.mjs",
+   "bytes": 6230,
+   "sha256": "ce66781191e805c7e36aba393b77a1d289ce4a0c1adc999f8a02321aa8e670ff"
+  },
+  {
+   "path": "packages/erp-domain/src/fiscal-draft-status-dto.mjs",
+   "bytes": 11734,
+   "sha256": "cd239debae9a7106c5d614763f81ee974dd32e1ed2f0147811c7070444b86c10"
+  },
+  {
+   "path": "packages/erp-domain/src/fiscal-invoice-contract.mjs",
+   "bytes": 52445,
+   "sha256": "ce789affaeeb4a9141319b16cffc64cf35715f05fdbd7d4903e9047574d770fd"
+  },
+  {
+   "path": "packages/erp-domain/src/fiscal-invoice-dto.mjs",
+   "bytes": 17484,
+   "sha256": "aaf896e9038c36b357d364dc2c22f7c79e4bc1797ea004167128645d526328a5"
+  },
+  {
+   "path": "packages/erp-domain/src/fiscal-invoice-order.mjs",
+   "bytes": 31128,
+   "sha256": "c25ceecf8c6fb326eb0b8a4850c01284ffc7e5009d9834676a0aa8518a4a611f"
+  },
+  {
+   "path": "packages/erp-domain/src/index.mjs",
+   "bytes": 36845,
+   "sha256": "74a9342cc26ce2446ea4719a3c35c6177ebe2d321e19f2a5487bada5b40fc5d2"
+  },
+  {
+   "path": "packages/erp-domain/src/itau-legacy-readiness-dto.mjs",
+   "bytes": 7980,
+   "sha256": "1405acd26343143a52be8e16e0efac87233d84e5499800a6e6f3a0700f2af1cc"
+  },
+  {
+   "path": "packages/erp-domain/src/list-preferences.mjs",
+   "bytes": 4962,
+   "sha256": "cfc4289774a1d5ce05cde9993bb589c3d36b0519a22b2e79c96ff15cb9eb26a1"
+  },
+  {
+   "path": "packages/erp-domain/src/origin-purchase-readiness-dto.mjs",
+   "bytes": 10472,
+   "sha256": "acf05a36e7f2dc7cb61408594d9fc3d49ac16e23cd900b97b0ef07d4c001987f"
+  },
+  {
+   "path": "packages/erp-domain/src/origin-sales-history-dto.mjs",
+   "bytes": 11489,
+   "sha256": "5ca8e083f21b5b0b84fcb702357148cc4c89d09e762e2fb7d8bc0f8c0186c344"
+  },
+  {
+   "path": "packages/erp-domain/src/origin-sales-readiness-dto.mjs",
+   "bytes": 10562,
+   "sha256": "6d23b3d721af09891141259ccabf52a426ae984d8d831ef6c72633972bb38405"
+  },
+  {
+   "path": "packages/erp-domain/src/origin-stock-observations-dto.mjs",
+   "bytes": 9109,
+   "sha256": "7d048ced9e9a341dbc056905caa52fc9be30d314e6e748e687f3ee7d87e1ec3e"
+  },
+  {
+   "path": "packages/erp-domain/src/origin-warehouse-import-dto.mjs",
+   "bytes": 8863,
+   "sha256": "13a40c4b6ad0b8eb38b148cf0c2aed360a5b974f35dc5854277f2347afabca01"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/catalog.mjs",
+   "bytes": 2927,
+   "sha256": "bd8e7d9aceb4ca23e18714190aa5e6f4a22fde114233f17773816e4a62aa36e4"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/core.mjs",
+   "bytes": 15770,
+   "sha256": "71b386447c46c92e100b09521026339061e5fcae7ed76084676173f2d6699627"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/dto.mjs",
+   "bytes": 7089,
+   "sha256": "50bfb264d59894b936ef0bc94abee283a307e037220fae081f1a677bf9564943"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/fields.mjs",
+   "bytes": 3334,
+   "sha256": "dd3b90e3723e49271b0e864e318224d5a6efd46d4e77ea88be3668c2734e6da9"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/cadastros-contatos.mjs",
+   "bytes": 5039,
+   "sha256": "5ce217769d52e2f85c955c7281108217f4cda9c718c15b5d4c86343835aa6c7b"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/cadastros-lotes.mjs",
+   "bytes": 2030,
+   "sha256": "2652d21d43659e3d4e2d3d8b352cf36ef77ede69b916af62c13cfe5d2a97cd7b"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/cadastros-produtos.mjs",
+   "bytes": 9474,
+   "sha256": "69ff078b0942f7d8de2dd0c4f3309a4b200b80c2ee896fcba8ad0b1425bcf1dd"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/central-notificacoes.mjs",
+   "bytes": 2827,
+   "sha256": "fc52629e2ff7fa958f1ef170a6cee06016d1b5fbab017a28ace03fd2d47435cf"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/certificado-digital.mjs",
+   "bytes": 1200,
+   "sha256": "4d0085e33cdea5e099a4bff89ca26ed622890895d148ab835fc52af5506d330d"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/contabilidade-contador.mjs",
+   "bytes": 1743,
+   "sha256": "a61792903c5d6b8fa0348ed6e95755e11e75af037da850c46364a92a6b685099"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/empresa-armazenamento.mjs",
+   "bytes": 992,
+   "sha256": "b845c9c3307c4439e53b9594f9eeffaf271958afa25b5046d32de4bc52c90f0a"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/empresa-geral.mjs",
+   "bytes": 2461,
+   "sha256": "95c15f812bdfbd9342d01cc2ce8dff3130bda82caaa61b69389a0c083e7098a0"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/financas-pagar.mjs",
+   "bytes": 1575,
+   "sha256": "8cf479902f0423c78f30b4f38997720ec1e8dc07fe76725bc1e75ad091b5c8f1"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/financas-receber.mjs",
+   "bytes": 4051,
+   "sha256": "99b5b1fae2e866d0d96653d892145bfd89726aa6d5cf5a4cf686d9bfaa8fa5c8"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/meu-negocio.mjs",
+   "bytes": 2505,
+   "sha256": "f8cc2502bff930a53d847dc38b6264cebbb566ef02e76781b538465687bce63e"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/notas-nfce.mjs",
+   "bytes": 4066,
+   "sha256": "71a7f3c57a0a254fce8f5820176a282190764ea0f474e6ec2a5af24317b5c3d7"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/notas-nfe.mjs",
+   "bytes": 14790,
+   "sha256": "1a3bc0bcf975527706829c99023ba88b28730ce80141b57a24ae9f666028666e"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/servicos-os.mjs",
+   "bytes": 7622,
+   "sha256": "e1599667a2b19553c8fdcfc58d0d1566ac6a665b532e194824b9e9b2e2081663"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/sistema-interface.mjs",
+   "bytes": 789,
+   "sha256": "1587e90f01fcf75bc5a9a81fe59ec01ea40cd93e5216e14c17a081070774d09a"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/suprimentos-compras.mjs",
+   "bytes": 5961,
+   "sha256": "bce44d3064f5721575bb57ccfd1119d5df32f5fb99c76d88a81a21f03414204e"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/suprimentos-estoque.mjs",
+   "bytes": 7720,
+   "sha256": "d2ce9bce539fdf6fe362e9b56e122f3becba6d2d09b4a482b4e9d6b0e3c85b73"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/vendas-frente-caixa.mjs",
+   "bytes": 5290,
+   "sha256": "554886734d98458f9f52b9657c00d5ecbcebaad043e98e2e43f262fbfafc3895"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/vendas-propostas.mjs",
+   "bytes": 5898,
+   "sha256": "e83e3484d81d540501ff4e9995bb2f3186893e3db6e77842ee0d41d293411283"
+  },
+  {
+   "path": "packages/erp-domain/src/preferences/pages/vendas-vendas.mjs",
+   "bytes": 15267,
+   "sha256": "7b5d6766c6e50e116bf803221606e5f471212badce052200443b7a75ff7b2ba3"
+  },
+  {
+   "path": "packages/erp-domain/src/product-custom-filter.mjs",
+   "bytes": 2237,
+   "sha256": "23923847bb7c3f13f38d7bdc8f85493646da7c428ccad0e25fabc253435c0eb5"
+  },
+  {
+   "path": "packages/erp-domain/src/product-detail.mjs",
+   "bytes": 10847,
+   "sha256": "b3f6b0e5731923b6b6936f1ff2fcbc483f89e87be4251d2c3c1dc9048f12a6f8"
+  },
+  {
+   "path": "packages/erp-domain/src/purchase-receipts-dto.mjs",
+   "bytes": 13305,
+   "sha256": "ff266511a77833a52ed2a814e0d79aaedde9a10ed35b35f3d6a11d14781be236"
+  },
+  {
+   "path": "packages/erp-domain/src/reports-labels.mjs",
+   "bytes": 29773,
+   "sha256": "d1229e49c477dcd85fbe08aca6e4a3c513f1d93aaa7feecb899a0b9a763ca7ba"
+  },
+  {
+   "path": "packages/erp-domain/src/rich-text.mjs",
+   "bytes": 3386,
+   "sha256": "ce29b10b70ebb36ce632daf8cf8eedc5d785f55af9bfa575249dfb77d76a41f2"
+  },
+  {
+   "path": "packages/erp-domain/src/sales-invoice-balance.mjs",
+   "bytes": 3408,
+   "sha256": "00227ba02d446fcfe5a15dea1f88a1e9795779e014e1125483a07fcac7e215ad"
+  },
+  {
+   "path": "packages/erp-domain/src/spreadsheet-import.mjs",
+   "bytes": 36193,
+   "sha256": "9f52c860c0899226a074e21fcafc554a41a4502c9309123220dae4df9141deb4"
+  },
+  {
+   "path": "packages/erp-domain/src/stock-opening-dto.mjs",
+   "bytes": 19748,
+   "sha256": "e79b810589cf12ed21fa1c5c35ab73adc4fb173c4fccfdbc5eeba52c361fb146"
+  },
+  {
+   "path": "packages/erp-domain/src/stock-reservations-dto.mjs",
+   "bytes": 10438,
+   "sha256": "3d1c392c291656b1e544145d5f02d79f10a8056954f8ea41ad63ef046efe6c85"
+  },
+  {
+   "path": "packages/erp-domain/src/system-frameworks.mjs",
+   "bytes": 8818,
+   "sha256": "df472aa8c96e3982609258acce2d3cfe1331e83d08e1575243467705e16f2fdb"
+  },
+  {
+   "path": "packages/erp-domain/src/system-profile.mjs",
+   "bytes": 23065,
+   "sha256": "2623aadac745f50c283f1401ef53880f2fb4ad632b0b61b76c45a3603c337c1c"
+  },
+  {
+   "path": "packages/erp-domain/src/unit-price.mjs",
+   "bytes": 2592,
+   "sha256": "7aae1e179dabd01edec50aabaf5e918947b82af6bf83b14233796cfbcf3915fa"
+  },
+  {
+   "path": "packages/erp-domain/src/user-permissions.mjs",
+   "bytes": 20926,
+   "sha256": "df8ac551908a824e147954fa37cba40585ca6d6d8e7705fdc55ab1d84ab448e1"
+  },
+  {
+   "path": "packages/fiscal-authorization/src/rule-profile-registry.mjs",
+   "bytes": 1629,
+   "sha256": "bb685be6399c0e49a0a13e920492a0a4d4dd4560cfea4181436be3c92eebf390"
+  },
+  {
+   "path": "packages/fiscal-core/src/business-completion.mjs",
+   "bytes": 6594,
+   "sha256": "7a07a9c7121d672184da7571cba999a317b16c788093df6baf1710a4838f8b4a"
+  },
+  {
+   "path": "packages/fiscal-core/src/identity.mjs",
+   "bytes": 6056,
+   "sha256": "dc5561d12a4efaf6d67e8a77268a8845b120606158c73c1d3dca9d76504bad03"
+  },
+  {
+   "path": "packages/fiscal-core/src/item-preparation.mjs",
+   "bytes": 8425,
+   "sha256": "e8cc0f852cd9818eb5433f70f6b2e96ea907a960171a4562f236ee3b544e5485"
+  },
+  {
+   "path": "packages/fiscal-core/src/nfce-qr-profile.mjs",
+   "bytes": 886,
+   "sha256": "37c36d858b096f70ae703351423a8d243cee3f7e7c452abc332feb74ce422146"
+  },
+  {
+   "path": "packages/fiscal-core/src/review.mjs",
+   "bytes": 21975,
+   "sha256": "fad297c32f0f1f163bc445798447bef0387dff4d5f5de5aa552f68feebea4aa8"
+  },
+  {
+   "path": "packages/fiscal-core/src/tax-engine.mjs",
+   "bytes": 24054,
+   "sha256": "be19c20f67d5e8937b395d3053d25bf7f598262fb51009eb03942996cfe2ed63"
+  },
+  {
+   "path": "packages/fiscal-core/src/tax-preparation.mjs",
+   "bytes": 5049,
+   "sha256": "a94dd00eac892e41088ae93a573aee34a72c8b73aeb58c366db75a800d75e952"
+  },
+  {
+   "path": "packages/fiscal-xml/src/archive.mjs",
+   "bytes": 9097,
+   "sha256": "09ad4c4d87aa014cb39ed021b148ff1374dd711b1e7fcf52281adc7307a1e205"
+  },
+  {
+   "path": "packages/fiscal-xml/src/dfe-summary.mjs",
+   "bytes": 5156,
+   "sha256": "e9001cad3fb54debb752cd64bc8facb31c36790d94e3a0fce9cd9da158797339"
+  },
+  {
+   "path": "packages/fiscal-xml/src/invoice-import.mjs",
+   "bytes": 18630,
+   "sha256": "9560d955c882b88f832530ba24ea935e177d65eeb3baa620957c38ba03ad66da"
+  },
+  {
+   "path": "packages/fiscal-xml/src/native-invoice.mjs",
+   "bytes": 42790,
+   "sha256": "6b9fecdab247db041505f6113e5323c57b36ff07d1835075faa0b31df9c53de3"
+  },
+  {
+   "path": "packages/fiscal-xml/src/nfe-schema-pl010f.mjs",
+   "bytes": 57298,
+   "sha256": "2e73aaebca6dcd083e25c646e8d3c18e5027cb36bae4cc818d3c92b3965b7fd2"
+  },
+  {
+   "path": "packages/fiscal-xml/src/schema-check.mjs",
+   "bytes": 15145,
+   "sha256": "f79e9f6efae8abfd2ad54cd9c11c6f9e55916898dbed68942f08775f1933d257"
+  },
+  {
+   "path": "packages/fiscal-xml/src/xml-signature-check.mjs",
+   "bytes": 13478,
+   "sha256": "74491db713fc2970f2e91a14c8ce07cadb9a0440c873559961f4319e5c413d89"
+  },
+  {
+   "path": "workers/erp-api/src/access-users.mjs",
+   "bytes": 7366,
+   "sha256": "9f968bcc20b8391c9365d649b15ae6c7bad64915c59cb69839a13181ab99c323"
+  },
+  {
+   "path": "workers/erp-api/src/activity.mjs",
+   "bytes": 3126,
+   "sha256": "81c05308cd5c3a306008f8939b49a51fb7c21b66c8859ec4d2086b4aaebfc843"
+  },
+  {
+   "path": "workers/erp-api/src/agent-auth.mjs",
+   "bytes": 1658,
+   "sha256": "5ab0dc223d1e1796963c777eebfb1753e6a4884599e1559329682082f9bf10ad"
+  },
+  {
+   "path": "workers/erp-api/src/attachment-content.mjs",
+   "bytes": 6737,
+   "sha256": "9b613c11a8305df18368a5de9e33876dddff4f99c5b5a52e83f54688f16dcc39"
+  },
+  {
+   "path": "workers/erp-api/src/attachment-storage.mjs",
+   "bytes": 3117,
+   "sha256": "9478aad0fb361081c28997e4fae951f520c1b245e35708f34efa218f106f8284"
+  },
+  {
+   "path": "workers/erp-api/src/attachments.mjs",
+   "bytes": 12768,
+   "sha256": "0195533c7c5818a0dd43579b8f32d531cd303e353011af4b8f2e6b6df9737cc5"
+  },
+  {
+   "path": "workers/erp-api/src/backup-import.mjs",
+   "bytes": 19552,
+   "sha256": "e303378fb552d19d48483a923b7a7e34bc65d810dbb130fe5ff3ab7e9d5cba33"
+  },
+  {
+   "path": "workers/erp-api/src/boleto-preview.mjs",
+   "bytes": 18390,
+   "sha256": "270fb85708004434faa6d5ebf121b9e317427d128a8455132b301d19acd10258"
+  },
+  {
+   "path": "workers/erp-api/src/business.mjs",
+   "bytes": 2919,
+   "sha256": "bb5f2047f47e68ef0ba5db1ce5115b1cb193380a3bf0fe8c6d919078ca14cf71"
+  },
+  {
+   "path": "workers/erp-api/src/catalog-import.mjs",
+   "bytes": 8067,
+   "sha256": "94064872e2d8d24179f5b35ddf56db431a313bbc5c812595f513e92692b13599"
+  },
+  {
+   "path": "workers/erp-api/src/catalog-mirror.mjs",
+   "bytes": 13074,
+   "sha256": "df79d466024b20a86e6cfa274983affdb1a44b3353262dd03efc947eec6564be"
+  },
+  {
+   "path": "workers/erp-api/src/catalog.mjs",
+   "bytes": 25482,
+   "sha256": "bf84d66a26349d7472054c26f0d3f9d84a0be554dd9a214268694270fcc95e3b"
+  },
+  {
+   "path": "workers/erp-api/src/cnab-operational-v2.mjs",
+   "bytes": 31893,
+   "sha256": "c8a3c76542ccb5d4220fdc833939aec00d1640be8fa60ca67bc7125ed3a0240d"
+  },
+  {
+   "path": "workers/erp-api/src/cnab-operational.mjs",
+   "bytes": 18599,
+   "sha256": "9f67653abd4a5a3e262ac40685218b70c9da1ab1dbf452d7d62fbfafb4782099"
+  },
+  {
+   "path": "workers/erp-api/src/cnab-returns.mjs",
+   "bytes": 23461,
+   "sha256": "f096133961dc6af10abb89ce76299822e3307a1544957269e94e5ff670ac4e1f"
+  },
+  {
+   "path": "workers/erp-api/src/cnab-review.mjs",
+   "bytes": 17843,
+   "sha256": "a6bb3876ecfb8f44b17fbfd0977b7b2e591cbdf6bb12f347e3f8b1119740f322"
+  },
+  {
+   "path": "workers/erp-api/src/cnab.mjs",
+   "bytes": 21835,
+   "sha256": "05fceb0aec76d751e637078931c623026a183881d3da6115eb76401a2e57acc7"
+  },
+  {
+   "path": "workers/erp-api/src/company-files.mjs",
+   "bytes": 10534,
+   "sha256": "16445cc2799c0a9d7e7d0230193d95bf42a09f45f65c110858f8398695661f17"
+  },
+  {
+   "path": "workers/erp-api/src/company-logo.mjs",
+   "bytes": 10248,
+   "sha256": "13c577fb4f7ec41e72eddb477a0dd1e9739760647129cdff7226c93690610917"
+  },
+  {
+   "path": "workers/erp-api/src/company.mjs",
+   "bytes": 5505,
+   "sha256": "af8420bb91d936cc9c5d4da3c3473d21cd16cd42f15df59e8889d952ac367d44"
+  },
+  {
+   "path": "workers/erp-api/src/contact-files.mjs",
+   "bytes": 10980,
+   "sha256": "c8d34b297ca1f1646e87dd26fc0cd18ec037b32641e012cf4da30d5c4f257774"
+  },
+  {
+   "path": "workers/erp-api/src/contact-tags.mjs",
+   "bytes": 7378,
+   "sha256": "0dc9d2d44e0d58d973e31cd430ef9787dff570779523a64244818e1f188e22be"
+  },
+  {
+   "path": "workers/erp-api/src/contacts.mjs",
+   "bytes": 69972,
+   "sha256": "1b0d47bc47e5de92a794089ad9d405a2f56f585d415056463c8b646a79133240"
+  },
+  {
+   "path": "workers/erp-api/src/cutover.mjs",
+   "bytes": 8690,
+   "sha256": "9e28acf34fbd3c15cbef680f7ffdc53f2ce8d8c552042c4a8a020dc9ed7b8d87"
+  },
+  {
+   "path": "workers/erp-api/src/dfe-distribution.mjs",
+   "bytes": 19812,
+   "sha256": "1f226168d20cd0da66393219f4826083f92ec97fe3c6dbde2f71bd5e4ff97be3"
+  },
+  {
+   "path": "workers/erp-api/src/document-copy.mjs",
+   "bytes": 8339,
+   "sha256": "000e1b526805485619446104c9000a65d28d76e5615ae5d074931cbf4f06cf40"
+  },
+  {
+   "path": "workers/erp-api/src/document-extras.mjs",
+   "bytes": 32733,
+   "sha256": "414e147f97f0addd8591a24e7aa832a1bf3181e7d74906ad70a9e185b9e60120"
+  },
+  {
+   "path": "workers/erp-api/src/document-finance.mjs",
+   "bytes": 12568,
+   "sha256": "d380ad9795b3faa8ef6a5cbc841ddc1d0e2fbe8bc0eada11ba4be7de38341ddf"
+  },
+  {
+   "path": "workers/erp-api/src/document-reports.mjs",
+   "bytes": 21069,
+   "sha256": "a9f092e6c63c968e7b44a1351771c1ceeccaf9ea5e848a3879f5643eb624ab01"
+  },
+  {
+   "path": "workers/erp-api/src/document-service-conversion.mjs",
+   "bytes": 4488,
+   "sha256": "e5cce9a5c275ecde05e0c58189808de43baf2269b502b44f1220a62b7194f48c"
+  },
+  {
+   "path": "workers/erp-api/src/document-situations.mjs",
+   "bytes": 6374,
+   "sha256": "6c60e7a411251bf9407ed3b89ed278d4251e9d78e761ed3389ba8e41b14badaa"
+  },
+  {
+   "path": "workers/erp-api/src/document-stock.mjs",
+   "bytes": 18285,
+   "sha256": "fb3c50c9cf5e9b80344c8162745378982a1a7ef179ea33ef733263f21d34373a"
+  },
+  {
+   "path": "workers/erp-api/src/document-xml-import.mjs",
+   "bytes": 6455,
+   "sha256": "ce8ddb82719fce56f2f689b0a6bd7a8db8151e9d0bd41fa8eeb25fdf4183b87a"
+  },
+  {
+   "path": "workers/erp-api/src/documents.mjs",
+   "bytes": 84698,
+   "sha256": "e64d6adb950b1cbef6039895c952095ab59bc2eb1661a1415d7ab9aeed0340d2"
+  },
+  {
+   "path": "workers/erp-api/src/due-report.mjs",
+   "bytes": 5089,
+   "sha256": "a2e5a14ca68568971c847efa4a4201cbdac210100e251fde5f881e4f6ef725d5"
+  },
+  {
+   "path": "workers/erp-api/src/employee-files.mjs",
+   "bytes": 10636,
+   "sha256": "11b7a1ba2ee2777e5a6441a9b1e77bd73b627a5ec10e493bb107f09f2055a755"
+  },
+  {
+   "path": "workers/erp-api/src/finance-borderos.mjs",
+   "bytes": 11940,
+   "sha256": "13bff45e40da956ab491bc273cc3b4f4ad56c64b073133fe95b30831b4273c43"
+  },
+  {
+   "path": "workers/erp-api/src/finance-cash-control.mjs",
+   "bytes": 11906,
+   "sha256": "ff623e4849a24d78807cf2bef59c1b76dbc3088719a7c8f07b8a8bafdb322426"
+  },
+  {
+   "path": "workers/erp-api/src/finance-cash.mjs",
+   "bytes": 25207,
+   "sha256": "b4b47408b69153f33e088944f1c00aa47b71336336d94f0e42f573c11eaf9e1b"
+  },
+  {
+   "path": "workers/erp-api/src/finance-cnab-lists.mjs",
+   "bytes": 17211,
+   "sha256": "8f4d20730191dd839b68c6c32f8d73113be16ef4da7aaf912e06b3b7a0603f69"
+  },
+  {
+   "path": "workers/erp-api/src/finance-commissions.mjs",
+   "bytes": 22501,
+   "sha256": "0989eee485a3da0cbc5b75fb288ab123c0fd24729b8022d0c34b7ef756c79b71"
+  },
+  {
+   "path": "workers/erp-api/src/finance-files.mjs",
+   "bytes": 10429,
+   "sha256": "2ca5dbde7782c26027b892730f664f0a6a86cc502a06591736c24ddf9d6bfeb0"
+  },
+  {
+   "path": "workers/erp-api/src/finance-grouped-billing.mjs",
+   "bytes": 13918,
+   "sha256": "77ef8a9b44d3ff8da8ec5d47722f69d0ad2b3889de877e2020cb2e039b790fff"
+  },
+  {
+   "path": "workers/erp-api/src/finance-invoices.mjs",
+   "bytes": 18167,
+   "sha256": "4dcae1163f6ad8fc3c05f93ef2e1660de8f06bd68cd9d5f2dc5aa1480eb83544"
+  },
+  {
+   "path": "workers/erp-api/src/finance-ofx.mjs",
+   "bytes": 4433,
+   "sha256": "c965f8e8f740064c9b74aea133602c4b0ed790d43fb8a27d33cdb0b4d166d1c7"
+  },
+  {
+   "path": "workers/erp-api/src/finance-reconciliation.mjs",
+   "bytes": 16025,
+   "sha256": "0df26889c0e9d2c8ea343df4861d1fe518140fe026259daa4d78a6d6de1910ee"
+  },
+  {
+   "path": "workers/erp-api/src/finance-recurrence.mjs",
+   "bytes": 15294,
+   "sha256": "3127953f002ea07712477efc40ce2377229140acd9174c32c5caad290ac4f38f"
+  },
+  {
+   "path": "workers/erp-api/src/finance-registry.mjs",
+   "bytes": 19648,
+   "sha256": "de1fece294e5a7679ff542d227b471cc406ab042017322c17e89971421848a89"
+  },
+  {
+   "path": "workers/erp-api/src/finance-reports.mjs",
+   "bytes": 7256,
+   "sha256": "132f32c7b06a00ce0e9d9231911658ab263816c13d75dc301f24853edde4dbe6"
+  },
+  {
+   "path": "workers/erp-api/src/finance-transfers.mjs",
+   "bytes": 12376,
+   "sha256": "a7c8f89f67ab80cad509e12f607ad020cc49707ce72327123346185be3701f94"
+  },
+  {
+   "path": "workers/erp-api/src/finance.mjs",
+   "bytes": 38533,
+   "sha256": "c2a0b6bde59a13e5523c8e98701547aff17f875280c0cee75dc92e06c084bc53"
+  },
+  {
+   "path": "workers/erp-api/src/financial-cutover.mjs",
+   "bytes": 14466,
+   "sha256": "3c37a30af98da97854b09484b2bc1e62d98652ed9bbd75b8deff33e1acab37c5"
+  },
+  {
+   "path": "workers/erp-api/src/financial-import.mjs",
+   "bytes": 15408,
+   "sha256": "074c26b923eb51430249b52650232bf7209bb221f4bcc7cec12b1828549017c5"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-completion.mjs",
+   "bytes": 16546,
+   "sha256": "552f78666fc9921d52b820faf5a8f01b39e11048505aa721b134ecff1a434ac2"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-draft-status.mjs",
+   "bytes": 4734,
+   "sha256": "18db95b6bee66c74b60a3ef2b6ff18d497c7d75dadf38f04878c10fecb5d7449"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-drafts.mjs",
+   "bytes": 18570,
+   "sha256": "ad691bdbf3ad6b29698fd52d816d7db0a6535f82556ab09573b41a4cea965cac"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-invoices.mjs",
+   "bytes": 61597,
+   "sha256": "b093055242cf1fd78bc603d249793f96f13afc748e158fc14ca2387a276f6e1f"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-item-preparation.mjs",
+   "bytes": 12772,
+   "sha256": "cd98bdd4ba2dcd9363c9952fa7e67f418ece0cacabeafdac41b8261ee52adfb8"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-numbering.mjs",
+   "bytes": 16393,
+   "sha256": "00192dea4a038fcda4c97428fe52fd3ea0121a9888092337ae5172c8bdf66a12"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-reports.mjs",
+   "bytes": 10666,
+   "sha256": "746a3463ef0eed60dbfa0a9b410e12b795f416e6668b29a88532897c2278d753"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-review.mjs",
+   "bytes": 2003,
+   "sha256": "58a9ba73acf4927e140eb2a1829136f1be55d059839303c3d6c55553c224f95f"
+  },
+  {
+   "path": "workers/erp-api/src/fiscal-tax-preparation.mjs",
+   "bytes": 10081,
+   "sha256": "4d4b456f291083b4ac89159587d323a15b6ee2bc3ffed238db72a570de27fb38"
+  },
+  {
+   "path": "workers/erp-api/src/history.mjs",
+   "bytes": 7964,
+   "sha256": "e96b84e42026f60edac6104a443239fd5d73007c584a6d557687a649b40b6a39"
+  },
+  {
+   "path": "workers/erp-api/src/home.mjs",
+   "bytes": 21331,
+   "sha256": "67513607c6884ccf498d670bafc424117a43855ac075ddb415351cbcdaebf06a"
+  },
+  {
+   "path": "workers/erp-api/src/index.mjs",
+   "bytes": 104051,
+   "sha256": "fd0d4712f4f9c6875dae401ee863eed6364cc0b7d341002b7ad00804dd48f527"
+  },
+  {
+   "path": "workers/erp-api/src/integration-progress.mjs",
+   "bytes": 16519,
+   "sha256": "3daf6ceafefa4fb2e5c2c4305ba9fcfb3d3ad96b4cada52106e74a72e4b71863"
+  },
+  {
+   "path": "workers/erp-api/src/invoice-tags.mjs",
+   "bytes": 7014,
+   "sha256": "616056fb0b26838938e0562745095440bf2f6069d8fc3ea7017fe7651027a276"
+  },
+  {
+   "path": "workers/erp-api/src/itau-legacy-readiness.mjs",
+   "bytes": 4083,
+   "sha256": "f90c39a83bd8ba30682482e0750f5c781ab76d9da6c4c4c762b8cccfb5d3a4e7"
+  },
+  {
+   "path": "workers/erp-api/src/itau-net-credit.mjs",
+   "bytes": 13984,
+   "sha256": "62aa7c1503cc6e00a2b457b7f4d8fd3ead9bb8f348f4e5208d169aa2efbb60f0"
+  },
+  {
+   "path": "workers/erp-api/src/mcp.mjs",
+   "bytes": 32144,
+   "sha256": "8f1ac505bc416acfc52142592fd3d0fa82ab0183118b6671bf6aa12d55bd7ac6"
+  },
+  {
+   "path": "workers/erp-api/src/origin-proposal-import-v2.mjs",
+   "bytes": 26254,
+   "sha256": "5793156443338510ff6472e5b760aa8a47dfa9981fa807d4deea51e70b26a54a"
+  },
+  {
+   "path": "workers/erp-api/src/origin-proposal-import.mjs",
+   "bytes": 23151,
+   "sha256": "17c6260c8ac73e00635a0341e6c3327db12e91b5a129b5e611da6cc4ccc17189"
+  },
+  {
+   "path": "workers/erp-api/src/origin-purchase-readiness.mjs",
+   "bytes": 4847,
+   "sha256": "803ab6338887e143b9ae00d7753d1fadc31d8e72ce0db3d77267d8ed5a488f9c"
+  },
+  {
+   "path": "workers/erp-api/src/origin-sales-history.mjs",
+   "bytes": 5097,
+   "sha256": "a5d7ac08d29020b458074fb6ffd7401158584390ed1663d33a300b3cabb05664"
+  },
+  {
+   "path": "workers/erp-api/src/origin-sales-readiness.mjs",
+   "bytes": 4765,
+   "sha256": "2e1b76c7d72f840eec6690089c425b616884bb1c0db747925750457a0b5fc5f1"
+  },
+  {
+   "path": "workers/erp-api/src/origin-stock-observations.mjs",
+   "bytes": 5395,
+   "sha256": "a1f7e82039929fe986f5703e15801cb1237cefcca4278cac7cb95a418bfcdfdc"
+  },
+  {
+   "path": "workers/erp-api/src/origin-two-way.mjs",
+   "bytes": 24143,
+   "sha256": "1a54736a48b53faffca8aacd7847f6455fea184ec28394a85a97f543ede5b160"
+  },
+  {
+   "path": "workers/erp-api/src/origin-warehouse-import.mjs",
+   "bytes": 7205,
+   "sha256": "7d6cfc9581e33f5484adf146d15491dbac12fb532b4255c16eb8e875a2c55020"
+  },
+  {
+   "path": "workers/erp-api/src/platform.mjs",
+   "bytes": 27821,
+   "sha256": "8bbf47cb2233888c1a5d83aa9e7043e006f84dc77a9ff544ee5ed273cd61399e"
+  },
+  {
+   "path": "workers/erp-api/src/pos.mjs",
+   "bytes": 41686,
+   "sha256": "23852a47026e5fae4e8a30e4c68d0ae16e6b5beb5df9e1c1f70975988865c862"
+  },
+  {
+   "path": "workers/erp-api/src/preferences-kit.mjs",
+   "bytes": 6138,
+   "sha256": "9205975b07e092e01b67d3c1de0a21b2ef7d8aac6d0a4d360adb2668d5c397e1"
+  },
+  {
+   "path": "workers/erp-api/src/preferences.mjs",
+   "bytes": 7532,
+   "sha256": "a8df7ceb5b143c3ae3e49005286450128b950449bf8ff10773339b8914c01313"
+  },
+  {
+   "path": "workers/erp-api/src/price-lists.mjs",
+   "bytes": 22939,
+   "sha256": "ceed64667885fe37854199b5b913fa61bca91b773dd6a47aa26eebbfa90fcd49"
+  },
+  {
+   "path": "workers/erp-api/src/product-custom-fields.mjs",
+   "bytes": 12281,
+   "sha256": "47fec18c469216fb69fc0481471f11a5270b4b8cc99795fbb7aee7cb29cca8ab"
+  },
+  {
+   "path": "workers/erp-api/src/product-images.mjs",
+   "bytes": 12034,
+   "sha256": "e76cb6e8592cd863da6d388f83795438d693580c9000c05241bd39e45951a17d"
+  },
+  {
+   "path": "workers/erp-api/src/product-prices.mjs",
+   "bytes": 14146,
+   "sha256": "3d319ddb6d908a17e52e0d1c7ab3471c8b7c9c6f8719479995c6e7d3000df5c9"
+  },
+  {
+   "path": "workers/erp-api/src/product-registry.mjs",
+   "bytes": 31815,
+   "sha256": "e246607f979def20313e063d5a8f0bc04baaf0902440e5a2c4c3c78df836de4c"
+  },
+  {
+   "path": "workers/erp-api/src/product-stock-mirror.mjs",
+   "bytes": 6563,
+   "sha256": "bbc9e501dd1c623766d7b322464cf16a901427dd56968a3826413a4dcb2a6aee"
+  },
+  {
+   "path": "workers/erp-api/src/product-variations.mjs",
+   "bytes": 4617,
+   "sha256": "a4165cf42ca14900f25f4d5e81a17c5874ec097fe254513094836658bc7e462c"
+  },
+  {
+   "path": "workers/erp-api/src/purchase-receipts.mjs",
+   "bytes": 8554,
+   "sha256": "63e0d5e1724c6e460ca84afda60e154bf8fbd02deab5484b4ee6d9a710234d4f"
+  },
+  {
+   "path": "workers/erp-api/src/security.mjs",
+   "bytes": 4213,
+   "sha256": "fa9a0ad18ca8dbbcc74400be70f0de9806fa4e18a8ada76b3c7472864f07d4f1"
+  },
+  {
+   "path": "workers/erp-api/src/service-events.mjs",
+   "bytes": 16358,
+   "sha256": "dff6596505d5f37f0b63a7ab860b8c64c8160664b709aaaeceba1895df6c89bc"
+  },
+  {
+   "path": "workers/erp-api/src/service-journal.mjs",
+   "bytes": 6304,
+   "sha256": "5a4434b8eafdf81bac88d4b3b873a873ccb634084561cc2fe5a2ae409e785ef3"
+  },
+  {
+   "path": "workers/erp-api/src/spreadsheet-import.mjs",
+   "bytes": 3656,
+   "sha256": "7c857416188f538ffa10d7d44e8921369a29fdf4fa7080efb7e9e7f7a16baf9d"
+  },
+  {
+   "path": "workers/erp-api/src/stock-checkin.mjs",
+   "bytes": 17666,
+   "sha256": "265c6b1a710748df15251a10390a1a2752b22d4e493c31b1112cfbc962c7f6c3"
+  },
+  {
+   "path": "workers/erp-api/src/stock-compositions.mjs",
+   "bytes": 33594,
+   "sha256": "32c1f3b51126df9da7c561f2e4988167301906fd52a87fb1f14bae7fdeed20eb"
+  },
+  {
+   "path": "workers/erp-api/src/stock-count.mjs",
+   "bytes": 13541,
+   "sha256": "40b891d0d703d0042a6c36e1e22e77bc1b241409da1c2cab1287b67cbb461a3c"
+  },
+  {
+   "path": "workers/erp-api/src/stock-dashboards.mjs",
+   "bytes": 20892,
+   "sha256": "894b9d7cbe12e19c56ff4196ec1d77eac18e12fba60f1470bf1398cbb4f4152e"
+  },
+  {
+   "path": "workers/erp-api/src/stock-invoices.mjs",
+   "bytes": 30549,
+   "sha256": "fd76a356b7d785c5230b4d99377469215af43a85c308fc90a530363ac9db0327"
+  },
+  {
+   "path": "workers/erp-api/src/stock-lots.mjs",
+   "bytes": 31420,
+   "sha256": "f107b9e67210980762d48d667a4764576c134a960417b590ba662e298cf9c1e4"
+  },
+  {
+   "path": "workers/erp-api/src/stock-mirror.mjs",
+   "bytes": 5557,
+   "sha256": "36671e4be9207dae5970938a6a9498a651024cb9a97571cfd46a4362dda352ef"
+  },
+  {
+   "path": "workers/erp-api/src/stock-opening.mjs",
+   "bytes": 9686,
+   "sha256": "cff409b36f709b87db49edd10f46bad9f3512a1b6520d441a5d2b6f5a12cec54"
+  },
+  {
+   "path": "workers/erp-api/src/stock-origin.mjs",
+   "bytes": 31979,
+   "sha256": "20a2d06eec520dca28e9e58bdc592a4c7b50b97d1e011f299bf21e448f7e1130"
+  },
+  {
+   "path": "workers/erp-api/src/stock-positions.mjs",
+   "bytes": 9337,
+   "sha256": "6ecdcc461f9e2ddd01d58f21866bb293f0bd48cdb64a0b09992b9b3bc38a9c2a"
+  },
+  {
+   "path": "workers/erp-api/src/stock-reports.mjs",
+   "bytes": 18862,
+   "sha256": "4a2f759fe1b5b380ea97eb7d5df1297fa41ec65dd4cec5f70aa17549b134e9b1"
+  },
+  {
+   "path": "workers/erp-api/src/stock-reservations.mjs",
+   "bytes": 8621,
+   "sha256": "c3f55fdd8fc5d2d8b3c352e02526f5844493922f04c4119ab6d88f3ec2fb7e4c"
+  },
+  {
+   "path": "workers/erp-api/src/stock-supply.mjs",
+   "bytes": 21288,
+   "sha256": "8232493195c5e07649cb816fabe82c1d2cddea8c9fed2826848c9807b14f7618"
+  },
+  {
+   "path": "workers/erp-api/src/stock.mjs",
+   "bytes": 28682,
+   "sha256": "a1b31e9a7361184fedc7dcd382dec87488c559b37be8b6765c521f9d31a30b93"
+  },
+  {
+   "path": "workers/erp-api/src/synced-xml.mjs",
+   "bytes": 9661,
+   "sha256": "387729634176ff3c206d97ac9e5daae4bcdf000b81c5fdf0e61fb05e3a5262ac"
+  },
+  {
+   "path": "workers/erp-api/src/system-updates.mjs",
+   "bytes": 7596,
+   "sha256": "e6c127b73d07c470bb80b8254a71fb2b8eeed593083632b528379014b631e624"
+  },
+  {
+   "path": "workers/erp-api/src/system.mjs",
+   "bytes": 11059,
+   "sha256": "4d9bdc7426c17c8e375cb291c4b2f65b873af53baabe3da8f80d8b2e803c7ada"
+  },
+  {
+   "path": "workers/erp-api/src/wabotia.mjs",
+   "bytes": 10065,
+   "sha256": "5547d26991f97d45c2eeef99f169e9e53f3e616228b4f5b1d2f75be899febebe"
+  },
+  {
+   "path": "workers/origin-sync/src/client.mjs",
+   "bytes": 14338,
+   "sha256": "b077e524df19cd1eefe882217ec7d3c3bb3b51af9f2e0effb59a54ea0f910fa9"
+  },
+  {
+   "path": "workers/origin-sync/src/crypto.mjs",
+   "bytes": 3068,
+   "sha256": "268b921a5a30aa0e1a76c40b5b172e26ac490bf38a4216f3aa18eb7ac5e504d1"
+  },
+  {
+   "path": "workers/origin-sync/src/endpoints.mjs",
+   "bytes": 786,
+   "sha256": "620ecc66f5ed772dd3c45732104d2b11218f2234469af3d8a5be7f95f835a71b"
+  },
+  {
+   "path": "workers/origin-sync/src/extra-resources.mjs",
+   "bytes": 5707,
+   "sha256": "da5fe8571340288c0b8c3c639af60d727dd18b56e40459fd94eda7dc2a26dd39"
+  },
+  {
+   "path": "workers/origin-sync/src/finance-refresh.mjs",
+   "bytes": 6523,
+   "sha256": "b8a72071d4d8f6687d97c209b30d2a3818cf74e4aad09ac5047fd663d3d54138"
+  },
+  {
+   "path": "workers/origin-sync/src/history-continuation.mjs",
+   "bytes": 9655,
+   "sha256": "4bd2f676017dc9fd6ab0a3496ffcd05326daf8652c6438756679bb3a7b53bc5c"
+  },
+  {
+   "path": "workers/origin-sync/src/index.mjs",
+   "bytes": 11082,
+   "sha256": "944085d4163e0e5d858b8687886fcbc7364cd687bfee084b947d617f15a8aaf9"
+  },
+  {
+   "path": "workers/origin-sync/src/migration-policy.mjs",
+   "bytes": 4016,
+   "sha256": "93896a40fd1c683ba683b0af0f5e059e87e356acdc82c180ffb0f39ac930be32"
+  },
+  {
+   "path": "workers/origin-sync/src/migration-sweep.mjs",
+   "bytes": 24999,
+   "sha256": "006b7a20a004d3e173419dff19f210ad9e56ede3e1d0f0f5fae56416d766e222"
+  },
+  {
+   "path": "workers/origin-sync/src/oauth.mjs",
+   "bytes": 4772,
+   "sha256": "0c4ea739bea94995208512371db72659acf41d60dff27693e19e6eb4f3ebf73e"
+  },
+  {
+   "path": "workers/origin-sync/src/price-json-parser.mjs",
+   "bytes": 5040,
+   "sha256": "7efd2c44d3721792132bd9149462e2e46a2044487c19d15509b89b38c2942b85"
+  },
+  {
+   "path": "workers/origin-sync/src/price-json.mjs",
+   "bytes": 2346,
+   "sha256": "d1d00f96e39436075b6fa039564c5ac506c772b13c9f21ea3172731b5006c679"
+  },
+  {
+   "path": "workers/origin-sync/src/price-refresh.mjs",
+   "bytes": 5274,
+   "sha256": "248e982c8f3cbe51cc3a4cefaf3de4a989fd3725ee222746f3bb6458c754f997"
+  },
+  {
+   "path": "workers/origin-sync/src/purchase-price-json.mjs",
+   "bytes": 1293,
+   "sha256": "5979259d7b810f903f5765e0f6563a9769b8f752cd3ad2eeffd3375282dc4dfc"
+  },
+  {
+   "path": "workers/origin-sync/src/reference-fetch.mjs",
+   "bytes": 5584,
+   "sha256": "8bfb917f121da9e0e7d777088f8cbb6f7cbac33c56a76b0b4f715d6accfe2d92"
+  },
+  {
+   "path": "workers/origin-sync/src/repository.mjs",
+   "bytes": 6384,
+   "sha256": "9a819542da26195c85d063dea23e32555d18ad1ec2c41e0f1cc6f26f5152d253"
+  },
+  {
+   "path": "workers/origin-sync/src/resources.mjs",
+   "bytes": 8267,
+   "sha256": "75b32c9534c3ec903495eb79703c11818b475a486b13b76e27abc5cb9c1d5b02"
+  },
+  {
+   "path": "workers/origin-sync/src/sales-price-json.mjs",
+   "bytes": 1279,
+   "sha256": "db54bf5cba5fd2dc936d2c094aeb12ff97430753f7edc94d1e047e0625a91a2a"
+  },
+  {
+   "path": "workers/origin-sync/src/sales-price-refresh.mjs",
+   "bytes": 7125,
+   "sha256": "ccfa4cbec356b86bdd5dd796cc294b1717dd50b45707a196ef6a0810df542c25"
+  },
+  {
+   "path": "workers/origin-sync/src/service-json.mjs",
+   "bytes": 1685,
+   "sha256": "5bb41cb856a5e8d9d0f453836c952a5217eb360beef6abb3177fadc87ad66167"
+  },
+  {
+   "path": "workers/origin-sync/src/stock-json.mjs",
+   "bytes": 1390,
+   "sha256": "f47b001e9f274473399ce272c38315a21cd46b0e6eb6a74fcb633d2b9d4dc34a"
+  },
+  {
+   "path": "workers/origin-sync/src/stock-mirror.mjs",
+   "bytes": 802,
+   "sha256": "2a63e55e58d07348a6875a6c76784fde86112e00b84a50e46e2a1fdbe6830480"
+  },
+  {
+   "path": "workers/origin-sync/src/stock-priority.mjs",
+   "bytes": 2479,
+   "sha256": "c9a917b2b14ace5b4e6bff08fe38b24ae57ec772b1bf8c00ad58f02415c4a317"
+  },
+  {
+   "path": "workers/origin-sync/src/sync.mjs",
+   "bytes": 27326,
+   "sha256": "a1fe4be06e65fb9800066e6209c5de4dcd6ff1db78f75e8c0460d054c5593fb7"
+  },
+  {
+   "path": "workers/origin-sync/src/tokens.mjs",
+   "bytes": 2310,
+   "sha256": "f7ec5d53e29500e70778128e6a1f13d7793b346a1cea9fc35b5b050e48695d08"
+  },
+  {
+   "path": "workers/origin-sync/src/xml-api-error.mjs",
+   "bytes": 1457,
+   "sha256": "e96ee59e5b615a2892cdcc1a5ef8e7fec706e839baf762998a80752db2f6fb82"
+  },
+  {
+   "path": "workers/origin-sync/src/xml-priority.mjs",
+   "bytes": 11581,
+   "sha256": "84557aabbc1a7e95a5f00033d985ffeb06ac587a57697648734a30fa6fced924"
+  },
+  {
+   "path": "workers/origin-sync/src/xml-storage.mjs",
+   "bytes": 3298,
+   "sha256": "c2077a185f174bb22775e3c69abf7fc496a519aab5e1db3da23fe87081580780"
+  },
+  {
+   "path": "workers/origin-sync/src/xml-sync.mjs",
+   "bytes": 6200,
+   "sha256": "fe3c36c3d3c04faf2df459c893c5a9175d8d287c66803549f5280bf71fe328b0"
+  }
+ ]
+}

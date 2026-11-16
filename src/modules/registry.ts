@@ -18,6 +18,12 @@ import { reservaModule } from "./reserva/definition";
 import { pedidoModule } from "./pedido/definition";
 import { mesasModule } from "./mesas/definition";
 import { entregaModule } from "./entrega/definition";
+import {
+  erpCobrancaModule,
+  erpFiscalModule,
+  erpModule,
+  erpPdvModule,
+} from "./erp/definition";
 
 export type { ModuleDefinition } from "./types";
 
@@ -34,6 +40,10 @@ export const modules: readonly ModuleDefinition[] = [
   pedidoModule,
   mesasModule,
   entregaModule,
+  erpModule,
+  erpFiscalModule,
+  erpCobrancaModule,
+  erpPdvModule,
 ];
 
 export const moduleById = (id: unknown) =>

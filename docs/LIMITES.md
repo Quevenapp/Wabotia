@@ -182,7 +182,90 @@ antiga da conversa, o caminho barato. Com 10 entregas, o alarme chega a mais de 
   cifras (HMAC, AES-GCM), que são do WebCrypto. No gratuito, cardápios grandes
   são o primeiro candidato a passar.
 
-## O que seria preciso para caber no gratuito
+## Localização: o ERP e o D1 ficam nos EUA
+
+Medido pela sessão K na instalação de teste em 16/11/2026, com o cliente no Brasil.
+- A chamada ao objeto `erp:` saiu pelo colo **IAD** (Virgínia), mesmo com `locationHint: "sam"`.
+- Uma chamada trivial ao objeto, vinda de um Worker em ATL, levou 45 ms; vinda de um Worker em GRU, 156–475 ms.
+- No cliente, pela rede do Dell, a costura da erp-api deu p50 573 ms e p95 659 ms. O trabalho no objeto foi de 5 a 14 ms.
+
+A ida e volta Brasil ↔ leste dos EUA (~120–150 ms) é o piso de toda chamada do ERP.
+
+**Por quê (documentação da Cloudflare):**
+- Durable Objects ainda não nascem na América do Sul. O hint "sam" é aceito, mas o objeto nasce no leste da América do Norte.
+- O hint só vale no primeiro `get()`, e o objeto não muda de lugar depois de criado ([Data location](https://developers.cloudflare.com/durable-objects/reference/data-location/)).
+- O **D1** também não roda na América do Sul: não há hint `sam`.
+- O primário do D1 nasce perto de onde o banco foi criado ([D1 data location](https://developers.cloudflare.com/d1/configuration/data-location/)). Criado do Brasil, o mais provável é o leste da América do Norte, a mesma região do objeto `erp:` e dos Coordinators das áreas.
+- Confirme na conta com `npx wrangler d1 info wabotia` (campo de região; leitura de produção, que fica com o usuário).
+
+**Consequência:** o ERP não piora a latência em relação ao que o atendimento já tem.
+- Cada consulta do Worker ao D1 já atravessa até lá.
+- A chamada do ERP atravessa uma vez por pedido da erp-api, e as consultas dela rodam dentro do objeto, no SQLite local, sem nova viagem.
+
+O que reduz o custo:
+- uma chamada ao objeto por pedido da erp-api (já é assim);
+- o painel juntar leituras;
+- no futuro, réplicas de leitura do D1 e Durable Objects na América do Sul, se a Cloudflare abrir a região.
+
+## Posicionamento do Worker (Smart Placement)
+
+**O problema.** O Worker roda na borda mais perto de quem chama: GRU ou GIG para o usuário no Brasil. O D1 e os Durable Objects ficam no leste dos EUA.
+- Uma requisição do ERP faz três idas Brasil ↔ EUA em série: a sessão no D1, o estado dos módulos no D1 e o objeto `erp:`. Medido em `tests/erp-do-hops.test.ts`; detalhes no `docs/ERP-FASE0.md`.
+- O atendimento faz várias consultas ao D1 por requisição (seção "Números" acima), cada uma com a mesma ida.
+- Com o Worker perto do D1 e dos objetos, a requisição paga **uma** ida longa (navegador → Worker), e as consultas ficam em poucos milissegundos.
+
+**Como se liga** ([Placement](https://developers.cloudflare.com/workers/configuration/placement/)):
+- **Automático:** `"placement": { "mode": "smart" }` no wrangler.
+  - Mede a duração das requisições em cada local e encaminha só quando um candidato é "significativamente mais rápido".
+  - Só considera locais onde o Worker **já rodou**, e precisa de tráfego vindo de vários locais.
+  - A análise pode levar até 15 minutos depois da implantação. 1% das requisições fica sem encaminhamento, como base de comparação.
+  - Estados da análise: `SUCCESS`, `INSUFFICIENT_INVOCATIONS` e `UNSUPPORTED_APPLICATION` (ficou mais lento e voltou atrás).
+- **Explícito:** `"placement": { "region": "aws:us-east-1" }`, que exclui o `mode`. Põe o Worker perto de uma região de nuvem, sem depender de tráfego.
+  - Serve para recurso de endereço único. O D1 e os objetos do Wabotia estão num lugar só, o leste da América do Norte.
+  - Para instalação pequena, com pouco tráfego e quase todo do Brasil, é o candidato mais seguro: o modo automático pode ficar em `INSUFFICIENT_INVOCATIONS`.
+- **Como conferir:** o cabeçalho `cf-placement` (`remote-IAD`: encaminhado; `local-GRU`: sem encaminhar) e o estado em `GET /accounts/:conta/workers/services/:worker`.
+
+**O que não muda ou pode piorar:**
+- **Arquivos estáticos do painel:** não mudam. O `wrangler.jsonc` só põe o Worker na frente de `/api/*`, `/webhooks/*` e `/internal/*` (`run_worker_first`); o resto sai da borda mais próxima. Só o `/instalar` lê pela ligação `ASSETS` (`src/web-install.ts`), e esse sairia do local escolhido: é raro e não pesa.
+- **Durable Objects:** não mudam de lugar. A documentação diz que já têm posicionamento automático; o ganho vem do Worker ficar perto deles.
+- **WebSocket** (painel ao vivo, aparelhos): a documentação não trata. Hoje a conexão vai da borda ao objeto nos EUA; com o Worker encaminhado, passa pela borda, pelo Worker perto do objeto e pelo objeto. A distância é a mesma. É ponto de conferência no ensaio.
+- **Chamadas de saída** (Zernio, Meta, Mercado Pago, Hermes): passam a sair dos EUA. As APIs da Meta e da Zernio também estão lá, então tende a melhorar. Nenhuma depende do país de origem da chamada.
+- **Webhooks de entrada** (Meta, Zernio, Mercado Pago): já chegam de servidores nos EUA, e o Worker os atende onde chegam. Com o modo automático, não deveria haver ida a mais; o prazo de resposta não muda. Conferir no ensaio.
+- **Métodos RPC e Worker sem fetch:** não são afetados. O Wabotia só usa o fetch.
+
+**Instalador e atualizador** (núcleo, `src/release.ts` no `feat/pacote-v2`; nada editado aqui):
+- `workerUploadV2` já copia `placement` dos ajustes instalados para os metadados do upload (lista `observability`, `limits`, `logpush`, `placement`…). Uma vez ligado (painel da Cloudflare, ou uma chamada à API), o posicionamento **sobrevive às atualizações**.
+- Para vir ligado de fábrica:
+  - o manifesto do pacote ganharia um `placement` (como `compatibility_date`);
+  - o `workerUploadV2` usaria `settings.placement ?? m.placement`, preservando a escolha da instalação;
+  - o instalador do navegador (`/instalar`) mandaria o mesmo campo no primeiro upload;
+  - o `wrangler.jsonc` do repositório teria o mesmo valor, para o deploy manual.
+
+**Ensaio proposto (instalação de teste, com a K; não implantar sem combinar com a orquestração):**
+1. **Base, sem posicionamento.** A partir do Dell, no Brasil, 30 chamadas de cada:
+   - `GET …/erp/v1/me`;
+   - `GET …/erp/v1/plataforma/referencias/cnae?q=4744`;
+   - uma escrita com `command_id` (lançamento de estoque);
+   - duas rotas do atendimento que leem o D1, por exemplo a lista de conversas e a de contatos.
+
+   Anote o p50 e o p95 no cliente, o `Server-Timing` (idas e duração no objeto), o `cf-placement` e o `cf-ray` (colo).
+2. **Modo automático:** deploy com `"placement": { "mode": "smart" }`.
+   - Gere tráfego por 15 a 20 minutos, também de fora do Brasil se der (os webhooks de teste ajudam).
+   - Confira o estado em `GET /accounts/:conta/workers/services/<worker>` até `SUCCESS`, e repita o passo 1.
+   - Se ficar em `INSUFFICIENT_INVOCATIONS`, registre e siga para o passo 3.
+3. **Dica explícita:** deploy com `"placement": { "region": "aws:us-east-1" }`. Repita o passo 1; o `cf-placement` deve vir `remote-…` perto de IAD.
+4. **Conferências nos passos 2 e 3:**
+   - um aparelho ou o painel com WebSocket conectado por 5 minutos, recebendo uma mensagem;
+   - um webhook de teste da Zernio ou da Meta, com o tempo de resposta;
+   - o tempo de um arquivo estático, que não deve mudar;
+   - o `/instalar`.
+5. **Fim:** volte ao deploy sem `placement`, ou deixe o vencedor, conforme a orquestração decidir.
+
+**Expectativa, a confirmar no ensaio:**
+- Sem posicionamento: 3 × ~150 ms de ida e volta + ~150 ms do navegador ≈ 0,6 s, o que bate com os 0,57 s medidos.
+- Com o Worker em IAD: ~150 ms do navegador + 3 × poucos ms ≈ 0,2 s por chamada da API do ERP. O atendimento ganha na mesma proporção das consultas ao D1 que faz por requisição.
+
+## Se for preciso caber no gratuito
 
 Não está planejado (o plano pago é exigido). Fica registrado: sem reescrever o
 motor, as saídas seriam de agenda, não de consulta:
