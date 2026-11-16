@@ -149,11 +149,11 @@ internal object DemoServer {
             j(
                 "capabilities_version" to 1,
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
-                "features" to listOf("modules", "establishment", "queue_coupon"),
-                // Acesso por usuário (contrato em aberto, core/AppAccess.kt): sem `access`, a pessoa vê tudo.
+                "features" to listOf("modules", "establishment", "queue_coupon", "person_access"),
+                // Acesso por pessoa (docs/API.md): `["*"]` é o atendente completo; `--es demo access` troca a lista.
                 "profiles" to listOf(
                     j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules)
-                        .let { p -> DemoMode.access?.let { JsonObject(p + ("access" to JsonArray(it.map(::JsonPrimitive)))) } ?: p },
+                        .let { p -> JsonObject(p + ("access" to JsonArray((DemoMode.access ?: listOf("*")).map(::JsonPrimitive)))) },
                 ),
                 "modules" to modules,
             ),

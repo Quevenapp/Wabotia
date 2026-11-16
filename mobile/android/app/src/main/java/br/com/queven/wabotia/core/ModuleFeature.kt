@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /** Ids dos módulos no contrato (`GET /api/v1/capabilities`, docs/MODULOS.md). */
 object ModuleIds {
@@ -60,6 +61,15 @@ class ModuleFeature(private val container: AppContainer) {
     fun markDisabled(module: String, profileId: String? = container.session.profileId) {
         val profile = profileId ?: return
         _enabled.update { map -> map + (profile to (map[profile].orEmpty() - module)) }
+    }
+
+    /**
+     * `403 access_denied`: a pessoa perdeu o acesso a algo (acesso por pessoa). A tela some quando a lista relida não
+     * trouxer mais o item; relê já.
+     */
+    fun accessDenied() {
+        invalidate()
+        container.scope.launch { runCatching { refresh(force = true) } }
     }
 
     /** Evento `module.changed`: relê na próxima oportunidade. */

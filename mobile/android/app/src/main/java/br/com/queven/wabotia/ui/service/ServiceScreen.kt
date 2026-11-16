@@ -190,9 +190,9 @@ fun ServiceScreen(
                 }
             }
 
-            // --- Configuração do atendimento ---
-            if (AccessRules.allows(access, AccessIds.LINES)) item("setup-label") { SectionLabel("Linhas e menus") }
-            if (AccessRules.allows(access, AccessIds.LINES)) item("setup") {
+            // --- Configuração do atendimento (linhas e menus decidem quem recebe as conversas) ---
+            if (AccessRules.allows(access, AccessIds.CONVERSATIONS)) item("setup-label") { SectionLabel("Linhas e menus") }
+            if (AccessRules.allows(access, AccessIds.CONVERSATIONS)) item("setup") {
                 WbCard(Modifier.padding(horizontal = 16.dp)) {
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
                     if (isAdmin) {

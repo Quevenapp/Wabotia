@@ -323,6 +323,7 @@ object ModuleFailure {
         val e = error as? QueueException ?: return
         if (e.unauthorized) container.onLoggedOut(keepServer = true)
         if (e.moduleDisabled) container.modules.markDisabled(module)
+        if (e.accessDenied) container.modules.accessDenied()
     }
 
     fun message(error: Throwable): String = when {
@@ -337,6 +338,9 @@ object ModuleFailure {
 }
 
 val QueueException.moduleDisabled: Boolean get() = status == 409 && code == "module_disabled"
+
+/** A pessoa não acessa isto (acesso por pessoa): esconder e reler `/capabilities`. */
+val QueueException.accessDenied: Boolean get() = status == 403 && code == "access_denied"
 
 /**
  * Atualização por eventos (`GET /events`, já consultado pelo app a cada 4 s): enquanto a tela está aberta, recarrega
