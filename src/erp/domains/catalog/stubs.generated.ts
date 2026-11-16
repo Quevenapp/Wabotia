@@ -33,14 +33,6 @@ export const contactRequireVisible = (..._args: unknown[]): never => notPorted("
 export const contactRequiredField = (..._args: unknown[]): never => notPorted("erp_catalog.contact_required_field");
 /** erp_catalog.contact_required_missing(p jsonb, p_fields text[]) → text */
 export const contactRequiredMissing = (..._args: unknown[]): never => notPorted("erp_catalog.contact_required_missing");
-/** erp_catalog.contact_scope(p_user_id uuid) → uuid */
-export const contactScope = (..._args: unknown[]): never => notPorted("erp_catalog.contact_scope");
-/** erp_catalog.contact_situation(p_active boolean, p_detail text) → text */
-export const contactSituation = (..._args: unknown[]): never => notPorted("erp_catalog.contact_situation");
-/** erp_catalog.contact_situation_of(p_id uuid) → text */
-export const contactSituationOf = (..._args: unknown[]): never => notPorted("erp_catalog.contact_situation_of");
-/** erp_catalog.contact_source_situation(p_id uuid) → text */
-export const contactSourceSituation = (..._args: unknown[]): never => notPorted("erp_catalog.contact_source_situation");
 /** erp_catalog.contact_take_code(p_user_id uuid) → text */
 export const contactTakeCode = (..._args: unknown[]): never => notPorted("erp_catalog.contact_take_code");
 /** erp_catalog.contact_type_slugs(p_id uuid) → text[] */
