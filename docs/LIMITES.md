@@ -133,6 +133,31 @@ antiga da conversa, o caminho barato. Com 10 entregas, o alarme chega a mais de 
   cifras (HMAC, AES-GCM), que são do WebCrypto. No gratuito, cardápios grandes
   são o primeiro candidato a passar.
 
+## Localização: o ERP e o D1 ficam nos EUA
+
+Medido pela sessão K na instalação de teste em 16/11/2026, com o cliente no Brasil.
+- A chamada ao objeto `erp:` saiu pelo colo **IAD** (Virgínia), mesmo com `locationHint: "sam"`.
+- Uma chamada trivial ao objeto, vinda de um Worker em ATL, levou 45 ms; vinda de um Worker em GRU, 156–475 ms.
+- No cliente, pela rede do Dell, a costura da erp-api deu p50 573 ms e p95 659 ms. O trabalho no objeto foi de 5 a 14 ms.
+
+A ida e volta Brasil ↔ leste dos EUA (~120–150 ms) é o piso de toda chamada do ERP.
+
+**Por quê (documentação da Cloudflare):**
+- Durable Objects ainda não nascem na América do Sul. O hint "sam" é aceito, mas o objeto nasce no leste da América do Norte.
+- O hint só vale no primeiro `get()`, e o objeto não muda de lugar depois de criado ([Data location](https://developers.cloudflare.com/durable-objects/reference/data-location/)).
+- O **D1** também não roda na América do Sul: não há hint `sam`.
+- O primário do D1 nasce perto de onde o banco foi criado ([D1 data location](https://developers.cloudflare.com/d1/configuration/data-location/)). Criado do Brasil, o mais provável é o leste da América do Norte, a mesma região do objeto `erp:` e dos Coordinators das áreas.
+- Confirme na conta com `npx wrangler d1 info wabotia` (campo de região; leitura de produção, que fica com o usuário).
+
+**Consequência:** o ERP não piora a latência em relação ao que o atendimento já tem.
+- Cada consulta do Worker ao D1 já atravessa até lá.
+- A chamada do ERP atravessa uma vez por pedido da erp-api, e as consultas dela rodam dentro do objeto, no SQLite local, sem nova viagem.
+
+O que reduz o custo:
+- uma chamada ao objeto por pedido da erp-api (já é assim);
+- o painel juntar leituras;
+- no futuro, réplicas de leitura do D1 e Durable Objects na América do Sul, se a Cloudflare abrir a região.
+
 ## Se for preciso caber no gratuito
 
 Sem reescrever o motor, as saídas são de agenda, não de consulta:
