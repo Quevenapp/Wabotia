@@ -27,7 +27,7 @@ const q = (id) => `"${id.replace(/"/g, '""')}"`;
 
 // Tetos das pendências: subir exige rever o gerador (ou declarar por quê).
 // Contam só as pendências que nenhum domínio cumpre em TS (overrides/<domínio>.mjs, `covered`).
-const LIMITS = { checks_pending: 214, triggers_pending: 236, indexes_dropped: 1 };
+const LIMITS = { checks_pending: 210, triggers_pending: 236, indexes_dropped: 1 };
 
 const lite = new DatabaseSync(":memory:");
 lite.exec("PRAGMA foreign_keys=ON");

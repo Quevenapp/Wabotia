@@ -18,6 +18,7 @@ import "./rpc/erp_catalog_product_images.ts";
 import "./rpc/erp_catalog_product_image_delete.ts";
 import "./rpc/erp_catalog_product_image_order.ts";
 import "./rpc/erp_catalog_product_image_stop.ts";
+import "./rpc/erp_catalog_product_image_upload.ts";
 import "./rpc/erp_catalog_product_get.ts";
 import "./rpc/erp_catalog_product_list.ts";
 import "./rpc/erp_catalog_product_page.ts";

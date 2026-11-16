@@ -1,9 +1,8 @@
 // Imagens do produto (migração 202610200193) na fixture dupla: os RPCs que
 // não tocam o storage (images, order, delete, stop).
 // Adaptado de workers/erp-api/test/produtos-d-images-sql.test.mjs:
-// - o original passa pelo Worker do Fagoo com um Storage em memória; reserve,
-//   claim, object e finish (storage_ready e storage.objects) esperam a
-//   decisão da N sobre o storage no motor (R2) e ficam fora por enquanto;
+// - o original (Worker do Fagoo, Storage em memória, reserve/claim/object/finish)
+//   está em catalog-product-images-http.test.mjs; aqui ficam casos extras;
 // - por isso as imagens prontas e reservadas são semeadas por SQL direto no
 //   Postgres (f.write) e copiadas; as asserções de ordem, exclusão, trilha,
 //   recusas e versão do produto são as do original;
