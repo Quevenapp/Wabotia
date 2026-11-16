@@ -4,6 +4,7 @@ import { CatalogValidationError, invalidField, type CatalogRecord } from './cata
 import { numberCell, textCell, type SheetCell } from './spreadsheet-export.ts';
 import { PRODUCT_FIELDS } from './product-model.ts';
 import { ORIGIN_EXPORT_COLUMNS } from './product-origin-stock-model.ts';
+import { placesProblem, type DecimalPlaces } from '../../decimals.ts';
 
 // Formulário completo do produto no padrão do Origin (migração 202610200119): o detalhe (Características, Imagens externas,
 // Estoque, Fornecedores e Tributação), as listas gravadas com o produto e as taxonomias (categorias, grupos e tags).
@@ -96,13 +97,16 @@ export const EMPTY_LISTS: ProductLists = { suppliers: [], dun_codes: [], tag_ids
 const LISTS_KEY = '__lists';
 /** "1.2000000000" → "1,2"; the form shows the exact stored value with a comma. */
 export const decimalInput = (value: unknown) => typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value) ? value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '').replace('.', ',') : '';
-export function productLists(record: CatalogRecord | null, initialValues?: Record<string, string>): ProductLists {
+// Wabotia: `priceInPlaces` (Preferências › Empresa › Geral, preço nas entradas) mostra os preços do fornecedor com essas casas, sem
+// esconder casas significativas (web/erp/decimals.ts); sem a preferência, como no Fagoo.
+export function productLists(record: CatalogRecord | null, initialValues?: Record<string, string>, priceInPlaces: number | null = null): ProductLists {
   if (initialValues?.[LISTS_KEY]) { try { return { ...EMPTY_LISTS, ...JSON.parse(initialValues[LISTS_KEY]) as ProductLists }; } catch { return EMPTY_LISTS; } }
   if (!record) return EMPTY_LISTS;
   const suppliers = Array.isArray(record.suppliers) ? record.suppliers as Record<string, unknown>[] : [];
+  const price = (value: unknown) => priceInPlaces === null || typeof value !== 'string' ? decimalInput(value) : displayDecimal(value, priceInPlaces);
   return {
     suppliers: suppliers.map(item => ({ supplier_id: String(item.supplier_id), supplier_name: typeof item.supplier_name === 'string' ? item.supplier_name : 'Fornecedor', supplier_code: typeof item.supplier_code === 'string' ? item.supplier_code : null,
-      description: typeof item.description === 'string' ? item.description : '', code: typeof item.code === 'string' ? item.code : '', purchase_price: decimalInput(item.purchase_price), cost_price: decimalInput(item.cost_price),
+      description: typeof item.description === 'string' ? item.description : '', code: typeof item.code === 'string' ? item.code : '', purchase_price: price(item.purchase_price), cost_price: price(item.cost_price),
       warranty_months: typeof item.warranty_months === 'string' ? item.warranty_months : '', is_default: item.is_default === true })),
     dun_codes: Array.isArray(record.dun_codes) ? (record.dun_codes as ProductDun[]).map(item => ({ code: item.code, quantity: decimalInput(item.quantity) })) : [],
     tag_ids: Array.isArray(record.tag_ids) ? [...record.tag_ids as string[]] : [],
@@ -130,10 +134,31 @@ export function checkWeights(values: Record<string, string>, initial: Record<str
     if (fraction.replace(/0+$/, '').length > decimals) invalidField(key, `Informe o peso com até ${decimals} casa(s) decimal(is) (Preferências > Empresa > Geral).`);
   }
 }
-export function productFormValues(record: CatalogRecord | null, initialValues: Record<string, string> | undefined, defaults: { origin?: string; weightDecimals?: number } = {}): Record<string, string> {
+/**
+ * Wabotia: um preço alterado aceita até as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): o de venda, as do preço
+ * nas saídas; os do fornecedor, as do preço nas entradas. Como no peso, só o valor alterado é conferido: um preço já gravado com mais
+ * casas não impede salvar o resto. O servidor aceita até dez casas no cadastro.
+ */
+export function checkPrices(values: Record<string, string>, initial: Record<string, string>, lists: ProductLists, initialLists: ProductLists, places: DecimalPlaces | null) {
+  if (!places) return;
+  const price = (values.price ?? '').trim();
+  if (price && price !== (initial.price ?? '').trim()) { const problem = placesProblem(price, places.priceOut, 'O preço de venda'); if (problem) invalidField('price', problem); }
+  lists.suppliers.forEach((item, index) => {
+    const before = initialLists.suppliers.find(row => row.supplier_id === item.supplier_id);
+    for (const [key, label] of [['purchase_price', 'O preço de compra'], ['cost_price', 'O preço de custo']] as const) {
+      const value = item[key].trim();
+      if (!value || value === (before?.[key] ?? '').trim()) continue;
+      const problem = placesProblem(value, places.priceIn, `${label} da linha ${index + 1}`);
+      if (problem) invalidField('suppliers', problem);
+    }
+  });
+}
+export function productFormValues(record: CatalogRecord | null, initialValues: Record<string, string> | undefined, defaults: { origin?: string; weightDecimals?: number; priceOutPlaces?: number | null } = {}): Record<string, string> {
   if (initialValues) { const values = { ...initialValues }; delete values[LISTS_KEY]; return { active: 'true', ...values }; }
   const values: Record<string, string> = {};
   for (const field of PRODUCT_FIELDS) values[field.key] = typeof record?.[field.key] === 'string' ? record[field.key] as string : '';
+  // Wabotia: o preço de venda com as casas da preferência (preço nas saídas), sem esconder casas significativas.
+  if (values.price && defaults.priceOutPlaces != null) values.price = displayDecimal(values.price, defaults.priceOutPlaces);
   for (const key of WEIGHT_KEYS) if (values[key]) values[key] = displayDecimal(values[key], defaults.weightDecimals ?? 3);
   for (const key of MEASURE_KEYS) if (values[key]) values[key] = displayDecimal(values[key], 2);
   // Itens p/ caixa: the exact decimal of the detail (migration 191); before it, the integer catalog column.

@@ -204,7 +204,13 @@
   "web/erp/app/components/RealFinance.tsx": "alterado: a conferência de origem do título (importação financeira do Origin, /v1/importacao-financeira-origin, 404 no motor) fica desligada (item 17); com o bloco Cobrança bancária desligado (web/erp/blocks.ts) somem os itens de boleto e 'Acessar remessa' do menu da conta e os botões 'Gerar remessa' e 'Retomar remessa'/'Prévia dos boletos'",
   "web/erp/app/components/FinanceCashControl.tsx": "alterado: com o bloco Caixa / PDV desligado o resumo da Frente de caixa não é pedido (registrado zero, 'Ver vendas' desabilitado) e some 'Movimentos dos Grupos de Produtos'",
   "web/erp/test/finance-origin-origin.test.mjs": "alterado: saem os testes da tela da conferência de origem do título (039), desligada com a importação financeira do Origin (item 17); fica o do modelo e entra o que confere que o título abre sem pedir a origem e com a edição liberada",
-  "web/erp/test/finance-movement-period-parent.test.mjs": "alterado: o detalhe do título não pede mais a origem do Origin (item 17)"
+  "web/erp/test/finance-movement-period-parent.test.mjs": "alterado: o detalhe do título não pede mais a origem do Origin (item 17)",
+  "web/erp/app/lib/pdv-model.ts": "alterado: quantidade e valor unitário aceitam as casas de Preferências › Empresa › Geral (web/erp/decimals.ts) no lugar de 6 e 10 fixas, com a recusa antes de enviar; a quantidade aparece com essas casas, sem esconder casas significativas. Sem a preferência, valem os limites do formato e o servidor confere",
+  "web/erp/app/components/RealPdv.tsx": "alterado: lê as casas decimais da preferência (web/erp/decimals.ts); quantidade e valor unitário conferidos antes de incluir o item; valor unitário do cadastro ou da lista e quantidades exibidos com essas casas",
+  "web/erp/app/components/PdvDialogs.tsx": "alterado: a devolução confere e exibe as quantidades com as casas da preferência (quantityPlaces)",
+  "web/erp/app/lib/product-form-model.ts": "alterado: preço de venda e preços do fornecedor exibidos com as casas da preferência (preço nas saídas e nas entradas) e, quando alterados, conferidos antes de enviar (checkPrices); itens por caixa e quantidade do DUN seguem com 6 casas, regra do servidor (migração 191, numérico de 6 casas)",
+  "web/erp/app/components/ProductEditor.tsx": "alterado: a leitura única de web/erp/decimals.ts traz as casas do peso e dos preços; confere os preços alterados; a ajuda do preço de venda cita a preferência",
+  "web/erp/app/lib/product-model.ts": "alterado: a ajuda do preço de venda cita a preferência de casas decimais, no lugar de 'até dez casas'"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {

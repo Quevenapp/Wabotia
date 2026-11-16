@@ -161,12 +161,12 @@ export function PdvCancelDialog({ sale, sendPos, mayWrite, onDone, onClose }: { 
 }
 
 /** Operações › Gerar devolução: itens que voltam ao estoque e o dinheiro devolvido pelo caixa, ligados à venda original. */
-export function PdvReturnDialog({ sale, session, sendPos, mayWrite, onDone, onClose }: { sale: PdvSale; session: PdvSession | null; sendPos: Send; mayWrite: () => boolean; onDone: (sale: PdvSale, result: PdvReturnResult) => void; onClose: () => void }) {
+export function PdvReturnDialog({ sale, session, sendPos, mayWrite, onDone, onClose, quantityPlaces = null }: { sale: PdvSale; session: PdvSession | null; sendPos: Send; mayWrite: () => boolean; onDone: (sale: PdvSale, result: PdvReturnResult) => void; onClose: () => void; quantityPlaces?: number | null }) {
   const [quantities, setQuantities] = useState<Record<string, string>>({}), [reason, setReason] = useState('');
   const command = useFinanceCommand(sendPos, mayWrite, pdvFailure), guard = useUnsavedForm({ quantities, reason }, command.locked);
-  const available = (id: string, sold: string) => { const left = decimal(sold, 6, 9) - decimal(sale.returned?.[id] ?? '0', 6, 9); return left > 0n ? quantityText(format(left, 6)) : '0'; };
+  const available = (id: string, sold: string) => { const left = decimal(sold, 6, 9) - decimal(sale.returned?.[id] ?? '0', 6, 9); return left > 0n ? quantityText(format(left, 6), quantityPlaces) : quantityText('0', quantityPlaces); };
   const save = () => void command.run(() => {
-    const items = sale.items.flatMap(item => quantities[item.id]?.trim() ? [{ item_id: item.id, quantity: quantityInput(quantities[item.id]!) }] : []);
+    const items = sale.items.flatMap(item => quantities[item.id]?.trim() ? [{ item_id: item.id, quantity: quantityInput(quantities[item.id]!, quantityPlaces) }] : []);
     if (!items.length) throw new Error('Informe a quantidade devolvida de pelo menos um item.');
     if (reason.trim().length < 3) throw new Error('Informe o motivo com pelo menos três caracteres.');
     return { id: crypto.randomUUID(), path: '/v1/frente-caixa/actions/sale_return', data: { sale_id: sale.id, expected_version: sale.version, items, refund_account_id: session ? session.account_id : sale.account_id, cash_session_id: session?.id ?? null, reason: reason.trim() } };
@@ -175,7 +175,7 @@ export function PdvReturnDialog({ sale, session, sendPos, mayWrite, onDone, onCl
     <p className="real-help">Os produtos voltam ao depósito do lançamento da venda e o valor (com a parte do desconto da venda) sai em dinheiro do caixa, até o que a venda recebeu: parcelas em aberto (a prazo, cartão a receber ou Ficha Financeira) não viram dinheiro. A nota fiscal de devolução não é gerada aqui.</p>
     <fieldset className="finance-drawer-fields" disabled={command.locked}><legend className="real-sr-only">Itens devolvidos</legend>
       <table className="data-table"><thead><tr><th>Produto</th><th className="numeric">Vendido</th><th className="numeric">Pode devolver</th><th className="numeric">Devolver</th></tr></thead>
-        <tbody>{sale.items.map(item => <tr key={item.id}><td>{item.description}</td><td className="numeric">{quantityText(item.quantity)} {item.unit}</td><td className="numeric">{available(item.id, item.quantity)}</td>
+        <tbody>{sale.items.map(item => <tr key={item.id}><td>{item.description}</td><td className="numeric">{quantityText(item.quantity, quantityPlaces)} {item.unit}</td><td className="numeric">{available(item.id, item.quantity)}</td>
           <td className="numeric"><label className="real-sr-only" htmlFor={`pdv-return-${item.id}`}>Devolver {item.description}</label><input id={`pdv-return-${item.id}`} inputMode="decimal" maxLength={16} value={quantities[item.id] ?? ''} onChange={event => { const value = event.target.value; setQuantities(previous => ({ ...previous, [item.id]: value })); }} /></td></tr>)}</tbody></table>
       <Field label="Motivo *">{id => <textarea id={id} rows={2} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} />}</Field></fieldset>
     {command.error && <p className="real-alert" role="alert">{command.error}</p>}

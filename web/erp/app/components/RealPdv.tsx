@@ -29,6 +29,7 @@ import FinanceContactOpenTitles from './FinanceContactOpenTitles';
 import PdvReceiptPrint, { type PdvPrintJob } from './PdvReceiptPrint';
 import { PdvCancelDialog, PdvCloseDialog, PdvGtinDialog, PdvMoveDialog, PdvPixDialog, PdvReturnDialog, PdvSettingsDialog, PdvShortcutsDialog, PdvStoreDialog, PdvTableDialog } from './PdvDialogs';
 import { Icon } from './Icon';
+import { fitDecimal, loadDecimalPlaces, type DecimalPlaces } from '../../decimals';
 import './pdv.css';
 import './real-pdv.css';
 
@@ -112,6 +113,16 @@ export default function RealPdv({ controller }: { controller: AccessController }
       .catch(failure => { if (!request.signal.aborted && mayRead()) setLoaded({ scope: key, value: null, error: pdvFailure(failure) }); });
     return () => request.abort();
   }, [controller, scope, reload]);
+  // Wabotia: casas decimais de Preferências › Empresa › Geral (web/erp/decimals.ts); sem leitura, null e o servidor confere.
+  const [places, setPlaces] = useState<DecimalPlaces | null>(null);
+  useEffect(() => {
+    if (tracked && !scope) return; const request = new AbortController();
+    void loadDecimalPlaces(controller, request.signal).then(value => { if (!request.signal.aborted) setPlaces(value); });
+    return () => request.abort();
+  }, [controller, scope]);
+  const quantityPlaces = places?.quantity ?? null, pricePlaces = places?.priceOut ?? null;
+  // The cadastro or list price shown in Valor unitário with the places of the preference; without it, as the server sent it.
+  const shownPrice = (value: string) => pricePlaces === null ? value : fitDecimal(value, pricePlaces);
   // The loja (per-viewer convenience) and its caixa: with "Utilizar controle de caixa" the screen asks for the loja and the caixa.
   useEffect(() => {
     if (!context) return;
@@ -175,12 +186,12 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
   const selectProduct = async (record: CatalogRecord | null) => {
     if (!record) { setProduct(previous => ({ ...previous, record: null, price: '', listPrice: null })); return; }
-    const cadastro = text(record.price) ?? '0';
+    const cadastro = shownPrice(text(record.price) ?? '0');
     setProduct(previous => ({ ...previous, record, price: cadastro, listPrice: null, quantity: previous.quantity || '1' }));
     if (!draft.priceList) return;
     try {
       const list = productListPrice(await controller.catalog(`/v1/cadastros/products/${record.id}/listas-precos`), record.id, draft.priceList.id);
-      if (mayRead()) setProduct(previous => previous.record?.id === record.id ? { ...previous, price: list ?? cadastro, listPrice: list } : previous);
+      if (mayRead()) setProduct(previous => previous.record?.id === record.id ? { ...previous, price: list === null ? cadastro : shownPrice(list), listPrice: list } : previous);
     } catch { /* Without the list price the cadastro price stays. */ }
   };
   /** Saldo físico do produto no depósito da venda (null quando não dá para conferir aqui; o banco confere de novo ao gravar). */
@@ -200,7 +211,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     if (form.record.active !== true) return `O produto ${form.record.name} está inativo e não pode ser incluído.`;
     let line: CartItem;
     try {
-      const quantity = quantityInput(form.quantity || '1'), price = priceInput(form.price || '0');
+      const quantity = quantityInput(form.quantity || '1', quantityPlaces), price = priceInput(form.price || '0', pricePlaces);
       const discount = context.settings.item_discount ? itemDiscountPercent(quantity, price, form.discountMode, form.discount) : '0';
       line = { id: newKey(), product_id: form.record.id, description: form.record.name.slice(0, 200), code: form.record.code, unit: text(form.record.unit) ?? 'UN', quantity, unit_price: price,
         discount_percent: discount, comment: form.comment.trim() || null, list_price: form.listPrice, kind: text(form.record.kind), gtin: text(form.record.gtin) };
@@ -213,7 +224,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
       if (stock !== null) {
         const wanted = draft.cart.filter(item => item.product_id === line.product_id).reduce((sum, item) => sum + decimal(item.quantity, 6, 9), decimal(line.quantity, 6, 9));
         if (context.settings.block_zero && stock <= 0n) return `O produto ${line.description} está com estoque zero no depósito da venda.`;
-        if (!context.settings.negative_stock && wanted > stock) return `Estoque insuficiente de ${line.description} no depósito da venda (saldo ${quantityText(format(stock < 0n ? 0n : stock, 6))}).`;
+        if (!context.settings.negative_stock && wanted > stock) return `Estoque insuficiente de ${line.description} no depósito da venda (saldo ${quantityText(format(stock < 0n ? 0n : stock, 6), quantityPlaces)}).`;
       }
     }
     setDraft(previous => ({ ...previous, cart: addToCart(previous.cart, line, context.settings.group_items) }));
@@ -429,10 +440,10 @@ export default function RealPdv({ controller }: { controller: AccessController }
               {favoritesOpen && <section className="pdv-favorites-panel" aria-label="Favoritos"><header><h2>Favoritos</h2><button type="button" className="icon-button" aria-pressed={favoritesGrid} title="Grade" aria-label="Grade" onClick={() => setFavoritesGrid(true)}><Icon name="grip" size={12} /></button>
                 <button type="button" className="icon-button" aria-pressed={!favoritesGrid} title="Lista" aria-label="Lista" onClick={() => setFavoritesGrid(false)}><Icon name="list" size={12} /></button></header>
                 {favorites.key !== favoritesKey ? <p role="status">Carregando favoritos…</p> : favorites.error ? <p className="real-alert" role="alert">{favorites.error}</p> : !favorites.items?.length ? <p className="real-help">Nenhum favorito localizado</p>
-                  : favoritesGrid ? <div className="pdv-favorites">{favorites.items.map(item => <button type="button" key={item.product_id} disabled={!item.active} onClick={() => { void selectProduct({ id: item.product_id, entity: 'products', version: 1, active: item.active, name: item.name, code: item.code, unit: item.unit, price: item.price, kind: item.kind, gtin: item.gtin, created_at: '', updated_at: '', source: null }); setFavoritesOpen(false); }}>{item.name}<small>{item.stock === null ? 'Sem lançamentos' : `Estoque: ${quantityText(item.stock)}`}</small></button>)}</div>
+                  : favoritesGrid ? <div className="pdv-favorites">{favorites.items.map(item => <button type="button" key={item.product_id} disabled={!item.active} onClick={() => { void selectProduct({ id: item.product_id, entity: 'products', version: 1, active: item.active, name: item.name, code: item.code, unit: item.unit, price: item.price, kind: item.kind, gtin: item.gtin, created_at: '', updated_at: '', source: null }); setFavoritesOpen(false); }}>{item.name}<small>{item.stock === null ? 'Sem lançamentos' : `Estoque: ${quantityText(item.stock, quantityPlaces)}`}</small></button>)}</div>
                   : <table className="data-table"><thead><tr><th>Descrição</th><th>Código</th><th>Unidade</th><th className="numeric">Estoque</th><th><span className="real-sr-only">Remover</span></th></tr></thead><tbody>{favorites.items.map(item => <tr key={item.product_id}>
                     <td><button type="button" className="text-button" disabled={!item.active} onClick={() => { void selectProduct({ id: item.product_id, entity: 'products', version: 1, active: item.active, name: item.name, code: item.code, unit: item.unit, price: item.price, kind: item.kind, gtin: item.gtin, created_at: '', updated_at: '', source: null }); setFavoritesOpen(false); }}>{item.name}</button></td>
-                    <td>{item.code ?? '—'}</td><td>{item.unit ?? '—'}</td><td className="numeric">{item.stock === null ? '—' : quantityText(item.stock)}</td>
+                    <td>{item.code ?? '—'}</td><td>{item.unit ?? '—'}</td><td className="numeric">{item.stock === null ? '—' : quantityText(item.stock, quantityPlaces)}</td>
                     <td><button type="button" className="icon-button" aria-label={`Remover ${item.name} dos favoritos`} disabled={favorite.locked} onClick={() => void favorite.run(() => ({ id: newKey(), path: '/v1/frente-caixa/actions/favorite_remove', data: { product_id: item.product_id } }), () => setSalesReload(n => n + 1))}><Icon name="trash-can" size={12} /></button></td></tr>)}</tbody></table>}
               </section>}
               <div className="pdv-product"><div className="pdv-image" aria-hidden="true"><Icon name="image" size={64} /></div>
@@ -504,7 +515,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
           </fieldset>
           <div className="pdv-items" aria-label="Itens da venda">{draft.cart.length === 0 ? <div className="pdv-empty"><Icon name="cash-register" size={72} /></div> : <table className="data-table"><thead><tr><th>#</th><th>Produto</th><th className="numeric">Qtde</th><th className="numeric">Valor</th><th><span className="real-sr-only">Remover</span></th></tr></thead>
             <tbody>{draft.cart.map((item, index) => <tr key={item.id}><td>{index + 1}</td><td>{item.description}{item.code && <small>Cód: {item.code}</small>}{item.comment && <small>{item.comment}</small>}{item.discount_percent !== '0' && <small>Desconto: {item.discount_percent.replace('.', ',')}%</small>}</td>
-              <td className="numeric">{quantityText(item.quantity)} {item.unit}</td><td className="numeric">{subtotal(item)}</td>
+              <td className="numeric">{quantityText(item.quantity, quantityPlaces)} {item.unit}</td><td className="numeric">{subtotal(item)}</td>
               <td><button type="button" className="origin-kebab" aria-label={`Remover ${item.description}`} disabled={locked || (draft.savedItems[item.id] !== undefined && !context.permissions.remove_items)} onClick={() => removeLine(item.id)}><Icon name="trash-can" size={12} /></button></td></tr>)}</tbody></table>}</div>
         </div>
         <footer className="pdv-footer">
@@ -551,7 +562,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     {dialog?.kind === 'table' && <PdvTableDialog mode={dialog.mode} open={(salesState?.open ?? []).filter(row => row.kind === 'mesa')} onClose={() => setDialog(null)}
       onOpen={id => { setDialog(null); setSelected({ id, record: null, error: '' }); setCollapsed(false); }} onPick={table => { if (dialog.mode === 'new') { setDialog(null); newSale('mesa', table); } else transferTable(table); }} />}
     {dialog?.kind === 'cancel' && <PdvCancelDialog sale={dialog.sale} sendPos={sendPos} mayWrite={mayWrite} onClose={() => setDialog(null)} onDone={record => { setDialog(null); setSelected({ id: record.id, record, error: '' }); if (draft.saleId === record.id) setDraft(emptyDraft(context)); setSalesReload(value => value + 1); say(`Venda nº ${record.number} cancelada.`); }} />}
-    {dialog?.kind === 'return' && <PdvReturnDialog sale={dialog.sale} session={store?.session ?? null} sendPos={sendPos} mayWrite={mayWrite} onClose={() => setDialog(null)} onDone={(record, result) => { setDialog(null); setSelected({ id: record.id, record, error: '' }); setReload(value => value + 1);
+    {dialog?.kind === 'return' && <PdvReturnDialog sale={dialog.sale} session={store?.session ?? null} quantityPlaces={quantityPlaces} sendPos={sendPos} mayWrite={mayWrite} onClose={() => setDialog(null)} onDone={(record, result) => { setDialog(null); setSelected({ id: record.id, record, error: '' }); setReload(value => value + 1);
       say(pdvReturnMessage(result, money)); }} />}
     {dialog?.kind === 'shortcuts' && <PdvShortcutsDialog shortcuts={shortcuts.filter(item => item.action !== 'trocar-loja' || context.stores.length > 1).filter(item => item.action !== 'mesa' || context.settings.tables)} mac={mac} onClose={() => setDialog(null)} />}
     {dialog?.kind === 'gtin' && <PdvGtinDialog onRemove={removeByCode} onClose={() => setDialog(null)} />}

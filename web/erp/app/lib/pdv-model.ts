@@ -5,6 +5,7 @@ import { calculateDocument, decimal, format } from '../../../../packages/erp-dom
 import { normalizeUnitPrice } from '../../../../packages/erp-domain/src/unit-price.mjs';
 import { conditionDays } from './document-payment-condition.ts';
 import { addDays } from './origin-list.ts';
+import { placesProblem, showDecimal } from '../../decimals.ts';
 
 export const PDV_API = '/v1/frente-caixa';
 export type PdvRole = 'admin' | 'consulta' | 'vendas' | 'financeiro' | 'estoque' | 'fiscal';
@@ -103,12 +104,15 @@ export function decimalInput(text: string, scale: number, digits: number, messag
   if (!new RegExp(`^(0|[1-9][0-9]{0,${digits - 1}})(\\.[0-9]{1,${scale}})?$`).test(value)) throw new Error(message);
   return value;
 }
-export const quantityInput = (text: string) => { const value = decimalInput(text, 6, 9, 'Informe a quantidade com até seis casas decimais.'); if (decimal(value, 6, 9) === 0n) throw new Error('A quantidade deve ser maior que zero.'); return value; };
-export const priceInput = (text: string) => { const value = text.trim().replace(',', '.'); try { normalizeUnitPrice(value, 10); } catch { throw new Error('Confira o valor unitário: até dez dígitos inteiros e dez casas decimais.'); } return value; };
+// Wabotia: `places` são as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): quantidade e preço nas saídas. Sem a
+// preferência (null), valem os limites do formato (6 e 10 casas) e o servidor confere.
+export const quantityInput = (text: string, places: number | null = null) => { const value = decimalInput(text, 6, 9, 'Informe a quantidade com até seis casas decimais.'); if (decimal(value, 6, 9) === 0n) throw new Error('A quantidade deve ser maior que zero.'); const problem = placesProblem(value, places, 'A quantidade'); if (problem) throw new Error(problem); return value; };
+export const priceInput = (text: string, places: number | null = null) => { const value = text.trim().replace(',', '.'); try { normalizeUnitPrice(value, 10); } catch { throw new Error('Confira o valor unitário: até dez dígitos inteiros e dez casas decimais.'); } const problem = placesProblem(value, places, 'O valor unitário'); if (problem) throw new Error(problem); return value; };
 export const decimalText = (value: string) => value.replace('.', ',');
 export const amountCents = (value: string) => { const [whole, fraction = ''] = value.split('.'); return (BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2))).toString(); };
 const amountText = (cents: bigint) => `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
-export const quantityText = (value: string) => { const [whole, fraction = ''] = value.split('.'); const trimmed = fraction.replace(/0+$/, ''); return trimmed ? `${whole},${trimmed}` : whole!; };
+/** Quantidade para exibir: com as casas da preferência, sem esconder casas significativas; sem preferência, sem zeros à direita. */
+export const quantityText = (value: string, places: number | null = null) => showDecimal(value, places);
 
 // ---------------------------------------------------------------- Carrinho
 export interface CartItem { id: string; product_id: string | null; description: string; code: string | null; unit: string; quantity: string; unit_price: string; discount_percent: string; comment: string | null;

@@ -130,7 +130,18 @@ function notifications(tab: string) {
 
 // ---------------------------------------------------------------- Preferências
 
-/** GET /v1/preferencias/:página com os valores padrão do catálogo (nada salvo ainda). */
+/**
+ * Padrões do motor que diferem do catálogo do Fagoo (src/erp/schema/deviations.ts, decisão de 16/11):
+ * 2 casas para preço e quantidade. Vão como valor gravado (versão 1): na versão 0 o validador da tela
+ * só aceita o padrão do catálogo.
+ */
+const MOTOR_DEFAULTS: Record<string, unknown> = {
+  "empresa.decimais_quantidade": 2,
+  "empresa.decimais_preco_entrada": 2,
+  "empresa.decimais_preco_saida": 2,
+};
+
+/** GET /v1/preferencias/:página com os valores padrão (do motor ou do catálogo; nada salvo ainda). */
 function preferencesPage(pageId: string, actor: string) {
   const page = storedPreferencePage(pageId);
   if (!page) return undefined;
@@ -142,12 +153,21 @@ function preferencesPage(pageId: string, actor: string) {
     owner: page.scope,
     role: "admin",
     can_manage: true,
-    items: storedFields(page).map((f: { key: string; default: unknown }) => ({
-      key: f.key,
-      value: preferenceClone(f.default),
-      version: 0,
-      updated_at: null,
-    })),
+    items: storedFields(page).map((f: { key: string; default: unknown }) =>
+      Object.hasOwn(MOTOR_DEFAULTS, f.key)
+        ? {
+            key: f.key,
+            value: MOTOR_DEFAULTS[f.key],
+            version: 1,
+            updated_at: "2026-11-16T12:00:00.000Z",
+          }
+        : {
+            key: f.key,
+            value: preferenceClone(f.default),
+            version: 0,
+            updated_at: null,
+          },
+    ),
     directory: pageHasDirectory(page)
       ? [{ user_id: actor, role: "admin", label: "Marina Albuquerque" }]
       : null,

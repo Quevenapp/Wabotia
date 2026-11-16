@@ -15,7 +15,7 @@ export const PRODUCT_FIELDS: CatalogField[] = [
   { key: 'name', label: 'Nome', max: 200, section: 'basic' }, { key: 'code', label: 'Código (SKU)', max: 100, section: 'basic' },
   { key: 'format', label: 'Formato', max: 1, type: 'select', options: PRODUCT_FORMATS, section: 'basic' },
   { key: 'kind', label: 'Tipo', max: 1, type: 'select', options: PRODUCT_KINDS, section: 'basic' },
-  { key: 'price', label: 'Preço de venda (R$)', max: UNIT_PRICE_INPUT_LIMIT, decimal: 10, section: 'basic', help: 'Até dez casas decimais, sem arredondar o preço. Deixe vazio se não informado.' }, { key: 'unit', label: 'Unidade', max: 16, section: 'basic' },
+  { key: 'price', label: 'Preço de venda (R$)', max: UNIT_PRICE_INPUT_LIMIT, decimal: 10, section: 'basic', help: 'Com as casas decimais de Preferências › Empresa › Geral, sem arredondar o preço. Deixe vazio se não informado.' }, { key: 'unit', label: 'Unidade', max: 16, section: 'basic' },
   { key: 'condition', label: 'Condição', max: 11, type: 'select', section: 'basic', options: [{ value: 'unspecified', label: 'Não especificado' }, { value: 'new', label: 'Novo' }, { value: 'used', label: 'Usado' }, { value: 'refurbished', label: 'Recondicionado' }] },
   { key: 'brand', label: 'Marca', max: 100, section: 'characteristics' },
   { key: 'production', label: 'Produção', max: 11, type: 'select', section: 'characteristics', options: [{ value: 'own', label: 'Própria' }, { value: 'third_party', label: 'Terceiros' }] },

@@ -7,10 +7,11 @@ import { AccessError } from '../lib/real-access';
 import { invalidField } from '../lib/catalog-base';
 import { PRODUCT_FIELDS, type CatalogEnvelope, type CatalogRecord } from '../lib/catalog-model';
 import {
-  DETAIL_FIELDS, EMPTY_LISTS, FCI_ORIGINS, PRODUCT_TABS, TAXONOMY_SLUG, checkWeights, ofTagType, productDetailPayload, productFormValues, productLists, taxonomyItems, taxonomyPath, taxonomyTree,
+  DETAIL_FIELDS, EMPTY_LISTS, FCI_ORIGINS, PRODUCT_TABS, TAXONOMY_SLUG, checkPrices, checkWeights, ofTagType, productDetailPayload, productFormValues, productLists, taxonomyItems, taxonomyPath, taxonomyTree,
   type DetailField, type ProductLists, type ProductSupplier, type ProductTab, type TaxonomyItem, type TaxonomyKind,
 } from '../lib/product-form-model';
-import { loadProductSettings, loadWeightDecimals, type ProductCodeMode } from '../lib/product-settings';
+import { loadProductSettings, type ProductCodeMode } from '../lib/product-settings';
+import { loadDecimalPlaces, type DecimalPlaces } from '../../decimals';
 import { catalogEditorView, useCatalogEditor, type CatalogEditorProps } from './CatalogEditor';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
@@ -40,7 +41,7 @@ const BASE: Record<string, { label: string; max?: number; info?: string; placeho
   name: { label: 'Nome', max: 120 }, code: { label: 'Código (SKU)', max: 60, info: 'Referência ou código SKU do produto' },
   format: { label: 'Formato', kind: 'select', options: [{ value: 'S', label: 'Simples (Item único e sem variação)' }, { value: 'V', label: 'Com variações (Grade de tamanhos, cores, etc)' }, { value: 'E', label: 'Com composição (Kit ou união de vários itens)' }] },
   kind: { label: 'Tipo', kind: 'select', options: [{ value: 'P', label: 'Produto' }, { value: 'S', label: 'Serviço' }] },
-  price: { label: 'Preço venda', max: 80, info: 'Até dez casas decimais, sem arredondar o preço.' }, unit: { label: 'Unidade', max: 6, placeholder: 'Un, Pç, Kg', info: 'Exemplo: Un, Pç, Kg' },
+  price: { label: 'Preço venda', max: 80, info: 'Com as casas decimais de Preferências › Empresa › Geral, sem arredondar o preço.' }, unit: { label: 'Unidade', max: 6, placeholder: 'Un, Pç, Kg', info: 'Exemplo: Un, Pç, Kg' },
   condition: { label: 'Condição', kind: 'select', options: [{ value: 'unspecified', label: 'Não Especificado' }, { value: 'new', label: 'Novo' }, { value: 'used', label: 'Usado' }, { value: 'refurbished', label: 'Recondicionado' }] },
   brand: { label: 'Marca', max: 45, info: 'Especifique a marca do produto. Pode ser própria.' },
   production: { label: 'Produção', kind: 'select', options: [{ value: 'own', label: 'Própria' }, { value: 'third_party', label: 'Terceiros' }] },
@@ -79,13 +80,14 @@ export function ProductEditor(props: CatalogEditorProps) {
 
   const [attempt, setAttempt] = useState(0);
   // Preferências > Empresa > Geral: decimals of the weights (display and the check of a changed weight); 3 when unreadable.
-  const [weightDecimals, setWeightDecimals] = useState<number | null>(null);
+  // Wabotia: the same read brings the decimals of the prices (web/erp/decimals.ts); null when unreadable (the server checks).
+  const [places, setPlaces] = useState<DecimalPlaces | null | undefined>(undefined);
   useEffect(() => {
     const request = new AbortController();
-    void Promise.resolve().then(() => loadWeightDecimals(controller, request.signal)).then(value => { if (!request.signal.aborted) setWeightDecimals(value); })
-      .catch(() => { if (!request.signal.aborted) setWeightDecimals(3); });
+    void loadDecimalPlaces(controller, request.signal).then(value => { if (!request.signal.aborted) setPlaces(value); });
     return () => request.abort();
   }, [controller]);
+  const weightDecimals = places === undefined ? null : places?.weight ?? 3;
   useEffect(() => {
     if (!record) return;
     const request = new AbortController(); setError('');
@@ -119,7 +121,7 @@ export function ProductEditor(props: CatalogEditorProps) {
   // "Pular etapas no cadastro de produtos" off: "Incluir cadastro" opens the wizard (a clone and an edit open the complete form).
   const wizard = !record && !props.initialValues && !settings.skipSteps;
   return <ProductForm {...props} record={complete} taxonomies={taxonomies} origin={settings.origin} sequential={settings.sequential} codeMode={settings.codeMode} eanPrefixValid={settings.eanPrefixValid}
-    weightDecimals={weightDecimals} wizard={wizard} />;
+    weightDecimals={weightDecimals} places={places ?? null} wizard={wizard} />;
 }
 type FormSettings = { origin: string; sequential: boolean; codeMode: ProductCodeMode; eanPrefixValid: boolean; skipSteps: boolean };
 const EDIT_SETTINGS: FormSettings = { origin: '', sequential: false, codeMode: 'manual', eanPrefixValid: false, skipSteps: true };
@@ -168,7 +170,7 @@ function useCompanyRegime(controller: CatalogEditorProps['controller'], wanted: 
   return crt;
 }
 
-function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origin: string; sequential?: boolean; codeMode?: ProductCodeMode; eanPrefixValid?: boolean; weightDecimals?: number; wizard?: boolean }) {
+function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origin: string; sequential?: boolean; codeMode?: ProductCodeMode; eanPrefixValid?: boolean; weightDecimals?: number; places?: DecimalPlaces | null; wizard?: boolean }) {
   const { record, taxonomies, cloneOf, controller, writable } = props;
   const [tab, setTab] = useState<ProductTab>('characteristics');
   const [wizard, setWizard] = useState(Boolean(props.wizard)), [step, setStep] = useState<WizardStep>('basic');
@@ -179,8 +181,10 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
   useEffect(() => { if (imagesShown) setImagesSeen(true); }, [imagesShown]);
   // Origin: changing steps without the Nome shows the orange alert with the pending items and highlights the field.
   const [stepAlert, setStepAlert] = useState<string[] | null>(null);
-  const initial = useMemo(() => productFormValues(record, props.initialValues, { origin: props.origin, weightDecimals: props.weightDecimals }), []);
-  const [lists, setLists] = useState<ProductLists>(() => productLists(record, props.initialValues));
+  const places = props.places ?? null;
+  const initial = useMemo(() => productFormValues(record, props.initialValues, { origin: props.origin, weightDecimals: props.weightDecimals, priceOutPlaces: places?.priceOut ?? null }), []);
+  const initialLists = useMemo(() => productLists(record, props.initialValues, places?.priceIn ?? null), []);
+  const [lists, setLists] = useState<ProductLists>(initialLists);
   const [drawer, setDrawer] = useState<null | { kind: 'supplier'; index: number | null } | { kind: 'tags' }>(null);
   const deleted = typeof record?.deleted_at === 'string';
   // Campos customizados (migration 156): sent only once the definitions are read, so a failed read changes no stored value.
@@ -195,6 +199,7 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
     // The default warehouse alone saves nothing: only the typed fields of the saldo inicial count as unsaved changes.
     focusKey: wizard ? step : tab, extra: composition.dirty ? { base: baseExtra, composition: composition.key } : baseExtra, buildExtra: values => {
       checkWeights(values, initial, props.weightDecimals ?? 3);
+      checkPrices(values, initial, lists, initialLists, places);
       if (eanWithoutPrefix && !(values.code ?? '').trim()) invalidField('code', 'Informe o código (SKU): o código Sequencial EAN precisa do Prefixo GS1 da empresa em Preferências › Configurações de produtos.');
       // Origin: "Não é possível criar um produto com variações quando possuir um lote preenchido." (migration 191 refuses it too).
       if (values.lot_control === 'true' && values.format === 'V') invalidField('lot_control', 'Não é possível usar controle de lote em produto com variações. Desative o Controle de lote ou escolha outro formato.');
