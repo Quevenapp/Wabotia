@@ -96,12 +96,14 @@ export async function issueClaim(
     ttlMinutes: number;
   },
 ) {
+  // O QR leva o endereço completo (https://<endereço público>/c/<código>):
+  // o app descobre o servidor pelo QR, sem o entregador digitar nada.
   const origin = await publicOrigin(env);
-  if (!origin)
+  if (!origin || !origin.startsWith("https://"))
     throw new ApiError(
       409,
       "origin_unknown",
-      "O endereço público desta instalação ainda não é conhecido. Abra o painel pelo endereço usado pelos clientes e tente de novo.",
+      "O endereço público https desta instalação ainda não é conhecido, e o QR precisa dele para o app achar o servidor. Abra o painel pelo endereço https usado pelos clientes e tente de novo.",
     );
   // Prazos curtos para um QR que pode sair impresso (revisão A, item 4).
   requireValue(
@@ -167,6 +169,18 @@ export async function claimOwner(env: Env, code: unknown) {
     "SELECT * FROM module_credentials WHERE claim_hash=?",
     await sha(code),
   );
+}
+
+/**
+ * Leitura pública do QR antes da troca (GET /c/<código>): o registro se o
+ * código ainda pode ser trocado, senão null. Não grava nada. Inexistente,
+ * vencido, já lido e revogado dão o mesmo null (sem oráculo).
+ */
+export async function peekClaim(env: Env, code: unknown) {
+  const row = await claimOwner(env, code);
+  if (!row || row.status !== "issued" || row.claim_expires <= now())
+    return null;
+  return row;
 }
 
 /**

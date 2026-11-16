@@ -6,6 +6,8 @@ export interface Env {
   MASTER_KEY: string;
   SETUP_TOKEN: string;
   APP_NAME?: string;
+  /** Endereço do app na App Store (página do QR do entregador, /c/<código>). */
+  IOS_APP_URL?: string;
   WABOTIA_ACCOUNT_ID?: string;
   WABOTIA_WORKER_NAME?: string;
   WABOTIA_INSTALLATION_ID?: string;

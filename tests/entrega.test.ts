@@ -1045,6 +1045,100 @@ describe("entrega: entregador pelo QR, sem login", () => {
     expect(h.note).toContain("sem o código");
   });
 
+  it("QR com o endereço https completo; sem endereço público https, recusa com o motivo", async () => {
+    const { f, admin, base, other } = await twoDeliveries();
+    const qr = await (
+      await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
+    ).json<any>();
+    expect(qr.qr.url).toMatch(
+      /^https:\/\/lanchonete\.example\.com\/c\/[2-9A-HJ-NP-Za-km-np-z]{32}$/,
+    );
+    expect(qr.slip.qr).toBe(qr.qr.url);
+    // ~61 bytes num endereço típico: cabe com folga na versão 15 do gerador.
+    expect(new TextEncoder().encode(qr.qr.url).length).toBeLessThan(120);
+    for (const origin of ["http://lanchonete.example.com", null]) {
+      if (origin)
+        await exec(
+          env,
+          "UPDATE instance_settings SET value=? WHERE key='public_origin'",
+          origin,
+        );
+      else
+        await exec(env, "DELETE FROM instance_settings WHERE key='public_origin'");
+      const res = await api(admin, `${base}/${other.created.id}/qr`, "POST", {});
+      expect(res.status).toBe(409);
+      const body = await res.json<any>();
+      expect(body.error.code).toBe("origin_unknown");
+      expect(body.error.message).toContain("https");
+    }
+    void f;
+  });
+
+  it("leitura pública do QR: não gasta o código, não vaza dados e não serve de oráculo", async () => {
+    const { f, admin, base, other } = await twoDeliveries();
+    const qr = await (
+      await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
+    ).json<any>();
+    const path = new URL(qr.qr.url).pathname;
+    const ip = "198.51.100." + Math.floor(Math.random() * 250);
+    const peek = (p: string, accept = "application/json") =>
+      SELF.fetch("https://test" + p, {
+        headers: { Accept: accept, "CF-Connecting-IP": ip },
+      });
+    const store = (
+      await (await api(admin, `/profiles/${f.profile}/establishment`)).json<any>()
+    ).name;
+    const res = await peek(path);
+    expect(res.status).toBe(200);
+    const body = await res.json<any>();
+    expect(Object.keys(body).sort()).toEqual(
+      ["expires_at", "server", "store", "valid"].sort(),
+    );
+    expect(body).toMatchObject({
+      valid: true,
+      store,
+      server: "https://lanchonete.example.com",
+    });
+    expect(JSON.stringify(body)).not.toMatch(/Rua C|Caio|Suco|5511/);
+    // A página da câmera comum: a loja e como abrir o app, sem dados do pedido.
+    const html = await (await peek(path, "text/html")).text();
+    expect(html).toContain(`Entrega de ${store}`);
+    expect(html).toContain("Escanear pedido");
+    expect(html).toContain("play.google.com");
+    expect(html).not.toMatch(/Rua C|Caio/);
+    // Não gastou: a troca ainda funciona.
+    const got = await claim({ code: qr.qr.url, name: "Bia" });
+    expect(got.status).toBe(200);
+    // Lido, inexistente e vencido: a mesma resposta.
+    const used = await (await peek(path)).json<any>();
+    const unknown = await (await peek("/c/" + "a".repeat(32))).json<any>();
+    const garbage = await (await peek("/c/xyz")).json<any>();
+    const fresh = await (
+      await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
+    ).json<any>();
+    await exec(
+      env,
+      "UPDATE module_credentials SET claim_expires=? WHERE status='issued' AND subject=?",
+      now() - 1000,
+      other.created.id,
+    );
+    const expired = await (await peek(new URL(fresh.qr.url).pathname)).json<any>();
+    for (const r of [used, unknown, garbage, expired])
+      expect(r).toEqual({ valid: false, server: "https://lanchonete.example.com" });
+    const generic = await (await peek("/c/" + "a".repeat(32), "text/html")).text();
+    expect(generic).not.toContain(store);
+  });
+
+  it("leitura pública do QR tem limite por IP", async () => {
+    const ip = "192.0.2." + Math.floor(Math.random() * 250);
+    const peek = () =>
+      SELF.fetch("https://test/c/" + "b".repeat(32), {
+        headers: { Accept: "application/json", "CF-Connecting-IP": ip },
+      });
+    for (let i = 0; i < 30; i++) expect((await peek()).status).toBe(200);
+    expect((await peek()).status).toBe(429);
+  });
+
   it("código desligado por padrão: o entregador conclui sem ele", async () => {
     const { base, mine, token } = await twoDeliveries();
     await api(token, `${base}/${mine.created.id}/start`, "POST", {

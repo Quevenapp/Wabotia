@@ -119,6 +119,7 @@ import {
   publicOrigin,
   rememberOrigin,
   statePage,
+  appInvitePage,
   stepFor,
   touchWebStep,
   webStepByCode,
@@ -126,7 +127,7 @@ import {
   whatsappReturnLink,
 } from "./web-steps";
 import { trackPage } from "./web-track";
-import { claimOwner, ipHash } from "./module-credentials";
+import { claimOwner, ipHash, peekClaim } from "./module-credentials";
 import {
   credentialGate,
   moduleRoutes,
@@ -324,16 +325,51 @@ app.post(
     });
   },
 );
-// O QR aberto pela câmera do celular, fora do app: só orienta, nunca lê
-// (prévias de link não gastam o QR).
+// O QR (https://<endereço público>/c/<código>) nunca é trocado aqui: prévias
+// de link e a câmera comum não gastam o código. Com Accept: application/json,
+// a leitura pública do app antes da troca ("Entrega da loja X, servidor Y —
+// continuar?"): só o nome do estabelecimento e se o código vale; inexistente,
+// vencido, lido ou revogado dão a mesma resposta (sem oráculo). Sem JSON, a
+// página que orienta a abrir o app. Limite por IP nas duas.
+const PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=br.com.queven.wabotia";
 app.get("/c/:code", async (c) => {
-  await webStepRate(c);
-  return webStepHtml(
-    c,
-    statePage("not_found", appName(c.env), {
-      title: "Abra no app Wabotia",
-      text: "Este QR é de uma entrega. Abra o app Wabotia, toque em Escanear pedido e aponte para o QR.",
+  const ip = c.req.header("CF-Connecting-IP") || "local";
+  await rate(c.env, "credential-peek:" + (await ipHash(c.env, ip)), 30, 600000);
+  const row = await peekClaim(c.env, c.req.param("code"));
+  const live =
+    row && (await moduleEnabled(c.env, row.profile_id, row.module_id))
+      ? row
+      : null;
+  const store = live
+    ? (await establishment(c.env, live.profile_id).catch(() => null))?.name ||
+      null
+    : null;
+  const server =
+    (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  const headers = {
+    "Cache-Control": "no-store",
+    Vary: "Accept",
+  };
+  if ((c.req.header("Accept") || "").includes("application/json"))
+    return c.json(
+      live
+        ? { valid: true, store, server, expires_at: live.claim_expires }
+        : { valid: false, server },
+      200,
+      headers,
+    );
+  const links = [{ label: "Baixar na Google Play", href: PLAY_STORE_URL }];
+  if (c.env.IOS_APP_URL?.startsWith("https://"))
+    links.push({ label: "Baixar na App Store", href: c.env.IOS_APP_URL });
+  return c.html(
+    appInvitePage(appName(c.env), {
+      app: appName(c.env),
+      store,
+      links,
     }),
+    200,
+    { ...webStepHeaders, ...headers },
   );
 });
 // Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto

@@ -1256,6 +1256,35 @@ export function statePage(
   );
 }
 
+/**
+ * QR de acesso do app (/c/<código>) aberto pela câmera comum do celular: o
+ * nome da loja (só com o código valendo), como usar no app e os links das
+ * lojas de aplicativos. Não troca o código.
+ */
+export function appInvitePage(
+  appName: PageBrand,
+  options: {
+    app: string;
+    store: string | null;
+    links: { label: string; href: string }[];
+  },
+) {
+  const links = options.links
+    .map(
+      (l) => `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`,
+    )
+    .join(" ");
+  return page(
+    `Abra no app ${options.app}`,
+    `<div class="card state"><div class="icon" aria-hidden="true">📦</div><h1>${escape(
+      options.store ? `Entrega de ${options.store}` : `Abra no app ${options.app}`,
+    )}</h1><p>${escape(
+      `Abra o ${options.app} e toque em Escanear pedido para ler este QR. A câmera comum não conclui a leitura.`,
+    )}</p>${links}</div>`,
+    appName,
+  );
+}
+
 /** Respostas do formulário HTML (campos f_<id>). */
 export function formInput(form: FormData | URLSearchParams) {
   const input: Record<string, string> = {};

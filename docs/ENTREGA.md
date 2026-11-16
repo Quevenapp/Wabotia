@@ -162,9 +162,38 @@ Com `confirm_code.enabled`:
 
 Todas as chamadas, exceto a troca do QR, vão a
 `<servidor>/api/v1/profiles/<profile>/entrega/…` com
-`Authorization: Bearer <token>`. O servidor e a área vêm do QR e da troca.
+`Authorization: Bearer <token>`. O servidor e a área vêm do QR e da troca:
+o entregador **não digita o endereço do servidor** (várias lojas, vários
+servidores: cada QR leva o seu).
 
-**1. Trocar o QR.** O QR contém `https://<servidor>/c/<código>`.
+**0. O QR.** Contém o endereço completo:
+`https://<endereço público da instalação>/c/<código>`, com o código de 32
+caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. O servidor é tudo antes de
+`/c/` (sempre `https://`). Num caso típico
+(`https://wabotia.queven.app/c/` + 32) são 61 bytes: QR versão 4 (33×33
+módulos) com correção M, legível na térmica de 58 mm. Sem endereço público
+https definido, a loja não consegue gerar o QR (`409 origin_unknown`, com o
+motivo no painel).
+
+**Leitura pública antes da troca.** Para mostrar "Entrega da loja X, servidor
+Y — continuar?" sem gastar o código:
+
+```
+GET https://<servidor>/c/<código>
+Accept: application/json
+→ 200 {"valid": true, "store": "Lanchonete da Ana", "server": "https://<servidor>", "expires_at": ms}
+→ 200 {"valid": false, "server": "https://<servidor>"}
+```
+
+`valid: false` é a mesma resposta para código inexistente, vencido, já lido
+ou revogado (sem oráculo); nunca traz cliente, itens nem endereço. Limite de
+30 leituras por IP a cada 10 minutos (`429`). Sem `Accept: application/json`
+(câmera comum do celular), a mesma URL abre uma página com o nome da loja e
+"Abra o Wabotia e toque em Escanear pedido", com o link da Google Play (e o
+da App Store, se a instalação definir `IOS_APP_URL`). Nenhuma das duas troca
+o código.
+
+**1. Trocar o QR.**
 
 ```
 POST https://<servidor>/api/credentials/claim
