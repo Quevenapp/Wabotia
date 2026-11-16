@@ -610,6 +610,27 @@ export async function processPush(env: Env, profile: string) {
             category: "MESSAGE",
             time_sensitive: false,
           });
+      } else if (ev.kind === "approval.requested") {
+        // Pedido de aprovação à equipe (src/approvals.ts): só quem pode decidir.
+        const targets: string[] = Array.isArray(payload.approvers)
+          ? payload.approvers.filter((id: any) => typeof id === "string")
+          : [];
+        if (!targets.length) return;
+        queue(targets, null, "approval", ev.resource_id, String(ev.id), {
+          title: minimal ? "Wabotia" : "Pedido de aprovação",
+          body: minimal ? "Novo pedido de aprovação" : truncate(String(payload.title || ""), 120),
+          data: {
+            type: "approval",
+            profile_id: profile,
+            approval_id: ev.resource_id,
+            conversation_id: payload.conversation_id,
+          },
+          priority: "high",
+          collapse_key: "aprovacao-" + ev.resource_id,
+          channel: "messages",
+          category: "MESSAGE",
+          time_sensitive: true,
+        });
       } else if (ev.kind === "ticket.created" || ev.kind === "ticket.updated") {
         const ticket = await one(
           env,

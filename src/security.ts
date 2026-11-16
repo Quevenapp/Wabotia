@@ -165,6 +165,28 @@ function userActor(row: any): Actor {
     access: storedAccess(row.access),
   };
 }
+/**
+ * A pessoa como ator, relida do banco (bot agindo em nome dela, src/bot-actions):
+ * desabilitada ou inexistente, null. Sem sessão: nível 1 e a política do
+ * segundo fator, para os guardas falharem fechados (src/mfa.ts). Quem
+ * confirma uma proposta passa a sessão dele (bot-actions/actions.ts).
+ */
+export async function actorForUser(
+  env: Env,
+  id: string,
+): Promise<Actor | null> {
+  const row = await one(
+    env,
+    `SELECT u.*,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor FROM users u WHERE u.id=? AND u.disabled=0`,
+    id,
+  );
+  if (!row) return null;
+  return {
+    ...userActor(row),
+    aal: 1,
+    mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
+  };
+}
 /** Colunas da sessão e do segundo fator lidas junto com a pessoa. */
 const SESSION_COLUMNS =
   "s.id session_id,s.aal session_aal,s.mfa_at session_mfa_at,s.kind session_kind,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor";

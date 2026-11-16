@@ -358,6 +358,170 @@ onMcpTool("agenda", {
   `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
   ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
 
+### Ferramentas do cliente no bot do provedor direto (`onMcpTool` + `customer`)
+
+O bot de provedor de IA direto (Anthropic, OpenAI, DeepSeek) que atende o cliente no WhatsApp recebe **as mesmas ferramentas `onMcpTool`** que o Hermes usa com a chave presa à conversa (`src/bot-actions/customer.ts`). **Nunca recebe o catálogo** nem ferramenta de equipe. São dois modos separados em código:
+
+| | Modo equipe | Modo cliente |
+|---|---|---|
+| Quando | execução de conversa interna, pedida por uma pessoa | execução de conversa individual de linha (telefone autenticado) |
+| Ferramentas | `buscar_operacoes`, `consultar`, `propor_acao` | as `onMcpTool` dos módulos ligados |
+| Identidade | a pessoa (`actor` dela, `via`) | a conversa: o bot preso a ela (`conversations:bound`) |
+| Escrita | proposta; a pessoa confirma no painel ou no app | proposta; **o cliente** confirma tocando no botão na conversa |
+
+**Contrato para declarar uma ferramenta de cliente:**
+```ts
+onMcpTool("mensalidade", {
+  name: "mensalidade_segunda_via",          // prefixo do módulo
+  description: "…",                         // o que faz, em português
+  input: { conversation_id: { type: "string" }, installment_id: { type: "string" } },
+  required: ["conversation_id"],
+  write: true,
+  customer: "read",   // false: fora do cliente; "read": sem confirmação; "propose" (padrão de write): com botão
+  call: (a, profile) => ({ method: "POST", path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`, body: { action: "mensalidade_copy" } }),
+});
+```
+
+**Regras do núcleo (valem sem o módulo fazer nada):**
+- `conversation_id` nunca vem do modelo: sai do esquema e é sempre o da execução. Ids de registro que o modelo mandar passam pela regra do módulo, que responde 404 para registro de outro cliente.
+- Leitura roda como o bot preso à conversa, sem `contacts:read`. O módulo mostra ao cliente só o mínimo (os últimos dígitos do documento, nunca o documento inteiro), como já faz para a chave presa. O núcleo ainda tira dado pessoal e segredo do que vai ao modelo.
+- Escrita (`write` sem `customer: "read"`) vira proposta e não executa. O cliente recebe "Para eu fazer isto, confirme:" com **Confirmar** e **Cancelar**.
+  - **O texto que o cliente confirma vem do módulo, nunca do modelo**: declare `describe(env, profile, input)` na ferramenta e devolva o que roda, com dados lidos por código (serviço, data, valor). O `input` já traz o `conversation_id` da execução; leia só registros desta conversa, para não mostrar dado de outro cliente. Sem `describe`, o núcleo lista a ação e os campos do pedido (`src/bot-actions/describe.ts`). O `resumo` do modelo só fica no registro.
+  - **Confirmar**:
+    - o toque no botão do próprio canal, tratado antes dos ganchos dos módulos (o id leva a proposta);
+    - CONFIRMAR ou CANCELAR digitado, só depois de os ganchos dos módulos (`onConversationTurn`) terem a chance de tratar a mensagem, e só com **uma** proposta aberta na conversa. Com mais de uma, o cliente é avisado para tocar no botão de cada uma.
+    - "sim", "não", "1" e "2" soltos não confirmam nada: são respostas comuns a outras perguntas, e tratá-los custaria uma consulta ao D1 por mensagem.
+  - **Prazo**: a proposta vale 10 minutos.
+  - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>:<tentativa>`, e a proposta só roda uma vez (estado `running` antes de chamar), então tocar de novo não repete.
+  - **Rota**: só ação da própria conversa (`/conversations/<id>/actions`).
+- Preço, desconto, total e estado financeiro saem do módulo, nunca dos parâmetros do modelo. "Já paguei" e comprovante não mudam estado: só o webhook do provedor muda.
+- CPF/CNPJ digitado nunca abre dado financeiro nem vincula telefone (achado A4 da revisão de segurança). A identidade é o telefone verificado da conversa.
+- Limites: 6 chamadas e 3 propostas por resposta; resultado cortado em 4.000 caracteres.
+
+**Ferramentas de cliente que existem hoje:**
+
+| Módulo | Ferramentas |
+|---|---|
+| OS | `os_situacao` |
+| Mensalidade | `mensalidade_situacao`; `mensalidade_segunda_via` (hoje com botão; a H pode marcar `customer: "read"`) |
+| Agenda | `agenda_servicos`, `agenda_horarios_livres`, `agenda_meus_agendamentos`; com botão: `agenda_agendar`, `agenda_remarcar`, `agenda_cancelar` |
+| Pedido | `pedido_cardapio`, `pedido_consultar`; com botão: `pedido_enviar_carrinho` |
+| Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
+| Suporte e Fila | nenhuma |
+
+### Pedido de aprovação à equipe (`ctx.requestApproval` + `onApproval`)
+
+Para o cliente pedir o que só a equipe concede (desconto, isenção de taxa, dispensa de parcela). O bot **nunca concede**: a ferramenta do cliente só registra o pedido e diz que vai consultar a equipe. Núcleo em `src/approvals.ts`, migração 0086.
+
+```ts
+// 1. Ferramenta do cliente (modo cliente), que só registra o pedido:
+onMcpTool("pedido", {
+  name: "pedido_pedir_desconto",
+  description: "Pede à equipe um desconto no pedido aberto do cliente da conversa. Não concede nada.",
+  input: { conversation_id: { type: "string" }, observacao: { type: "string" } },
+  required: ["conversation_id"], write: true, customer: "read",
+  call: (a, p) => ({ method: "POST", path: `/profiles/${p}/conversations/${a.conversation_id}/actions`,
+                     body: { action: "pedido_desconto", observacao: a.observacao } }),
+});
+
+// 2. A ação monta o cartão com dados lidos por código, nunca com números do modelo:
+onConversationAction("pedido", "pedido_desconto", async (ctx, actor, c, data) => {
+  const order = /* pedido aberto do telefone verificado da conversa */;
+  const approval = await ctx.requestApproval(c, {
+    kind: "desconto", ref: order.id,
+    title: `Desconto no pedido nº ${order.number}`,
+    fields: [
+      { key: "itens", label: "Itens", value: "…" },
+      { key: "total", label: "Total de tabela", value: "R$ 62,00" },
+      { key: "ultimas", label: "Últimas compras", value: "5 pedidos, média R$ 58,00" },
+      { key: "margem", label: "Margem", value: "38%", restricted: { admin: true } },
+    ],
+    approvers: { access: "pedido" },          // ou { admin: true } ou { role: "pedido:gerente" }
+    adjust: { label: "Desconto (R$)", type: "money", min: 0, max: 6.2 },
+    ttlMinutes: 30,
+    modelSummary: data.observacao,            // guardado à parte, como não verificado
+    botId: actor.via?.bot_id, runId: actor.via?.run_id,
+    key: order.id,                            // repetir não abre outro
+  });
+  return { pedido: approval.id, estado: "aguardando a equipe" };
+});
+
+// 3. A decisão: o módulo confere o limite de quem decide e aplica o efeito.
+onApproval("pedido", "desconto", {
+  async validate(ctx, approval, d) { /* ex.: atendente até R$ 5; lance ApiError 403 */ },
+  async decided(ctx, approval, d) {
+    // d.status: approved (d.value), declined (d.reason), handoff, expired (d.actor null)
+  },
+});
+```
+
+**Regras do núcleo**
+- **O cartão**:
+  - `fields` fica guardado como foi mostrado, para a auditoria;
+  - `restricted` esconde o campo de quem não está na audiência (o app recebe `hidden_fields`);
+  - `modelSummary` vai à parte, como "Resumo do bot (não verificado)".
+- **A decisão**:
+  - é uma rota que exige sessão de pessoa da audiência `approvers` (senão `403 approval_forbidden`); bot e chave de aplicação nunca decidem;
+  - o primeiro a decidir vence; os outros recebem `409 approval_closed`;
+  - `validate` e `decided` recebem o ator de quem decidiu, então as regras do módulo (papel, limite) valem;
+  - erro em qualquer um devolve o pedido a pendente;
+  - uma decisão que travou no meio (o Worker caiu entre o início e o fim) fica em `deciding` no máximo 2 minutos (`DECIDING_TTL`): depois a rodada periódica devolve o pedido a pendente (ou vence, se o prazo dele passou), e outra pessoa pode decidir. Por isso `decided` deve ser idempotente pelo `approval.id`: numa retomada, roda de novo.
+- **Assumir**: `handoff` passa a conversa a quem tocou (`handoffToPerson`) e depois chama `decided` com `status: "handoff"`.
+- **Prazo**: padrão 30 minutos, de 5 minutos a 7 dias. A rodada periódica vence os pedidos e chama `decided` com `status: "expired"`; sem `decided`, o núcleo avisa o cliente e põe a conversa na fila da equipe.
+- **Auditoria**: `audit` com `approval.approve|decline|handoff`, e o pedido guarda conversa, cartão, quem decidiu, valor e quando.
+- **Avisos**: o cartão vai à conversa interna de cada pessoa que pode decidir com o bot que atendeu (até 20), e o evento `approval.requested` dispara o push.
+
+### Ações pelo bot na conversa interna (`definition.bot`)
+
+Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pediu** (`src/bot-actions/`, contrato dos apps em `docs/API.md`, "Ações pelo bot"). O módulo não escreve nada para isso.
+
+**O que o módulo ganha sem fazer nada**
+- Toda rota pública do módulo entra no catálogo do bot: `onRead` vira "consulta" e `onRoute` vira "ação", com resumo e parâmetros tirados do OpenAPI do módulo (`moduleOperations` e `describe…`).
+- Esquema de entrada bem descrito no OpenAPI deixa o bot mais preciso.
+
+**Ajuste opcional na declaração**
+```ts
+bot: {
+  deny: ["os.decide"],                      // ops ou caminhos fora do catálogo (prefixos)
+  sensitive: ["mensalidade.installment.pay"], // segundo fator ao confirmar, conforme a política
+  hints: { "consulta:service-orders": "Ordens de serviço abertas, por estado ou cliente" },
+  // O que a pessoa confirma, com dados lidos por código (opcional):
+  describe: { "os.status": async (env, profile, p) => `OS nº … para ${p.status}` },
+}
+```
+- As operações com permissão de aplicação `billing:write` já contam como sensíveis.
+- **Segundo fator**: `sensitive` pede o código pela política da instalação (`requireFinancialAal`, em `src/mfa.ts`). A operação roda com o `aal`, a sessão e a política de quem confirmou, então os guardas do módulo (`requireFinancialAal` na Mensalidade e no Suporte) valem também sem `sensitive`. Quando o guarda pede o código, a proposta continua aberta e o confirmar responde `403 mfa_required`.
+- **Texto da proposta**: o cartão mostra o `describe` do módulo ou, sem ele, a operação e os parâmetros que vão rodar. O `resumo` do modelo aparece à parte, como "Texto do bot (não conferido)".
+- Configurações (`PUT /settings`), módulos, pessoas, chaves e sistema nunca entram: não são rotas de módulo.
+
+**Identidade.** A chamada chega ao módulo como se viesse da tela:
+- o `actor` é a pessoa (`kind: "user"`), com o acesso e os papéis dela;
+- o comando passa pelo `Coordinator`, com recibo e `Idempotency-Key` (`proposal:<id>` na confirmação).
+
+O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, masked}`), gravado em `audit.via`. **Não use `via` em regra de negócio**: quem pode agir é decidido pelas mesmas regras da tela.
+
+**Dados pessoais.** Na leitura que vai ao modelo de IA, `ctx.mayRead(actor, …)` responde `false` e `ctx.botView` esconde os campos de `BOT_HIDDEN`, a menos que o administrador libere na instalação. Use `ctx.redact` e `filteredHandlers`, como já fazem os módulos, e nada mais é preciso. O núcleo ainda tira, de qualquer resposta, os campos de dado pessoal e os segredos.
+
+**Mudanças do núcleo para isso** (para a sessão A revisar):
+
+| Onde | O que mudou |
+|---|---|
+| `Actor.via` e `BotVia` | `src/types.ts` |
+| `actorForUser` | `src/security.ts` |
+| `audit.via` | `src/events.ts`, migração 0085 |
+| `internalCall` | `src/mcp.ts`: a chamada interna do MCP, sem requisição de origem |
+| `mayRead` e `botView` com `via.masked`; `BOT_HIDDEN` exportado | `src/modules/api.ts` |
+| `ModuleDefinition.bot` | `src/modules/types.ts` |
+| `internal_messages.kind` e `payload`; leitura com o estado da proposta | `src/team.ts` |
+| Rotas `…/proposals/:id/confirm\|cancel` e `/system/bot-actions/configure` | `src/index.ts` |
+| Campo `wabotia_run` no job do plugin | `src/integrations.ts`, `src/engine.ts` |
+| Cabeçalho `X-Wabotia-Run` no MCP | `src/mcp.ts` |
+| Segundo fator: `requireFinancialAal` do núcleo na proposta sensível; o ator que executa leva `aal`, `sessionId` e `mfa` de quem confirmou, e o guarda trata o ator com `via` como pessoa | `src/mfa.ts`, `src/bot-actions/actions.ts` |
+| Laço de ferramentas e `aiCompleteWithTools` | `src/bot-tools.ts`, `src/ai-provider.ts`; escolha do modo em `aiRun` (`src/engine.ts`) |
+| Modo cliente | `src/bot-actions/customer.ts`; resposta ao botão antes dos módulos no `processInbox`; campo `customer` em `ModuleMcpTool` (`src/modules/hooks.ts`) |
+| Pedido de aprovação | `src/approvals.ts`; `ctx.requestApproval` e `onApproval` (`src/modules/api.ts`); rotas `/approvals`; push `approval.requested`; segmento `approvals` livre no acesso (a audiência decide) |
+| Vencimento de pedidos e propostas | na rodada periódica (`src/modules/schedule.ts`) |
+
 ### Tarefas periódicas (`onSchedule`)
 
 ```ts

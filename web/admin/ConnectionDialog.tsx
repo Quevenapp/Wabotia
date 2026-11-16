@@ -271,6 +271,11 @@ function AiFields({
           : "Imagens são enviadas ao modelo."}
       </p>
       <p>
+        {provider === "compatible"
+          ? "Ações pelo bot na conversa interna (consultar e propor ações em nome de quem pediu) dependem de a API aceitar ferramentas no formato da OpenAI. Se não aceitar, o bot avisa na conversa que não consegue consultar e responde só com o que sabe."
+          : "Na conversa interna, este bot pode consultar e propor ações em nome de quem pediu, com o acesso dessa pessoa. As ações só acontecem depois que a pessoa toca em Confirmar."}
+      </p>
+      <p>
         Depois de salvar, use <strong>Testar conexão</strong>: o teste cria o
         bot com o nome desta conexão. Habilite-o em Atendente e especialistas.
       </p>

@@ -37,8 +37,22 @@ export interface Actor {
   sessionId?: string;
   /** Pessoa: tem fator ativo e a política da instância (src/mfa.ts). */
   mfa?: { factor: boolean; policy: "off" | "financial" | "all" };
+  /**
+   * A pessoa agiu pelo bot na conversa interna (src/bot-actions): o núcleo
+   * grava `audit.via` e mascara o que vai ao modelo. O segundo fator trata o
+   * ator com `via` como pessoa (src/mfa.ts, requireFinancialAal).
+   */
+  via?: BotVia;
   rate: number;
   runLimit: number;
+}
+export interface BotVia {
+  kind: "bot";
+  bot_id: string;
+  run_id: string;
+  proposal_id?: string;
+  /** Leitura que vai ao modelo de IA: dado pessoal mascarado (padrão). */
+  masked: boolean;
 }
 export type Bindings = {
   Bindings: Env;

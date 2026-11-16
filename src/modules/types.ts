@@ -74,6 +74,37 @@ export interface ModuleDefinition {
    * "Papéis por pessoa").
    */
   grants?: ModuleGrant[];
+  /**
+   * Bot da conversa interna agindo em nome da pessoa (src/bot-actions,
+   * docs/MODULOS.md "Ações pelo bot"). Por padrão, toda rota pública do
+   * módulo entra no catálogo; aqui o módulo ajusta.
+   */
+  bot?: ModuleBotOptions;
+}
+
+export interface ModuleBotOptions {
+  /** Ops ("os.decide") ou caminhos de leitura ("os/…") fora do catálogo (prefixos). */
+  deny?: string[];
+  /**
+   * Ops que exigem sessão com segundo fator ao confirmar (prefixos). As de
+   * permissão billing:write já são sensíveis sem declarar.
+   */
+  sensitive?: string[];
+  /** Descrição melhor por op ou caminho de leitura; aparece primeiro na busca. */
+  hints?: Record<string, string>;
+  /**
+   * Texto da proposta por op (modo equipe), montado com dados lidos por
+   * código: o que a pessoa confirma. Sem ele, o núcleo lista a operação e os
+   * parâmetros (src/bot-actions/describe.ts).
+   */
+  describe?: Record<
+    string,
+    (
+      env: any,
+      profile: string,
+      params: Record<string, any>,
+    ) => Promise<string | null>
+  >;
 }
 
 /** Papel concedido por pessoa e por área ("technician" vira "os:technician"). */

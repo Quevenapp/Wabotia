@@ -174,12 +174,16 @@ export function requireStepUp(actor: Actor) {
 /**
  * Operação financeira feita por pessoa: com a política "financial" ou "all",
  * exige aal2. Aplicações seguem por billing:write; sistema e bots não têm
- * sessão e passam.
+ * sessão e passam. A pessoa agindo pelo bot (`via`, src/bot-actions) conta
+ * como pessoa mesmo sem sessão: vale o `aal` da sessão que confirmou, e sem a
+ * política no ator o guarda falha fechado.
  */
 export function requireFinancialAal(actor: Actor) {
-  if (!person(actor)) return;
-  if (["financial", "all"].includes(actor.mfa?.policy ?? "off"))
-    requireAal2(actor);
+  const viaBot =
+    actor.kind === "user" && !!actor.via && !actor.id.startsWith("bot:");
+  if (!person(actor) && !viaBot) return;
+  const policy = actor.mfa?.policy ?? (viaBot ? "financial" : "off");
+  if (policy === "financial" || policy === "all") requireAal2(actor);
 }
 
 /** Rotas que a sessão aal1 ainda alcança quando o fator é exigido. */

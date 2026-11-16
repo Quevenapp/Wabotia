@@ -158,6 +158,25 @@ export interface ModuleMcpTool {
   required?: string[];
   /** Escrita: o núcleo acrescenta idempotency_key. */
   write?: boolean;
+  /**
+   * Bot do provedor de IA direto atendendo o cliente no WhatsApp
+   * (src/bot-actions/customer.ts). Padrão: leitura vira consulta direta;
+   * escrita vira proposta que o cliente confirma por botão. `false`: fora
+   * do atendimento ao cliente. `"read"`: escrita sem efeito de compra ou
+   * cobrança nova (segunda via), sem confirmação.
+   */
+  customer?: false | "read" | "propose";
+  /**
+   * Texto que o cliente confirma (modo cliente, src/bot-actions/describe.ts):
+   * montado pelo módulo com dados lidos por código (itens, valores, datas),
+   * nunca pelo modelo. `input` já vem com o conversation_id da execução. Sem
+   * ele, o núcleo lista a ação e os campos do pedido.
+   */
+  describe?: (
+    env: any,
+    profile: string,
+    input: Record<string, any>,
+  ) => Promise<string | null>;
   call: (
     args: Record<string, any>,
     profile: string,
@@ -220,6 +239,35 @@ export const moduleRoutes = () => ({
   write: [...writeRoutes],
   read: [...readRoutes],
 });
+
+/**
+ * Pedido de aprovação à equipe (src/approvals.ts): o módulo confere o ajuste
+ * e aplica o efeito da decisão. (env, profile, approval, decision).
+ */
+export interface ApprovalHook {
+  validate?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
+  decided?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
+}
+const approvalHooks = new Map<string, ApprovalHook>();
+export function registerApprovalHook(
+  module: string,
+  kind: string,
+  hook: ApprovalHook,
+) {
+  approvalHooks.set(`${module}:${kind}`, hook);
+}
+export const approvalHook = (module: string, kind: string) =>
+  approvalHooks.get(`${module}:${kind}`);
 
 /** Validação estrita de uma chave das configurações (PUT /settings). */
 export function registerSettingsValidator(

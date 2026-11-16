@@ -76,6 +76,18 @@ import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
 import { mountMcp, takeInternalActor } from "./mcp";
+import {
+  approvalView,
+  decideApproval,
+  listApprovals,
+  loadApproval,
+} from "./approvals";
+import {
+  cancelProposal,
+  confirmProposal,
+  fullPersonalData,
+  setFullPersonalData,
+} from "./bot-actions/actions";
 import { mountAccount, mountAccountPublic } from "./account-routes";
 import { loginMfaNext, loginSecondFactor, mfaGate } from "./mfa";
 import { buildInfo } from "./build-info.generated";
@@ -1299,7 +1311,21 @@ app.get("/api/v1/system", async (c) => {
     deployments: await cloudflareJobs(c.env),
     // Endereço dos links enviados aos clientes (src/web-steps.ts).
     public_origin: await publicOrigin(c.env),
+    // Bot da conversa interna: dado pessoal completo nas consultas (src/bot-actions).
+    bot_full_personal_data: await fullPersonalData(c.env),
   });
+});
+// Liberar dado pessoal completo nas consultas do bot da conversa interna: os
+// dados vão ao provedor de IA. Só administrador; desligado de fábrica.
+app.post("/api/v1/system/bot-actions/configure", async (c) => {
+  admin(c.get("actor"));
+  const data = await c.req.json<any>().catch(() => ({}));
+  requireValue(
+    typeof data?.full_personal_data === "boolean",
+    "Informe full_personal_data como verdadeiro ou falso.",
+  );
+  await setFullPersonalData(c.env, data.full_personal_data);
+  return c.json({ bot_full_personal_data: data.full_personal_data });
 });
 app.get("/api/v1/system/updates/check", async (c) => {
   admin(c.get("actor"));
@@ -1689,6 +1715,64 @@ app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
     await listInternalChats(c.env, c.get("actor"), c.req.param("profile")),
   ),
 );
+// Pedidos de aprovação à equipe (src/approvals.ts): lista e decisão, só com
+// sessão de pessoa que pode decidir. O primeiro a decidir vence.
+app.get("/api/v1/profiles/:profile/approvals", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(await listApprovals(c.env, actor, profile, c.req.query()));
+});
+app.get("/api/v1/profiles/:profile/approvals/:id", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile) || actor.kind !== "user")
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(
+    approvalView(await loadApproval(c.env, profile, c.req.param("id")), actor),
+  );
+});
+app.post("/api/v1/profiles/:profile/approvals/:id/decide", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  const data = await c.req.json<any>().catch(() => ({}));
+  return c.json(
+    await decideApproval(
+      c.env,
+      actor,
+      profile,
+      c.req.param("id"),
+      data,
+      c.get("requestId"),
+    ),
+  );
+});
+// Proposta de ação do bot na conversa interna (src/bot-actions): só a pessoa
+// que pediu confirma ou cancela, pela sessão dela. Idempotente pelo estado da
+// proposta (confirmar de novo devolve o mesmo resultado).
+for (const decision of ["confirm", "cancel"] as const)
+  app.post(
+    `/api/v1/profiles/:profile/internal-chats/:id/proposals/:proposal/${decision}`,
+    async (c) => {
+      const actor = c.get("actor"),
+        profile = c.req.param("profile");
+      if (!canProfile(actor, profile))
+        throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      const run = decision === "confirm" ? confirmProposal : cancelProposal;
+      return c.json(
+        await run(
+          c.env,
+          actor,
+          profile,
+          c.req.param("id"),
+          c.req.param("proposal"),
+        ),
+      );
+    },
+  );
 app.get("/api/v1/profiles/:profile/internal-chats/:id", async (c) =>
   c.json(
     await internalChatDetail(

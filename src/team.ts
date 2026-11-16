@@ -14,6 +14,7 @@ import { createRun } from "./service";
 import { declaredGrants, grantsFor } from "./module-grants";
 import { moduleStates } from "./modules/registry";
 import { hermesRequest } from "./integrations";
+import { approvalView } from "./approvals";
 
 function teamAccess(actor: Actor, profile: string) {
   access(actor, profile, "presence:read");
@@ -226,10 +227,61 @@ export async function internalChatDetail(
   const messages = (
     await all(
       env,
-      "SELECT m.id,m.author,m.text,m.created,coalesce(r.status,m.status) status,m.run_id FROM internal_messages m LEFT JOIN bot_runs r ON r.id=m.run_id WHERE m.chat_id=? ORDER BY m.created DESC,m.rowid DESC LIMIT 500",
+      "SELECT m.id,m.author,m.text,m.kind,m.payload,m.created,coalesce(r.status,m.status) status,m.run_id FROM internal_messages m LEFT JOIN bot_runs r ON r.id=m.run_id WHERE m.chat_id=? ORDER BY m.created DESC,m.rowid DESC LIMIT 500",
       id,
     )
-  ).reverse();
+  )
+    .reverse()
+    .map((m) => ({
+      ...m,
+      // Proposta e resultado do bot (src/bot-actions): o estado vem da
+      // proposta, sempre atual; `text` é a reserva para apps antigos.
+      payload: m.payload ? json(m.payload, null) : null,
+    }));
+  // Pedido de aprovação (src/approvals.ts): o cartão como esta pessoa vê,
+  // sempre atual (quem decidiu, campos restritos só para quem pode).
+  const approvalIds = messages
+    .filter((m) => m.kind === "approval" && m.payload?.approval?.id)
+    .map((m) => m.payload.approval.id);
+  if (approvalIds.length) {
+    const rows = await all(
+      env,
+      "SELECT * FROM approvals WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))",
+      profile,
+      JSON.stringify(approvalIds),
+    );
+    for (const m of messages)
+      if (m.kind === "approval")
+        m.payload = {
+          approval: approvalView(
+            rows.find((r) => r.id === m.payload?.approval?.id),
+            actor,
+          ),
+        };
+  }
+  // Estado atual das propostas mostradas (confirmada, vencida…).
+  const ids = messages
+    .filter((m) => m.kind === "proposal" && m.payload?.proposal?.id)
+    .map((m) => m.payload.proposal.id);
+  if (ids.length) {
+    const rows = await all(
+      env,
+      "SELECT id,status,expires_at,decided_at,error FROM bot_proposals WHERE id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(ids),
+    );
+    for (const m of messages) {
+      const row = rows.find((r) => r.id === m.payload?.proposal?.id);
+      if (row) {
+        const expired = row.status === "pending" && row.expires_at <= now();
+        m.payload.proposal = {
+          ...m.payload.proposal,
+          status: expired ? "expired" : row.status,
+          decided_at: row.decided_at,
+          error: row.error,
+        };
+      }
+    }
+  }
   return { ...(await withPeer(env, actor, profile, chat)), messages };
 }
 export async function internalCommand(
