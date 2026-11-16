@@ -784,7 +784,13 @@ export function onConversationAction(
   registerConversationAction(action, async (env, actor, c, data, requestId) => {
     const ctx = modulesApi(env, c.profile_id, moduleId);
     await ctx.requireEnabled();
-    return handler(ctx, actor, c, data, { requestId });
+    // Ação do bot ou da integração na conversa: a resposta sai sem documento,
+    // telefones, check-in nem quem cadastrou, seja qual for o escopo
+    // (segunda conferência, N-8). Pessoas da equipe recebem tudo.
+    return ctx.botView(
+      actor,
+      await handler(ctx, actor, c, data, { requestId }),
+    );
   });
 }
 

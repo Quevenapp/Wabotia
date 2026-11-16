@@ -27,6 +27,7 @@ import {
   settings,
 } from "./service";
 import { activeTicketSql } from "./protocols";
+import { isBound } from "./visibility";
 import { webStepHook, webStepValidator } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
@@ -391,11 +392,16 @@ export interface OpenWebStepInput {
 /**
  * Passo para o ator (conferência M6): as respostas (documento do check-in,
  * endereço do carrinho) só para pessoas da equipe e aplicações com
- * contacts:read.
+ * contacts:read. A chave do bot presa à conversa (conversations:bound) não
+ * recebe as respostas, seja qual for o escopo (segunda conferência, N-8).
  */
 export function stepFor(actor: Actor, row: any) {
   const view = webStepView(row);
-  if (view && actor.kind === "app" && !actor.scopes.includes("contacts:read"))
+  if (
+    view &&
+    actor.kind === "app" &&
+    (!actor.scopes.includes("contacts:read") || isBound(actor))
+  )
     return { ...view, answers: null };
   return view;
 }
