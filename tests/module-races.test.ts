@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { all, exec } from "../src/db";
 import { now, uid, type Env } from "../src/types";
 import { modulesApi } from "../src/modules/api";
-import { book, confirm } from "../src/modules/agenda/appointments";
+import { book, confirm, move } from "../src/modules/agenda/appointments";
 import { agendaConfig } from "../src/modules/agenda/config";
 import { confirmBooking } from "../src/modules/reserva/bookings";
 import { reservaConfig } from "../src/modules/reserva/config";
@@ -110,6 +110,42 @@ describe("corridas nos módulos (revisão B7)", () => {
         customer_name: "Cliente",
         source: "panel",
         actor: "x",
+      }),
+    ).rejects.toMatchObject({ code: "slot_taken" });
+  });
+
+  it("conferência N-12: bloqueio criado no meio impede a remarcação", async () => {
+    const s = await agendaSetup();
+    const a = await s.run("agenda.book", {
+      service_id: s.corte.id,
+      professional_id: s.ana.id,
+      starts: at(future(5), "09:00"),
+      customer_name: "Cliente",
+    });
+    const target = at(future(5), "15:00");
+    const ctx = modulesApi(
+      racing("UPDATE agenda_appointments SET professional_id", () =>
+        exec(
+          env,
+          "INSERT INTO agenda_blocks(id,profile_id,professional_id,starts,ends,reason,created_by,created) VALUES(?,?,?,?,?,'',?,?)",
+          uid(),
+          s.f.profile,
+          s.ana.id,
+          target - 3600000,
+          target + 3600000,
+          "admin",
+          now(),
+        ),
+      ),
+      s.f.profile,
+      "agenda",
+    );
+    await expect(
+      move(ctx, agendaConfig({}), {
+        id: a.id,
+        starts: target,
+        actor: "x",
+        rules: { staff: true },
       }),
     ).rejects.toMatchObject({ code: "slot_taken" });
   });

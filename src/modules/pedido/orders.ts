@@ -802,14 +802,16 @@ async function paymentFailed(
   reason: string,
 ) {
   const cfg = await config(ctx);
-  await exec(
+  // Pagamento que chegou no meio não volta a "falhou" (conferência N-12).
+  const failed = await exec(
     ctx.env,
-    "UPDATE pedido_orders SET payment_status='failed',payment_error=?,updated=? WHERE id=? AND profile_id=?",
+    "UPDATE pedido_orders SET payment_status='failed',payment_error=?,updated=? WHERE id=? AND profile_id=? AND payment_status NOT IN ('paid','refunded')",
     clip(reason, 300),
     now(),
     order.id,
     ctx.profile,
   );
+  if (!failed.meta?.changes) return loadOrder(ctx, order.id);
   await history(
     ctx,
     order,

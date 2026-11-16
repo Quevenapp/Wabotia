@@ -546,7 +546,8 @@ export async function move(
     ctx.env,
     `UPDATE agenda_appointments SET professional_id=?,starts=?,ends=?,status='booked',booked_at=?,reminded_at=NULL,confirmed_at=NULL,moves=moves+1,updated=?
      WHERE id=? AND status IN ('booked','confirmed')
-       AND NOT EXISTS (SELECT 1 FROM agenda_appointments o WHERE o.profile_id=? AND o.professional_id=? AND o.status IN ('booked','confirmed') AND o.starts<? AND o.ends>? AND o.id<>?)`,
+       AND NOT EXISTS (SELECT 1 FROM agenda_appointments o WHERE o.profile_id=? AND o.professional_id=? AND o.status IN ('booked','confirmed') AND o.starts<? AND o.ends>? AND o.id<>?)
+       AND (?=1 OR NOT EXISTS (SELECT 1 FROM agenda_blocks b WHERE b.profile_id=? AND (b.professional_id IS NULL OR b.professional_id=?) AND b.starts<? AND b.ends>?))`,
     slot.professional.id,
     input.starts,
     slot.ends,
@@ -558,6 +559,12 @@ export async function move(
     slot.ends,
     input.starts,
     before.id,
+    // Bloqueio criado entre a consulta e a remarcação (conferência N-12).
+    input.force ? 1 : 0,
+    ctx.profile,
+    slot.professional.id,
+    slot.ends,
+    input.starts,
   );
   if (!updated.meta?.changes) throw slotTaken();
   const after = await getAppointment(ctx, before.id);
