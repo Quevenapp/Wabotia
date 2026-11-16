@@ -3,3 +3,4 @@
 
 import "./rpc/erp_list_preferences.ts";
 import "./rpc/erp_platform_tasks.ts";
+import "./rpc/erp_platform_new_invoices.ts";
