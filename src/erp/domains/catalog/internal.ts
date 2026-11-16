@@ -6,6 +6,7 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { pgLower } from "../../engine/text.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import * as preferences from "../preferences/public.ts";
 import * as sync from "../sync/public.ts";
@@ -21,7 +22,7 @@ const chars = (s: string) => [...s].length;
 const FOLD_FROM = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖØòóôõöøÙÚÛÜùúûüÇçÑñÝŸýÿ";
 const FOLD_TO = "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOOooooooUUUUuuuuCcNnYYyy";
 
-/** erp_catalog.fold: sem acento e minúsculo (coluna __fold dos índices). */
+/** erp_catalog.fold: lower(translate(valor, acentuadas, sem acento)), com o lower do Postgres. */
 export function fold(value: string | null): string | null {
   if (value === null) return null;
   let out = "";
@@ -29,7 +30,7 @@ export function fold(value: string | null): string | null {
     const i = FOLD_FROM.indexOf(ch);
     out += i >= 0 ? FOLD_TO[i] : ch;
   }
-  return out.toLowerCase();
+  return pgLower(out);
 }
 
 /** erp_catalog.unit_price(p_value jsonb, p_integers): preço com 4 ou 10 casas. */
@@ -72,8 +73,8 @@ const SPECS: Record<string, Record<string, number>> = {
   },
   warehouses: { description: 1000 },
 };
-const MEASURES = ["net_weight", "gross_weight", "width", "height", "depth", "stock_min", "stock_max"];
-const COUNTS = ["volumes", "items_per_box"];
+export const MEASURES = ["net_weight", "gross_weight", "width", "height", "depth", "stock_min", "stock_max"];
+export const COUNTS = ["volumes", "items_per_box"];
 const ENUMS: Record<string, (v: string) => boolean> = {
   person_type: (v) => ["J", "F", "E"].includes(v),
   kind: (v) => ["P", "S", "N"].includes(v),
@@ -213,7 +214,7 @@ export function nextProductCode(db: SqlDriver, strict: boolean): string | null {
 // Camada de tabela: record, product, product_detail
 
 /** erp_sync.capture_catalog para uma linha de cadastro. */
-function capture(ctx: RpcContext, record: string, op: "upsert" | "delete") {
+export function capture(ctx: RpcContext, record: string, op: "upsert" | "delete") {
   const r = one(ctx.db, 'SELECT entity FROM "erp_catalog__record" WHERE id=?', record);
   if (r && ["contacts", "products"].includes(String(r.entity))) sync.enqueue(ctx, String(r.entity), record, op, null, null);
 }
@@ -245,7 +246,7 @@ export function insertRecord(
   return id;
 }
 
-const PRODUCT_TEXT = [
+export const PRODUCT_TEXT = [
   "unit", "kind", "format", "description", "ncm", "gtin", "brand", "condition", "production", "dimension_unit",
   "gtin_tax", "location", "cest", "origin", "additional_info",
 ];
@@ -283,18 +284,36 @@ export function insertProduct(ctx: RpcContext, id: string, data: Record<string, 
 // ---------------------------------------------------------------------------
 // Leitura (DTO)
 
-const PRODUCT_COLUMNS = [
+export const PRODUCT_COLUMNS = [
   "unit", "price", "kind", "format", "description", "ncm", "gtin", "brand", "condition", "production", "net_weight",
   "gross_weight", "width", "height", "depth", "dimension_unit", "volumes", "items_per_box", "gtin_tax", "stock_min",
   "stock_max", "location", "cest", "origin", "additional_info",
 ];
 
-/** erp_catalog.data(p_id): só produtos nesta fase (contatos e depósitos: domínio Catálogo). */
+/** Colunas de erp_catalog.contact (to_jsonb(c) - 'record_id'). */
+export const CONTACT_COLUMNS = [
+  "trade_name", "person_type", "document", "ie", "email", "phone", "mobile", "postal_code", "street", "number",
+  "complement", "district", "city", "state", "roles",
+];
+
+/** erp_catalog.data(p_id): name, code e a linha da entidade (null sem a linha). */
 export function data(db: SqlDriver, id: string): Record<string, unknown> | null {
   const r = one(db, 'SELECT entity, name, code FROM "erp_catalog__record" WHERE id=?', id);
   if (!r) return null;
   const base = { name: r.name, code: r.code };
-  if (r.entity !== "products") raise("0A000", "rpc_not_ported:erp_catalog.data(" + String(r.entity) + ")");
+  if (r.entity === "contacts") {
+    const c = one(db, `SELECT ${CONTACT_COLUMNS.join(", ")} FROM "erp_catalog__contact" WHERE record_id=?`, id);
+    if (!c) return null;
+    const out: Record<string, unknown> = { ...base };
+    for (const k of CONTACT_COLUMNS) out[k] = c[k] ?? null;
+    out.roles = JSON.parse(String(c.roles));
+    return out;
+  }
+  if (r.entity === "warehouses") {
+    const w = one(db, 'SELECT description FROM "erp_catalog__warehouse" WHERE record_id=?', id);
+    return w ? { ...base, description: w.description ?? null } : null;
+  }
+  if (r.entity !== "products") return null;
   const p = one(
     db,
     `SELECT ${PRODUCT_COLUMNS.map((c) => (MEASURES.includes(c) ? `CAST(${c} AS TEXT) ${c}` : c)).join(", ")} FROM "erp_catalog__product" WHERE record_id=?`,
@@ -385,10 +404,12 @@ export function productDetailData(db: SqlDriver, id: string, display: boolean): 
   out.images = db
     .exec('SELECT url FROM "erp_catalog__product_image" WHERE record_id=? ORDER BY position', id)
     .rows.map((x) => ({ url: x.url }));
+  // erp_catalog.product_custom_values: jsonb_object_agg(field_id::text, value)
+  // com value TEXT: cada valor sai como string JSON ("123", "true", datas).
   out.custom_values = Object.fromEntries(
     db
       .exec('SELECT field_id, value FROM "erp_catalog__product_custom_value" WHERE record_id=?', id)
-      .rows.map((x) => [String(x.field_id), JSON.parse(String(x.value))]),
+      .rows.map((x) => [String(x.field_id), String(x.value)]),
   );
   if (display) {
     out.deleted_at = d.deleted_at === null || d.deleted_at === undefined ? null : jsonTimestamp(d.deleted_at as number);
