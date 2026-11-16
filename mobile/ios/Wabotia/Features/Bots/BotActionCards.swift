@@ -44,10 +44,20 @@ struct ProposalCardView: View {
             let now = nowMs
             BotCardFrame(icon: "wand.and.stars", color: Theme.bot, title: "Proposta do bot", status: proposal.statusText(now: now),
                          statusColor: color(now)) {
-                Text(proposal.summary ?? "Ação proposta pelo bot").font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let operationSummary { Label(operationSummary, systemImage: "list.bullet.rectangle").font(Theme.font(13)).foregroundStyle(Theme.textSecondary) }
-                let params = BotActionText.params(proposal.params)
+                // O que vale é a descrição montada pelo servidor (o que roda ao confirmar), em destaque.
+                if proposal.hasServerDescription, let description = proposal.description {
+                    Text(description).font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("proposal.description")
+                } else {
+                    Text(operationSummary ?? "Ação proposta pelo bot").font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if proposal.hasServerDescription, let operationSummary, proposal.description?.hasPrefix(operationSummary) != true {
+                    Label(operationSummary, systemImage: "list.bullet.rectangle").font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
+                }
+                // Propostas antigas, sem descrição: os parâmetros, para conferir.
+                let params = proposal.hasServerDescription ? [] : BotActionText.params(proposal.params)
                 if !params.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(params, id: \.0) { key, value in
@@ -59,8 +69,17 @@ struct ProposalCardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.background))
                 }
+                // O texto do bot, à parte e menor: não foi conferido e nunca serve de resumo da ação.
+                if let botText = proposal.summary, !botText.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Texto do bot (não conferido)").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary)
+                        Text(botText).font(Theme.font(12)).italic().foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("proposal.botText")
+                }
                 if proposal.sensitive == true, proposal.actionable(now: now) {
-                    Label("Ação sensível: o código do autenticador será pedido.", systemImage: "lock.shield").font(Theme.font(12)).foregroundStyle(Theme.warn)
+                    Label("Ação sensível: o código do autenticador pode ser pedido.", systemImage: "lock.shield").font(Theme.font(12)).foregroundStyle(Theme.warn)
                 }
                 if let expiry = proposal.expiryText(now: now) { Text(expiry).font(Theme.font(12)).foregroundStyle(Theme.textSecondary) }
                 if proposal.status == "failed", let outcome = proposal.outcomeText { Text(outcome).font(Theme.font(13)).foregroundStyle(Theme.danger) }
@@ -103,6 +122,7 @@ struct ProposalCardView: View {
 /// Resultado: o que foi feito ou o erro.
 struct ResultCardView: View {
     let proposal: BotProposal
+    var operationSummary: String? = nil
 
     var body: some View {
         let done = proposal.status == "done"
@@ -110,7 +130,9 @@ struct ResultCardView: View {
                      color: done ? Theme.ok : (proposal.status == "cancelled" ? Theme.muted : Theme.danger),
                      title: "Resultado", status: proposal.statusText(now: nowMs),
                      statusColor: done ? Theme.ok : (proposal.status == "cancelled" ? Theme.muted : Theme.danger)) {
-            Text(proposal.summary ?? "Ação do bot").font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary)
+            // A descrição do servidor (nunca o texto do bot) diz o que foi feito.
+            Text(proposal.hasServerDescription ? proposal.description! : proposal.headline(operationSummary: operationSummary))
+                .font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             if let outcome = proposal.outcomeText {
                 Text(outcome).font(Theme.font(14)).foregroundStyle(done ? Theme.textPrimary : Theme.danger).fixedSize(horizontal: false, vertical: true)
@@ -165,6 +187,14 @@ struct ApprovalCardView: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.background))
                 }
                 decided
+                if approval.deciding {
+                    // Estado transitório (até 2 minutos): o cartão espera e relê sozinho.
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Em decisão. Aguarde: o cartão se atualiza sozinho.").font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
+                    }
+                    .accessibilityIdentifier("approval.deciding")
+                }
                 if approval.decidable(now: now) {
                     if let e = approval.expires_at {
                         Text("Vence às \(ConversationFormatting.time(e))").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)

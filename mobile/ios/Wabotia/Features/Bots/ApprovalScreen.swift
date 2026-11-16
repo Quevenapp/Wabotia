@@ -37,6 +37,13 @@ struct ApprovalScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .appNavigationBarHidden(false)
         .task { await load() }
+        // "Em decisão" (até 2 minutos): relê até sair desse estado.
+        .task(id: approval?.status) {
+            while approval?.deciding == true, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await load()
+            }
+        }
         .refreshable { await load() }
     }
 

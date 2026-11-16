@@ -231,10 +231,12 @@ final class DemoBotActions {
         if let request {
             messages.append(["id": "im_req_\(id)", "author": me, "text": request, "created": at - 20_000, "status": "completed", "run_id": NSNull(), "kind": "text", "payload": NSNull()])
         }
-        proposals[id] = ["id": id, "status": "pending", "operation": operation, "summary": summary, "params": params, "sensitive": sensitive,
-                         "expires_at": at + 10 * 60_000, "decided_at": NSNull(), "result": NSNull(), "error": NSNull(), "bot_id": "b_vendas",
-                         "chat_id": Self.chatId, "created": at, "operation_summary": operationSummary, "module": module]
-        let text = "Proposta do bot: \(summary)\nOperação: \(operationSummary)\nConfirme no painel ou no app atualizado (vale 10 minutos)."
+        // A descrição é do "servidor" (operação e parâmetros, um por linha); o texto do bot fica à parte, não conferido.
+        let description = ([operationSummary] + params.keys.sorted().map { "• \($0): \(params[$0] ?? "")" }).joined(separator: "\n")
+        proposals[id] = ["id": id, "status": "pending", "operation": operation, "description": description, "summary": summary, "params": params,
+                         "sensitive": sensitive, "expires_at": at + 10 * 60_000, "decided_at": NSNull(), "result": NSNull(), "error": NSNull(),
+                         "bot_id": "b_vendas", "chat_id": Self.chatId, "created": at, "operation_summary": operationSummary, "module": module]
+        let text = "Proposta do bot:\n\(description)\nTexto do bot (não conferido): \(summary)\nConfirme no painel ou no app atualizado (vale 10 minutos)."
         messages.append(structured("proposal", id: id, text: text, at: at))
     }
 

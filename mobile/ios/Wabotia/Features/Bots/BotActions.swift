@@ -11,6 +11,10 @@ struct BotProposal: Codable, Equatable, Identifiable {
     /// `pending`, `running`, `done`, `failed`, `cancelled`, `expired`.
     var status: String
     var operation: String?
+    /// O que roda ao confirmar, montado pelo SERVIDOR (operação, valores em R$, datas de Brasília): é o que vale e o que
+    /// o cartão mostra em destaque.
+    var description: String? = nil
+    /// Escrito pelo bot e não conferido: só à parte, como "Texto do bot (não conferido)"; nunca como resumo da ação.
     var summary: String?
     var params: [String: JSONValue]?
     var sensitive: Bool?
@@ -44,6 +48,15 @@ struct BotProposal: Codable, Equatable, Identifiable {
         guard status == "pending", let e = expires_at, now < e else { return nil }
         let minutes = Int(((Double(e - now)) / 60_000).rounded(.up))
         return minutes <= 1 ? "vence em menos de 1 min" : "vence em \(minutes) min"
+    }
+
+    /// A descrição conferida pelo servidor; propostas antigas, sem ela, mostram os parâmetros (nunca o texto do bot).
+    var hasServerDescription: Bool { description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
+
+    /// O título do resultado: a descrição do servidor ou a operação do catálogo, nunca o texto do bot.
+    func headline(operationSummary: String?) -> String {
+        if hasServerDescription, let first = description?.split(separator: "\n").first { return String(first) }
+        return operationSummary ?? "Ação proposta pelo bot"
     }
 
     /// O que foi feito ou o erro, como texto.
@@ -94,6 +107,9 @@ struct BotApproval: Codable, Equatable, Identifiable {
     var created: Int64?
 
     func decidable(now: Int64) -> Bool { status == "pending" && can_decide == true && (expires_at.map { now < $0 } ?? true) }
+
+    /// "Em decisão" (até 2 minutos, pode ser retomada): o cartão espera e relê.
+    var deciding: Bool { status == "deciding" }
 
     func statusText(now: Int64) -> String {
         if status == "pending", let e = expires_at, now >= e { return "Venceu" }
@@ -221,8 +237,10 @@ enum BotActionOutcome: Equatable {
 struct BotActions {
     let api: BotActionsAPI
 
+    /// Cada tentativa usa uma chave nova: depois de um `403 mfa_required` (a proposta continua aberta), a confirmação
+    /// repetida não reaproveita a chave da tentativa recusada. O servidor não roda a operação duas vezes.
     func confirm(chatId: String, _ p: BotProposal) async -> BotActionOutcome {
-        await run { try await api.confirmProposal(chatId: chatId, proposalId: p.id, key: "confirm:\(p.id)") }
+        await run { try await api.confirmProposal(chatId: chatId, proposalId: p.id, key: "confirm:\(p.id):\(UUID().uuidString.lowercased())") }
     }
 
     func cancel(chatId: String, _ p: BotProposal) async -> BotActionOutcome {

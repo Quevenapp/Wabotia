@@ -29,6 +29,30 @@ final class BotActionsModelTests: XCTestCase {
         XCTAssertNil(old.card)
     }
 
+    func testServerDescriptionIsWhatCountsAndTheBotTextStaysApart() throws {
+        let m = try message(#"""
+        {"id":"proposal:1","author":"bot:1","kind":"proposal","created":1,"text":"Proposta do bot:\nMudar o estado da ordem de serviço",
+         "payload":{"operation_summary":"Mudar o estado da ordem de serviço","proposal":{"id":"1","status":"pending",
+         "description":"Mudar o estado da ordem de serviço\n• id: os_12\n• status: ready","summary":"Dar 90% de desconto (o bot inventou)",
+         "params":{"id":"os_12","status":"ready"}}}}
+        """#)
+        guard case let .proposal(p, op)? = m.card else { return XCTFail() }
+        XCTAssertTrue(p.hasServerDescription)
+        XCTAssertEqual(p.headline(operationSummary: op), "Mudar o estado da ordem de serviço", "o título vem do servidor, nunca do texto do bot")
+        XCTAssertEqual(p.summary, "Dar 90% de desconto (o bot inventou)", "o texto do bot só à parte")
+        let old = BotProposal(id: "2", status: "done", summary: "Texto do bot")
+        XCTAssertFalse(old.hasServerDescription, "proposta antiga: mostra os parâmetros")
+        XCTAssertEqual(old.headline(operationSummary: "Mudar o estado"), "Mudar o estado")
+        XCTAssertEqual(BotProposal(id: "3", status: "done").headline(operationSummary: nil), "Ação proposta pelo bot")
+    }
+
+    func testDecidingIsTransient() {
+        let a = BotApproval(id: "a", status: "deciding", can_decide: true)
+        XCTAssertTrue(a.deciding)
+        XCTAssertFalse(a.decidable(now: 0), "em decisão: sem botões, o cartão espera e relê")
+        XCTAssertEqual(a.statusText(now: 0), "Em decisão")
+    }
+
     func testProposalDeadlineAndStatus() {
         let p = BotProposal(id: "p", status: "pending", expires_at: 10 * 60_000)
         XCTAssertTrue(p.actionable(now: 0))
@@ -96,11 +120,15 @@ final class BotActionsFlowTests: XCTestCase {
         XCTAssertEqual(api.keys, ["decide:ap:approve"], "a mesma decisão repete a mesma chave")
     }
 
-    func testConfirmUsesAStableKey() async {
+    func testEveryConfirmAttemptUsesANewKey() async {
         let api = FakeBotActionsAPI()
-        let outcome = await BotActions(api: api).confirm(chatId: "ic", BotProposal(id: "p1", status: "pending"))
+        let actions = BotActions(api: api)
+        let outcome = await actions.confirm(chatId: "ic", BotProposal(id: "p1", status: "pending"))
         XCTAssertEqual(outcome, .proposal(BotProposal(id: "p1", status: "done")))
-        XCTAssertEqual(api.keys, ["confirm:p1"])
+        _ = await actions.confirm(chatId: "ic", BotProposal(id: "p1", status: "pending"))
+        XCTAssertEqual(api.keys.count, 2)
+        XCTAssertTrue(api.keys.allSatisfy { $0.hasPrefix("confirm:p1:") })
+        XCTAssertNotEqual(api.keys[0], api.keys[1], "a tentativa depois do 403 mfa_required não reaproveita a chave da recusada")
     }
 }
 
