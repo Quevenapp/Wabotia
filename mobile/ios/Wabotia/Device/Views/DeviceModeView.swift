@@ -284,9 +284,13 @@ private struct DeviceSettingsScreen: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            if config.role?.totem == true {
+                            // Em todo papel, para quem procura a impressora achá-la: no Painel ela já fica pronta para quando
+                            // o papel virar Totem ou Painel híbrido, os que imprimem o cupom.
+                            if let role = config.role {
                                 Button(action: onPrinter) {
-                                    CardRow(icon: "printer.fill", iconColor: Theme.muted, title: "Impressora do cupom", subtitle: "Bluetooth ou Wi-Fi", chevron: true)
+                                    CardRow(icon: "printer.fill", iconColor: role.totem ? Theme.brand : Theme.muted, title: "Impressora do cupom",
+                                            subtitle: role.totem ? "Bluetooth ou Wi-Fi" : "O Painel de chamadas não imprime: o cupom sai no Totem e no Painel híbrido",
+                                            chevron: true)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("device.printer")

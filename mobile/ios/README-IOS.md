@@ -52,7 +52,8 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
   `payment.*` dela.
 - **Horário de Brasília** (`BrasiliaTime`) e dinheiro em centavos (`Money`), qualquer que seja o fuso do aparelho.
 - **Impressora.** Uma configuração do ThermalPrinterKit para o app inteiro (`WabotiaPrinting`), escolhida em
-  Ajustes → Impressora do cupom; resultado incerto pede confirmação antes da segunda via.
+  Ajustes → Impressora do cupom; resultado incerto pede confirmação antes da segunda via. No modo aparelho, a linha
+  aparece na engrenagem em todos os papéis, mas só o Totem e o Painel híbrido imprimem; no Painel de chamadas ela diz isso.
 - **Tudo nativo**, iOS 15 ou superior, iPhone e iPad (`TARGETED_DEVICE_FAMILY` 1,2; retrato no iPhone, exceto o modo
   aparelho).
 

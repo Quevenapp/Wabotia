@@ -18,7 +18,7 @@ enum DeviceRole: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .totem: return "Retirar senha e imprimir o cupom"
         case .panel: return "TV com as senhas chamadas, voz e gongo"
-        case .hybrid: return "Totem e chamadas na mesma tela"
+        case .hybrid: return "Totem, cupom e chamadas na mesma tela"
         }
     }
 
