@@ -246,11 +246,11 @@ Estados da venda: `awaiting_payment`, `completed`, `cancelled`, `returned` (tudo
 
 ### Caixa (módulo `caixa`)
 
-Frente de caixa (PDV) sobre o catálogo de Vendas; `requires: ["vendas"]` (desligar Vendas com `cascade` desliga o Caixa). Uso e o que falta às telas nativas em [CAIXA.md](CAIXA.md). Leitura com `conversations:read`; escrita por pessoa da equipe ou aplicação com `billing:write`; caixas só administrador.
+Frente de caixa (PDV) sobre o catálogo de Vendas; `requires: ["vendas"]` (desligar Vendas com `cascade` desliga o Caixa). Uso e o que falta às telas nativas em [CAIXA.md](CAIXA.md). Leitura com `conversations:read`. Abrir, vender, sangria, suprimento, devolução e fechar: administrador ou pessoa com o papel `caixa:cashier` (concedido em Pessoas e acessos; sem ele, `403 role_required`), ou aplicação com `billing:write`. Caixas só administrador.
 
 | Método e caminho | O quê |
 |---|---|
-| `GET /caixa` | `registers [{id, name, active, session}]` (sessão aberta de cada um), `payment_methods`, `online_payments` |
+| `GET /caixa` | `registers [{id, name, active, session}]` (sessão aberta de cada um), `payment_methods`, `online_payments` e `can_operate` (quem chama pode operar o caixa) |
 | `POST`/`PUT /caixa/registers[/{id}]` | `{name, active, position}` |
 | `GET /caixa/grid` | Grade de venda por toque: `categories` e `products [{id, category_id, name, price_cents, unit, fractional, ean, sku, photo_media_id, photo_path, stock, low_stock, out_of_stock}]` |
 | `GET /caixa/lookup?code=` | Produto pelo EAN ou SKU |

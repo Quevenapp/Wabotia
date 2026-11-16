@@ -232,6 +232,24 @@ O caminho já preparado, para quando o núcleo aceitar dependência opcional:
 | Venda, conversão, emissão de nota | equipe | `billing:write` |
 | Cancelar e devolver | administrador (equipe com `operator_can_cancel`) | `billing:write` |
 
+Vendas ao balcão com dinheiro na gaveta passam pelo Caixa, que exige o papel
+`caixa:cashier` ([CAIXA.md](CAIXA.md)).
+
+**Por que Vendas não tem papel próprio (ex.: `vendas:seller`).** Vender e
+orçar aqui faz parte do atendimento: quem conversa com o cliente monta o
+orçamento, envia e registra a venda pela conversa. Um papel de vendedor
+obrigaria o administrador a concedê-lo a toda a equipe só para mandar um
+orçamento, sem proteger nada a mais, porque o que é arriscado já tem trava
+própria: preço diferente do catálogo e item avulso só para administrador,
+desconto acima do limite da equipe (`403 discount_limit`), cancelamento e
+devolução só para administrador (ou com `operator_can_cancel`), saída e
+ajuste de estoque só para administrador, e o dinheiro físico só no Caixa,
+com o papel `caixa:cashier`. Um papel `vendas:seller` passa a valer se o
+dono quiser restringir quem vende, separar vendedores para comissão ou ter
+uma lista de vendedores para escolher na venda. Entraria em `grants` do
+módulo, sem migração, com `ctx.granted` nas mesmas rotas de escrita de
+orçamento e venda.
+
 ## Limites (consultas ao D1)
 
 Uma venda custa cerca de 20 instruções mais 2 por linha (saldo e movimento

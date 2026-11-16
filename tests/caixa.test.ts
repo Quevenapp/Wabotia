@@ -30,6 +30,7 @@ describe("caixa", () => {
     expect(
       await failure(run(f, f.member, "caixa.register.save", { name: "Caixa 2" })),
     ).toMatchObject({ code: "admin_required" });
+    await run(f, f.admin, "settings", { module_grants: { "caixa:cashier": [f.member.id] } });
     const token = await bearer(f.member);
     const root = `/profiles/${f.profile}/caixa`;
     const grid = await (await api(token, `${root}/grid`)).json<any>();
@@ -150,18 +151,60 @@ describe("caixa", () => {
     ).toBe(9000);
   });
 
-  it("aplicação precisa de billing:write para vender no caixa", async () => {
+  it("papel caixa:cashier: sem ele a equipe não opera; administrador opera; aplicação precisa de billing:write", async () => {
     const { f } = await vendasSetup({ caixa: true });
     const p = await seedCatalog(f);
     const register = await run(f, f.admin, "caixa.register.save", { name: "Balcão" });
-    const session = await run(f, f.member, "caixa.open", { id: register.id, opening_cents: 0 });
+    const root = `/profiles/${f.profile}/caixa`;
+    const memberToken = await bearer(f.member);
+    // Sem o papel: vê a grade, mas não abre, não vende, não mexe na gaveta.
+    expect((await (await api(memberToken, root)).json<any>()).can_operate).toBe(false);
+    expect((await api(memberToken, `${root}/grid`)).status).toBe(200);
+    expect(
+      await failure(run(f, f.member, "caixa.open", { id: register.id, opening_cents: 0 })),
+    ).toMatchObject({ status: 403, code: "role_required" });
+    // O administrador opera pelo próprio papel, sem concessão.
+    expect((await (await api(await bearer(f.admin), root)).json<any>()).can_operate).toBe(true);
+    const session = await run(f, f.admin, "caixa.open", { id: register.id, opening_cents: 5000 });
+    for (const [op, data] of [
+      ["caixa.sale", { id: session.id, lines: [{ product_id: p.agua.id, quantity: 1 }], payments: cash(300) }],
+      ["caixa.move", { id: session.id, kind: "supply", amount_cents: 100 }],
+      ["caixa.move", { id: session.id, kind: "withdrawal", amount_cents: 100 }],
+      ["caixa.close", { id: session.id, counted_cents: 5000 }],
+    ] as const)
+      expect(await failure(run(f, f.member, op, data))).toMatchObject({
+        status: 403,
+        code: "role_required",
+      });
+    // Concedido: opera.
+    await run(f, f.admin, "settings", { module_grants: { "caixa:cashier": [f.member.id] } });
+    expect((await (await api(memberToken, root)).json<any>()).can_operate).toBe(true);
+    const sale = await run(f, f.member, "caixa.sale", {
+      id: session.id,
+      lines: [{ product_id: p.agua.id, quantity: 1 }],
+      payments: cash(300),
+    });
+    expect(sale.session_id).toBe(session.id);
+    // Retirado: volta a recusar.
+    await run(f, f.admin, "settings", { module_grants: { "caixa:cashier": [] } });
+    expect(
+      await failure(
+        run(f, f.member, "caixa.move", { id: session.id, kind: "supply", amount_cents: 100 }),
+      ),
+    ).toMatchObject({ code: "role_required" });
+    // Aplicação: escopo, não papel.
     const reader = await application(f, ["conversations:read", "conversations:write"]);
-    const denied = await api(reader.token, `/profiles/${f.profile}/caixa/sessions/${session.id}/sales`, "POST", {
+    const denied = await api(reader.token, `${root}/sessions/${session.id}/sales`, "POST", {
       lines: [{ product_id: p.agua.id, quantity: 1 }],
       payments: cash(300),
     });
     expect(denied.status).toBe(403);
-    const grid = await api(reader.token, `/profiles/${f.profile}/caixa/grid`);
-    expect(grid.status).toBe(200);
+    expect((await (await api(reader.token, root)).json<any>()).can_operate).toBe(false);
+    const seller = await application(f, ["conversations:read", "billing:write"]);
+    const sold = await api(seller.token, `${root}/sessions/${session.id}/sales`, "POST", {
+      lines: [{ product_id: p.agua.id, quantity: 1 }],
+      payments: cash(300),
+    });
+    expect(sold.status).toBe(200);
   });
 });

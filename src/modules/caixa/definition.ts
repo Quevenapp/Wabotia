@@ -14,6 +14,14 @@ export const caixaModule: ModuleDefinition = {
   builtin: true,
   default_enabled: false,
   requires: ["vendas"],
+  grants: [
+    {
+      id: "cashier",
+      label: "Caixa",
+      description:
+        "Abre e fecha o caixa, vende no PDV, faz sangria, suprimento e devolução com o dinheiro da gaveta.",
+    },
+  ],
   navigation: [
     { id: "caixa", label: "Caixa", place: "admin", admin: false },
   ],

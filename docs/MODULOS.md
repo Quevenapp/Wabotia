@@ -465,7 +465,7 @@ Nomes combinados (use exatamente estes; o id completo é `<módulo>:<papel>`):
 | Entrega (`entrega`) | `courier` | `entrega:courier` | Entregador |
 | Mesas (`mesas`) | `waiter` | `mesas:waiter` | Garçom |
 | Ordem de Serviço (`os`) | `technician` | `os:technician` | Técnico (já declarado) |
-| Caixa (`caixa`) | `cashier` | `caixa:cashier` | Caixa |
+| Caixa (`caixa`) | `cashier` | `caixa:cashier` | Caixa (já declarado) |
 
 Regras do núcleo:
 

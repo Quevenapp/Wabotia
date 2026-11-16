@@ -149,12 +149,14 @@ function RegisterPicker({
   onUse,
   reload,
   error,
+  canOperate,
 }: {
   registers: Row[];
   selected: string | null;
   onUse: (register: Row) => void;
   reload: () => void;
   error?: string;
+  canOperate: boolean;
 }) {
   const app = useApp();
   const [opening, setOpening] = useState<Row | null>(null);
@@ -166,6 +168,11 @@ function RegisterPicker({
       {error && (
         <Notice tone="error" onRetry={reload}>
           {error}
+        </Notice>
+      )}
+      {!canOperate && (
+        <Notice tone="warn">
+          Você não tem o papel Caixa nesta área. Um administrador concede o papel em Gestão → Pessoas e acessos.
         </Notice>
       )}
       <div className="toolbar">
@@ -211,7 +218,7 @@ function RegisterPicker({
                     ? `Aberto por ${app.names[session.opened_by] || session.opened_by} às ${clock(session.opened_at)} com ${money(session.opening_cents)} de troco.`
                     : "Abra com o troco inicial da gaveta."}
                 </p>
-                {session ? (
+                {!canOperate ? null : session ? (
                   <Button size="lg" full icon={<ShoppingCart size={18} />} onClick={() => onUse(register)}>
                     Usar este caixa
                   </Button>
@@ -1291,12 +1298,14 @@ export function CaixaPage() {
   const registers: Row[] = data.registers || [];
   const register = registers.find((r) => r.id === selected && r.active) || null;
   const session = register?.session || null;
-  if (!register || !session)
+  const canOperate = data.can_operate !== false;
+  if (!register || !session || !canOperate)
     return (
       <RegisterPicker
         registers={registers}
         selected={selected}
         error={overview.error}
+        canOperate={canOperate}
         onUse={(r) => choose(r.id)}
         reload={() => void overview.reload()}
       />

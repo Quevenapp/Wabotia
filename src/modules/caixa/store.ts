@@ -37,10 +37,29 @@ const money = (value: number) =>
     maximumFractionDigits: 2,
   });
 
-/** Pessoas da equipe; aplicações com billing:write (operação financeira). */
-export function requireCashier(ctx: ModuleContext, actor: Actor) {
-  if (actor.kind === "app") ctx.access(actor, "billing:write");
-  else ctx.access(actor, "conversations:write");
+const isAdmin = (actor: Actor) =>
+  actor.kind === "user" && actor.role === "admin";
+
+/**
+ * Quem opera o caixa: administrador ou pessoa com o papel `caixa:cashier`
+ * (Gestão → Pessoas e acessos); aplicações, com billing:write (aplicação
+ * nunca tem papel). O administrador não ganha o papel sozinho: conta pelo
+ * próprio papel de administrador.
+ */
+export async function mayOperate(ctx: ModuleContext, actor: Actor) {
+  if (actor.kind === "app") return actor.scopes.includes("billing:write");
+  return isAdmin(actor) || (await ctx.granted(actor, "cashier"));
+}
+
+export async function requireCashier(ctx: ModuleContext, actor: Actor) {
+  if (actor.kind === "app") return ctx.access(actor, "billing:write");
+  ctx.access(actor, "conversations:write");
+  if (!(await mayOperate(ctx, actor)))
+    throw new ApiError(
+      403,
+      "role_required",
+      "Só quem tem o papel Caixa ou um administrador opera o caixa. O administrador concede o papel em Gestão → Pessoas e acessos.",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +342,7 @@ export async function openSession(
   data: any,
   requestId: string,
 ) {
-  requireCashier(ctx, actor);
+  await requireCashier(ctx, actor);
   const sourceKey = `open:${requestId}`;
   const repeated = await one(
     ctx.env,
@@ -407,7 +426,7 @@ export async function moveCash(
   data: any,
   requestId: string,
 ) {
-  requireCashier(ctx, actor);
+  await requireCashier(ctx, actor);
   const key = `move:${requestId}`;
   const repeated = await one(
     ctx.env,
@@ -465,7 +484,7 @@ export const moveView = (row: any) => ({
  * administrador. Congela o resumo, o dinheiro esperado e a diferença.
  */
 export async function closeSession(ctx: ModuleContext, actor: Actor, data: any) {
-  requireCashier(ctx, actor);
+  await requireCashier(ctx, actor);
   const session = await loadSession(ctx, data.id);
   if (session.status === "closed") return sessionView(session);
   if (

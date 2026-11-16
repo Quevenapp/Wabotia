@@ -28,6 +28,27 @@ dinheiro. Usa o catálogo, o estoque e a venda do módulo
   `vendas_returns.session_id`). Os totais da sessão são calculados a partir
   delas: nada é contado em dobro.
 
+## Quem opera: o papel Caixa (`caixa:cashier`)
+
+O módulo declara o papel `cashier` (`grants`, veja "Papéis por pessoa" em
+[MODULOS.md](MODULOS.md)). O administrador o concede em **Gestão → Pessoas e
+acessos** (ou `PUT /settings` com `{"module_grants": {"caixa:cashier": [...]}}`).
+
+| Ação | Quem |
+|---|---|
+| Ver caixas, grade, código de barras, sessões e relatórios | qualquer pessoa da área; aplicação com `conversations:read` |
+| Abrir, vender, sangria, suprimento, devolução no caixa | administrador ou pessoa com `caixa:cashier`; aplicação com `billing:write` |
+| Fechar | quem abriu (com o papel) ou administrador; aplicação com `billing:write` |
+| Criar, renomear e desativar caixas | administrador |
+
+Sem o papel: `403 role_required`. O administrador **não** recebe o papel
+sozinho; ele opera pelo próprio papel de administrador (o módulo confere
+`actor.role`). Para aparecer como operador de caixa numa lista
+(`GET /people?grant=caixa:cashier`), ele precisa receber o papel como
+qualquer pessoa. Aplicações e aparelhos pareados nunca têm papel: valem os
+escopos. `GET /caixa` traz `can_operate` para a tela esconder abrir e vender.
+Retirar o papel vale na hora, mesmo com a sessão aberta.
+
 ## Dinheiro esperado na gaveta
 
 ```
@@ -77,7 +98,8 @@ outras verticais:
    `billing:write`, que não é concedida a aparelhos pareados).
 2. **Escolher e abrir o caixa**: `GET /caixa` → `registers` (com `session`
    aberta); `POST /caixa/registers/{id}/open {opening_cents}`. Guardar o
-   caixa escolhido no aparelho.
+   caixa escolhido no aparelho. Com `can_operate: false`, mostrar só o aviso
+   "Você não tem o papel Caixa" (`403 role_required` também leva a ele).
 3. **Grade**: `GET /caixa/grid` uma vez ao abrir e a cada
    `vendas.product_changed`/`vendas.stock_moved` em `GET /events` (ou a cada
    minuto). Foto: `GET /api/v1/profiles/{p}/media/{photo_media_id}/content`

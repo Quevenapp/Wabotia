@@ -683,7 +683,7 @@ export function describeVendasOperation(
   const caixa = path.startsWith(cx);
   entry.tags = [caixa ? "Caixa" : "Vendas"];
   entry.description += caixa
-    ? " Módulo Caixa (caixa), que depende de Vendas; desligado, 409 module_disabled. Escritas: pessoa da equipe ou aplicação com billing:write."
+    ? " Módulo Caixa (caixa), que depende de Vendas; desligado, 409 module_disabled. Abrir, vender, sangria, suprimento, devolução e fechar: administrador ou pessoa com o papel caixa:cashier (sem ele, 403 role_required); aplicação, com billing:write. GET /caixa diz em can_operate se quem chama pode operar."
     : " Módulo Vendas e orçamento (vendas); desligado, 409 module_disabled.";
   const schema = (value: any) =>
     (success.content["application/json"].schema = value);

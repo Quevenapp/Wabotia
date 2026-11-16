@@ -17,6 +17,7 @@ import {
   listRegisters,
   listSessions,
   loadSession,
+  mayOperate,
   moveCash,
   openSession,
   reportText,
@@ -53,12 +54,19 @@ registerSaleGuard(async (ctx, sale, action) => {
 
 onRead(MODULE, "caixa", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
-  const [registers, methods, online] = await Promise.all([
+  const [registers, methods, online, operate] = await Promise.all([
     listRegisters(ctx),
     paymentMethods(ctx),
     ctx.paymentsReady(),
+    mayOperate(ctx, actor),
   ]);
-  return { registers, payment_methods: methods, online_payments: online };
+  return {
+    registers,
+    payment_methods: methods,
+    online_payments: online,
+    // Papel caixa:cashier, administrador ou aplicação com billing:write.
+    can_operate: operate,
+  };
 });
 
 onRead(MODULE, "caixa/grid", async (ctx, actor) => {
@@ -121,7 +129,7 @@ onCommand(MODULE, "caixa.move", (ctx, actor, data, { requestId }) =>
 
 onRoute(MODULE, { method: "POST", path: "caixa/sessions/:id/sales", op: "caixa.sale" });
 onCommand(MODULE, "caixa.sale", async (ctx, actor, data, { requestId }) => {
-  requireCashier(ctx, actor);
+  await requireCashier(ctx, actor);
   const session = await loadSession(ctx, data.id);
   requireOpen(session);
   const { id: _id, ...request } = data;
@@ -130,7 +138,7 @@ onCommand(MODULE, "caixa.sale", async (ctx, actor, data, { requestId }) => {
 
 onRoute(MODULE, { method: "POST", path: "caixa/sessions/:id/returns", op: "caixa.return" });
 onCommand(MODULE, "caixa.return", async (ctx, actor, data, { requestId }) => {
-  requireCashier(ctx, actor);
+  await requireCashier(ctx, actor);
   const session = await loadSession(ctx, data.id);
   requireOpen(session);
   requireValue(typeof data.sale_id === "string", "Informe a venda (sale_id).");
