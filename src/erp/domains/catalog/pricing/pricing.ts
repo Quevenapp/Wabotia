@@ -4,8 +4,8 @@
 // oráculo; fecho por scripts/erp/call-graph.mjs).
 //
 // Ordem "fold(nome), id": collation C do oráculo = bytes UTF-8, em TS
-// (compareText), porque a coluna __fold das linhas copiadas pelo harness vem
-// nula e a ordem precisa valer sem ela.
+// (compareText), com o fold calculado como no Fagoo: não depende da coluna
+// __fold, que pode vir nula em linha semeada.
 import { formatScaled, fromColumn } from "../../../engine/dec.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
