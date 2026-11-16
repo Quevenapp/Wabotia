@@ -1901,6 +1901,48 @@ export async function activeTicketFor(
   );
 }
 
+/**
+ * "Minha senha" for the customer of a conversation (bot tool
+ * queue_minha_senha): today's active ticket issued to this conversation or,
+ * like the SENHA command, to its channel-verified phone. Only what the
+ * customer sees on WhatsApp: code, queue, position and estimate; no phone,
+ * public token or link.
+ */
+export async function conversationTicket(
+  env: Env,
+  profile: string,
+  conversationId: string,
+  phone: string | null,
+) {
+  const digits = normalizePhone(phone);
+  const row = await one(
+    env,
+    `SELECT * FROM queue_tickets WHERE profile_id=? AND service_day=? AND status IN ('waiting','called','serving') AND (conversation_id=?${digits ? " OR phone=?" : ""}) ORDER BY created_at DESC LIMIT 1`,
+    profile,
+    serviceDay(),
+    conversationId,
+    ...(digits ? [digits] : []),
+  );
+  if (!row) return { senha: null };
+  const view = await ticketView(env, row, { link: false });
+  return {
+    senha: {
+      codigo: view.code,
+      fila: view.queue_name,
+      preferencial: view.preferential,
+      estado:
+        view.status === "waiting"
+          ? "aguardando"
+          : view.status === "called"
+            ? "chamada"
+            : "em atendimento",
+      a_frente: view.status === "waiting" ? view.ahead : 0,
+      espera_estimada_min: view.status === "waiting" ? view.wait_minutes : null,
+      guiche: view.counter_name,
+    },
+  };
+}
+
 /** Customer gave up by WhatsApp (SAIR): not an absence. */
 export async function customerCancel(env: Env, ticket: any) {
   const changed = await exec(

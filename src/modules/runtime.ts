@@ -12,3 +12,5 @@ import "./reserva/reserva";
 import "./pedido/pedido";
 import "./mesas/mesas";
 import "./entrega/entrega";
+// Fila do núcleo: só a ferramenta "minha senha" do bot (src/queue.ts).
+import "./queue-tools";

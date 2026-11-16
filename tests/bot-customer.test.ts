@@ -139,6 +139,7 @@ describe("bot no atendimento ao cliente", () => {
     for (let i = 0; i < 6; i++) await runCustomerTool(ctx, state, "agenda_servicos", {});
     expect(JSON.parse(await runCustomerTool(ctx, state, "agenda_servicos", {})).erro).toContain("Limite");
     await perform(env, s.f.admin, s.f.profile, "module.set", { id: "agenda", enabled: false }, uid());
-    expect(await customerTools(env, s.f.profile)).toEqual([]);
+    // Só a Fila (embutida, ligada por padrão) segue com a dela.
+    expect((await customerTools(env, s.f.profile)).map((t) => t.module)).toEqual(["queue"]);
   });
 });

@@ -2078,6 +2078,12 @@ function suporteOperations(): [string, string, string, string?, string?][] {
       "conversations:read",
     ],
     [
+      "get",
+      `${base}/conversations/{id}/situation`,
+      "Suporte pago: situação para o próprio cliente (ferramenta suporte_situacao)",
+      "conversations:read",
+    ],
+    [
       "post",
       `${base}/conversations/{id}/courtesy`,
       "Suporte pago: liberar como cortesia",

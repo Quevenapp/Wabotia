@@ -5,6 +5,7 @@ import { type Actor, now, requireValue } from "../../types";
 import {
   filteredHandlers,
   moduleError,
+  onApproval,
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
@@ -45,6 +46,12 @@ function visible(ctx: ModuleContext, actor: Actor, value: any) {
 const { onRead, onCommand, onConversationAction } = filteredHandlers(visible);
 import { runDue } from "./due";
 import { handleTurn, menuCopy, menuStatement, openInstallments } from "./chat";
+import {
+  REQUEST_KINDS,
+  requestDecided,
+  requestFromCustomer,
+  validateRequest,
+} from "./requests";
 import {
   addPayerPhone,
   createPayer,
@@ -445,12 +452,17 @@ onConversationAction(
   },
 );
 
+// Ferramentas do bot (Hermes com a chave presa e o modo cliente do provedor
+// direto). `customer`: "read" roda sem botão de confirmação; nada aqui muda
+// estado financeiro pelo cliente: a segunda via só reenvia a cobrança dele,
+// e dispensa e desconto só viram pedido que um administrador decide.
 onMcpTool("mensalidade", {
   name: "mensalidade_situacao",
   description:
-    "Situação do pagador da conversa (pelo telefone da conversa): em_dia, em_atraso ou sem_assinatura, com as mensalidades em aberto (id, plano, competência, valor, vencimento). Requer conversations:read.",
+    "Situação do pagador da conversa (pelo telefone da conversa): em_dia, em_atraso ou sem_assinatura, com as mensalidades em aberto (id, plano, competência, valor, vencimento). CPF/CNPJ dito pelo cliente não é consultado. Requer conversations:read.",
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
+  customer: "read",
   call: (a, profile) => ({
     path: `/profiles/${profile}/mensalidade/conversations/${a.conversation_id}`,
   }),
@@ -465,10 +477,8 @@ onMcpTool("mensalidade", {
   },
   required: ["conversation_id"],
   write: true,
-  // Sem consultar a parcela pelo id do modelo: o valor e o vencimento vão na
-  // própria segunda via, que só sai para a mensalidade deste cliente.
-  describe: async () =>
-    "Enviar a segunda via (Pix ou link) da sua mensalidade em aberto.",
+  // Só reenvia o código da parcela do próprio cliente: sem botão.
+  customer: "read",
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
@@ -478,6 +488,56 @@ onMcpTool("mensalidade", {
     },
   }),
 });
+
+// Dispensa ou desconto: o cliente pede, a equipe decide (pedido de
+// aprovação com o cartão montado em ./requests.ts). O bot nunca concede.
+onConversationAction(
+  "mensalidade",
+  "mensalidade_pedido",
+  (ctx, actor, c, data) => requestFromCustomer(ctx, actor, c, data),
+);
+for (const kind of REQUEST_KINDS)
+  onApproval("mensalidade", kind, {
+    validate: validateRequest,
+    decided: requestDecided,
+  });
+for (const [name, kind, text] of [
+  [
+    "mensalidade_pedir_dispensa",
+    "dispensa",
+    "Pede à equipe a dispensa (não pagar) de uma mensalidade em aberto do cliente da conversa.",
+  ],
+  [
+    "mensalidade_pedir_desconto",
+    "desconto",
+    "Pede à equipe um desconto numa mensalidade em aberto do cliente da conversa. O valor é a equipe que define.",
+  ],
+] as const)
+  onMcpTool("mensalidade", {
+    name,
+    description: `${text} Não concede nada: registra o pedido, e a equipe responde ao cliente por aqui. Com mais de uma em aberto, informe installment_id de mensalidade_situacao. Em observacao, o motivo dito pelo cliente.`,
+    input: {
+      conversation_id: { type: "string" },
+      installment_id: { type: "string" },
+      observacao: { type: "string" },
+    },
+    required: ["conversation_id"],
+    write: true,
+    // Só registra o pedido (não muda valor nem estado): sem botão.
+    customer: "read",
+    call: (a, profile) => ({
+      method: "POST",
+      path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+      body: {
+        action: "mensalidade_pedido",
+        kind,
+        ...(a.installment_id ? { installment_id: a.installment_id } : {}),
+        ...(typeof a.observacao === "string"
+          ? { observacao: a.observacao.slice(0, 500) }
+          : {}),
+      },
+    }),
+  });
 
 // Confirmação do provedor (webhook assinado + consulta) e comprovante.
 onPaymentUpdated("mensalidade", (ctx, payment, { previous }) =>

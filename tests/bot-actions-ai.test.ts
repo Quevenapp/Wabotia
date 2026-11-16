@@ -144,6 +144,8 @@ describe("laço de ferramentas: modo cliente (OpenAI, DeepSeek)", () => {
   it("sem ferramenta de cliente ligada, a chamada sai sem tools", async () => {
     const s = await setup({ provider: "openai", model: "gpt-test" });
     await perform(env, s.admin, s.profile, "module.set", { id: "os", enabled: false }, uid());
+    // A Fila (embutida, ligada por padrão) também tem ferramenta de cliente.
+    await perform(env, s.admin, s.profile, "module.set", { id: "queue", enabled: false }, uid());
     const conversation = await customerSays(s, "5511966660003", "Oi");
     const calls = mockFetch([openai({ content: answer("Olá! Como posso ajudar?") })]);
     await processRun(env, await runOf(conversation));

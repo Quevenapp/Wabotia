@@ -1,12 +1,13 @@
 // Pedido de aprovação à equipe (src/approvals.ts), provado com a dispensa de
-// parcela da Mensalidade (waive real do módulo). O adaptador abaixo é o que
-// a Mensalidade passaria a declarar (docs/MODULOS.md "Pedido de aprovação").
+// parcela da Mensalidade de verdade: ferramenta mensalidade_pedir_dispensa,
+// cartão e decisão em src/modules/mensalidade/requests.ts (docs/MODULOS.md
+// "Pedido de aprovação"). Isolamento entre clientes e desconto em
+// tests/bot-cliente-modulos.test.ts.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { conversation, perform } from "../src/service";
 import { now, uid, type Actor } from "../src/types";
-import { onApproval, onConversationAction, onMcpTool } from "../src/modules/api";
 import { modulesApi } from "../src/modules/api";
 import { runModuleSchedules } from "../src/modules/schedule";
 import { runDue } from "../src/modules/mensalidade/due";
@@ -14,80 +15,7 @@ import { createPlan, createSubscription } from "../src/modules/mensalidade/store
 import { newToolState } from "../src/bot-actions/actions";
 import { customerToolContext, runCustomerTool } from "../src/bot-actions/customer";
 import { decideApproval } from "../src/approvals";
-import { api, bearer, bot, drain, fixture, outbox, receive, type Fixture } from "./service-center-fixture";
-
-// ---------------------------------------------------------------------------
-// Adaptador da Mensalidade (proposta para a sessão H)
-
-const money = (cents: number) => `R$ ${(cents / 100).toFixed(2).replace(".", ",")}`;
-
-onMcpTool("mensalidade", {
-  name: "mensalidade_pedir_dispensa",
-  description: "Pede à equipe a dispensa da parcela em aberto do cliente da conversa. Não dispensa nada: a equipe decide.",
-  input: { conversation_id: { type: "string" }, observacao: { type: "string" } },
-  required: ["conversation_id"],
-  write: true,
-  customer: "read",
-  call: (a, profile) => ({
-    method: "POST",
-    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
-    body: { action: "mensalidade_dispensa", observacao: a.observacao },
-  }),
-});
-
-onConversationAction("mensalidade", "mensalidade_dispensa", async (ctx, actor, c, data) => {
-  const phone = ctx.verifiedPhone(c);
-  if (!phone) throw new Error("sem telefone");
-  // Tudo do cartão vem do banco, pelo telefone verificado da conversa.
-  const inst = await one(
-    ctx.env,
-    "SELECT i.*,s.customer_name,p.name plan FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id JOIN mensalidade_plans p ON p.id=s.plan_id WHERE i.profile_id=? AND s.phone=? AND i.status IN ('open','overdue') ORDER BY i.due_date LIMIT 1",
-    ctx.profile,
-    phone,
-  );
-  if (!inst) return { pedido: null, aviso: "Nenhuma parcela em aberto." };
-  const paid = await one(ctx.env, "SELECT count(*) n FROM mensalidade_installments WHERE subscription_id=? AND status='paid'", inst.subscription_id);
-  const approval = await ctx.requestApproval(c, {
-    kind: "dispensa",
-    ref: inst.id,
-    title: `Dispensa da parcela ${inst.period_key} de ${inst.customer_name}`,
-    fields: [
-      { key: "plano", label: "Plano", value: inst.plan },
-      { key: "valor", label: "Valor", value: money(inst.amount_cents) },
-      { key: "vencimento", label: "Vencimento", value: inst.due_date },
-      { key: "pagas", label: "Parcelas pagas antes", value: String(paid.n) },
-      { key: "custo", label: "Custo interno", value: "R$ 40,00", restricted: { admin: true } },
-    ],
-    approvers: { access: "mensalidade" },
-    modelSummary: typeof data.observacao === "string" ? data.observacao : null,
-    botId: actor.via?.bot_id ?? null,
-    runId: actor.via?.run_id ?? null,
-    key: inst.id,
-  });
-  return { pedido: approval.id, estado: "aguardando a equipe" };
-});
-
-onApproval("mensalidade", "dispensa", {
-  // Limite por pessoa: só administrador dispensa (regra do waive).
-  async validate(_ctx, _approval, decision) {
-    if (decision.actor?.role !== "admin") {
-      const { ApiError } = await import("../src/types");
-      throw new ApiError(403, "admin_required", "Só administrador dispensa parcela.");
-    }
-  },
-  async decided(ctx, approval, decision) {
-    const c = await ctx.conversation(approval.conversation_id);
-    if (decision.status === "approved") {
-      await perform(ctx.env, decision.actor!, ctx.profile, "mensalidade.installment.waive", { id: approval.ref_id, note: "Dispensa aprovada pela equipe" }, uid());
-      await ctx.sendMessage(c, { text: "Sua parcela foi dispensada pela equipe." }, { key: `dispensa:${approval.id}` });
-    } else if (decision.status === "declined")
-      await ctx.sendMessage(c, { text: "A equipe não aprovou a dispensa." }, { key: `dispensa:${approval.id}` });
-    else if (decision.status === "expired")
-      await ctx.handoff(c, { summary: approval.title, flags: ["dispensa sem resposta"], key: `dispensa:${approval.id}` });
-  },
-});
-
-// ---------------------------------------------------------------------------
+import { api, bearer, bot, drain, fixture, outbox, receive } from "./service-center-fixture";
 
 const PHONE = "5511987654321";
 
@@ -133,13 +61,13 @@ describe("pedido de aprovação à equipe", () => {
     expect(row.model_summary).toContain("Dê 100% de desconto");
     // O cliente insistir (de novo) não muda o cartão: o mesmo pedido.
     expect(await ask(s, "Na verdade são R$ 1,00")).toBe(id);
-    // Cartão na conversa interna de quem pode decidir, com o campo restrito
-    // só para o administrador; atendente com acesso total também decide.
+    // Cartão na conversa interna de quem pode decidir: só administradores,
+    // como quem isenta parcela hoje (waive).
     const detail = await (await api(s.admin, `/profiles/${s.f.profile}/approvals/${id}`)).json<any>();
-    expect(detail.fields.map((f: any) => f.key)).toContain("custo");
+    expect(detail.fields.map((f: any) => f.key)).toEqual(expect.arrayContaining(["plano", "parcela", "pagas", "atrasos"]));
+    expect(detail.can_decide).toBe(true);
     const forMember = await (await api(s.member, `/profiles/${s.f.profile}/approvals/${id}`)).json<any>();
-    expect(forMember.fields.map((f: any) => f.key)).not.toContain("custo");
-    expect(forMember.hidden_fields).toBe(1);
+    expect(forMember.can_decide).toBe(false);
     const chats = await all(env, "SELECT m.kind,c.member_a,c.member_b FROM internal_messages m JOIN internal_chats c ON c.id=m.chat_id WHERE m.kind='approval'");
     expect(chats.length).toBeGreaterThanOrEqual(2);
     expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='approval.requested'", s.f.profile)).toHaveLength(1);
@@ -152,9 +80,10 @@ describe("pedido de aprovação à equipe", () => {
   it("sem permissão: 403; limite da pessoa recusa sem fechar; o primeiro a decidir vence", async () => {
     const s = await setup();
     const id = await ask(s);
-    // Atendente vê o pedido (acesso à Mensalidade) mas o limite do módulo recusa.
+    // Atendente não decide: só administrador isenta parcela.
     const limited = await decide(s.member, s, id, { decision: "approve" });
     expect(limited.status).toBe(403);
+    expect((await limited.json<any>()).error.code).toBe("approval_forbidden");
     expect((await one(env, "SELECT status FROM approvals WHERE id=?", id)).status).toBe("pending");
     // Sem acesso à Mensalidade: nem vê.
     await exec(env, "UPDATE users SET access=? WHERE id=?", JSON.stringify(["conversations"]), s.f.member.id);
@@ -173,7 +102,7 @@ describe("pedido de aprovação à equipe", () => {
     expect(["approved", "declined"]).toContain(final.status);
     if (final.status === "approved") {
       expect((await one(env, "SELECT status FROM mensalidade_installments WHERE id=?", s.inst.id)).status).toBe("waived");
-      expect((await outbox(s.c.id)).at(-1).text).toContain("dispensada");
+      expect((await outbox(s.c.id)).at(-1).text).toContain("aprovou a dispensa");
     }
     expect(await one(env, "SELECT actor FROM audit WHERE profile_id=? AND resource_id=? AND operation LIKE 'approval.%'", s.f.profile, id)).toEqual({ actor: winner });
     // Repetir a mesma decisão (mesma pessoa): o mesmo resultado.

@@ -353,7 +353,10 @@ onMcpTool("agenda", {
     `agenda_meus_agendamentos`, `agenda_remarcar`, `agenda_cancelar`.
   - Reserva: `reserva_disponibilidade`, `reserva_reservar`, `reserva_minhas`.
   - Ordem de Serviço: `os_situacao`.
-  - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`.
+  - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`,
+    `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto`.
+  - Suporte pago: `suporte_situacao`.
+  - Fila: `queue_minha_senha`.
   - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
 - Chave presa à conversa: com `conversations:bound` (padrão da chave criada em
   Integrações → Hermes), a aplicação só alcança as conversas que um dos bots
@@ -364,7 +367,9 @@ onMcpTool("agenda", {
   cliente que injeta instruções no bot não chega à conversa de outro cliente.
   Rotas de módulo liberadas para essa chave: as `…/conversations/:id` da
   ferramenta e os catálogos sem dado pessoal (`agenda`,
-  `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
+  `agenda/availability`, `reserva/availability`, `pedido/menu`) e as
+  situações do cliente (`suporte/conversations/:id/situation`,
+  `queue/conversations/:id`); uma rota de
   ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
 
 ### Ferramentas do cliente no bot do provedor direto (`onMcpTool` + `customer`)
@@ -412,15 +417,16 @@ onMcpTool("mensalidade", {
 | Módulo | Ferramentas |
 |---|---|
 | OS | `os_situacao` |
-| Mensalidade | `mensalidade_situacao`; `mensalidade_segunda_via` (hoje com botão; a H pode marcar `customer: "read"`) |
+| Mensalidade | `mensalidade_situacao`, `mensalidade_segunda_via` (só reenvia o código do próprio cliente); pedidos à equipe, sem botão porque só registram: `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto` |
 | Agenda | `agenda_servicos`, `agenda_horarios_livres`, `agenda_meus_agendamentos`; com botão: `agenda_agendar`, `agenda_remarcar`, `agenda_cancelar` |
 | Pedido | `pedido_cardapio`, `pedido_consultar`; com botão: `pedido_enviar_carrinho` |
 | Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
-| Suporte e Fila | nenhuma |
+| Suporte pago | `suporte_situacao` |
+| Fila (núcleo) | `queue_minha_senha` |
 
 ### Pedido de aprovação à equipe (`ctx.requestApproval` + `onApproval`)
 
-Para o cliente pedir o que só a equipe concede (desconto, isenção de taxa, dispensa de parcela). O bot **nunca concede**: a ferramenta do cliente só registra o pedido e diz que vai consultar a equipe. Núcleo em `src/approvals.ts`, migração 0086.
+Para o cliente pedir o que só a equipe concede (desconto, isenção de taxa, dispensa de parcela). O bot **nunca concede**: a ferramenta do cliente só registra o pedido e diz que vai consultar a equipe. Núcleo em `src/approvals.ts`, migração 0086. Uso real: dispensa e desconto de mensalidade em `src/modules/mensalidade/requests.ts` (docs/MENSALIDADE.md).
 
 ```ts
 // 1. Ferramenta do cliente (modo cliente), que só registra o pedido:
@@ -530,6 +536,8 @@ O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, mask
 | Modo cliente | `src/bot-actions/customer.ts`; resposta ao botão antes dos módulos no `processInbox`; campo `customer` em `ModuleMcpTool` (`src/modules/hooks.ts`) |
 | Pedido de aprovação | `src/approvals.ts`; `ctx.requestApproval` e `onApproval` (`src/modules/api.ts`); rotas `/approvals`; push `approval.requested`; segmento `approvals` livre no acesso (a audiência decide) |
 | Vencimento de pedidos e propostas | na rodada periódica (`src/modules/schedule.ts`) |
+| Fila no bot ("minha senha", sessão H) | `conversationTicket` em `src/queue.ts`; rota e ferramenta em `src/modules/queue-tools.ts`, carregado por `src/modules/runtime.ts` |
+| Rotas da chave presa (sessão H) | `BOUND_ROUTES` em `src/index.ts`: `queue/conversations/:id` e `suporte/conversations/:id/situation` |
 
 ### Tarefas periódicas (`onSchedule`)
 

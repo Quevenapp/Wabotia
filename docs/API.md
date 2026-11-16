@@ -328,6 +328,7 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 | `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
 | `GET /suporte/pending` | Aguardando confirmação (últimos 7 dias): quem digitou o CPF/CNPJ de um cadastro por um telefone não autorizado, e pedidos de humano em grupo (`group: true`, liberados com cortesia) |
 | `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release` (com `ticket_id` e `expires_at`), `session`, `awaiting_team`, `unlinked_phone` e compras |
+| `GET /suporte/conversations/{id}/situation` | Para o próprio cliente (ferramenta `suporte_situacao`): `liberado`, `liberacao` (até quando), `falta`, pagamento pendente, mensalidade em atraso e ofertas; sem pagador, documento nem telefone. Liberada para a chave presa à conversa |
 | `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/confirm` | A equipe confirma a identidade de quem aguarda confirmação `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |

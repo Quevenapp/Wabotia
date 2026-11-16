@@ -71,6 +71,44 @@ Estados da parcela: **aberta**, **paga**, **vencida**, **cancelada** e
 - **Segunda via**: reenvia o código da parcela em aberto (ou pergunta qual,
   se houver mais de uma).
 
+### No bot de IA (ferramentas do cliente)
+
+O bot que atende o cliente (provedor direto ou Hermes com a chave presa à
+conversa) só alcança o pagador **do telefone verificado da conversa**. Um
+CPF/CNPJ dito pelo cliente nunca é consultado, e "já paguei" ou um
+comprovante não mudam nada: só o webhook do Mercado Pago dá baixa.
+
+| Ferramenta | O que faz | Botão de confirmação |
+|---|---|---|
+| `mensalidade_situacao` | Em dia, em atraso ou sem assinatura, com as parcelas em aberto | não |
+| `mensalidade_segunda_via` | Reenvia o Pix ou link de uma parcela em aberto do próprio cliente | não |
+| `mensalidade_pedir_dispensa` | Pede à equipe a dispensa de uma parcela em aberto | não (só registra o pedido) |
+| `mensalidade_pedir_desconto` | Pede à equipe um desconto numa parcela em aberto | não (só registra o pedido) |
+
+**Dispensa e desconto com aprovação** (`src/modules/mensalidade/requests.ts`):
+
+- O bot só registra o pedido (`ctx.requestApproval`) e diz ao cliente que a
+  equipe vai responder. Parcela de outro cliente: 404.
+- O cartão vai à conversa interna dos **administradores** (quem hoje isenta
+  parcela) e ao painel, com dados lidos do banco: cliente, plano, a parcela,
+  assinatura desde, parcelas pagas e em aberto, histórico de atrasos e
+  dispensas ou descontos anteriores. O que o cliente disse aparece à parte,
+  como resumo do bot não verificado.
+- **Dispensa aprovada**: a parcela fica isenta (como o "Isentar" do painel,
+  evento `mensalidade.waived`).
+- **Desconto aprovado**: o administrador informa o valor em reais (de
+  R$ 0,01 até o valor menos um centavo; o valor inteiro é dispensa). A
+  cobrança aberta é cancelada antes, o valor da parcela cai (colunas
+  `discount_cents` e `discount_ref`, migração 0053, evento
+  `mensalidade.discounted`) e o cliente recebe o código novo. Se a cobrança
+  aberta não puder ser cancelada (o cliente pode ter acabado de pagar), nada
+  muda e o pedido volta a pendente.
+- **Recusado**: o cliente é avisado. **Assumir**: a conversa vai para quem
+  tocou. **Sem resposta em 2 horas**: o cliente é avisado e a conversa vai
+  para a fila da equipe.
+- Pedir de novo a mesma coisa para a mesma parcela devolve o mesmo pedido
+  (com o estado dele), sem cartão novo.
+
 ## Pagadores
 
 Cada assinatura pertence a um **pagador**: quem paga, com CPF ou CNPJ (os
