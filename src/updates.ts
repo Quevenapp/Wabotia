@@ -479,6 +479,17 @@ export async function automaticUpdateTick(env: Env) {
             error: null,
             target: index.commit,
           });
+        } else if (
+          !versionAtLeast(buildInfo.version, index.requires?.min_version)
+        ) {
+          // Degrau: uma versão que exige outra instalada antes nunca é
+          // pulada pelo automático (docs/ATUALIZACOES-FORMATO.md).
+          await save({
+            ...checkState,
+            status: "release_requires_review",
+            error: `A versão ${index.version} exige a ${index.requires?.min_version} instalada antes. Atualize em etapas.`,
+            target: index.commit,
+          });
         } else if (!newerVersion(index.version, buildInfo.version)) {
           await save({
             ...checkState,

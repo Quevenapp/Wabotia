@@ -229,6 +229,31 @@ describe("formato 2: índice e manifesto", () => {
 describe("degrau fixo: formato 1 nunca enxerga o índice v2", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("instalação antiga (0.17 a 0.20) vê só a ponte, mesmo com versões de formato 2 publicadas", async () => {
+    // Catálogo depois da ponte e de uma versão de formato 2: latest.json
+    // congelado na ponte (formato 1), v2/latest.json na versão nova.
+    const v2 = await buildRelease(baseSpec());
+    const bridge = {
+      format: 1,
+      version: "0.21.0",
+      commit: "b".repeat(40),
+      package_sha256: "c".repeat(64),
+      package_size: 8851969,
+    };
+    vi.stubGlobal("fetch", async (input: any) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      return url.pathname === "/releases/latest.json"
+        ? Response.json(bridge)
+        : url.pathname === "/releases/v2/latest.json"
+          ? Response.json(v2.index)
+          : new Response("", { status: 404 });
+    });
+    // O leitor do formato 1 (o mesmo das versões antigas) chega na ponte,
+    // e o automático delas instala "maior que a atual": a ponte.
+    expect(await latestRelease()).toMatchObject({ version: "0.21.0", format: 1 });
+    expect(versionAtLeast("0.21.0", "0.17.0")).toBe(true);
+  });
+
   it("o leitor do formato 1 só pede releases/latest.json e recusa o índice v2", async () => {
     const r = await buildRelease(baseSpec());
     const urls: string[] = [];

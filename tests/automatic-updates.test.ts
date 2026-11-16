@@ -170,6 +170,35 @@ it("checks at most once per successful window and never downgrades or replaces t
   expect((await secret(e, "system:release-state")).id).toBeUndefined();
 });
 
+it("degrau: na ponte, o automático só instala a versão de formato 2 que aceita a versão instalada", async () => {
+  await enable();
+  // Uma versão que exige outra instalada antes (min_version acima da atual)
+  // nunca entra na fila: o automático para em revisão.
+  index = {
+    ...index,
+    requires: { min_version: "98.0.0", workers_paid: false },
+  };
+  await automaticUpdateTick(e);
+  expect(await automaticUpdateStatus(e)).toMatchObject({
+    status: "release_requires_review",
+    error: expect.stringMatching(/exige a 98\.0\.0/),
+  });
+  expect((await secret(e, "system:release-state")).id).toBeUndefined();
+  // Com a ponte instalada (min_version = a versão desta instalação), entra.
+  at += 86400000;
+  index = {
+    ...index,
+    requires: { min_version: buildInfo.version, workers_paid: false },
+  };
+  await automaticUpdateTick(e);
+  expect(await secret(e, "system:release-state")).toMatchObject({
+    status: "pending",
+    phase: "manifest",
+    target,
+    source: "automatic",
+  });
+});
+
 it("backs off catalog failures and caps attempts within the window", async () => {
   await enable();
   catalogFailure = true;

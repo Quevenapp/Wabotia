@@ -46,6 +46,44 @@ conferidas antes de publicar.
    (`validateIndex` exige `format: 1`), então mesmo um engano no catálogo
    não a leva a um pacote que ela não sabe instalar.
 
+### Atualização automática não pula a ponte
+
+- **Antes da ponte (0.17.x a 0.20.x):** o automático instala "versão maior
+  que a atual" a partir de `releases/latest.json`, que fica congelado na
+  ponte. Quem estiver várias versões atrás cai na ponte; o índice v2 não
+  existe para essas versões.
+- **Na ponte em diante:** o automático lê `releases/v2/latest.json` e só põe
+  na fila uma versão cujo `requires.min_version` a instalação atende. Se não
+  atende, para em `release_requires_review` com a mensagem "exige a X
+  instalada antes" e não cria trabalho. O início manual recusa do mesmo
+  jeito.
+- Testes: `tests/release-v2.test.ts` (o leitor antigo só enxerga a ponte) e
+  `tests/automatic-updates.test.ts` (na ponte, o automático respeita
+  `min_version`).
+
+### Instaladores no mesmo dia
+
+O instalador de terminal (`public/install-wabotia.mjs`) e o pelo navegador
+(o Worker do site oficial) já leem o formato 2 na ponte. Os dois saem do
+mesmo commit que grava o `releases/v2/latest.json`: `release.mjs` gera o
+instalador, e o deploy do site oficial leva o catálogo **e** o código do
+instalador pelo navegador juntos. Regra de publicação: nunca subir o
+catálogo da ponte sem o código da ponte no site (nem o contrário); um site
+antigo com o catálogo novo instalaria a ponte pelo formato 1 (funciona, mas
+fica uma versão atrás depois da primeira de formato 2), e um site novo com o
+catálogo antigo não acharia o índice v2.
+
+### Migrações
+
+- Cada arquivo é aplicado num `batch` do D1 com o registro em
+  `d1_migrations` na mesma transação: ou o arquivo inteiro entra com o
+  recibo, ou nada.
+- Limite por arquivo: 100 instruções, cada uma com menos de 100 mil
+  caracteres (o mesmo do formato 1). Migração grande se divide em vários
+  arquivos numerados; o atualizador aplica um por rodada.
+- O esquema do ERP não passa pelo D1: fica no SQLite do objeto e é
+  versionado em código. Os módulos que ainda usam o D1 seguem esta regra.
+
 ## Etapas do atualizador (`src/updates.ts`)
 
 Cada chamada do alarme do `_admin` faz uma rodada curta e grava o andamento.
@@ -110,13 +148,18 @@ atualização.
   não no `wrangler.jsonc`.
 - Os PDFs do guia ficam só no site oficial; as páginas `/` e `/install`
   apontam para `https://wabotia.queven.app/guide/…`.
-- **`@anthropic-ai/sdk` por `fetch` direto:** no Worker minificado, o SDK
-  ocupa 0,39 MB e o `zod` (usado só pela saída estruturada do mesmo
-  arquivo), 0,48 MB: 0,87 MB de 4,65 MB. Não troquei: a ponte já está em
-  8,85 MB, o teto do Worker é 64 MiB, e reescrever chamada, erros e esquema
-  da saída estruturada à mão arrisca o provedor Anthropic, ainda não testado
-  contra a API real. O maior item é o `unpdf` (2,27 MB, leitura de PDF no
-  Conhecimento).
+- **`@anthropic-ai/sdk` por `fetch` direto (avaliado, recusado):** no
+  Worker minificado, o SDK ocupa 0,39 MB e o `zod` (usado só pela saída
+  estruturada do mesmo arquivo), 0,48 MB: 0,87 MB de 4,65 MB. O ganho não
+  importa diante do teto do Worker (64 MiB) e do formato 2 (160 MiB). O
+  risco sim: comportamento idêntico exigiria refazer à mão o esquema que o
+  `zodOutputFormat` gera para a saída estruturada, a política de novas
+  tentativas e prazo do cliente (408/409/429/5xx e erro de conexão), os
+  cabeçalhos de versão da API e o mapeamento de erros tipados, num provedor
+  ainda não testado contra a API real; a orientação da Anthropic para
+  projetos TypeScript é usar o SDK, e as ferramentas que a sessão P vai
+  acrescentar se apoiam nos tipos dele. O maior item do Worker é o `unpdf`
+  (2,27 MB, leitura de PDF no Conhecimento).
 
 ## Proposta: manifesto assinado (Ed25519), não implementada
 
@@ -184,6 +227,8 @@ oficial, use um **catálogo de teste**: um Worker só de estáticos
   `migrationStatements`, `versionAtLeast` e as constantes de limite.
 - `src/updates.ts`: `checkUpdate` lê só `releases/v2/latest.json`;
   `startDirectUpdate` confere `requires.min_version` e começa em `manifest`;
+  `automaticUpdateTick` para em `release_requires_review` quando a versão
+  exige outra instalada antes;
   `processPhase` com as seis etapas; `paidPlanProbe`; `dropTemporary` apaga
   o prefixo `system/releases/<id>/` (e o `package_key` antigo, se houver);
   nova tentativa automática recomeça na etapa que falhou (`assets` volta a
