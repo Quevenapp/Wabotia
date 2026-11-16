@@ -178,4 +178,7 @@ export const defaults = {
   queue: {},
   // Formulários do módulo "forms" (src/modules/forms).
   forms: [],
+  // Papéis por pessoa nos módulos (src/module-grants.ts):
+  // {"os:technician": [ids das pessoas]}.
+  module_grants: {},
 };

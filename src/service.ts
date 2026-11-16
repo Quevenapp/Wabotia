@@ -79,6 +79,7 @@ import {
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
+import { validateModuleGrants } from "./module-grants";
 import {
   hiddenMenuTypes,
   moduleById,
@@ -1902,6 +1903,18 @@ export async function perform(
       });
     if (data.establishment !== undefined)
       next.establishment = validateEstablishment(data.establishment);
+    // Papéis por pessoa nos módulos: cada papel enviado substitui a lista
+    // dele; os outros ficam como estavam.
+    if (data.module_grants !== undefined)
+      next.module_grants = await validateModuleGrants(
+        env,
+        profile,
+        data.module_grants &&
+          typeof data.module_grants === "object" &&
+          !Array.isArray(data.module_grants)
+          ? { ...(old.module_grants || {}), ...data.module_grants }
+          : data.module_grants,
+      );
     // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
     // parcial mescla com o que está salvo, como queue e business_hours: os
     // campos que não vieram ficam como estavam. Listas e valores simples
