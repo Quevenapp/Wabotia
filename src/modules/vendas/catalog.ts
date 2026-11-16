@@ -138,11 +138,10 @@ export async function productByCode(ctx: ModuleContext, code: unknown) {
   const digits = value.replace(/\s/g, "");
   const row = await one(
     ctx.env,
-    "SELECT * FROM vendas_products WHERE profile_id=? AND active=1 AND (ean=? OR sku=? OR sku=?) ORDER BY ean=? DESC LIMIT 1",
+    "SELECT * FROM vendas_products WHERE profile_id=? AND active=1 AND (ean=? OR sku=? COLLATE NOCASE) ORDER BY ean=? DESC LIMIT 1",
     ctx.profile,
     digits,
     value,
-    value.toUpperCase(),
     digits,
   );
   if (!row)

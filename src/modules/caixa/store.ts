@@ -468,12 +468,18 @@ export async function closeSession(ctx: ModuleContext, actor: Actor, data: any) 
   requireCashier(ctx, actor);
   const session = await loadSession(ctx, data.id);
   if (session.status === "closed") return sessionView(session);
-  requireValue(
-    session.opened_by === actor.id ||
+  if (
+    !(
+      session.opened_by === actor.id ||
       (actor.kind === "user" && actor.role === "admin") ||
-      actor.kind === "app",
-    "Só quem abriu o caixa ou um administrador pode fechá-lo.",
-  );
+      actor.kind === "app"
+    )
+  )
+    throw new ApiError(
+      403,
+      "not_session_owner",
+      "Só quem abriu o caixa ou um administrador pode fechá-lo.",
+    );
   const counted = cents(data.counted_cents, "Dinheiro contado");
   const summary = await sessionSummary(ctx, session);
   const at = now();

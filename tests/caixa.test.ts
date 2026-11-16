@@ -118,7 +118,9 @@ describe("caixa", () => {
     const otherToken = await bearer(f.other);
     expect(
       (await api(otherToken, `${root}/sessions/${opened.id}/close`, "POST", { counted_cents: 9800 })).status,
-    ).toBe(400);
+    ).toBe(403);
+    // SKU sem diferenciar maiúsculas no leitor.
+    expect((await (await api(token, `${root}/lookup?code=ref-350`)).json<any>()).id).toBe(p.refri.id);
     const closed = await (
       await api(token, `${root}/sessions/${opened.id}/close`, "POST", { counted_cents: 9800 })
     ).json<any>();
