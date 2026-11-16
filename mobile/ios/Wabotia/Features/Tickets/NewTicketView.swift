@@ -113,10 +113,11 @@ struct NewTicketView: View {
                         self.error = "O pedido anterior foi registrado com outro conteúdo. Tente novamente."
                         return
                     }
-                    // Erro de validação ou permissão: o servidor já respondeu; a próxima tentativa é um novo pedido.
-                    idempotencyKey = APIClient.newIdempotencyKey()
+                    // Erro de validação ou permissão: o servidor recusou de vez; a próxima tentativa é um novo pedido.
+                    // 408, 429, 5xx e `operation_unknown` deixam o resultado incerto e mantêm a chave.
+                    if apiError.isDefinitiveWriteRejection { idempotencyKey = APIClient.newIdempotencyKey() }
                 }
-                // Falha de rede mantém a mesma chave: repetir é seguro.
+                // Falha de rede ou resultado incerto mantém a mesma chave: repetir é seguro.
                 self.error = APIError.describe(error)
             }
         }

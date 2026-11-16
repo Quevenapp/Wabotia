@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var confirmExitDemo = false
     @State private var showPresence = false
     @State private var appearance = AppAppearance.current
+    @State private var showPrinter = false
+    @ObservedObject private var moduleFeature = ModuleFeature.shared
 
     /// Na demonstração não há push nem servidor de verdade: essas seções dão lugar a explicações e à saída.
     private var demo: Bool { container.isDemo }
@@ -117,11 +119,42 @@ struct SettingsView: View {
 
     private var serviceSection: some View {
         SectionCard(title: "Atendimento", footer: vm.isAdmin ? nil : "Atendentes consultam as linhas; a edição é do administrador.") {
+            // Fila de senhas: só quando o servidor a oferece a esta área (rota de capacidades; GET /queue em servidor antigo).
+            if moduleFeature.isAvailable(ModuleId.queue, container.profileId) {
+                navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
+                    .accessibilityIdentifier("settings.counter")
+                navRow("Impressora do cupom", "printer.fill", Theme.muted) { showPrinter = true }
+                    .accessibilityIdentifier("settings.printer")
+            }
+            if moduleFeature.isAvailable(ModuleId.agenda, container.profileId) {
+                navRow("Agenda", "calendar", Theme.brand) { push(.agenda) }
+                    .accessibilityIdentifier("settings.agenda")
+            }
+            if moduleFeature.isAvailable(ModuleId.serviceOrders, container.profileId) {
+                navRow("Ordens de serviço", "wrench.and.screwdriver.fill", Theme.warn) { push(.serviceOrders) }
+                    .accessibilityIdentifier("settings.serviceOrders")
+            }
+            if moduleFeature.isAvailable(ModuleId.reserva, container.profileId) {
+                navRow("Reservas", "bed.double.fill", Theme.ticket) { push(.reserva) }
+                    .accessibilityIdentifier("settings.reserva")
+            }
+            if moduleFeature.isAvailable(ModuleId.pedido, container.profileId) {
+                navRow("Pedidos", "takeoutbag.and.cup.and.straw.fill", Theme.warn) { push(.pedido) }
+                    .accessibilityIdentifier("settings.pedido")
+            }
+            if moduleFeature.isAvailable(ModuleId.mensalidade, container.profileId) {
+                navRow("Mensalidades", "creditcard.fill", Theme.bot) { push(.mensalidade) }
+                    .accessibilityIdentifier("settings.mensalidade")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }
                 navRow("Linhas dos bots", "cpu", Theme.bot, divider: false) { push(.botLines) }
             }
+        }
+        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
+        .task(id: "\(active)-\(container.profileId ?? "")") {
+            if active { await ModuleFeature.shared.refresh(container: container) }
         }
     }
 

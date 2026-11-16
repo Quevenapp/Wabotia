@@ -314,6 +314,7 @@ final class ConversationViewModel: ObservableObject {
         let id = conversationId
         let relevant = events.contains { e in
             (e.isConversationRelated && e.conversationId == id) || (e.isCallRelated && e.conversationId == id)
+                || (e.isLinkOrPayment && e.conversationId == id)
         }
         if relevant, visible { Task { await self.load(silent: true) } }
         if visible, events.contains(where: { $0.kind.hasPrefix("ticket.") && $0.payload?["conversation_id"]?.stringValue == id }) {
@@ -430,13 +431,15 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Ações da conversa
 
     @discardableResult
-    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil, departmentId: String? = nil, number: String? = nil) async -> Bool {
+    func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil, departmentId: String? = nil, number: String? = nil,
+             formId: String? = nil, method: String? = nil, amountCents: Int? = nil, description: String? = nil) async -> Bool {
         guard let p = profileId, !busy else { return false }
         busy = true
         busyAction = action
         actionError = nil
         defer { busy = false; busyAction = nil }
-        let body = ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags, menu_id: menuId, department_id: departmentId, number: number)
+        let body = ActionRequest(action: action, text: text, target: target, attachments: nil, content: nil, tags: tags, menu_id: menuId, department_id: departmentId, number: number,
+                                 form_id: formId, method: method, amount_cents: amountCents, description: description)
         let actionKey = pendingAction?.body == body ? pendingAction!.key : APIClient.newIdempotencyKey()
         pendingAction = (body, actionKey)
         do {
@@ -513,6 +516,111 @@ final class ConversationViewModel: ObservableObject {
         return true
     }
 
+    // MARK: Formulários e Cobrança
+
+    /// Links de passo web e cobranças desta conversa, do mais novo para o mais antigo.
+    var webSteps: [WebStep] { detail?.web_steps ?? [] }
+    var payments: [ConversationPayment] { detail?.payments ?? [] }
+
+    /// Formulários ativos da área (`GET /forms`), para "Enviar formulário".
+    @Published private(set) var forms: [FormSummary]?
+    @Published private(set) var formsError: String?
+
+    func loadForms() async {
+        formsError = nil
+        do { forms = try await FormsClient(api: .current()).forms() } catch {
+            if let e = error as? QueueError { ModuleFailure.handler(ModuleId.forms)(e) }
+            formsError = ConversationItemsRules.explain(error)
+        }
+    }
+
+    /// Envia o formulário como link de uso único (a conversa precisa estar assumida).
+    func sendForm(_ form: FormSummary) async -> Bool {
+        guard await act("form", formId: form.id) else { return false }
+        workspace.addLocalEvent("form", "Formulário \"\(form.displayName)\" enviado ao cliente", to: conversationId)
+        workspace.show("Formulário enviado", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
+    /// Cobra pelo Pix ou link; a cobrança aparece como "Aguardando pagamento" até o provedor confirmar.
+    func charge(method: String, amountCents: Int, description: String) async -> Bool {
+        guard await act("charge", method: method, amountCents: amountCents, description: description) else { return false }
+        workspace.addLocalEvent("payment", "Cobrança de \(Money.format(amountCents)) enviada", to: conversationId)
+        workspace.show("Cobrança enviada", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
+    // MARK: Passagem por módulo e Suporte pago
+
+    /// Resumo e marcadores de quem passou a conversa à equipe (ex.: "telefone não vinculado ao pagador X").
+    var handoff: ModuleHandoff? { detail?.handoff.flatMap { $0.hasContent ? $0 : nil } }
+
+    @Published private(set) var suporte: SuporteStatus?
+    @Published private(set) var suporteBusy: String?
+    private let suporteKeys = IntentKeys()
+
+    /// Estado do Suporte pago nesta conversa, quando o módulo está ligado na área.
+    func loadSuporte() async {
+        guard let p = profileId, ModuleFeature.shared.isAvailable(ModuleId.suporte, p), conversation?.isGroup != true else { suporte = nil; return }
+        do {
+            suporte = try await SuporteClient(api: .current()).status(conversationId)
+            #if DEBUG
+            print("[Wabotia] suporte: \(suporte.map(SuporteRules.statusText) ?? "-"); passagem \(handoff?.module ?? "nenhuma")")
+            #endif
+        } catch let e as QueueError {
+            #if DEBUG
+            print("[Wabotia] suporte: leitura falhou (\(e.status) \(e.code))")
+            #endif
+            ModuleFailure.handler(ModuleId.suporte)(e)
+            if e.moduleDisabled || e.status == 404 { suporte = nil }
+        } catch {}
+    }
+
+    /// `link` (vincular o telefone ao pagador), `confirm` (confirmar e liberar) ou `courtesy` (com motivo e validade).
+    @discardableResult
+    func suporteAction(_ action: String, reason: String? = nil, hours: Int? = nil) async -> Bool {
+        guard suporteBusy == nil else { return false }
+        let client = SuporteClient(api: .current())
+        let key = suporteKeys.key(for: "\(action):\(conversationId):\(reason ?? ""):\(hours ?? 0)")
+        suporteBusy = action
+        actionError = nil
+        defer { suporteBusy = nil }
+        do {
+            switch action {
+            case "link": suporte = try await client.linkPhone(conversationId, key: key)
+            case "confirm": _ = try await client.confirm(conversationId, link: true, key: key)
+            default: _ = try await client.courtesy(conversationId, reason: reason ?? "", hours: hours, key: key)
+            }
+            suporteKeys.settle(nil)
+            Haptics.success()
+            let text = action == "link" ? "Telefone vinculado ao pagador" : (action == "confirm" ? "Confirmado e liberado" : "Liberado como cortesia")
+            workspace.addLocalEvent("suporte", text, to: conversationId)
+            workspace.show(text, style: .success)
+            await load(silent: true)
+            await loadSuporte()
+            return true
+        } catch {
+            suporteKeys.settle(error)
+            if let e = error as? QueueError { ModuleFailure.handler(ModuleId.suporte)(e) }
+            let retry = (error as? QueueError)?.retryable == true
+            actionError = ModuleFailure.message(error) + (retry ? " Toque de novo para repetir com segurança." : "")
+            workspace.show(actionError ?? "Não deu certo", style: .error)
+            await loadSuporte()
+            return false
+        }
+    }
+
+    /// Pedido: envia ao cliente o link do carrinho ("Montar pedido para este cliente"; a conversa precisa estar assumida).
+    func sendPedidoLink() async -> Bool {
+        guard await act("pedido_link") else { return false }
+        workspace.addLocalEvent("pedido", "Link do pedido enviado ao cliente", to: conversationId)
+        workspace.show("Link do pedido enviado", style: .success)
+        forceScrollToken += 1
+        return true
+    }
+
     func sendSurvey() async -> Bool {
         guard await act("survey") else { return false }
         workspace.addLocalEvent("survey", "Pesquisa de satisfação enviada", to: conversationId)
@@ -521,10 +629,16 @@ final class ConversationViewModel: ObservableObject {
         return true
     }
 
+    /// A última falha de `openTicket` foi uma recusa definitiva (4xx de validação ou permissão, ou chave já usada com
+    /// outro conteúdo): só aí a próxima tentativa é um pedido novo, com chave nova. Rede, 408, 429, 5xx e
+    /// `operation_unknown` deixam o resultado incerto, e repetir com a mesma chave é o que evita dois protocolos.
+    private(set) var ticketKeySpent = false
+
     /// Abre um protocolo para esta conversa (`POST /tickets`). Devolve o protocolo ou nil (erro em `actionError`).
     func openTicket(title: String, category: String? = nil, key: String) async -> Ticket? {
         guard let p = profileId else { return nil }
         actionError = nil
+        ticketKeySpent = false
         do {
             let ticket = try await container.api.createTicket(p, TicketCreate(conversation_id: conversationId, title: title, category: category), key: key)
             workspace.addLocalEvent("ticket", "Protocolo \(ticket.number) aberto", to: conversationId)
@@ -533,6 +647,7 @@ final class ConversationViewModel: ObservableObject {
             await workspace.refreshTicketCounts()
             return ticket
         } catch {
+            if let e = error as? APIError { ticketKeySpent = e.isDefinitiveWriteRejection || e.isIdempotencyConflict }
             handleActionError(error)
             return nil
         }
@@ -801,6 +916,10 @@ final class ConversationViewModel: ObservableObject {
             }
             if e.code == "unsupported_capability" {
                 actionError = "O canal desta conversa não oferece este recurso. " + e.message
+                return
+            }
+            if e.code == "payments_not_configured" || e.code == "module_disabled" {
+                actionError = ConversationItemsRules.explain(error)
                 return
             }
         }

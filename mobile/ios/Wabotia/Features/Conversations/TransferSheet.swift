@@ -361,8 +361,9 @@ struct TransferSheet: View {
                 ticketCategory = nil
                 ticketKey = APIClient.newIdempotencyKey()
                 dismiss()
-            } else if vm.actionError != nil {
-                // O servidor respondeu: a próxima tentativa é um novo pedido.
+            } else if vm.ticketKeySpent {
+                // Recusa definitiva: a próxima tentativa é um novo pedido. Rede, 5xx e resultado incerto mantêm a
+                // chave, para o toque seguinte não abrir um segundo protocolo.
                 ticketKey = APIClient.newIdempotencyKey()
             }
             creatingTicket = false

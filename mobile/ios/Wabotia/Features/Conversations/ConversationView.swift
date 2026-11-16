@@ -9,6 +9,7 @@ struct ConversationView: View {
     @Environment(\.pushRoute) private var push
     @StateObject private var vm: ConversationViewModel
     @ObservedObject private var workspace = Workspace.shared
+    @ObservedObject private var modules = ModuleFeature.shared
     let conversationId: String
 
     @State private var transferTab: TransferSheet.Tab?
@@ -27,6 +28,12 @@ struct ConversationView: View {
     @State private var newCount = 0
     @State private var highlighted: String?
     @State private var didOpen = false
+    @State private var confirmLink = false
+    @State private var confirmRelease = false
+    @State private var showCourtesy = false
+    @State private var showForms = false
+    @State private var showCharge = false
+    @State private var ranScript = false
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -40,6 +47,13 @@ struct ConversationView: View {
             header
             if let clock = vm.window, vm.conversation?.state != "closed" {
                 WindowBanner(clock: clock) { showWindowInfo = true }
+            }
+            if let handoff = vm.handoff, vm.conversation?.state != "closed" {
+                HandoffBanner(handoff: handoff) { push(.conversationInfo(id: conversationId)) }
+            }
+            let items = ConversationItemsRules.recent(steps: vm.webSteps, payments: vm.payments, now: workspace.nowMillis)
+            if !items.steps.isEmpty || !items.payments.isEmpty {
+                ConversationItemsBar(steps: items.steps, payments: items.payments) { push(.conversationInfo(id: conversationId)) }
             }
             messagesArea
             if vm.conversation != nil { footer }
@@ -75,6 +89,27 @@ struct ConversationView: View {
         }) { BotPickerSheet { bot in pendingBot = bot } }
         .sheet(isPresented: $showSaveContact) { SaveContactSheet(vm: vm) }
         .sheet(isPresented: $showWindowInfo) { WindowInfoSheet(clock: vm.window) }
+        .sheet(isPresented: $showCourtesy) {
+            CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
+        }
+        .sheet(isPresented: $showForms, onDismiss: { vm.actionError = nil }) { FormPickerSheet(vm: vm) }
+        .sheet(isPresented: $showCharge, onDismiss: { vm.actionError = nil }) { ChargeSheet(vm: vm) }
+        .confirmationDialog(SuporteRules.linkTitle(vm.suporte) + "?", isPresented: $confirmLink, titleVisibility: .visible) {
+            Button("Vincular") { Task { await vm.suporteAction("link") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("O telefone desta conversa passa a ser reconhecido como do pagador nas próximas vezes.") }
+        .confirmationDialog("Confirmar e liberar o atendimento?", isPresented: $confirmRelease, titleVisibility: .visible) {
+            Button("Confirmar e liberar") { Task { await vm.suporteAction("confirm") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("Você confirmou que este telefone é do pagador: ele é vinculado e o cliente é liberado.") }
+        .task(id: vm.conversation?.id) {
+            guard vm.conversation != nil else { return }
+            await vm.loadSuporte()
+            #if DEBUG
+            // Também na demonstração (WABOTIA_DEMO=chat), para ver o caminho feliz: o Mercado Pago fictício paga sozinho.
+            if let script = DemoMode.conversationScript, !ranScript { ranScript = true; await runScript(script) }
+            #endif
+        }
         .confirmationDialog("Concluir este atendimento?", isPresented: $confirmResolve, titleVisibility: .visible) {
             Button("Concluir", role: .destructive) { Task { if await vm.resolve() { dismiss() } } }
             Button("Cancelar", role: .cancel) {}
@@ -169,6 +204,39 @@ struct ConversationView: View {
         Menu {
             Button { showTags = true } label: { Label("Etiquetas", systemImage: "tag") }
             Button { push(.newTicket(conversationId: conversationId)) } label: { Label("Abrir protocolo", systemImage: "doc.text") }
+            if !c.isGroup, modules.isAvailable(ModuleId.agenda, container.profileId) {
+                Button { push(.newAppointment(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Agendar para este cliente", systemImage: "calendar.badge.plus") }
+            }
+            if !c.isGroup, modules.isAvailable(ModuleId.serviceOrders, container.profileId) {
+                Button { push(.newServiceOrder(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Abrir ordem de serviço", systemImage: "wrench.and.screwdriver") }
+            }
+            if !c.isGroup, modules.isAvailable(ModuleId.reserva, container.profileId) {
+                Button { push(.bookingForm(conversationId: conversationId, customer: vm.displayName, unitId: nil, date: nil)) } label: { Label("Reservar para este cliente", systemImage: "bed.double") }
+            }
+            if !c.isGroup, vm.isOwned, modules.isAvailable(ModuleId.pedido, container.profileId) {
+                Button { Task { await vm.sendPedidoLink() } } label: { Label("Montar pedido para este cliente", systemImage: "takeoutbag.and.cup.and.straw") }
+            }
+            // Formulário e Cobrança: com o módulo ligado e a conversa assumida (ou administrador), como o servidor exige.
+            if !c.isGroup, vm.isOwned || vm.isAdmin, c.state != "closed" {
+                if modules.isAvailable(ModuleId.forms, container.profileId) {
+                    Button { vm.actionError = nil; showForms = true } label: { Label("Enviar formulário", systemImage: "doc.text") }
+                }
+                if modules.isAvailable(ModuleId.payments, container.profileId) {
+                    Button { vm.actionError = nil; showCharge = true } label: { Label("Cobrar", systemImage: "creditcard") }
+                }
+            }
+            // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
+            if !c.isGroup, vm.isOwned || vm.isAdmin, let s = vm.suporte {
+                if SuporteRules.canLink(s) {
+                    Button { confirmLink = true } label: { Label(SuporteRules.linkTitle(s), systemImage: "link") }
+                }
+                if SuporteRules.canConfirm(s) {
+                    Button { confirmRelease = true } label: { Label("Confirmar e liberar", systemImage: "checkmark.shield") }
+                }
+                if SuporteRules.canCourtesy(s) {
+                    Button { showCourtesy = true } label: { Label("Liberar como cortesia", systemImage: "gift") }
+                }
+            }
             if vm.canTransfer {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }
             }
@@ -347,10 +415,40 @@ struct ConversationView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
+    #if DEBUG
+    /// `WABOTIA_CONVERSA` (só depuração, sessão de verdade): os passos com o resultado no console.
+    private func runScript(_ script: String) async {
+        for step in script.split(separator: ",").map(String.init) {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            let parts = step.split(separator: ":", maxSplits: 3).map(String.init)
+            var result = ""
+            switch parts.first ?? "" {
+            case "claim": await vm.claim()
+            case "forms":
+                await vm.loadForms()
+                result = vm.formsError ?? "\(vm.forms?.count ?? 0) formulário(s): \((vm.forms ?? []).map(\.displayName).joined(separator: ", "))"
+            case "form":
+                if parts.count > 1, let form = vm.forms?.first(where: { $0.id == parts[1] }) { _ = await vm.sendForm(form) } else { result = "formulário \(parts.dropFirst().first ?? "") não está na lista" }
+            case "charge" where parts.count == 4:
+                _ = await vm.charge(method: parts[1], amountCents: Int(parts[2]) ?? 0, description: parts[3])
+            case "resolve": _ = await vm.resolve()
+            // A folha aberta mostra o mesmo aviso que a ação deixou (para a captura).
+            case "sheet": if parts.count > 1 { if parts[1] == "charge" { showCharge = true } else { showForms = true } }
+            case "close": showCharge = false; showForms = false
+            default: result = "passo desconhecido"
+            }
+            print("[Wabotia] conversa: \(step) → \(result.isEmpty ? (vm.actionError ?? "ok") : result); estado \(vm.conversation?.state ?? "?"), cobranças \(vm.payments.count), links \(vm.webSteps.count)")
+        }
+    }
+    #endif
+
     private func demoSheets() {
         #if DEBUG
-        switch DemoMode.takeSheet("transfer", "transfer-bots", "transfer-departments", "transfer-menu", "transfer-ticket", "transfer-confirm", "actions", "window", "tags", "reply", "push-info", "do-claim", "do-send", "do-transfer") {
+        switch DemoMode.takeSheet("transfer", "transfer-bots", "transfer-departments", "transfer-menu", "transfer-ticket", "transfer-confirm", "actions", "window", "tags", "reply", "push-info", "do-claim", "do-send", "do-transfer",
+                                   "charge", "forms") {
         case "push-info": push(.conversationInfo(id: conversationId))
+        case "charge": showCharge = true
+        case "forms": showForms = true
         case "do-claim": Task { await vm.claim() }
         case "do-send":
             vm.draft = "Mariana, a coleta está confirmada para amanhã cedo."

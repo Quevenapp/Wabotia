@@ -16,7 +16,7 @@ final class DemoURLProtocol: URLProtocol {
                 self.client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
                 return
             }
-            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body)
+            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body, key: request.value(forHTTPHeaderField: "Idempotency-Key"))
             let response = HTTPURLResponse(url: url, statusCode: result.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": result.type, "Content-Length": String(result.data.count)])!
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: result.data)
@@ -105,7 +105,37 @@ final class DemoServer {
     /// Efeitos com hora marcada (recibos avançando, resposta do cliente, resposta do bot).
     private var scheduled: [(due: Int64, run: () -> Void)] = []
 
-    private init() { buildFixtures() }
+    /// Fila de senhas, pareamento do modo aparelho e capacidades (`DemoQueue`).
+    private(set) lazy var fila = DemoQueue(t0: start)
+    /// Agenda (barbearia) e Ordem de Serviço (assistência técnica), em `DemoModules.swift`.
+    private(set) lazy var agenda = DemoAgenda(t0: start)
+    private(set) lazy var ordens = DemoServiceOrders(t0: start)
+    /// Reserva (pousada) e Mensalidade (escola de idiomas), em `DemoModulesExtra.swift`.
+    private(set) lazy var reserva = DemoReserva(t0: start)
+    private(set) lazy var mensalidade = DemoMensalidade(t0: start)
+    /// Pedido (lanchonete) e Suporte pago (passagem para humano), em `DemoPedidoSuporte.swift`.
+    private(set) lazy var pedido = DemoPedido(t0: start)
+    private(set) lazy var suporte = DemoSuporte(t0: start)
+    /// Formulários (passo web) e cobranças por conversa: `web_steps` e `payments` do detalhe.
+    private var webSteps: [String: [Row]] = [:]
+    private var payments: [String: [Row]] = [:]
+    private let forms: [Row] = [
+        ["id": "coleta", "name": "coleta", "title": "Dados para a coleta", "fields": [
+            ["id": "endereco", "type": "text", "label": "Endereço da coleta", "required": true],
+            ["id": "periodo", "type": "choice", "label": "Período", "required": true]]],
+        ["id": "satisfacao", "name": "satisfacao", "title": "Avaliação do atendimento", "fields": [
+            ["id": "nota", "type": "choice", "label": "Nota", "required": true], ["id": "comentario", "type": "text", "label": "Comentário", "required": false]]],
+    ]
+
+    private init() {
+        buildFixtures()
+        // Na conversa da Mariana: o formulário da coleta já respondido e o Pix do frete aguardando.
+        let m = now - 50 * 60_000
+        webSteps["c_rich"] = [["id": "ws_coleta", "conversation_id": "c_rich", "module_id": "forms", "kind": "form", "ref_id": "coleta", "title": "Dados para a coleta",
+                               "status": "completed", "trigger": "agent", "actor": me, "expires_at": m + 86_400_000, "opened_at": m + 120_000,
+                               "completed_at": m + 300_000, "created": m]]
+        payments["c_rich"] = [paymentRow("pay_frete", "c_rich", "pix", 1890, "Frete da troca", status: "created", created: now - 20 * 60_000)]
+    }
 
     private func nextId(_ prefix: String) -> String {
         sequence += 1
@@ -168,6 +198,7 @@ final class DemoServer {
         conversations = [
             conversation("c_rich", "Mariana Costa", "5520908765432", state: "human", owner: me, lastCustomer: 46, updated: 44, tags: ["VIP", "Troca"], department: "dep_fin"),
             conversation("c_queue", "Fernanda Rocha", "5520901122334", state: "waiting", lastCustomer: 12, updated: 12, tags: ["Suporte"], department: "dep_sup"),
+            conversation(DemoSuporte.conversationId, "Ricardo Almeida", "5520906541111", state: "waiting", lastCustomer: 6, updated: 6, tags: ["Suporte pago"], department: "dep_sup"),
             conversation("c_queue2", "Lucas Martins", "5520908876655", state: "waiting", line: "line_zernio", lastCustomer: 3, updated: 3),
             conversation("c_5h", "João Pedro Almeida", "5520906543210", state: "human", owner: me, line: "line_zernio", lastCustomer: 19 * 60 - 2, updated: 58, tags: ["Entrega"]),
             conversation("c_40", "Patrícia Nunes", "5520909887766", state: "human", owner: me, lastCustomer: 23 * 60 + 20, updated: 23 * 60 + 15, tags: ["Orçamento"]),
@@ -217,6 +248,19 @@ final class DemoServer {
             message("q1", "c_queue", "customer", "customer:q", "Bom dia! Meu sistema parou de emitir nota fiscal desde ontem.", at: 14, content: ["type": "text"]),
             message("q2", "c_queue", "outbound", "system", "Vou encaminhar sua solicitação para o setor Suporte.", at: 13, status: "delivered"),
             message("q3", "c_queue", "customer", "customer:q", "Preciso resolver isso hoje, por favor.", at: 12, content: ["type": "text"]),
+        ]
+        // Suporte pago: identificação pelo CPF de um telefone não vinculado, compra do avulso pelo Pix e passagem à equipe.
+        let sup = DemoSuporte.conversationId, ricardo = "customer:sup"
+        messages[sup] = [
+            message("s1", sup, "customer", ricardo, "Atendimento humano (pago)", at: 14, content: ["type": "text"]),
+            message("s2", sup, "outbound", "system", "Para falar com a equipe, informe o CPF ou CNPJ de quem paga o suporte.", at: 14, status: "read"),
+            message("s3", sup, "customer", ricardo, "123.456.789-09", at: 13, content: ["type": "text"]),
+            message("s4", sup, "outbound", "system", "Encontramos o cadastro de Ricardo Almeida, sem assinatura em dia. Escolha: 1. Suporte avulso (R$ 60,00, até o protocolo fechar) · 2. Plano mensal", at: 13, status: "read"),
+            message("s5", sup, "customer", ricardo, "1", at: 12, content: ["type": "text"]),
+            message("s6", sup, "outbound", "system", "Pix copia e cola para pagar R$ 60,00. Assim que o Mercado Pago confirmar, você é atendido.", at: 12, status: "read"),
+            message("s7", sup, "outbound", "system", "Pagamento confirmado. Vou passar você para a equipe de Suporte.", at: 6, status: "delivered"),
+            message("s8", sup, "customer", ricardo, "A impressora fiscal não liga desde a queda de energia de ontem.", at: 6, content: ["type": "text"]),
+            message("s9", sup, "note", "system", "Suporte pago: Ricardo Almeida (CPF 123.456.789-09), suporte avulso pago pelo Pix. Telefone não vinculado ao pagador.", at: 6),
         ]
         messages["c_queue2"] = [
             message("r1", "c_queue2", "customer", "customer:r", "Olá, quero falar com um atendente", at: 3, content: ["type": "text"]),
@@ -448,7 +492,7 @@ final class DemoServer {
 
     // MARK: - Rotas
 
-    func handle(method: String, url: URL, body data: Data) -> Reply {
+    func handle(method: String, url: URL, body data: Data, key: String? = nil) -> Reply {
         runScheduled()
         let parts = url.path.split(separator: "/").map(String.init)
         var query: [String: String] = [:]
@@ -466,6 +510,19 @@ final class DemoServer {
         }
         let get = method == "GET", post = method == "POST", put = method == "PUT", patch = method == "PATCH", delete = method == "DELETE"
         let session: Row = ["token": "wabu_demo", "expires": now + 30 * 86_400_000, "user": ["id": me, "name": DemoMode.meName, "email": DemoMode.meEmail, "role": "admin", "profiles": ["demo"]] as Row]
+
+        // Fila de senhas (guichê e modo aparelho), pareamento do aparelho e capacidades.
+        if let reply = fila.route(method: method, parts: parts, body: body, key: key, now: now) { return reply }
+        // Módulos da onda 3 (eventos `agenda.*` e `os.*` em GET /events).
+        if let reply = DemoArea.route(method: method, parts: parts) { return reply }
+        let emitter: DemoEmit = { [unowned self] kind, payload in self.emit(kind, payload) }
+        if let reply = agenda.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = reserva.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = pedido.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        if let reply = suporte.route(method: method, parts: parts, body: body, key: key, now: now, emit: emitter) { return reply }
+        if get, m("api/v1/profiles/*/forms") != nil { return ok(["data": forms]) }
 
         // Descoberta e conta
         if get, m("api/health") != nil { return ok(["service": "wabotia", "version": "demonstração", "commit": ""]) }
@@ -806,7 +863,74 @@ final class DemoServer {
             "contact": contacts[id] ?? NSNull() as Any,
             "messages": list,
             "deliveries": deliveries[id] ?? [],
+            "handoff": suporte.handoff(id),
+            "payments": Array((payments[id] ?? []).reversed()),
+            "web_steps": Array((webSteps[id] ?? []).reversed()),
         ])
+    }
+
+    // MARK: Formulário e Cobrança
+
+    /// Link de formulário: enviado; o cliente fictício abre em 8 s e responde em 20 s.
+    private func sendForm(_ id: String, _ body: Row) -> Reply {
+        guard let formId = body["form_id"] as? String, let form = forms.first(where: { $0["id"] as? String == formId }) else {
+            return fail(404, "not_found", "Formulário não encontrado ou desligado.")
+        }
+        let stepId = nextId("ws")
+        let title = form["title"] as? String ?? "Formulário"
+        webSteps[id, default: []].append(["id": stepId, "conversation_id": id, "module_id": "forms", "kind": "form", "ref_id": formId, "title": title,
+                                         "status": "sent", "trigger": "agent", "actor": me, "expires_at": now + 86_400_000, "opened_at": NSNull(),
+                                         "completed_at": NSNull(), "created": now])
+        _ = appendOutbound(id, author: me, text: "\(title): responda pelo link (vale 24 horas).\nhttps://formulario.example/w/\(stepId)")
+        emit("web_step.sent", resource: stepId, ["conversation_id": id, "web_step_id": stepId, "module_id": "forms"])
+        schedule(after: 8) { [weak self] in self?.moveStep(id, stepId, to: "opened") }
+        schedule(after: 20) { [weak self] in self?.moveStep(id, stepId, to: "completed") }
+        return ok(webSteps[id]!.last!)
+    }
+
+    private func moveStep(_ conversation: String, _ stepId: String, to status: String) {
+        guard let i = webSteps[conversation]?.firstIndex(where: { $0["id"] as? String == stepId }), webSteps[conversation]?[i]["status"] as? String != "completed" else { return }
+        webSteps[conversation]?[i]["status"] = status
+        webSteps[conversation]?[i][status == "opened" ? "opened_at" : "completed_at"] = now
+        emit("web_step.\(status)", resource: stepId, ["conversation_id": conversation, "web_step_id": stepId, "module_id": "forms"])
+        if status == "completed" {
+            emit("form.submitted", resource: stepId, ["conversation_id": conversation, "form_id": webSteps[conversation]?[i]["ref_id"] ?? ""])
+            messages[conversation, default: []].append([
+                "id": nextId("note"), "profile_id": "demo", "conversation_id": conversation, "direction": "note", "author": "system",
+                "text": "Formulário respondido pelo cliente. As respostas estão nos dados do contato.", "attachments": json([String]()),
+                "external_id": NSNull(), "created": now, "content": json([String: Any]()), "delivery_status": "", "status_at": now,
+            ])
+        }
+    }
+
+    /// Cobrança: Pix com copia e cola ou link; o "Mercado Pago" da demonstração confirma em 15 s.
+    private func charge(_ id: String, _ body: Row) -> Reply {
+        let method = body["method"] as? String ?? ""
+        guard ["pix", "link"].contains(method) else { return fail(400, "invalid_request", "Escolha Pix ou link.") }
+        guard let cents = body["amount_cents"] as? Int, (1...10_000_000).contains(cents) else { return fail(400, "invalid_request", "Informe um valor entre R$ 0,01 e R$ 100.000,00.") }
+        let description = (body["description"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        guard !description.isEmpty, description.count <= 120 else { return fail(400, "invalid_request", "Informe a descrição da cobrança (até 120 caracteres).") }
+        let payId = nextId("pay")
+        payments[id, default: []].append(paymentRow(payId, id, method, cents, description, status: "created", created: now))
+        _ = appendOutbound(id, author: me, text: "\(description): \(Money.format(cents)). " + (method == "pix" ? "Toque em Ver QR Code Pix ou copie o código abaixo." : "Toque em Pagar agora."))
+        if method == "pix" { _ = appendOutbound(id, author: me, text: "00020126580014br.gov.bcb.pix0136demo-\(payId)5204000053039865802BR5925DEMONSTRACAO") }
+        emit("payment.created", resource: payId, ["conversation_id": id, "payment_id": payId])
+        schedule(after: 15) { [weak self] in
+            guard let self, let i = self.payments[id]?.firstIndex(where: { $0["id"] as? String == payId }), self.payments[id]?[i]["status"] as? String == "created" else { return }
+            self.payments[id]?[i]["status"] = "paid"
+            self.payments[id]?[i]["paid_at"] = self.now
+            self.emit("payment.paid", resource: payId, ["conversation_id": id, "payment_id": payId])
+            _ = self.appendOutbound(id, author: "system", text: "Pagamento recebido: \(Money.format(cents)). Obrigado!")
+        }
+        return ok(payments[id]!.last!)
+    }
+
+    private func paymentRow(_ payId: String, _ conversation: String, _ method: String, _ cents: Int, _ description: String, status: String, created: Int64, paidAt: Int64? = nil) -> Row {
+        ["id": payId, "conversation_id": conversation, "provider": "mercadopago", "method": method, "module_id": NSNull(), "ref_id": NSNull(), "description": description,
+         "amount_cents": cents, "currency": "BRL", "status": status, "provider_status": status == "paid" ? "approved" : "pending",
+         "pix_code": method == "pix" ? "00020126580014br.gov.bcb.pix0136demo-\(payId)5204000053039865802BR5925DEMONSTRACAO" : NSNull() as Any,
+         "url": "https://pagamento.example/\(payId)", "trigger": "agent", "actor": me, "expires_at": created + 86_400_000,
+         "paid_at": paidAt.map { $0 as Any } ?? NSNull(), "created": created, "updated": paidAt ?? created]
     }
 
     private func touch(_ i: Int) { conversations[i]["updated"] = now }
@@ -930,6 +1054,12 @@ final class DemoServer {
         case "survey":
             let deliveryId = appendOutbound(id, author: me, text: "Como você avalia este atendimento?\nResponda de 1 a 5 e, se desejar, escreva um comentário. Para sair da avaliação, envie MENU.")
             return ok(["survey_id": nextId("sv"), "delivery_id": deliveryId, "status": "pending"])
+        case "form": return sendForm(id, body)
+        case "charge": return charge(id, body)
+        case "pedido_link":
+            guard mine else { return fail(400, "invalid_request", "Assuma a conversa antes de enviar o pedido ao cliente.") }
+            _ = appendOutbound(id, author: me, text: "Monte seu pedido na Lanchonete da Ana: https://lanchonete.example/pedido (o link vale 60 minutos).")
+            return ok(["sent": true, "reason": NSNull(), "web_step": ["id": nextId("ws"), "status": "open"] as Row])
         default:
             return fail(400, "invalid", "Ação desconhecida.")
         }

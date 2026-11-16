@@ -185,16 +185,17 @@ final class BotChatViewModel: ObservableObject {
                     return
                 }
                 guard let message = TicketsSupport.failure(error) else { return }
-                if let apiError = error as? APIError {
+                if let apiError = error as? APIError, apiError.isIdempotencyConflict || apiError.isDefinitiveWriteRejection {
                     if apiError.isIdempotencyConflict {
                         // Mesma chave com outro corpo: a próxima tentativa é um novo pedido.
                         self.mutate(turnId) { $0.sending = false; $0.error = "Este pedido já foi enviado com outro conteúdo. Tente novamente."; $0.retryable = true; $0.key = APIClient.newIdempotencyKey() }
                     } else {
-                        // O servidor recusou (limite, bot não autorizado…): repetir só com nova chave.
+                        // O servidor recusou de vez (bot não autorizado, validação…): repetir só com nova chave.
                         self.mutate(turnId) { $0.sending = false; $0.error = message; $0.retryable = true; $0.key = APIClient.newIdempotencyKey() }
                     }
                 } else {
-                    // Falha de rede: o pedido pode ter sido aceito; repetir com a mesma chave é seguro.
+                    // Falha de rede, 408, 429, 5xx ou `operation_unknown`: o pedido pode ter sido aceito (e o bot
+                    // disparado); repetir com a mesma chave é seguro.
                     self.mutate(turnId) { $0.sending = false; $0.error = message; $0.retryable = true }
                 }
             }

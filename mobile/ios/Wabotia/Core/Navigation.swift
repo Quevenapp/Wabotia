@@ -11,6 +11,27 @@ enum Route: Hashable {
     case lines
     case menus
     case botLines
+    /// Guichê da fila de senhas (só quando o servidor oferece a fila).
+    case counter
+    /// Agenda (módulo `agenda`).
+    case agenda
+    case appointment(id: String)
+    case newAppointment(conversationId: String?, customer: String?)
+    /// Ordem de Serviço (módulo `os`).
+    case serviceOrders
+    case serviceOrder(id: String)
+    case newServiceOrder(conversationId: String?, customer: String?)
+    /// Reserva e check-in (módulo `reserva`).
+    case reserva
+    case booking(id: String)
+    case bookingForm(conversationId: String?, customer: String?, unitId: String?, date: String?)
+    /// Mensalidade (módulo `mensalidade`).
+    case mensalidade
+    case installment(id: String)
+    case subscription(id: String)
+    /// Pedido (módulo `pedido`): quadro da cozinha, lista e cardápio.
+    case pedido
+    case pedidoOrder(id: String)
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -134,6 +155,21 @@ struct RouteDestination: View {
             case .lines: LinesView()
             case .menus: MenusView()
             case .botLines: BotLinesView()
+            case .counter: CounterView()
+            case .agenda: AgendaView()
+            case .appointment(let id): AppointmentDetailView(id: id)
+            case .newAppointment(let conversation, let customer): BookingView(purpose: .new(conversationId: conversation, customer: customer))
+            case .serviceOrders: ServiceOrdersView()
+            case .serviceOrder(let id): ServiceOrderDetailView(id: id)
+            case .newServiceOrder(let conversation, let customer): NewServiceOrderView(conversationId: conversation, customer: customer)
+            case .reserva: ReservaView()
+            case .booking(let id): BookingDetailView(id: id)
+            case let .bookingForm(conversation, customer, unit, date): BookingFormView(purpose: .new(conversationId: conversation, customer: customer, unitId: unit, date: date))
+            case .mensalidade: MensalidadeView()
+            case .installment(let id): InstallmentDetailView(id: id)
+            case .subscription(let id): SubscriptionDetailView(id: id)
+            case .pedido: PedidoView()
+            case .pedidoOrder(let id): PedidoOrderView(id: id)
             }
         }
         .id(route)

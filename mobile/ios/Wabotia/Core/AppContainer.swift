@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// Endereços públicos fixos do app.
 enum AppLinks {
@@ -21,10 +22,16 @@ final class AppContainer: ObservableObject {
     }
     /// Destino pendente vindo de notificação/deep link; consumido pela HomeView.
     @Published var pendingLink: DeepLink?
+    /// Modo aparelho aberto (totem, painel de chamadas, híbrido): ocupa o app inteiro, fora do login.
+    @Published var deviceLaunch: DeviceLaunch?
+    /// Na tela depois do servidor, a pessoa escolheu "Entrar" (e não o modo aparelho).
+    @Published var loginChosen = false
 
     private var client: APIClient?
 
     private init() {
+        // Antes de ler qualquer credencial: o Keychain de uma instalação anterior não vale para esta.
+        SessionStore.resetKeychainAfterReinstall()
         #if DEBUG
         // Demonstração aberta por WABOTIA_DEMO=<tela>: sessão isolada, em nada parecida com a real.
         if DemoMode.launchScreen != nil {
@@ -43,6 +50,61 @@ final class AppContainer: ObservableObject {
         isLoggedIn = session.token != nil && session.user != nil && session.serverURL != nil
         user = session.user
         profileId = session.profileId
+        loginChosen = isLoggedIn
+        // Aparelho pareado (totem ou painel): abre direto na tela dele, como um quiosque que reinicia sozinho.
+        var debugLaunch = false
+        #if DEBUG
+        debugLaunch = DemoMode.launchScreen != nil
+        if DemoMode.launchScreen == "login" { loginChosen = true }
+        // WABOTIA_DEMO=device | device-totem | device-panel | device-hybrid: o modo aparelho da demonstração.
+        if let screen = DemoMode.launchScreen, screen.hasPrefix("device") {
+            deviceLaunch = DeviceLaunch(demo: true, serverURL: DemoMode.serverURL.absoluteString, role: DeviceRole(rawValue: String(screen.dropFirst("device-".count))))
+        }
+        #endif
+        if !debugLaunch, KeychainDeviceConfigStore().load() != nil {
+            deviceLaunch = DeviceLaunch(demo: false, serverURL: nil)
+        }
+        #if DEBUG
+        // WABOTIA_DEVICE_SERVER (só depuração): o modo aparelho contra esse servidor, para parear sem tocar na tela.
+        if deviceLaunch == nil, let server = DemoMode.deviceServer {
+            deviceLaunch = DeviceLaunch(demo: false, serverURL: server)
+        }
+        // WABOTIA_LOGIN_* (só depuração): entra na conta de teste sem tocar na tela, se ainda não houver sessão.
+        if deviceLaunch == nil, !isLoggedIn, let login = DemoMode.debugLogin {
+            Task { await debugLogin(login) }
+        }
+        #endif
+    }
+
+    #if DEBUG
+    /// O mesmo login da tela Entrar, sem o pedido de permissão de notificações (diálogo do sistema). Nada da senha vai ao console.
+    private func debugLogin(_ login: (server: URL, email: String, password: String)) async {
+        do {
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+            let device = DeviceInfo(name: String(UIDevice.current.name.prefix(80)), app_version: version)
+            let result = try await client(for: login.server).mobileLogin(MobileLoginRequest(email: login.email.lowercased(), password: login.password, device: device))
+            session.serverURL = login.server
+            loginChosen = true
+            onLoggedIn(server: login.server, result: result)
+            print("[Wabotia] login de depuração: entrou em \(login.server.host ?? "") com \(result.user.profiles.count) área(s)")
+        } catch {
+            print("[Wabotia] login de depuração falhou: \(APIError.describe(error))")
+        }
+    }
+    #endif
+
+    /// "Usar este aparelho como painel ou totem", com o servidor já informado.
+    func openDeviceMode() {
+        deviceLaunch = DeviceLaunch(demo: false, serverURL: session.serverURL?.absoluteString)
+    }
+
+    /// O modo aparelho contra a demonstração: nada é guardado e nada sai do aparelho.
+    func openDemoDeviceMode(role: DeviceRole? = nil) {
+        deviceLaunch = DeviceLaunch(demo: true, serverURL: DemoMode.serverURL.absoluteString, role: role)
+    }
+
+    func closeDeviceMode() {
+        deviceLaunch = nil
     }
 
     /// Sessão atual é a demonstração (servidor fictício em memória).
@@ -56,7 +118,8 @@ final class AppContainer: ObservableObject {
 
     func client(for url: URL) -> APIClient {
         if let c = client, c.baseURL == url { return c }
-        let c = APIClient(baseURL: url) { [weak self] in self?.session.token }
+        // O token só vai para a origem que o emitiu: a tela Servidor testa um endereço novo sem levar o de outro.
+        let c = APIClient(baseURL: url) { [weak self] in self?.session.token(for: url) }
         client = c
         return c
     }
@@ -83,8 +146,12 @@ final class AppContainer: ObservableObject {
     func onLoggedOut(keepServer: Bool) {
         // O endereço da demonstração nunca fica guardado: sair dela (ou um 401) volta à primeira tela.
         let keepServer = keepServer && !isDemo
+        // Saída de uma conta de verdade (normal, forçada ou por 401): nenhum aviso dela continua chegando nem fica na
+        // Central de Notificações, mesmo que o servidor não tenha apagado o registro do aparelho.
+        if isLoggedIn, !isDemo { PushManager.shared.forgetThisDevice() }
         // Para os laços antes de limpar, para nenhum deles regravar caches depois da saída.
         Workspace.shared.reset()
+        ModuleFeature.shared.clear()
         session.clearSession(keepServer: keepServer)
         // Anexos em memória (os arquivos em disco já foram removidos por `clearSession`).
         Task { await MediaLoader.shared.clear() }
@@ -92,6 +159,7 @@ final class AppContainer: ObservableObject {
         user = nil
         profileId = nil
         isLoggedIn = false
+        if !keepServer { loginChosen = false }
     }
 
     /// Renova o token quando faltam menos de 7 dias.
@@ -110,7 +178,8 @@ final class AppContainer: ObservableObject {
         pendingLink = deepLink
     }
 
-    /// Sessão rejeitada pelo servidor (401): volta ao login mantendo o servidor.
+    /// Sessão rejeitada pelo servidor (401): volta ao login mantendo o servidor. `onLoggedOut` limpa os avisos e invalida
+    /// o token de push, porque o registro do aparelho não pôde ser apagado com o token recusado.
     func handleUnauthorized() {
         onLoggedOut(keepServer: true)
     }

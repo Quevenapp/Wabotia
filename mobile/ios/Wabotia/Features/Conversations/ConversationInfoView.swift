@@ -18,6 +18,12 @@ struct ConversationInfoView: View {
     @State private var confirmResolve = false
     @State private var confirmResume = false
     @State private var confirmSurvey = false
+    @State private var confirmLink = false
+    @State private var confirmRelease = false
+    @State private var showCourtesy = false
+    @State private var showForms = false
+    @State private var showCharge = false
+    @ObservedObject private var modules = ModuleFeature.shared
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -37,6 +43,12 @@ struct ConversationInfoView: View {
                                 if let clock = vm.window { windowCard(clock, c) }
                                 if let error = vm.actionError { InlineError(text: error) }
                                 statusCard(c)
+                                if vm.handoff != nil || vm.suporte != nil {
+                                    HandoffInfoCard(handoff: vm.handoff, suporte: vm.suporte, canAct: vm.isOwned || vm.isAdmin, busy: vm.suporteBusy,
+                                                    onLink: { confirmLink = true }, onConfirm: { confirmRelease = true }, onCourtesy: { showCourtesy = true })
+                                        .id("handoff")
+                                }
+                                itemsCard(c)
                                 tagsCard
                             }
                             .padding(.horizontal, 16)
@@ -68,6 +80,20 @@ struct ConversationInfoView: View {
         .onAppear { vm.appear() }
         .onDisappear { vm.disappear() }
         .task { await vm.loadTickets() }
+        .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
+        .sheet(isPresented: $showForms, onDismiss: { vm.actionError = nil }) { FormPickerSheet(vm: vm) }
+        .sheet(isPresented: $showCharge, onDismiss: { vm.actionError = nil }) { ChargeSheet(vm: vm) }
+        .sheet(isPresented: $showCourtesy) {
+            CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
+        }
+        .confirmationDialog(SuporteRules.linkTitle(vm.suporte) + "?", isPresented: $confirmLink, titleVisibility: .visible) {
+            Button("Vincular") { Task { await vm.suporteAction("link") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("O telefone desta conversa passa a ser reconhecido como do pagador nas próximas vezes.") }
+        .confirmationDialog("Confirmar e liberar o atendimento?", isPresented: $confirmRelease, titleVisibility: .visible) {
+            Button("Confirmar e liberar") { Task { await vm.suporteAction("confirm") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text("Você confirmou que este telefone é do pagador: ele é vinculado e o cliente é liberado.") }
         .sheet(isPresented: $showTags) { TagsSheet(vm: vm) }
         .sheet(isPresented: $showSaveContact) { SaveContactSheet(vm: vm) }
         .sheet(isPresented: $showBots, onDismiss: {
@@ -85,6 +111,21 @@ struct ConversationInfoView: View {
             Button("Enviar pesquisa") { Task { await vm.sendSurvey() } }
             Button("Cancelar", role: .cancel) {}
         } message: { Text("O cliente recebe a pergunta e responde com uma nota de 1 a 5.") }
+    }
+
+    // MARK: Formulários e cobranças
+
+    /// Aparece com Formulários ou Cobrança ligados, ou quando a conversa já tem links ou cobranças.
+    @ViewBuilder
+    private func itemsCard(_ c: Conversation) -> some View {
+        let canAct = !c.isGroup && (vm.isOwned || vm.isAdmin) && c.state != "closed"
+        let canForm = canAct && modules.isAvailable(ModuleId.forms, container.profileId)
+        let canCharge = canAct && modules.isAvailable(ModuleId.payments, container.profileId)
+        if canForm || canCharge || !vm.webSteps.isEmpty || !vm.payments.isEmpty {
+            ConversationItemsCard(steps: vm.webSteps, payments: vm.payments, canForm: canForm, canCharge: canCharge,
+                                  onForm: { vm.actionError = nil; showForms = true }, onCharge: { vm.actionError = nil; showCharge = true })
+                .id("items")
+        }
     }
 
     // MARK: Contato

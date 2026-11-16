@@ -88,6 +88,12 @@ struct ServerView: View {
             SecondaryButton(title: "Conhecer o app (demonstração)", icon: "play.circle", disabled: busy, action: enterDemo)
             Text("Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Button { if !busy { focused = false; container.openDemoDeviceMode() } } label: {
+                Label("Ver o modo painel ou totem (demonstração)", systemImage: "tv")
+                    .font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand)
+                    .frame(maxWidth: .infinity, minHeight: Theme.touch)
+            }
+            .accessibilityIdentifier("server.deviceDemo")
             Button("Política de privacidade") { openURL(AppLinks.privacyPolicy) }
                 .font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
                 .frame(maxWidth: .infinity, minHeight: Theme.touch)
