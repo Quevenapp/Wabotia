@@ -388,6 +388,17 @@ export interface OpenWebStepInput {
   flow?: { flow_id: string; flow_cta?: string; screen?: string } | null;
 }
 
+/**
+ * Passo para o ator (conferência M6): as respostas (documento do check-in,
+ * endereço do carrinho) só para pessoas da equipe e aplicações com
+ * contacts:read.
+ */
+export function stepFor(actor: Actor, row: any) {
+  const view = webStepView(row);
+  if (view && actor.kind === "app" && !actor.scopes.includes("contacts:read"))
+    return { ...view, answers: null };
+  return view;
+}
 export function webStepView(row: any) {
   if (!row) return null;
   return {
@@ -649,7 +660,7 @@ export async function listWebSteps(
         profile,
         conversationId,
       )
-    ).map(webStepView),
+    ).map((row) => stepFor(actor, row)),
   };
 }
 
@@ -668,7 +679,7 @@ export async function getWebStep(
   );
   if (!row) throw new ApiError(404, "not_found", "Passo web não encontrado.");
   await conversation(env, row.conversation_id, profile, actor);
-  return webStepView(row);
+  return stepFor(actor, row);
 }
 
 /** Atendente ou integração cancela um link ainda não usado. */

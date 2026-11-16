@@ -254,7 +254,7 @@ async function conversationStatus(
 
 onRead("suporte", "suporte/releases", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listReleases(ctx, query);
+  return listReleases(ctx, ctx.safeQuery(actor, query));
 });
 
 // Quem digitou o CPF/CNPJ de um cadastro por um telefone que ele não
@@ -283,7 +283,7 @@ onRead("suporte", "suporte/pending", async (ctx, actor) => {
 
 onRead("suporte", "suporte/purchases", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listPurchases(ctx, query);
+  return listPurchases(ctx, ctx.safeQuery(actor, query));
 });
 
 // Ofertas como o cliente vê: pacotes avulsos e planos mensais.

@@ -210,7 +210,7 @@ onSchedule("os", async (ctx, { now }) => {
 
 onRead("os", "service-orders", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  const page = await listOrders(ctx, query);
+  const page = await listOrders(ctx, ctx.safeQuery(actor, query));
   return {
     ...page,
     data: page.data.map((view) => visibleOrder(ctx, actor, view)),

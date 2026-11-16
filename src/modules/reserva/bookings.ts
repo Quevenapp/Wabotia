@@ -173,7 +173,8 @@ export function visibleBookings(ctx: ModuleContext, actor: Actor, value: any) {
     if (!v || typeof v !== "object") return v;
     if (isBooking(v))
       return ctx.redact(actor, v, {
-        contacts: ["customer_phone", "checkin_answers"],
+        // checkin_step_id levava às respostas pelo passo web (conferência M6).
+        contacts: ["customer_phone", "checkin_answers", "checkin_step_id"],
         notes: ["notes"],
       });
     return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));

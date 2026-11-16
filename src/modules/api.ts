@@ -123,6 +123,15 @@ export interface ModuleContext {
    */
   mayRead(actor: Actor, kind: SensitiveKind): boolean;
   /**
+   * Filtros de busca seguros para o ator (conferência M6): sem contacts:read,
+   * a busca `q` perde os dígitos e somem os filtros `phone` e `document`, para
+   * a lista não virar oráculo (documento ou telefone → cliente).
+   */
+  safeQuery(
+    actor: Actor,
+    query: Record<string, string>,
+  ): Record<string, string>;
+  /**
    * Cópia do registro sem os campos que o ator não pode ver (`mayRead`). Os
    * campos somem da resposta; o resto fica igual.
    */
@@ -341,6 +350,16 @@ export function modulesApi(
     },
     access: (actor, scope) => access(actor, profile, scope),
     mayRead: (actor, kind) => mayRead(actor, kind),
+    safeQuery(actor, query) {
+      if (mayRead(actor, "contacts")) return query;
+      const { phone: _p, document: _d, ...rest } = query;
+      if (typeof rest.q === "string")
+        rest.q = rest.q
+          .replace(/\d/g, "")
+          .replace(/[.\-/()+]/g, " ")
+          .trim();
+      return rest;
+    },
     redact(actor, row, fields) {
       const copy: Record<string, any> = { ...row };
       for (const kind of Object.keys(fields) as SensitiveKind[])

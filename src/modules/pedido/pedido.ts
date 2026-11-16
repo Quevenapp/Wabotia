@@ -207,7 +207,11 @@ onRead(MODULE, "pedido/board", async (ctx, actor) => {
 });
 onRead(MODULE, "pedido/orders", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return visibleOrders(ctx, actor, await listOrders(ctx, query));
+  return visibleOrders(
+    ctx,
+    actor,
+    await listOrders(ctx, ctx.safeQuery(actor, query)),
+  );
 });
 onRead(MODULE, "pedido/orders/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");

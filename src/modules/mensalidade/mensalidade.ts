@@ -136,7 +136,7 @@ onRead(
   "mensalidade/installments",
   async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
-    return listInstallments(ctx, query);
+    return listInstallments(ctx, ctx.safeQuery(actor, query));
   },
 );
 
@@ -572,7 +572,25 @@ onRead(
   "mensalidade/subscriptions",
   async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
-    return listSubscriptions(ctx, query);
+    const list = await listSubscriptions(ctx, ctx.safeQuery(actor, query));
+    // Na listagem, atendente vê o documento do pagador mascarado, como na
+    // lista de pagadores (conferência M6); completo no detalhe.
+    if (actor.kind === "user" && actor.role !== "admin")
+      return {
+        ...list,
+        data: list.data.map((sub: any) =>
+          sub.payer
+            ? {
+                ...sub,
+                payer: {
+                  ...sub.payer,
+                  document_display: maskDocument(sub.payer.document_display),
+                },
+              }
+            : sub,
+        ),
+      };
+    return list;
   },
 );
 

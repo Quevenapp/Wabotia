@@ -514,17 +514,26 @@ onRead(MODULE, "reserva/bookings", async (ctx, actor, { query }) => {
   read(ctx, actor);
   const range =
     query.from_date || query.to_date ? dateRange(query, Date.now()) : null;
-  return {
-    data: await listBookings(ctx, {
-      from: range?.starts,
-      to: range?.ends,
-      status: query.status,
-      unit_id: query.unit_id,
-      conversation_id: query.conversation_id,
-      q: query.q,
-      limit: query.limit ? Number(query.limit) : undefined,
-    }),
-  };
+  const data = await listBookings(ctx, {
+    from: range?.starts,
+    to: range?.ends,
+    status: query.status,
+    unit_id: query.unit_id,
+    conversation_id: query.conversation_id,
+    // Sem contacts:read, sem busca por telefone (conferência M6).
+    q: ctx.safeQuery(actor, query).q,
+    limit: query.limit ? Number(query.limit) : undefined,
+  });
+  // Na listagem, atendente não recebe os documentos do check-in de todas as
+  // reservas (conferência M6); vê no detalhe da reserva.
+  if (actor.kind === "user" && actor.role !== "admin")
+    return {
+      data: data.map(({ checkin_answers: _a, ...b }) => ({
+        ...b,
+        checkin_answers: null,
+      })),
+    };
+  return { data };
 });
 onRead(MODULE, "reserva/bookings/:id", async (ctx, actor, { params }) => {
   read(ctx, actor);

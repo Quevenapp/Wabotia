@@ -91,6 +91,22 @@ export async function visibleEvent(env: Env, actor: Actor, e: any) {
     return !!run && run.actor === actor.id && actor.bots.includes(run.bot_id);
   }
   const payload = json(e.payload);
+  // Conferência M6: eventos de módulo levam o registro inteiro (telefone,
+  // respostas do check-in, observações) e os de passo web levam as
+  // respostas; sem contacts:read a aplicação não os recebe. Os da OS e do
+  // Pedido levam também a nota interna: exigem notes:read.
+  if (
+    (payload.module_id ||
+      e.kind === "web_step.completed" ||
+      e.kind === "form.submitted") &&
+    !actor.scopes.includes("contacts:read")
+  )
+    return false;
+  if (
+    (payload.module_id === "os" || payload.module_id === "pedido") &&
+    !actor.scopes.includes("notes:read")
+  )
+    return false;
   let id = payload.conversation_id;
   if (e.kind.startsWith("conversation.")) id = e.resource_id;
   if (e.kind.startsWith("ticket."))
