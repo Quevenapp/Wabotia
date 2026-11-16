@@ -381,6 +381,12 @@ const COUPON_QR_NOTICE: Record<CouponQrIssue, string> = {
     "O QR do WhatsApp não sai no cupom porque nenhuma linha de WhatsApp da área tem o número registrado. Confira a conexão da linha em Integrações.",
 };
 
+/** "123.456.789-09" → "***.456.789-**". */
+export const maskCpf = (display: string) =>
+  /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(display)
+    ? `***${display.slice(3, 11)}-**`
+    : "";
+
 /**
  * O que o aparelho imprime no cupom da senha, já resolvido (contrato em
  * docs/FILA-SENHAS.md, "Cupom da senha"). Vai no snapshot da fila.
@@ -406,7 +412,13 @@ export async function couponView(
       c.establishment && est
         ? {
             name: est.name,
-            document_display: est.document_display,
+            // CPF vai mascarado: o cupom fica com o cliente e o aparelho só
+            // tem queue:read. CNPJ sai inteiro.
+            document_type: est.document_type,
+            document_display:
+              est.document_type === "cpf"
+                ? maskCpf(est.document_display)
+                : est.document_display,
             address: est.address,
             phone: est.phone,
           }

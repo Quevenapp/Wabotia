@@ -121,6 +121,7 @@ describe("cupom da senha", () => {
     let { coupon } = await overview(env, f.profile);
     expect(coupon.establishment).toEqual({
       name: "Clínica Exemplo",
+      document_type: "cnpj",
       document_display: "11.222.333/0001-81",
       address: "Rua A, 1",
       phone: "(11) 3000-0000",
@@ -153,6 +154,20 @@ describe("cupom da senha", () => {
     ({ coupon } = await overview(env, f.profile));
     expect(coupon.establishment).toBe(null);
     expect(coupon.footer).toBe(null);
+  });
+
+  it("CPF do estabelecimento chega ao aparelho mascarado", async () => {
+    const { f } = await setup();
+    await configure(f, {
+      establishment: { name: "Ana Manicure", document: "52998224725" },
+    });
+    const { coupon } = await overview(env, f.profile);
+    expect(coupon.establishment).toMatchObject({
+      document_type: "cpf",
+      document_display: "***.982.247-**",
+    });
+    expect(JSON.stringify(coupon)).not.toContain("52998224725");
+    expect(JSON.stringify(coupon)).not.toContain("529.982");
   });
 
   it("valida a configuração e só o administrador grava", async () => {

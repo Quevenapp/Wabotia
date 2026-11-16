@@ -173,7 +173,8 @@ um `snapshot` novo na hora. O recurso `queue_coupon` em `features` de
 
 ```json
 "coupon": {
-  "establishment": { "name": "Clínica Exemplo", "document_display": "11.222.333/0001-81",
+  "establishment": { "name": "Clínica Exemplo", "document_type": "cnpj" | "cpf" | null,
+                     "document_display": "11.222.333/0001-81",
                      "address": "Rua A, 1", "phone": "(11) 3000-0000" } | null,
   "position": true,
   "footer": "Obrigado pela visita!" | null,
@@ -187,7 +188,9 @@ Como o aparelho imprime:
 
 - `establishment` não nulo: cabeçalho com nome e, quando não vazios,
   documento, endereço (pode ter quebra de linha) e telefone. Nulo: sem
-  cabeçalho do estabelecimento.
+  cabeçalho do estabelecimento. Imprima `document_display` como veio, com o
+  rótulo de `document_type` ("CPF" ou "CNPJ"): o CPF já chega mascarado
+  (`***.456.789-**`), porque o cupom fica com o cliente; o CNPJ vem inteiro.
 - `position`: imprime `ahead` e `wait_minutes` do `Ticket` (este só quando não
   for `null`). Falso: só a senha, a fila e a hora.
 - `footer` não nulo: imprime o texto no fim (pode ter quebra de linha).
