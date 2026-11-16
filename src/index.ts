@@ -12,6 +12,7 @@ import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
 import {
   teamDirectory,
+  areaGrants,
   areaPeople,
   listInternalChats,
   internalChatDetail,
@@ -104,6 +105,12 @@ import {
   moduleStates,
   requireModule,
 } from "./modules/registry";
+import {
+  accessCatalog,
+  allows,
+  presetsFor,
+  requireRouteAccess,
+} from "./access";
 import {
   formInput,
   formPage,
@@ -855,6 +862,24 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   }
   await next();
 });
+// Acesso por pessoa (src/access.ts): o atendente só alcança as rotas dos
+// itens marcados no acesso dele (403 access_denied); rota fora do catálogo
+// fica só para quem tem tudo. Os comandos conferem de novo em perform.
+app.use("/api/v1/profiles/*", async (c, next) => {
+  const segment = c.req.path.split("/")[5];
+  if (segment) requireRouteAccess(c.get("actor"), segment);
+  await next();
+});
+app.get("/api/v1/profiles/:profile/access", (c) => {
+  // Catálogo para a tela de Pessoas e acessos: o que pode ser marcado nesta
+  // área (módulos ligados) e os atalhos de perfil.
+  if (!canProfile(c.get("actor"), c.req.param("profile")))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return moduleStates(c.env, c.req.param("profile")).then((states) => {
+    const catalog = accessCatalog(states);
+    return c.json({ data: catalog, presets: presetsFor(catalog) });
+  });
+});
 mountMcp(app);
 const mobileToken = (c: any) => {
   const bearer = c.req.header("Authorization")?.match(/^Bearer (.+)$/)?.[1];
@@ -1142,7 +1167,7 @@ app.get("/api/v1/users", async (c) => {
   return c.json(
     await all(
       c.env,
-      "SELECT id,email,name,role,profiles,disabled FROM users ORDER BY created",
+      "SELECT id,email,name,role,profiles,disabled,access FROM users ORDER BY created",
     ),
   );
 });
@@ -1554,11 +1579,14 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
     settings: await settings(c.env, p),
     enabled: (await one(c.env, "SELECT enabled FROM profiles WHERE id=?", p))
       ?.enabled,
-    conversations: await all(
-      c.env,
-      "SELECT state,count(*) count FROM conversations WHERE profile_id=? GROUP BY state",
-      p,
-    ),
+    // Contadores das conversas só para quem acessa o atendimento.
+    conversations: allows(c.get("actor"), "conversations")
+      ? await all(
+          c.env,
+          "SELECT state,count(*) count FROM conversations WHERE profile_id=? GROUP BY state",
+          p,
+        )
+      : [],
     deliveries: await all(
       c.env,
       "SELECT status,count(*) count FROM outbox WHERE profile_id=? GROUP BY status",
@@ -1605,7 +1633,17 @@ app.get("/api/v1/profiles/:profile/team", async (c) =>
 );
 // Pessoas da área para escolher responsável (aplicativos; docs/API.md).
 app.get("/api/v1/profiles/:profile/people", async (c) =>
-  c.json(await areaPeople(c.env, c.get("actor"), c.req.param("profile"))),
+  c.json(
+    await areaPeople(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.query("grant") || null,
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/grants", async (c) =>
+  c.json(await areaGrants(c.env, c.get("actor"), c.req.param("profile"))),
 );
 app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
   c.json(

@@ -24,6 +24,11 @@ export interface Actor {
   keyId?: string;
   /** Validade da credencial (sessão ou chave), para fechar sockets abertos. */
   expiresAt?: number;
+  /**
+   * Pessoa: o que ela acessa (src/access.ts). null = tudo (atendente
+   * completo); o administrador e aplicações não usam.
+   */
+  access?: string[] | null;
   rate: number;
   runLimit: number;
 }

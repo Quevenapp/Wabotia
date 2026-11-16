@@ -20,7 +20,7 @@ import {
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
-import { exec, one } from "../db";
+import { all, exec, one } from "../db";
 import {
   ApiError,
   type Actor,
@@ -28,7 +28,9 @@ import {
   type Env,
   requireValue,
 } from "../types";
-import { access } from "../security";
+import { access, canProfile } from "../security";
+import { grantId } from "../module-grants";
+import { rolesOf } from "../access";
 import { activeTicketSql } from "../protocols";
 import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
@@ -307,6 +309,25 @@ export interface ModuleContext {
    * que segurou. Com `key`, repetir a chamada não passa de novo.
    */
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+  /**
+   * A pessoa tem o papel `role` deste módulo (declarado em `grants` da
+   * definição e marcado pelo administrador no acesso da pessoa, em Pessoas e
+   * acessos; vale nas áreas que ela alcança). O "*" do atendente completo e
+   * o papel de administrador não dão papel; aplicações e aparelhos pareados
+   * nunca têm (use escopos). Papel não declarado lança erro.
+   */
+  granted(actor: Actor, role: string): Promise<boolean>;
+  /** Pessoas ativas da área com o papel, em ordem de nome. */
+  grantees(role: string): Promise<{ id: string; name: string }[]>;
+}
+
+/** Id completo do papel; papel que o módulo não declarou é erro de código. */
+function declaredRole(moduleId: string, role: string) {
+  if (!moduleById(moduleId)?.grants?.some((g) => g.id === role))
+    throw new Error(
+      `Papel ${role} não declarado em grants do módulo ${moduleId}.`,
+    );
+  return grantId(moduleId, role);
 }
 
 export interface ActiveTicket {
@@ -460,6 +481,20 @@ export function modulesApi(
       );
     },
     settings: () => settings(env, profile),
+    async granted(actor, role) {
+      const id = declaredRole(moduleId, role);
+      if (actor.kind !== "user" || !canProfile(actor, profile)) return false;
+      return rolesOf(actor).includes(id);
+    },
+    grantees(role) {
+      const id = declaredRole(moduleId, role);
+      return all<{ id: string; name: string }>(
+        env,
+        "SELECT id,name FROM users WHERE disabled=0 AND json_valid(access) AND EXISTS(SELECT 1 FROM json_each(users.access) WHERE value=?) AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+        id,
+        profile,
+      );
+    },
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
     conversationByPhone: (phone, options = {}) =>

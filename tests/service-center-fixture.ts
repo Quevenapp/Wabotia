@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { exec, one, all } from "../src/db";
 import { defaults, json, now, uid, type Actor } from "../src/types";
 import { conversation, inbound, perform } from "../src/service";
@@ -98,7 +98,33 @@ export async function outbox(conversationId: string) {
 }
 export const latest = async (conversationId: string) =>
   (await outbox(conversationId)).at(-1);
+/**
+ * O alarme do Coordinator da área é agendado 1 s depois de qualquer comando ou
+ * passo web feito pela API (SELF.fetch) e também roda processInbox. Num teste
+ * lento ele pegava a mensagem junto com o drain: o drain via a fila vazia
+ * (mensagem em "processing" no alarme) e voltava antes da resposta, e o teste
+ * lia o estado no meio. Antes de processar, o drain cancela o alarme pendente
+ * e espera o que já está rodando terminar: só ele mexe na caixa de entrada.
+ */
+export async function quietCoordinator(profile: string) {
+  const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(profile));
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const busy = await runInDurableObject(
+      stub,
+      async (instance: any, state) => {
+        await state.storage.deleteAlarm();
+        return !!instance.busy;
+      },
+    );
+    if (!busy) return;
+    if (Date.now() > deadline)
+      throw new Error("drain: o alarme do Coordinator não terminou.");
+    await new Promise((done) => setTimeout(done, 20));
+  }
+}
 export async function drain(f: Fixture) {
+  await quietCoordinator(f.profile);
   while (
     await one(
       env,

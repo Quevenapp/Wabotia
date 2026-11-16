@@ -77,6 +77,7 @@ O que o núcleo faz com cada campo:
 | `routes` | Com o módulo desligado, `/profiles/:profile/<rota>/…` responde `409 module_disabled` |
 | `operations` | Com o módulo desligado, os comandos com esses prefixos respondem `409 module_disabled` |
 | `requires` | Opcional: ids dos módulos dos quais este depende (veja abaixo) |
+| `grants` | Opcional: papéis que o administrador marca no acesso de cada pessoa (veja "Acessos e papéis", seção 3) |
 
 ### Dependência entre módulos (`requires`)
 
@@ -436,6 +437,88 @@ mensagem, passo web nem protocolo.
   levam nota interna preenchida (e todos os da OS e do Pedido) exigem também
   `notes:read`.
 
+### Acessos e papéis (`grants`, `ctx.granted`)
+
+O administrador marca, para cada atendente, **o que ele acessa** (Gestão →
+Pessoas e acessos). A lista mistura três tipos de item, todos vindos de
+`GET /profiles/{p}/access`:
+
+- **áreas do núcleo**: `conversations`, `tickets`, `contacts`, `calls`,
+  `team` e `reports`;
+- **módulos**: o id do módulo (`os`, `agenda`, `pedido`…), que libera as
+  rotas, os comandos e as telas dele;
+- **papéis de módulo**: `<módulo>:<papel>`, declarados em `grants` da
+  definição. O papel já libera o módulo dele.
+
+```ts
+export const entregaModule: ModuleDefinition = {
+  id: "entrega",
+  grants: [{ id: "courier", label: "Entregador", description: "Leva os pedidos e envia a posição pelo app." }],
+  …
+};
+
+// No código do módulo:
+if (!(await ctx.granted(actor, "courier")))
+  throw new ApiError(403, "role_required", "Só o entregador desta entrega envia posições.");
+const couriers = await ctx.grantees("courier"); // [{id, name}] ativos da área
+```
+
+Nomes combinados para os papéis (use exatamente estes):
+
+| Módulo | Papel | Id completo | Nome no painel |
+|---|---|---|---|
+| Entrega (`entrega`) | `courier` | `entrega:courier` | Entregador |
+| Mesas (`mesas`) | `waiter` | `mesas:waiter` | Garçom |
+| Ordem de Serviço (`os`) | `technician` | `os:technician` | Técnico (já declarado) |
+| Caixa (`caixa`) | `cashier` | `caixa:cashier` | Caixa |
+
+Os atalhos de perfil do painel ("Atendente completo", "Só caixa", "Só garçom",
+"Só entregador da loja", "Técnico") só preenchem as caixas. Um atalho aparece
+quando todos os itens dele existem nesta versão.
+
+**O que o núcleo garante:**
+
+- **Lista guardada em `users.access`** (migração `0080`), por pessoa. Vale em
+  todas as áreas que ela alcança. `["*"]` é o atendente completo: todas as
+  áreas e todos os módulos, **sem papéis**. Quem já era atendente fica com
+  `NULL`, que vale como `["*"]`, e não perde nada ao atualizar.
+- **O administrador acessa tudo.** Ele não ganha papel automaticamente: para
+  aparecer na lista de entregadores, precisa receber o papel. Aplicações e
+  aparelhos pareados seguem pelos escopos e nunca têm papel.
+- **Rotas:** `/profiles/{p}/<segmento>` confere o item do segmento (o módulo
+  dono da rota, ou a área do núcleo) e responde `403 access_denied`. Dados de
+  apoio sem cliente ficam livres: `status`, `capabilities`, `establishment`,
+  `people`, `grants`, `access`, `presence`, `events`, `modules`, `media`,
+  `menus`, `lines`, `router`, `bots` e `knowledge`. Segmento novo do núcleo
+  fora dessas listas fica só para quem tem `*`. Se um módulo seu precisar de
+  rota livre, combine com a sessão A.
+- **Comandos:** `perform` confere de novo (o módulo dono do comando, ou a área
+  do núcleo pelo prefixo), também `403 access_denied`. Um módulo não precisa
+  conferir o próprio módulo; confere só o papel, quando a ação é de um papel.
+- **Leituras:** os eventos (`GET /events` e o que deriva dele) somem para quem
+  não acessa o assunto. O push de conversa, protocolo e ligação só vai a quem
+  acessa conversas, protocolos ou ligações. O `/status` traz os contadores de
+  conversas vazios para quem não acessa o atendimento. Os eventos do módulo
+  seguem o módulo dono (`events` da definição).
+- `ctx.granted(actor, papel)` e `ctx.grantees(papel)` aceitam só papéis
+  declarados em `grants` do próprio módulo; outro nome lança erro (de código).
+  Com o módulo desligado, os papéis dele somem de `capabilities`, de `/people`
+  e de `/grants`, mas ficam guardados e voltam ao religar.
+- **Leituras para escolher pessoa** (pessoa da área ou chave com
+  `conversations:read`):
+  - `GET /profiles/{p}/grants`: papéis dos módulos ligados e quem tem cada um;
+  - `GET /profiles/{p}/people`: cada pessoa traz `grants` e a rota aceita
+    `?grant=entrega:courier` (`400` se o papel não existir ou o módulo
+    estiver desligado).
+- **Gravar** (só administrador): `POST /users` e `PATCH /users/{id}` com
+  `access` (lista ou `null`). O núcleo recusa item desconhecido. Mudar o
+  acesso derruba as sessões da pessoa, que entra de novo com a lista nova.
+
+> Até `855140a` (`feat/concessoes-modulo`, nunca publicado), os papéis ficavam
+> por área em `module_grants` nas configurações. Essa chave não existe mais:
+> o papel vai na lista da pessoa. O uso de `ctx.granted`/`ctx.grantees` não
+> mudou.
+
 ## 4. Passo web
 
 Link curto de uso único, amarrado à conversa, que leva o cliente a uma página
@@ -708,7 +791,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
 - `GET /api/v1/capabilities` lista, por área alcançada pela credencial
   (pessoa ou aparelho pareado), os módulos **ligados** com versão, e os
-  recursos do núcleo em `features` (`modules`, `web_steps`, `establishment`, `queue_coupon`). O app só mostra a
+  recursos do núcleo em `features` (`modules`, `web_steps`, `establishment`, `queue_coupon`, `module_grants`, `person_access`). O app só mostra a
   tela de um módulo presente na lista; um 409 `module_disabled` numa rota do
   módulo deve esconder a tela até a próxima consulta.
 - Caminhos aceitos, todos com a mesma resposta:
@@ -721,7 +804,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
   {
     "capabilities_version": 1,
     "server": { "service": "wabotia", "version": "0.19.3", "commit": "…" },
-    "features": ["modules", "web_steps", "establishment", "queue_coupon"],
+    "features": ["modules", "web_steps", "establishment", "queue_coupon", "module_grants", "person_access"],
     "actor": { "id": "app:…", "kind": "app", "role": "service" },
     "profiles": [{ "id": "…", "name": "…", "enabled": true,
                    "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }] }],
@@ -731,6 +814,17 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
   (`modules` no topo só existe no caminho por área.) O id da fila é `queue`;
   o dos formulários, `forms`.
+- **O que a pessoa logada acessa** (recursos `person_access` e
+  `module_grants` em `features`): cada item de `profiles` traz `access` e
+  `grants`. O contrato completo para os apps está em
+  [API.md](API.md#acesso-por-pessoa).
+
+  ```json
+  "profiles": [{ "id": "…", "name": "…", "enabled": true,
+                 "modules": [{ "id": "os", "name": "Ordem de Serviço", "version": "1.0.0" }],
+                 "access": ["os", "os:technician"],
+                 "grants": ["os:technician"] }]
+  ```
 - O evento `module.changed` (`{module_id, enabled, version}`) avisa quando um
   administrador liga ou desliga; aplicações da área o recebem em
   `GET /events` independentemente das permissões.

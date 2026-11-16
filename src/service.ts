@@ -79,6 +79,7 @@ import {
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
+import { requireOperationAccess, validateAccess } from "./access";
 import {
   hiddenMenuTypes,
   moduleById,
@@ -1508,6 +1509,8 @@ export async function perform(
   env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
+  // Acesso por pessoa (src/access.ts): atendente sem o item, 403.
+  requireOperationAccess(actor, op);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
@@ -1636,15 +1639,18 @@ export async function perform(
       "E-mail inválido.",
     );
     const id = uid();
+    const userAccess =
+      data.access === undefined ? null : validateAccess(data.access);
     await exec(
       env,
-      "INSERT INTO users(id,email,name,password,role,profiles,created) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO users(id,email,name,password,role,profiles,access,created) VALUES(?,?,?,?,?,?,?,?)",
       id,
       text(data.email, 200).toLowerCase(),
       text(data.name, 100),
       passwordHash(data.password),
       data.role,
       JSON.stringify(data.profiles || []),
+      userAccess && JSON.stringify(userAccess),
       now(),
     );
     return { id };
@@ -1657,12 +1663,22 @@ export async function perform(
       data.id !== actor.id || !data.disabled,
       "Você não pode desativar sua própria conta.",
     );
+    // access: lista (src/access.ts) ou null (atendente completo); ausente,
+    // fica como estava.
+    const userAccess =
+      data.access === undefined
+        ? (u.access ?? null)
+        : (() => {
+            const list = validateAccess(data.access);
+            return list && JSON.stringify(list);
+          })();
     await exec(
       env,
-      "UPDATE users SET name=?,profiles=?,disabled=? WHERE id=?",
+      "UPDATE users SET name=?,profiles=?,disabled=?,access=? WHERE id=?",
       data.name ? text(data.name, 100) : u.name,
       JSON.stringify(data.profiles ?? json(u.profiles, [])),
       data.disabled === undefined ? u.disabled : Number(!!data.disabled),
+      userAccess,
       data.id,
     );
     if (data.password)

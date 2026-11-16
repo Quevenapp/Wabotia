@@ -11,6 +11,8 @@ import {
 import { access } from "./security";
 import { event } from "./events";
 import { createRun } from "./service";
+import { declaredGrants, grantsFor } from "./module-grants";
+import { moduleStates } from "./modules/registry";
 import { hermesRequest } from "./integrations";
 
 function teamAccess(actor: Actor, profile: string) {
@@ -27,15 +29,49 @@ function teamAccess(actor: Actor, profile: string) {
  * responsável (ordem de serviço, agenda…). Sem bots e sem sondar o Hermes,
  * ao contrário de teamDirectory. Pessoa da área ou chave com conversations:read.
  */
-export async function areaPeople(env: Env, actor: Actor, profile: string) {
+export async function areaPeople(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  grant?: string | null,
+) {
   access(actor, profile, "conversations:read");
   const users = await all(
     env,
-    "SELECT id,name,role FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+    "SELECT id,name,role,access FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
     profile,
   );
+  // Papéis nos módulos ligados (docs/MODULOS.md, "Acessos e papéis").
+  const states = await moduleStates(env, profile);
+  if (grant)
+    requireValue(
+      declaredGrants(states).some((g) => g.id === grant),
+      "Papel desconhecido ou de módulo desligado.",
+    );
   return {
-    data: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    data: users
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        grants: grantsFor({ access: u.access }, states),
+      }))
+      .filter((u) => !grant || u.grants.includes(grant)),
+  };
+}
+
+/** Papéis que esta área pode conceder (módulos ligados) e quem tem cada um. */
+export async function areaGrants(env: Env, actor: Actor, profile: string) {
+  access(actor, profile, "conversations:read");
+  const states = await moduleStates(env, profile);
+  const people = (await areaPeople(env, actor, profile)).data;
+  return {
+    data: declaredGrants(states).map((g) => ({
+      ...g,
+      people: people
+        .filter((p) => p.grants.includes(g.id))
+        .map((p) => ({ id: p.id, name: p.name })),
+    })),
   };
 }
 export async function teamDirectory(env: Env, actor: Actor, profile: string) {

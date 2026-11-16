@@ -31,6 +31,7 @@ import {
 } from "../lib/routes";
 import { useTheme } from "../lib/theme";
 import {
+  accessAllows,
   canOpenPage,
   moduleAllows,
   railPages,
@@ -88,7 +89,7 @@ function useItems(): Item[] {
       .filter(
         (item) =>
           moduleAllows(item.page, app.modules) &&
-          canOpenPage(item.page, app.me.role, app.modules),
+          canOpenPage(item.page, app.me.role, app.modules, app.me.access),
       )
       .map((item) => ({
         area: "admin" as Area,
@@ -98,7 +99,14 @@ function useItems(): Item[] {
       })),
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "admin", label: "Gestão", icon: Settings },
-  ].filter((item) => moduleAllows(item.area, app.modules)) as Item[];
+  ].filter(
+    (item) =>
+      moduleAllows(item.area, app.modules) &&
+      // Acesso por pessoa: some o que ela não acessa (Gestão fica, com o
+      // Início e as páginas de módulo que ela tem).
+      (item.area === "admin" ||
+        accessAllows(item.area, app.me.role, app.me.access)),
+  ) as Item[];
 }
 
 const itemRoute = (item: Item): Route =>
@@ -160,6 +168,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const detail =
     !!route.id ||
     (route.area === "admin" && !!route.page && route.page !== "overview");
+
+  // Acesso por pessoa: área que ela não acessa (a de entrada é Conversas)
+  // leva ao primeiro item que ela tem.
+  const blocked =
+    route.area !== "admin" &&
+    !accessAllows(route.area, app.me.role, app.me.access);
+  useEffect(() => {
+    if (blocked && items[0]) navigate(itemRoute(items[0]), { replace: true });
+  }, [blocked, items[0]?.area, items[0]?.page]);
 
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
@@ -348,7 +365,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         )}
-        <div className="app-area">{children}</div>
+        <div className="app-area">{blocked ? null : children}</div>
       </div>
       <nav className="tabbar" aria-label="Áreas do painel">
         {items.slice(0, 4).map((item) => (

@@ -1,4 +1,5 @@
 import { one } from "./db";
+import { seesEvent } from "./access";
 import { type Actor, type Env, json, now } from "./types";
 
 /**
@@ -71,6 +72,8 @@ function carriesNotes(value: any, depth = 0): boolean {
 }
 
 export async function visibleEvent(env: Env, actor: Actor, e: any) {
+  // Acesso por pessoa: o atendente não vê eventos do que não acessa.
+  if (!seesEvent(actor, e.kind)) return false;
   if (e.kind.startsWith("internal.")) {
     if (actor.kind !== "user") return false;
     const chat = await one(
