@@ -5,6 +5,7 @@
 // desligado (desvio origin-fora) não há contato espelhado: devolve sempre
 // null, e a situação vem só do perfil nativo (contact_profile.situation).
 import { one, type SqlDriver } from "../../engine/driver.ts";
+import { raise } from "../../engine/errors.ts";
 import * as preferences from "../preferences/public.ts";
 import { activeRole } from "../access/public.ts";
 
@@ -19,6 +20,19 @@ export function contactScope(db: SqlDriver, user: string | null): string | null 
   if (role === null || role === "admin") return null;
   const s = one(db, 'SELECT id FROM "erp_catalog__seller" WHERE user_id=?', user);
   return s ? String(s.id) : null;
+}
+
+/** erp_catalog.contact_visible_to(p_scope, p_id): sem escopo vê tudo; com escopo, só a carteira do vendedor. */
+export function contactVisibleTo(db: SqlDriver, scope: string | null, id: string | null): boolean {
+  if (scope === null) return true;
+  return !!one(db, 'SELECT 1 x FROM "erp_catalog__contact_profile" WHERE record_id=? AND seller_id=?', id, scope);
+}
+
+/** erp_catalog.contact_require_visible(p_user_id, p_id): 42501 fora da carteira do vendedor. */
+export function contactRequireVisible(db: SqlDriver, user: string | null, id: string | null) {
+  const scope = contactScope(db, user);
+  if (scope !== null && !one(db, 'SELECT 1 x FROM "erp_catalog__contact_profile" WHERE record_id=? AND seller_id=?', id, scope))
+    raise("42501", "erp_catalog_contact_not_visible");
 }
 
 /** erp_catalog.contact_situation(p_active, p_detail): A, S, I ou E. */

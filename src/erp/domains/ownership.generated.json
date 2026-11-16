@@ -216,7 +216,7 @@
    },
    "erp_catalog.can_read_stock": {
     "name": "canReadStock",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.category_lineage": {
     "name": "categoryLineage",
@@ -224,19 +224,19 @@
    },
    "erp_catalog.compact": {
     "name": "compact",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_kits": {
     "name": "compositionKits",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_sync": {
     "name": "compositionSync",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_sync_on": {
     "name": "compositionSyncOn",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_apply": {
     "name": "contactApply",
@@ -276,7 +276,7 @@
    },
    "erp_catalog.contact_require_visible": {
     "name": "contactRequireVisible",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_required_field": {
     "name": "contactRequiredField",
@@ -320,7 +320,7 @@
    },
    "erp_catalog.contact_visible_to": {
     "name": "contactVisibleTo",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_warnings": {
     "name": "contactWarnings",
@@ -384,15 +384,15 @@
    },
    "erp_catalog.guard_deleted_product": {
     "name": "guardDeletedProduct",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.guard_variation_parent": {
     "name": "guardVariationParent",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.items_per_box_follow": {
     "name": "itemsPerBoxFollow",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.matches": {
     "name": "matches",
@@ -400,7 +400,7 @@
    },
    "erp_catalog.mutate": {
     "name": "mutate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.next_product_code": {
     "name": "nextProductCode",
@@ -436,7 +436,7 @@
    },
    "erp_catalog.product_cost_at": {
     "name": "productCostAt",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_cost_capture": {
     "name": "productCostCapture",
@@ -516,7 +516,7 @@
    },
    "erp_catalog.write_fields": {
     "name": "writeFields",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.list_price": {
     "name": "listPrice",
