@@ -7,6 +7,8 @@
 //   /storage/v1/…        → ainda não (R2 na fase 3): 501
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";
+import { admin } from "../../security";
+import { requireModule } from "../../modules/registry";
 import { erpFetch } from "../hub.ts";
 
 let erpApiModule: Promise<any> | null = null;
@@ -37,6 +39,36 @@ export function localFetch(env: Env, profile: string, actor: Actor) {
       return Response.json({ code: "0A000", message: "erp_storage_not_ported" }, { status: 501 });
     return Response.json({ message: "not found" }, { status: 404 });
   };
+}
+
+const PROBES = new Set([
+  "setup", "stock-post", "load", "report", "limits", "bookmark-mark", "bookmark-at", "bookmark-restore",
+  "bookmark-check", "location", "wipe",
+]);
+
+/**
+ * POST /api/v1/profiles/:profile/erp-probe/<sonda>: roteiro da instalação de
+ * teste (scripts/erp/staging-check.mjs). Só existe com a variável
+ * ERP_PROBES=1 no deploy (`wrangler deploy --var ERP_PROBES:1`); sem ela, 404.
+ * Administrador, módulo erp ligado na área (salvo "wipe", a limpeza).
+ */
+export async function erpProbe(env: Env, request: Request, profile: string, actor: Actor, name: string) {
+  if ((env as unknown as Record<string, unknown>).ERP_PROBES !== "1" || !PROBES.has(name))
+    throw new ApiError(404, "not_found", "Rota não encontrada.");
+  admin(actor);
+  if (name !== "wipe") await requireModule(env, profile, "erp");
+  const body = { ...(await request.json<Record<string, unknown>>().catch(() => ({}))), user: actor.id };
+  const t0 = Date.now();
+  const response = await erpFetch(env, profile, `/erp-probe/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json<Record<string, unknown>>().catch(() => ({ error: "resposta sem JSON" }));
+  return Response.json(
+    { probe: name, status: response.status, worker_colo: (request as any).cf?.colo ?? null, wall_ms: Date.now() - t0, result },
+    { status: response.ok ? 200 : 502 },
+  );
 }
 
 /**
