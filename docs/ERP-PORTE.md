@@ -85,7 +85,18 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
    - Asserções iguais. Teste de grants/RLS sai, declarado no cabeçalho.
    - Função interna: `f.dual(nome, pg, () => inTransaction(f.driver, ctx => …))`.
 4. **Diferencial aleatório:** `tests/erp/stock-post-diff.test.mjs` e `tests/erp/cross-domain.test.mjs` são os modelos.
-5. **Tetos:** baixe os de pendência em `tests/erp/schema-parity.test.mjs` (CHECK 222, gatilhos 240) pelo que o domínio cobriu.
+5. **Pendências cobertas em TS:**
+   - CHECK sem tradução ou gatilho em PL/pgSQL que o domínio cumpre em TS vai em `covered`, no `scripts/erp/overrides/<domínio>.mjs`:
+     ```
+     export const covered = {
+       checks: { "erp_catalog.payment_method.payment_method_defaults_fit": { where: "src/erp/domains/catalog/…ts função", test: "tests/erp/catalog/….test.mjs" } },
+       triggers: { "erp_company__file.file_identity": { where: "…", test: "…" } },
+     };
+     ```
+   - As chaves seguem o `report.generated.json`: CHECK `schema.tabela.restrição`, gatilho `schema__tabela.gatilho`.
+   - O `test` precisa exercitar a recusa nos dois motores.
+   - `tests/erp/schema-parity.test.mjs` recusa um item que não esteja pendente, sem `where` ou `test`, ou com arquivo de teste inexistente.
+   - Os tetos (`LIMITS`, hoje CHECK 221 e gatilhos 237) contam só o que ninguém cobre: baixe-os no seu branch ao cobrir. Na junção eu concilio.
 6. **Fechamento:** um domínio só fecha com o diferencial verde e os tetos baixados. Aviso curto à orquestração com as linhas de TS, os RPCs portados e os testes.
 
 ## Regras que valem para todos
@@ -103,6 +114,25 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - `dec`/`dec_i64` são escalados (`toScaled`, `formatScaled`).
   - `dec_text` é decimal em TEXT (`decText`, `compareDec`, `exact`): nunca compare nem some no SQL.
   - Casas a mais são recusadas (CHECK `trunc`), nunca arredondadas.
+- **Texto com a semântica do Postgres** (`src/erp/engine/text.ts`, provado contra o oráculo em todo o Unicode por `tests/erp/text.test.mjs`):
+  - `lower()` e `upper()` são caractere a caractere. Use `pgLower`/`pgUpper`, nunca `toLowerCase`/`toUpperCase`:
+    - não há sigma final (`ΟΔΟΣ` → `οδοσ`);
+    - `İ` → `i`, e o `upper` de `ß` é `ẞ`;
+    - ~350 caracteres seguem a tabela Unicode do próprio Postgres.
+  - `\s` e `[[:space:]]` não pegam NBSP, U+1680, U+2007, U+202F nem U+FEFF, mas pegam U+0085 e U+3000. Use `PG_SPACE`/`pgHasSpace`.
+  - `[[:cntrl:]]` pega C0, DEL e C1. Use `PG_CNTRL`/`pgHasCntrl`.
+  - Os ajudantes `pgBtrim` (só espaço), `pgLength` e `pgLeft` contam caracteres, não unidades UTF-16.
+  - O cliente do PGlite tira um U+FEFF do começo do texto devolvido. Em teste, ponha um caractere na frente (`'x'||…`).
+- **Armazenamento** (`storage.buckets`/`storage.objects` do Supabase): no Wabotia é o R2.
+  - `preferences.storageReady()` não lança (o R2 sempre existe; o harness cria o bucket no oráculo).
+  - Objeto conferido dentro do RPC: declare as chaves em `registerRpc(nome, fn, { objects: (args) => ["erp-attachments/…"] })` e leia com `ctx.objects(chave)`. Ele devolve `{size, mimetype}` ou null; o objeto `erp:` lê do R2 antes da transação.
+  - No teste, `f.putObject(bucket, nome, tamanho, tipo)` grava o objeto nos dois lados.
+  - Exemplo: `company/rpc/files.ts`.
+- **Segundo fator** (fase 3, `erp_access_gate_v2`): é por pessoa e por sessão, não por RPC.
+  - Com a política ligada (`mfaPolicyOn`), quem está no escopo (`mfaInScope`) só usa o ERP inteiro numa sessão aal2.
+  - O escopo é o papel admin, o papel financeiro ou quem tem alguma das `MFA_SENSITIVE` (`access/internal.ts`).
+  - `gateRequired` também liga com horário de acesso próprio ou de vendedor.
+- **Migrações congeladas sempre com LF** (`.gitattributes`). O manifesto de SHA-256 e o oráculo leem com LF.
 - **Recibo de comando:** recibo que vem de outro domínio leva escopo (`scopedCommand`), porque a tabela de recibos é compartilhada.
 - **Origin desligado** (PLANO-FAGOO.md, item 17; desvio `origin-fora` em `src/erp/schema/deviations.ts`): `erp_sync.settings.enabled=false` nos dois motores, então `enqueue` não grava. O que fazer com o que toca o Origin:
   - **Chamada a `erp_document_mirror.require_visible`:** a linha sai.

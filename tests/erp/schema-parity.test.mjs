@@ -8,7 +8,7 @@
 // - cada gatilho tem SQL gerado ou pendência declarada (porte do domínio).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { oracleDb } from "../../scripts/erp/oracle-db.mjs";
 import { decText, scaled } from "../../scripts/erp/gen-sqlite-lib.mjs";
@@ -27,6 +27,11 @@ const q = (id) => `"${id.replace(/"/g, '""')}"`;
 
 // Tetos das pendências: subir exige rever o gerador (ou declarar por quê).
 // Contam só as pendências que nenhum domínio cumpre em TS (overrides/<domínio>.mjs, `covered`).
+/** Item coberto: { where, test }; o arquivo de teste tem de existir. */
+function proven(kind, id, item) {
+  assert.ok(item && typeof item === "object" && item.where && item.test, `${kind} ${id}: declare { where, test }`);
+  assert.ok(existsSync(item.test), `${kind} ${id}: teste ${item.test} não existe`);
+}
 const LIMITS = { checks_pending: 221, triggers_pending: 237, indexes_dropped: 1 };
 
 const lite = new DatabaseSync(":memory:");
@@ -123,7 +128,10 @@ test("todo CHECK é traduzido, validador de regex ou pendência declarada", () =
   const pending = new Set(report.checks.pending.filter((p) => p.why !== "UNIQUE NULLS NOT DISTINCT").map((p) => `${p.table}.${p.constraint}`));
   for (const id of all) assert.ok(translated.has(id) || regex.has(id) || pending.has(id), `CHECK ${id}`);
   assert.equal(translated.size + regex.size + pending.size, all.length);
-  for (const id of Object.keys(overrides.covered.checks)) assert.ok(pending.has(id), `coberto mas não pendente: ${id}`);
+  for (const [id, item] of Object.entries(overrides.covered.checks)) {
+    assert.ok(pending.has(id), `coberto mas não pendente: ${id}`);
+    proven("CHECK", id, item);
+  }
   const uncovered = [...pending].filter((id) => !(id in overrides.covered.checks));
   assert.ok(uncovered.length <= LIMITS.checks_pending, `pendências de CHECK sem cobertura: ${uncovered.length}`);
   for (const p of report.checks.pending) assert.ok(p.why, "motivo");
@@ -135,7 +143,10 @@ test("todo gatilho tem SQL gerado ou pendência declarada", () => {
   for (const id of all) assert.ok(guards.has(id), `gatilho ${id}`);
   const pending = ERP_GUARDS.filter((g) => g.status === "pending");
   const ids = new Set(pending.map((g) => `${g.table}.${g.trigger}`));
-  for (const id of Object.keys(overrides.covered.triggers)) assert.ok(ids.has(id), `coberto mas não pendente: ${id}`);
+  for (const [id, item] of Object.entries(overrides.covered.triggers)) {
+    assert.ok(ids.has(id), `coberto mas não pendente: ${id}`);
+    proven("gatilho", id, item);
+  }
   const uncovered = [...ids].filter((id) => !(id in overrides.covered.triggers));
   assert.ok(uncovered.length <= LIMITS.triggers_pending, `gatilhos pendentes sem cobertura: ${uncovered.length}`);
   for (const g of pending) assert.ok(g.reason);

@@ -45,8 +45,13 @@ const partsFormat = new Intl.DateTimeFormat("en-CA", {
  * instante UTC da meia-noite local (horário de verão incluído, pelo Intl).
  */
 export function saoPauloMidnight(date: string): bigint {
+  return saoPauloLocal(date, 0);
+}
+
+/** (data + segundos do dia) no horário de São Paulo → instante UTC em µs. */
+export function saoPauloLocal(date: string, seconds: number): bigint {
   const [y, m, d] = date.split("-").map(Number);
-  const wall = Date.UTC(y, m - 1, d);
+  const wall = Date.UTC(y, m - 1, d) + seconds * 1000;
   // Deslocamento de São Paulo no instante aproximado; duas voltas acertam a virada do horário de verão.
   let guess = wall + 3 * 3600_000;
   for (let i = 0; i < 2; i++) {
@@ -55,6 +60,14 @@ export function saoPauloMidnight(date: string): bigint {
     guess += wall - local;
   }
   return BigInt(guess) * 1000n;
+}
+
+/** Instante (µs) → data, hora "HH:MM" e dia da semana (0 = domingo) em São Paulo. */
+export function saoPauloParts(micros: bigint): { date: string; hm: string; dow: number } {
+  const at = new Date(Number(micros / 1000n));
+  const p = Object.fromEntries(partsFormat.formatToParts(at).map((x) => [x.type, x.value]));
+  const date = `${p.year}-${p.month}-${p.day}`;
+  return { date, hm: `${p.hour}:${p.minute}`, dow: new Date(date + "T00:00:00Z").getUTCDay() };
 }
 
 /** Data válida AAAA-MM-DD (o tipo date do Postgres). */
