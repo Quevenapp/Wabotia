@@ -115,9 +115,11 @@ import {
   stepFor,
   touchWebStep,
   webStepByCode,
+  webStepView,
   whatsappReturnLink,
 } from "./web-steps";
-import { moduleRoutes } from "./modules/hooks";
+import { trackPage } from "./web-track";
+import { moduleRoutes, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -323,6 +325,29 @@ app.get("/api/w/:code", async (c) => {
     row.conversation_id,
   );
   const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
+  // Página de acompanhamento (spec.page "track"): o módulo diz o que mostrar.
+  if (json(row.spec).page === "track") {
+    const hook = webStepPageHook(row.module_id);
+    const view =
+      ["sent", "opened"].includes(current.status) &&
+      hook &&
+      (await webStepAvailable(c.env, row))
+        ? await hook(c.env, row.profile_id, webStepView(current)).catch(
+            () => null,
+          )
+        : null;
+    if (!view)
+      return webStepHtml(
+        c,
+        statePage("expired", brand, {
+          whatsapp,
+          title: "Acompanhamento encerrado",
+          text: "Este acompanhamento não está mais disponível. Fale com a gente pelo WhatsApp.",
+        }),
+        410,
+      );
+    return webStepHtml(c, trackPage(view, brand, whatsapp));
+  }
   if (current.status === "completed")
     return webStepHtml(c, statePage("used", brand, { whatsapp }));
   if (
@@ -391,6 +416,9 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   row.public_code = c.req.param("code");
   const brand = await pageBrand(c.env, row.profile_id);
   const spec = json(row.spec);
+  // Acompanhamento só se lê.
+  if (spec.page === "track")
+    return webStepHtml(c, statePage("not_found", brand), 405);
   const form = await c.req.raw.formData().catch(() => new URLSearchParams());
   const cart = spec.page === "cart";
   const input = cart ? cartInput(form) : formInput(form);
@@ -1468,6 +1496,29 @@ for (const route of moduleRoutes().write)
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
     }),
+  );
+// Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
+// Coordinator, para posições em lote; corpo até 64 KB.
+for (const route of moduleRoutes().telemetry)
+  app.post(
+    `/api/v1/profiles/:profile/${route.path}`,
+    bodyLimit({ maxSize: 64 * 1024 }),
+    async (c) => {
+      const profile = c.req.param("profile")!;
+      if (!canProfile(c.get("actor"), profile))
+        throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      const body = await c.req.json().catch(() => null);
+      requireValue(
+        body && typeof body === "object" && !Array.isArray(body),
+        "Envie um objeto JSON.",
+      );
+      return c.json(
+        await route.handler(c.env, c.get("actor"), profile, {
+          params: c.req.param() as Record<string, string>,
+          body,
+        }),
+      );
+    },
   );
 for (const route of moduleRoutes().read)
   app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {

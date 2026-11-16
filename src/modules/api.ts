@@ -3,6 +3,7 @@
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
 import {
+  moduleRoutes,
   registerCommand,
   registerConversationAction,
   registerHandoffGate,
@@ -12,14 +13,17 @@ import {
   registerReadRoute,
   registerMcpTool,
   registerSchedule,
+  registerTelemetryRoute,
   registerTurnHandler,
   type ModuleMcpTool,
   registerSettingsValidator,
   registerWebStepHook,
+  registerWebStepPage,
   registerWebStepValidator,
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
+import type { TrackView } from "../web-track";
 import { exec, one } from "../db";
 import {
   ApiError,
@@ -39,6 +43,7 @@ import {
   handoff as coreHandoff,
   handoffToPerson,
   message as coreMessage,
+  perform,
   settings,
   type HandoffMeta,
   type HandoffSource,
@@ -75,6 +80,7 @@ import {
   moduleDisabledError,
   moduleEnabled,
   moduleForMenuType,
+  moduleForOperation,
   type ModuleDefinition,
 } from "./registry";
 
@@ -307,6 +313,47 @@ export interface ModuleContext {
    * que segurou. Com `key`, repetir a chamada não passa de novo.
    */
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+  /**
+   * Lê uma rota GET da API v1 de outro módulo em nome do ator, como se ele
+   * chamasse `GET /profiles/:profile/<path>` (mesma permissão, mesmo 409
+   * module_disabled, mesmos campos ocultos). Para usar a API pública de um
+   * módulo sem `requires` nem `public.ts` (a Entrega lê os pedidos do
+   * Pedido assim). Rota inexistente: 404.
+   */
+  read(
+    actor: Actor,
+    path: string,
+    query?: Record<string, string>,
+  ): Promise<any>;
+  /**
+   * Executa um comando público de outro módulo (o `op` de uma rota de
+   * escrita, como `pedido.status`) em nome do ator, dentro do comando ou da
+   * rodada em andamento no Coordinator: sem recibo próprio (o do comando que
+   * chamou vale), com a permissão e o 409 module_disabled do dono. Só de
+   * dentro do Coordinator (onCommand, onSchedule, ganchos que rodam nele).
+   */
+  run(actor: Actor, op: string, data: any, requestId: string): Promise<any>;
+  /**
+   * Acorda o Coordinator da área: o alarme roda em seguida (a rodada dos
+   * módulos no máximo uma vez por minuto, e as entregas da fila). Para rotas
+   * fora do Coordinator (onTelemetry) que gravaram algo a avisar.
+   */
+  wake(): Promise<void>;
+}
+
+/** Caminho de rota de módulo ("pedido/orders/:id") contra um caminho real. */
+function matchRoute(pattern: string, path: string) {
+  const want = pattern.split("/"),
+    got = path.split("/");
+  if (want.length !== got.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < want.length; i++) {
+    if (want[i].startsWith(":")) {
+      if (!got[i]) return null;
+      params[want[i].slice(1)] = got[i];
+    } else if (want[i] !== got[i]) return null;
+  }
+  return params;
 }
 
 export interface ActiveTicket {
@@ -681,6 +728,31 @@ export function modulesApi(
           : undefined,
       );
     },
+    async read(actor, path, query = {}) {
+      for (const route of moduleRoutes().read) {
+        const params = matchRoute(route.path, path);
+        if (params) {
+          access(actor, profile, "conversations:read");
+          return route.handler(env, actor, profile, { params, query });
+        }
+      }
+      throw new ApiError(404, "not_found", "Rota não encontrada.");
+    },
+    run(actor, op, data, requestId) {
+      // Só comandos de módulo (rotas públicas deles), nunca os do núcleo.
+      if (!moduleForOperation(op) || moduleForOperation(op)!.id === moduleId)
+        throw new Error(`run: ${op} não é comando de outro módulo.`);
+      return perform(env, actor, profile, op, data, requestId);
+    },
+    async wake() {
+      const response = await env.COORDINATOR.get(
+        env.COORDINATOR.idFromName(profile),
+      ).fetch("https://coordinator/wake", {
+        method: "POST",
+        body: JSON.stringify({ profile }),
+      });
+      await response.body?.cancel();
+    },
   };
   return ctx;
 }
@@ -856,6 +928,55 @@ export function onRead(
 }
 
 /**
+ * Telemetria: POST /api/v1/profiles/:profile/<path> fora do Coordinator, sem
+ * Idempotency-Key, recibo nem auditoria, corpo até 64 KB. Só para dados
+ * idempotentes por natureza, como posições com horário (o módulo ignora o
+ * que já tem): custa a autenticação e o que o módulo gravar, sem as 4
+ * instruções do recibo por chamada (docs/LIMITES.md). O núcleo já autenticou
+ * e conferiu a área e o módulo ligado; a permissão fica com o módulo. Para
+ * mensagens ao cliente, acorde o Coordinator (a rodada do módulo envia).
+ */
+export function onTelemetry(
+  moduleId: string,
+  path: string,
+  handler: (
+    ctx: ModuleContext,
+    actor: Actor,
+    request: { params: Record<string, string>; body: any },
+  ) => Promise<any>,
+) {
+  if (!ownsPath(moduleById(moduleId), path))
+    throw new Error(`Rota ${path} fora de routes do módulo ${moduleId}.`);
+  registerTelemetryRoute({
+    path,
+    handler: async (env, actor, profile, request) => {
+      const ctx = modulesApi(env, profile, moduleId);
+      await ctx.requireEnabled();
+      return handler(ctx, actor, request);
+    },
+  });
+}
+
+/**
+ * Página de acompanhamento (passo web com `spec.page: "track"`): cada vez que
+ * o cliente abre ou a página recarrega, o núcleo pede ao módulo o que mostrar
+ * (TrackView, src/web-track.ts) e monta a página sem script, com o mapa do
+ * OpenStreetMap. Devolva null para "Link indisponível". O passo nunca conclui;
+ * vence pelo prazo ou pelo ctx.cancelWebStep.
+ */
+export function onWebStepPage(
+  moduleId: string,
+  handler: (ctx: ModuleContext, step: WebStep) => Promise<TrackView | null>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerWebStepPage(moduleId, (env, profile, step) =>
+    handler(modulesApi(env, profile, moduleId), step),
+  );
+}
+export type { TrackView } from "../web-track";
+
+/**
  * onRead, onCommand e onConversationAction que passam toda resposta por
  * `filter(ctx, actor, valor)`, por exemplo para tirar dados pessoais e notas
  * de quem não tem contacts:read ou notes:read (ctx.redact). O módulo usa
@@ -884,13 +1005,16 @@ export function filteredHandlers(
 
 /**
  * Conteúdo estruturado recebido do WhatsApp antes do menu e do bot:
- * "order" (carrinho do catálogo, content.order) ou "flow_reply" (resposta de
- * Flow que não é de um passo web, content.flow_reply). Devolva true quando
- * tratou; o núcleo para ali. Só roda com o módulo ligado.
+ * "order" (carrinho do catálogo, content.order), "flow_reply" (resposta de
+ * Flow que não é de um passo web, content.flow_reply) ou "location"
+ * (localização enviada pelo cliente, content.location {latitude, longitude,
+ * name, address}; sem módulo que trate, segue o caminho de sempre: menu, bot
+ * ou equipe). Devolva true quando tratou; o núcleo para ali. Só roda com o
+ * módulo ligado.
  */
 export function onInboundContent(
   moduleId: string,
-  type: "order" | "flow_reply",
+  type: "order" | "flow_reply" | "location",
   handler: (
     ctx: ModuleContext,
     c: Conversation,

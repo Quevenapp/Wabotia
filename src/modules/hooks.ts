@@ -43,6 +43,19 @@ export function registerWebStepValidator(
 export const webStepValidator = (module: string) =>
   webStepValidators.get(module);
 
+/**
+ * Página de acompanhamento (spec.page "track") aberta pelo cliente:
+ * (env, profile, step) → o que mostrar (src/web-track.ts, TrackView).
+ */
+const webStepPages = new Map<string, Hook>();
+export function registerWebStepPage(
+  module: string,
+  hook: (env: any, profile: string, step: any) => Promise<any>,
+) {
+  webStepPages.set(module, hook);
+}
+export const webStepPageHook = (module: string) => webStepPages.get(module);
+
 /** Item de menu do WhatsApp escolhido: (env, conversation, item, rowId). */
 export function registerMenuHandler(
   type: string,
@@ -207,18 +220,37 @@ export interface ModuleReadRoute {
     request: { params: Record<string, string>; query: Record<string, string> },
   ) => Promise<any>;
 }
+/**
+ * Telemetria: POST fora do Coordinator, sem Idempotency-Key nem recibo, para
+ * dados idempotentes por natureza (posições com horário). Uma escrita por
+ * chamada, decidida pelo módulo.
+ */
+export interface ModuleTelemetryRoute {
+  path: string;
+  handler: (
+    env: any,
+    actor: any,
+    profile: string,
+    request: { params: Record<string, string>; body: any },
+  ) => Promise<any>;
+}
 const writeRoutes: ModuleWriteRoute[] = [];
 const readRoutes: ModuleReadRoute[] = [];
+const telemetryRoutes: ModuleTelemetryRoute[] = [];
 export function registerWriteRoute(route: ModuleWriteRoute) {
   writeRoutes.push(route);
 }
 export function registerReadRoute(route: ModuleReadRoute) {
   readRoutes.push(route);
 }
+export function registerTelemetryRoute(route: ModuleTelemetryRoute) {
+  telemetryRoutes.push(route);
+}
 /** Rotas declaradas pelos módulos, montadas por src/index.ts. */
 export const moduleRoutes = () => ({
   write: [...writeRoutes],
   read: [...readRoutes],
+  telemetry: [...telemetryRoutes],
 });
 
 /** Validação estrita de uma chave das configurações (PUT /settings). */

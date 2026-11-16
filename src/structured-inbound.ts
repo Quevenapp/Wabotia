@@ -32,6 +32,21 @@ async function say(env: Env, c: Conversation, text: string, key: string) {
   }
 }
 
+/**
+ * Localização enviada pelo cliente: oferecida aos módulos (onInboundContent
+ * "location"), sem tratamento padrão. true quando um módulo tratou.
+ */
+export async function moduleLocation(
+  env: Env,
+  c: Conversation,
+  row: { id: string },
+  data: any,
+) {
+  for (const handler of inboundHandlersFor("location"))
+    if (await handler(env, c, data.content, row.id)) return true;
+  return false;
+}
+
 export async function structuredInbound(
   env: Env,
   c: Conversation,

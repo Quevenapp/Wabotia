@@ -93,8 +93,12 @@ export interface WebField {
   options?: string[];
 }
 export interface WebStepSpec {
-  /** "form" (padrão): campos; "cart": carrinho montado a partir de `cart`. */
-  page?: "form" | "cart";
+  /**
+   * "form" (padrão): campos; "cart": carrinho montado a partir de `cart`;
+   * "track": página de acompanhamento só de leitura, montada pelo núcleo com
+   * o que o módulo devolve em onWebStepPage (src/web-track.ts).
+   */
+  page?: "form" | "cart" | "track";
   /** Catálogo do carrinho (src/web-cart.ts), guardado no passo. */
   cart?: CartCatalog;
   title: string;
@@ -180,14 +184,16 @@ export function validateFields(value: unknown): WebField[] {
 export function validateSpec(value: any): WebStepSpec {
   requireValue(value && typeof value === "object", "Página inválida.");
   const cart = value.page === "cart";
+  const track = value.page === "track";
   requireValue(
-    value.page === undefined || ["form", "cart"].includes(value.page),
-    "Página: use form ou cart.",
+    value.page === undefined || ["form", "cart", "track"].includes(value.page),
+    "Página: use form, cart ou track.",
   );
   const spec: WebStepSpec = {
     title: str(value.title, 120, "o título da página"),
-    fields: cart ? [] : validateFields(value.fields),
+    fields: cart || track ? [] : validateFields(value.fields),
   };
+  if (track) spec.page = "track";
   if (cart) {
     spec.page = "cart";
     spec.cart = validateCatalog(value.cart);
@@ -205,8 +211,9 @@ export function validateSpec(value: any): WebStepSpec {
     const text = str(value[key], max, what, false);
     if (text) spec[key] = text;
   }
-  // Pedido do carrinho não vai a protocolo, a menos que o módulo peça.
-  const ticket = value.ticket ?? (cart ? "none" : "attach");
+  // Pedido do carrinho não vai a protocolo, a menos que o módulo peça; a
+  // página de acompanhamento nunca conclui.
+  const ticket = track ? "none" : (value.ticket ?? (cart ? "none" : "attach"));
   requireValue(
     ["attach", "open", "none"].includes(ticket),
     "Protocolo: use attach, open ou none.",
@@ -425,8 +432,10 @@ export function webStepView(row: any) {
     answers: row.result ? json(row.result, null) : null,
     /** flow: entregue como Flow nativo; link: botão com URL ou texto. */
     delivery: row.flow_token ? "flow" : "link",
-    /** form (campos) ou cart (carrinho; answers é o pedido validado). */
-    page: json(row.spec).page === "cart" ? "cart" : "form",
+    /** form (campos), cart (carrinho; answers é o pedido validado) ou track (acompanhamento). */
+    page: (["cart", "track"].includes(json(row.spec).page)
+      ? json(row.spec).page
+      : "form") as "form" | "cart" | "track",
     fields: (json(row.spec).fields || []).map((f: WebField) => ({
       id: f.id,
       type: f.type,
@@ -545,7 +554,7 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   // Flow, botão com URL; em linha QR, o texto com o link (sendInteractive).
   // Flow só para formulários: o carrinho é sempre a página.
   const flow =
-    spec.page !== "cart" &&
+    (!spec.page || spec.page === "form") &&
     input.flow?.flow_id &&
     (await interactiveLine(env, c));
   const token = flow ? flowToken(input.flow!.flow_id, id) : null;
@@ -832,6 +841,8 @@ export async function completeWebStep(
     return { ok: false, reason: "expired", whatsapp };
   }
   const spec: WebStepSpec = json(row.spec);
+  // Página de acompanhamento só se lê: nada a concluir.
+  if (spec.page === "track") return { ok: false, reason: "not_found" };
   // Carrinho: valores recalculados a partir do catálogo guardado no passo.
   const { answers, errors, ok } =
     spec.page === "cart"
