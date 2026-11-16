@@ -10,6 +10,7 @@ import {
 } from "../../types";
 import {
   onCommand as registerCommand,
+  onApproval,
   onConversationAction,
   onConversationTurn,
   onInboundContent,
@@ -46,6 +47,7 @@ import {
   updateOrder,
 } from "./manage";
 import { runDue } from "./schedule";
+import { botDraft, discountHooks, menuForBot, requestDiscount } from "./bot";
 import { orderDeliverySlip, orderTicket } from "./ticket";
 import {
   cartCompleted,
@@ -467,6 +469,9 @@ onMcpTool(MODULE, {
   description:
     "Cardápio da área: categorias, itens com preço em centavos, esgotados (available=false) e grupos de adicionais com mínimo e máximo. Para o cliente pedir, use pedido_enviar_carrinho. Requer conversations:read.",
   input: {},
+  // Com preços: fora do bot do cliente (o modelo nunca informa preço; ele usa
+  // pedido_itens e o resumo do módulo).
+  customer: false,
   call: (_a, profile) => ({ path: `/profiles/${profile}/pedido/menu` }),
 });
 // Só o cliente da conversa: o bot não consulta por outro telefone, número de
@@ -477,6 +482,7 @@ onMcpTool(MODULE, {
     "Pedidos em andamento do cliente da conversa (desta conversa ou do mesmo telefone): número, estado, itens, total e pagamento. Requer conversations:read.",
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
+  customer: "read",
   call: (a, profile) => ({
     path: `/profiles/${profile}/pedido/conversations/${a.conversation_id}`,
   }),
@@ -498,6 +504,7 @@ onMcpTool(MODULE, {
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
   write: true,
+  customer: "propose",
   describe: async () =>
     "Enviar o link do carrinho para você escolher os itens e fazer o pedido.",
   call: (a, profile) => ({
@@ -506,3 +513,83 @@ onMcpTool(MODULE, {
     body: { action: "pedido_link" },
   }),
 });
+
+// ---------------------------------------------------------------------------
+// Bot que atende o cliente (modo cliente): monta o pedido e pede desconto.
+// Preço e desconto saem do módulo; o cliente confirma no botão do módulo; o
+// desconto só com a decisão de uma pessoa da equipe (./bot.ts).
+
+onRead(MODULE, "pedido/itens", async (ctx, actor) => {
+  ctx.access(actor, "conversations:read");
+  return menuForBot(ctx);
+});
+onMcpTool(MODULE, {
+  name: "pedido_itens",
+  description:
+    "Itens do cardápio para montar o pedido: item_id, nome, descrição, disponível (esgotado = false), máximo por pedido e as escolhas obrigatórias ou opcionais (grupo_id e ids das opções). Sem preços: nunca informe valores; o cliente recebe o resumo com os valores do próprio sistema. Requer conversations:read.",
+  input: {},
+  customer: "read",
+  call: (_a, profile) => ({ path: `/profiles/${profile}/pedido/itens` }),
+});
+onMcpTool(MODULE, {
+  name: "pedido_montar",
+  description:
+    'Monta o pedido do cliente da conversa com itens do cardápio (pedido_itens): o sistema confere loja aberta, esgotados e escolhas, calcula os valores e manda ao cliente o resumo com o botão Confirmar pedido. Escolhas no formato {"<grupo_id>": ["<id da opção>"]}. Item esgotado ou fora do cardápio volta como erro com as alternativas. Não informe preços nem diga que o pedido foi feito: só depois de o cliente confirmar. Requer conversations:write.',
+  input: {
+    conversation_id: { type: "string" },
+    itens: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          item_id: { type: "string" },
+          quantidade: { type: "integer", minimum: 1 },
+          escolhas: { type: "object" },
+          observacao: { type: "string" },
+        },
+        required: ["item_id", "quantidade"],
+      },
+    },
+    observacao: { type: "string" },
+  },
+  required: ["conversation_id", "itens"],
+  write: true,
+  // O botão de confirmar é o do módulo, com os valores do sistema (o
+  // "resumo" da proposta do núcleo seria texto do modelo).
+  customer: "read",
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: { action: "pedido_montar", itens: a.itens, observacao: a.observacao },
+  }),
+});
+onConversationAction(
+  MODULE,
+  "pedido_montar",
+  (ctx, actor, c, data, { requestId }) =>
+    botDraft(ctx, actor, c, data, requestId),
+);
+onMcpTool(MODULE, {
+  name: "pedido_pedir_desconto",
+  description:
+    "Pede à equipe um desconto no pedido do cliente da conversa que ainda espera o pagamento. Não concede nada: a equipe aprova (com o valor), recusa ou assume a conversa, e o cliente recebe a resposta por aqui. Requer conversations:write.",
+  input: {
+    conversation_id: { type: "string" },
+    observacao: {
+      type: "string",
+      description: "O que o cliente pediu, nas palavras dele.",
+    },
+  },
+  required: ["conversation_id"],
+  write: true,
+  customer: "read",
+  call: (a, profile) => ({
+    method: "POST",
+    path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,
+    body: { action: "pedido_desconto", observacao: a.observacao },
+  }),
+});
+onConversationAction(MODULE, "pedido_desconto", (ctx, actor, c, data) =>
+  requestDiscount(ctx, actor, c, data),
+);
+onApproval(MODULE, "desconto", discountHooks);

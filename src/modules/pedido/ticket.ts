@@ -122,6 +122,8 @@ export function ticketText(
   out.push(...pair("Subtotal", money(order.subtotal_cents), columns));
   if (order.fulfillment === "delivery")
     out.push(...pair("Entrega", money(order.delivery_fee_cents), columns));
+  if (order.discount_cents)
+    out.push(...pair("Desconto", `-${money(order.discount_cents)}`, columns));
   out.push(...pair("TOTAL", money(order.total_cents), columns));
   const method = order.payment.method as PaymentMethod | null;
   out.push(

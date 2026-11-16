@@ -357,7 +357,9 @@ onMcpTool("agenda", {
     `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto`.
   - Suporte pago: `suporte_situacao`.
   - Fila: `queue_minha_senha`.
-  - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
+  - Pedido: `pedido_cardapio` (com preços, fora do bot do cliente),
+    `pedido_itens`, `pedido_consultar`, `pedido_montar`,
+    `pedido_pedir_desconto`, `pedido_enviar_carrinho`.
 - Chave presa à conversa: com `conversations:bound` (padrão da chave criada em
   Integrações → Hermes), a aplicação só alcança as conversas que um dos bots
   dela está atendendo agora (execução na fila ou em andamento, ou encerrada há
@@ -419,7 +421,7 @@ onMcpTool("mensalidade", {
 | OS | `os_situacao` |
 | Mensalidade | `mensalidade_situacao`, `mensalidade_segunda_via` (só reenvia o código do próprio cliente); pedidos à equipe, sem botão porque só registram: `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto` |
 | Agenda | `agenda_servicos`, `agenda_horarios_livres`, `agenda_meus_agendamentos`; com botão: `agenda_agendar`, `agenda_remarcar`, `agenda_cancelar` |
-| Pedido | `pedido_cardapio`, `pedido_consultar`; com botão: `pedido_enviar_carrinho` |
+| Pedido | `pedido_itens` (sem preços), `pedido_consultar`; `pedido_montar` (o módulo manda o resumo com os valores e o botão Confirmar pedido dele); `pedido_pedir_desconto` (pedido de aprovação); com botão do núcleo: `pedido_enviar_carrinho`. `pedido_cardapio` (com preços) fica fora do cliente |
 | Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
 | Suporte pago | `suporte_situacao` |
 | Fila (núcleo) | `queue_minha_senha` |

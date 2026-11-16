@@ -1021,7 +1021,7 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["POST", /^(conversations|inbound|tickets)$/],
   ["PATCH", /^tickets\/[^/]+$/],
   ["GET", /^(bots|knowledge|forms)$/],
-  ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu)$/],
+  ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu|pedido\/itens)$/],
   ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
   ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],
