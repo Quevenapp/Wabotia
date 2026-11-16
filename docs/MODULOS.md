@@ -357,6 +357,49 @@ onMcpTool("agenda", {
   `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
   ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
 
+### Ações pelo bot na conversa interna (`definition.bot`)
+
+Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pediu** (`src/bot-actions/`, contrato dos apps em `docs/API.md`, "Ações pelo bot"). O módulo não escreve nada para isso.
+
+**O que o módulo ganha sem fazer nada**
+- Toda rota pública do módulo entra no catálogo do bot: `onRead` vira "consulta" e `onRoute` vira "ação", com resumo e parâmetros tirados do OpenAPI do módulo (`moduleOperations` e `describe…`).
+- Esquema de entrada bem descrito no OpenAPI deixa o bot mais preciso.
+
+**Ajuste opcional na declaração**
+```ts
+bot: {
+  deny: ["os.decide"],                      // ops ou caminhos fora do catálogo (prefixos)
+  sensitive: ["mensalidade.installment.pay"], // exigem segundo fator ao confirmar
+  hints: { "consulta:service-orders": "Ordens de serviço abertas, por estado ou cliente" },
+}
+```
+- As operações com permissão de aplicação `billing:write` já contam como sensíveis.
+- Configurações (`PUT /settings`), módulos, pessoas, chaves e sistema nunca entram: não são rotas de módulo.
+
+**Identidade.** A chamada chega ao módulo como se viesse da tela:
+- o `actor` é a pessoa (`kind: "user"`), com o acesso e os papéis dela;
+- o comando passa pelo `Coordinator`, com recibo e `Idempotency-Key` (`proposal:<id>` na confirmação).
+
+O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, masked}`), gravado em `audit.via`. **Não use `via` em regra de negócio**: quem pode agir é decidido pelas mesmas regras da tela.
+
+**Dados pessoais.** Na leitura que vai ao modelo de IA, `ctx.mayRead(actor, …)` responde `false` e `ctx.botView` esconde os campos de `BOT_HIDDEN`, a menos que o administrador libere na instalação. Use `ctx.redact` e `filteredHandlers`, como já fazem os módulos, e nada mais é preciso. O núcleo ainda tira, de qualquer resposta, os campos de dado pessoal e os segredos.
+
+**Mudanças do núcleo para isso** (para a sessão A revisar):
+
+| Onde | O que mudou |
+|---|---|
+| `Actor.via` e `BotVia` | `src/types.ts` |
+| `actorForUser` | `src/security.ts` |
+| `audit.via` | `src/events.ts`, migração 0085 |
+| `internalCall` | `src/mcp.ts`: a chamada interna do MCP, sem requisição de origem |
+| `mayRead` e `botView` com `via.masked`; `BOT_HIDDEN` exportado | `src/modules/api.ts` |
+| `ModuleDefinition.bot` | `src/modules/types.ts` |
+| `internal_messages.kind` e `payload`; leitura com o estado da proposta | `src/team.ts` |
+| Rotas `…/proposals/:id/confirm\|cancel` e `/system/bot-actions/configure` | `src/index.ts` |
+| Campo `wabotia_run` no job do plugin | `src/integrations.ts`, `src/engine.ts` |
+| Cabeçalho `X-Wabotia-Run` no MCP | `src/mcp.ts` |
+| Gancho `requireAal2` local até a `feat/login-mfa` | `src/bot-actions/mfa.ts` |
+
 ### Tarefas periódicas (`onSchedule`)
 
 ```ts

@@ -262,6 +262,126 @@ Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão;
 
 Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada pelo horário ou item esgotado; `via: "page"` quando a própria página recusou), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed` e `pedido.store_changed`; todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
 
+## Ações pelo bot na conversa interna
+
+Na conversa interna com um bot (Equipe → Conversas, ou a tela do bot), a pessoa pede em linguagem natural para consultar ou fazer algo nos módulos, inclusive o que não tem tela no app. O bot:
+
+- usa as **permissões da própria pessoa** (acesso por pessoa, papéis do módulo), nunca a chave do bot;
+- **consulta direto**;
+- para **escrever, só propõe**: a proposta aparece na conversa com **Confirmar** e **Cancelar**, e só a pessoa confirma, pela sessão dela.
+
+O bot que atende cliente no WhatsApp nunca recebe essas ferramentas. Tudo fica na auditoria com `via` (`{kind: "bot", bot_id, run_id, proposal_id}`).
+
+### Mensagens da conversa interna
+
+`GET /profiles/{perfil}/internal-chats/{id}` traz, em cada mensagem, dois campos novos:
+
+- `kind`: `"text"` (como antes), `"proposal"` ou `"result"`;
+- `payload`: nulo em `text`.
+
+**Toda mensagem tem `text`**, legível por quem não conhece o tipo:
+
+- proposta: "Proposta do bot: … Confirme no painel ou no app atualizado";
+- resultado: "Feito: …" ou "Não foi possível: …".
+
+App antigo mostra o texto; app novo desenha o cartão.
+
+**Proposta** (`kind: "proposal"`, autor `bot:<id>`):
+
+```json
+{
+  "id": "proposal:5f0c…",
+  "author": "bot:3a1e…",
+  "kind": "proposal",
+  "text": "Proposta do bot: Mudar a OS nº 12 para Pronta\nOperação: Mudar o estado da ordem de serviço\nConfirme no painel ou no app atualizado (vale 10 minutos).",
+  "payload": {
+    "operation_summary": "Mudar o estado da ordem de serviço",
+    "module": "os",
+    "actions": ["confirm", "cancel"],
+    "proposal": {
+      "id": "5f0c…", "status": "pending", "operation": "os.status",
+      "summary": "Mudar a OS nº 12 para Pronta",
+      "params": {"id": "…", "status": "ready"},
+      "sensitive": false, "expires_at": 1794840000000, "decided_at": null,
+      "result": null, "error": null, "bot_id": "3a1e…", "chat_id": "…", "created": 1794839400000
+    }
+  }
+}
+```
+
+O cartão mostra:
+- `summary` (escrito pelo bot);
+- `operation_summary` (do catálogo, não do bot);
+- os `params`, para a pessoa conferir;
+- o estado.
+
+`proposal.status` vem sempre atual na leitura:
+
+| Estado | Significado |
+|---|---|
+| `pending` | aguardando a pessoa; mostra os botões |
+| `running` | executando |
+| `done` | feito |
+| `failed` | não foi possível; motivo em `error` |
+| `cancelled` | cancelada |
+| `expired` | venceu; vale 10 minutos |
+
+Com `sensitive: true`, avise que o código do autenticador será pedido.
+
+**Botões**: `POST /profiles/{perfil}/internal-chats/{id}/proposals/{proposta}/confirm` e `…/cancel`.
+- Corpo vazio; `Idempotency-Key` opcional.
+- Resposta: o objeto `proposal` atualizado.
+- Só a pessoa da proposta, com sessão de pessoa (cookie ou `wabu_`). Chave de aplicação ou o próprio bot recebem `403 person_required`.
+- Confirmar de novo devolve o mesmo resultado, sem rodar outra vez: a operação roda com `Idempotency-Key` `proposal:<id>`.
+
+| Erro | Quando | O app faz |
+|---|---|---|
+| `404 not_found` | proposta de outra pessoa ou de outra conversa | some com os botões |
+| `409 proposal_expired` | passou dos 10 minutos | mostra "Venceu"; a pessoa pede de novo ao bot |
+| `409 proposal_cancelled` / `409 proposal_closed` | já cancelada / já confirmada | recarrega a conversa |
+| `403 mfa_required` | operação sensível com sessão sem segundo fator | pede o código do autenticador, valida na rota de MFA do login (sessão A, `feat/login-mfa`) e toca em Confirmar de novo |
+
+**Resultado** (`kind: "result"`, autor `bot:<id>`): sai depois de confirmar ou cancelar, com `payload.proposal` (estado `done`, `failed` ou `cancelled`, e `result` ou `error`). Depois, o bot não continua sozinho; a pessoa segue a conversa.
+
+As novidades chegam pelo evento `internal.message` (`chat_id`), como as demais mensagens.
+
+### Dados pessoais e regra da instalação
+
+- **Padrão**: as consultas que o bot faz chegam ao modelo de IA sem telefone, documento, e-mail, endereço e observações, como para uma aplicação sem `contacts:read` e `notes:read`.
+- **Liberar**: o administrador pode liberar em Sistema → Bot e dados pessoais. Os dados vão ao provedor de IA. Mesmo liberado, o bot só vê o que a própria pessoa vê.
+  - `GET /api/v1/system` traz `bot_full_personal_data`;
+  - `POST /api/v1/system/bot-actions/configure` com `{"full_personal_data": true|false}` (só administrador).
+
+### Ferramentas do bot
+
+Três ferramentas genéricas, iguais em todo provedor:
+
+| Ferramenta | O que faz |
+|---|---|
+| `buscar_operacoes {texto, tipo?}` | Até 10 operações que a pessoa pode usar agora (módulo ligado, acesso dela), com parâmetros |
+| `consultar {operacao, parametros}` | Roda uma consulta como a pessoa |
+| `propor_acao {operacao, parametros, resumo}` | Grava a proposta e a mostra na conversa |
+
+O catálogo sai das rotas públicas e do OpenAPI dos módulos (`docs/MODULOS.md`, "Ações pelo bot"). Configurações, chaves, pessoas, sistema e módulos nunca entram.
+
+Limites por resposta do bot:
+- 6 chamadas de ferramenta e 3 propostas;
+- resultado cortado em 6.000 caracteres;
+- segredos (tokens, chaves, senhas) nunca saem.
+
+### Hermes
+
+O Hermes chama o MCP com uma chave fixa e, hoje, sem a identidade da pessoa. Para agir pela pessoa, o plugin precisa repor o cabeçalho `X-Wabotia-Run` em cada chamada MCP daquela execução.
+- **O que o Wabotia já manda**: no job `runs.create` de conversa interna, o campo `wabotia_run` (`<run>.<validade>.<hmac>`, 15 minutos). Não vai no texto enviado ao modelo nem ao Hermes por URL.
+- **O que o servidor confere**:
+  - assinatura e validade;
+  - execução ativa de conversa interna;
+  - bot atendido pela chave.
+
+  Só então `tools/list` mostra as três ferramentas, que rodam como a pessoa.
+- **Sem o cabeçalho**: tudo segue como antes.
+- **Próxima etapa (não feita)**: o plugin ler `wabotia_run` do job e mandá-lo como cabeçalho nas chamadas MCP do mesmo run.
+
 ## Exemplo cURL
 
 Configure variáveis no servidor, sem colocá-las em código público. Substitua os IDs pelos retornados pela API:
