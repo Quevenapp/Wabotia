@@ -24,24 +24,11 @@ import{createUsersFixture,USERS_QA_ADMIN}from'../app/qa/users-fixture.ts';
 import{createBusinessFixture}from'../app/qa/business-fixture.ts';
 const VENDAS='30000000-0000-4000-8000-000000000001';
 const textOf=n=>Array.isArray(n)?n.map(textOf).join(''):n&&typeof n==='object'?textOf(n.props?.children):n===null||n===undefined||typeof n==='boolean'?'':String(n);
-const users=f=>mountComponent('RealUsers.tsx',{controller:f.controller},{expandChildren:true,location:'/preferencias/sistema/usuarios'});
-const row=(v,text)=>v.nodes().find(n=>n.type==='td'&&n.props.onClick&&textOf(n).includes(text));
-const openControls=async(v,name)=>{row(v,name).props.onClick();await v.flush();await v.click('Tipo, horários e permissões');};
-
-test('229 PRF-206 Tipo de usuário: the column shows Normal or Contador and the filter asks the server for one type',async()=>{
- const f=createUsersFixture();f.controls.set(VENDAS,{version:1,user_type:'contador',schedule:{enabled:false,windows:[]},permissions:null,updated_at:null});
- const v=await users(f);try{
-  assert.ok(v.nodes().some(n=>n.type==='td'&&textOf(n)==='Contador'));assert.ok(v.nodes().some(n=>n.type==='td'&&textOf(n)==='Normal'));
-  v.nodes().find(n=>n.type==='button'&&n.props['aria-label']==='Abrir filtro').props.onClick();await v.flush();
-  await v.change('users-type','contador');v.nodes().find(n=>n.type==='button'&&textOf(n)==='Filtrar').props.onClick();await v.flush();
-  assert.ok(f.calls.some(c=>c.method!=='POST'&&/^\/v1\/usuarios\?.*tipo=contador/.test(c.path)),'the filter goes to the server');
-  assert.match(v.text(),/Tipo de usuário: Contador/);assert.equal(v.nodes().some(n=>n.type==='td'&&textOf(n)==='Normal'),false);
- }finally{v.unmount();}
-});
+// Wabotia: a lista de usuários do Fagoo (/v1/usuarios) saiu; as pessoas vêm do núcleo e Permissões no ERP abre os controles de cada uma.
+const controls=(f,user)=>mountComponent('UserControls.tsx',{controller:f.controller,user:{user_id:user},actor:USERS_QA_ADMIN},{expandChildren:true,location:'/preferencias/sistema/usuarios'});
 
 test('229 PRF-214/PRF-224 Tipo, horários e permissões: windows by weekday, Origin permission tabs and one command with Conferir resultado',async()=>{
- const f=createUsersFixture({lostAck:true}),v=await users(f);try{
-  await openControls(v,'Vendas Sintético');
+ const f=createUsersFixture({lostAck:true}),v=await controls(f,VENDAS);try{
   assert.ok(f.calls.some(c=>c.method==='GET'&&c.path===`/v1/usuarios/${VENDAS}/controles`));
   assert.match(v.text(),/Vendedor vinculado \(Vendedor Sintético\): os horários do vendedor também valem \(09:00–17:00 S T Q Q S\)/);
   await v.change('controls-type','contador');await v.change('controls-schedule',true);
@@ -61,8 +48,8 @@ test('229 PRF-214/PRF-224 Tipo, horários e permissões: windows by weekday, Ori
   assert.match(v.text(),/Use "Conferir resultado"/);await v.click('Conferir resultado');
   assert.equal(saves().length,2);assert.deepEqual(saves()[1].body,sent,'the same command');assert.match(v.text(),/Horários e permissões salvos \(comando já registrado\)/);
  }finally{v.unmount();}
- const g=createUsersFixture(),w=await users(g);try{
-  await openControls(w,'Administrador Sintético');assert.equal(w.input('controls-schedule').disabled,true);assert.equal(w.input('controls-mode-custom').disabled,true);
+ const g=createUsersFixture(),w=await controls(g,USERS_QA_ADMIN);try{
+  assert.equal(w.input('controls-schedule').disabled,true);assert.equal(w.input('controls-mode-custom').disabled,true);
   assert.match(w.text(),/O administrador tem todas as permissões e nunca é bloqueado por horário/);assert.equal(g.calls.some(c=>c.path.includes(USERS_QA_ADMIN)&&c.path.endsWith('/controles')),true);
  }finally{w.unmount();}
 });

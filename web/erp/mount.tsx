@@ -13,10 +13,11 @@ import { setErpPorts, type ErpPorts } from "./ports";
 import { setErpBlocks, type ErpBlock } from "./blocks";
 import { createFetchPort, erpApiUrl } from "./fetch-port";
 import {
-  createCoreMfaPort,
+  createChallengePort,
   createSessionPort,
-  createSimulatedMfaPort,
+  createSimulatedChallengePort,
 } from "./session-port";
+import { createPeoplePort, type ErpPerson } from "./people";
 // Ordem: o reset do escopo primeiro; as folhas do Fagoo, prefixadas no build
 // (web/erp/css-scope.ts), vencem por terem uma classe a mais.
 import "./scope.css";
@@ -45,6 +46,8 @@ type Props = {
   blocks: Partial<Record<ErpBlock, boolean>>;
   admin: boolean;
   onModules: () => void;
+  /** Gestão → Pessoas e acessos (administrador do Wabotia). */
+  onPeople: () => void;
   onLeave: () => void;
   onExpired: () => void;
 };
@@ -68,6 +71,7 @@ export default function ErpMount({
   blocks,
   admin,
   onModules,
+  onPeople,
   onLeave,
   onExpired,
 }: Props) {
@@ -75,33 +79,43 @@ export default function ErpMount({
   // Lido pelo menu e pelas rotas do ERP ao renderizar (web/erp/blocks.ts); a
   // casca remonta o ERP quando a chave de um opcional muda.
   setErpBlocks(blocks);
-  const [simulate, setSimulate] = useState<
-    | null
-    | ((
-        path: string,
-        init: RequestInit & { method: string },
-      ) => Promise<Response>)
-  >(null);
+  const [simulation, setSimulation] = useState<null | {
+    api: (
+      path: string,
+      init: RequestInit & { method: string },
+    ) => Promise<Response>;
+    people: ErpPerson[];
+  }>(null);
   const useSimulation = simulated(demo);
   useEffect(() => {
     if (!useSimulation) return;
     let live = true;
-    void import("./demo/simulated-api").then(({ createSimulatedApi }) => {
-      if (live)
-        setSimulate(() => createSimulatedApi({ actor, readOnly: demo }));
-    });
+    void import("./demo/simulated-api").then(
+      ({ createSimulatedApi, simulatedPeople }) => {
+        if (live)
+          setSimulation({
+            api: createSimulatedApi({ actor, readOnly: demo }),
+            people: simulatedPeople(actor),
+          });
+      },
+    );
     return () => {
       live = false;
     };
   }, [useSimulation, actor, demo]);
+  const simulate = simulation?.api ?? null;
 
   const ports = useMemo<ErpPorts | null>(() => {
-    if (useSimulation && !simulate) return null;
+    if (useSimulation && !simulation) return null;
     const auth = createSessionPort({ id: actor }, onLeave);
     const apiUrl = erpApiUrl(profile);
     return {
       auth,
-      mfa: useSimulation ? createSimulatedMfaPort() : createCoreMfaPort(),
+      // A demonstração não tem segundo fator; no desenvolvimento, o do núcleo.
+      challenge: demo ? createSimulatedChallengePort() : createChallengePort(),
+      people: simulation
+        ? async () => structuredClone(simulation.people)
+        : createPeoplePort(profile),
       apiUrl,
       fetch: createFetchPort({
         apiUrl,
@@ -114,10 +128,11 @@ export default function ErpMount({
       demo,
       admin,
       openModules: onModules,
+      openPeople: admin ? onPeople : undefined,
     };
     // onLeave/onExpired mudam a cada render da casca; a sessão não.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, actor, demo, admin, useSimulation, simulate]);
+  }, [profile, actor, demo, admin, useSimulation, simulation]);
 
   // StrictMode monta, desmonta e monta de novo: o roteador nasce no efeito e é
   // descartado (router.dispose) ao sair da área.

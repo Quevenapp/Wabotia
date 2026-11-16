@@ -66,14 +66,7 @@ test('151 Empresa: Minha conta menu, locked Nome/Fantasia/CNPJ, complementary da
  try{assert.match(w.text(),/Somente administradores alteram os dados da empresa/);assert.equal(w.nodes().find(n=>n.type==='fieldset'&&n.props.className==='company-extra-fields').props.disabled,true);}finally{w.unmount();}
 });
 
-test('151 Usuários ⋮: Dispositivos utilizados and Segurança do usuário read the Auth sessions, administrador only',async()=>{
- const u=createUsersFixture(),s=createSystemFixture(),controller={...u.controller,system:s.controller.system},v=await mountComponent('RealUsers.tsx',{controller},{expandChildren:['RowMenu','UserSecurityModal','Modal']});try{
-  const row=v.find(n=>n.type==='button'&&n.props['aria-label']==='Ações de Vendas Sintético');row.props.onClick({stopPropagation(){},currentTarget:{getBoundingClientRect:()=>({top:0,left:0})}});await v.flush();
-  v.find(n=>n.type==='button'&&textOf(n).includes('Dispositivos utilizados')).props.onClick();await v.flush();
-  assert.match(v.text(),/Dispositivos utilizados · Vendas Sintético/);assert.match(v.text(),/Último acessoIpDispositivo.*203\.0\.113\.7Mozilla\/5\.0 Sintético/s);
-  assert.ok(s.calls.some(c=>/\/v1\/sistema\/usuarios\/[a-f0-9-]{36}\/seguranca$/.test(c.path)));
- }finally{v.unmount();}
-});
+// Wabotia: o teste 151 de Usuários ⋮ (Dispositivos utilizados e Segurança do usuário, /v1/sistema/usuarios/:id/seguranca) saiu: as sessões são do núcleo (Gestão › Pessoas e acessos).
 
 test('151 review: Conferir resultado that proves the company data command was never recorded releases the form',async()=>{
  let posts=0;const refuse=status=>{throw Object.assign(new Error('synthetic'),{status});};

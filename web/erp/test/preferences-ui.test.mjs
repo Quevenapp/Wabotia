@@ -116,7 +116,7 @@ test('115 hub: every page has a Origin category and an address; disabled items c
  assert.equal(preferencesResetKey('/preferencias/vendas/vendas/checkout'),'/preferencias/vendas/vendas');assert.equal(preferencesResetKey('/estoque-empresa'),'/estoque-empresa');
  const app=await readFile(new URL('../app/App.tsx',import.meta.url),'utf8');assert.ok(app.includes("pathname.startsWith('/preferencias/')"));
  const v=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'sistema',categoryHref:id=>`/preferencias/${id}`,categories:resolvePreferences({role:'admin'})});try{
-  assert.match(v.text(),/Configurações do sistema.*Interface.*Tabelas e configurações adicionais.*Usuários/s);
+  assert.match(v.text(),/Configurações do sistema.*Interface.*Tabelas e configurações adicionais.*Permissões no ERP/s);
   // Campos customizados (produtos lane, migration 156) left the disabled list; another category keeps the reason check.
   assert.ok(v.nodes().some(n=>n.props.to==='/campos-customizados'));
   assert.ok(v.nodes().some(n=>n.props.to==='/preferencias/notas-fiscais'));assert.ok(v.nodes().some(n=>n.props.to==='/preferencias/sistema/interface'));

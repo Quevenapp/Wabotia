@@ -86,6 +86,7 @@ export function ErpArea() {
             blocks={blocks}
             admin={app.isAdmin}
             onModules={() => navigate({ area: "admin", page: "modules" })}
+            onPeople={() => navigate({ area: "admin", page: "users" })}
             onLeave={() => navigate({ area: "conversations" })}
             onExpired={() => void app.reloadSession()}
           />

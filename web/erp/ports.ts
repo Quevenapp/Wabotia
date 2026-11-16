@@ -3,13 +3,30 @@
 // Wabotia. mount.tsx registra as portas antes de abrir as telas; RealAccess as
 // lê ao montar. Sem portas registradas, o ERP mostra "em preparação".
 import type { AuthPort } from "./app/lib/real-access";
-import type { MfaPort } from "./app/lib/account-security";
+import type { ChallengePort } from "./session-port";
+import type { PeoplePort } from "./people";
 
 export type ErpPorts = {
   /** Sessão do Wabotia vista como a sessão do Supabase que o controlador espera. */
   auth: AuthPort;
-  /** Segundo fator e troca de senha (Minha conta › Segurança). */
-  mfa: MfaPort;
+  /**
+   * "Confirme que é você": o segundo fator na sessão do Wabotia, quando a
+   * política do ERP exige (ERP_MFA_REQUIRED) ou para mudar essa política.
+   */
+  challenge: ChallengePort;
+  /** Pessoas da área com papel erp:* (núcleo; web/erp/people.ts). */
+  people: PeoplePort;
+  /**
+   * Abre Gestão → Pessoas e acessos: convite, papel no ERP, senha, segundo
+   * fator e sessões são do núcleo. Só para o administrador do Wabotia.
+   */
+  openPeople?: () => void;
+  /**
+   * Abre "Minha conta" do Wabotia (senha e aplicativo autenticador). Ausente
+   * enquanto a casca não tiver a tela (origin/feat/login-mfa): o ERP diz onde
+   * fica, sem botão.
+   */
+  openAccount?: () => void;
   /** Base da API do ERP desta área: /api/v1/profiles/<área>/erp. */
   apiUrl: string;
   /** fetch com cookie, sem Authorization, só para apiUrl (fetch-port.ts). */

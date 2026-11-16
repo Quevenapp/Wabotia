@@ -160,7 +160,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     // Leva H (310): the company requires a second factor of this user; the session stays and the screen asks for the code.
     if(status===403&&code==='ERP_MFA_REQUIRED'){update({membership:null,records:null,listPending:false,phase:'mfa',message:null,permissionMessage:null});return;}
     update({membership:null,records:null,listPending:false,phase:status===401?'signed_out':'pending',message:status===401?'Sua sessão expirou. Entre novamente.'
-      :code==='ERP_ACCESS_OUTSIDE_SCHEDULE'?'Seu usuário não pode acessar o FAGOO neste horário. Os horários de acesso são definidos pelo administrador da empresa.':null,permissionMessage:null});
+      :code==='ERP_ACCESS_OUTSIDE_SCHEDULE'?'Você não pode acessar o ERP neste horário. Os horários de acesso são definidos pelo administrador em Preferências › Sistema › Permissões no ERP.':null,permissionMessage:null});
   };
   // An operation-level403 is not proof that company membership was revoked.
   // Keep this actor's mounted editor and command while /me checks membership.

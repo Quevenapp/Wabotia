@@ -3,7 +3,7 @@ import {importKindOf} from '../../../../packages/erp-domain/src/spreadsheet-impo
 
 /** Sistema screens Origin opens from Preferências › Sistema; they live under the same address and boundary. */
 export const SYSTEM_SCREENS={'consulta-exclusoes':'Consulta de exclusões realizadas','gerenciador-arquivos':'Gerenciador de arquivos','gerenciador-transicoes':'Gerenciador de transições',
- 'relatorios-customizados':'Relatórios customizados','etiquetas-customizadas':'Etiquetas customizadas','registro-atividades':'Registro de atividades',usuarios:'Usuários'} as const;
+ 'relatorios-customizados':'Relatórios customizados','etiquetas-customizadas':'Etiquetas customizadas','registro-atividades':'Registro de atividades',usuarios:'Permissões no ERP'} as const;
 export type SystemScreen=keyof typeof SYSTEM_SCREENS;
 /** Suprimentos screens of the same module (migration 148): Gerenciar grupos de tags and Gerenciar tags. */
 export const SUPPLY_SCREENS={'grupos-tags':'Gerenciar grupos de tags',tags:'Gerenciar tags'} as const;

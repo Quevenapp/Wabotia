@@ -3,8 +3,9 @@ import {AccessError,type AccessState} from '../lib/real-access';
 import {activityPath,activityDetailPath} from '../lib/activity-request';
 import {ACTIVITY_DETAIL_SOURCES,parseActivityDetail,captureActivityDetailQuery,type ActivityDetail,type ActivityEntry} from '../../../../packages/erp-domain/src/activity.mjs';
 import {Modal} from './Modal';
-import {usersListPath} from '../lib/access-users-request';
-import {parseUsersList,captureUsersQuery,type AccessUser} from '../lib/access-users-model';
+// Wabotia: as pessoas vêm do núcleo (Gestão › Pessoas e acessos), não de /v1/usuarios (501 no motor).
+import {erpPorts} from '../../ports';
+import type {ErpPerson} from '../../people';
 import {parseActivity,captureActivityQuery,ACTIVITY_MODULES,ACTIVITY_OPERATIONS,MODULE_TEXT,OPERATION_TEXT,PERIOD_TEXT,periodRange,todaySP,moment,
  type SystemLogController,type ActivityPage,type ActivityQuery,type ActivityModule,type ActivityOperation,type PeriodKind} from '../lib/activity-model';
 import {OriginListHeader,OriginToolbar} from './OriginList';
@@ -50,13 +51,13 @@ export default function RealActivity({controller,mode='activity'}:{controller:Sy
  const [filters,setFilters]=useState<Filters>(initial);
  const [query,setQuery]=useState<ActivityQuery|null>(()=>deletions?captureActivityQuery({...periodRange('mes',today)!,operation:'exclusao'}):null);
  const [detail,setDetailEntry]=useState<ActivityEntry|null>(null);
- const [page,setPage]=useState<ActivityPage|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[users,setUsers]=useState<AccessUser[]>([]),[reload,setReload]=useState(0);
+ const [page,setPage]=useState<ActivityPage|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[users,setUsers]=useState<ErpPerson[]>([]),[reload,setReload]=useState(0);
  const may=()=>{const s=controller.getSnapshot();return alive.current&&admin(s)&&s.membership?.user_id===actor.current;};
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();};},[controller]);
  useEffect(()=>{if(allowed)return;request.current?.abort();request.current=null;setLoading(false);setPage(null);},[allowed]);
- // The user filter lists the company accounts (Sistema > Usuários); without it the filter stays on "Todos".
- useEffect(()=>{if(deletions||!allowed||!controller.accessUsers||!may())return;const p=new AbortController();void(async()=>{try{
-  const q=captureUsersQuery({limit:100});const raw=await controller.accessUsers!(usersListPath(q),{method:'GET',signal:p.signal});if(may()&&!p.signal.aborted)setUsers(parseUsersList(raw,q).items);
+ // The user filter lists the people with a role in the ERP (Wabotia core); without them the filter stays on "Todos".
+ useEffect(()=>{const people=erpPorts()?.people;if(deletions||!allowed||!people||!may())return;const p=new AbortController();void(async()=>{try{
+  const list=await people(p.signal);if(may()&&!p.signal.aborted)setUsers(list);
  }catch{/* Optional list. */}})();return()=>p.abort();},[controller,allowed,deletions]);
  useEffect(()=>{if(!query||!allowed||!may())return;request.current?.abort();const p=new AbortController();request.current=p;setLoading(true);setError('');void(async()=>{try{
   const raw=await controller.systemLog(activityPath(query),{method:'GET',signal:p.signal});if(!may()||p.signal.aborted||request.current!==p)return;setPage(parseActivity(raw,query));
@@ -81,7 +82,7 @@ export default function RealActivity({controller,mode='activity'}:{controller:Sy
     {filters.period==='periodo'&&<><label className="form-field">Início<input type="date" id="activity-from" value={filters.from} max={today} onChange={e=>setFilters({...filters,from:e.target.value})}/></label><label className="form-field">Fim<input type="date" id="activity-to" value={filters.to} max={today} onChange={e=>setFilters({...filters,to:e.target.value})}/></label></>}
     <label className="form-field">Módulo<select id="activity-module" value={filters.module} onChange={e=>setFilters({...filters,module:e.target.value as ActivityModule|''})}><option value="">Todos</option>{ACTIVITY_MODULES.map(m=><option key={m} value={m}>{MODULE_TEXT[m]}</option>)}</select></label>
     <label className="form-field">Operação<select id="activity-operation" value={filters.operation} onChange={e=>setFilters({...filters,operation:e.target.value as ActivityOperation|''})}><option value="">Todos</option>{ACTIVITY_OPERATIONS.map(o=><option key={o} value={o}>{OPERATION_TEXT[o]}</option>)}</select></label>
-    <label className="form-field">Usuário<select id="activity-actor" value={filters.actor} onChange={e=>setFilters({...filters,actor:e.target.value})}><option value="">Todos</option>{users.map(u=><option key={u.user_id} value={u.user_id}>{u.name??u.email??u.user_id.slice(0,8)}</option>)}</select></label>
+    <label className="form-field">Usuário<select id="activity-actor" value={filters.actor} onChange={e=>setFilters({...filters,actor:e.target.value})}><option value="">Todos</option>{users.map(u=><option key={u.user_id} value={u.user_id}>{u.name}</option>)}</select></label>
     <label className="form-field">Código ou descrição<input id="activity-q" maxLength={120} value={filters.q} onChange={e=>setFilters({...filters,q:e.target.value})}/></label>
    </div>
    <div className="real-editor-actions"><button type="button" className="secondary-button" onClick={clear}>Limpar filtros</button><button type="button" className="primary-button" disabled={loading} onClick={()=>search()}>Pesquisar</button></div>

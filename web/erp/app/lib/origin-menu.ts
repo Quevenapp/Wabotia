@@ -119,7 +119,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
     { title: 'Configurações do sistema', entries: [page('sistema-interface')] },
     { title: 'Tabelas e configurações adicionais', entries: [
       { label: 'Consulta de exclusões realizadas', to: '/preferencias/sistema/consulta-exclusoes', roles: ADMIN }, { label: 'Gerenciador de arquivos', to: '/preferencias/sistema/gerenciador-arquivos', roles: ADMIN }, { label: 'Relatórios customizados', to: '/preferencias/sistema/relatorios-customizados', description: 'Relatórios padrão e os customizados liberados para você.' },
-      { label: 'Etiquetas customizadas', to: '/preferencias/sistema/etiquetas-customizadas', roles: ADMIN }, { label: 'Registro de atividades', to: '/preferencias/sistema/registro-atividades', roles: ADMIN }, { label: 'Usuários', to: '/preferencias/sistema/usuarios', roles: ADMIN },
+      { label: 'Etiquetas customizadas', to: '/preferencias/sistema/etiquetas-customizadas', roles: ADMIN }, { label: 'Registro de atividades', to: '/preferencias/sistema/registro-atividades', roles: ADMIN }, { label: 'Permissões no ERP', to: '/preferencias/sistema/usuarios', roles: ADMIN },
       { label: 'Gerenciador de transições', to: '/preferencias/sistema/gerenciador-transicoes', roles: ADMIN, description: 'Situações personalizadas e transições de pedidos de venda, de compra e ordens de serviço.' }, { label: 'Campos customizados', to: '/campos-customizados', roles: PRODUCT_READERS, description: 'Campos próprios do cadastro de produtos, por categoria (aba Produtos).' },
     ] },
   ] },

@@ -23,7 +23,7 @@ const failure=(status:number|null)=>status===409?{definitive:true,message:'Os co
  * São Paulo) and Permissões, saved by one command with its own version (migration 229). The administrador has every permission
  * and is never blocked by the windows; the windows of a linked seller (Cadastros › Vendedores) also apply and are shown here.
  */
-export default function UserControls({controller,user,actor}:{controller:UsersController;user:AccessUser;actor:string|null}){
+export default function UserControls({controller,user,actor}:{controller:UsersController;user:Pick<AccessUser,'user_id'>;actor:string|null}){
  const [loaded,setLoaded]=useState<Controls|null>(null),[draft,setDraft]=useState<Draft|null>(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [busy,setBusy]=useState(false),[pending,setPending]=useState<ControlsSaveInput|null>(null),[reload,setReload]=useState(0);
  const request=useRef<AbortController|null>(null),alive=useRef(true);

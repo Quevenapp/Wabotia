@@ -11,7 +11,6 @@ import type {SystemController} from '../lib/system-model';
 import {Icon} from './Icon';
 import './company-settings.css';
 import AccountSecurity from './AccountSecurity';
-import {authClient} from '../lib/auth-client';
 const identityGroups=[
  {title:'Identificação',description:'Confira os dados no cadastro atual da empresa.',keys:['legal_name','trade_name','cnpj','ie']},
  {title:'Endereço da empresa',description:'Informe o endereço completo. Município e código IBGE devem representar o mesmo local.',keys:['postal_code','street','number','complement','district','city','state','municipality_code']},
@@ -41,7 +40,8 @@ export default function CompanySettings({controller}:{controller:CompanyControll
  // 262: Sua marca (the logo) through the attachment proxy.
  const logoPort=typeof controller.attachments==='function'&&typeof controller.getSnapshot==='function'?controller as Pick<AccessController,'attachments'|'getSnapshot'>:null;
  // Leva H (PRF-291, PRF-208): Alterar senha and the second factor, with the session of the company area.
- const securityPort=typeof controller.security==='function'&&typeof controller.getSnapshot==='function'&&authClient()?controller as Pick<AccessController,'security'|'getSnapshot'>:null;
+ // Wabotia: a senha e o aplicativo ficam em Minha conta do Wabotia; aqui, a exigência do segundo fator no ERP (AccountSecurity).
+ const securityPort=typeof controller.security==='function'&&typeof controller.getSnapshot==='function'?controller as Pick<AccessController,'security'|'getSnapshot'>:null;
  const [section,setSection]=useState<Section>(()=>{const s=new URLSearchParams(search).get('secao');return system&&(s==='armazenamento'||s==='socios')?s:s==='seguranca'&&securityPort?s:'dados';}),[unlock,setUnlock]=useState(false);
  // 189: correcting Nome, Nome Fantasia or CNPJ asks for a reason, recorded in the audit.
  const [lockedReason,setLockedReason]=useState('');
@@ -90,11 +90,11 @@ export default function CompanySettings({controller}:{controller:CompanyControll
  const docMismatch=Boolean(identity&&personType&&companyDocumentLabel(identity.data.cnpj)!==docLabel);
  const nav=<nav className="company-account-nav" aria-label="Minha conta"><h2>Minha conta</h2><ul><li><button type="button" aria-current={section==='dados'?'page':undefined} onClick={()=>setSection('dados')}>Dados da empresa</button></li>
   <li>{system&&access?.write_identity?<button type="button" aria-current={section==='socios'?'page':undefined} onClick={()=>setSection('socios')}>Dados do sócio(s)</button>:<span className="company-account-disabled" aria-disabled="true" title="Somente administradores consultam os dados dos sócios.">Dados do sócio(s)</span>}</li>
-  <li>{securityPort?<button type="button" aria-current={section==='seguranca'?'page':undefined} onClick={()=>setSection('seguranca')}>Alterar senha e segundo fator</button>:<span className="company-account-disabled" aria-disabled="true">Alterar senha</span>}</li>
-  <li>{access?.write_identity?<Link to="/preferencias/sistema/usuarios" title="Sistema › Usuários: abra o usuário e use Tipo, horários e permissões para restringir os horários de acesso.">Controle de horários <Icon name="up-right-from-square" size={9}/></Link>
-   :<span className="company-account-disabled" aria-disabled="true" title="Somente administradores definem os horários de acesso dos usuários (Sistema › Usuários).">Controle de horários <Icon name="up-right-from-square" size={9}/></span>}</li></ul>
+  <li>{securityPort?<button type="button" aria-current={section==='seguranca'?'page':undefined} onClick={()=>setSection('seguranca')}>Segurança e segundo fator</button>:<span className="company-account-disabled" aria-disabled="true">Alterar senha</span>}</li>
+  <li>{access?.write_identity?<Link to="/preferencias/sistema/usuarios" title="Sistema › Permissões no ERP: abra a pessoa e use Tipo, horários e permissões para restringir os horários de acesso.">Controle de horários <Icon name="up-right-from-square" size={9}/></Link>
+   :<span className="company-account-disabled" aria-disabled="true" title="Somente administradores definem os horários de acesso das pessoas (Sistema › Permissões no ERP).">Controle de horários <Icon name="up-right-from-square" size={9}/></span>}</li></ul>
   <h2>Gerenciamento</h2><ul><li>{system?<button type="button" aria-current={section==='armazenamento'?'page':undefined} onClick={()=>setSection('armazenamento')}>Espaço e armazenamento</button>:<span className="company-account-disabled" aria-disabled="true">Espaço e armazenamento</span>}</li></ul></nav>;
- return <div className="company-account">{nav}<div className="company-account-main">{section==='seguranca'&&securityPort?<AccountSecurity port={authClient()!} controller={securityPort}/>:section==='armazenamento'&&system?<CompanyStorage controller={system}/>:section==='socios'&&system&&access?.write_identity?<CompanyPartners controller={system}/>:<><header className="real-heading"><div><h1>Dados da empresa</h1><p>Cadastro de uma única empresa para identificação nos documentos comerciais.</p></div><span className="real-mode">{access?.write_identity?'Administrador':access?.write_fiscal?'Configuração fiscal':'Consulta'}</span></header>
+ return <div className="company-account">{nav}<div className="company-account-main">{section==='seguranca'&&securityPort?<AccountSecurity controller={securityPort}/>:section==='armazenamento'&&system?<CompanyStorage controller={system}/>:section==='socios'&&system&&access?.write_identity?<CompanyPartners controller={system}/>:<><header className="real-heading"><div><h1>Dados da empresa</h1><p>Cadastro de uma única empresa para identificação nos documentos comerciais.</p></div><span className="real-mode">{access?.write_identity?'Administrador':access?.write_fiscal?'Configuração fiscal':'Consulta'}</span></header>
   <p className="real-notice">Confira o CNPJ e o endereço da empresa antes de usar esses dados nos documentos.</p>
   {loading&&<p role="status">Carregando dados da empresa…</p>}{error&&<p className="real-alert" role="alert">{error}{!access&&<button className="text-button" onClick={refresh}>Tentar novamente</button>}</p>}{notice&&<p className="real-success" role="status">{notice}</p>}
   {unresolved&&busy&&<p role="status" className="real-help">Salvando e conferindo os dados da empresa…</p>}
