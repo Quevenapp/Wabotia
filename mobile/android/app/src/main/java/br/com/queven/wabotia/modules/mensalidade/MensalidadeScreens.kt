@@ -267,7 +267,12 @@ private fun SubscriptionList(vm: MensalidadeViewModel, open: (String) -> Unit) {
             }
         }
         if (vm.subscriptions.isEmpty() && !vm.loading) item("empty") {
-            EmptyState(Icons.Filled.Payments, "Nenhuma assinatura aqui", subtitle = "As assinaturas são criadas no painel, em Gestão → Mensalidades.")
+            // O EmptyState rola sozinho: dentro de um item de LazyColumn ele precisa de uma altura limitada, senão o
+            // Compose derruba o app ("measured with an infinity maximum height").
+            EmptyState(
+                Icons.Filled.Payments, "Nenhuma assinatura aqui", Modifier.fillParentMaxHeight(0.6f),
+                subtitle = "As assinaturas são criadas no painel, em Gestão → Mensalidades.",
+            )
         }
         items(vm.subscriptions, key = { it.id }) { s ->
             WbCard(Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("mensalidade.subscription"), onClick = { open(s.id) }) {
