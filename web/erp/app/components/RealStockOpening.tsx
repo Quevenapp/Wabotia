@@ -28,6 +28,9 @@ function Row({row}:{row:StockOpeningRow}){
   <td><span className={`status-badge status-${openingStatusTone(row.status)}`}>{OPENING_STATUS_LABELS[row.status]}</span>{row.reason&&row.reason!=='ALREADY_ADOPTED'&&<small>{OPENING_REASON_LABELS[row.reason]}</small>}{row.receipt&&<small>Data de corte {row.receipt.occurred_on.split('-').reverse().join('/')}{row.receipt.state==='reversed'?' · estornado pelo estoque':''}</small>}</td></tr>;
 }
 
+/** Wabotia: a adoção do saldo vindo do Origin saiu com o Origin (PLANO-FAGOO.md, item 17); fica a política de estoque negativo. */
+const ORIGIN_ADOPTION = false;
+
 function OpeningView({controller,actor,allowed}:{controller:StockOpeningController;actor:string;allowed:boolean}){
  const alive=useRef(true),request=useRef<AbortController|null>(null),meta=useRef<AbortController|null>(null),opening=useRef<OpeningAttempt|null>(null),policyAttempt=useRef<PolicyAttempt|null>(null);
  const [warehouses,setWarehouses]=useState<StockOpeningWarehouses|null>(null),[policy,setPolicy]=useState<StockPolicyView|null>(null),[source,setSource]=useState(''),[day,setDay]=useState(openingToday());
@@ -47,6 +50,7 @@ function OpeningView({controller,actor,allowed}:{controller:StockOpeningControll
   if(!policyAttempt.current)setEdit(null);setPage(null);}},[allowed]);
  // Linked warehouses and the policy load beside the page, with their own cancellation.
  useEffect(()=>{if(!may())return;meta.current?.abort();const p=new AbortController();meta.current=p;const ok=()=>may()&&!p.signal.aborted&&meta.current===p;void(async()=>{try{
+  if(!ORIGIN_ADOPTION){const v=await controller.stockOpening(stockPolicyPath(),{method:'GET',signal:p.signal});if(ok())setPolicy(parseStockPolicy(v));return;}
   const [w,v]=await Promise.all([controller.stockOpening(stockOpeningWarehousesPath(),{method:'GET',signal:p.signal}),controller.stockOpening(stockPolicyPath(),{method:'GET',signal:p.signal})]);
   if(!ok())return;const list=parseStockOpeningWarehouses(w);setWarehouses(list);setPolicy(parseStockPolicy(v));if(!live.current.source&&list.items.length===1)setSource(list.items[0].source_id);
  }catch(e){if(ok())setError(readError(e));}finally{if(meta.current===p)meta.current=null;}})();return()=>{p.abort();if(meta.current===p)meta.current=null;};},[controller,actor,allowed,reload]);
@@ -109,8 +113,8 @@ function OpeningView({controller,actor,allowed}:{controller:StockOpeningControll
  const canAdopt=Boolean(current&&!busy&&!activeOpening&&!dialog&&!dateProblem&&current.counts.pending>0&&current.warehouse.active);
  void pending;
  return <section className="stock-opening" aria-busy={busy}>
-  <header className="real-heading"><div><h1>Saldo de abertura do estoque (Origin)</h1><p>Adote o estoque físico observado no Origin para cada depósito vinculado, na data de corte da virada.</p></div><span className="real-mode">Administrador</span></header>
-  <div className="real-notice stock-opening-warning" role="note"><strong>O Origin continua mudando até a virada.</strong> Faça a adoção no momento da virada, depois de encerrar as movimentações no Origin. Cada produto é adotado uma única vez por depósito; mudanças posteriores no Origin não são reaplicadas.</div>
+  <header className="real-heading"><div><h1>{ORIGIN_ADOPTION?'Saldo de abertura do estoque (Origin)':'Estoque negativo'}</h1><p>{ORIGIN_ADOPTION?'Adote o estoque físico observado no Origin para cada depósito vinculado, na data de corte da virada.':'Defina se as baixas de estoque podem deixar o saldo abaixo de zero. O saldo inicial entra por Lançamentos de estoque ou pela importação de movimentações em massa.'}</p></div><span className="real-mode">Administrador</span></header>
+  {ORIGIN_ADOPTION&&<div className="real-notice stock-opening-warning" role="note"><strong>O Origin continua mudando até a virada.</strong> Faça a adoção no momento da virada, depois de encerrar as movimentações no Origin. Cada produto é adotado uma única vez por depósito; mudanças posteriores no Origin não são reaplicadas.</div>}
   {error&&<p className="real-alert" role="alert">{error}</p>}{notice&&<p className="real-success" role="status">{notice}</p>}
   {policy&&<section className="stock-opening-panel" aria-label="Política de estoque negativo"><header><h2>Permitir estoque negativo</h2><span className={`status-badge status-${policy.policy.allow_negative?'warning':'neutral'}`}>{openingPolicyLabel(policy.policy)}</span></header>
    <p>Desligada (padrão), nenhuma baixa deixa o saldo abaixo de zero. Ligada, como no Origin, vendas, saídas, transferências e estornos podem deixar o saldo negativo; reservas continuam exigindo saldo disponível.</p>
@@ -122,7 +126,7 @@ function OpeningView({controller,actor,allowed}:{controller:StockOpeningControll
    {activePolicy&&<div className="stock-opening-confirm" aria-label="Alteração da política pendente"><p>A alteração da política aguarda confirmação. Identificador: <code>{activePolicy.body.command_id}</code>.</p><div className="stock-opening-actions"><button type="button" className="primary-button" disabled={busy} onClick={()=>void runPolicy(activePolicy)}>Conferir resultado da política</button>{activePolicy.retryAllowed&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>void runPolicy(activePolicy,true)}>Reenviar a mesma alteração</button>}</div></div>}
    <small>Versão {policy.policy.version}{policy.policy.updated_at?` · alterada em ${moment(policy.policy.updated_at)}`:' · configuração inicial'}</small>
   </section>}
-  {activeOpening&&!dialog&&<section className="stock-opening-panel" aria-label="Adoção pendente"><h2>Conferir resultado da adoção</h2><p>O lote confirmado está preservado. Identificador do comando: <code>{activeOpening.body.command_id}</code>.</p>
+  {ORIGIN_ADOPTION&&<>{activeOpening&&!dialog&&<section className="stock-opening-panel" aria-label="Adoção pendente"><h2>Conferir resultado da adoção</h2><p>O lote confirmado está preservado. Identificador do comando: <code>{activeOpening.body.command_id}</code>.</p>
    <div className="stock-opening-actions"><button type="button" className="primary-button" disabled={busy} onClick={()=>{if(!free()||opening.current!==activeOpening)return;setDialog({phase:'uncertain',batch:activeOpening.batch,results:[],message:'Confira o resultado do mesmo comando. A consulta não repete a adoção.'});void runOpening(activeOpening);}}>Conferir resultado</button></div></section>}
   <section className="stock-opening-panel" aria-label="Depósito e data de corte"><div className="stock-opening-fields">
    <label htmlFor="opening-warehouse">Depósito vinculado<select id="opening-warehouse" value={source} disabled={busy||Boolean(activeOpening)||!warehouses} onChange={e=>changeSource(e.target.value)}><option value="">Selecione o depósito</option>{warehouses?.items.map(w=><option key={w.source_id} value={w.source_id}>{w.name}{w.active?'':' (inativo)'} · ID {w.source_id}</option>)}</select></label>
@@ -156,7 +160,7 @@ function OpeningView({controller,actor,allowed}:{controller:StockOpeningControll
     {activeOpening&&dialog.phase!=='preview'&&<small>Identificador do comando: <code>{activeOpening.body.command_id}</code></small>}
     {dialog.results.length>0&&<ul className="batch-dialog-list">{dialog.results.map(r=><li key={r.id} className={`is-${dialog.phase==='preview'?'pending':r.outcome}`}><span className="batch-dialog-label">{r.label}</span>{dialog.phase!=='preview'&&<span className="batch-dialog-outcome">{BATCH_OUTCOME_LABEL[r.outcome]}</span>}{r.message&&<small>{r.message}</small>}</li>)}</ul>}
    </div>
-  </Modal>}
+  </Modal>}</>}
  </section>;
 }
 // The route renders this screen for every role (as086): a role that never was administrador sees the refusal and sends

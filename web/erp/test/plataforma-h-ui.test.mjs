@@ -24,14 +24,15 @@ test('PRF-255: the release notes kept in the repository are ordered, dated and a
 });
 
 test('PRF-287, NFE-187, NFE-222: the Central de ajuda is an internal route with the main flows, coexistence and fiscal guidance',async()=>{
- assert.deepEqual(HELP_TOPICS.map(t=>t.slug),['primeiros-passos','convivencia','notas-fiscais','naturezas-operacao','exportacao']);
+ // Wabotia: o tópico 'convivencia' saiu (item 17); a convivência com o Bling terá a ajuda do componente externo.
+ assert.deepEqual(HELP_TOPICS.map(t=>t.slug),['primeiros-passos','notas-fiscais','naturezas-operacao','exportacao']);
  assert.ok(isHelpPath('/ajuda')&&isHelpPath('/ajuda/notas-fiscais')&&!isHelpPath('/ajudas'));
  for(const topic of HELP_TOPICS)for(const section of topic.sections)for(const link of section.links??[]){
   assert.ok(Boolean(link.to)!==Boolean(link.href),link.label);
   if(link.href)assert.match(link.href,/^https:\/\/(www\.nfe\.fazenda\.gov\.br|concla\.ibge\.gov\.br)\//,'only official sources outside the app');
   if(link.to)assert.ok(!/origin\.com/.test(link.to));
  }
- assert.ok(helpTopic('convivencia').sections.some(s=>s.paragraphs.some(p=>/alteração mais recente/.test(p))));
+ assert.equal(helpTopic('convivencia'),null);
  const index=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda'});
  assert.match(index.text(),/Central de ajuda do FAGOO/);assert.match(index.text(),/Manual de notas fiscais/);assert.match(index.text(),/Novidades/);
  const notes=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/notas-fiscais'});

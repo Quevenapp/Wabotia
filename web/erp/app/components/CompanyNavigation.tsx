@@ -14,7 +14,7 @@ import { storageSummary, type SystemController } from '../lib/system-model';
 import './company-navigation.css';
 
 // Leva H (PRF-287, PRF-255): the help of the Brufap itself, inside the app; no external help domain.
-const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do FAGOO', to: '/ajuda', icon: 'circle-question' }, { label: 'Convivência com o Origin', to: '/ajuda/convivencia', icon: 'arrows-rotate' },
+const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do FAGOO', to: '/ajuda', icon: 'circle-question' },
   { label: 'Novidades no FAGOO', to: '/ajuda/novidades', icon: 'star' }];
 
 // Company area navigation: the Origin top bar (same menu as the demo) plus the location trail.

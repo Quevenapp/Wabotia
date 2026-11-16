@@ -54,7 +54,7 @@ test('the fresh top bar omits sync and connector help even when the controller h
    './OriginSyncButton':'export default function Sync(){return r.jsx("button",{children:"Sincronizar"});}',
   };
   const view=await mountComponent('CompanyNavigation.tsx',{state,onLogout(){},controller:{originSync(){throw Error('Unexpected request');}}},{modules,expandChildren:true});
-  try{assert.equal(view.text().includes('Sincronizar'),enabled);assert.equal(view.text().includes('Convivência com o Origin'),enabled);}finally{view.unmount();}
+  try{assert.equal(view.text().includes('Sincronizar'),enabled);/* Wabotia: a ajuda da convivência com o Origin saiu (item 17). */assert.equal(view.text().includes('Convivência com o Origin'),false);}finally{view.unmount();}
  }
 });
 

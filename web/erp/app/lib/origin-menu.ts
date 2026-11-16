@@ -134,7 +134,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
     { title: 'Configurações de suprimentos', entries: [page('suprimentos-estoque'), page('suprimentos-compras')] },
     { title: 'Tabelas e configurações adicionais', entries: [{ label: 'Gerenciar grupos de tags', to: '/grupos-tags', roles: TAG_READERS }, { label: 'Gerenciar tags', to: '/tags', roles: TAG_READERS },
       { label: 'Depósitos de estoque', to: '/cadastros-reais?cadastro=warehouses', roles: ['admin', 'consulta', 'estoque'], description: 'Depósito padrão e "Desconsiderar saldo deste depósito".' }, { label: 'Grupos de produtos', to: '/grupos-produtos', roles: PRODUCT_READERS }] },
-    { title: TOOLS, entries: [{ label: 'Estoque · saldo de abertura e estoque negativo', to: '/estoque-abertura', roles: ADMIN, description: 'Política "Permitir estoque negativo" e adoção do saldo do Origin por depósito.' }] },
+    { title: TOOLS, entries: [{ label: 'Estoque negativo', to: '/estoque-abertura', roles: ADMIN, description: 'Política "Permitir estoque negativo" para baixas, transferências e estornos.' }] },
   ] },
   { id: 'vendas', label: 'Vendas', icon: 'users', sections: [
     { title: 'Configurações de vendas', entries: [page('vendas-frente-caixa'), page('vendas-propostas'), page('vendas-vendas')] },

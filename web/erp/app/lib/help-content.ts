@@ -27,21 +27,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
       'As permissões gravadas em Preferências › Sistema › Usuários valem no servidor e no banco, não só na tela: uma ação recusada mostra o motivo.',
     ], links: [{ label: 'Usuários e permissões', to: '/preferencias/sistema/usuarios' }] },
   ] },
-  { slug: 'convivencia', title: 'Convivência com o Origin', summary: 'FAGOO e Origin sincronizados nos dois sentidos: use qualquer um dos dois.', sections: [
-    { title: 'Sincronização de mão dupla', paragraphs: [
-      'O que é criado, alterado ou excluído no FAGOO vai para o Origin, e o que muda no Origin chega ao FAGOO, não importa onde o registro nasceu. Em conflito, vale a alteração mais recente.',
-      'Vão e voltam: contatos, produtos, propostas, pedidos de venda e de compra, contas a receber e a pagar com as baixas, e os lançamentos de estoque. Ordens de serviço chegam do Origin, mas a API do Origin não permite gravá-las.',
-      'O envio e o recebimento rodam sozinhos a cada dois minutos. O botão Sincronizar, na barra superior, faz uma rodada completa na hora: envia a fila, procura no Origin o que foi criado ou excluído lá e aplica tudo. O painel mostra o que está na fila e as pendências.',
-    ] },
-    { title: 'Cuidados', paragraphs: [
-      'Um efeito nasce uma vez: lance estoque e contas de um pedido em um dos dois sistemas, não nos dois. No Origin, desligue as ações automáticas de estoque e contas nas mudanças de situação dos pedidos.',
-      'Estorno de baixa feito no FAGOO precisa ser repetido no Origin, porque a API do Origin não estorna baixas. O painel avisa quando isso acontece.',
-      'Movimentos de estoque só vão ao Origin em depósitos vinculados a um depósito do Origin.',
-    ] },
-    { title: 'O que continua desligado', paragraphs: [
-      'Emissão fiscal em produção e operações bancárias reais (remessa, boleto e Pix) continuam no Origin. As notas emitidas pelo FAGOO ficam em homologação, sem valor fiscal; o FAGOO nunca escreve notas no Origin.',
-    ] },
-  ] },
+  // Wabotia: o tópico 'convivencia' (Convivência com o Origin) saiu; a convivência com o Bling é de um componente externo (PLANO-FAGOO.md, item 17).
   { slug: 'notas-fiscais', title: 'Manual de notas fiscais', summary: 'As notas do Origin, os rascunhos de homologação e as notas recebidas.', sections: [
     { title: 'As duas visões', paragraphs: [
       '"Notas do Origin" lista as notas sincronizadas do Origin, com situação, XML e DANFE quando o XML autorizado está no acervo. É a visão de consulta durante a convivência.',

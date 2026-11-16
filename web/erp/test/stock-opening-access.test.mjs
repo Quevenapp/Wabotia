@@ -34,25 +34,17 @@ async function mountRoute(controller,location='/estoque-abertura'){
  const source=fileURLToPath(new URL('../app/components/RealStockOpening.tsx',import.meta.url)),names=[...String(await readFile(new URL('../app/components/native-modules.ts',import.meta.url),'utf8')).matchAll(/export const (\w+) = lazy/g)].map(x=>x[1]).filter(n=>n!=='RealStockOpening');
  return mountComponent('RealAccess.tsx',{},{componentName:'ConnectedArea',location,expandChildren:true,ports:{access,controller},modules:{'../lib/real-access':'export const createAccessController=()=>r.controller;export const {AccessError,decimalMoney,RESOURCE_LABELS,ROLE_LABELS}=r.access;','../../ports':'export const erpPorts=()=>({auth:{},mfa:{},apiUrl:"https://api.synthetic.test",fetch:globalThis.fetch,demo:false});','./NativeModuleBoundary':'export default function NativeModuleBoundary({children}){return children;}','./CompanyNavigation':'export default function CompanyNavigation(){return null;}','./native-modules':`export {default as RealStockOpening} from ${JSON.stringify(source)};${names.map(n=>`export function ${n}(){return null;}`).join('')}`}});
 }
+// Wabotia: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
 test('100 real route: only administrador reaches the screen; other roles get no business request',async()=>{
  for(const role of['admin','consulta','estoque','vendas','fiscal','financeiro']){const f=setup({role}),v=await mountRoute(f.controller);try{
-  assert.equal(f.calls.length,role==='admin'?3:0,role);assert.match(v.text(),role==='admin'?/Saldo de abertura do estoque \(Origin\)/:/Saldo de abertura não liberado/);
+  assert.equal(f.calls.length,role==='admin'?1:0,role);assert.match(v.text(),role==='admin'?/Estoque negativo/:/Saldo de abertura não liberado/);
  }finally{v.unmount();}}
 });
-test('100 real route: the same administrador losing and regaining the role keeps the pending command for “Conferir resultado”',async()=>{
- const hold=deferred(),f=setup({fixture:{before:c=>c.path.endsWith('/adotar')?hold.promise:undefined}}),v=await mountRoute(f.controller);try{
- await v.click('Adotar próximo lote');await v.change('opening-confirm',true);await v.click('Adotar lote');
- const sent=f.calls.find(c=>c.path.endsWith('/adotar')),command=JSON.parse(sent.body).command_id;
- f.refresh('estoque');await v.flush();assert.match(v.text(),/exige acesso ativo de administrador/);assert.doesNotMatch(v.text(),/Saldo de abertura não liberado/);
- hold.resolve(undefined);await v.flush();assert.ok(v.nodes().some(n=>n.props.hidden&&n.props.inert));f.refresh('admin');await v.flush();assert.ok(!v.nodes().some(n=>n.props.hidden&&n.props.inert));assert.match(v.text(),new RegExp(command));
- await v.click('Conferir resultado');assert.equal(f.calls.filter(c=>c.path.endsWith('/adotar')).length,1);
- assert.equal(f.calls.filter(c=>c.path==='/v1/saldo-abertura-estoque/comandos/'+command).length,1);assert.match(v.text(),/2 concluídos/);
-}finally{hold.resolve(undefined);v.unmount();}});
 test('100 Preferências › Suprimentos lists the screen for administrador only and the public App accepts the route',async()=>{
  const admin=resolvePreferences({role:'admin'});const category=admin.find(c=>c.id==='suprimentos');assert.ok(category);assert.ok(category.entries.map(e=>e.to).includes('/estoque-abertura'));assert.ok(category.entries.map(e=>e.to).includes('/cadastros-reais?cadastro=warehouses'));
  // Origin order (Empresa, Sistema, Cadastros, Suprimentos…): the tool sits in Suprimentos › Ferramentas do Brufap.
  {const ids=admin.map(c=>c.id);assert.equal(ids[0],'empresa');assert.ok(ids.indexOf('suprimentos')>0);}
  for(const role of['consulta','estoque','vendas','fiscal','financeiro'])assert.equal(resolvePreferences({role}).some(c=>c.entries.some(e=>e.to==='/estoque-abertura')),false,role);
  const app=await readFile(new URL('../app/App.tsx',import.meta.url),'utf8');assert.ok(app.includes("'/estoque-abertura'"));
- const v=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'suprimentos',categories:admin});try{assert.match(v.text(),/saldo de abertura e estoque negativo/);}finally{v.unmount();}
+ const v=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'suprimentos',categories:admin});try{assert.match(v.text(),/Estoque negativo/);}finally{v.unmount();}
 });

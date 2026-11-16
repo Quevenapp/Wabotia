@@ -64,6 +64,8 @@ export function blockOf(target: string): ErpBlock {
  */
 const HIDDEN = [
   "/atualizacao",
+  // Ajuda da convivência com o Origin: vai para o componente externo (item 17).
+  "/ajuda/convivencia",
   "/preferencias/sistema/atualizacoes",
   "/preferencias/sistema/wabotia",
 ];
