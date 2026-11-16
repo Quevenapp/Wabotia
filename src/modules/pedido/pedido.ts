@@ -443,11 +443,12 @@ onMcpTool(MODULE, {
 onRead(MODULE, "pedido/conversations/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   const c = await ctx.conversation(params.id, actor);
-  return {
+  // Ferramenta do bot: sem telefone, endereço nem notas (conferência N-8).
+  return ctx.botView(actor, {
     data: (await openOrdersFor(ctx, c)).map((o) =>
       visibleOrder(ctx, actor, orderView(o)),
     ),
-  };
+  });
 });
 onMcpTool(MODULE, {
   name: "pedido_enviar_carrinho",

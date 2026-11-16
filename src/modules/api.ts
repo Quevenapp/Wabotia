@@ -93,6 +93,22 @@ export type { ConsentPurpose, ConsentRecord } from "../consents";
 export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export type SensitiveKind = "contacts" | "notes";
+/** Campos fora das leituras do bot pela conversa (ctx.botView). */
+const BOT_HIDDEN = new Set([
+  "document",
+  "document_display",
+  "payer_document",
+  "email",
+  "phones",
+  "phone",
+  "customer_phone",
+  "checkin_answers",
+  "checkin_step_id",
+  "address",
+  "address_text",
+  "notes",
+  "created_by",
+]);
 /** Pessoas da equipe sempre; aplicação só com `<kind>:read`. */
 export const mayRead = (actor: Actor, kind: SensitiveKind) =>
   actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
@@ -122,6 +138,13 @@ export interface ModuleContext {
    * (notas internas e observações da equipe).
    */
   mayRead(actor: Actor, kind: SensitiveKind): boolean;
+  /**
+   * Leitura pela conversa para bot ou integração (ferramentas MCP,
+   * conferência N-8): sem documento, e-mail, telefones, endereço, respostas
+   * do check-in, notas e quem cadastrou, seja qual for o escopo. Pessoas da
+   * equipe recebem o valor inteiro.
+   */
+  botView<T>(actor: Actor, value: T): T;
   /**
    * Quem pode falar com o cliente da conversa em nome da equipe: o dono da
    * conversa, um administrador ou o bot que está atendendo (estado `ai`).
@@ -356,6 +379,19 @@ export function modulesApi(
     },
     access: (actor, scope) => access(actor, profile, scope),
     mayRead: (actor, kind) => mayRead(actor, kind),
+    botView(actor, value) {
+      if (actor.kind !== "app") return value;
+      const walk = (v: any): any => {
+        if (Array.isArray(v)) return v.map(walk);
+        if (!v || typeof v !== "object") return v;
+        return Object.fromEntries(
+          Object.entries(v)
+            .filter(([k]) => !BOT_HIDDEN.has(k))
+            .map(([k, x]) => [k, walk(x)]),
+        );
+      };
+      return walk(value);
+    },
     mayMessage: (actor, c) =>
       c.owner === actor.id ||
       (actor.kind === "user" && actor.role === "admin") ||

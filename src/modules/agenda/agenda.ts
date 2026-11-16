@@ -237,7 +237,7 @@ onConversationAction(MODULE, "agenda_cancel", async (ctx, actor, c, data) => {
 onRead(MODULE, "agenda/conversations/:id", async (ctx, actor, { params }) => {
   read(ctx, actor);
   const c = await ctx.conversation(params.id, actor);
-  return { data: await upcomingFor(ctx, c, now()) };
+  return ctx.botView(actor, { data: await upcomingFor(ctx, c, now()) });
 });
 
 onWebStepCompleted(MODULE, async (ctx, step, answers) => {

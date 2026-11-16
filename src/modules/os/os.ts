@@ -361,10 +361,11 @@ onRead(
   async (ctx, actor, { params, query }) => {
     ctx.access(actor, "conversations:read");
     const c = await ctx.conversation(params.id, actor);
-    return {
+    // Ferramenta do bot: sem telefone nem notas (conferência N-8).
+    return ctx.botView(actor, {
       data: (await ordersOfCustomer(ctx, c, query.open === "1")).map((view) =>
         visibleOrder(ctx, actor, view),
       ),
-    };
+    });
   },
 );

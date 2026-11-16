@@ -9,7 +9,9 @@ import {
   createSubscription,
 } from "../src/modules/mensalidade/store";
 import { addDays, today } from "../src/modules/mensalidade/model";
+import { exec } from "../src/db";
 import {
+  application,
   drain,
   fixture,
   receive,
@@ -35,6 +37,69 @@ async function people(f: Fixture, a: string, b: string) {
 }
 const turnOn = (f: Fixture, id: string, enabled = true) =>
   perform(env, f.admin, f.profile, "module.set", { id, enabled }, uid());
+
+describe("conferência N-8: leituras do bot sem dado pessoal, seja qual for o escopo", () => {
+  it("mensalidade_situacao e reserva_minhas não trazem documento, telefones nem check-in", async () => {
+    const s = await reservaSetup();
+    const f = s.f;
+    await turnOn(f, "mensalidade");
+    const phone = "5511974449901";
+    const r = await receive(f, f.line, "oi", phone);
+    await drain(f);
+    const c = await conversation(env, r.id, f.profile);
+    // Chave com contacts:read (como o painel dava ao Hermes).
+    const key = (
+      await application(f, [
+        "conversations:read",
+        "conversations:write",
+        "contacts:read",
+        "notes:read",
+      ])
+    ).token;
+    const ctx = modulesApi(env, f.profile, "mensalidade");
+    const plan = await createPlan(
+      ctx,
+      { name: "Plano", amount_cents: 9900 },
+      f.admin.id,
+    );
+    await createSubscription(
+      ctx,
+      {
+        plan_id: plan.id,
+        customer_name: "Cliente",
+        phone,
+        document: "529.982.247-25",
+        start_date: today(now()),
+      },
+      f.admin.id,
+    );
+    const situation = await tool(key, "mensalidade_situacao", {
+      conversation_id: c.id,
+    });
+    expect(situation.ok).toBe(true);
+    const text = JSON.stringify(situation.data);
+    expect(text).not.toContain("52998224725");
+    expect(text).not.toContain("529.982.247-25");
+    expect(text).not.toContain(phone);
+    const b = await s.run("reserva.book", {
+      unit_id: s.jardim.id,
+      start_date: future(15),
+      nights: 1,
+      conversation_id: c.id,
+    });
+    await exec(
+      env,
+      "UPDATE reserva_bookings SET checkin_answers=? WHERE id=?",
+      JSON.stringify({ documento: "123.456.789-09" }),
+      b.id,
+    );
+    const mine = await tool(key, "reserva_minhas", { conversation_id: c.id });
+    expect(mine.ok).toBe(true);
+    expect(JSON.stringify(mine.data)).not.toContain("123.456.789-09");
+    expect(JSON.stringify(mine.data)).not.toContain(phone);
+    expect(mine.data.data.map((x: any) => x.id)).toEqual([b.id]);
+  });
+});
 
 describe("ferramentas do bot: Reserva", () => {
   it("disponibilidade, reservar e minhas reservas só do cliente da conversa", async () => {

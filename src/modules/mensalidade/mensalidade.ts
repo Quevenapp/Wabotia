@@ -385,7 +385,9 @@ onRead(
     ctx.access(actor, "conversations:read");
     const c = await ctx.conversation(params.id, actor);
     const phone = ctx.verifiedPhone(c);
-    return {
+    // Ferramenta do bot: situação sem documento, e-mail nem telefones do
+    // pagador (conferência N-8).
+    return ctx.botView(actor, {
       situation: phone
         ? await situationByPhone(ctx.env, ctx.profile, phone)
         : null,
@@ -397,7 +399,7 @@ onRead(
         due_date: inst.due_date,
         status: inst.status,
       })),
-    };
+    });
   },
 );
 

@@ -209,7 +209,7 @@ onConversationAction(
 onRead(MODULE, "reserva/conversations/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   const c = await ctx.conversation(params.id, actor);
-  return { data: await upcomingFor(ctx, c, Date.now()) };
+  return ctx.botView(actor, { data: await upcomingFor(ctx, c, Date.now()) });
 });
 
 // Ferramentas MCP para o bot de IA (núcleo: onMcpTool). As que tocam no
