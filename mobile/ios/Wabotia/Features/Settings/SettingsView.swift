@@ -2,8 +2,9 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
-/// Aba Ajustes (mobile/DESIGN.md, seção 10): cartão do usuário e grupos em cartões: Atendimento,
-/// Notificações, Aparência, Servidor, Este aparelho, Sobre e Sair. Tudo que existia em "Mais" continua aqui.
+/// Aba Ajustes (mobile/DESIGN.md, seção 10): cartão do usuário e grupos em cartões: Impressão (a impressora do
+/// cupom), Notificações, Aparência, Servidor, Este aparelho, Sobre e Sair. Presença, protocolos, guichê, módulos e
+/// linhas ficam na aba Atendimento (`AttendanceView`).
 struct SettingsView: View {
     let active: Bool
     @EnvironmentObject private var container: AppContainer
@@ -11,11 +12,9 @@ struct SettingsView: View {
     @ObservedObject private var workspace = Workspace.shared
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.pushRoute) private var push
     @State private var confirmLogout = false
     @State private var confirmChangeServer = false
     @State private var confirmExitDemo = false
-    @State private var showPresence = false
     @State private var appearance = AppAppearance.current
     @State private var showPrinter = false
     @ObservedObject private var moduleFeature = ModuleFeature.shared
@@ -30,7 +29,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         userCard.padding(.horizontal, 16)
-                        serviceSection.padding(.horizontal, 16)
+                        printerSection.padding(.horizontal, 16)
                         Group { if demo { demoNotificationsSection } else { notificationsSection } }.padding(.horizontal, 16).id("notifications")
                         appearanceSection.padding(.horizontal, 16).id("appearance")
                         Group { if demo { demoServerSection } else { serverSection } }.padding(.horizontal, 16).id("server")
@@ -61,11 +60,13 @@ struct SettingsView: View {
             }
         }
         .task(id: active) { if active { await vm.load() } }
+        .task(id: "\(active)-\(container.profileId ?? "")") {
+            if active { await ModuleFeature.shared.refresh(container: container) }
+        }
         .onDisappear { vm.cancel() }
         .onChange(of: scenePhase) { phase in
             if phase == .active, active { Task { await vm.refreshNotificationStatus() } }
         }
-        .sheet(isPresented: $showPresence) { PresenceSheet() }
         .alert("Aviso", isPresented: alertBinding) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -109,52 +110,22 @@ struct SettingsView: View {
                 Text(workspace.profileName.isEmpty ? vm.currentProfileName : workspace.profileName).font(Theme.font(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button { showPresence = true } label: { PresencePill(online: workspace.mePresent, busy: workspace.presenceBusy) }
-                .buttonStyle(.plain)
         }
         .card(padding: 16)
     }
 
-    // MARK: - Atendimento
+    // MARK: - Impressora
 
-    private var serviceSection: some View {
-        SectionCard(title: "Atendimento", footer: vm.isAdmin ? nil : "Atendentes consultam as linhas; a edição é do administrador.") {
-            // Fila de senhas: só quando o servidor a oferece a esta área (rota de capacidades; GET /queue em servidor antigo).
-            if moduleFeature.isAvailable(ModuleId.queue, container.profileId) {
-                navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
-                    .accessibilityIdentifier("settings.counter")
-                navRow("Impressora do cupom", "printer.fill", Theme.muted) { showPrinter = true }
+    /// Presença, protocolos, guichê, módulos e linhas ficam na aba Atendimento; aqui fica só a impressora do cupom,
+    /// que é deste aparelho (a configuração do kit vale para o app inteiro, também no modo aparelho).
+    @ViewBuilder private var printerSection: some View {
+        // Fila de senhas: só quando o servidor a oferece a esta área (rota de capacidades; GET /queue em servidor antigo).
+        if moduleFeature.isAvailable(ModuleId.queue, container.profileId) {
+            SectionCard(title: "Impressão", footer: "Guichê, protocolos, módulos e sua presença ficam na aba Atendimento.") {
+                navRow("Impressora do cupom", "printer.fill", Theme.muted, divider: false) { showPrinter = true }
                     .accessibilityIdentifier("settings.printer")
             }
-            if moduleFeature.isAvailable(ModuleId.agenda, container.profileId) {
-                navRow("Agenda", "calendar", Theme.brand) { push(.agenda) }
-                    .accessibilityIdentifier("settings.agenda")
-            }
-            if moduleFeature.isAvailable(ModuleId.serviceOrders, container.profileId) {
-                navRow("Ordens de serviço", "wrench.and.screwdriver.fill", Theme.warn) { push(.serviceOrders) }
-                    .accessibilityIdentifier("settings.serviceOrders")
-            }
-            if moduleFeature.isAvailable(ModuleId.reserva, container.profileId) {
-                navRow("Reservas", "bed.double.fill", Theme.ticket) { push(.reserva) }
-                    .accessibilityIdentifier("settings.reserva")
-            }
-            if moduleFeature.isAvailable(ModuleId.pedido, container.profileId) {
-                navRow("Pedidos", "takeoutbag.and.cup.and.straw.fill", Theme.warn) { push(.pedido) }
-                    .accessibilityIdentifier("settings.pedido")
-            }
-            if moduleFeature.isAvailable(ModuleId.mensalidade, container.profileId) {
-                navRow("Mensalidades", "creditcard.fill", Theme.bot) { push(.mensalidade) }
-                    .accessibilityIdentifier("settings.mensalidade")
-            }
-            navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
-            if vm.isAdmin {
-                navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }
-                navRow("Linhas dos bots", "cpu", Theme.bot, divider: false) { push(.botLines) }
-            }
-        }
-        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
-        .task(id: "\(active)-\(container.profileId ?? "")") {
-            if active { await ModuleFeature.shared.refresh(container: container) }
+            .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
         }
     }
 

@@ -12,7 +12,7 @@ extension MensalidadeRules {
     }
 }
 
-/// Mensalidades (Ajustes → Atendimento): resumo do mês com as parcelas, assinaturas e inadimplentes.
+/// Mensalidades (aba Atendimento): resumo do mês com as parcelas, assinaturas e inadimplentes.
 struct MensalidadeView: View {
     @StateObject private var vm: MensalidadeViewModel
     @Environment(\.pushRoute) private var push

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Guichê da fila de senhas (Ajustes → Atendimento): o atendente escolhe o guichê deste aparelho e chama as senhas
+/// Guichê da fila de senhas (aba Atendimento): o atendente escolhe o guichê deste aparelho e chama as senhas
 /// com a própria conta. Ao vivo por WebSocket enquanto a tela está à frente, com leitura a cada 5 s sem ele.
 struct CounterView: View {
     @EnvironmentObject private var container: AppContainer

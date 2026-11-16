@@ -1,13 +1,13 @@
 import SwiftUI
 
 enum HomeTab: String, CaseIterable, Identifiable {
-    case conversations, tickets, team, calls, settings
+    case conversations, attendance, team, calls, settings
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .conversations: return "Conversas"
-        case .tickets: return "Protocolos"
+        case .attendance: return "Atendimento"
         case .team: return "Equipe"
         case .calls: return "Ligações"
         case .settings: return "Ajustes"
@@ -16,7 +16,7 @@ enum HomeTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .conversations: return "bubble.left.and.bubble.right"
-        case .tickets: return "doc.text"
+        case .attendance: return "briefcase"
         case .team: return "person.2"
         case .calls: return "phone"
         case .settings: return "gearshape"
@@ -102,20 +102,21 @@ struct HomeView: View {
     private func root(_ t: HomeTab) -> some View {
         switch t {
         case .conversations: ConversationsView(active: tab == t, vm: conversations)
-        case .tickets: TicketsView(active: tab == t)
+        case .attendance: AttendanceView(active: tab == t)
         case .team: TeamView(active: tab == t)
         case .calls: CallsView(active: tab == t)
         case .settings: SettingsView(active: tab == t)
         }
     }
 
-    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou recebidos (só os ativos contam), internas não lidas.
+    /// Contador de cada aba: não lidas, protocolos atrasados (em `danger`) ou recebidos (só os ativos contam) em
+    /// Atendimento, internas não lidas.
     private func badge(_ t: HomeTab) -> (count: Int, color: Color)? {
         switch t {
         case .conversations:
             let n = workspace.totalUnread
             return n > 0 ? (n, Theme.accent) : nil
-        case .tickets:
+        case .attendance:
             let counts = workspace.ticketCounts
             if counts.overdue > 0 { return (counts.overdue, Theme.danger) }
             return counts.open > 0 ? (counts.open, Theme.accent) : nil
@@ -135,8 +136,8 @@ struct HomeView: View {
             tab = .conversations
             router.open(.conversation(id: c))
         case "ticket", "ticket_due":
-            tab = .tickets
-            if let t = link.ticketId { router.open(.ticket(id: t)) }
+            tab = .attendance
+            router.open(link.ticketId.map { .ticket(id: $0) } ?? .tickets(filter: link.type == "ticket_due" ? TicketFilter.overdue.rawValue : nil))
         default:
             tab = .conversations
             if let c = link.conversationId { router.open(.conversation(id: c)) }

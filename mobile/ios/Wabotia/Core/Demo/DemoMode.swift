@@ -176,7 +176,7 @@ extension DemoMode {
         // Sessão de verdade: telas por id (`os:<id>`, `appointment:<id>`).
         if let colon = screen.firstIndex(of: ":") {
             let kind = screen[..<colon], id = String(screen[screen.index(after: colon)...])
-            launch.tab = "settings"
+            launch.tab = "attendance"
             if kind == "os" { launch.route = .serviceOrder(id: id) }
             if kind == "appointment" { launch.route = .appointment(id: id) }
             if kind == "pedido" { launch.route = .pedidoOrder(id: id) }
@@ -199,7 +199,7 @@ extension DemoMode {
         case "claim": launch.route = .conversation(id: "c_queue"); launch.sheet = "do-claim"
         case "send": launch.route = .conversation(id: "c_rich"); launch.sheet = "do-send"
         case "transferred": launch.route = .conversation(id: "c_rich"); launch.sheet = "do-transfer"
-        case "ticket-progress": launch.tab = "tickets"; launch.route = .ticket(id: "t_troca"); launch.sheet = "do-progress"
+        case "ticket-progress": launch.tab = "attendance"; launch.route = .ticket(id: "t_troca"); launch.sheet = "do-progress"
         case "chat-bot": launch.route = .conversation(id: "c_bot")
         case "chat-other": launch.route = .conversation(id: "c_other")
         case "chat-closed": launch.route = .conversation(id: "c_closed")
@@ -212,17 +212,18 @@ extension DemoMode {
             launch.sheet = screen
         case "info": launch.route = .conversationInfo(id: "c_rich")
         case "info-group": launch.route = .conversationInfo(id: "c_group")
-        case "tickets": launch.tab = "tickets"
-        case "ticket": launch.tab = "tickets"; launch.route = .ticket(id: "t_troca")
-        case "ticket-answered", "ticket-waiting": launch.tab = "tickets"; launch.route = .ticket(id: "t_nota")
-        case "ticket-overdue": launch.tab = "tickets"; launch.route = .ticket(id: "t_cobranca")
-        case "ticket-progress-state": launch.tab = "tickets"; launch.route = .ticket(id: "t_endereco")
-        case "ticket-third": launch.tab = "tickets"; launch.route = .ticket(id: "t_integracao")
-        case "ticket-resolved": launch.tab = "tickets"; launch.route = .ticket(id: "t_etiqueta")
-        case "ticket-closed": launch.tab = "tickets"; launch.route = .ticket(id: "t_garantia")
-        case "ticket-category": launch.tab = "tickets"; launch.route = .ticket(id: "t_troca"); launch.sheet = "ticket-category"
+        case "attendance": launch.tab = "attendance"
+        case "tickets": launch.tab = "attendance"; launch.route = .tickets(filter: nil)
+        case "ticket": launch.tab = "attendance"; launch.route = .ticket(id: "t_troca")
+        case "ticket-answered", "ticket-waiting": launch.tab = "attendance"; launch.route = .ticket(id: "t_nota")
+        case "ticket-overdue": launch.tab = "attendance"; launch.route = .ticket(id: "t_cobranca")
+        case "ticket-progress-state": launch.tab = "attendance"; launch.route = .ticket(id: "t_endereco")
+        case "ticket-third": launch.tab = "attendance"; launch.route = .ticket(id: "t_integracao")
+        case "ticket-resolved": launch.tab = "attendance"; launch.route = .ticket(id: "t_etiqueta")
+        case "ticket-closed": launch.tab = "attendance"; launch.route = .ticket(id: "t_garantia")
+        case "ticket-category": launch.tab = "attendance"; launch.route = .ticket(id: "t_troca"); launch.sheet = "ticket-category"
         // Lista de protocolos já em um filtro (`tickets-all`, `tickets-waiting`, `tickets-resolved`, `tickets-overdue`).
-        case "tickets-all", "tickets-waiting", "tickets-resolved", "tickets-overdue": launch.tab = "tickets"; launch.sheet = screen
+        case "tickets-all", "tickets-waiting", "tickets-resolved", "tickets-overdue": launch.tab = "attendance"; launch.route = .tickets(filter: nil); launch.sheet = screen
         case "ticket-new": launch.route = .newTicket(conversationId: "c_rich")
         case "team": launch.tab = "team"
         case "team-people", "team-bots", "team-departments": launch.tab = "team"; launch.sheet = screen
@@ -230,29 +231,29 @@ extension DemoMode {
         case "bot": launch.tab = "team"; launch.route = .bot(id: "b_vendas", conversationId: nil)
         case "calls": launch.tab = "calls"
         case "settings": launch.tab = "settings"
-        case "lines": launch.tab = "settings"; launch.route = .lines
-        case "counter": launch.tab = "settings"; launch.route = .counter
+        case "lines": launch.tab = "attendance"; launch.route = .lines
+        case "counter": launch.tab = "attendance"; launch.route = .counter
         // Agenda e Ordem de Serviço (WABOTIA_DEMO_ACTION=week abre a agenda na semana).
-        case "agenda": launch.tab = "settings"; launch.route = .agenda
-        case "appointment": launch.tab = "settings"; launch.route = .appointment(id: "ag_3")
+        case "agenda": launch.tab = "attendance"; launch.route = .agenda
+        case "appointment": launch.tab = "attendance"; launch.route = .appointment(id: "ag_3")
         case "booking": launch.route = .newAppointment(conversationId: "c_rich", customer: "Mariana Costa")
-        case "os": launch.tab = "settings"; launch.route = .serviceOrders
-        case "os-detail": launch.tab = "settings"; launch.route = .serviceOrder(id: "os_6")
+        case "os": launch.tab = "attendance"; launch.route = .serviceOrders
+        case "os-detail": launch.tab = "attendance"; launch.route = .serviceOrder(id: "os_6")
         case "os-new": launch.route = .newServiceOrder(conversationId: "c_rich", customer: "Mariana Costa")
         // Reserva e Mensalidade (WABOTIA_DEMO_ACTION=list abre a lista de reservas; subscriptions e delinquents, as abas).
-        case "reserva": launch.tab = "settings"; launch.route = .reserva
-        case "reserva-booking": launch.tab = "settings"; launch.route = .booking(id: "rs_1")
+        case "reserva": launch.tab = "attendance"; launch.route = .reserva
+        case "reserva-booking": launch.tab = "attendance"; launch.route = .booking(id: "rs_1")
         case "booking-new": launch.route = .bookingForm(conversationId: "c_rich", customer: "Mariana Costa", unitId: nil, date: nil)
-        case "mensalidade": launch.tab = "settings"; launch.route = .mensalidade
-        case "installment": launch.tab = "settings"; launch.route = .installment(id: "mi_6")
-        case "subscription": launch.tab = "settings"; launch.route = .subscription(id: "ms_3")
-        case "menus": launch.tab = "settings"; launch.route = .menus
+        case "mensalidade": launch.tab = "attendance"; launch.route = .mensalidade
+        case "installment": launch.tab = "attendance"; launch.route = .installment(id: "mi_6")
+        case "subscription": launch.tab = "attendance"; launch.route = .subscription(id: "ms_3")
+        case "menus": launch.tab = "attendance"; launch.route = .menus
         // Pedido (lanchonete): WABOTIA_DEMO_ACTION=list ou menu abre a lista ou o cardápio. pedido-order: o X-Burger em duas
         // montagens; pedido-delivery: entrega paga, ligada à conversa; pedido-choosing: cliente escolhendo como pagar.
-        case "pedido": launch.tab = "settings"; launch.route = .pedido
-        case "pedido-order": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_44")
-        case "pedido-delivery": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_42")
-        case "pedido-choosing": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_46")
+        case "pedido": launch.tab = "attendance"; launch.route = .pedido
+        case "pedido-order": launch.tab = "attendance"; launch.route = .pedidoOrder(id: "pd_44")
+        case "pedido-delivery": launch.tab = "attendance"; launch.route = .pedidoOrder(id: "pd_42")
+        case "pedido-choosing": launch.tab = "attendance"; launch.route = .pedidoOrder(id: "pd_46")
         // Passagem para humano pelo Suporte pago: a conversa com a faixa e os dados da conversa com as ações.
         // Formulário e Cobrança na conversa da Mariana: as folhas e o cartão dos dados (WABOTIA_DEMO_ANCHOR=items).
         case "charge", "forms": launch.route = .conversation(id: "c_rich"); launch.sheet = screen

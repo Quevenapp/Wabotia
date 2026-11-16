@@ -101,15 +101,22 @@ final class TicketsViewModel: ObservableObject {
     }
 }
 
-/// Aba Protocolos (mobile/DESIGN.md, seção 8).
+/// Lista de protocolos (mobile/DESIGN.md, seção 8), aberta pela aba Atendimento, já num filtro quando pedido.
 struct TicketsView: View {
-    let active: Bool
+    var active = true
     @EnvironmentObject private var container: AppContainer
     @Environment(\.pushRoute) private var push
-    @StateObject private var model = TicketsViewModel()
+    @StateObject private var model: TicketsViewModel
     @ObservedObject private var workspace = Workspace.shared
     @State private var searching = false
     @FocusState private var searchFocused: Bool
+
+    init(active: Bool = true, filter: TicketFilter? = nil) {
+        self.active = active
+        let model = TicketsViewModel()
+        if let filter { model.filter = filter }
+        _model = StateObject(wrappedValue: model)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,10 +128,6 @@ struct TicketsView: View {
                 .padding(.horizontal, 16)
                 .frame(minHeight: 56)
                 .onAppear { searchFocused = true }
-            } else {
-                ScreenHeader(title: "Protocolos", subtitle: summary) {
-                    IconButton(systemName: "magnifyingglass", label: "Buscar protocolo") { searching = true }
-                }
             }
             filters
             categoryFilter
@@ -132,6 +135,16 @@ struct TicketsView: View {
             content
         }
         .background(Theme.background.ignoresSafeArea())
+        .navigationTitle("Protocolos")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBarHidden(false)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { searching = true } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Buscar protocolo")
+                    .disabled(searching)
+            }
+        }
         // Roda ao aparecer (inclusive ao voltar do detalhe) e quando filtro, busca ou perfil mudam.
         .task(id: taskKey) {
             guard active else { return }
@@ -151,13 +164,6 @@ struct TicketsView: View {
     }
 
     private var taskKey: String { "\(model.filter.rawValue)|\(model.category ?? "")|\(container.profileId ?? "")|\(active)|\(model.query)" }
-
-    private var summary: String {
-        let counts = workspace.ticketCounts
-        if counts.overdue > 0 { return counts.overdue == 1 ? "1 atrasado" : "\(counts.overdue) atrasados" }
-        if counts.active > 0 { return counts.active == 1 ? "1 ativo" : "\(counts.active) ativos" }
-        return "Tudo em dia"
-    }
 
     /// Filtro por categoria (aplicativo ou assunto): só aparece quando o perfil tem categorias configuradas.
     @ViewBuilder private var categoryFilter: some View {
@@ -192,16 +198,22 @@ struct TicketsView: View {
     }
 
     private var filters: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(TicketFilter.allCases) { filter in
-                    FilterChip(title: filter.title, count: count(filter), selected: model.filter == filter, attention: filter == .overdue && workspace.ticketCounts.overdue > 0 ? Theme.danger : nil) {
-                        model.filter = filter
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(TicketFilter.allCases) { filter in
+                        FilterChip(title: filter.title, count: count(filter), selected: model.filter == filter, attention: filter == .overdue && workspace.ticketCounts.overdue > 0 ? Theme.danger : nil) {
+                            model.filter = filter
+                        }
+                        .id(filter)
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            // Aberta já num filtro (Atrasados, Aguardando), a lista mostra o chip escolhido mesmo na tela estreita.
+            .onAppear { proxy.scrollTo(model.filter, anchor: .center) }
+            .onChange(of: model.filter) { filter in withAnimation(.quick) { proxy.scrollTo(filter, anchor: .center) } }
         }
     }
 

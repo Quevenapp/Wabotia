@@ -4,6 +4,8 @@ import SwiftUI
 enum Route: Hashable {
     case conversation(id: String)
     case conversationInfo(id: String)
+    /// Lista de protocolos (aba Atendimento), já num filtro (`TicketFilter.rawValue`) quando pedido.
+    case tickets(filter: String?)
     case ticket(id: String)
     case newTicket(conversationId: String)
     case bot(id: String, conversationId: String?)
@@ -148,6 +150,7 @@ struct RouteDestination: View {
             switch route {
             case .conversation(let id): ConversationView(conversationId: id)
             case .conversationInfo(let id): ConversationInfoView(conversationId: id)
+            case .tickets(let filter): TicketsView(filter: filter.flatMap(TicketFilter.init(rawValue:)))
             case .ticket(let id): TicketView(ticketId: id)
             case .newTicket(let id): NewTicketView(conversationId: id)
             case .bot(let id, let conversation): BotChatView(botId: id, conversationId: conversation)

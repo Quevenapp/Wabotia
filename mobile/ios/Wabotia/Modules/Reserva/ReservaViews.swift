@@ -14,7 +14,7 @@ extension ReservaRules {
     }
 }
 
-/// Reservas (Ajustes → Atendimento): ocupação por unidade e dia, e a lista com filtro e busca.
+/// Reservas (aba Atendimento): ocupação por unidade e dia, e a lista com filtro e busca.
 struct ReservaView: View {
     @StateObject private var vm: ReservaViewModel
     @Environment(\.pushRoute) private var push

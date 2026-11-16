@@ -20,7 +20,7 @@ extension Appointment {
     }
 }
 
-/// Agenda (Ajustes → Atendimento → Agenda): dia, com uma coluna por profissional quando há largura (iPad), ou semana.
+/// Agenda (aba Atendimento → Agenda): dia, com uma coluna por profissional quando há largura (iPad), ou semana.
 struct AgendaView: View {
     @StateObject private var vm: AgendaViewModel
     @Environment(\.pushRoute) private var push

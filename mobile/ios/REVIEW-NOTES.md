@@ -6,18 +6,18 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 ## Português
 
 > O Wabotia é usado por equipes de atendimento pelo WhatsApp. Sem servidor da empresa, toque em **Conhecer o app
-> (demonstração)** na primeira tela: abre uma instalação fictícia, sem conta e sem enviar nada. Em **Ajustes →
-> Atendimento → Guichê da fila de senhas**, o atendente escolhe um guichê, abre, chama a próxima senha, rechama,
+> (demonstração)** na primeira tela: abre uma instalação fictícia, sem conta e sem enviar nada. Na aba
+> **Atendimento**, em **Guichê da fila de senhas**, o atendente escolhe um guichê, abre, chama a próxima senha, rechama,
 > conclui e transfere.
 >
-> Também em **Ajustes → Atendimento**: **Agenda** (uma barbearia de exemplo: agenda do dia por profissional e da
+> Também na aba **Atendimento**: **Agenda** (uma barbearia de exemplo: agenda do dia por profissional e da
 > semana; toque num horário para confirmar, remarcar, marcar ausência ou cancelar; o **+** agenda um cliente num dos
 > horários livres) e **Ordens de serviço** (uma assistência técnica de exemplo: lista por estado, busca, detalhe com
 > histórico, orçamento, mudança de estado, registro de entrega e comprovante impresso). Na conversa de um cliente, o
 > menu **⋯** traz **Agendar para este cliente** e **Abrir ordem de serviço**. Na demonstração, um cliente fictício marca
 > um horário depois de 40 segundos e outro aprova um orçamento depois de um minuto, e as telas abertas se atualizam.
 >
-> Ainda em **Ajustes → Atendimento**: **Reservas** (uma pousada de exemplo: ocupação das acomodações por dia, lista de
+> Ainda na aba **Atendimento**: **Reservas** (uma pousada de exemplo: ocupação das acomodações por dia, lista de
 > reservas, detalhe com sinal e check-in; o **+** reserva uma acomodação ou o salão por hora) e **Mensalidades** (uma
 > escola de idiomas de exemplo: resumo do mês, parcelas, assinaturas e inadimplentes; numa parcela, reenviar a cobrança,
 > dar baixa ou isentar; na assinatura e nos inadimplentes, o pagador com CPF ou CNPJ e os telefones autorizados).
@@ -48,18 +48,18 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 ## English
 
 > Wabotia is used by customer-service teams on WhatsApp. Without a company server, tap **Conhecer o app
-> (demonstração)** on the first screen: it opens a fictitious installation with no account, and nothing is sent. Under
-> **Ajustes → Atendimento → Guichê da fila de senhas** the agent picks a service desk, opens it, calls the next ticket,
+> (demonstração)** on the first screen: it opens a fictitious installation with no account, and nothing is sent. In the
+> **Atendimento** tab, under **Guichê da fila de senhas**, the agent picks a service desk, opens it, calls the next ticket,
 > recalls, finishes and transfers it.
 >
-> Also under **Ajustes → Atendimento**: **Agenda** (a sample barbershop: the day per professional and the week; tap an
+> Also in the **Atendimento** tab: **Agenda** (a sample barbershop: the day per professional and the week; tap an
 > appointment to confirm, reschedule, mark a no-show or cancel; **+** books a customer into one of the free slots) and
 > **Ordens de serviço** (a sample repair shop: list by status, search, detail with history, quote, status changes,
 > delivery and a printed receipt). In a customer's conversation, the **⋯** menu offers **Agendar para este cliente**
 > (book for this customer) and **Abrir ordem de serviço** (open a service order). In the demo, a fictitious customer
 > books a slot after 40 seconds and another approves a quote after one minute, and the open screens update themselves.
 >
-> Also under **Ajustes → Atendimento**: **Reservas** (a sample guesthouse: daily occupancy of the rooms, the bookings list,
+> Also in the **Atendimento** tab: **Reservas** (a sample guesthouse: daily occupancy of the rooms, the bookings list,
 > detail with deposit and check-in; **+** books a room or the hall by the hour) and **Mensalidades** (a sample language
 > school: the month's summary, installments, subscriptions and overdue customers; on an installment, resend the charge,
 > record a payment or waive it; on a subscription and in the overdue list, the payer with CPF or CNPJ and the

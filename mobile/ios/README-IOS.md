@@ -9,7 +9,8 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 | Parte | Onde | Resumo |
 |---|---|---|
 | Modo aparelho | `Wabotia/Device/` | iPad ou iPhone vira **totem** (emite senha, cupom pelo ThermalPrinterKit), **painel de chamadas** (senha em destaque, voz pt-BR, gongo) ou **híbrido**. Pareamento RFC 8628 (`client=senhapp`, escopos `queue:read` e `queue:issue`), credencial `wab_` no Keychain; reabre direto no modo aparelho; WebSocket da fila com volta automática e leitura por consulta de reserva; revogação mostra "desconectado". Paisagem e tela cheia. |
-| Guichê | `Features/Queue/` | Ajustes → Atendimento → Guichê: escolher guichê, abrir/pausar/fechar, chamar a próxima, rechamar, iniciar, concluir, ausente, transferir. |
+| Aba Atendimento | `Features/Attendance/` | No lugar da antiga aba Protocolos: presença (online/offline), protocolos com ativos, atrasados e aguardando (a lista abre empilhada, já no filtro), guichê e módulos ligados na área, linhas, menus e linhas dos bots. A impressora do cupom fica em Ajustes → Impressão. Atalhos `WABOTIA_DEMO=attendance` e `tickets`. |
+| Guichê | `Features/Queue/` | Atendimento → Guichê da fila de senhas: escolher guichê, abrir/pausar/fechar, chamar a próxima, rechamar, iniciar, concluir, ausente, transferir. |
 | Agenda | `Modules/Agenda/` | Dia por profissional e semana; confirmar, remarcar, ausência, cancelar; agendar pela conversa. |
 | Ordem de serviço | `Modules/ServiceOrders/` | Lista por estado e busca, detalhe com histórico, orçamento, responsável (`GET /people`), entrega e comprovante impresso com o estabelecimento. |
 | Reserva | `Modules/Reserva/` | Ocupação por unidade e dia, lista, detalhe com sinal e check-in, reserva por diária ou por hora. |
@@ -57,7 +58,7 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
   `payment.*` dela.
 - **Horário de Brasília** (`BrasiliaTime`) e dinheiro em centavos (`Money`), qualquer que seja o fuso do aparelho.
 - **Impressora.** Uma configuração do ThermalPrinterKit para o app inteiro (`WabotiaPrinting`), escolhida em
-  Ajustes → Impressora do cupom; resultado incerto pede confirmação antes da segunda via. No modo aparelho, a linha
+  Ajustes → Impressão → Impressora do cupom; resultado incerto pede confirmação antes da segunda via. No modo aparelho, a linha
   aparece na engrenagem em todos os papéis, mas só o Totem e o Painel híbrido imprimem; no Painel de chamadas ela diz isso.
 - **Tudo nativo**, iOS 15 ou superior, iPhone e iPad (`TARGETED_DEVICE_FAMILY` 1,2; retrato no iPhone, exceto o modo
   aparelho).

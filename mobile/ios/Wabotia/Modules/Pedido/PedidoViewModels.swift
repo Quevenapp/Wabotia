@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pedidos (Ajustes → Atendimento): o quadro da cozinha por estado, a lista com filtro e busca e o cardápio com os
+/// Pedidos (aba Atendimento): o quadro da cozinha por estado, a lista com filtro e busca e o cardápio com os
 /// interruptores de esgotado. Os eventos `pedido.*` recarregam; o quadro também relê a cada minuto, para o tempo no
 /// estado e o destaque de atraso andarem sozinhos.
 @MainActor

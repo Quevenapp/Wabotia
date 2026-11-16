@@ -18,7 +18,7 @@ extension ServiceOrderRules {
     }
 }
 
-/// Ordens de serviço (Ajustes → Atendimento): filtro por estado, busca e a lista por número.
+/// Ordens de serviço (aba Atendimento): filtro por estado, busca e a lista por número.
 struct ServiceOrdersView: View {
     @StateObject private var vm: ServiceOrdersViewModel
     @Environment(\.pushRoute) private var push

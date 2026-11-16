@@ -22,7 +22,7 @@ extension PedidoRules {
     }
 }
 
-/// Pedidos (Ajustes → Atendimento): o quadro da cozinha, a lista e o cardápio com os esgotados, com a situação da loja.
+/// Pedidos (aba Atendimento): o quadro da cozinha, a lista e o cardápio com os esgotados, com a situação da loja.
 struct PedidoView: View {
     @StateObject private var vm: PedidoViewModel
     @Environment(\.pushRoute) private var push
