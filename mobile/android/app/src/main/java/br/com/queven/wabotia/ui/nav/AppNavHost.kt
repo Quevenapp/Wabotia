@@ -111,6 +111,8 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         }
         when (link.type) {
             "ticket", "ticket_due" -> link.ticketId?.let { nav.navigate(Routes.ticket(it)) }
+            // Pedido de aprovação (desconto pedido por cliente): o cartão com Aprovar, Recusar e Assumir.
+            "approval" -> link.approvalId?.let { nav.navigate(Routes.approval(it)) } ?: link.conversationId?.let { nav.navigate(Routes.conversation(it)) }
             // Demais tipos (inclusive "call": o app só mostra o histórico de ligações) abrem a conversa.
             else -> link.conversationId?.let { nav.navigate(Routes.conversation(it)) }
         }
@@ -185,7 +187,11 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             arguments = listOf(navArgument("peerId") { type = NavType.StringType }),
         ) { entry ->
             val peerId = entry.arguments?.getString("peerId")?.let(Uri::decode) ?: return@composable
-            InternalChatScreen(container, peerId, onBack = { nav.popBackStack() })
+            InternalChatScreen(container, peerId, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
+        }
+        composable(Routes.APPROVAL, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+            val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
+            br.com.queven.wabotia.ui.team.ApprovalScreen(container, id, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
         }
         composable(
             Routes.CONVERSATION,

@@ -43,6 +43,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.InternalChat
 import br.com.queven.wabotia.core.model.InternalMessage
+import br.com.queven.wabotia.core.model.StructuredMessage
+import br.com.queven.wabotia.ui.components.rememberNow
 import br.com.queven.wabotia.core.model.TeamContact
 import br.com.queven.wabotia.core.net.ApiClient
 import br.com.queven.wabotia.core.net.ApiException
@@ -78,6 +80,12 @@ class InternalChatViewModel(private val container: AppContainer, private val pro
     var loading by mutableStateOf(true); private set
     /** Envio sem confirmação: (texto, chave). */
     var pending by mutableStateOf<Pair<String, String>?>(null); private set
+
+    /** Abre a conversa do cliente depois de "Assumir a conversa" num pedido de aprovação. */
+    var onOpenConversation: (String) -> Unit = {}
+
+    /** Confirmar e cancelar propostas do bot; aprovar, recusar e assumir pedidos de aprovação. */
+    val actions = BotActionsController(container, profile, viewModelScope, reload = { refreshChat() }, openConversation = { onOpenConversation(it) })
 
     private val openKey = ApiClient.newIdempotencyKey()
     private var opening = false
@@ -194,9 +202,11 @@ private fun buildItems(messages: List<InternalMessage>): List<InternalItem> {
 }
 
 @Composable
-fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Unit) {
+fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Unit, openConversation: (String) -> Unit = {}) {
     val profile = container.session.profileId ?: return
     val vm: InternalChatViewModel = viewModel(key = "internal-chat:$profile:$peerId") { InternalChatViewModel(container, profile, peerId) }
+    vm.onOpenConversation = openConversation
+    val now by rememberNow()
     val c = Wb.colors
     val haptics = rememberHaptics()
     var confirmDiscard by remember { mutableStateOf(false) }
@@ -233,6 +243,8 @@ fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Un
     val isBot = peer?.isBot ?: peerId.startsWith("bot:")
     val name = peer?.name?.ifBlank { null } ?: if (isBot) "Bot" else "Equipe"
 
+    if (vm.actions.mfaPending) MfaDialog(vm.actions.mfaError, onSubmit = vm.actions::submitMfa, onDismiss = vm.actions::dismissMfa)
+
     Column(Modifier.fillMaxSize().background(c.chatWallpaper)) {
         ChatTopBar(
             name = name,
@@ -266,6 +278,29 @@ fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Un
                             is InternalItem.Bubble -> {
                                 val m = item.message
                                 val mine = m.author == vm.meId
+                                val structured = StructuredMessage.of(m)
+                                if (structured != StructuredMessage.Text) {
+                                    // Proposta, resultado ou pedido de aprovação: cartão no lugar do balão (o texto de reserva fica para app antigo).
+                                    Column(Modifier.padding(top = 6.dp, end = 24.dp)) {
+                                        when (structured) {
+                                            is StructuredMessage.Proposal -> ProposalCard(
+                                                structured.payload, now, busy = vm.actions.busy == structured.payload.proposal.id,
+                                                onConfirm = { vm.chat?.id?.let { vm.actions.confirm(it, structured.payload.proposal.id) } },
+                                                onCancel = { vm.chat?.id?.let { vm.actions.cancel(it, structured.payload.proposal.id) } },
+                                            )
+                                            is StructuredMessage.Result -> ResultCard(structured.payload)
+                                            is StructuredMessage.ApprovalRequest -> ApprovalCard(
+                                                structured.approval, now, busy = vm.actions.busy == structured.approval.id,
+                                                onApprove = { vm.actions.decide(structured.approval, "approve", value = it) },
+                                                onDecline = { vm.actions.decide(structured.approval, "decline", reason = it) },
+                                                onHandoff = { vm.actions.decide(structured.approval, "handoff") },
+                                            )
+                                            StructuredMessage.Text -> Unit
+                                        }
+                                        Text(formatTime(m.created), style = MaterialTheme.typography.labelSmall, color = c.textSecondary, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                                    }
+                                    return@items
+                                }
                                 Column(Modifier.padding(top = if (item.first) 6.dp else 2.dp)) {
                                     ChatBubble(outgoing = mine, first = item.first) {
                                         if (!mine && isBot && item.first) {
@@ -312,6 +347,9 @@ fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Un
             above = {
                 vm.error?.let {
                     InlineNotice(it, Modifier.padding(bottom = 6.dp), onDismiss = if (vm.pending == null) ({ vm.dismissError() }) else null)
+                }
+                vm.actions.notice?.let {
+                    InlineNotice(it, Modifier.padding(bottom = 6.dp), color = c.warn, onDismiss = { vm.actions.consumeNotice() })
                 }
                 if (vm.pending != null && !vm.busy) {
                     InlineNotice(

@@ -125,6 +125,9 @@ internal object DemoServer {
     private fun suporteOf(s: DemoState): DemoSuporte = suporte ?: DemoSuporte(s.t0).also { suporte = it }
 
     private var cobranca: DemoCobranca? = null
+    private var botActions: DemoBotActions? = null
+
+    private fun botActionsOf(s: DemoState, now: Long): DemoBotActions = botActions ?: DemoBotActions(s, now).also { botActions = it }
     private var actionReplays = DemoReplays()
 
     private fun cobrancaOf(s: DemoState): DemoCobranca = cobranca ?: DemoCobranca(s.t0).also { cobranca = it }
@@ -178,6 +181,7 @@ internal object DemoServer {
         pedido = null
         suporte = null
         cobranca = null
+        botActions = null
         actionReplays = DemoReplays()
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
@@ -259,6 +263,7 @@ internal object DemoServer {
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
             p == listOf("capabilities") -> capabilities()
+            p == listOf("account", "mfa", "challenge") && method == "POST" -> botActionsOf(s, now).mfaChallenge(bodyJson(request), now)
             p.firstOrNull() == "devices" -> devices(s, method, p.drop(1), request, now)
             p == listOf("bot-runs") && method == "POST" -> startBotRun(s, bodyJson(request), now)
             p.size == 2 && p[0] == "bot-runs" && method == "GET" ->
@@ -349,6 +354,7 @@ internal object DemoServer {
                 ok(j("ok" to true, "settings" to settings(s)))
             }
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
+            "approvals" -> botActionsOf(s, now).approvals(method, r.drop(1), bodyJson(request), now)
             "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
             "capabilities" -> capabilities()
             "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
@@ -1114,12 +1120,17 @@ internal object DemoServer {
         }
         val chat = chats[r[0]] ?: return notFound("Conversa interna não encontrada.")
         val chatId = chat.str("id").orEmpty()
+        // Ações pelo bot: propostas, resultados e pedidos de aprovação na conversa com o bot de vendas.
+        val actions = botActionsOf(s, now).also { it.refresh(now) }
+        if (r.getOrNull(1) == "proposals" && r.size == 4 && method == "POST") return actions.decideProposal(r[2], r[3], now)
         if (r.getOrNull(1) == "messages" && method == "POST") {
             val text = bodyJson(request).str("text")?.trim().orEmpty()
             if (text.isEmpty()) return invalid("Escreva a mensagem.")
             val message = addChatMessage(chatId, Ids.ME, text, now)
             val peerId = if (chat.str("member_a") == Ids.ME) chat.str("member_b").orEmpty() else chat.str("member_a").orEmpty()
-            if (peerId.startsWith("bot:")) {
+            if (peerId.startsWith("bot:") && chatId == Ids.CHAT_VENDAS && actions.onUserMessage(text, now)) {
+                // Pedido de ação: o bot responde com uma proposta (Confirmar/Cancelar).
+            } else if (peerId.startsWith("bot:")) {
                 val runId = nextId("run-interno")
                 val reply = addChatMessage(chatId, peerId, "", now + 300, status = "running", runId = runId)
                 later(now + 3_000) { at ->

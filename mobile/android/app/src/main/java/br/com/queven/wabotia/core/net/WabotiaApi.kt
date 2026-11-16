@@ -101,6 +101,13 @@ interface WabotiaApi {
     @GET("api/v1/profiles/{p}/internal-chats/{id}") suspend fun internalChat(@Path("p") p: String, @Path("id") id: String): InternalChat
     @POST("api/v1/profiles/{p}/internal-chats/{id}/messages") suspend fun sendInternal(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): JsonObject
 
+    // --- ações pelo bot na conversa interna (docs/API.md, "Ações pelo bot na conversa interna") ---
+    @POST("api/v1/profiles/{p}/internal-chats/{id}/proposals/{proposal}/confirm") suspend fun confirmProposal(@Path("p") p: String, @Path("id") id: String, @Path("proposal") proposal: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): BotProposal
+    @POST("api/v1/profiles/{p}/internal-chats/{id}/proposals/{proposal}/cancel") suspend fun cancelProposal(@Path("p") p: String, @Path("id") id: String, @Path("proposal") proposal: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): BotProposal
+    @GET("api/v1/profiles/{p}/approvals/{id}") suspend fun approval(@Path("p") p: String, @Path("id") id: String): Approval
+    @POST("api/v1/profiles/{p}/approvals/{id}/decide") suspend fun decideApproval(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): Approval
+    /** Segundo fator da sessão (contrato em feat/login-mfa): `{code}` ou `{recovery_code}`; a sessão sobe para aal2 por um tempo. */
+    @POST("api/v1/account/mfa/challenge") suspend fun mfaChallenge(@Body body: JsonObject): JsonObject
     // --- genérico, para respostas cruas quando necessário ---
     @GET suspend fun raw(@Url url: String): Response<JsonObject>
 }

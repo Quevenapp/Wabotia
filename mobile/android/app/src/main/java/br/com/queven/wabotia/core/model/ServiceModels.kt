@@ -71,4 +71,5 @@ fun editedMenuItem(
 }
 
 @Serializable data class InternalChat(val id: String, val peer: TeamContact? = null, val messages: List<InternalMessage> = emptyList(), val created: Long = 0, val updated: Long = 0)
-@Serializable data class InternalMessage(val id: String, val author: String, val text: String, val created: Long, val status: String? = null, val run_id: String? = null)
+/** [kind] `text`, `proposal`, `result` ou `approval` (ações pelo bot); [payload] nulo em `text`. Ver [StructuredMessage]. */
+@Serializable data class InternalMessage(val id: String, val author: String, val text: String, val created: Long, val status: String? = null, val run_id: String? = null, val kind: String = "text", val payload: kotlinx.serialization.json.JsonElement? = null)

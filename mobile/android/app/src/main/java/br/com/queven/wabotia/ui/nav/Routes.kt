@@ -28,6 +28,8 @@ object Routes {
     const val TICKET_NEW = "ticket-new/{conversationId}"
     const val BOT_CHAT = "bot/{botId}?conversationId={conversationId}"
     const val INTERNAL_CHAT = "internal-chat/{peerId}"
+    /** Pedido de aprovação aberto pelo push (`type: approval`). */
+    const val APPROVAL = "approval/{id}"
 
     /** [sheet] abre uma folha ao entrar (transfer, attach, menu, note, tags, window) e [arg] escolhe a aba da folha. */
     fun conversation(id: String, sheet: String? = null, arg: String? = null): String {
@@ -41,6 +43,7 @@ object Routes {
     fun botChat(botId: String, conversationId: String? = null) = "bot/$botId" + (conversationId?.let { "?conversationId=$it" } ?: "")
     /** O id de um bot na equipe é "bot:<id>": precisa ser codificado para caber no caminho. */
     fun internalChat(peerId: String) = "internal-chat/${Uri.encode(peerId)}"
+    fun approval(id: String) = "approval/${Uri.encode(id)}"
 }
 
 /**
@@ -61,6 +64,8 @@ data class DeepLink(
     val conversationId: String?,
     val ticketId: String?,
     val demoScreen: String? = null,
+    /** Push `type: approval`: o pedido a decidir. */
+    val approvalId: String? = null,
     val demoArg: String? = null,
 ) {
     companion object {
@@ -73,6 +78,7 @@ data class DeepLink(
                 profileId = uri.getQueryParameter("profile"),
                 conversationId = uri.getQueryParameter("conversation"),
                 ticketId = uri.getQueryParameter("ticket"),
+                approvalId = uri.getQueryParameter("approval"),
             )
         }
 
@@ -86,6 +92,7 @@ data class DeepLink(
                 profileId = field("profile_id"),
                 conversationId = field("conversation_id"),
                 ticketId = field("ticket_id"),
+                approvalId = field("approval_id"),
             )
         }
 

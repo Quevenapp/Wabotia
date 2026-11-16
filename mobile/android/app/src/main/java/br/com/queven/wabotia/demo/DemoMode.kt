@@ -215,6 +215,9 @@ object DemoMode {
             "ticket-new" -> DemoDestination(route = "ticket-new/${Ids.C_RICH}")
             "bot" -> DemoDestination(route = "bot/${if (option == "suporte") Ids.BOT_SUPORTE else Ids.BOT_VENDAS}")
             "internal" -> DemoDestination(route = "internal-chat/" + Uri.encode(if (option == "bot") "bot:${Ids.BOT_VENDAS}" else Ids.ANA))
+            // Ações pelo bot: a conversa interna com propostas, resultado e pedidos de aprovação; e um pedido aberto pelo push.
+            "bot-actions" -> DemoDestination(route = "internal-chat/" + Uri.encode("bot:${Ids.BOT_VENDAS}"))
+            "approval" -> DemoDestination(route = "approval/${DemoBotActions.DESCONTO_ID}")
             else -> DemoDestination(tab = "conversations")
         }
     }

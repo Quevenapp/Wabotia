@@ -80,6 +80,7 @@ object Notifications {
             data["profile_id"]?.let { appendQueryParameter("profile", it) }
             data["conversation_id"]?.let { appendQueryParameter("conversation", it) }
             data["ticket_id"]?.let { appendQueryParameter("ticket", it) }
+            data["approval_id"]?.let { appendQueryParameter("approval", it) }
         }.build()
         return Intent(Intent.ACTION_VIEW, uri, context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
@@ -108,11 +109,14 @@ object Notifications {
         val conversationId = data["conversation_id"]?.takeIf { it.isNotBlank() }
         val ticketId = data["ticket_id"]?.takeIf { it.isNotBlank() }
         if (type == "call" && conversationId == null) return
-        if (conversationId != null && conversationId == visibleConversationId) return
+        val approvalId = data["approval_id"]?.takeIf { it.isNotBlank() }
+        // O pedido de aprovação fala da conversa do cliente, mas é outro aviso: não some com a conversa aberta.
+        if (type != "approval" && conversationId != null && conversationId == visibleConversationId) return
 
         val channel = channelFor(type)
         val group = groupFor(type)
         val tag = when {
+            type == "approval" && approvalId != null -> "approval:$approvalId"
             conversationId != null -> conversationTag(conversationId)
             ticketId != null -> ticketTag(ticketId)
             else -> "type:$type"
@@ -243,6 +247,7 @@ object Notifications {
         "ticket_due" -> "Protocolo perto do prazo"
         "call" -> "Ligação pelo WhatsApp"
         "test" -> "Notificação de teste"
+        "approval" -> "Pedido de aprovação"
         else -> "Nova mensagem"
     }
 
