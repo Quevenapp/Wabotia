@@ -56,6 +56,7 @@ export {
 } from "./fields.ts";
 export { paymentConditionValid } from "./payment-method.ts";
 export { sellerAccessAllowed } from "./seller.ts";
+export { contactScope, contactSituation, contactSituationOf, contactSourceSituation } from "./contact.ts";
 // Listas de preço (sessão G): erp_pricing.list_price, require, rule_text, valid_now.
 export { listPrice, requirePricing as require, ruleText, validNow } from "./pricing/pricing.ts";
 export { erpPricingProductLists } from "./pricing/rpc/erp_pricing_product_lists.ts";

@@ -133,16 +133,11 @@ export function percentValid(value: unknown, whenNull: boolean): boolean {
 
 /**
  * Chave normalizada de uma linha: a coluna __fold gravada (erp_catalog.fold
- * do valor). Coluna NULL com valor presente cai no fold do valor: a semeadura
- * de produção grava label__fold NULL nos tipos de contato do sistema (pedido
- * de correção com a N; achado da L). Sem isso, "cliente" repetiria "Cliente".
+ * do valor). A semeadura grava a coluna desde o esquema 6 (6b12fb6), e o
+ * harness acusa __fold NULL; não há recuo para o fold do valor.
  */
-export function foldedKey(row: Record<string, unknown>, column: string): string | null {
-  const stored = row[`${column}__fold`] as string | null | undefined;
-  if (stored !== null && stored !== undefined) return stored;
-  const value = row[column];
-  return value === null || value === undefined ? null : fold(String(value));
-}
+export const foldedKey = (row: Record<string, unknown>, column: string): string | null =>
+  (row[`${column}__fold`] as string | null | undefined) ?? null;
 
 /** Ordem do texto no Postgres do oráculo (collation C): bytes UTF-8. */
 const encoder = new TextEncoder();
