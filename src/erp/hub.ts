@@ -12,6 +12,7 @@
 import type { Env } from "../types";
 import { ERP_SCHEMA_VERSION, migrate } from "./schema/migrate.ts";
 import { handleRpc } from "./engine/rpc-endpoint.ts";
+import { backupToR2, dumpAll, readBackup, restoreAll } from "./engine/dump.ts";
 
 export const ERP_KIND = "erp";
 export const ERP_PROFILE_HEADER = "x-erp-profile";
@@ -100,6 +101,20 @@ export class ErpHub {
     if (path === "/erp-wake") {
       await this.ctx.storage.setAlarm(Date.now() + 1);
       return Response.json({ ok: true });
+    }
+    // Backup lógico no R2 e restauração (prova 8). Restaurar é só numa
+    // instância nova ou para recuperar: troca o conteúdo inteiro.
+    if (path === "/erp-backup") {
+      const dump = dumpAll(this.ctx.storage);
+      const saved = await backupToR2(this.env.MEDIA, profile, dump);
+      return Response.json({ ...saved, manifest: dump.manifest });
+    }
+    if (path === "/erp-restore") {
+      const { prefix } = await request.json<{ prefix: string }>();
+      if (typeof prefix !== "string" || !prefix.startsWith("erp-backups/"))
+        return fail(400, "erp_backup_invalid", "Informe o prefixo do backup.");
+      const { manifest, files } = await readBackup(this.env.MEDIA, prefix);
+      return Response.json(restoreAll(this.ctx.storage, manifest, files));
     }
     if (path.startsWith("/erp-rpc/"))
       return handleRpc(this.ctx, profile, path.slice("/erp-rpc/".length), request);
