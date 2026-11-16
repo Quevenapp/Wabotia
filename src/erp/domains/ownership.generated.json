@@ -909,7 +909,7 @@
    },
    "erp_documents.contact_usable": {
     "name": "contactUsable",
-    "ported": false
+    "ported": true
    },
    "erp_documents.cost_apply": {
     "name": "costApply",
@@ -1037,7 +1037,7 @@
    },
    "erp_documents.os_permitted": {
     "name": "osPermitted",
-    "ported": false
+    "ported": true
    },
    "erp_documents.payment_types": {
     "name": "paymentTypes",
@@ -1085,7 +1085,7 @@
    },
    "erp_documents.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_commercial_input": {
     "name": "requireCommercialInput",
@@ -1097,7 +1097,7 @@
    },
    "erp_documents.require_role": {
     "name": "requireRole",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_seller": {
     "name": "requireSeller",
@@ -3563,7 +3563,7 @@
    },
    "erp_stock.invoice_unit_price": {
     "name": "invoiceUnitPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.item_component_rows": {
     "name": "itemComponentRows",
@@ -3579,7 +3579,7 @@
    },
    "erp_stock.ledger_document_price": {
     "name": "ledgerDocumentPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.ledger_origin": {
     "name": "ledgerOrigin",
@@ -3679,11 +3679,11 @@
    },
    "erp_stock.virtual_positions": {
     "name": "virtualPositions",
-    "ported": false
+    "ported": true
    },
    "erp_stock.virtual_quantity": {
     "name": "virtualQuantity",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_post": {
     "name": "erpDocumentStockPost",

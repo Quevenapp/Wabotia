@@ -35,8 +35,6 @@ export const commandReplay = (..._args: unknown[]): never => notPorted("erp_docu
 export const commercialData = (..._args: unknown[]): never => notPorted("erp_documents.commercial_data");
 /** erp_documents.commercial_reference(v jsonb) → jsonb */
 export const commercialReference = (..._args: unknown[]): never => notPorted("erp_documents.commercial_reference");
-/** erp_documents.contact_usable(p_user_id uuid, p_contact uuid) → boolean */
-export const contactUsable = (..._args: unknown[]): never => notPorted("erp_documents.contact_usable");
 /** erp_documents.cost_apply(p_document uuid) → integer */
 export const costApply = (..._args: unknown[]): never => notPorted("erp_documents.cost_apply");
 /** erp_documents.cost_apply_capture() → trigger */
@@ -99,8 +97,6 @@ export const normalizeCore = (..._args: unknown[]): never => notPorted("erp_docu
 export const numberEditable = (..._args: unknown[]): never => notPorted("erp_documents.number_editable");
 /** erp_documents.optional_amount(p_value jsonb) → text */
 export const optionalAmount = (..._args: unknown[]): never => notPorted("erp_documents.optional_amount");
-/** erp_documents.os_permitted(p_user_id uuid, p_key text) → boolean */
-export const osPermitted = (..._args: unknown[]): never => notPorted("erp_documents.os_permitted");
 /** erp_documents.payment_types() → text[] */
 export const paymentTypes = (..._args: unknown[]): never => notPorted("erp_documents.payment_types");
 /** erp_documents.preference(p_key text) → jsonb */
@@ -123,14 +119,10 @@ export const recordSituationOccurrence = (..._args: unknown[]): never => notPort
 export const replaceItems = (..._args: unknown[]): never => notPorted("erp_documents.replace_items");
 /** erp_documents.report_last_purchase_until(p_product uuid, p_until date, p_balances boolean) → numeric */
 export const reportLastPurchaseUntil = (..._args: unknown[]): never => notPorted("erp_documents.report_last_purchase_until");
-/** erp_documents.require_access(p_user_id uuid, p_kind text, p_write boolean) → void */
-export const requireAccess = (..._args: unknown[]): never => notPorted("erp_documents.require_access");
 /** erp_documents.require_commercial_input(p_current jsonb, p_input jsonb) → void */
 export const requireCommercialInput = (..._args: unknown[]): never => notPorted("erp_documents.require_commercial_input");
 /** erp_documents.require_os_permission(p_user_id uuid, p_kind text, p_key text) → void */
 export const requireOsPermission = (..._args: unknown[]): never => notPorted("erp_documents.require_os_permission");
-/** erp_documents.require_role(p_user_id uuid, p_kind text, p_write boolean) → void */
-export const requireRole = (..._args: unknown[]): never => notPorted("erp_documents.require_role");
 /** erp_documents.require_seller(p_seller uuid) → void */
 export const requireSeller = (..._args: unknown[]): never => notPorted("erp_documents.require_seller");
 /** erp_documents.rich_text(p_value jsonb) → jsonb */
