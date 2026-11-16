@@ -1650,6 +1650,10 @@
   "public.erp_wabotia_pairing.lock_until: '-infinity'::timestamp with time zone"
  ],
  "columns_unsupported": [],
+ "deviations": {
+  "registered": 3,
+  "applied": 0
+ },
  "seed": {
   "tables": 30,
   "rows": 7586

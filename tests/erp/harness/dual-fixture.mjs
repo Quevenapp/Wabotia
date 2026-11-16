@@ -16,6 +16,7 @@ import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import "../../../src/erp/domains/index.ts";
 import { callRpc, isPorted } from "../../../src/erp/engine/registry.ts";
 import { Clock } from "../../../src/erp/engine/time.ts";
+import { ERP_DEVIATIONS } from "../../../src/erp/schema/deviations.ts";
 import { freshLite, nodeDriver } from "./node-driver.mjs";
 import { IdMap, diffTables, diffValues } from "./state-compare.mjs";
 
@@ -24,7 +25,16 @@ const TABLES = Object.keys(ERP_TABLES);
 
 export const ROLES = ["admin", "consulta", "vendas", "financeiro", "estoque", "fiscal", "vendedor", "inactive"];
 
-export async function dualFixture({ engine = process.env.ERP_ENGINE || "both" } = {}) {
+/**
+ * deviations: desvios deliberados do oráculo (src/erp/schema/deviations.ts)
+ * que valem nos dois motores. Padrão: os aplicados (os que estão na
+ * semeadura); o Postgres recebe o mesmo valor antes de tudo, e a semeadura
+ * diferente não vira divergência.
+ */
+export async function dualFixture({
+  engine = process.env.ERP_ENGINE || "both",
+  deviations = ERP_DEVIATIONS.filter((d) => d.applied),
+} = {}) {
   const pg = await oracleDb();
   const lite = freshLite();
   const driver = nodeDriver(lite);
@@ -170,6 +180,26 @@ export async function dualFixture({ engine = process.env.ERP_ENGINE || "both" } 
       role === "vendedor" ? "vendas" : role === "inactive" ? "admin" : role,
       role !== "inactive",
     ]);
+  }
+  // Desvios: o valor do Wabotia no Postgres (sem gatilhos de guarda), e o
+  // espelho leva o mesmo ao SQLite.
+  if (deviations.length) {
+    await pg.exec("set session_replication_role = replica");
+    try {
+      for (const d of deviations) {
+        const info = ERP_TABLES[d.table];
+        const codec = info.columns[d.column].codec;
+        const keys = Object.keys(d.key);
+        const value = codec === "json" ? JSON.stringify(d.value) : d.value;
+        const r = await pg.query(
+          `update ${q(info.schema)}.${q(info.table)} set ${q(d.column)}=$1${codec === "json" ? "::jsonb" : ""} where ${keys.map((k, i) => `${q(k)}=$${i + 2}`).join(" and ")}`,
+          [value, ...keys.map((k) => d.key[k])],
+        );
+        if (r.affectedRows !== 1) throw new Error(`Desvio ${d.id}: ${r.affectedRows} linhas no Postgres.`);
+      }
+    } finally {
+      await pg.exec("set session_replication_role = origin");
+    }
   }
   await mirror(await changedInPg());
   const scalar = async (text, args = []) => {

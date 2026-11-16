@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { overrides } from "./overrides.mjs";
 import { decText, pgSelect, pgToLite, scaled } from "./gen-sqlite-lib.mjs";
+import { ERP_DEVIATIONS, applyDeviations, checkDeviations } from "../../src/erp/schema/deviations.ts";
 
 const catalog = JSON.parse(readFileSync("src/erp/schema/catalog.json", "utf8"));
 const MAX_SAFE = "9007199254740991";
@@ -516,6 +517,15 @@ for (const [name, info] of Object.entries(columnsOut)) {
   });
 }
 await db.close();
+
+// Desvios deliberados (src/erp/schema/deviations.ts): conferidos contra o
+// oráculo; os aplicados trocam o valor na semeadura.
+const codecOf = (table, column) => columnsOut[table].columns[column].codec;
+const deviationProblems = checkDeviations(seed, ERP_DEVIATIONS, codecOf);
+if (deviationProblems.length) throw Error("Desvios desatualizados:\n" + deviationProblems.join("\n"));
+const appliedDeviations = ERP_DEVIATIONS.filter((d) => d.applied);
+seed.splice(0, seed.length, ...applyDeviations(seed, appliedDeviations, codecOf));
+report.deviations = { registered: ERP_DEVIATIONS.length, applied: appliedDeviations.length };
 
 for (const t of seed) {
   const insert = check.prepare(
