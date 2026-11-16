@@ -221,6 +221,25 @@ export async function paymentUpdated(
     ctx.profile,
   );
   if (!row) return;
+  // Reserva sem cobrança gravada (falha entre criar a cobrança e gravá-la):
+  // esta é a atual, como no Pedido (segunda conferência, N2-3).
+  if (!row.payment_id) {
+    await exec(
+      ctx.env,
+      "UPDATE reserva_bookings SET payment_id=? WHERE id=? AND profile_id=? AND payment_id IS NULL",
+      payment.id,
+      row.id,
+      ctx.profile,
+    );
+    row.payment_id = (
+      await one(
+        ctx.env,
+        "SELECT payment_id FROM reserva_bookings WHERE id=? AND profile_id=?",
+        row.id,
+        ctx.profile,
+      )
+    )?.payment_id;
+  }
   // Só a cobrança atual do sinal mexe na reserva. Uma substituída e paga
   // depois (conferência N-11) vira pendência: dinheiro a mais para estornar.
   if (row.payment_id !== payment.id) {
