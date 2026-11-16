@@ -142,7 +142,12 @@ import {
 } from "./web-steps";
 import { emailReady } from "./email";
 import { trackPage } from "./web-track";
-import { claimOwner, ipHash, peekClaim } from "./module-credentials";
+import {
+  CLAIM_PATH,
+  claimOwner,
+  ipHash,
+  peekClaim,
+} from "./module-credentials";
 import { credentialGate, moduleRoutes, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
@@ -326,7 +331,11 @@ app.post(
       600000,
     );
     const body = await c.req.json<any>().catch(() => ({}));
-    const code = String(body?.code ?? "").replace(/^.*\/c\//, "");
+    // A URL do QR (nova /api/public/c/ ou a antiga /c/, já impressa) ou só
+    // o código.
+    const code = String(body?.code ?? "")
+      .trim()
+      .replace(/^.*\/c\//, "");
     const owner = await claimOwner(c.env, code);
     if (!owner) throw new ApiError(404, "claim_not_found", "QR inválido.");
     return c.env.COORDINATOR.get(
@@ -343,7 +352,9 @@ app.post(
     });
   },
 );
-// O QR (https://<endereço público>/c/<código>) nunca é trocado aqui: prévias
+// O QR (https://<endereço público>/api/public/c/<código>; debaixo de /api/
+// para o Worker responder antes dos arquivos do painel, run_worker_first do
+// wrangler.jsonc) nunca é trocado aqui: prévias
 // de link e a câmera comum não gastam o código. Com Accept: application/json,
 // a leitura pública do app antes da troca ("Entrega da loja X, servidor Y —
 // continuar?"): só o nome do estabelecimento e se o código vale; inexistente,
@@ -351,7 +362,7 @@ app.post(
 // página que orienta a abrir o app. Limite por IP nas duas.
 const PLAY_STORE_URL =
   "https://play.google.com/store/apps/details?id=br.com.queven.wabotia";
-app.get("/c/:code", async (c) => {
+app.get(`${CLAIM_PATH}:code`, async (c) => {
   const ip = c.req.header("CF-Connecting-IP") || "local";
   await rate(c.env, "credential-peek:" + (await ipHash(c.env, ip)), 30, 600000);
   const row = await peekClaim(c.env, c.req.param("code"));

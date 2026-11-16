@@ -20,7 +20,12 @@ import { hmac, sha } from "./security";
 import { newWebStepCode, publicOrigin } from "./web-steps";
 
 export const CREDENTIAL_PREFIX = "wabx_";
-export const CLAIM_PATH = "/c/";
+/**
+ * Caminho do QR: debaixo de /api/, que o wrangler.jsonc manda ao Worker antes
+ * dos arquivos do painel (run_worker_first). Fora dele, a instalação servia o
+ * index.html do painel. O claim aceita também o antigo /c/<código>.
+ */
+export const CLAIM_PATH = "/api/public/c/";
 /** Código do QR: dois códigos do passo web (~186 bits). */
 export const claimCode = /^[2-9A-HJ-NP-Za-km-np-z]{32}$/;
 

@@ -71,6 +71,16 @@ export function registeredRoutes(): { routes: Found[]; unresolved: string[] } {
         routes.push({ file, method: m[1], path: literal[2] });
         continue;
       }
+      // `${CONSTANTE}resto`: o começo vem da constante.
+      const template = args.match(/^\s*`\$\{([A-Za-z_$][\w$]*)\}([^`]*)`/);
+      if (template && known.has(template[1])) {
+        routes.push({
+          file,
+          method: m[1],
+          path: known.get(template[1])! + template[2],
+        });
+        continue;
+      }
       const name = args.match(/^\s*([A-Za-z_$][\w$]*)\s*[,)]/)?.[1];
       if (name && known.has(name)) {
         routes.push({ file, method: m[1], path: known.get(name)! });
