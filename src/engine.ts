@@ -6,7 +6,18 @@ import {
   serviceForLine,
   sendMenu,
   selectedMenu,
+  sendInteractive,
 } from "./line-service";
+
+const clipText = (value: unknown, max: number) =>
+  Array.from(String(value ?? ""))
+    .slice(0, max)
+    .join("");
+/** Rótulo do botão com URL: até 20 caracteres, senão o rótulo genérico. */
+const buttonLabel = (label: unknown, fallback: string) => {
+  const text = String(label ?? "").trim();
+  return text && Array.from(text).length <= 20 ? text : fallback;
+};
 import { finishInternalRun } from "./team";
 import { decideInterpretation } from "./jev";
 import {
@@ -772,19 +783,30 @@ export async function processInbox(env: Env, profile: string) {
         );
         return;
       }
-      if (choice.type === "link" || choice.type === "content") {
+      // Links do menu: botão com URL na linha oficial, texto com o link na QR.
+      if (choice.type === "link") {
+        await sendInteractive(
+          env,
+          "system",
+          c,
+          {
+            type: "cta_url",
+            body: clipText(choice.content || choice.label, 1024),
+            display_text: buttonLabel(choice.label, "Abrir link"),
+            url: choice.url,
+          },
+          `menu-content:${row.id}`,
+          "menu",
+        );
+        return;
+      }
+      if (choice.type === "content") {
         await enqueue(
           env,
           c,
           "system",
           "text",
-          {
-            text:
-              choice.type === "link"
-                ? `${choice.content || choice.label}\n${choice.url}`
-                : choice.content,
-            automation: "menu",
-          },
+          { text: choice.content, automation: "menu" },
           `menu-content:${row.id}`,
         );
         return;
@@ -792,25 +814,32 @@ export async function processInbox(env: Env, profile: string) {
       if (choice.type === "app") {
         const app = (cfg.apps || []).find((a: any) => a.id === choice.app_id);
         if (app) {
-          await enqueue(
+          await sendInteractive(
             env,
-            c,
             "system",
-            "text",
-            { text: `${app.name}\n${app.url}`, automation: "menu" },
+            c,
+            {
+              type: "cta_url",
+              body: clipText(app.name, 1024),
+              display_text: "Abrir aplicativo",
+              url: app.url,
+            },
             `app:${row.id}`,
+            "menu",
           );
           if (app.review_url)
-            await enqueue(
+            await sendInteractive(
               env,
-              c,
               "system",
-              "text",
+              c,
               {
-                text: `Avalie o aplicativo: ${app.review_url}`,
-                automation: "menu",
+                type: "cta_url",
+                body: `Avalie o aplicativo ${clipText(app.name, 900)}.`,
+                display_text: "Avaliar",
+                url: app.review_url,
               },
               `app-review:${row.id}`,
+              "menu",
             );
           if (app.review_enabled && c.chat_type !== "group") {
             await exec(

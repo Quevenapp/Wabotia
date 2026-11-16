@@ -253,9 +253,15 @@ describe("mensalidade no WhatsApp", () => {
     // Segunda via: com uma parcela em aberto, reenvia o código que ainda vale.
     await say(f, "menu", phone);
     const second = await say(f, "2", phone);
+    // Botão com URL na linha oficial e o código sozinho em seguida.
     const copy = await latest(second);
-    expect(copy.text).toMatch(/^Segunda via: /);
-    expect(copy.text).toContain(payment.pix_code);
+    expect(copy.text).toBe(payment.pix_code);
+    const sent = await all(
+      env,
+      "SELECT json_extract(payload,'$.text') text FROM outbox WHERE conversation_id=? ORDER BY created DESC,rowid DESC LIMIT 2",
+      second,
+    );
+    expect(sent[1].text).toMatch(/^Segunda via: /);
     expect(
       await one(
         env,

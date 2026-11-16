@@ -19,6 +19,7 @@ import {
 import { createSubscription } from "./store";
 import { announcePaid } from "./listeners";
 import { sendReceipt } from "./billing";
+import { sendPayMessage } from "./pay-message";
 
 const BILLING = { notification: true, purpose: "billing" as const };
 
@@ -196,17 +197,11 @@ export async function chargeContract(
     (contract.payment_expires_at || 0) > at + 60_000 &&
     contract.method === method
   ) {
-    await ctx.sendMessage(
+    await sendPayMessage(
+      ctx,
       c,
-      {
-        text: [
-          `Plano ${contract.plan_name}: primeira mensalidade de ${money(contract.amount_cents)}.`,
-          contract.pay_url ? `Pagar: ${contract.pay_url}` : "",
-          contract.pix_code ? `Pix copia e cola:\n${contract.pix_code}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-      },
+      `Plano ${contract.plan_name}: primeira mensalidade de ${money(contract.amount_cents)}.`,
+      contract,
       { key, ...BILLING },
     );
     return contract;
