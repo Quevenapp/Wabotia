@@ -212,6 +212,27 @@ público configurado (Gestão → Sistema); a prévia desse link mostra uma imag
 com uma seta no botão de enviar (veja "Imagem do botão Enviar"). Cupons
 impressos antes, com só `SENHA N023 AB23CD`, continuam valendo.
 
+### Imagem do botão Enviar (`/imagemwa`)
+
+`GET /imagemwa` é público e devolve uma página com Open Graph para a prévia do
+link: `og:title` "Aperte ENVIAR para ser chamado pelo WhatsApp",
+`og:description`, `og:url` e `og:image` em URL absoluta (endereço público
+configurado ou, sem ele, o endereço da requisição) apontando para
+`/imagemwa.png`, uma imagem estática de 1200 × 630 px (58 KB) com uma seta no
+botão verde de enviar. Quem abre o endereço no navegador vê a mesma imagem
+numa página do site. Para mudar o texto da imagem, edite
+`scripts/imagemwa/fonte.html` e gere o PNG de novo (o comando está no
+arquivo).
+
+Requisitos do WhatsApp para a prévia (Meta, "Link previews" da WhatsApp
+Business Platform): `og:title`, `og:description` e `og:url` não vazios dentro
+dos primeiros 300 KB do HTML; `og:image` absoluta, até 600 KB, com pelo menos
+300 px de largura e proporção de no máximo 4:1. A Meta não diz se a prévia é
+gerada para um link que já vem escrito pelo `wa.me` (só fala de links
+digitados ou colados); isso precisa ser conferido num aparelho Android e num
+iPhone. Se a prévia não aparecer no rascunho, a primeira linha do texto já diz
+o que fazer, e a prévia aparece na conversa depois do envio.
+
 Configuração geral fica em `PUT /settings` na chave `queue`:
 
 ```json

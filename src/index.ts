@@ -145,7 +145,9 @@ import {
   listDisplays,
   displayByToken,
   publicTicket,
+  SEND_HINT_PATH,
 } from "./queue";
+import { sendHintPage } from "./send-hint";
 
 /** Hands a WebSocket upgrade to the area's Coordinator (one per area). */
 function queueSocket(
@@ -506,6 +508,14 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     ),
     result.reason === "not_found" ? 404 : 410,
   );
+});
+// Prévia do link do cupom da senha (src/send-hint.ts). Chega aqui quem busca a
+// prévia; a navegação no navegador fica com a página do site.
+app.get(SEND_HINT_PATH, async (c) => {
+  const origin = (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  return c.html(sendHintPage(origin), 200, {
+    "Cache-Control": "public, max-age=3600",
+  });
 });
 const displayToken = (c: any) =>
   c.req.header("Authorization")?.match(/^Display ([0-9a-f]{64})$/)?.[1] ||

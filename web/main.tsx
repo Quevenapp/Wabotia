@@ -15,6 +15,7 @@ import { ApiDocs } from "./site/ApiDocs";
 import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
 import { QueueDisplay } from "./queue/QueueDisplay";
+import { SendHint } from "./site/SendHint";
 
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
@@ -29,6 +30,8 @@ createRoot(document.getElementById("root")!).render(
     <ApiDocs />
   ) : location.pathname === "/painel" ? (
     <QueueDisplay />
+  ) : location.pathname === "/imagemwa" ? (
+    <SendHint />
   ) : (
     <Landing />
   ),

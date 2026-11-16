@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
 import { conversation, perform } from "../src/service";
@@ -168,6 +168,26 @@ describe("cupom da senha", () => {
     await expect(
       run(f, f.member, "settings", { queue: { coupon: { position: false } } }),
     ).rejects.toThrow();
+  });
+
+  it("/imagemwa traz a prévia com a imagem da seta em URL absoluta", async () => {
+    const response = await SELF.fetch("https://inst.example/imagemwa", {
+      headers: { "User-Agent": "WhatsApp/2.24.1.1 A" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    const html = await response.text();
+    const head = html.slice(0, html.indexOf("</head>"));
+    for (const [property, value] of [
+      ["og:title", "Aperte ENVIAR para ser chamado pelo WhatsApp"],
+      ["og:url", "https://inst.example/imagemwa"],
+      ["og:image", "https://inst.example/imagemwa.png"],
+      ["og:image:width", "1200"],
+    ])
+      expect(head).toContain(
+        `<meta property="${property}" content="${value}">`,
+      );
+    expect(head).toMatch(/property="og:description" content="[^"]+"/);
   });
 
   it("a linha da senha só vincula quando o resto é a instrução ou um link", () => {
