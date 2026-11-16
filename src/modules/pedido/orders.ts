@@ -1067,14 +1067,22 @@ export async function paymentUpdated(
       at,
       order.id,
     );
-    if (!claimed.meta.changes) return;
-    await history(
-      ctx,
-      order,
-      "payment",
-      "provider",
-      `Pagamento confirmado pelo provedor: ${money(payment.amount_cents)}.`,
-    );
+    // Repetição do gancho (conferência A3): já marcado pago por este
+    // pagamento, refaz os passos seguintes (todos com chave) em vez de sair;
+    // uma falha no meio da primeira vez não deixa o pedido parado.
+    const repeat =
+      !claimed.meta.changes &&
+      order.payment_status === "paid" &&
+      (!order.payment_id || order.payment_id === payment.id);
+    if (!claimed.meta.changes && !repeat) return;
+    if (claimed.meta.changes)
+      await history(
+        ctx,
+        order,
+        "payment",
+        "provider",
+        `Pagamento confirmado pelo provedor: ${money(payment.amount_cents)}.`,
+      );
     await ctx.publish(
       "pedido.paid",
       order.id,
@@ -1171,8 +1179,11 @@ export async function paymentUpdated(
       at,
       order.id,
     );
-    if (!claimed.meta.changes) return;
-    await history(ctx, order, "payment", "provider", "Pagamento estornado.");
+    // Repetição (conferência A3): refaz cancelamento, evento e nota (com
+    // chave) se a primeira vez falhou no meio.
+    if (!claimed.meta.changes && order.payment_status !== "refunded") return;
+    if (claimed.meta.changes)
+      await history(ctx, order, "payment", "provider", "Pagamento estornado.");
     // Estorno ou contestação (revisão M8): pedido que ainda não foi para o
     // preparo é cancelado; já em preparo ou entregue, vira pendência para a
     // equipe (nota interna e needs_review no evento).
@@ -1207,6 +1218,7 @@ export async function paymentUpdated(
         await ctx.note(
           await ctx.conversation(fresh.conversation_id),
           `Pagamento do pedido nº ${fresh.number} estornado ou contestado com o pedido em "${STATUS_LABELS[fresh.status as OrderStatus] || fresh.status}". Confira com o cliente e com o Mercado Pago.`,
+          { key: `refunded:${order.id}` },
         );
       } catch (error) {
         if (!(error instanceof ApiError)) throw error;

@@ -325,13 +325,20 @@ export async function publish(
   b: Booking,
   actor: string,
   extra: Record<string, unknown> = {},
+  /** Com chave, publicar de novo (gancho repetido) não duplica o evento. */
+  key?: string,
 ) {
-  await ctx.publish(kind, b.id, {
-    booking: b,
-    conversation_id: b.conversation_id,
-    actor,
-    ...extra,
-  });
+  await ctx.publish(
+    kind,
+    b.id,
+    {
+      booking: b,
+      conversation_id: b.conversation_id,
+      actor,
+      ...extra,
+    },
+    key ? { key } : undefined,
+  );
 }
 
 // ---------------------------------------------------------------------------

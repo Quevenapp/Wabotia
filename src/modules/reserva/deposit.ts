@@ -231,11 +231,14 @@ export async function paymentUpdated(
       row.id,
       ctx.profile,
     );
-    if (!marked.meta?.changes) return;
+    // Repetição do gancho (conferência A3): já marcado, refaz os passos
+    // seguintes (cancelamento, evento e nota com chave).
+    if (!marked.meta?.changes && row.payment_status !== "refunded") return;
     // Estorno ou contestação do sinal (revisão M8): reserva que ainda não
     // começou é cancelada e a unidade volta a ficar livre; com o hóspede já
     // na casa (ou o check-in feito), vira pendência para a equipe.
     const b = await getBooking(ctx, row.id);
+    if (["cancelled", "expired"].includes(b.status)) return;
     const notStarted =
       ["pending_payment", "confirmed"].includes(b.status) &&
       b.checkin_status !== "completed" &&
@@ -248,15 +251,20 @@ export async function paymentUpdated(
       });
       return;
     }
-    await publish(ctx, "reserva.changed", b, "system", {
-      payment_status: "refunded",
-      needs_review: true,
-    });
+    await publish(
+      ctx,
+      "reserva.changed",
+      b,
+      "system",
+      { payment_status: "refunded", needs_review: true },
+      `refunded:${b.id}`,
+    );
     if (b.conversation_id)
       try {
         await ctx.note(
           await ctx.conversation(b.conversation_id),
           `Sinal da reserva nº ${b.number} estornado ou contestado depois do início. Confira com o hóspede e com o Mercado Pago.`,
+          { key: `refunded:${b.id}` },
         );
       } catch (error) {
         if (!(error instanceof ApiError)) throw error;
@@ -300,10 +308,17 @@ async function depositPaid(
       );
   if (revived.meta?.changes) {
     const b = await getBooking(ctx, id);
-    await publish(ctx, "reserva.confirmed", b, "system", {
-      by: "payment",
-      ...(confirmed.meta?.changes ? {} : { late: true, previous }),
-    });
+    await publish(
+      ctx,
+      "reserva.confirmed",
+      b,
+      "system",
+      {
+        by: "payment",
+        ...(confirmed.meta?.changes ? {} : { late: true, previous }),
+      },
+      `confirmed:${b.id}`,
+    );
     await notifyCustomer(
       ctx,
       b,
@@ -322,6 +337,25 @@ async function depositPaid(
     ctx.profile,
   );
   const b = await getBooking(ctx, id);
+  // Repetição do gancho (conferência A3): já confirmada pelo pagamento numa
+  // tentativa que falhou depois; refaz evento e aviso, os dois com chave.
+  if (b.status === "confirmed" && b.confirmed_by === "payment") {
+    await publish(
+      ctx,
+      "reserva.confirmed",
+      b,
+      "system",
+      { by: "payment" },
+      `confirmed:${b.id}`,
+    );
+    await notifyCustomer(
+      ctx,
+      b,
+      fill(config.confirmed_text, describe(b)),
+      `confirmed:${b.id}`,
+    );
+    return;
+  }
   if (b.status === "confirmed" || b.status === "completed") return;
   await publish(ctx, "reserva.payment_late", b, "system", {
     reason: b.status === "cancelled" ? "cancelled" : "unit_taken",

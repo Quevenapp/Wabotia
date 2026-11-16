@@ -137,8 +137,15 @@ export interface ModuleContext {
    * quem chama. Compare ou vincule registros por telefone só com ele.
    */
   verifiedPhone(c: Conversation): string | null;
-  /** Nota interna na conversa (só a equipe vê), por exemplo uma pendência. */
-  note(c: Conversation, text: string): Promise<void>;
+  /**
+   * Nota interna na conversa (só a equipe vê), por exemplo uma pendência.
+   * Com `key`, a mesma nota não se repete (gancho repetido, por exemplo).
+   */
+  note(
+    c: Conversation,
+    text: string,
+    options?: { key?: string },
+  ): Promise<void>;
   /** Configurações da área (itens de menu de módulos desligados ocultos). */
   settings(): Promise<any>;
   /**
@@ -342,14 +349,33 @@ export function modulesApi(
       return copy as typeof row;
     },
     verifiedPhone: (c) => verifiedPhone(c),
-    async note(c, text) {
+    async note(c, text, options = {}) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       const value = String(text ?? "").trim();
       requireValue(
         value && value.length <= 3000,
         "Nota de 1 a 3000 caracteres.",
       );
-      await coreMessage(env, c, "note", `module:${moduleId}`, value);
+      const external = options.key ? `note:${moduleId}:${options.key}` : null;
+      if (
+        external &&
+        (await one(
+          env,
+          "SELECT id FROM messages WHERE conversation_id=? AND external_id=? AND direction='note'",
+          c.id,
+          external,
+        ))
+      )
+        return;
+      await coreMessage(
+        env,
+        c,
+        "note",
+        `module:${moduleId}`,
+        value,
+        [],
+        external,
+      );
     },
     settings: () => settings(env, profile),
     establishment: () => establishment(env, profile),
