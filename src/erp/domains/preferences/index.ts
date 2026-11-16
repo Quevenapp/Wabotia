@@ -7,3 +7,7 @@ import "./rpc/erp_platform_tasks.ts";
 import "./rpc/erp_platform_new_invoices.ts";
 import "./rpc/erp_platform_notifications_run.ts";
 import "./rpc/erp_platform_exports.ts";
+import "./rpc/erp_preferences_situations.ts";
+import "./rpc/erp_preferences_labels.ts";
+import "./rpc/erp_attachment_employee.ts";
+import "./rpc/erp_home_settings.ts";
