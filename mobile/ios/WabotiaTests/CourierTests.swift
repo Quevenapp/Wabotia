@@ -1,23 +1,46 @@
 import XCTest
 @testable import Wabotia
 
+/// QRs válidos para os testes: `https://<host>/c/<32 caracteres do alfabeto>`.
+enum Q {
+    static func code(_ tail: Character) -> String { String(repeating: "A", count: 31) + String(tail) }
+    static func url(_ host: String, _ tail: Character) -> String { "https://\(host)/c/\(code(tail))" }
+    static let a = url("lanche.example.com", "2")
+    static let b = url("farmacia.example.net", "3")
+    static let used = url("lanche.example.com", "9")
+    static let invalid = url("lanche.example.com", "8")
+    static let otherServer = url("lanche.example.com", "7")
+}
+
 final class CourierScanTests: XCTestCase {
-    func testReadsTheServerAndTheCodeFromTheQr() {
-        let path = CourierScan.parse("https://wabotia.loja.com.br/entregador/AB12CD34", allowCleartext: false)
-        XCTAssertEqual(path?.server.absoluteString, "https://wabotia.loja.com.br")
-        XCTAssertEqual(path?.code, "AB12CD34")
-        let query = CourierScan.parse(" https://w.example:8443/e?code=xyz_98765 ", allowCleartext: false)
-        XCTAssertEqual(query?.server.absoluteString, "https://w.example:8443")
-        XCTAssertEqual(query?.code, "xyz_98765")
-        XCTAssertEqual(CourierScan.parse("demo-entrega-2")?.demo, true)
+    func testReadsTheServerAndTheCodeFromTheQr() throws {
+        let scan = try CourierQR.read(" https://Wabotia.Loja.com.br/c/\(Q.code("z")) ").get()
+        XCTAssertEqual(scan.server.absoluteString, "https://wabotia.loja.com.br", "o servidor é o host do QR")
+        XCTAssertEqual(scan.code, Q.code("z"))
+        XCTAssertEqual(scan.host, "wabotia.loja.com.br")
+        XCTAssertEqual(try CourierQR.read("https://w.example:8443/c/\(Q.code("2"))").get().host, "w.example:8443")
+        XCTAssertTrue(DemoCourierAPI.demoQRs.allSatisfy { (try? CourierQR.read($0).get())?.demo == true }, "QRs da demonstração no formato")
+        XCTAssertFalse(try CourierQR.read(Q.a).get().demo)
     }
 
-    func testRefusesWhatIsNotAnOrderQr() {
-        XCTAssertNil(CourierScan.parse("http://w.example/e/AB12CD34", allowCleartext: false), "sem https, fora da depuração, não")
-        XCTAssertNil(CourierScan.parse("https://w.example/e/abc", allowCleartext: false), "código curto demais")
-        XCTAssertNil(CourierScan.parse("https://w.example/e/AB12<script>", allowCleartext: false))
-        XCTAssertNil(CourierScan.parse("Pedido 41"))
-        XCTAssertNil(CourierScan.parse("javascript:alert(1)"))
+    func testRefusesOtherFormatsWithAClearReason() {
+        func refusal(_ text: String) -> CourierQR.Refusal? { if case .failure(let r) = CourierQR.read(text) { return r }; return nil }
+        XCTAssertEqual(refusal("http://w.example/c/\(Q.code("2"))"), .insecure)
+        XCTAssertEqual(refusal("https://192.168.0.10/c/\(Q.code("2"))"), .localAddress)
+        XCTAssertEqual(refusal("https://10.0.0.5:8787/c/\(Q.code("2"))"), .localAddress)
+        XCTAssertEqual(refusal("https://localhost/c/\(Q.code("2"))"), .localAddress)
+        XCTAssertEqual(refusal("https://impressora.local/c/\(Q.code("2"))"), .localAddress)
+        XCTAssertEqual(refusal("https://[::1]/c/\(Q.code("2"))"), .localAddress)
+        XCTAssertEqual(refusal("https://w.example/c/\(String(repeating: "A", count: 31))"), .notAnOrder, "código curto")
+        XCTAssertEqual(refusal("https://w.example/c/\(String(repeating: "A", count: 31))0"), .notAnOrder, "0 fora do alfabeto")
+        XCTAssertEqual(refusal("https://w.example/c/\(String(repeating: "A", count: 31))l"), .notAnOrder, "l fora do alfabeto")
+        XCTAssertEqual(refusal("https://w.example/entregador/\(Q.code("2"))"), .notAnOrder)
+        XCTAssertEqual(refusal("https://user:x@w.example/c/\(Q.code("2"))"), .notAnOrder)
+        XCTAssertEqual(refusal("https://www.google.com/search?q=pizza"), .notAnOrder)
+        XCTAssertEqual(refusal("WIFI:S:Loja;T:WPA;P:123;;"), .notAnOrder)
+        XCTAssertEqual(refusal("Pedido 41"), .notAnOrder)
+        XCTAssertEqual(CourierQR.Refusal.notAnOrder.message, "Este QR não é de um pedido.")
+        XCTAssertFalse(CourierQR.isLocal("203.0.113.9"), "IP público não é local")
     }
 }
 
@@ -121,8 +144,19 @@ final class FakeCourierAPI: CourierAPI {
     private var count = 0
     private var seq = 0
 
+    /// Cada servidor (host) tem a sua loja.
+    var stores = ["lanche.example.com": "Lanche Bom", "farmacia.example.net": "Farmácia Saúde"]
+    var previews: [String] = []
+
+    func preview(_ scan: CourierScan) async throws -> CourierPreview {
+        previews.append(scan.host)
+        if scan.code == Q.code("8") { return CourierPreview(valid: false, server: scan.server.absoluteString) }
+        if scan.code == Q.code("7") { return CourierPreview(valid: true, store: "Golpe", server: "https://outro.example.org") }
+        return CourierPreview(valid: true, store: stores[scan.host], server: scan.server.absoluteString, expiresAt: 1)
+    }
+
     func claim(_ scan: CourierScan, name: String, device: String) async throws -> CourierClaim {
-        guard scan.code != "USEDCODE1" else { throw CourierError.invalidCode("Este QR já foi lido.") }
+        guard scan.code != Q.code("9") else { throw CourierError.invalidCode("Este QR já foi lido.") }
         claims.append((name, device))
         count += 1
         let id = "d\(count)"
@@ -206,25 +240,25 @@ final class CourierViewModelTests: XCTestCase {
         store = MemoryCourierGrantStore()
         accepted = false
         let services = CourierServices(api: api, store: store, location: location, demo: false, geocode: { [unowned self] _ in self.geocoded },
-                                       disclosureAccepted: { [unowned self] in self.accepted }, acceptDisclosure: { [unowned self] in self.accepted = true },
+                                       disclosureAccepted: { [unowned self] _ in self.accepted }, acceptDisclosure: { [unowned self] _ in self.accepted = true },
                                        loadName: { "Carlos Souza" }, saveName: { _ in }, device: "iPhone (iOS 16.7)")
         return CourierViewModel(services: services)
     }
 
     func testTheClaimCarriesTheNameAndTheDeviceAndNeedsAName() async {
         let vm = model()
-        await vm.scanned("https://w.example/c/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         XCTAssertEqual(api.claims.first?.name, "Carlos Souza")
         XCTAssertEqual(api.claims.first?.device, "iPhone (iOS 16.7)")
         vm.courierName = "  "
-        let read = await vm.scanned("https://w.example/c/BBBB2222")
+        let read = await vm.scanAndConfirm(Q.b)
         XCTAssertFalse(read, "400 sem nome: o app pede antes")
         XCTAssertEqual(api.claims.count, 1)
     }
 
     func testNewMessagesArriveByLastSeqAndCountAsUnreadUntilSeen() async {
         let vm = model()
-        await vm.scanned("https://w.example/c/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         accepted = true
         location.authorization = .allowed
         vm.startRoute("d1")
@@ -244,7 +278,7 @@ final class CourierViewModelTests: XCTestCase {
 
     func testClosedCustomerWindowStaysInTheChat() async {
         let vm = model()
-        await vm.scanned("https://w.example/c/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         api.windowClosed = true
         await vm.loadChat("d1")
         XCTAssertFalse(vm.customerOpen("d1"), "customer_open falso: o app avisa antes")
@@ -256,7 +290,7 @@ final class CourierViewModelTests: XCTestCase {
 
     func testBackgroundSendsTheQueueAndStopsTheGps() async {
         let vm = model()
-        await vm.scanned("https://w.example/c/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         accepted = true
         location.authorization = .allowed
         vm.startRoute("d1")
@@ -275,23 +309,82 @@ final class CourierViewModelTests: XCTestCase {
         for _ in 0..<200 where !condition() { try? await Task.sleep(nanoseconds: 20_000_000) }
     }
 
+    func testConfirmationShowsTheStoreAndTheServerBeforeSpendingTheCode() async {
+        let vm = model()
+        let ready = await vm.scanned(Q.a)
+        XCTAssertTrue(ready)
+        XCTAssertEqual(vm.pending?.store, "Lanche Bom")
+        XCTAssertEqual(vm.pending?.scan.host, "lanche.example.com")
+        XCTAssertTrue(api.claims.isEmpty, "a leitura pública não gasta o código")
+        vm.cancelPending()
+        XCTAssertNil(vm.pending)
+        XCTAssertTrue(api.claims.isEmpty, "Cancelar não troca o código")
+        await vm.scanned(Q.a)
+        let added = await vm.confirmPending()
+        XCTAssertTrue(added)
+        XCTAssertEqual(api.claims.count, 1)
+        XCTAssertEqual(vm.grant("d1")?.storeName, "Lanche Bom")
+        XCTAssertEqual(vm.grant("d1")?.server, "https://lanche.example.com")
+    }
+
+    func testInvalidQrAndForeignServerStopBeforeTheClaim() async {
+        let vm = model()
+        let invalid = await vm.scanned(Q.invalid)
+        XCTAssertFalse(invalid)
+        XCTAssertEqual(vm.scanError, "Este QR não vale mais; peça outro à loja.")
+        let foreign = await vm.scanned(Q.otherServer)
+        XCTAssertFalse(foreign, "o server da resposta aponta para outro host: não segue")
+        XCTAssertTrue(vm.scanError?.contains("outro.example.org") == true)
+        let insecure = await vm.scanned("http://lanche.example.com/c/\(Q.code("2"))")
+        XCTAssertFalse(insecure)
+        XCTAssertTrue(api.previews.count == 2, "QR recusado pelo formato nem chega ao servidor")
+        XCTAssertTrue(api.claims.isEmpty)
+    }
+
+    func testTheNameIsAskedOnlyAfterContinueAndRemembered() async {
+        let vm = model()
+        vm.courierName = ""
+        await vm.scanned(Q.a)
+        XCTAssertTrue(vm.needsName)
+        let without = await vm.confirmPending()
+        XCTAssertFalse(without, "sem nome, não troca")
+        XCTAssertNotNil(vm.pending, "a confirmação continua aberta para digitar")
+        vm.courierName = "Carlos"
+        let with = await vm.confirmPending()
+        XCTAssertTrue(with)
+        XCTAssertEqual(api.claims.last?.name, "Carlos")
+    }
+
+    func testTwoStoresAtOnceAndRevokingOneKeepsTheOther() async {
+        let vm = model()
+        await vm.scanAndConfirm(Q.a)
+        await vm.scanAndConfirm(Q.b)
+        XCTAssertEqual(vm.grants.map(\.storeName), ["Lanche Bom", "Farmácia Saúde"])
+        XCTAssertEqual(vm.grants.map(\.host), ["lanche.example.com", "farmacia.example.net"], "cada entrega com o próprio servidor")
+        XCTAssertEqual(Set(vm.grants.map(\.token)).count, 2, "e o próprio token")
+        api.revoked.insert("d1")
+        await vm.refreshAll()
+        XCTAssertEqual(vm.grants.map(\.storeName), ["Farmácia Saúde"], "o 401 de uma loja tira só aquela entrega")
+        XCTAssertFalse(vm.finished)
+    }
+
     func testScanningTwoOrdersKeepsTwoDeliveries() async {
         let vm = model()
-        let first = await vm.scanned("https://w.example/e/AAAA1111")
-        let second = await vm.scanned("https://w.example/e/BBBB2222")
+        let first = await vm.scanAndConfirm(Q.a)
+        let second = await vm.scanAndConfirm(Q.b)
         XCTAssertTrue(first && second)
         XCTAssertEqual(vm.ordered.map(\.displayLabel), ["Pedido nº 1", "Pedido nº 2"], "várias entregas ao mesmo tempo")
         XCTAssertEqual(store.load().count, 2, "as credenciais ficam guardadas")
-        let used = await vm.scanned("https://w.example/e/USEDCODE1")
+        let used = await vm.scanAndConfirm(Q.used)
         XCTAssertFalse(used)
         XCTAssertNotNil(vm.scanError)
-        let demo = await vm.scanned("DEMO-ENTREGA-1")
+        let demo = await vm.scanAndConfirm(DemoCourierAPI.demoQRs[0])
         XCTAssertFalse(demo, "pedido da demonstração fora da demonstração")
     }
 
     func testDisclosureComesBeforeThePermissionThenTheRouteStarts() async {
         let vm = model()
-        await vm.scanned("https://w.example/e/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         vm.startRoute("d1")
         XCTAssertEqual(vm.disclosureFor, "d1", "o aviso aparece antes de qualquer pedido de permissão")
         XCTAssertEqual(location.authorization, .notDetermined)
@@ -306,7 +399,7 @@ final class CourierViewModelTests: XCTestCase {
 
     func testPositionsGoInBatchesAndTheEndOfTheRouteRevokesAndCloses() async {
         let vm = model()
-        await vm.scanned("https://w.example/e/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         accepted = true
         location.authorization = .allowed
         vm.startRoute("d1")
@@ -327,8 +420,8 @@ final class CourierViewModelTests: XCTestCase {
 
     func testRevokedOnTheServerLeavesOnlyTheOtherDelivery() async {
         let vm = model()
-        await vm.scanned("https://w.example/e/AAAA1111")
-        await vm.scanned("https://w.example/e/BBBB2222")
+        await vm.scanAndConfirm(Q.a)
+        await vm.scanAndConfirm(Q.b)
         api.revoked.insert("d1")
         await vm.refreshAll()
         XCTAssertEqual(vm.grants.map(\.deliveryId), ["d2"])
@@ -341,7 +434,7 @@ final class CourierViewModelTests: XCTestCase {
 
     func testDeliveredEndsTheAccessAndChatGoesToTheRightPeer() async {
         let vm = model()
-        await vm.scanned("https://w.example/e/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         let ok = await vm.send("d1", .customer, "  Cheguei na portaria  ")
         XCTAssertTrue(ok)
         XCTAssertEqual(api.sent, ["customer:Cheguei na portaria"])
@@ -355,7 +448,7 @@ final class CourierViewModelTests: XCTestCase {
 
     func testDeniedPermissionAsksForSettingsAndDoesNotStart() async {
         let vm = model()
-        await vm.scanned("https://w.example/e/AAAA1111")
+        await vm.scanAndConfirm(Q.a)
         accepted = true
         location.grant = false
         vm.startRoute("d1")
@@ -366,7 +459,7 @@ final class CourierViewModelTests: XCTestCase {
     func testDemoDeliveryWalksFromScanToDelivered() async {
         let services = CourierServices.demo()
         let vm = CourierViewModel(services: services)
-        let read = await vm.scanned("DEMO-ENTREGA-1")
+        let read = await vm.scanAndConfirm(vm.nextDemoQR)
         XCTAssertTrue(read)
         let id = try? XCTUnwrap(vm.grants.first?.deliveryId)
         guard let id else { return }

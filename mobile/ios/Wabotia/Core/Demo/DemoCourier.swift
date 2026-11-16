@@ -1,13 +1,17 @@
 import Foundation
 
-/// A entrega da demonstração (e da revisão das lojas): três pedidos fictícios de uma lanchonete, que o "QR" da
-/// demonstração entrega um de cada vez. Tudo em memória; nada sai do aparelho. Segue o contrato do app do entregador
-/// (docs/ENTREGA.md): a previsão em linha reta × 1,3 a 25 km/h, a conversa por `seq` nos canais `store` e `customer`
-/// (a loja e o cliente respondem sozinhos), `chat.last_seq` na resposta das posições, e "Entreguei" revoga o acesso.
+/// A entrega da demonstração (e da revisão das lojas): três pedidos fictícios de DUAS lojas (Lanchonete Exemplo e
+/// Farmácia Exemplo, cada uma no seu "servidor"), que "Simular leitura" lê um de cada vez. Tudo em memória; nada sai do
+/// aparelho. Segue o contrato do app do entregador (docs/ENTREGA.md): leitura pública do QR antes de gastar o código, a
+/// previsão em linha reta × 1,3 a 25 km/h, a conversa por `seq` nos canais `store` e `customer` (a loja e o cliente
+/// respondem sozinhos), `chat.last_seq` na resposta das posições, e "Entreguei" revoga o acesso.
 @MainActor
 final class DemoCourierAPI: CourierAPI {
     private struct Order {
         let id, label, customer, address: String
+        let store: String
+        /// Os QRs fictícios: `https://<loja>.demo.wabotia.localhost/c/<32 caracteres>`.
+        let qr: String
         let destination: CourierCoordinate
         let lines: [CourierOrder.Line]
         let totalCents: Int
@@ -15,36 +19,56 @@ final class DemoCourierAPI: CourierAPI {
         let note: String
     }
 
+    static let lanchonete = "Lanchonete Exemplo"
+    static let farmacia = "Farmácia Exemplo"
+
     private static let orders: [Order] = [
-        Order(id: "de_41", label: "Pedido nº 41", customer: "Mariana", address: "Rua Exemplo, 200 — apto 32\nBairro Exemplo",
+        Order(id: "de_41", label: "Pedido nº 41", customer: "Mariana", address: "Rua Exemplo, 200 — apto 32\nBairro Exemplo", store: lanchonete,
+              qr: "https://lanchonete-exemplo\(CourierQR.demoHostSuffix)/c/DEMAPEDXQUARENTAEUMLANCHNETEXEMP",
               destination: CourierCoordinate(lat: -23.5613, lng: -46.6565),
               lines: [.init(name: "X-Burger", quantity: 1, options: ["Molho da casa"], note: nil), .init(name: "Refrigerante lata", quantity: 1)],
               totalCents: 2800, payment: .init(methodLabel: "Dinheiro", status: "pending", statusLabel: "A receber", paid: false, changeForCents: 5000),
               note: "Interfone 32"),
-        Order(id: "de_42", label: "Pedido nº 42", customer: "Ricardo", address: "Avenida Fictícia, 1500\nCentro",
+        Order(id: "fe_7", label: "Pedido nº 7", customer: "Ricardo", address: "Avenida Fictícia, 1500\nCentro", store: farmacia,
+              qr: "https://farmacia-exemplo\(CourierQR.demoHostSuffix)/c/DEMAPEDXFARMACVAEXEMPLQZZZZZZZZZ",
               destination: CourierCoordinate(lat: -23.5432, lng: -46.6420),
-              lines: [.init(name: "X-Bacon", quantity: 2), .init(name: "Suco natural", quantity: 1)],
+              lines: [.init(name: "Protetor solar FPS 50", quantity: 1), .init(name: "Soro fisiológico 500 ml", quantity: 2)],
               totalCents: 6100, payment: .init(methodLabel: "Pix", status: "paid", statusLabel: "Pago", paid: true), note: ""),
-        Order(id: "de_43", label: "Pedido nº 43", customer: "Paula", address: "Travessa Modelo, 12\nVila Exemplo",
+        Order(id: "de_43", label: "Pedido nº 43", customer: "Paula", address: "Travessa Modelo, 12\nVila Exemplo", store: lanchonete,
+              qr: "https://lanchonete-exemplo\(CourierQR.demoHostSuffix)/c/DEMAPEDXQUARENTAEDQSLANCHNETEXEM",
               destination: CourierCoordinate(lat: -23.5580, lng: -46.6250),
               lines: [.init(name: "X-Salada", quantity: 1, options: nil, note: "Sem cebola")],
               totalCents: 2200, payment: .init(methodLabel: "Cartão na maquininha", status: "pending", statusLabel: "A receber", paid: false), note: ""),
     ]
 
+    /// Os QRs da demonstração, na ordem de "Simular leitura" (alterna as duas lojas).
+    nonisolated static var demoQRs: [String] { orders.map(\.qr) }
+
+    private func order(_ scan: CourierScan) -> Order? { Self.orders.first { CourierScan.parse($0.qr)?.code == scan.code } }
+
+    func preview(_ scan: CourierScan) async throws -> CourierPreview {
+        await pause()
+        guard scan.demo, let order = order(scan), deliveries[order.id] == nil else { return CourierPreview(valid: false, server: scan.server.absoluteString) }
+        return CourierPreview(valid: true, store: order.store, server: scan.server.absoluteString,
+                              expiresAt: Int64(Date().timeIntervalSince1970 * 1000) + 30 * 60_000)
+    }
+
     private var deliveries: [String: CourierDelivery] = [:]
     private var lastPosition: [String: CourierPoint] = [:]
     private var feed: [String: [CourierMessage]] = [:]
     private var revoked: Set<String> = []
+    private var stores: [String: String] = [:]
     private var seq = 0
+
+    /// Para os testes: o "servidor" de uma loja revoga a entrega (401 na próxima chamada).
+    func revoke(_ id: String) { revoked.insert(id) }
 
     static let rhythm = CourierRhythm(sampleSeconds: 3, uploadSeconds: 6, nearUploadSeconds: 4, staleMinutes: 5, maxBatch: 200)
 
     func claim(_ scan: CourierScan, name: String, device: String) async throws -> CourierClaim {
         await pause()
-        guard scan.demo else { throw CourierError.invalidCode("Na demonstração, use o pedido de demonstração.") }
-        guard let order = Self.orders.first(where: { deliveries[$0.id] == nil }) else {
-            throw CourierError.invalidCode("Os três pedidos de demonstração já foram lidos. Saia do modo entregador e entre de novo para recomeçar.")
-        }
+        guard scan.demo, let order = order(scan) else { throw CourierError.invalidCode("Este QR não é de um pedido.") }
+        guard deliveries[order.id] == nil else { throw CourierError.invalidCode("Este QR já foi lido. Se foi você, a entrega já está neste aparelho.") }
         let delivery = CourierDelivery(id: order.id, label: order.label, status: "assigned", statusLabel: "Atribuída", customerName: order.customer,
                                        addressText: order.address, destination: order.destination,
                                        order: CourierOrder(lines: order.lines, totalCents: order.totalCents,
@@ -52,8 +76,9 @@ final class DemoCourierAPI: CourierAPI {
                                        chat: CourierChatState(lastSeq: 0, customerOpen: true), app: Self.rhythm)
         deliveries[order.id] = delivery
         feed[order.id] = []
-        post(order.id, .store, "store", "Lanchonete Exemplo", "Oi, \(name.split(separator: " ").first.map(String.init) ?? name)! O \(order.label) já está embalado no balcão.")
-        let grant = CourierGrant(deliveryId: order.id, server: DemoMode.serverURL.absoluteString, token: "wabx_demo_\(order.id)",
+        stores[order.id] = order.store
+        post(order.id, .store, "store", order.store, "Oi, \(name.split(separator: " ").first.map(String.init) ?? name)! O \(order.label) já está embalado no balcão.")
+        let grant = CourierGrant(deliveryId: order.id, server: scan.server.absoluteString, token: "wabx_demo_\(order.id)",
                                  profileId: DemoMode.profileId, label: order.label, demo: true,
                                  expiresAt: Int64(Date().timeIntervalSince1970 * 1000) + 4 * 3_600_000)
         return CourierClaim(grant: grant, delivery: withChat(order.id))
@@ -71,7 +96,7 @@ final class DemoCourierAPI: CourierAPI {
         d.status = "en_route"
         d.statusLabel = "A caminho"
         deliveries[g.deliveryId] = d
-        later(g.deliveryId, .store, "store", "Lanchonete Exemplo", "Avisamos \(d.customerName ?? "o cliente") que você saiu.", after: 2)
+        later(g.deliveryId, .store, "store", stores[g.deliveryId] ?? Self.lanchonete, "Avisamos \(d.customerName ?? "o cliente") que você saiu.", after: 2)
         later(g.deliveryId, .customer, "customer", d.customerName ?? "Cliente", "Oba, obrigado! Estou esperando aqui.", after: 5)
         return withChat(g.deliveryId)
     }
@@ -130,7 +155,7 @@ final class DemoCourierAPI: CourierAPI {
         let d = try current(g)
         let sent = post(g.deliveryId, peer, "courier", "Você", text)
         if peer == .store {
-            later(g.deliveryId, .store, "store", "Lanchonete Exemplo", "Certo, obrigado pelo aviso!", after: 3)
+            later(g.deliveryId, .store, "store", stores[g.deliveryId] ?? Self.lanchonete, "Certo, obrigado pelo aviso!", after: 3)
         } else {
             later(g.deliveryId, .customer, "customer", d.customerName ?? "Cliente", "Combinado, obrigado!", after: 3)
         }

@@ -15,8 +15,13 @@ struct CourierDeliveryView: View {
             if let d = vm.deliveries[id] {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        if let store = vm.store(id) {
+                            Label("\(store) · \(vm.grant(id)?.host ?? "")", systemImage: "building.2.fill")
+                                .font(Theme.font(13, .semibold)).foregroundStyle(Theme.brand)
+                                .accessibilityIdentifier("courier.detail.store")
+                        }
                         if d.enRoute {
-                            DeviceNotice(text: "Compartilhando sua localização com a loja e com o cliente — \(d.displayLabel). Mantenha o app aberto durante a entrega.",
+                            DeviceNotice(text: "Compartilhando sua localização com \(vm.store(id) ?? "a loja") e com o cliente — \(d.displayLabel). Mantenha o app aberto durante a entrega.",
                                          color: Theme.brand)
                                 .accessibilityIdentifier("courier.sharing")
                         }

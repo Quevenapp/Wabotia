@@ -4,6 +4,8 @@ import Foundation
 /// Contrato em docs/ENTREGA.md ("Contrato do app do entregador") e docs/API.md ("Entrega"), `feat/modulo-entrega`.
 @MainActor
 protocol CourierAPI: AnyObject {
+    /// Leitura pública do QR, sem gastar o código: a loja e o servidor, para o entregador confirmar.
+    func preview(_ scan: CourierScan) async throws -> CourierPreview
     /// Troca o código do QR (`https://<servidor>/c/<código>`) por um token `wabx_` só daquela entrega.
     func claim(_ scan: CourierScan, name: String, device: String) async throws -> CourierClaim
     /// `GET …/deliveries/{id}/courier`.
@@ -25,6 +27,8 @@ protocol CourierAPI: AnyObject {
 enum CourierRoutes {
     /// Fora de `/api/v1` e sem autenticação.
     static let claim = "/api/credentials/claim"
+    /// Leitura pública (`Accept: application/json`), a mesma URL do QR.
+    static func preview(_ code: String) -> String { "/c/\(code)" }
     static func delivery(_ g: CourierGrant) -> String { "/api/v1/profiles/\(g.profileId ?? "-")/entrega/deliveries/\(g.deliveryId)" }
     static func courier(_ g: CourierGrant) -> String { delivery(g) + "/courier" }
     static func start(_ g: CourierGrant) -> String { delivery(g) + "/start" }
@@ -55,6 +59,10 @@ final class HTTPCourierAPI: CourierAPI {
         var module: String?
         var subject: String
         var data: Payload?
+    }
+
+    func preview(_ scan: CourierScan) async throws -> CourierPreview {
+        try decode(CourierPreview.self, try await call(scan.server.absoluteString, CourierRoutes.preview(scan.code), method: "GET", token: nil))
     }
 
     func claim(_ scan: CourierScan, name: String, device: String) async throws -> CourierClaim {
@@ -145,7 +153,7 @@ final class HTTPCourierAPI: CourierAPI {
         let error = object?["error"] as? [String: Any]
         let code = error?["code"] as? String ?? ""
         let message = error?["message"] as? String
-        throw CourierHTTPError.map(status: http.statusCode, code: code, message: message, claim: path == CourierRoutes.claim)
+        throw CourierHTTPError.map(status: http.statusCode, code: code, message: message, claim: path == CourierRoutes.claim || path.hasPrefix("/c/"))
     }
 }
 

@@ -41,7 +41,9 @@ struct CourierModeView: View {
                             emptyState
                         } else {
                             ForEach(vm.ordered) { d in
-                                NavigationLink(tag: d.id, selection: $opened) { CourierDeliveryView(vm: vm, id: d.id) } label: { CourierDeliveryCard(delivery: d) }
+                                NavigationLink(tag: d.id, selection: $opened) { CourierDeliveryView(vm: vm, id: d.id) } label: {
+                                    CourierDeliveryCard(delivery: d, store: vm.store(d.id), host: vm.grant(d.id)?.host)
+                                }
                                     .buttonStyle(.plain)
                                     .accessibilityIdentifier("courier.delivery.\(d.id)")
                             }
@@ -70,7 +72,7 @@ struct CourierModeView: View {
         .navigationViewStyle(.stack)
         .sheet(isPresented: $scanning) { CourierScanView(vm: vm) { scanning = false } }
         .sheet(isPresented: Binding(get: { vm.disclosureFor != nil }, set: { if !$0 { vm.declineDisclosure() } })) {
-            CourierDisclosureSheet(demo: vm.demo, onContinue: vm.acceptDisclosure, onDecline: vm.declineDisclosure)
+            CourierDisclosureSheet(demo: vm.demo, store: vm.disclosureFor.flatMap(vm.store), onContinue: vm.acceptDisclosure, onDecline: vm.declineDisclosure)
         }
         .alert("Localização desligada", isPresented: Binding(get: { vm.locationDenied }, set: { _ in })) {
             Button("Abrir Ajustes") { if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) } }
@@ -122,9 +124,15 @@ struct CourierModeView: View {
     private func runDebugAction() {
         guard vm.demo, let action = DemoMode.action, vm.grants.isEmpty else { return }
         Task { @MainActor in
+            if action == "confirm" {
+                // A folha de leitura aberta, já na confirmação (loja e servidor).
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await vm.scanned(vm.nextDemoQR)
+                return
+            }
             scanning = false
-            await vm.scanned("DEMO-ENTREGA-1")
-            if action == "two" { await vm.scanned("DEMO-ENTREGA-2") }
+            await vm.scanAndConfirm(vm.nextDemoQR)
+            if action == "two" { await vm.scanAndConfirm(vm.nextDemoQR) }
             guard ["route", "chat", "deliver", "detail", "disclosure"].contains(action), let id = vm.grants.first?.deliveryId else { return }
             opened = id
             if action == "detail" { return }
@@ -146,9 +154,16 @@ struct CourierModeView: View {
 /// Uma entrega na lista: número, cliente, endereço, situação e previsão.
 struct CourierDeliveryCard: View {
     let delivery: CourierDelivery
+    /// A loja (e o servidor) desta entrega: várias lojas podem estar na mesma lista.
+    var store: String? = nil
+    var host: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let store {
+                Label(store, systemImage: "building.2.fill").font(Theme.font(12, .semibold)).foregroundStyle(Theme.brand)
+                    .accessibilityLabel("Loja \(store)\(host.map { ", servidor \($0)" } ?? "")")
+            }
             HStack {
                 Text(delivery.displayLabel).font(Theme.font(17, .bold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
@@ -174,16 +189,23 @@ struct CourierDeliveryCard: View {
 /// O aviso em destaque antes de pedir a permissão (docs/ENTREGA.md; Play e App Store pedem a divulgação na tela).
 struct CourierDisclosureSheet: View {
     let demo: Bool
+    /// A loja desta entrega (o aviso diz com quem a posição é compartilhada).
+    var store: String? = nil
     let onContinue: () -> Void
     let onDecline: () -> Void
 
     static let text = "Durante a entrega, o Wabotia compartilha a sua localização com o estabelecimento e com o cliente deste pedido, para mostrar a previsão de chegada. O compartilhamento começa quando você toca em Iniciar rota e para quando a entrega é concluída ou cancelada. A posição é apagada em até 24 horas."
 
+    static func text(store: String?) -> String {
+        guard let store, !store.isEmpty else { return text }
+        return "Durante esta entrega da \(store), o Wabotia compartilha a sua localização com a \(store) e com o cliente deste pedido, para mostrar a previsão de chegada. O compartilhamento começa quando você toca em Iniciar rota e para quando a entrega é concluída ou cancelada. A posição é apagada em até 24 horas."
+    }
+
     var body: some View {
         VStack(spacing: 18) {
             Image(systemName: "location.circle.fill").font(.system(size: 54)).foregroundStyle(Theme.brand).padding(.top, 28)
             Text("Compartilhar sua localização").font(Theme.font(22, .bold)).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.center)
-            Text(Self.text).font(Theme.font(15)).foregroundStyle(Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+            Text(Self.text(store: store)).font(Theme.font(15)).foregroundStyle(Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
             Text(demo ? "Na demonstração a posição é simulada: o app não lê o GPS e nada sai do aparelho."
                       : "O app só lê a localização enquanto está aberto, com a permissão \"Durante o uso do app\". Nunca em segundo plano.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)

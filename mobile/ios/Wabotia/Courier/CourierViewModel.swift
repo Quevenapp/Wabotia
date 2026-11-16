@@ -13,8 +13,9 @@ struct CourierServices {
     var geocode: (String) async -> CourierCoordinate?
     var now: () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }
     /// O aviso de compartilhamento já foi aceito neste aparelho (mostrado antes de pedir a permissão).
-    var disclosureAccepted: () -> Bool
-    var acceptDisclosure: () -> Void
+    /// O aviso de compartilhamento já foi aceito para esta loja (o servidor da entrega): o aviso diz de qual loja é.
+    var disclosureAccepted: (String) -> Bool
+    var acceptDisclosure: (String) -> Void
     /// Quanto esperar entre duas leituras de conferência das entregas (revogação, mudanças da loja).
     var refreshSeconds: TimeInterval = 30
     /// Sondagem da conversa aberta na tela (sem WebSocket nesta versão).
@@ -31,16 +32,19 @@ struct CourierServices {
                             let marks = try? await CLGeocoder().geocodeAddressString(address.replacingOccurrences(of: "\n", with: ", "))
                             return marks?.first?.location.map { CourierCoordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) }
                         },
-                        disclosureAccepted: { UserDefaults.standard.bool(forKey: "courier.disclosure.accepted") },
-                        acceptDisclosure: { UserDefaults.standard.set(true, forKey: "courier.disclosure.accepted") })
+                        disclosureAccepted: { (UserDefaults.standard.stringArray(forKey: "courier.disclosure.stores") ?? []).contains($0) },
+                        acceptDisclosure: { store in
+                            let list = UserDefaults.standard.stringArray(forKey: "courier.disclosure.stores") ?? []
+                            if !list.contains(store) { UserDefaults.standard.set(list + [store], forKey: "courier.disclosure.stores") }
+                        })
     }
 
     /// Demonstração: pedidos fictícios, posição simulada, nada guardado.
     static func demo() -> CourierServices {
-        var accepted = false
+        var accepted: Set<String> = []
         var name = "Carlos"
         return CourierServices(api: DemoCourierAPI(), store: MemoryCourierGrantStore(), location: SimulatedCourierLocation(), demo: true,
-                               geocode: { _ in nil }, disclosureAccepted: { accepted }, acceptDisclosure: { accepted = true }, refreshSeconds: 5,
+                               geocode: { _ in nil }, disclosureAccepted: { accepted.contains($0) }, acceptDisclosure: { accepted.insert($0) }, refreshSeconds: 5,
                                chatPollSeconds: 3, loadName: { name }, saveName: { name = $0 })
     }
 }
@@ -162,55 +166,118 @@ final class CourierViewModel: ObservableObject {
 
     // MARK: - QR
 
-    /// O texto lido do QR (ou digitado). `true` quando virou uma entrega neste aparelho.
+    /// O QR lido, esperando "Continuar": a loja e o servidor, antes de gastar o código.
+    @Published var pending: CourierPending?
+
+    /// 1. O texto lido do QR (ou colado): confere o formato e faz a leitura pública (sem gastar o código). `true` quando
+    /// a confirmação com a loja e o servidor está pronta (`pending`).
     @discardableResult
     func scanned(_ text: String) async -> Bool {
         scanError = nil
-        guard let scan = CourierScan.parse(text) else {
-            scanError = "Este QR não é de um pedido do Wabotia. Peça à loja o QR da entrega."
+        pending = nil
+        let scan: CourierScan
+        switch CourierQR.read(text) {
+        case .failure(let refusal):
+            scanError = refusal.message
             return false
+        case .success(let s):
+            scan = s
         }
         if scan.demo != demo {
-            scanError = demo ? "Na demonstração, use o pedido de demonstração." : "Este é um pedido de demonstração."
+            scanError = demo ? "Na demonstração, use \"Simular leitura\"." : CourierQR.Refusal.notAnOrder.message
             return false
         }
-        let name = courierName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else {
-            scanError = "Digite o seu nome antes de ler o QR: a loja e o cliente veem quem leva o pedido."
-            return false
-        }
-        services.saveName(name)
         scanning = true
         defer { scanning = false }
         do {
-            let claim = try await services.api.claim(scan, name: String(name.prefix(80)), device: services.device)
-            let grant = claim.grant
-            if !grants.contains(where: { $0.deliveryId == grant.deliveryId }) { grants.append(grant) } else {
-                grants = grants.map { $0.deliveryId == grant.deliveryId ? grant : $0 }
+            let preview = try await services.api.preview(scan)
+            guard preview.valid else {
+                scanError = "Este QR não vale mais; peça outro à loja."
+                return false
             }
-            services.store.save(grants)
-            if let d = claim.delivery { apply(d) } else { await refresh(grant) }
-            notice = nil
+            // O servidor tem de ser o do QR: se a resposta apontar para outro host, não segue.
+            if let other = preview.server.flatMap(URL.init(string:))?.host?.lowercased(), other != scan.server.host?.lowercased() {
+                scanError = "Este QR aponta para um servidor (\(scan.host)) que diz ser outro (\(other)). Por segurança, a leitura foi cancelada; peça outro QR à loja."
+                return false
+            }
+            pending = CourierPending(scan: scan, store: preview.store?.isEmpty == false ? preview.store! : scan.host)
             return true
         } catch let error as CourierError {
-            scanError = error == .revoked ? "Este QR já foi usado ou venceu. Peça à loja um novo." : error.message
+            scanError = error.message
         } catch {
             scanError = CourierError.network.message
         }
         return false
     }
 
+    func cancelPending() { pending = nil }
+
+    /// O nome do entregador ainda não foi digitado neste aparelho (vale para todas as lojas).
+    var needsName: Bool { courierName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// 2. "Continuar": com o nome (pedido aqui se ainda não houver), troca o código pela credencial daquela entrega,
+    /// no servidor do QR. `true` quando virou uma entrega neste aparelho.
+    @discardableResult
+    func confirmPending() async -> Bool {
+        guard let pending else { return false }
+        scanError = nil
+        let name = courierName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            scanError = "Digite o seu nome: a loja e o cliente veem quem leva o pedido."
+            return false
+        }
+        services.saveName(name)
+        scanning = true
+        defer { scanning = false }
+        do {
+            let claim = try await services.api.claim(pending.scan, name: String(name.prefix(80)), device: services.device)
+            var grant = claim.grant
+            grant.storeName = pending.store
+            if !grants.contains(where: { $0.deliveryId == grant.deliveryId }) { grants.append(grant) } else {
+                grants = grants.map { $0.deliveryId == grant.deliveryId ? grant : $0 }
+            }
+            services.store.save(grants)
+            if let d = claim.delivery { apply(d) } else { await refresh(grant) }
+            self.pending = nil
+            notice = nil
+            return true
+        } catch let error as CourierError {
+            scanError = error == .revoked ? "Este QR não vale mais; peça outro à loja." : error.message
+        } catch {
+            scanError = CourierError.network.message
+        }
+        return false
+    }
+
+    /// Ler e já continuar (atalhos de depuração e testes).
+    @discardableResult
+    func scanAndConfirm(_ text: String) async -> Bool {
+        guard await scanned(text) else { return false }
+        return await confirmPending()
+    }
+
+    /// A loja de uma entrega (para a lista, o título e o aviso de localização).
+    func store(_ id: String) -> String? { grant(id)?.storeName }
+
+    /// Demonstração: o próximo QR fictício de "Simular leitura" (alterna as duas lojas).
+    var nextDemoQR: String {
+        let all = DemoCourierAPI.demoQRs
+        return all[min(demoReads, all.count - 1)]
+    }
+    private var demoReads: Int { grants.filter(\.demo).count + droppedDemo }
+    private var droppedDemo = 0
+
     // MARK: - Rota
 
     /// "Iniciar rota": o aviso de compartilhamento primeiro (uma vez), depois a permissão Quando em uso, depois a saída.
     func startRoute(_ id: String) {
-        guard !services.disclosureAccepted() else { proceedStart(id); return }
+        guard !services.disclosureAccepted(grant(id)?.host ?? "") else { proceedStart(id); return }
         disclosureFor = id
     }
 
     func acceptDisclosure() {
         guard let id = disclosureFor else { return }
-        services.acceptDisclosure()
+        services.acceptDisclosure(grant(id)?.host ?? "")
         disclosureFor = nil
         proceedStart(id)
     }
@@ -443,6 +510,7 @@ final class CourierViewModel: ObservableObject {
 
     /// A entrega sai do aparelho (entregue, cancelada ou revogada). Sem nenhuma, o modo entregador fecha.
     private func drop(_ id: String, reason: String) {
+        if grant(id)?.demo == true { droppedDemo += 1 }
         grants.removeAll { $0.deliveryId == id }
         services.store.save(grants)
         deliveries[id] = nil

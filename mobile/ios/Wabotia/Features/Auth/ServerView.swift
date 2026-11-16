@@ -71,7 +71,19 @@ struct ServerView: View {
     var body: some View {
         AuthScaffold(title: "Wabotia", subtitle: "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
             if let notice = container.startNotice { DeviceNotice(text: notice, color: Theme.brand) }
-            AuthField(label: "Endereço do seu servidor", error: error != nil) {
+            // O entregador não digita servidor: o QR do pedido traz o endereço da loja.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Vai entregar um pedido?").font(Theme.font(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                Text("Escaneie o QR da comanda. Sem conta, sem senha e sem digitar endereço: o QR já diz qual é a loja.")
+                    .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                SecondaryButton(title: "Escanear pedido", icon: "qrcode.viewfinder", disabled: busy) {
+                    focused = false
+                    container.openCourierMode()
+                }
+                .accessibilityIdentifier("server.courier")
+            }
+            .card(padding: 14)
+            AuthField(label: "Endereço do seu servidor (quem atende)", error: error != nil) {
                 Text("https://").foregroundStyle(Theme.textSecondary)
                 TextField("wabotia.suaempresa.com.br", text: $input)
                     .keyboardType(.URL)
@@ -95,14 +107,6 @@ struct ServerView: View {
                     .frame(maxWidth: .infinity, minHeight: Theme.touch)
             }
             .accessibilityIdentifier("server.deviceDemo")
-            OrDivider().padding(.top, 4)
-            SecondaryButton(title: "Escanear pedido (entregador)", icon: "qrcode.viewfinder", disabled: busy) {
-                focused = false
-                container.openCourierMode()
-            }
-            .accessibilityIdentifier("server.courier")
-            Text("Vai entregar um pedido? Escaneie o QR da comanda: sem conta e sem senha, só enquanto a entrega durar.")
-                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Button { if !busy { focused = false; container.openCourierMode(demo: true) } } label: {
                 Label("Ver o modo entregador (demonstração)", systemImage: "bicycle")
                     .font(Theme.font(14, .semibold)).foregroundStyle(Theme.brand)

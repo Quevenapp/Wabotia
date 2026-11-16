@@ -2,30 +2,74 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// "Escanear pedido": a câmera lê o QR da comanda; sem câmera (ou sem permissão), o link ou o código pode ser colado ou
-/// digitado. Na demonstração há um pedido fictício pronto para ler, para a revisão das lojas testar sem QR.
+/// "Escanear pedido": a câmera lê o QR da comanda (o QR traz o servidor da loja: nada de digitar endereço); sem câmera
+/// (ou sem permissão), o link pode ser colado. Antes de gastar o código, a confirmação mostra a loja e o servidor. Na
+/// demonstração, "Simular leitura" lê pedidos fictícios de duas lojas, para a revisão das lojas testar sem QR.
 struct CourierScanView: View {
     @ObservedObject var vm: CourierViewModel
     let onClose: () -> Void
     @State private var manual = ""
     @State private var cameraProblem: String?
     @State private var handled = false
+    @State private var askName = false
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetHeader(title: "Escanear pedido", subtitle: vm.demo ? "Demonstração" : nil, onClose: onClose).padding(.horizontal, 16)
+            SheetHeader(title: vm.pending == nil ? "Escanear pedido" : "Confirmar a entrega", subtitle: vm.demo ? "Demonstração" : nil, onClose: onClose)
+                .padding(.horizontal, 16)
             ScrollView {
+                if let pending = vm.pending {
+                    confirmation(pending).padding(16)
+                } else {
+                    reader.padding(16)
+                }
+            }
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .onAppear { vm.scanError = nil; vm.cancelPending(); handled = false }
+    }
+
+    /// "Entrega da loja X, servidor Y": só depois de Continuar o código é gasto (e o nome pedido, se faltar).
+    private func confirmation(_ p: CourierPending) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Entrega da loja").font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
+                Text(p.store).font(Theme.font(22, .bold)).foregroundStyle(Theme.textPrimary).accessibilityIdentifier("courier.confirm.store")
+                Label("Servidor: \(p.scan.host)", systemImage: "lock.fill").font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
+                    .accessibilityIdentifier("courier.confirm.host")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card(padding: 16)
+            Text("Confira se é a loja de quem você vai levar o pedido. Ao continuar, o QR é usado e você passa a ver o destino e a conversa desta entrega, até ela terminar.")
+                .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            if askName {
+                AuthField(label: "Seu nome", error: vm.scanError != nil) {
+                    TextField("Como a loja e o cliente vão ver você", text: $vm.courierName)
+                        .textContentType(.name).textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("courier.name")
+                }
+                Text("Fica só neste aparelho e vale para todas as lojas.").font(Theme.font(12)).foregroundStyle(Theme.textSecondary)
+            }
+            if let error = vm.scanError { InlineError(text: error).accessibilityIdentifier("courier.scanError") }
+            PrimaryButton(title: "Continuar", busy: vm.scanning, disabled: vm.needsName) {
+                Task { if await vm.confirmPending() { onClose() } }
+            }
+            .accessibilityIdentifier("courier.confirm.continue")
+            Button("Cancelar") { vm.cancelPending(); handled = false }
+                .font(Theme.font(15, .semibold)).foregroundStyle(Theme.danger)
+                .frame(maxWidth: .infinity, minHeight: Theme.touch)
+        }
+        // O campo do nome aparece só se ainda não havia nome (e não some enquanto a pessoa digita).
+        .onAppear { askName = vm.needsName }
+    }
+
+    private var reader: some View {
                 VStack(alignment: .leading, spacing: 14) {
-                    AuthField(label: "Seu nome", error: vm.scanError != nil && vm.courierName.trimmingCharacters(in: .whitespaces).isEmpty) {
-                        TextField("Como a loja e o cliente vão ver você", text: $vm.courierName)
-                            .textContentType(.name).textInputAutocapitalization(.words)
-                            .accessibilityIdentifier("courier.name")
-                    }
                     if vm.demo {
-                        DeviceNotice(text: "Na demonstração não há QR de verdade: toque abaixo para ler um pedido fictício da Lanchonete Exemplo. Leia mais de um para ver várias entregas ao mesmo tempo.",
+                        DeviceNotice(text: "Na demonstração não há QR de verdade: \"Simular leitura\" lê um pedido fictício, alternando duas lojas (Lanchonete Exemplo e Farmácia Exemplo), cada uma no seu servidor. Leia mais de um para ver várias entregas ao mesmo tempo.",
                                      color: Theme.warn)
-                        PrimaryButton(title: "Ler o pedido de demonstração", icon: "qrcode", busy: vm.scanning) {
-                            Task { await read("\(CourierScan.demoPrefix)\(vm.grants.count + 1)") }
+                        PrimaryButton(title: "Simular leitura", icon: "qrcode", busy: vm.scanning) {
+                            Task { await read(vm.nextDemoQR) }
                         }
                         .accessibilityIdentifier("courier.scanDemo")
                     } else {
@@ -51,21 +95,16 @@ struct CourierScanView: View {
                     SecondaryButton(title: "Usar este link", busy: vm.scanning, disabled: manual.trimmingCharacters(in: .whitespaces).isEmpty) {
                         Task { await read(manual) }
                     }
-                    Text("Sem conta e sem senha: o pedido lido dá acesso só a esta entrega, e o acesso termina quando ela acaba.")
+                    Text("Sem conta e sem senha: o pedido lido dá acesso só a esta entrega, e o acesso termina quando ela acaba. O endereço da loja vem no próprio QR.")
                         .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(16)
-            }
-        }
-        .background(Theme.background.ignoresSafeArea())
-        .onAppear { vm.scanError = nil; handled = false }
     }
 
+    /// Lê e, se o QR valer, mostra a confirmação (a câmera não lê de novo enquanto ela está aberta).
     private func read(_ text: String) async {
-        guard !handled, !vm.scanning else { return }
+        guard !handled, !vm.scanning, vm.pending == nil else { return }
         handled = true
-        let ok = await vm.scanned(text)
-        if ok { onClose() } else { handled = false }
+        if !(await vm.scanned(text)) { handled = false }
     }
 }
 

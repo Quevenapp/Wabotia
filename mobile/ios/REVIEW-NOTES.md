@@ -44,8 +44,10 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Único por `UIAccessibility.requestGuidedAccessSession`, e nos demais aparelhos nada acontece.
 >
 > **Modo entregador.** Na primeira tela, **Ver o modo entregador (demonstração)** abre o que o entregador vê depois de
-> escanear o QR de um pedido, sem conta (o nome do entregador já vem preenchido): toque em **Ler o pedido de demonstração** (leia mais de um para ver várias
-> entregas), abra a entrega, toque em **Iniciar rota** e leia o aviso de compartilhamento da localização antes de
+> escanear o QR de um pedido, sem conta e sem digitar endereço (o QR traz o servidor da loja): toque em **Simular
+> leitura**; a confirmação mostra a loja e o servidor; toque em **Continuar** (leia mais de um para ver entregas de
+> duas lojas ao mesmo tempo), abra a entrega, toque em **Iniciar rota** e leia o aviso de compartilhamento da
+> localização, que diz de qual loja é a entrega, antes de
 > **Continuar**. A tela mostra o destino no mapa, **Abrir rota no Mapas**, a previsão de chegada, **Falar com a loja** e
 > **Falar com o cliente** (as respostas fictícias chegam sozinhas) e **Entreguei**, que encerra o acesso àquela entrega;
 > sem nenhuma entrega aberta, o app volta à primeira tela. A localização usa só a permissão **Durante o uso do app**
@@ -99,8 +101,10 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > `UIAccessibility.requestGuidedAccessSession`, and on other devices nothing happens.
 >
 > **Courier mode.** On the first screen, **Ver o modo entregador (demonstração)** opens what a courier sees after
-> scanning an order's QR code, with no account (the courier's name is already filled in): tap **Ler o pedido de demonstração** (read more than one to see several
-> deliveries at once), open the delivery, tap **Iniciar rota** (start route) and read the location-sharing notice before
+> scanning an order's QR code, with no account and no server address to type (the QR carries the store's server): tap
+> **Simular leitura** (simulate a scan); the confirmation shows the store and its server; tap **Continuar** (read more
+> than one to see deliveries from two stores at once), open the delivery, tap **Iniciar rota** (start route) and read
+> the location-sharing notice, which names the store, before
 > **Continuar**. The screen shows the destination on a map, **Abrir rota no Mapas** (directions in Maps), the estimated
 > arrival, **Falar com a loja** and **Falar com o cliente** (chat with the store and the customer; fictitious replies
 > arrive by themselves) and **Entreguei** (delivered), which ends access to that delivery; with no open delivery left,

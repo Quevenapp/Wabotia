@@ -18,38 +18,106 @@ struct CourierCoordinate: Codable, Equatable {
     }
 }
 
-/// O que o QR do pedido traz: o servidor (o entregador não digita endereço nenhum) e o código de uso único.
+/// O que o QR do pedido traz: o servidor da loja (o entregador não digita endereço nenhum) e o código de uso único.
 struct CourierScan: Equatable {
     var server: URL
     var code: String
     var demo = false
+    /// O texto lido, inteiro (a troca aceita a URL ou só o código).
+    var raw = ""
 
-    /// Códigos da demonstração (o "QR" que a demonstração lê sozinha).
-    static let demoPrefix = "DEMO-ENTREGA-"
+    /// O host do servidor, como a confirmação mostra.
+    var host: String { server.host.map { h in server.port.map { "\(h):\($0)" } ?? h } ?? "" }
 
-    /// Aceita o link do QR (`https://<servidor>/<…>/<código>` ou `?code=`) e, na demonstração, `DEMO-ENTREGA-<n>`.
-    /// Endereço sem https só no build de depuração (mesma regra da tela Servidor).
-    static func parse(_ raw: String, allowCleartext: Bool = SessionStore.allowsCleartext) -> CourierScan? {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.uppercased().hasPrefix(demoPrefix) {
-            return CourierScan(server: DemoMode.serverURL, code: text.uppercased(), demo: true)
-        }
-        guard let components = URLComponents(string: text), let scheme = components.scheme?.lowercased(), let host = components.host, !host.isEmpty,
-              scheme == "https" || (scheme == "http" && allowCleartext) else { return nil }
-        let fromQuery = components.queryItems?.first { ["code", "c", "token"].contains($0.name.lowercased()) }?.value
-        let fromPath = components.path.split(separator: "/").last.map(String.init)
-        guard let code = (fromQuery ?? fromPath)?.trimmingCharacters(in: .whitespaces), code.count >= 6,
-              code.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
-        var origin = URLComponents()
-        origin.scheme = scheme
-        origin.host = host
-        origin.port = components.port
-        guard let server = origin.url else { return nil }
-        return CourierScan(server: server, code: code)
+    static func parse(_ raw: String) -> CourierScan? {
+        if case .success(let scan) = CourierQR.read(raw) { return scan }
+        return nil
     }
 }
 
-/// A credencial de UMA entrega, recebida ao trocar o código do QR. Várias entregas = várias credenciais.
+/// A leitura do QR do entregador, isolada (formato da F em `fix/credencial-qr`): `https://<endereço público>/c/<código>`,
+/// com o código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. Só https, nunca endereço de rede local.
+enum CourierQR {
+    enum Refusal: Error, Equatable {
+        /// Não é um QR de pedido do Wabotia (outro site, outro formato).
+        case notAnOrder
+        /// `http://` ou outro esquema sem criptografia.
+        case insecure
+        /// IP de rede local, `localhost`, `.local`.
+        case localAddress
+
+        var message: String {
+            switch self {
+            case .notAnOrder: return "Este QR não é de um pedido."
+            case .insecure: return "Este QR usa um endereço sem segurança (http). Peça à loja o QR do Wabotia."
+            case .localAddress: return "Este QR aponta para um endereço da rede local, não para o servidor da loja. Peça à loja o QR do Wabotia."
+            }
+        }
+    }
+
+    static let codeLength = 32
+    static let alphabet = Set("23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz")
+    /// Hosts da demonstração (as lojas fictícias); só valem com o modo entregador da demonstração.
+    static let demoHostSuffix = ".demo.wabotia.localhost"
+
+    static func read(_ raw: String) -> Result<CourierScan, Refusal> {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let c = URLComponents(string: text), let scheme = c.scheme?.lowercased(), let host = c.host?.lowercased(), !host.isEmpty else {
+            return .failure(.notAnOrder)
+        }
+        guard c.user == nil, c.password == nil else { return .failure(.notAnOrder) }
+        let parts = c.path.split(separator: "/").map(String.init)
+        guard parts.count == 2, parts[0] == "c", isCode(parts[1]) else { return .failure(.notAnOrder) }
+        guard scheme == "https" else { return .failure(scheme == "http" ? .insecure : .notAnOrder) }
+        let demo = host.hasSuffix(demoHostSuffix)
+        if !demo, isLocal(host) { return .failure(.localAddress) }
+        var origin = URLComponents()
+        origin.scheme = "https"
+        origin.host = host
+        origin.port = c.port
+        guard let server = origin.url else { return .failure(.notAnOrder) }
+        return .success(CourierScan(server: server, code: parts[1], demo: demo, raw: text))
+    }
+
+    static func isCode(_ s: String) -> Bool { s.count == codeLength && s.allSatisfy(alphabet.contains) }
+
+    /// `localhost`, `.local`, `.localhost`, IPv4 privado/loopback/link-local e IPv6 local.
+    static func isLocal(_ host: String) -> Bool {
+        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if h == "localhost" || h.hasSuffix(".localhost") || h.hasSuffix(".local") || h.hasSuffix(".internal") { return true }
+        let octets = h.split(separator: ".").compactMap { Int($0) }
+        if octets.count == 4, h.split(separator: ".").count == 4 {
+            switch (octets[0], octets[1]) {
+            case (10, _), (127, _), (0, _), (169, 254), (192, 168): return true
+            case (172, let b) where (16...31).contains(b): return true
+            case (100, let b) where (64...127).contains(b): return true
+            default: return false
+            }
+        }
+        if h.contains(":") {
+            let lower = h.lowercased()
+            return lower == "::1" || lower == "::" || lower.hasPrefix("fe80") || lower.hasPrefix("fc") || lower.hasPrefix("fd")
+        }
+        return false
+    }
+}
+
+/// Leitura pública do QR, sem gastar o código: `GET https://<servidor do QR>/c/<código>` com `Accept: application/json`.
+struct CourierPreview: Codable, Equatable {
+    var valid: Bool
+    var store: String?
+    var server: String?
+    var expiresAt: Int64?
+}
+
+/// Um QR lido, esperando o "Continuar" do entregador.
+struct CourierPending: Equatable {
+    var scan: CourierScan
+    var store: String
+}
+
+/// A credencial de UMA entrega, recebida ao trocar o código do QR. Várias entregas = várias credenciais, cada uma com o
+/// próprio servidor (lojas diferentes ao mesmo tempo).
 struct CourierGrant: Codable, Equatable, Identifiable {
     var deliveryId: String
     var server: String
@@ -59,7 +127,11 @@ struct CourierGrant: Codable, Equatable, Identifiable {
     var demo = false
     /// Validade da credencial (ms); depois disso o servidor responde 401.
     var expiresAt: Int64?
+    /// A loja, como a leitura pública do QR mostrou.
+    var storeName: String? = nil
     var id: String { deliveryId }
+
+    var host: String { URL(string: server)?.host ?? server }
 }
 
 /// Ritmo do GPS e do envio, mandado pelo servidor (`app`); vale sempre o último recebido.
