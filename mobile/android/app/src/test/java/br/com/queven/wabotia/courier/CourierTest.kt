@@ -36,6 +36,11 @@ class CourierTest {
     private fun rejected(raw: String) = (CourierLinks.check(raw) as CourierScan.Rejected).message
 
     @Test fun leituraDoQr() {
+        // Formato novo, em /api/public/c/, e o antigo, de QR já impresso: os dois dão o mesmo servidor e código.
+        assertEquals(CourierLink("https://loja.exemplo.com.br", code), CourierLinks.parse("https://loja.exemplo.com.br/api/public/c/$code"))
+        assertEquals(CourierLinks.parse("https://loja.exemplo.com.br/c/$code"), CourierLinks.parse("https://loja.exemplo.com.br/api/public/c/$code"))
+        // A leitura pública sai sempre de /api/public/c/, montada do host e do código.
+        assertEquals("https://loja.exemplo.com.br/api/public/c/$code", HttpCourierBackend.previewUrl(CourierLinks.parse("https://loja.exemplo.com.br/c/$code")!!))
         assertEquals(CourierLink("https://loja.exemplo.com.br", code), CourierLinks.parse("https://loja.exemplo.com.br/c/$code"))
         assertEquals(CourierLink("https://loja.exemplo.com.br:8443", code), CourierLinks.parse(" https://Loja.Exemplo.com.br:8443/c/$code "))
         assertEquals("loja.exemplo.com.br", CourierLinks.parse("https://loja.exemplo.com.br/c/$code")!!.host)
@@ -51,6 +56,8 @@ class CourierTest {
         // Não é do Wabotia (ou o código está fora do formato de 32 caracteres sem 0, 1, I, O, l e o).
         assertEquals(CourierLinks.NOT_ORDER, rejected("https://wa.me/552090000000?text=SENHA%20N004"))
         assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/x/$code"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/api/c/$code"))
+        assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/api/public/c/$code/x"))
         assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/$code/extra"))
         assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/" + code.dropLast(1)))
         assertEquals(CourierLinks.NOT_ORDER, rejected("https://loja.exemplo.com.br/c/" + code.dropLast(1) + "0"))
@@ -265,6 +272,32 @@ class CourierTest {
 
     // --- ligação HTTP -----------------------------------------------------------------------------------------------
 
+    @Test fun respostaQueNaoEJsonViraMensagemClara() = runTest(dispatcher) {
+        val server = MockWebServer()
+        // O painel no lugar da API: HTML com 200.
+        server.enqueue(MockResponse().setHeader("Content-Type", "text/html; charset=utf-8").setBody("<!doctype html><html><body>Wabotia</body></html>"))
+        server.enqueue(MockResponse().setResponseCode(429).setBody("{}"))
+        server.start()
+        try {
+            val link = CourierLink(server.url("/").toString().trimEnd('/'), code)
+            val html = runCatching { HttpCourierBackend().preview(link) }.exceptionOrNull() as CourierFailure
+            assertEquals("not_json", html.code)
+            assertEquals(HttpCourierBackend.NOT_JSON, html.message)
+            val many = runCatching { HttpCourierBackend().preview(link) }.exceptionOrNull() as CourierFailure
+            assertTrue(many.message!!.contains("Muitas tentativas"))
+            // Na tela, o aviso chega ao entregador sem abrir a confirmação.
+            val vm = CourierViewModel(object : CourierBackend by DemoCourierBackend() {
+                override suspend fun preview(link: CourierLink): CourierPreview = throw CourierFailure(HttpCourierBackend.NOT_JSON, 200, "not_json")
+            }, MemoryCourierSessionStore())
+            vm.scanned(DemoCourierBackend.QRS[0])
+            advanceUntilIdle()
+            assertEquals(HttpCourierBackend.NOT_JSON, vm.state.value.notice)
+            assertNull(vm.state.value.confirm)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test fun leituraPublicaNaoGastaOCodigo() = runTest(dispatcher) {
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody("""{"valid":true,"store":"Lanchonete Exemplo","server":"https://x","expires_at":5}"""))
@@ -276,7 +309,7 @@ class CourierTest {
             assertEquals("Lanchonete Exemplo", preview.store)
             val request = server.takeRequest()
             assertEquals("GET", request.method)
-            assertEquals("/c/$code", request.path)
+            assertEquals("/api/public/c/$code", request.path)
             assertEquals("application/json", request.getHeader("Accept"))
             assertNull(request.getHeader("Authorization"))
         } finally {

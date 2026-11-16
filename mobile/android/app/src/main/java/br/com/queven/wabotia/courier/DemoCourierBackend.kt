@@ -108,7 +108,7 @@ class DemoCourierBackend(private val clock: () -> Long = System::currentTimeMill
         val CODES = listOf("DEMxENTREGAxLANCHExNUMxDzEZEW23Q", "DEMxENTREGAxPZZARAxNUMxDzEZEW45Q")
 
         /** Duas lojas diferentes, em endereços fictícios (.example): o entregador atende as duas ao mesmo tempo. */
-        val QRS = listOf("https://lanchonete.example/c/${CODES[0]}", "https://pizzaria.example/c/${CODES[1]}")
+        val QRS = listOf("https://lanchonete.example/api/public/c/${CODES[0]}", "https://pizzaria.example/api/public/c/${CODES[1]}")
 
         private val STORES = mapOf("dl-12" to "Lanchonete Exemplo", "dl-15" to "Pizzaria Exemplo")
 

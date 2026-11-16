@@ -26,7 +26,8 @@ sealed interface CourierScan {
 }
 
 /**
- * A leitura do QR do entregador, isolada aqui (formato de fix/credencial-qr): `https://<endereço público>/c/<código>`,
+ * A leitura do QR do entregador, isolada aqui (formato de fix/credencial-qr): `https://<endereço público>/api/public/c/<código>`,
+ * ou `/c/<código>` de um QR já impresso,
  * com o código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]` (sem 0, 1, I, O, l e o). Só https e só endereço
  * público: um QR com http, IP ou nome de rede local é recusado com explicação.
  */
@@ -51,9 +52,15 @@ object CourierLinks {
         val host = uri.host?.lowercase()?.takeIf { it.isNotBlank() } ?: return CourierScan.Rejected(NOT_ORDER)
         if (isLocal(host)) return CourierScan.Rejected(LOCAL)
         val segments = uri.rawPath.orEmpty().split('/').filter { it.isNotEmpty() }
-        if (segments.size != 2 || segments[0] != "c" || !CODE.matches(segments[1])) return CourierScan.Rejected(NOT_ORDER)
+        // `/api/public/c/<código>` (o novo) ou `/c/<código>` (QR já impresso); o caminho lido não é reaproveitado.
+        val code = when {
+            segments.size == 4 && segments[0] == "api" && segments[1] == "public" && segments[2] == "c" -> segments[3]
+            segments.size == 2 && segments[0] == "c" -> segments[1]
+            else -> return CourierScan.Rejected(NOT_ORDER)
+        }
+        if (!CODE.matches(code)) return CourierScan.Rejected(NOT_ORDER)
         val server = "https://$host" + (if (uri.port > 0 && uri.port != 443) ":${uri.port}" else "")
-        return CourierScan.Ok(CourierLink(server, segments[1]))
+        return CourierScan.Ok(CourierLink(server, code))
     }
 
     fun parse(raw: String): CourierLink? = (check(raw) as? CourierScan.Ok)?.link
@@ -70,7 +77,10 @@ object CourierLinks {
     }
 }
 
-/** `GET https://<servidor do QR>/c/<código>` com `Accept: application/json`: lê sem gastar o código. */
+/**
+ * `GET https://<host do QR>/api/public/c/<código>` com `Accept: application/json`: lê sem gastar o código. A URL é
+ * sempre montada do host e do código, mesmo quando o QR lido for do formato antigo (`/c/`).
+ */
 @Serializable
 data class CourierPreview(
     val valid: Boolean = false,
