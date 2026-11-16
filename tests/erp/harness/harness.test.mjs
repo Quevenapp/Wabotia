@@ -143,6 +143,53 @@ test("item 1: na resposta, id existente diferente é divergência (antes ligava)
   assert.match(diffValues({ a: p, b: U() }, { a: l, b: l }, ids)[0].why, /sem correspondência/);
 });
 
+test("item 1: array da resposta ordenado por id novo (settle_batch sem agrupamento)", () => {
+  // Cada lado ordena os borderôs novos pelos próprios ids.
+  const sideBy = (ids, amounts) =>
+    ids
+      .map((id, i) => ({ id, amount_cents: amounts[i], settlements: [{ id: U(), title_id: T }] }))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+  const make = (amounts) => {
+    // Gera até a ordem dos dois lados ficar trocada (o caso que divergia).
+    for (;;) {
+      const p = sideBy([U(), U()], amounts),
+        l = sideBy([U(), U()], amounts);
+      if (p[0].amount_cents !== l[0].amount_cents) return { p, l };
+    }
+  };
+  const { p, l } = make([100, 250]);
+  const ids = new IdMap(new Set(KNOWN));
+  assert.deepEqual(diffValues({ borderos: p }, { borderos: l }, ids), []);
+  assert.equal(ids.map(l[0].id), p.find((x) => x.amount_cents === l[0].amount_cents).id, "ligou pelo conteúdo, não pela posição");
+
+  // Valor diferente num elemento: acusado.
+  const bad = structuredClone(l);
+  bad[0].amount_cents += 1;
+  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: bad }, new IdMap(new Set(KNOWN))), []);
+  // O motor não ordena pelo id: acusado (3 elementos, ordem nem crescente nem
+  // decrescente nos ids do motor e diferente da do Postgres; se a ordem
+  // errada coincidir com a do Postgres, a posição bate e passa: o limite).
+  const p3 = sideBy([U(), U(), U()], [100, 250, 400]);
+  for (;;) {
+    const l3 = sideBy([U(), U(), U()], [100, 250, 400]);
+    const wrong = [l3[1], l3[0], l3[2]];
+    if (wrong.map((x) => x.amount_cents).join() === p3.map((x) => x.amount_cents).join()) continue;
+    assert.deepEqual(diffValues({ borderos: p3 }, { borderos: l3 }, new IdMap(new Set(KNOWN))), [], "ordenado pelos próprios ids: passa");
+    assert.notDeepEqual(diffValues({ borderos: p3 }, { borderos: wrong }, new IdMap(new Set(KNOWN))), []);
+    break;
+  }
+  // Ordem diferente sem id novo como chave (ordenado por id que já existia): acusado.
+  const byKnown = (arr) => arr.map((x, i) => ({ ...x, id: [A, A2][i] }));
+  assert.notDeepEqual(
+    diffValues({ borderos: byKnown(p) }, { borderos: byKnown(p).reverse() }, new IdMap(new Set(KNOWN))),
+    [],
+  );
+  // Lista que não tem id: ordem é ordem.
+  assert.notDeepEqual(diffValues({ v: [1, 2] }, { v: [2, 1] }, new IdMap(new Set(KNOWN))), []);
+  // Elemento a mais: acusado.
+  assert.notDeepEqual(diffValues({ borderos: p }, { borderos: [...l, l[0]] }, new IdMap(new Set(KNOWN))), []);
+});
+
 // ---------------------------------------------------------------------------
 // Item 2: identificadores derivados de uuid
 

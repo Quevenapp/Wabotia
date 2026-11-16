@@ -58,6 +58,61 @@ export class IdMap {
   map(lite) {
     return this.liteToPg.get(String(lite).toLowerCase()) ?? lite;
   }
+  clone() {
+    const c = new IdMap(this.known);
+    c.liteToPg = new Map(this.liteToPg);
+    c.pgToLite = new Map(this.pgToLite);
+    return c;
+  }
+  assign(other) {
+    this.liteToPg = other.liteToPg;
+    this.pgToLite = other.pgToLite;
+  }
+}
+
+const freshId = (v, ids) => typeof v === "string" && UUID.test(v) && !ids.known.has(v.toLowerCase());
+
+/**
+ * Array da resposta ordenado por id gerado na chamada (por exemplo os
+ * borderôs novos do settle_batch, "order by id"): cada motor gera os seus
+ * ids, então a ordem muda ao acaso. Só nesse caso a ordem é ignorada: os
+ * dois lados precisam estar ordenados (no mesmo sentido) por uma chave que
+ * é id novo em cada elemento (ou o próprio elemento), e os elementos
+ * precisam casar um a um, ligando os ids. Ordem diferente por outro motivo
+ * continua divergência. Devolve o IdMap com as ligações, ou null.
+ */
+function matchByFreshOrder(pg, lite, ids, path, specs, key) {
+  const n = pg.length;
+  const keyOf = (k) => (x) => (k === null ? x : x && typeof x === "object" && !Array.isArray(x) ? x[k] : undefined);
+  const candidates = [null, ...new Set(pg.flatMap((x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.keys(x) : [])))];
+  for (const k of candidates) {
+    const get = keyOf(k);
+    if (!pg.every((x) => freshId(get(x), ids)) || !lite.every((x) => freshId(get(x), ids))) continue;
+    // Ordem do uuid no Postgres: bytes, a mesma do texto em minúsculas.
+    const lc = (s) => String(s).toLowerCase();
+    const ordered = (arr, dir) => arr.every((x, i) => i === 0 || dir * (lc(get(arr[i - 1])) < lc(get(x)) ? -1 : 1) < 0);
+    for (const dir of [1, -1]) {
+      if (!ordered(pg, dir) || !ordered(lite, dir)) continue;
+      let budget = 20000;
+      const used = new Array(n).fill(false);
+      const search = (i, state) => {
+        if (i === n) return state;
+        for (let j = 0; j < n; j++) {
+          if (used[j] || --budget < 0) continue;
+          const trial = state.clone();
+          if (diffValues(pg[i], lite[j], trial, `${path}.${i}`, [], specs, key).length) continue;
+          used[j] = true;
+          const r = search(i + 1, trial);
+          used[j] = false;
+          if (r) return r;
+        }
+        return null;
+      };
+      const r = search(0, ids);
+      if (r) return r;
+    }
+  }
+  return null;
 }
 
 /** Liga um par vindo da resposta; id que já existia só vale igual. */
@@ -74,7 +129,7 @@ function linkPair(pg, lite, ids, path, out, what) {
  * Liga os ids novos que aparecem na mesma posição (e os derivados
  * declarados, sob as chaves deles).
  */
-export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedIds(), key = undefined) {
+export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedIds(), key = undefined, positional = false) {
   if (typeof pg === "string" && typeof lite === "string") {
     if (UUID.test(pg) && UUID.test(lite)) {
       linkPair(pg, lite, ids, path, out, "id");
@@ -99,6 +154,18 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
   if (Array.isArray(pg) !== Array.isArray(lite)) {
     out.push({ path, pg, lite, why: "tipo" });
     return out;
+  }
+  if (!positional && Array.isArray(pg) && pg.length === lite.length && pg.length > 1) {
+    const trial = ids.clone();
+    if (!diffValues(pg, lite, trial, path, [], specs, key, true).length) {
+      ids.assign(trial);
+      return out;
+    }
+    const r = matchByFreshOrder(pg, lite, ids, path, specs, key);
+    if (r) {
+      ids.assign(r);
+      return out;
+    }
   }
   const keys = new Set([...Object.keys(pg), ...Object.keys(lite)]);
   for (const k of keys) diffValues(pg[k], lite[k], ids, `${path}.${k}`, out, specs, Array.isArray(pg) ? key : k);
