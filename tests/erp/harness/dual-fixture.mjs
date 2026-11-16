@@ -141,7 +141,7 @@ export async function dualFixture({
       if (!r.ok) throw r.raw;
       return r.value;
     }
-    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock));
+    return dual(name, () => pgRpc(name, args), () => callRpc(driver, name, structuredClone(args), clock, objectLookup));
   }
 
   /**
@@ -170,6 +170,19 @@ export async function dualFixture({
       assert.fail(`Diferencial ${name}: os motores divergem\n${JSON.stringify(problems.slice(0, 4), null, 1)}`);
     if (!a.ok) throw a.raw;
     return a.value;
+  }
+
+  // Armazenamento: o bucket de anexos existe em produção (o Supabase o cria
+  // fora das migrações); objetos enviados entram nos dois lados por putObject.
+  const objects = new Map();
+  const objectLookup = (key) => objects.get(key) ?? null;
+  await pg.query(
+    "insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('erp-attachments','erp-attachments',false,10485760,$1) on conflict do nothing",
+    [["application/pdf", "image/png", "image/jpeg", "application/xml", "text/plain"]],
+  );
+  async function putObject(bucket, name, size, mimetype) {
+    await pg.query("insert into storage.objects(bucket_id,name,metadata) values($1,$2,$3)", [bucket, name, JSON.stringify({ size: String(size), mimetype })]);
+    objects.set(`${bucket}/${name}`, { size, mimetype });
   }
 
   const users = Object.fromEntries(ROLES.map((r) => [r, randomUUID()]));
@@ -201,6 +214,11 @@ export async function dualFixture({
       await pg.exec("set session_replication_role = origin");
     }
   }
+  // Nome de perfil para cada pessoa: o rótulo de autor (erp_activity.actor_label)
+  // usa o nome; sem perfil o Fagoo cairia no e-mail de auth.users, que o
+  // objeto não tem (o sincronismo com Pessoas da fase 3 mantém o perfil).
+  for (const [role, id] of Object.entries(users))
+    await pg.query("insert into erp_access.profile(user_id,name,version,updated_by,updated_at) values($1,$2,1,$1,now())", [id, `Pessoa sintética ${role}`]);
   await mirror(await changedInPg());
   const scalar = async (text, args = []) => {
     const row = (await pg.query(text, args)).rows[0];
@@ -215,6 +233,8 @@ export async function dualFixture({
     rpc,
     dual,
     clock,
+    putObject,
+    objectLookup,
     /** Depois de SQL direto no Postgres: espelha o que mudou. */
     sync: async () => mirror(await changedInPg()),
     scalar,

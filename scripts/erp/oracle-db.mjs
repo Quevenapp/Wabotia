@@ -47,7 +47,9 @@ export async function buildOracle() {
   const slow = [];
   for (const name of migrationNames()) {
     const t = performance.now();
-    await db.exec(readFileSync(join(MIGRATIONS, name), "utf8"));
+    // Sempre LF (o manifesto é calculado assim; CRLF de um checkout com
+    // core.autocrlf quebrava corpos de função: 42601). Ver .gitattributes.
+    await db.exec(readFileSync(join(MIGRATIONS, name), "utf8").replace(/\r\n/g, "\n"));
     const ms = performance.now() - t;
     if (ms > 500) slow.push({ name, ms: Math.round(ms) });
   }

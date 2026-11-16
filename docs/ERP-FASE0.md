@@ -369,7 +369,7 @@ Proposta:
 4. **Documentos**, com `erp_document_save` e `normalize` como primeira tarefa.
 5. Fiscal (depende de Catálogo e Financeiro) e CNAB (depende de Financeiro), em paralelo.
 6. PDV (depende de Financeiro, Documentos e Estoque).
-7. Preferências (importações, relatórios, painel da home) e Origin (`sync_pull`, importações): os despachantes que alcançam todos.
+7. Preferências (importações, relatórios, painel da home) + contrato de integração externa (fila de alterações, vínculo de ids, trava de posse; "Origin fora" abaixo).
 
 ## Produtividade medida
 
@@ -503,22 +503,33 @@ Base, agora medida:
   - a adaptação dos testes;
   - as listas constantes, que viram arquivos gerados.
 
-| # | Domínio | Plano (mil linhas) | Revisão anterior | **Medido (mil linhas)** | Observação |
-|---|---|---|---|---|---|
-| 0 | Núcleo transversal | — | — | (dentro de Acesso, Preferências e Origin) | acesso, `preferences.get`, fila e guardas do espelho; já começado |
-| 1 | Referências | 0,1 | 0,1 | 0,1 | `erp_reference_search` portado |
-| 2 | Empresa | 1,7 | 1,2 | 1,0 | 42 KB |
-| 3 | Acesso e atividade | 3,4 | 2,5 | 1,9 | 88 KB, menos a lista de permissões gerada |
-| 4 | Catálogo, contatos, preços | 16 | 11 | 9,7 | 421 KB; `document_product` e `validate_data` portados |
-| 5 | Estoque | 15 | 10 | 9,6 | 419 KB; `erp_stock_post` portado |
-| 6 | Financeiro | 16 | 11 | 9,5 | 414 KB |
-| 7 | Documentos | 13 | 10–13 | 6,8 | 296 KB: o fecho do `erp_document_save` é em boa parte de Estoque, Financeiro e Catálogo |
-| 8 | Fiscal do lado ERP | 12 | 8 | 7,7 (~5 sem A1/SEFAZ) | 334 KB, dos quais ~120 KB são do bloco A1/SEFAZ (decisão 7) |
-| 9 | CNAB e boleto | 6,4 | 4,5 | 3,9 | 169 KB |
-| 10 | PDV | 2,4 | 1,8 | 1,5 | 64 KB próprios; o `pos_sale_execute` (312 KB de fecho) reúsa os outros |
-| 11 | Preferências, home, plataforma, anexos | 12 | 8,5 | 7,3 | 318 KB |
-| 12 | Origin | 16 | 11 | 4,8 | 210 KB |
-| | **Total** | **~115 (90–140)** | **~80 (65–100)** | **~64 (61–67); com CHECKs e folga, 60–75** | |
+**Sem o Origin** (item 17). O alcançável é recontado sem as funções que saem
+(lista do mapa de poda, `sessao-N-origin-poda.md`). O Origin tinha 214 KB
+próprios; o resto que sai fica dentro dos domínios nativos (`map_origin`,
+`origin_mirror_*`, `stock_opening_*`, `history_*`). Ao todo saem 62 RPCs que
+a erp-api chama, 23 deles registrados em domínios nativos.
+
+| # | Domínio | Plano (mil linhas) | Revisão anterior | Com o Origin | **Sem o Origin (mil linhas)** | Observação |
+|---|---|---|---|---|---|---|
+| 0 | Núcleo transversal | — | — | — | (dentro de Acesso e Preferências) | acesso, `preferences.get`; já começado |
+| 1 | Referências | 0,1 | 0,1 | 0,1 | 0,1 | `erp_reference_search` portado |
+| 2 | Empresa | 1,7 | 1,2 | 1,0 | 1,0 | 42 KB |
+| 3 | Acesso e atividade | 3,4 | 2,5 | 1,9 | 2,0 | 88 KB, menos a lista de permissões gerada |
+| 4 | Catálogo, contatos, preços | 16 | 11 | 9,7 | 8,6 | 374 KB; saem 40 KB (importação revisada, categorias e exclusões do Origin) |
+| 5 | Estoque | 15 | 10 | 9,6 | 9,0 | 390 KB; saem 26 KB (saldo de abertura do Origin, espelho) |
+| 6 | Financeiro | 16 | 11 | 9,5 | 9,3 | 402 KB |
+| 7 | Documentos | 13 | 10–13 | 6,8 | 6,8 | 294 KB: o fecho do `erp_document_save` é em boa parte de Estoque, Financeiro e Catálogo |
+| 8 | Fiscal do lado ERP | 12 | 8 | 7,7 | 7,0 (~4,5 sem A1/SEFAZ) | 304 KB; saem 27 KB (espelho fiscal, XMLs sincronizados) |
+| 9 | CNAB e boleto | 6,4 | 4,5 | 3,9 | 3,9 | 167 KB |
+| 10 | PDV | 2,4 | 1,8 | 1,5 | 1,5 | 64 KB próprios; o `pos_sale_execute` (312 KB de fecho) reúsa os outros |
+| 11 | Preferências, home, plataforma, anexos | 12 | 8,5 | 7,3 | 6,1 | 264 KB |
+| 12 | Contrato de integração externa (era Origin) | 16 | 11 | 4,8 | **~0,5** | o genérico: ~15 KB dos 214 KB do Origin (~7%); o resto vai para o componente externo |
+| | Sem domínio (funções auxiliares) | | | | 1,0 | 44 KB |
+| | **Total** | **~115 (90–140)** | **~80 (65–100)** | **~64 (61–67)** | **~57 (54–59); com CHECKs e folga, 54–66** | |
+
+Ainda fora da conta:
+- **Cinco famílias de RPC montadas por concatenação** escapam do mapa de fechos; duas são do núcleo (`erp_finance_transfer_*`, `erp_service_event_*`).
+- **Regras nativas que moram em schemas do Origin** e precisam mudar de lugar (+~0,5 mil linhas): `native_item_required`, a imutabilidade em `guard_document`, o ramo nativo de `visible`, `guard_zero_title`.
 
 Ritmo com o harness pronto: o `document_product` (22 KB, 24 funções) saiu
 com o fecho inteiro e diferencial verde na primeira execução, numa fração
@@ -570,7 +581,198 @@ Mudar o padrão para 2 faz o servidor recusar 3 casas ou mais até a empresa sub
 - **Diferencial:** `dualFixture` aplica os mesmos itens no Postgres antes de começar. Os dois motores rodam com o valor do Wabotia, e a semeadura diferente não vira divergência.
 - **Prova:** `tests/erp/deviations.test.mjs`.
 - **Primeiro item:** `telas-2-casas`, com `decimais_preco_saida` 10 → 2, `decimais_preco_entrada` 10 → 2 e `decimais_quantidade` 6 → 2.
-- **Situação:** **registrado, não aplicado.** Ele não atrapalha as provas 7 e 8, que não leem essas preferências, mas o efeito na entrada pede confirmação antes.
+- **Situação: aplicado** (opção (a) do usuário: "casas decimais usamos apenas 02", "pode deixar padrão 02 casas"). `decimais_peso` fica em 3.
+- **O preço de entrada também vai a 2.** Conferido antes de aplicar: o limite só vale no que se digita.
+  - Onde vale:
+    - preço do pedido de compra (`erp_documents.check_preference_rules`);
+    - preço e custo do lançamento e do balanço de estoque (`erp_stock.entry_price_check`, que arredonda a entrada e recusa se mudar).
+  - Onde não vale: a importação de XML de nota de entrada (`erp_fiscal_invoice_import`, `vUnCom` com até 10 casas), o recebimento de compra e o custo médio não passam por ele.
+  - Um lançamento manual de estoque preenchido com o custo de uma nota de 4 casas precisa ser arredondado por quem digita, ou a empresa sobe a preferência.
+- **Segundo desvio aplicado:** `origin-fora`, com `erp_sync.settings.enabled=false` (ver "Origin fora").
+
+## Blocos do ERP: o módulo e os opcionais (PLANO-FAGOO.md, item 16)
+
+**Módulos** (`src/modules/erp/definition.ts`):
+- `erp` é desligado de fábrica e atende a rota `/erp`; desligado, responde `409 module_disabled` pelo portão comum.
+- `erp-fiscal`, `erp-cobranca` e `erp-pdv` também nascem desligados e têm `requires: ["erp"]`.
+- Navegação: um item `erp` no trilho, o mesmo id do painel em `web/lib/routes.ts`.
+- Não existe `erp-origin`.
+
+**Portão dos opcionais** (`src/erp/blocks.ts`):
+- O bloco sai do caminho da erp-api, depois de `new URL()`; o prefixo mais longo vence e, sem prefixo, a rota é do núcleo.
+- Bloco desligado responde 409 antes do objeto; "externo" (Origin, autoatualização, MCP e OAuth do Fagoo) responde 404.
+- O inventário das rotas classificadas está em `tests/erp/fixtures/route-blocks.json`, e `tests/erp/blocks.test.mjs` prova os prefixos rota a rota:
+
+| Bloco | Rotas | Exemplos de caminho que engana |
+|---|---|---|
+| núcleo | 499 | `/estoque/lotes/origem` e `/duplicacao-documentos/…/origin` são nativos |
+| fiscal | 118 | `/documentos/sales_orders/notas-fiscais`, `/cadastros/notas-fiscais`, `/estoque/notas-fiscais`, `/estoque/checkin`, `/financeiro/notas*`, `/plataforma/novas-nfes`, `/records/nfe` |
+| cobrança | 53 | `/financeiro/remessa-candidatos`, `/financeiro/remessas`, `/financeiro/retornos` |
+| PDV | 16 | `/preferencias/vendas-frente-caixa` |
+| externo | 78 | `/estoque/espelho`, `/notas-fiscais/origin`, `/mcp` (chama o handler por dentro e pularia o portão) |
+
+Três casos o caminho não separa:
+- `GET /notas-fiscais` lista o espelho do Origin por padrão: o painel manda `origin=brufap`.
+- Páginas de preferências misturam chaves de outros blocos, como `boletos_*` em `financas-receber` e `gerar_nfe` em `vendas-vendas`.
+- `account_set_default` com `target=boleto`.
+
+Esses ficam para o domínio dono resolver no corpo.
+
+**Divergências com o painel** (`web/erp/blocks.ts` da M):
+- **Borderôs:** o painel põe em cobrança, mas são baixas em lote do financeiro (`erp_finance_bordero_*`), sem CNAB. Proposta: núcleo.
+- **`/checkin-recebimentos`:** o painel põe no núcleo, com ⚠. O check-in sempre parte de uma nota de entrada, então a proposta é fiscal; o recebimento pelo pedido de compra (`/recebimentos-compras`) segue no núcleo.
+- **Partes fiscais dentro de telas do núcleo**, que o painel precisa esconder no 409:
+  - no editor de contato, `/notas-fiscais/naturezas`;
+  - a estimativa de tributos e a nota parcial do pedido;
+  - o relatório de notas de entrada;
+  - o lançamento financeiro da nota;
+  - o card "Novas NF-es";
+  - etiquetas e tags de nota.
+
+**Onde núcleo e opcionais se cruzam:** nenhum RPC do núcleo precisa de um opcional para funcionar.
+
+| Cruzamento | Tamanho | Com o opcional desligado |
+|---|---|---|
+| Núcleo lê tabelas fiscais: saldo faturado do pedido, vínculo nota ↔ pedido, telas do financeiro por nota, natureza padrão do contato | 115 RPCs, só leitura | Tabelas vazias (ou dados antigos): leitura vazia, guardas seguem |
+| Núcleo escreve nota fiscal: só a importação em lote por planilha (`erp_preferences_import_batch`) | 1 RPC | Esse ramo recusa com `module_disabled` (a fazer no domínio Preferências) |
+| Estoque lançado por nota (`erp_stock_invoice_*`, `erp_stock_checkin_*`) | ~20 RPCs | Ficam no bloco fiscal (portão); sem notas não há o que lançar |
+| Núcleo lê `cnab.billing_title` (guarda do título com boleto, tela do título) e `cnab.profile` (conta) | 23 RPCs | Sem boletos: leitura vazia; título com boleto antigo segue protegido |
+| Núcleo lê `pos.settings` (documento) e `pos.audit`/`pos.sale` (atividade) | 69 RPCs | Valores padrão, sem efeito |
+| Baixa de título por retorno CNAB (`erp_cnab_operational_settle` → `erp_finance_execute`) | opcional → núcleo | Rota 409; o título é baixado à mão no financeiro |
+| Nota fiscal lança estoque e financeiro (`erp_fiscal_invoice_execute` → `invoice_auto_finance`, postagem de estoque) | opcional → núcleo | Sem nota, sem esse efeito; o pedido lança estoque e financeiro pelas próprias rotas |
+| Venda do PDV (`erp_pos_sale_execute` → `erp_document_save`, estoque, caixa) | opcional → núcleo | Rota 409 |
+| PDV e NFC-e | o PDV não chama função fiscal; só lê o estado da nota | Sem o Fiscal, o PDV vende sem documento fiscal (como o plano quer) |
+
+Regra para os domínios: guarda sobre dado de um bloco continua valendo com o
+bloco desligado. Desligar não apaga dados, e um título com boleto registrado
+não pode ser estornado só porque a cobrança foi desligada.
+
+**Criação sob demanda** (`tests/erp-do-module.test.ts`):
+- Com o módulo desligado: 409, e nenhuma instância `erp:<área>`. Nem o cron do Worker (`scheduled`, que só acorda as áreas) nem o alarme da área a criam.
+- Ligado: o primeiro uso cria a instância e aplica o esquema.
+- Desligado de novo: 409, e os dados ficam.
+
+**Partida do Worker.** O motor, o esquema gerado, a semeadura e a erp-api
+são carregados por import dinâmico (`src/erp/hub-engine.ts`,
+`src/erp/api/local-fetch.ts`). Vão no pacote de todos, mas só são avaliados
+na primeira chamada do ERP. Medida local (`wrangler check startup`, CPU ativa,
+`--minify`, 3 rodadas alternadas):
+
+| Pacote | Tamanho (gzip) | CPU de partida, 3 rodadas | Mediana |
+|---|---|---|---|
+| Sem o ERP | 4.544 KiB (1.308) | 189, 203, 195 ms | **195 ms** |
+| ERP avaliado na partida (antes, imports estáticos) | 7.811 KiB (2.076) | 361, 320, 286 ms | **320 ms** (+125) |
+| ERP sob demanda (atual) | 7.830 KiB (2.089) | 212, 129, 215 ms | **212 ms** (+17) |
+
+- **Custo que fica para todos:** o pacote, que vai de 4,5 para 7,8 MB, e ~17 ms de partida, só para analisar o código.
+- **Custo que sai:** os ~110 ms de avaliar o esquema (DDL de 528 KB, semeadura de 437 KB), o motor e a erp-api, que passam para a primeira chamada do ERP da instância.
+- **Proposta para o resto:** o DDL e a semeadura podem sair do pacote de vez, num blob estático lido do R2 ou dos assets no primeiro uso, porque não são código. Isso tira ~1 MB do pacote e da análise. Só vale se o teto do pacote apertar; hoje há folga com `--minify` (prova 7).
+- **A confirmar na instalação de teste:** o "Worker Startup Time" que o deploy imprime.
+
+## Origin fora: poda e linha de corte (PLANO-FAGOO.md, item 17)
+
+Detalhe em `sessao-N-origin-poda.md` (pasta de notas da orquestração).
+
+**Premissa corrigida:** no oráculo o Origin está **ligado**.
+- A migração `202610220009` cria `erp_sync.settings.enabled` com padrão `true`, então a fila do Origin era gravada nos dois motores.
+- O desvio `origin-fora` (aplicado) deixa a sincronização desligada na semeadura e no oráculo do diferencial.
+
+**O que sai:**
+- **90 das 430 tabelas** do esquema gerado:
+  - 72 tabelas e 2 visões em 16 schemas, incluindo `erp_fiscal_mirror` e `erp_integration`;
+  - 16 tabelas de proveniência dentro de schemas nativos, como `erp_catalog.origin`, `erp_documents.origin_mirror`, `erp_finance.origin_import_origin`, `erp_fiscal_invoices.origin_item_*` e `erp_stock.opening_*`. Nenhuma FK nativa aponta para elas.
+- **408 das 2.368 funções** (606 KB). 62 delas são RPCs que a erp-api chama.
+
+**O que fica como constante:**
+- `document.origin` e `authority` = 'brufap';
+- `invoice_tag.origin`;
+- `title.origin_zero_source_id` (sempre nulo).
+
+`erp_catalog.product.origin` é a origem do ICMS: nativa.
+
+**`MODULE_OWNED_BY_ORIGIN`** não existe no SQL: a erp-api traduz três 42501
+(`index.mjs:201`), todos ligados a `authority='origin'`.
+
+**Funções nativas que leem o estado do Origin: 151.** Só ~40 pedem poda de verdade:
+- **68:** só tiram a linha `require_visible`;
+- **23:** trocam `report_coverage` por uma constante.
+
+**Linha de corte (proposta, não implementada):**
+
+| Fica no ERP, genérico, sem "origin" | Como | Tabelas / funções |
+|---|---|---|
+| Fila de alterações para integrações | Hoje: 10 gatilhos AFTER capturam 9 entidades × 4 operações numa fila coalescida, entrega pelo menos uma vez, aluguel de 10 min. Proposta: registro de mudanças no próprio SQLite do ERP, na mesma transação, com cursor e `ack` por integração. As escritas feitas pela chave da própria integração ficam de fora, o que substitui `erp_sync.applying`. Uma projeção fina para os eventos `erp.*` do D1 é opcional; o D1 sozinho não serve como fila, porque não é atômico com o SQLite | 2 / ~6 |
+| Vínculo de ids externos | `integration_link(integração, entidade, id externo ↔ registro)`; a idempotência já vem do `command_id` nativo | 1 / ~3 |
+| Trava de posse por bloco | `integration_ownership(bloco)` conferida no despacho de RPC: escrita local num bloco que a integração controla responde 409; leitura não muda. Afeta as escritas de catálogo (48 RPCs), documentos (22), financeiro (22), estoque (41) e, com o financeiro, CNAB (18) | 1 / ~3 |
+
+**O que se perde em relação aos espelhos do Fagoo:**
+- os valores do Bling ao lado dos nativos;
+- a granularidade por registro;
+- a trava que depende do conteúdo do Bling.
+
+O componente pode empurrar uma marca para o vínculo.
+
+**O diferencial com o Origin desligado:**
+- Prova toda resposta nativa e as regras que mudaram de lugar.
+- Com o oráculo em `enabled=true`, prova ainda que o conjunto (entidade, registro, operação) da fila do Fagoo está contido no registro de mudanças.
+- Não compara: carga útil, aluguel, aplicadores do pull, vínculo e semântica da trava.
+
+**Vai para o componente externo (90 tabelas, 408 funções):**
+
+| Grupo | Tabelas | Funções |
+|---|---|---|
+| Coletor da API do Bling | 12 | 50 |
+| Staging | 11 | 20 |
+| Capturas de preço | 6 | 24 |
+| `browser_job` | 9 | 44 |
+| Espelhos | 31 | 74 |
+| Mão dupla | 10 | 73 |
+| Conferências e virada | 0 | 43 |
+| Importações revisadas | 11 | 80 |
+
+Também saem:
+- 18 arquivos da erp-api (210 KB);
+- o worker `origin-sync` (29 arquivos, 186 KB);
+- 12 arquivos do erp-domain;
+- ~19 telas.
+
+**Avaliação franca.** O contrato genérico (4 tabelas, 10–15 funções, ~500
+linhas) cobre ~7% das linhas do domínio 12; os outros ~93% são reescritos no
+componente, não portados.
+
+O que não sai do ERP sem reescrita:
+- **Gravar "como Origin":**
+  - documento sem número, contato ou total, com situação `source_unknown`;
+  - troca de `authority`;
+  - título de valor zero;
+  - adoção de saldo observado, com negativo permitido;
+  - número do Bling no documento.
+- **Leituras nativas que juntam dado bruto do Bling:**
+  - notas do Bling na lista e nos relatórios fiscais;
+  - histórico de item;
+  - atividade;
+  - bloqueio de CNAB;
+  - `origin_stock`.
+
+**O que o componente externo precisa da API do ERP** (detalhe em `sessao-N-rotas-blocos.md`):
+- **Bloqueio:** `erpApi` recusa ator que não é pessoa, então nenhuma chave de aplicação chega ao ERP hoje (fase 3: escopos). Além disso, `/importacoes/*` é só de administrador no SQL.
+- **Rotas de escrita que já existem** (todas exigem `command_id`):
+  - contatos e produtos: um por chamada, ou lote de 50 em `/importacoes`, com upsert por documento ou código;
+  - depósitos: só a rota legada `/cadastros/warehouses` aceita código;
+  - saldo de abertura: `/estoque/movimentos`, que tem data, mas lança diferença conferida pela versão;
+  - documentos e títulos em aberto: um por chamada;
+  - XML de nota: `/notas-fiscais/importar`, que é do bloco fiscal.
+- **Lacunas:**
+  - nenhum id externo nas rotas públicas;
+  - número do documento só com as preferências `*.editar_numero`; em pedido e OS, número usado vira o próximo livre sem aviso;
+  - documento já fechado não entra sem disparar estoque e financeiro;
+  - título nasce sem marca de pago (a baixa é outra chamada) e sem `original_due_on`;
+  - saldo inicial no cadastro do produto sem data.
+- **Só o Origin faz hoje:**
+  - documento com número e situação originais, sem efeitos (`erp_sync.pull_document`);
+  - título já pago na data histórica;
+  - histórico de vendas fechado.
+- **Proposta para o motor:** uma via de importação de administrador com referência externa e upsert, número, situação inicial sem efeitos, títulos baixados e saldo absoluto datado. A versão menor é estender `/importacoes/*` com essas colunas.
 
 ## Para as sessões de domínio
 
@@ -612,10 +814,85 @@ Mudar o padrão para 2 faz o servidor recusar 3 casas ou mais até a empresa sub
   dono; mudança no gerador sobe `ERP_DDL_VERSION`.
 - **Regras do dialeto:** as dez acima, e `docs/ERP-FASE0.md`, prova 1.
 
-## O que a instalação de teste (sessão K) precisa confirmar
+## Roteiro da instalação de teste (sessão K)
 
-Nada foi implantado. Quando a orquestração pedir: CPU real de
-`erp_stock_post` (100 itens) e do relatório de 100 mil linhas
-(`observability` do Worker), os limites de produção (argumentos de função,
-tamanho de instrução), `getBookmarkForTime` e restauração por bookmark,
-`locationHint: "sam"` e o tempo de partida do pacote com `--minify`.
+Nada foi implantado. As sondas (`src/erp/probe.ts`) existem só com
+`ERP_PROBES=1` no deploy, para administrador e com o módulo `erp` ligado na
+área. `scripts/erp/staging-check.mjs` faz o resto:
+- cria uma área nova, "ERP conferência … (apagar)", sem tocar a dos aparelhos;
+- liga o `erp` nela e roda tudo com dados sintéticos;
+- no fim apaga o objeto `erp:` da área e desliga o módulo. Não há rota para apagar área: a área vazia fica.
+
+**O que implantar.**
+- A instalação de teste hoje roda `feat/cupom-senha` (`e5d6db1`) para os aparelhos.
+- Proposta: um branch de junção `staging/erp-conferencia` = `feat/cupom-senha` (`e5d6db1`) + `feat/erp-motor` no commit das sondas ou depois.
+- A junção não tem conflito: `git merge-tree --write-tree origin/feat/cupom-senha feat/erp-motor` dá uma árvore limpa. Ainda não rodei os testes nessa árvore.
+- O ERP nasce desligado em todas as áreas, então os aparelhos não veem diferença.
+
+```
+git fetch origin
+git switch -c staging/erp-conferencia origin/feat/cupom-senha
+git merge --no-ff origin/feat/erp-motor
+npm run check
+npx vitest run tests/erp-do-*.test.ts
+npm run test:erp
+```
+
+**Passos.**
+1. **Deploy com a configuração da instalação de teste:**
+   `npx wrangler deploy --minify --var ERP_PROBES:1 --config <wrangler da instalação de teste>`.
+   - Anote o **"Worker Startup Time"** e o tamanho total e gzip que o wrangler imprime: essa é a partida com `--minify` em produção.
+   - Sem `--minify`, o pacote passa de 24 MB (prova 7).
+2. **Conferência:**
+   `node scripts/erp/staging-check.mjs --url https://<instalação de teste> --tail --config <wrangler da instalação de teste>`.
+   - Usa o administrador de `.smoke.local.json` (o mesmo do `scripts/smoke.mjs`).
+   - O `--tail` soma a CPU real (`cpuTime`) por chamada. Sem ele, leia em Workers → Observabilidade, filtrando por `/erp-probe/`.
+   - O resultado sai em `output/staging-check-<instante>.json`.
+3. **Comparar com o local:**
+
+| Medida | Local (workerd) | Em produção |
+|---|---|---|
+| CPU do `erp_stock_post` com 100 itens | 36–61 ms | ? |
+| CPU do relatório de saldo (100 mil linhas) | 1,6–1,8 s | ? |
+| Parâmetros por instrução | 100 (101 recusa) | ? |
+| Profundidade de expressão | 100 | ? |
+| Padrão LIKE | 50 bytes | ? |
+| Tamanho de instrução | < 100.000 bytes | ? |
+| `getBookmarkForTime` | não implementado no local | restaura A e não B? |
+| Colo do objeto com `locationHint: "sam"` | — | GRU ou outro? |
+| Costura (GET referências, p50/p95) | 9/12 ms | ? |
+
+4. **Fim:** novo deploy **sem** `ERP_PROBES`, ou volta ao `feat/cupom-senha`, para as sondas sumirem.
+
+## Divisão em sessões (opinião)
+
+Concordo com a proposta:
+- **N:** núcleo transversal, Referências, Empresa e Acesso;
+- **P:** Catálogo;
+- **depois:** Estoque e Financeiro em paralelo, e então Documentos.
+
+**O que cada sessão recebe pronto** (`feat/erp-motor`, `3532328` em diante):
+- `public.ts` de todos os domínios, com stubs 0A000;
+- registro de RPC por domínio;
+- overrides por domínio;
+- `docs/ERP-PORTE.md` com os donos;
+- o harness;
+- o Origin desligado.
+
+**O que destrava o paralelismo:**
+- **Testes de quem ainda não foi portado:** o RPC não portado roda só no Postgres e é espelhado no SQLite. Os testes de um domínio funcionam mesmo antes do Catálogo ou dos outros: o `erp_catalog_save` da preparação roda no oráculo.
+- **O que de fato bloqueia** é o código portado chamar uma função compartilhada em stub. Por isso cada sessão começa pelas funções do seu `public.ts` que outros domínios usam (`ownership.generated.json`, `public_functions`), antes dos RPCs.
+- **A minha parte:** `permissionKeys` e `resourcesForRole` (Acesso), que quase todo domínio chama.
+
+**Quantas sessões ao mesmo tempo:**
+- **3 de domínio, mais a N** como dona do motor e da integração. Por exemplo P (Catálogo), Estoque e Financeiro.
+- **Acima disso o custo de coordenação passa o ganho:**
+  - as funções compartilhadas se concentram em Acesso, Catálogo, Documentos e Financeiro;
+  - cada pedido de mudança no motor passa por mim;
+  - o caminho crítico (núcleo → Catálogo → Estoque/Financeiro → Documentos) não encurta com mais gente.
+- **Uma 4ª sessão só faz sentido em Fiscal ou CNAB**, que dependem pouco dos outros, depois que o Financeiro tiver o seu `public.ts`.
+
+**Integração:**
+- Cada sessão trabalha no seu branch a partir do `feat/erp-motor` e o atualiza com frequência.
+- Arquivos gerados (`ownership.generated.json`, `stubs.generated.ts`, `seed`, `ddl`) não se fundem à mão: regeneram-se depois da junção.
+- Os tetos de pendência de `schema-parity` são um arquivo só: quem fecha domínio baixa o teto no seu branch, e eu concilio ao integrar.

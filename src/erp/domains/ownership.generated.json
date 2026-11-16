@@ -25,7 +25,7 @@
   "public_functions": {
    "erp_access.gate_required": {
     "name": "gateRequired",
-    "ported": false
+    "ported": true
    },
    "erp_access.member_role": {
     "name": "memberRole",
@@ -33,11 +33,11 @@
    },
    "erp_access.mfa_policy_on": {
     "name": "mfaPolicyOn",
-    "ported": false
+    "ported": true
    },
    "erp_access.permission_keys": {
     "name": "permissionKeys",
-    "ported": false
+    "ported": true
    },
    "erp_access.permission_parent": {
     "name": "permissionParent",
@@ -49,7 +49,7 @@
    },
    "erp_access.read_admin": {
     "name": "readAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_access.record_summary": {
     "name": "recordSummary",
@@ -57,39 +57,39 @@
    },
    "erp_access.require_admin": {
     "name": "accessRequireAdmin",
-    "ported": false
+    "ported": true
    },
    "erp_access.require_history_role": {
     "name": "requireHistoryRole",
-    "ported": false
+    "ported": true
    },
    "erp_access.require_permission": {
     "name": "requirePermission",
-    "ported": false
+    "ported": true
    },
    "erp_access.resources_for_role": {
     "name": "resourcesForRole",
-    "ported": false
+    "ported": true
    },
    "erp_access.scalar_text": {
     "name": "scalarText",
-    "ported": false
+    "ported": true
    },
    "erp_activity.actor_label": {
     "name": "actorLabel",
-    "ported": false
+    "ported": true
    },
    "erp_activity.clean": {
     "name": "clean",
-    "ported": false
+    "ported": true
    },
    "erp_activity.period": {
     "name": "period",
-    "ported": false
+    "ported": true
    },
    "erp_activity.require_admin": {
     "name": "activityRequireAdmin",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
@@ -2774,7 +2774,7 @@
   "public_functions": {
    "erp_attachments.storage_ready": {
     "name": "storageReady",
-    "ported": false
+    "ported": true
    },
    "erp_home.biz_cost_visible": {
     "name": "bizCostVisible",
@@ -3224,15 +3224,15 @@
   "public_functions": {
    "erp_reference.company_extra_cnae": {
     "name": "companyExtraCnae",
-    "ported": false
+    "ported": true
    },
    "erp_reference.key": {
     "name": "key",
-    "ported": false
+    "ported": true
    },
    "erp_reference.municipality_known": {
     "name": "municipalityKnown",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
