@@ -1,9 +1,9 @@
 // Pessoas e acessos: contas individuais da equipe.
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
-import type { Row } from "../lib/api";
+import { api, type Row } from "../lib/api";
 import { parse } from "../lib/format";
 import {
   Badge,
@@ -272,11 +272,42 @@ function ScheduleEditor({
   );
 }
 
+/**
+ * A instalação envia e-mail (Gestão → Sistema, src/email.ts): os links de
+ * convite e de nova senha vão também por e-mail. Lido uma vez por página.
+ */
+let emailStatus: Promise<boolean> | null = null;
+function useEmailOn(demo: boolean) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (demo) return;
+    emailStatus ??= api("auth/status")
+      .then((status) => !!status.email)
+      .catch(() => false);
+    void emailStatus.then(setOn);
+  }, [demo]);
+  return on;
+}
+
+/** Resultado do envio por e-mail de um link (email_status da resposta). */
+function EmailResult({ result }: { result: Row }) {
+  if (!result.email_status) return null;
+  return result.email_status === "failed" ? (
+    <Notice tone="warn">
+      O e-mail não saiu ({result.email_error?.message}). Copie o link abaixo e
+      envie por outro meio.
+    </Notice>
+  ) : (
+    <Notice tone="ok">Enviamos o link para o e-mail da pessoa.</Notice>
+  );
+}
+
 /** Senha e segundo fator de outra pessoa: link de redefinir e zerar o fator. */
 function SecuritySection({ user }: { user: Row }) {
   const app = useApp();
   const { busy, run } = useAction();
   const [link, setLink] = useState<Row | null>(null);
+  const emailOn = useEmailOn(app.demo);
   return (
     <fieldset className="scope-grid">
       <legend>Senha e segundo fator</legend>
@@ -291,7 +322,11 @@ function SecuritySection({ user }: { user: Row }) {
           onClick={() =>
             void run(async () =>
               setLink(
-                await app.api(`v1/people/${user.id}/password-link`, "POST", {}),
+                await app.api(
+                  `v1/people/${user.id}/password-link`,
+                  "POST",
+                  emailOn ? { send_email: true } : {},
+                ),
               ),
             )
           }
@@ -321,6 +356,7 @@ function SecuritySection({ user }: { user: Row }) {
       </div>
       {link && (
         <>
+          <EmailResult result={link} />
           <p>
             Envie este link à pessoa. Vale 24 horas e uma vez só; a senha atual
             continua valendo até ela trocar.
@@ -342,10 +378,9 @@ function MfaPolicy() {
   const [policy, setPolicy] = useState<string>(app.me.mfa?.policy || "off");
   const [confirmAll, setConfirmAll] = useState(false);
   const save = (next: string) =>
-    void run(
-      () => app.api("v1/system/mfa-policy", "PUT", { policy: next }),
-      { success: "Política do segundo fator salva." },
-    ).then(() => setPolicy(next));
+    void run(() => app.api("v1/system/mfa-policy", "PUT", { policy: next }), {
+      success: "Política do segundo fator salva.",
+    }).then(() => setPolicy(next));
   return (
     <>
       <Field
@@ -357,9 +392,7 @@ function MfaPolicy() {
           ["financial", "Exigido nas operações financeiras"],
           ["all", "Exigido para todos"],
         ]}
-        onChange={(next) =>
-          next === "all" ? setConfirmAll(true) : save(next)
-        }
+        onChange={(next) => (next === "all" ? setConfirmAll(true) : save(next))}
       />
       {confirmAll && (
         <Confirm
@@ -411,6 +444,7 @@ function UserDialog({
     parse(user?.schedule, null),
   );
   const [invited, setInvited] = useState<Row | null>(null);
+  const emailOn = useEmailOn(app.demo);
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
   // Convite criado: mostra o link para copiar e enviar à pessoa.
@@ -421,6 +455,7 @@ function UserDialog({
         onClose={onClose}
         footer={<Button onClick={onClose}>Pronto</Button>}
       >
+        <EmailResult result={invited} />
         <p>
           Envie este link à pessoa. Ele vale 72 horas e uma vez só; ela cria a
           própria senha.
@@ -463,6 +498,7 @@ function UserDialog({
               ...chosen,
               role: form.role || "operator",
               profiles: form.profiles || [app.profile],
+              ...(emailOn ? { send_email: true } : {}),
             }),
           );
           await onSaved();
@@ -498,7 +534,9 @@ function UserDialog({
             checked={!!form.invite}
             onChange={(event) => change("invite")(event.target.checked)}
           />
-          Convidar por link: a pessoa cria a própria senha (vale 72 horas)
+          {emailOn
+            ? "Convidar por e-mail: a pessoa recebe o link e cria a própria senha (vale 72 horas)"
+            : "Convidar por link: a pessoa cria a própria senha (vale 72 horas)"}
         </label>
       )}
       {!form.invite && (

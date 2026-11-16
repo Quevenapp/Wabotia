@@ -36,9 +36,63 @@ import {
 } from "./mfa";
 import {
   consumeAccountLink,
+  FORGOT_TTL_MS,
   issueAccountLink,
   peekAccountLink,
 } from "./auth-tokens";
+import {
+  accountEmail,
+  alertAccount,
+  emailConfig,
+  emailLog,
+  emailReady,
+  mailAccountLink,
+  publicEmailConfig,
+  sendEmail,
+  validEmail,
+} from "./email";
+import { publicOrigin } from "./web-steps";
+
+/** Alerta por e-mail depois da resposta (src/email.ts, alertAccount). */
+function alert(c: any, userId: string, kind: "password_changed" | "mfa_reset") {
+  c.executionCtx.waitUntil(alertAccount(c.env, userId, kind));
+}
+
+/** Esqueci a senha: link de 1 hora, só para conta ativa. */
+async function forgotPassword(env: Env, email: string, requestOrigin: string) {
+  try {
+    const user = await one(
+      env,
+      "SELECT id,name,email FROM users WHERE email=? AND disabled=0",
+      email,
+    );
+    if (!user) return;
+    const link = await issueAccountLink(env, {
+      userId: user.id,
+      purpose: "reset",
+      createdBy: "forgot",
+      origin: (await publicOrigin(env)) || requestOrigin,
+      ttlMs: FORGOT_TTL_MS,
+    });
+    await sendEmail(
+      env,
+      {
+        to: user.email,
+        ...accountEmail("reset", {
+          name: user.name,
+          url: link.url,
+          expiresAt: link.expires_at,
+        }),
+      },
+      { purpose: "account.forgot", userId: user.id },
+    );
+  } catch {
+    // Falha fica em email_log; a resposta é a mesma de qualquer jeito.
+  }
+}
+
+export const FORGOT_MESSAGE =
+  "Se houver uma conta ativa com este e-mail, enviamos um link para criar uma senha nova. Ele vale por 1 hora.";
 
 /** Só a pessoa numa sessão (não aplicação, bot ou ator interno). */
 function person(actor: Actor) {
@@ -171,6 +225,7 @@ export function mountAccount(app: Hono<Bindings>) {
       actor.id,
     );
     await record(c.env, actor, "account.mfa.remove", actor.id);
+    alert(c, actor.id, "mfa_reset");
     return c.json({ ok: true });
   });
 
@@ -185,6 +240,7 @@ export function mountAccount(app: Hono<Bindings>) {
     await removeFactors(c.env, id);
     await dropSessions(c.env, id);
     await record(c.env, actor, "people.mfa.reset", id);
+    alert(c, id, "mfa_reset");
     return c.json({ ok: true });
   });
   app.post("/api/v1/people/:id/password-link", async (c) => {
@@ -194,7 +250,7 @@ export function mountAccount(app: Hono<Bindings>) {
     const id = c.req.param("id");
     const target = await one(
       c.env,
-      "SELECT id,disabled FROM users WHERE id=?",
+      "SELECT id,name,email,disabled FROM users WHERE id=?",
       id,
     );
     if (!target || target.disabled)
@@ -203,6 +259,7 @@ export function mountAccount(app: Hono<Bindings>) {
         "not_found",
         "Pessoa não encontrada ou desativada.",
       );
+    const body = await c.req.json<any>().catch(() => ({}));
     const link = await issueAccountLink(c.env, {
       userId: id,
       purpose: "reset",
@@ -210,7 +267,38 @@ export function mountAccount(app: Hono<Bindings>) {
       origin: origin(c),
     });
     await record(c.env, actor, "people.password_link", id);
-    return c.json(link);
+    // Com `send_email`, o link vai também para o e-mail da pessoa.
+    return c.json({
+      ...link,
+      ...(body?.send_email === true
+        ? await mailAccountLink(c.env, target, "reset", link)
+        : {}),
+    });
+  });
+  // ---- E-mail (Gestão → Sistema; gravar em system/email/configure) -------
+  app.get("/api/v1/system/email", async (c) => {
+    admin(c.get("actor"));
+    return c.json({
+      ...publicEmailConfig(await emailConfig(c.env)),
+      log: await emailLog(c.env, 30),
+    });
+  });
+  // Teste para o e-mail de quem pede: confere token, domínio e remetente.
+  app.post("/api/v1/system/email/test", async (c) => {
+    const actor = c.get("actor");
+    admin(actor);
+    await rate(c.env, `email-test:${actor.id}`, 5);
+    const user = await one(
+      c.env,
+      "SELECT id,name,email FROM users WHERE id=?",
+      actor.id,
+    );
+    const sent = await sendEmail(
+      c.env,
+      { to: user.email, ...accountEmail("test", { name: user.name }) },
+      { purpose: "test", userId: actor.id },
+    );
+    return c.json({ status: sent.status, to: user.email });
   });
   app.put("/api/v1/system/mfa-policy", async (c) => {
     const actor = c.get("actor");
@@ -269,8 +357,37 @@ export function mountAccountPublic(app: Hono<Bindings>) {
         `auth.${purpose}`,
         row.user_id,
       );
+      // Convite é a primeira senha: alerta só na troca.
+      if (purpose === "reset") alert(c, row.user_id, "password_changed");
       return c.json({ ok: true, email: row.email });
     });
+  // Esqueci a senha (só com e-mail configurado): a resposta é a mesma, exista
+  // ou não a conta, e o envio sai depois da resposta. Limite por endereço de
+  // rede (429) e por conta (silencioso, para não revelar a conta).
+  app.post("/api/auth/forgot", async (c) => {
+    await rate(c.env, `forgot-ip:${await sha(ip(c))}`, 5, 600000);
+    if (!(await emailReady(c.env)))
+      throw new ApiError(
+        409,
+        "email_unavailable",
+        "Esta instalação não envia e-mail. Peça ao administrador um link para redefinir a senha.",
+      );
+    const body = await c.req.json<any>().catch(() => ({}));
+    const email = String(body?.email || "")
+      .trim()
+      .toLowerCase();
+    if (!validEmail(email))
+      throw new ApiError(400, "invalid_request", "Informe um e-mail válido.");
+    let allowed = true;
+    try {
+      await rate(c.env, `forgot-account:${await sha(email)}`, 3, 3600000);
+    } catch {
+      allowed = false;
+    }
+    if (allowed)
+      c.executionCtx.waitUntil(forgotPassword(c.env, email, origin(c)));
+    return c.json({ ok: true, message: FORGOT_MESSAGE });
+  });
   // Administrador único que perdeu a senha ou o segundo fator: o SETUP_TOKEN
   // da instalação (guardado no arquivo de chaves) troca a senha e tira o
   // fator. Com mais de um administrador ativo, outro administrador resolve.
@@ -309,6 +426,7 @@ export function mountAccountPublic(app: Hono<Bindings>) {
     await removeFactors(c.env, admins.id);
     await dropSessions(c.env, admins.id);
     await record(c.env, "setup_token", "auth.recover_admin", admins.id);
+    alert(c, admins.id, "password_changed");
     return c.json({ ok: true, email: admins.email });
   });
 }

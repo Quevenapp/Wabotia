@@ -10,6 +10,8 @@ import { random, sha } from "./security";
 import { accountLink, type AccountLinkPurpose } from "./install-links";
 import { publicOrigin } from "./web-steps";
 
+/** Link pedido pela própria pessoa (esqueci a senha), por e-mail. */
+export const FORGOT_TTL_MS = 3600000;
 export const TOKEN_TTL_MS: Record<AccountLinkPurpose, number> = {
   reset: 24 * 3600000,
   invite: 72 * 3600000,
@@ -22,6 +24,8 @@ export async function issueAccountLink(
     purpose: AccountLinkPurpose;
     createdBy: string;
     origin?: string | null;
+    /** Prazo menor que o padrão (esqueci a senha: FORGOT_TTL_MS). */
+    ttlMs?: number;
   },
 ) {
   const origin = input.origin || (await publicOrigin(env));
@@ -39,7 +43,7 @@ export async function issueAccountLink(
     input.purpose,
   );
   const token = random();
-  const expires = now() + TOKEN_TTL_MS[input.purpose];
+  const expires = now() + (input.ttlMs ?? TOKEN_TTL_MS[input.purpose]);
   await exec(
     env,
     "INSERT INTO auth_tokens(hash,user_id,purpose,expires,created_by,created) VALUES(?,?,?,?,?,?)",

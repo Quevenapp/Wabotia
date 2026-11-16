@@ -8,7 +8,7 @@ import {
   accountTokenFromHash,
   setupTokenFromHash,
 } from "../../src/install-links";
-import { AccountLinkForm, RecoverAdminForm } from "./AccountLink";
+import { AccountLinkForm, ForgotForm, RecoverAdminForm } from "./AccountLink";
 import { Button, Field, Logo, Notice } from "../ui";
 
 function PasswordField({
@@ -67,7 +67,10 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
   const [needCode, setNeedCode] = useState(false),
     [recovery, setRecovery] = useState(false),
     [link, setLink] = useState(() => accountTokenFromHash(location.hash)),
-    [recover, setRecover] = useState(false);
+    [recover, setRecover] = useState(false),
+    // Esqueci a senha por e-mail, quando a instalação envia e-mail.
+    [emailOn, setEmailOn] = useState(false),
+    [adminRecover, setAdminRecover] = useState(false);
   const signIn = async (email: string, password: string) => {
     setLink(null);
     setRecover(false);
@@ -108,6 +111,7 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
       .then((status) => {
         setSetup(!status.initialized);
         setConfigured(status.configured);
+        setEmailOn(!!status.email);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -143,6 +147,8 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
             token={link.token}
             onDone={(email, password) => void signIn(email, password)}
           />
+        ) : recover && emailOn && !adminRecover ? (
+          <ForgotForm onAdmin={() => setAdminRecover(true)} />
         ) : recover ? (
           <RecoverAdminForm
             onDone={(email, password) => void signIn(email, password)}
@@ -252,6 +258,7 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
             className="text-link"
             onClick={() => {
               setRecover(!recover);
+              setAdminRecover(false);
               setError("");
             }}
           >

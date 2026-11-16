@@ -161,7 +161,25 @@ Regras gerais:
   - só funciona quando existe um único administrador ativo; com mais de um, outro administrador gera o link;
   - troca a senha, tira o segundo fator e derruba as sessões.
 
-E-mail: o núcleo ainda não manda e-mail, então o administrador envia o link. Sem administrador com acesso, veja "Administrador sem acesso" em [OPERACAO.md](OPERACAO.md).
+**E-mail** (Cloudflare Email Sending, configuração em [EMAIL.md](EMAIL.md)). `GET /api/auth/status` traz `email: true` quando a instalação envia e-mail. Com e-mail:
+- `POST /api/auth/forgot` com `{email}` ("Esqueci a senha"):
+  - responde sempre `200 {ok, message}`, exista ou não a conta, e o envio sai depois da resposta;
+  - o link (`#reset=`) vale 1 hora e uma vez só, e invalida o link de redefinição anterior;
+  - limites: 5 pedidos a cada 10 minutos por endereço de rede (`429 rate_limited`); 3 por hora por conta, sem aviso (a resposta é a mesma);
+  - sem e-mail configurado: `409 email_unavailable`.
+- `POST /api/v1/users/invite` e `POST /api/v1/people/{id}/password-link` aceitam `send_email: true`. A resposta traz o link e `email_status` (`sent`, `queued`, `bounced` ou `failed`, com `email_error`). A falha no envio não desfaz o link.
+- A pessoa recebe um alerta quando a senha é trocada (link, administrador ou recuperação) ou quando o segundo fator é removido.
+- Nenhum e-mail leva link ou código no assunto.
+
+Gestão → Sistema (administrador):
+- `GET /api/v1/system/email` devolve `{configured, account_id, token_configured, from_address, from_name, log}`. O `log` traz os últimos envios, com o endereço mascarado e sem o corpo.
+- `POST /api/v1/system/email/configure` com `{account_id, token, from_address, from_name}`:
+  - token vazio mantém o atual;
+  - `{remove: true}` desliga.
+- `POST /api/v1/system/email/test` manda um teste para o e-mail de quem pede.
+  - Erros da Cloudflare: `409 email_not_entitled` (10105, sem Workers Paid), `409 email_sending_disabled` (10203), `502 email_unauthorized` (token) e `429 email_throttled`.
+
+Sem e-mail, o administrador envia o link. Sem administrador com acesso, veja "Administrador sem acesso" em [OPERACAO.md](OPERACAO.md).
 
 ### Acesso por pessoa
 

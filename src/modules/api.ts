@@ -55,10 +55,17 @@ import { establishment, type Establishment } from "../establishment";
 import {
   CONSENT_PURPOSES,
   consentFor,
+  purposeLabels,
   recordConsent,
   type ConsentPurpose,
   type ConsentRecord,
 } from "../consents";
+import {
+  areaEmailCount,
+  EMAIL_AREA_DAILY,
+  sendEmail,
+  type EmailMessage,
+} from "../email";
 import {
   interactiveLine,
   interactivePayload,
@@ -255,6 +262,23 @@ export interface ModuleContext {
   recordConsent(c: Conversation, record: ConsentRecord): Promise<any>;
   /** Último consentimento que vale para a finalidade, ou null. */
   consent(c: Conversation, purpose: ConsentPurpose): Promise<any>;
+  /**
+   * E-mail ao cliente da conversa (src/email.ts, docs/EMAIL.md):
+   * - exige o consentimento da finalidade na conversa (recordConsent), senão
+   *   409 consent_required;
+   * - `key` torna o envio idempotente na área (devolve o anterior, `repeated`);
+   * - até EMAIL_AREA_DAILY envios por área em 24 h, senão 429 email_limit;
+   * - sem e-mail configurado na instalação, 409 email_unavailable (use o
+   *   WhatsApp);
+   * - o assunto não leva link nem código (400 invalid_subject): links vão no
+   *   corpo.
+   * Cada envio fica em email_log, sem o corpo e com o endereço mascarado.
+   */
+  sendEmail(
+    c: Conversation,
+    email: EmailMessage,
+    options: { purpose: ConsentPurpose; key: string },
+  ): Promise<{ id: string; status: string; repeated?: true }>;
   /**
    * Cancela um link aberto do próprio módulo: quem abrir vê "Link
    * indisponível" e não conclui. Já fechado (concluído, vencido, cancelado):
@@ -576,6 +600,46 @@ export function modulesApi(
     consent: (c, purpose) => {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       return consentFor(env, c.id, purpose);
+    },
+    async sendEmail(c, email, options) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      requireValue(
+        CONSENT_PURPOSES.includes(options?.purpose),
+        "Finalidade do e-mail inválida.",
+      );
+      requireValue(
+        typeof options.key === "string" &&
+          options.key.length > 0 &&
+          options.key.length <= 200,
+        "Informe a chave do envio (key).",
+      );
+      const key = `module:${moduleId}:${c.id}:${options.key}`;
+      const previous = await one(
+        env,
+        "SELECT id,status FROM email_log WHERE profile_id=? AND key=?",
+        profile,
+        key,
+      );
+      if (previous)
+        return { id: previous.id, status: previous.status, repeated: true };
+      if (!(await consentFor(env, c.id, options.purpose)))
+        throw new ApiError(
+          409,
+          "consent_required",
+          `O cliente não autorizou avisos de ${purposeLabels[options.purpose]} nesta conversa.`,
+        );
+      if ((await areaEmailCount(env, profile)) >= EMAIL_AREA_DAILY)
+        throw new ApiError(
+          429,
+          "email_limit",
+          "Limite diário de e-mails desta área atingido. Tente amanhã.",
+        );
+      return sendEmail(env, email, {
+        purpose: options.purpose,
+        profileId: profile,
+        moduleId,
+        key,
+      });
     },
     async cancelWebStep(id) {
       const row = await one(

@@ -126,6 +126,7 @@ import {
   webStepByCode,
   whatsappReturnLink,
 } from "./web-steps";
+import { emailReady } from "./email";
 import { moduleRoutes } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
@@ -622,6 +623,9 @@ app.get("/api/auth/status", async (c) => {
   return c.json({
     initialized: count.n > 0,
     configured: !!c.env.MASTER_KEY && !!c.env.SETUP_TOKEN,
+    // "Esqueci a senha" por e-mail (src/email.ts); sem ele, só o link do
+    // administrador e a recuperação com o SETUP_TOKEN.
+    email: count.n > 0 && (await emailReady(c.env)),
   });
 });
 app.use("/api/auth/*", async (c, next) => {
@@ -1332,6 +1336,7 @@ for (const [path, operation] of [
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
   ["origin/configure", "origin.save"],
+  ["email/configure", "email.configure"],
 ])
   app.post("/api/v1/system/" + path, async (c) => {
     admin(c.get("actor"));

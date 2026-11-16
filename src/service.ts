@@ -82,6 +82,7 @@ import { validateEstablishment } from "./establishment";
 import { requireOperationAccess, validateAccess } from "./access";
 import { requireFinancialAal, validateSchedule } from "./mfa";
 import { issueAccountLink } from "./auth-tokens";
+import { alertAccount, mailAccountLink } from "./email";
 import {
   hiddenMenuTypes,
   moduleById,
@@ -1669,13 +1670,24 @@ export async function perform(
       now(),
     );
     if (!invite) return { id };
+    const link = await issueAccountLink(env, {
+      userId: id,
+      purpose: "invite",
+      createdBy: actor.id,
+    });
+    // Com `send_email`, o convite vai também por e-mail (src/email.ts); a
+    // falha não desfaz o convite, e o link segue na resposta.
     return {
       id,
-      ...(await issueAccountLink(env, {
-        userId: id,
-        purpose: "invite",
-        createdBy: actor.id,
-      })),
+      ...link,
+      ...(data.send_email === true
+        ? await mailAccountLink(
+            env,
+            { id, name: text(data.name, 100), email },
+            "invite",
+            link,
+          )
+        : {}),
     };
   }
   if (op === "user.update") {
@@ -1721,6 +1733,8 @@ export async function perform(
         data.id,
       );
     await exec(env, "DELETE FROM sessions WHERE user_id=?", data.id);
+    // Senha trocada pelo administrador: a pessoa recebe o alerta.
+    if (data.password) await alertAccount(env, data.id, "password_changed");
     return { id: data.id };
   }
   if (op === "application.create") {
