@@ -15,6 +15,7 @@ import {
   Moon,
   Phone,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
   Ticket,
@@ -38,6 +39,7 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
+import { AccountDialog } from "./Account";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -162,7 +164,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const route = useRoute();
   const items = useItems();
   const { mode, theme, setMode } = useTheme();
-  const [dialog, setDialog] = useState<"" | "prefs" | "keys" | "presence">("");
+  const [dialog, setDialog] = useState<
+    "" | "prefs" | "keys" | "presence" | "account"
+  >("");
   // Abaixo de 760 px a conversa, o protocolo ou a página aberta ocupa a tela
   // toda, sem a barra de abas (como no aplicativo).
   const detail =
@@ -324,6 +328,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 onSelect: () => setDialog("prefs"),
               },
               {
+                label: "Minha conta",
+                icon: <ShieldCheck size={17} />,
+                onSelect: () => setDialog("account"),
+              },
+              {
                 label: "Sair",
                 icon: <LogOut size={17} />,
                 danger: true,
@@ -386,6 +395,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <PreferencesDialog onClose={() => setDialog("")} />
       )}
       {dialog === "keys" && <ShortcutsDialog onClose={() => setDialog("")} />}
+      {dialog === "account" && <AccountDialog onClose={() => setDialog("")} />}
       {dialog === "presence" && (
         <PresenceDialog onClose={() => setDialog("")} />
       )}

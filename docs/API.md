@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps", "establishment", "queue_coupon", "module_grants", "person_access"],
+  "features": ["modules", "web_steps", "establishment", "queue_coupon", "module_grants", "person_access", "mfa"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -82,6 +82,104 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 ### Pessoas da área
 
 Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. Cada pessoa traz `grants`, os papéis dela nos módulos ligados (`"os:technician"`), e `?grant=os:technician` lista só quem tem o papel; os papéis e quem tem cada um estão em `GET /profiles/{perfil}/grants` (veja "Acesso por pessoa" abaixo). `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+
+### Login e segundo fator
+
+**Entrar** (painel: `POST /api/auth/login`, cookie; app: `POST /api/auth/mobile/login`, `Bearer wabu_…`):
+- O corpo é `{email, password}` e, quando a pessoa tem segundo fator, também `totp` (6 dígitos do aplicativo autenticador) ou `recovery_code`.
+- Sem o código, a resposta é `401 mfa_required` e nenhuma sessão é criada. O app mostra o campo do código e manda o mesmo pedido de novo com `totp`.
+- Respostas de erro:
+  - código errado ou já usado: `401 invalid_code`. O mesmo código não vale duas vezes, e o relógio aceita ±30 s.
+  - cinco erros em 15 minutos: o sexto pedido recebe `429 mfa_locked`, mesmo com o código certo.
+  - fora do horário de acesso da pessoa: `403 outside_schedule`.
+- A resposta traz:
+  - `aal`: 1 só senha, 2 com o código;
+  - `mfa`: `{policy, factor, next}`. `next: "enroll"` quer dizer que a instalação exige o segundo fator e a pessoa ainda não cadastrou.
+- O app guarda `aal`.
+
+**Login em duas etapas nos apps:** o recurso `mfa` em `features` de `/capabilities` diz que o servidor entende `totp` e `recovery_code`. App que não conhece o recurso continua entrando com senha enquanto a pessoa não tiver fator. Quando a pessoa cadastra o fator, esse app deixa de entrar e recebe `401 mfa_required`: atualize o app antes de ligar a política `all`.
+
+**Elevação sob demanda:** sessões abertas antes do segundo fator, e as abertas só com senha, ficam em aal1 e não são derrubadas.
+- Uma ação que exige aal2 responde `403 mfa_required`.
+- O app pede o código e chama `POST /api/v1/account/mfa/challenge`. A sessão passa a aal2 e o app repete a ação.
+- A confirmação vale por um prazo contado do código:
+  - 12 horas no cookie do painel;
+  - 7 dias no `wabu_` do app.
+- Passado o prazo, a sessão continua aberta em aal1 e a próxima ação protegida pede o código de novo.
+- A renovação (`POST /api/v1/auth/mobile/refresh`) leva o nível e o horário do código para a sessão nova, sem reiniciar o prazo.
+- O painel faz isso sozinho: qualquer `403 mfa_required` abre a janela "Confirme que é você" (com fator) ou o aviso para cadastrar o fator em Minha conta (sem fator).
+
+**Política da instalação** (Pessoas e acessos, `PUT /api/v1/system/mfa-policy` com `{policy}`):
+- `off`: opcional;
+- `financial`: as operações financeiras feitas por pessoas (`payment.*`, gestão da Mensalidade e ações do Suporte) exigem a sessão em aal2;
+- `all`: toda pessoa precisa do segundo fator.
+  - Só liga se o administrador que pede já tem fator; sem ele, `409 mfa_enroll_first`.
+  - O painel avisa que apps antigos, sem o recurso `mfa`, deixam de entrar.
+
+Regras gerais:
+- Com fator cadastrado, entrar sempre pede o código.
+- Só com a política `all`, uma sessão em aal1 fica restrita a `/api/v1/me`, `/api/v1/account`, `/api/v1/account/mfa/*`, a renovação e a saída. As outras rotas respondem `403 mfa_required`. O painel mostra a tela de desafio ou de cadastro antes das áreas.
+- Com `off` e `financial`, a sessão aal1 usa tudo, menos as ações que exigem aal2.
+- Chave de aplicação nunca chega a aal2: as rotas que exigem aal2 a recusam. As operações financeiras de aplicações continuam valendo por `billing:write`.
+- `GET /api/v1/me` traz `aal` (o efetivo, já com o prazo), `sessionId` e `mfa: {factor, policy}`.
+**Cadastro do aplicativo autenticador:**
+1. `POST /api/v1/account/mfa/enroll` com `{password}` devolve `{factor_id, secret, otpauth_url}`.
+   - O app pode abrir `otpauth_url`, ou mostrar `secret` para digitar.
+   - Trocar um fator ativo exige a sessão em aal2.
+2. `POST /api/v1/account/mfa/verify` com `{factor_id, code}`:
+   - devolve `{aal: 2, recovery_codes}`: 10 códigos de recuperação, mostrados uma vez só;
+   - sobe esta sessão para aal2 e derruba as outras sessões da pessoa.
+
+**Outras rotas do segundo fator:**
+- `POST /api/v1/account/mfa/challenge` com `{code}` ou `{recovery_code}` sobe a sessão para aal2.
+- `POST /api/v1/account/mfa/recovery-codes` (exige aal2) gera códigos novos.
+- `DELETE /api/v1/account/mfa/factors/{id}` (exige aal2) remove o fator. Com a política `all`, responde `409`.
+- `GET /api/v1/account` e `GET /api/v1/account/mfa` mostram a situação.
+
+**Administrador** (exige aal2 quando ele tem fator ou a política não é `off`):
+- `POST /api/v1/people/{id}/mfa/reset` zera o segundo fator da pessoa e derruba as sessões dela.
+- `POST /api/v1/people/{id}/password-link` devolve `{url, expires_at}`:
+  - é o link de redefinir a senha, de uso único e válido por 24 horas (`<origem>/app#reset=<código>`);
+  - o código vai no fragmento e só o hash fica guardado;
+  - um link novo invalida o anterior.
+- `POST /api/v1/users/invite`, com os campos de `POST /users` sem `password`:
+  - cria a pessoa sem senha e devolve `{id, url, expires_at}`;
+  - é um convite de 72 horas (`#invite=`);
+  - antes de aceitar, nenhuma senha entra.
+- `POST /users` e `PATCH /users/{id}` aceitam `schedule`, o horário de acesso no formato do Fagoo:
+  - `{"enabled": true, "windows": [{"start": "08:00", "end": "18:00", "days": [1,2,3,4,5]}]}`;
+  - até 10 janelas; dias de 0 (domingo) a 6, em ordem; horário de Brasília;
+  - `null` tira o horário;
+  - o administrador é isento;
+  - fora do horário, o login e qualquer chamada da sessão recebem `403 outside_schedule`.
+- `GET /users` traz `schedule`, `has_mfa` e `invite_pending`.
+
+**Sem sessão:**
+- `POST /api/auth/link-info` com `{token}` devolve `{purpose, name, email, expires_at}`.
+- `POST /api/auth/reset` e `POST /api/auth/invite/accept`, com `{token, password}`, gravam a senha e derrubam as sessões da pessoa.
+- `POST /api/auth/recover-admin` com `{setup_token, password}`:
+  - só funciona quando existe um único administrador ativo; com mais de um, outro administrador gera o link;
+  - troca a senha, tira o segundo fator e derruba as sessões.
+
+**E-mail** (Cloudflare Email Sending, configuração em [EMAIL.md](EMAIL.md)). `GET /api/auth/status` traz `email: true` quando a instalação envia e-mail. Com e-mail:
+- `POST /api/auth/forgot` com `{email}` ("Esqueci a senha"):
+  - responde sempre `200 {ok, message}`, exista ou não a conta, e o envio sai depois da resposta;
+  - o link (`#reset=`) vale 1 hora e uma vez só, e invalida o link de redefinição anterior;
+  - limites: 5 pedidos a cada 10 minutos por endereço de rede (`429 rate_limited`); 3 por hora por conta, sem aviso (a resposta é a mesma);
+  - sem e-mail configurado: `409 email_unavailable`.
+- `POST /api/v1/users/invite` e `POST /api/v1/people/{id}/password-link` aceitam `send_email: true`. A resposta traz o link e `email_status` (`sent`, `queued`, `bounced` ou `failed`, com `email_error`). A falha no envio não desfaz o link.
+- A pessoa recebe um alerta quando a senha é trocada (link, administrador ou recuperação) ou quando o segundo fator é removido.
+- Nenhum e-mail leva link ou código no assunto.
+
+Gestão → Sistema (administrador):
+- `GET /api/v1/system/email` devolve `{configured, account_id, token_configured, from_address, from_name, log}`. O `log` traz os últimos envios, com o endereço mascarado e sem o corpo.
+- `POST /api/v1/system/email/configure` com `{account_id, token, from_address, from_name}`:
+  - token vazio mantém o atual;
+  - `{remove: true}` desliga.
+- `POST /api/v1/system/email/test` manda um teste para o e-mail de quem pede.
+  - Erros da Cloudflare: `409 email_not_entitled` (10105, sem Workers Paid), `409 email_sending_disabled` (10203), `502 email_unauthorized` (token) e `429 email_throttled`.
+
+Sem e-mail, o administrador envia o link. Sem administrador com acesso, veja "Administrador sem acesso" em [OPERACAO.md](OPERACAO.md).
 
 ### Acesso por pessoa
 
