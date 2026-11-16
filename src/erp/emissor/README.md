@@ -12,7 +12,7 @@ implementação (`nfapi-provider.ts`).
 
 | Arquivo | O quê |
 |---|---|
-| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.3.1**, de `Quevenapp/nfapi` `vault/docs/openapi.json`, commit `bb7a3da`. |
+| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.3.2**, de `Quevenapp/nfapi` `vault/docs/openapi.json`, commit `398ab11`. |
 | `contract/types.generated.ts` | Tipos gerados do contrato. Não edite. |
 | `contract/generate.ts` | Gerador de tipos, lista de operações e comparação de contratos. Funções puras. |
 | `contract/sync.mjs` | Copia um contrato novo e regera os tipos. |
@@ -43,6 +43,8 @@ homologação.
    - os tipos não foram regerados;
    - uma operação ou um código de resposta entrou ou saiu;
    - uma situação de emissão nova não tem tradução;
+   - a tabela de códigos de erro (`x-codigos`) ganhou ou perdeu um código.
+     O `ERROR_MAP` é tipado pela tabela gerada, então o `tsc` também acusa;
    - os campos de `Erro` ou de `Cofre` mudaram;
    - um exemplo de pedido não passa no próprio schema.
 3. Ajuste o cliente e o provedor, e só então atualize `EXPECTED` no teste.
@@ -57,25 +59,39 @@ e compara com a cópia versionada:
 **Referência.** É `wb.<id do documento>.v<versão>`, derivada da `FiscalKey`
 (`document_id`, `version`). É a mesma em toda tentativa e cabe no padrão do
 contrato (`^[A-Za-z0-9._:-]{1,80}$`).
-- A `version` só sobe para reemitir o documento depois que a nota anterior
-  foi cancelada, rejeitada, denegada ou deu erro.
-- O provedor confere as versões anteriores no cofre antes de emitir. Se uma
-  delas estiver autorizada, em processamento ou indefinida, a emissão para com
-  `409 fiscal_previous_version_open`.
-- Uma versão anterior indefinida é consultada primeiro.
+- **Rejeitada ou com erro:** reenvie o pedido corrigido na **mesma** versão.
+  O cofre aceita conteúdo novo numa referência rejeitada. Pedir a versão
+  seguinte nesse caso dá `409 fiscal_previous_version_reusable`, sem chamar a
+  emissão.
+- **Versão nova (`v<n+1>`):** só depois que a nota da versão anterior foi
+  cancelada, ou denegada (a denegação consome o número).
+- **Antes de emitir,** o provedor confere as versões anteriores no mesmo
+  ambiente. Se uma delas estiver autorizada, em processamento ou indefinida, a
+  emissão para com `409 fiscal_previous_version_open`. Uma versão anterior
+  indefinida é consultada primeiro.
 
-**Corpo congelado.** O corpo do pedido de uma versão não pode mudar entre
-tentativas. O cofre compara o conteúdo: corpo diferente dá `409
-referencia_com_conteudo_diferente`, e isso nunca é repetido. O domínio Fiscal
-precisa guardar o corpo da versão. Atenção a `dataEmissao` gerada na hora:
-fixe-a no corpo guardado ou omita-a.
+**Corpo igual entre tentativas.** O cofre compara o conteúdo: corpo diferente
+na mesma referência dá `409 referencia_com_conteudo_diferente`, e isso nunca é
+repetido. Por isso o domínio Fiscal guarda o corpo da versão. A `dataEmissao`
+**sai do pedido por padrão**:
+- o cofre carimba a hora da emissão no fuso da UF, e ela fica fora da
+  comparação;
+- a NFC-e com data atrasada seria rejeitada.
+
+Com `emit(..., { keep_issue_date: true })` a data vai, e o ERP precisa
+reenviar exatamente a mesma.
+
+**NFS-e indefinida:** não há `/consultar` para ela. Só a repetição do pedido
+com a mesma referência fecha (o cofre consulta antes de reenviar). É o que o
+`emit` faz; `reconcile` existe só para NF-e e NFC-e. A NFapi registra isso
+como lacuna conhecida, sem data.
 
 **Algoritmo de `emit`** (no máximo 3 envios):
 
 | O que voltou | O que o provedor faz |
 |---|---|
 | 201 / 200 | Resultado. `replayed: true` quando o cofre já tinha a nota (200). |
-| Resposta perdida (rede, tempo esgotado, página da Cloudflare) | `GET ?referencia=`. Se a emissão está lá, devolve; se está indefinida, consulta. Só reenvia se a referência não estiver no cofre. |
+| Resposta perdida (rede, tempo esgotado, página da Cloudflare) ou `500 erro_interno` | `GET ?referencia=&ambiente=`. Se a emissão está lá, devolve; se está indefinida, consulta. Só reenvia se a referência não estiver no cofre. |
 | `502 sem_resposta_conclusiva` | `POST /:id/consultar`. Só se continuar indefinida, repete o POST com a mesma referência (o cofre consulta de novo antes de reenviar). |
 | `409 emissao_em_andamento` | Devolve a emissão em processamento. |
 | `409 referencia_com_conteudo_diferente` | Erro para a pessoa, sem repetir. |
@@ -83,7 +99,7 @@ fixe-a no corpo guardado ou omita-a.
 | Tentativas esgotadas, com emissão conhecida | Resultado `undetermined` ou `processing`, com `provider_ref`. O ERP guarda e chama `reconcile` depois. |
 | Tentativas esgotadas, sem emissão | `503 fiscal_provider_unreachable`, `retryable: true`. |
 
-**O que a resposta traz para o cupom (contrato 0.3.1).** Na NF-e e na NFC-e,
+**O que a resposta traz para o cupom (contrato 0.3.1 em diante).** Na NF-e e na NFC-e,
 o resultado traz:
 - `access_key`, `protocol`, `authorized_at` (o `dhRecbto` da SEFAZ);
 - `issued_at` (o `dhEmi`, com o fuso da UF);
@@ -101,6 +117,12 @@ Itens, descontos, pagamentos e troco são os que o ERP enviou, ou estão no
 **Eventos:**
 - **Cancelamento e carta de correção:** uma repetição depois de resposta não
   conclusiva, conferindo antes a situação da nota.
+- **`event_repeated`:** é o `repetido` do cofre (0.3.2). `true` quando o
+  evento já estava registrado e nada novo foi ao governo. Fica `null` quando
+  a resposta se perdeu e o estado foi lido depois. Ele sozinho não decide o
+  efeito no ERP: se a resposta da primeira chamada se perdeu, a segunda vem
+  com `true` e o ERP nunca lançou o efeito. Lance o efeito pelo estado do
+  próprio documento (ainda não está cancelado no ERP? Cancele).
 - **Inutilização:** não se repete sozinha, porque uma faixa repetida pode
   ser recusada pela SEFAZ.
 
@@ -135,12 +157,27 @@ O `FiscalError` estende `ApiError`. Em `details` vêm:
 | `422 emitente_divergente` | `422 fiscal_emitter_mismatch` | não |
 | `422 *_rejeitado(a)`, `nfe_denegada` | `422 fiscal_rejected` / `fiscal_denied` (na emissão, viram resultado) | não |
 | `422 carta_nao_se_aplica` / `limite_de_cartas` | `422 fiscal_correction_not_applicable` / `_limit` | não |
+| `422 producao_bloqueada` | `409 fiscal_production_blocked` | não |
+| `422 certificado_do_cliente_invalido` | `409 fiscal_certificate_rejected` | não |
+| `422 host_nao_permitido` | `502 fiscal_provider_error` | não |
 | `502 sem_resposta_conclusiva` | `503 fiscal_no_conclusive_answer` | sim |
-| `502 container_indisponivel`, `sem_conexao` | `503 fiscal_provider_unavailable` | sim |
-| outro 4xx / outro 5xx | `422 fiscal_provider_rejected` / `503 fiscal_provider_unavailable` | não / sim |
+| `500 erro_interno` | `503 fiscal_provider_unavailable` (na emissão, procura a referência antes) | sim |
+| `503 cofre_nao_configurado` | `409 fiscal_provider_not_ready` | não |
+| `sem_conexao` (só em `mensagem.codigo` do status da SEFAZ) | `503 fiscal_provider_unavailable` | sim |
+| código fora da tabela: 4xx / 5xx | `422 fiscal_provider_rejected` / `503 fiscal_provider_unavailable` | não / sim |
 | sem resposta | `503 fiscal_provider_unreachable` | sim |
 | página `error code: 1042` | `502 fiscal_provider_same_zone` | não |
 | sem emissor | `409 fiscal_provider_not_configured` | não |
+
+A tabela segue `x-codigos` do contrato: 32 códigos com status, em
+`CONTRACT_ERROR_CODES`. Código desconhecido é tratado pelo status HTTP, como
+o contrato pede.
+
+**Formato antigo.** Até a 0.3.1, os erros gerais (`503 cofre_nao_configurado`,
+`404` de rota, `500 erro_interno`) saíam como `{ "error": { "code",
+"message" } }`. O cliente aceita esse formato e o converte, enquanto houver
+cofre antigo instalado. Pode sair quando nenhum cofre anterior à 0.3.2
+estiver em uso.
 
 ## Onde mora a configuração
 
@@ -194,14 +231,14 @@ Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
   "provider": "nfapi",
   "url": "https://nfapi-cofre.sua-conta.workers.dev",
   "api_key_set": true,
-  "contract_version": "0.3.1",          // contrato com que o Wabotia foi escrito
+  "contract_version": "0.3.2",          // contrato com que o Wabotia foi escrito
   "updated": 1763300000000,
   "checked": {                          // null antes do primeiro teste
     "at": 1763300000000, "ok": true,
     "error": null,                      // {code, message, provider_code} quando ok=false
     "state": {
-      "provider": "nfapi", "version": "0.3.1",
-      "update": { "published": "0.3.2", "pending": true },
+      "provider": "nfapi", "version": "0.3.2",
+      "update": { "published": "0.3.3", "pending": true },
       "certificate": { "holder": "EMPRESA LTDA", "document": {"kind": "cnpj", "id": "…"},
                        "valid_until": "2027-03-01T03:00:00.000Z",
                        "days_left": 104 },  // recalculado a cada leitura
@@ -211,9 +248,9 @@ Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
     },
     "series": [{ "kind": "nfce", "environment": "homologacao", "series": 1,
                  "next_number": 1, "description": null, "cnpj": "…" }],
-    "contract": { "pinned": "0.3.1", "vault": "0.3.1", "compatible": true, "differences": [] }
+    "contract": { "pinned": "0.3.2", "vault": "0.3.2", "compatible": true, "differences": [] }
   },
-  "alerts": [ { "code": "vault_outdated", "level": "warning", "message": "…", "version": "0.3.2" } ]
+  "alerts": [ { "code": "vault_outdated", "level": "warning", "message": "…", "version": "0.3.3" } ]
 }
 ```
 
@@ -317,5 +354,12 @@ antes de chamar o cofre, e todo resultado vem com `contingency: null`.
 - **Montar as rotas** em `src/index.ts` e as telas (sessão M).
 - **Flag de compatibilidade** se o cofre puder estar na mesma zona.
 - **PDF (DANFE/DANFCE) e contingência:** a NFapi ainda não tem.
-- **Autorização real numa SEFAZ:** nada foi testado contra cofre real nem
-  SEFAZ. Os testes usam um cofre simulado.
+- **Teste real a partir do Wabotia:** este cliente nunca falou com um cofre
+  real; os testes usam um cofre simulado. Do lado da NFapi, uma NF-e real foi
+  autorizada pela SEFAZ-SP em homologação (cStat 100) em 16/11, com o cofre
+  0.3.1. Carta de correção, cancelamento e NFC-e reais ainda não rodaram.
+  Em homologação, a SEFAZ confere o CNPJ do destinatário na Receita (rejeição
+  181): um teste real precisa de CNPJ existente.
+- **Lacuna do contrato:** `500 erro_interno` e `503 cofre_nao_configurado`
+  estão em `x-codigos`, mas as operações não declaram 500 nem 503. O cliente
+  trata os dois mesmo assim.

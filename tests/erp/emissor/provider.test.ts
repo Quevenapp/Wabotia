@@ -205,6 +205,30 @@ describe("emissão", () => {
     expect((await provider.emit(ctx, "nfce", nfce(), doc())).contingency).toBeNull();
   });
 
+  it("dataEmissao sai do pedido por padrão; keep_issue_date a mantém", async () => {
+    const { ctx, vault } = await vaultArea();
+    const dated = { ...nfe(), dataEmissao: "2026-11-16T10:00:00-03:00" };
+    await provider.emit(ctx, "nfe", dated, doc());
+    expect(vault.calls.at(-1)!.body).not.toHaveProperty("dataEmissao");
+    // Repetir com outra data na mesma chave não vira conteúdo diferente.
+    const key = doc();
+    await provider.emit(ctx, "nfe", dated, key);
+    expect((await provider.emit(ctx, "nfe", { ...dated, dataEmissao: "2026-11-16T10:05:00-03:00" }, key)).replayed).toBe(true);
+    await provider.emit(ctx, "nfe", dated, doc(), { keep_issue_date: true });
+    expect(vault.calls.at(-1)!.body.dataEmissao).toBe("2026-11-16T10:00:00-03:00");
+  });
+
+  it("500 erro_interno depois de emitir: procura a referência, sem segunda nota", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    vault.plan.push("internal");
+    const r = await provider.emit(ctx, "nfce", nfce(), key);
+    expect(r).toMatchObject({ status: "authorized", replayed: true });
+    expect(vault.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(vault.calls.at(-1)!.path).toBe("/v1/nfce");
+    expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
   it("referência do pedido diferente da derivada é recusada antes de chamar o cofre", async () => {
     const { ctx, vault } = await vaultArea();
     const error = await provider.emit(ctx, "nfce", { ...nfce(), referencia: "outra" }, doc()).catch((e) => e);
@@ -214,24 +238,53 @@ describe("emissão", () => {
 });
 
 describe("versões do documento", () => {
-  it("versão 2 só sai com a versão 1 encerrada sem nota válida", async () => {
+  it("rejeitada: reenvia na mesma versão; versão nova só depois de cancelar", async () => {
     const { ctx, vault } = await vaultArea();
     const id = uid();
     vault.plan.push("reject");
     expect((await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 1 })).status).toBe("rejected");
-    const v2 = await provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda v2" }, { document_id: id, version: 2 });
-    expect(v2.status).toBe("authorized");
-    // v3 com a v2 autorizada: recusado, sem POST.
-    const posts = vault.calls.filter((c) => c.method === "POST").length;
-    const error = await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 3 }).catch((e) => e);
-    expect(error).toMatchObject({ status: 409, code: "fiscal_previous_version_open" });
-    expect(error.details.emission).toMatchObject({ status: "authorized", provider_ref: v2.provider_ref });
-    expect(vault.calls.filter((c) => c.method === "POST").length).toBe(posts);
-    // Cancelada a v2, a v3 sai.
-    await provider.cancel(ctx, "nfe", v2.provider_ref, { justification: "Dados do destinatário errados" });
-    expect((await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 3 })).status).toBe("authorized");
+    // v2 com a v1 rejeitada: recusado, sem POST (a v1 aceita o pedido corrigido).
+    const posts = () => vault.calls.filter((c) => c.method === "POST").length;
+    const before = posts();
+    const reuse = await provider
+      .emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda v2" }, { document_id: id, version: 2 })
+      .catch((e) => e);
+    expect(reuse).toMatchObject({ status: 409, code: "fiscal_previous_version_reusable" });
+    expect(reuse.details.emission).toMatchObject({ status: "rejected", reference: `wb.${id}.v1` });
+    expect(posts()).toBe(before);
+    const v1 = await provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, { document_id: id, version: 1 });
+    expect(v1).toMatchObject({ status: "authorized", reference: `wb.${id}.v1` });
+    // v2 com a v1 autorizada: recusado.
+    const open = await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 2 }).catch((e) => e);
+    expect(open).toMatchObject({ status: 409, code: "fiscal_previous_version_open" });
+    expect(open.details.emission).toMatchObject({ status: "authorized", provider_ref: v1.provider_ref });
+    // Cancelada a v1, a v2 sai.
+    await provider.cancel(ctx, "nfe", v1.provider_ref, { justification: "Dados do destinatário errados" });
+    expect((await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 2 })).status).toBe("authorized");
     expect(notesFor(vault, id)).toBe(2);
     expect(vault.validNotes(`wb.${id}.`)).toHaveLength(1);
+  });
+
+  it("denegada consome o número: a versão nova sai sem cancelamento", async () => {
+    const { ctx, vault } = await vaultArea();
+    const id = uid();
+    vault.plan.push("deny");
+    expect((await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 1 })).status).toBe("denied");
+    expect((await provider.emit(ctx, "nfe", nfe(), { document_id: id, version: 2 })).status).toBe("authorized");
+  });
+
+  it("versão anterior de outro ambiente não bloqueia", async () => {
+    const { ctx } = await vaultArea({
+      series: [
+        { modelo: "nfce", ambiente: "homologacao", serie: 1, proximoNumero: 1 },
+        { modelo: "nfce", ambiente: "producao", serie: 1, proximoNumero: 1 },
+      ],
+    });
+    const id = uid();
+    await provider.emit(ctx, "nfce", nfce(), { document_id: id, version: 1 });
+    expect(
+      (await provider.emit(ctx, "nfce", { ...nfce(), ambiente: "producao" }, { document_id: id, version: 2 })).status,
+    ).toBe("authorized");
   });
 
   it("versão anterior indefinida é consultada; autorizada no governo, bloqueia a nova", async () => {
@@ -310,6 +363,26 @@ describe("erros do cofre → erros do ERP", () => {
 });
 
 describe("eventos e leituras", () => {
+  it("event_repeated traz o repetido do cofre no cancelamento e na carta", async () => {
+    const { ctx } = await vaultArea();
+    const r = await provider.emit(ctx, "nfe", nfe(), doc());
+    expect(r.event_repeated).toBeNull();
+    const carta = await provider.correct(ctx, r.provider_ref, "Endereço de entrega: Rua das Acácias, 45");
+    expect(carta.event_repeated).toBe(false);
+    const first = await provider.cancel(ctx, "nfe", r.provider_ref, { justification: "Pedido cancelado pelo cliente" });
+    expect(first).toMatchObject({ status: "cancelled", event_repeated: false });
+    const again = await provider.cancel(ctx, "nfe", r.provider_ref, { justification: "Pedido cancelado pelo cliente" });
+    expect(again).toMatchObject({ status: "cancelled", event_repeated: true });
+  });
+
+  it("resposta do cancelamento perdida: estado lido depois, event_repeated desconhecido", async () => {
+    const { ctx, vault } = await vaultArea();
+    const r = await provider.emit(ctx, "nfce", nfce(), doc());
+    vault.plan.push("lose");
+    const c = await provider.cancel(ctx, "nfce", r.provider_ref, { justification: "Venda desfeita no caixa 1" });
+    expect(c).toMatchObject({ status: "cancelled", replayed: true, event_repeated: null });
+  });
+
   it("cancelamento sem resposta conclusiva: confere e repete uma vez", async () => {
     const { ctx, vault } = await vaultArea();
     const r = await provider.emit(ctx, "nfce", nfce(), doc());
@@ -325,7 +398,7 @@ describe("eventos e leituras", () => {
   });
 
   it("carta de correção, XML, consulta, séries, estado e SEFAZ", async () => {
-    const { ctx } = await vaultArea({ version: "0.3.1", published: "0.3.2" });
+    const { ctx } = await vaultArea({ version: "0.3.2", published: "0.3.3" });
     const r = await provider.emit(ctx, "nfe", nfe(), doc());
     expect((await provider.correct(ctx, r.provider_ref, "Endereço de entrega: Rua das Acácias, 45")).corrections).toBe(1);
     expect(await provider.xml(ctx, "nfe", r.provider_ref)).toContain(r.access_key);
@@ -340,8 +413,8 @@ describe("eventos e leituras", () => {
       cnpj: "99888777000166",
     });
     expect(await provider.state(ctx)).toMatchObject({
-      version: "0.3.1",
-      update: { published: "0.3.2", pending: true },
+      version: "0.3.2",
+      update: { published: "0.3.3", pending: true },
       certificate: { holder: "EMPRESA EXEMPLO LTDA", document: { kind: "cnpj", id: "99888777000166" } },
       documents: { nfse: true, nfce: ["SP"] },
     });

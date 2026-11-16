@@ -1,12 +1,13 @@
 // GERADO por src/erp/emissor/contract/sync.mjs a partir de contract/openapi.json.
 // Não edite à mão: copie o contrato novo e rode o sync (README.md desta pasta).
-// Cofre NFapi 0.3.1 (OpenAPI 3.1.0).
+// Cofre NFapi 0.3.2 (OpenAPI 3.1.0).
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.3.1";
+export const CONTRACT_VERSION = "0.3.2";
 
 export type Erro = {
   erro: {
+    /** Código estável do erro; a tabela está em `x-codigos`. Novos códigos podem surgir em versões novas: trate um código desconhecido pelo status HTTP. */
     codigo: string;
     mensagem: string;
   };
@@ -33,11 +34,17 @@ export type Cabecalho = {
 };
 
 export type PedidoNfe = Cabecalho & {
-  /** minimum: 0; maximum: 889 */
+  /**
+   * Série cadastrada no cofre. Pode ser omitida quando só há uma para o modelo e o ambiente.
+   * minimum: 0; maximum: 889
+   */
   serie?: number;
   /** minLength: 1; maxLength: 60 */
   naturezaOperacao: string;
-  /** pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$ */
+  /**
+   * Prefira omitir: o cofre usa a hora da emissão, no fuso da UF. Se for informada, entra na comparação de conteúdo da referência, e uma NFC-e com data antiga é rejeitada pela SEFAZ.
+   * pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$
+   */
   dataEmissao?: string;
   /** default: normal */
   finalidade?: "normal" | "complementar" | "ajuste" | "devolucao";
@@ -444,11 +451,17 @@ export type PedidoNfe = Cabecalho & {
 };
 
 export type PedidoNfce = Cabecalho & {
-  /** minimum: 0; maximum: 889 */
+  /**
+   * Série cadastrada no cofre. Pode ser omitida quando só há uma para o modelo e o ambiente.
+   * minimum: 0; maximum: 889
+   */
   serie?: number;
   /** minLength: 1; maxLength: 60 */
   naturezaOperacao: string;
-  /** pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$ */
+  /**
+   * Prefira omitir: o cofre usa a hora da emissão, no fuso da UF. Se for informada, entra na comparação de conteúdo da referência, e uma NFC-e com data antiga é rejeitada pela SEFAZ.
+   * pattern: ^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$
+   */
   dataEmissao?: string;
   /** default: normal */
   finalidade?: "normal" | "complementar" | "ajuste" | "devolucao";
@@ -1123,6 +1136,43 @@ export type StatusSefaz = {
   };
   tempoMedioSegundos?: number | null;
 };
+
+/** Códigos de erro do contrato (Erro.erro.codigo, `x-codigos`) e o status HTTP de cada um. */
+export const CONTRACT_ERROR_CODES = {
+  requisicao_invalida: 400,
+  nao_autenticado: 401,
+  chave_somente_homologacao: 403,
+  nao_encontrado: 404,
+  certificado_ausente: 409,
+  certificado_vencido: 409,
+  emissao_em_andamento: 409,
+  referencia_com_conteudo_diferente: 409,
+  numero_ja_utilizado: 409,
+  nfe_nao_autorizada: 409,
+  nfse_nao_autorizada: 409,
+  faixa_em_uso: 409,
+  serie_nao_cadastrada: 422,
+  serie_obrigatoria: 422,
+  uf_nao_suportada: 422,
+  emitente_divergente: 422,
+  producao_bloqueada: 422,
+  nfe_rejeitada: 422,
+  nfe_denegada: 422,
+  nfse_rejeitada: 422,
+  cancelamento_rejeitado: 422,
+  carta_rejeitada: 422,
+  carta_nao_se_aplica: 422,
+  limite_de_cartas: 422,
+  inutilizacao_rejeitada: 422,
+  inutilizacao_extinta: 422,
+  host_nao_permitido: 422,
+  certificado_do_cliente_invalido: 422,
+  sem_resposta_conclusiva: 502,
+  sem_conexao: 200,
+  erro_interno: 500,
+  cofre_nao_configurado: 503,
+} as const;
+export type ContractErrorCode = keyof typeof CONTRACT_ERROR_CODES;
 
 /** Operações do contrato (método e caminho). */
 export const CONTRACT_OPERATIONS = [

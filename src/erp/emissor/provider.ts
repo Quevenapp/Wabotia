@@ -41,6 +41,13 @@ export interface FiscalContingency {
 export interface FiscalEmitOptions {
   /** Emitir em contingência. Provedor sem suporte: 422 fiscal_contingency_not_supported. */
   contingency?: FiscalContingency;
+  /**
+   * Manter a data de emissão do pedido. Padrão: o provedor a retira e o
+   * emissor carimba a hora da emissão (no fuso da UF), o que deixa o corpo
+   * igual entre tentativas e evita a rejeição de NFC-e com data atrasada.
+   * Com `true`, o ERP precisa reenviar exatamente a mesma data.
+   */
+  keep_issue_date?: boolean;
 }
 
 export interface FiscalMessage {
@@ -84,6 +91,15 @@ export interface FiscalResult {
   xml_available: boolean;
   /** true quando a resposta veio de uma emissão anterior com a mesma chave. */
   replayed: boolean;
+  /**
+   * Cancelamento e carta de correção: `repetido` do emissor. true quando o
+   * evento já estava registrado e nada novo foi ao governo; false quando esta
+   * chamada registrou; null fora de evento ou quando a resposta se perdeu e
+   * o estado foi lido depois. Não basta para decidir o efeito no ERP: depois
+   * de uma resposta perdida, a chamada seguinte vem com true. Lance o efeito
+   * pelo estado do próprio documento (ainda não cancelado → cancele).
+   */
+  event_repeated: boolean | null;
   /**
    * Reservado para contingência: quando e por que saiu em contingência e
    * quando foi transmitida. Sempre null hoje.

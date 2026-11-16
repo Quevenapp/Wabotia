@@ -12,7 +12,7 @@
 //    a referência no cofre; só repete se ela não estiver lá.
 // 5. 409 referencia_com_conteudo_diferente nunca é repetido: sobe como erro.
 // 6. Rejeição e denegação voltam como resultado, com as mensagens da SEFAZ.
-import type { EmissaoNfe, EmissaoNfse } from "./contract/types.generated.ts";
+import type { ContractErrorCode, EmissaoNfe, EmissaoNfse } from "./contract/types.generated.ts";
 import { NfapiClient, NfapiError, NfapiTransportError, type NfapiDoc } from "./nfapi.ts";
 import {
   FiscalError,
@@ -63,7 +63,11 @@ export function fiscalReference(key: FiscalKey): string {
   return reference;
 }
 
-export function toResult(kind: FiscalKind, e: EmissaoNfe | EmissaoNfse, replayed = false): FiscalResult {
+export function toResult(
+  kind: FiscalKind,
+  e: (EmissaoNfe | EmissaoNfse) & { repetido?: boolean },
+  replayed = false,
+): FiscalResult {
   const nfe = kind === "nfse" ? null : (e as EmissaoNfe);
   const nfse = kind === "nfse" ? (e as EmissaoNfse) : null;
   return {
@@ -86,6 +90,7 @@ export function toResult(kind: FiscalKind, e: EmissaoNfe | EmissaoNfse, replayed
     messages: (e.mensagens || []).map((m) => ({ code: m.codigo, description: m.descricao })),
     xml_available: !!e.xmlDisponivel,
     replayed,
+    event_repeated: typeof e.repetido === "boolean" ? e.repetido : null,
     contingency: null,
   };
 }
@@ -93,12 +98,18 @@ export function toResult(kind: FiscalKind, e: EmissaoNfe | EmissaoNfse, replayed
 // ---------------------------------------------------------------------------
 // Erros do cofre → erros do ERP
 
-/** Código do cofre → [status HTTP do Wabotia, código do ERP, pode repetir]. */
-export const ERROR_MAP: Record<string, [number, string, boolean]> = {
+/**
+ * Código do cofre → [status HTTP do Wabotia, código do ERP, pode repetir].
+ * As chaves são exatamente a tabela `x-codigos` do contrato (o teste de
+ * contrato confere). Código fora da tabela é tratado pelo status HTTP.
+ */
+export const ERROR_MAP: Record<ContractErrorCode, [number, string, boolean]> = {
   requisicao_invalida: [422, "fiscal_invalid_request", false],
   nao_autenticado: [409, "fiscal_provider_unauthorized", false],
   chave_somente_homologacao: [409, "fiscal_key_homologation_only", false],
+  producao_bloqueada: [409, "fiscal_production_blocked", false],
   host_nao_permitido: [502, "fiscal_provider_error", false],
+  certificado_do_cliente_invalido: [409, "fiscal_certificate_rejected", false],
   nao_encontrado: [404, "fiscal_document_not_found", false],
   referencia_com_conteudo_diferente: [409, "fiscal_reference_conflict", false],
   emissao_em_andamento: [409, "fiscal_in_progress", true],
@@ -115,14 +126,17 @@ export const ERROR_MAP: Record<string, [number, string, boolean]> = {
   emitente_divergente: [422, "fiscal_emitter_mismatch", false],
   nfe_rejeitada: [422, "fiscal_rejected", false],
   nfe_denegada: [422, "fiscal_denied", false],
+  nfse_rejeitada: [422, "fiscal_rejected", false],
   cancelamento_rejeitado: [422, "fiscal_rejected", false],
   carta_rejeitada: [422, "fiscal_rejected", false],
   inutilizacao_rejeitada: [422, "fiscal_rejected", false],
   carta_nao_se_aplica: [422, "fiscal_correction_not_applicable", false],
   limite_de_cartas: [422, "fiscal_correction_limit", false],
   sem_resposta_conclusiva: [503, "fiscal_no_conclusive_answer", true],
-  container_indisponivel: [503, "fiscal_provider_unavailable", true],
+  // Só aparece em GET /v1/sefaz/status, dentro de mensagem.codigo (não é erro HTTP).
   sem_conexao: [503, "fiscal_provider_unavailable", true],
+  erro_interno: [503, "fiscal_provider_unavailable", true],
+  cofre_nao_configurado: [409, "fiscal_provider_not_ready", false],
 };
 
 /** Converte qualquer falha do cliente em FiscalError (preserva o resto). */
@@ -139,7 +153,7 @@ export function fiscalError(error: unknown, kind: FiscalKind | null = null): unk
     return new FiscalError(503, "fiscal_provider_unreachable", error.message, { retryable: true });
   }
   if (error instanceof NfapiError) {
-    const known = ERROR_MAP[error.codigo];
+    const known = (ERROR_MAP as Record<string, [number, string, boolean] | undefined>)[error.codigo];
     const [status, code, retryable] =
       known ?? (error.status >= 500 ? [503, "fiscal_provider_unavailable", true] : [422, "fiscal_provider_rejected", false]);
     const emission = error.emissao;
@@ -193,10 +207,10 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
 
   const nfeLike = (kind: FiscalKind): kind is "nfe" | "nfce" => kind === "nfe" || kind === "nfce";
 
-  /** Emissões da referência (o cofre separa por ambiente). */
-  async function byReference(api: NfapiClient, kind: FiscalKind, reference: string) {
-    return (await api.listar(kind as NfapiDoc, { referencia: reference, limite: 10 })).body.filter(
-      (e) => e.referencia === reference,
+  /** Emissões da referência; a referência é única por ambiente. */
+  async function byReference(api: NfapiClient, kind: FiscalKind, reference: string, ambiente?: FiscalEnvironment) {
+    return (await api.listar(kind as NfapiDoc, { referencia: reference, ambiente, limite: 10 })).body.filter(
+      (e) => e.referencia === reference && (!ambiente || e.ambiente === ambiente),
     );
   }
 
@@ -211,12 +225,25 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
     }
   }
 
-  async function previousVersionsClosed(api: NfapiClient, kind: FiscalKind, key: FiscalKey) {
+  /**
+   * Versão nova só depois de a anterior ser cancelada (ou denegada, que
+   * consome o número). Rejeitada ou com erro, a anterior aceita conteúdo novo
+   * com a mesma referência: reenvie nela. Qualquer versão anterior com nota
+   * válida ou sem conclusão bloqueia.
+   */
+  async function previousVersionsClosed(api: NfapiClient, kind: FiscalKind, key: FiscalKey, ambiente: FiscalEnvironment) {
     for (let version = 1; version < key.version; version++) {
       const reference = fiscalReference({ document_id: key.document_id, version });
-      for (const found of await byReference(api, kind, reference)) {
+      for (const found of await byReference(api, kind, reference, ambiente)) {
         const settled = await settle(api, kind, found);
         const result = toResult(kind, settled);
+        if ((result.status === "rejected" || result.status === "error") && version === key.version - 1)
+          throw new FiscalError(
+            409,
+            "fiscal_previous_version_reusable",
+            `A versão ${version} deste documento foi rejeitada e não virou nota: reenvie o pedido corrigido na versão ${version}. Versão nova só depois de um cancelamento.`,
+            { emission: result, retryable: false },
+          );
         if (OPEN.has(result.status))
           throw new FiscalError(
             409,
@@ -249,11 +276,15 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
         field: "referencia",
       });
     const environment = (request.ambiente ?? "homologacao") as FiscalEnvironment;
-    const body = { ...request, referencia: reference };
+    // dataEmissao entra na comparação de conteúdo do cofre: por padrão sai,
+    // e o cofre carimba a hora da emissão no fuso da UF.
+    const { dataEmissao, ...rest } = request;
+    const body = { ...(options.keep_issue_date && dataEmissao !== undefined ? request : rest), referencia: reference };
     const api = await client(ctx);
-    const mine = (list: (EmissaoNfe | EmissaoNfse)[]) => list.find((e) => e.ambiente === environment) ?? null;
+    const mine = async () =>
+      (await byReference(api, kind, reference, environment).catch(() => [])).find((e) => e.ambiente === environment) ?? null;
     try {
-      await previousVersionsClosed(api, kind, key);
+      await previousVersionsClosed(api, kind, key, environment);
       let last: EmissaoNfe | EmissaoNfse | null = null;
       let lastError: unknown = null;
       for (let attempt = 0; attempt < delays.length; attempt++) {
@@ -263,10 +294,17 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
           return toResult(kind, response.body, response.status === 200);
         } catch (error) {
           lastError = error;
-          if (error instanceof NfapiTransportError) {
-            if (error.kind === "same_zone") throw error;
-            // Resposta perdida: o cofre pode ter emitido. Procura antes de repetir.
-            const found = mine(await byReference(api, kind, reference).catch(() => []));
+          // Resposta perdida, ou falha interna do cofre no meio da emissão:
+          // o cofre pode ter emitido. Procura antes de repetir.
+          const lost =
+            error instanceof NfapiTransportError
+              ? error.kind !== "same_zone"
+              : error instanceof NfapiError &&
+                error.status >= 500 &&
+                error.codigo !== "sem_resposta_conclusiva" &&
+                error.codigo !== "cofre_nao_configurado";
+          if (lost) {
+            const found = await mine();
             if (!found) continue;
             last = await settle(api, kind, found);
             if (last.situacao === "indefinida") continue;
@@ -274,7 +312,9 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
           }
           if (!(error instanceof NfapiError)) throw error;
           if (error.codigo === "sem_resposta_conclusiva") {
-            const pending = error.emissao ?? mine(await byReference(api, kind, reference).catch(() => []));
+            // NF-e/NFC-e: /consultar. NFS-e não tem consulta: só a repetição
+            // com a mesma referência fecha (o cofre consulta antes de reenviar).
+            const pending = error.emissao ?? (await mine());
             if (pending) {
               last = await settle(api, kind, pending);
               if (last.situacao !== "indefinida") return toResult(kind, last, true);
@@ -282,11 +322,10 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
             continue;
           }
           if (error.codigo === "emissao_em_andamento") {
-            const found = mine(await byReference(api, kind, reference));
+            const found = await mine();
             if (found) return toResult(kind, found, true);
             throw error;
           }
-          if (error.codigo === "container_indisponivel" || error.codigo === "sem_conexao") continue;
           // Rejeição, denegação ou erro antes de transmitir: resultado com a emissão.
           if (error.status === 422 && error.emissao) return toResult(kind, error.emissao);
           throw error;
@@ -306,7 +345,7 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
     ctx: FiscalContext,
     kind: FiscalKind,
     ref: string,
-    run: (api: NfapiClient) => Promise<EmissaoNfe | EmissaoNfse>,
+    run: (api: NfapiClient) => Promise<(EmissaoNfe | EmissaoNfse) & { repetido?: boolean }>,
     done: (e: EmissaoNfe | EmissaoNfse, before: EmissaoNfe | EmissaoNfse | null) => boolean,
   ) {
     const api = await client(ctx);

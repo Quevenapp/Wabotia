@@ -78,7 +78,7 @@ describe("cliente NFapi", () => {
       { modelo: "nfe", ambiente: "homologacao", serie: 1, proximoNumero: 1, descricao: null, cnpj: "99888777000166" },
       { modelo: "nfce", ambiente: "homologacao", serie: 1, proximoNumero: 1, descricao: null, cnpj: "99888777000166" },
     ]);
-    expect((await api.cofre()).body).toMatchObject({ versao: "0.3.1", certificado: { titular: "EMPRESA EXEMPLO LTDA" } });
+    expect((await api.cofre()).body).toMatchObject({ versao: "0.3.2", certificado: { titular: "EMPRESA EXEMPLO LTDA" } });
     const status = await api.sefazStatus({ uf: "RS", modelo: "nfe", ambiente: "homologacao" }).catch((e) => e);
     expect(status).toBeInstanceOf(NfapiError);
     expect((await api.sefazStatus({ uf: "SC" })).body).toMatchObject({ emOperacao: true, autorizador: "SVRS" });
@@ -137,6 +137,26 @@ describe("cliente NFapi", () => {
         ) as Promise<Response>,
     });
     expect(await slow.cofre().catch((e) => e)).toMatchObject({ kind: "timeout" });
+  });
+
+  it("lista por referência e ambiente", async () => {
+    const { api, vault } = setup();
+    await api.emitir("nfce", requestExample("POST", "/v1/nfce"));
+    expect((await api.listar("nfce", { referencia: "caixa1-venda-5001", ambiente: "producao" })).body).toEqual([]);
+    expect((await api.listar("nfce", { referencia: "caixa1-venda-5001", ambiente: "homologacao" })).body).toHaveLength(1);
+    expect(vault.calls.at(-1)!.path).toBe("/v1/nfce");
+  });
+
+  it("aceita o formato antigo dos erros gerais ({ error: { code, message } }, cofre até 0.3.1)", async () => {
+    const api = new NfapiClient({
+      url: VAULT_URL,
+      apiKey: "nfapi_x_0123456789",
+      fetch: async () =>
+        Response.json({ error: { code: "cofre_nao_configurado", message: "Instalação incompleta." } }, { status: 503 }),
+    });
+    const error = await api.cofre().catch((e) => e);
+    expect(error).toBeInstanceOf(NfapiError);
+    expect(error).toMatchObject({ status: 503, codigo: "cofre_nao_configurado", message: "Instalação incompleta." });
   });
 
   it("não segue redirecionamento nem manda o id sem codificar", async () => {

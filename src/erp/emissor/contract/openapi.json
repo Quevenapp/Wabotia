@@ -2,7 +2,7 @@
 	"openapi": "3.1.0",
 	"info": {
 		"title": "Cofre NFapi",
-		"version": "0.3.1",
+		"version": "0.3.2",
 		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
 		"license": {
 			"name": "MIT"
@@ -269,7 +269,19 @@
 						"schema": {
 							"type": "string"
 						},
-						"description": "Pesquisa pela referência do seu sistema."
+						"description": "Pesquisa pela referência do seu sistema. A referência é única por ambiente: combine com `ambiente`."
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						},
+						"description": "Só as emissões deste ambiente. Sem o filtro, vêm as dos dois."
 					},
 					{
 						"name": "limite",
@@ -510,11 +522,27 @@
 				},
 				"responses": {
 					"200": {
-						"description": "Cancelada.",
+						"description": "Cancelada, agora ou antes (`repetido`).",
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/EmissaoNfe"
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/EmissaoNfe"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"repetido": {
+													"type": "boolean",
+													"description": "true quando o evento já estava registrado e nada novo foi enviado ao governo. Use para não lançar o efeito duas vezes."
+												}
+											},
+											"required": [
+												"repetido"
+											]
+										}
+									]
 								}
 							}
 						}
@@ -629,7 +657,23 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/EmissaoNfe"
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/EmissaoNfe"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"repetido": {
+													"type": "boolean",
+													"description": "true quando o evento já estava registrado e nada novo foi enviado ao governo. Use para não lançar o efeito duas vezes."
+												}
+											},
+											"required": [
+												"repetido"
+											]
+										}
+									]
 								}
 							}
 						}
@@ -868,7 +912,19 @@
 						"schema": {
 							"type": "string"
 						},
-						"description": "Pesquisa pela referência do seu sistema."
+						"description": "Pesquisa pela referência do seu sistema. A referência é única por ambiente: combine com `ambiente`."
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						},
+						"description": "Só as emissões deste ambiente. Sem o filtro, vêm as dos dois."
 					},
 					{
 						"name": "limite",
@@ -1109,11 +1165,27 @@
 				},
 				"responses": {
 					"200": {
-						"description": "Cancelada.",
+						"description": "Cancelada, agora ou antes (`repetido`).",
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/EmissaoNfe"
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/EmissaoNfe"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"repetido": {
+													"type": "boolean",
+													"description": "true quando o evento já estava registrado e nada novo foi enviado ao governo. Use para não lançar o efeito duas vezes."
+												}
+											},
+											"required": [
+												"repetido"
+											]
+										}
+									]
 								}
 							}
 						}
@@ -1334,7 +1406,19 @@
 						"schema": {
 							"type": "string"
 						},
-						"description": "Pesquisa pela referência do seu sistema."
+						"description": "Pesquisa pela referência do seu sistema. A referência é única por ambiente: combine com `ambiente`."
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						},
+						"description": "Só as emissões deste ambiente. Sem o filtro, vêm as dos dois."
 					},
 					{
 						"name": "limite",
@@ -1513,11 +1597,27 @@
 				},
 				"responses": {
 					"200": {
-						"description": "Cancelada.",
+						"description": "Cancelada, agora ou antes (`repetido`).",
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/EmissaoNfse"
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/EmissaoNfse"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"repetido": {
+													"type": "boolean",
+													"description": "true quando o evento já estava registrado e nada novo foi enviado ao governo. Use para não lançar o efeito duas vezes."
+												}
+											},
+											"required": [
+												"repetido"
+											]
+										}
+									]
 								}
 							}
 						}
@@ -1601,7 +1701,7 @@
 					"Numeração"
 				],
 				"summary": "Inutiliza uma faixa de numeração de NF-e ou NFC-e",
-				"description": "Para números que não serão usados (lacunas). A faixa não pode conter nota autorizada ou em andamento neste cofre.",
+				"description": "Para números que não serão usados (lacunas). A faixa não pode conter nota autorizada ou em andamento neste cofre. Em SP, AC e BA a inutilização foi extinta: o cofre responde 422 inutilizacao_extinta.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -1612,7 +1712,7 @@
 							"example": {
 								"modelo": "nfe",
 								"ambiente": "homologacao",
-								"uf": "SP",
+								"uf": "RJ",
 								"serie": 1,
 								"numeroInicial": 15,
 								"numeroFinal": 15,
@@ -1902,7 +2002,138 @@
 						"type": "object",
 						"properties": {
 							"codigo": {
-								"type": "string"
+								"type": "string",
+								"description": "Código estável do erro; a tabela está em `x-codigos`. Novos códigos podem surgir em versões novas: trate um código desconhecido pelo status HTTP.",
+								"x-codigos": {
+									"requisicao_invalida": {
+										"status": 400,
+										"quando": "O corpo ou um parâmetro não passou na validação; `mensagem` (e `campo`, na NF-e e NFC-e) aponta onde."
+									},
+									"nao_autenticado": {
+										"status": 401,
+										"quando": "Chave de API ausente, inválida ou revogada."
+									},
+									"chave_somente_homologacao": {
+										"status": 403,
+										"quando": "A chave é de teste e o pedido é de produção."
+									},
+									"nao_encontrado": {
+										"status": 404,
+										"quando": "Emissão, XML ou rota inexistente."
+									},
+									"certificado_ausente": {
+										"status": 409,
+										"quando": "Não há certificado instalado no cofre."
+									},
+									"certificado_vencido": {
+										"status": 409,
+										"quando": "O certificado instalado venceu."
+									},
+									"emissao_em_andamento": {
+										"status": 409,
+										"quando": "Já há um pedido com a mesma referência em andamento. Aguarde e consulte."
+									},
+									"referencia_com_conteudo_diferente": {
+										"status": 409,
+										"quando": "A referência já foi usada com outro conteúdo. Não repita: é um documento novo ou um erro do chamador."
+									},
+									"numero_ja_utilizado": {
+										"status": 409,
+										"quando": "NFS-e: o número informado no pedido já foi usado na série."
+									},
+									"nfe_nao_autorizada": {
+										"status": 409,
+										"quando": "Cancelamento ou carta de correção de NF-e/NFC-e que não está autorizada."
+									},
+									"nfse_nao_autorizada": {
+										"status": 409,
+										"quando": "Cancelamento de NFS-e que não está autorizada."
+									},
+									"faixa_em_uso": {
+										"status": 409,
+										"quando": "Inutilização de faixa que contém nota autorizada ou em andamento."
+									},
+									"serie_nao_cadastrada": {
+										"status": 422,
+										"quando": "A série do pedido não está cadastrada no cofre para o modelo e o ambiente."
+									},
+									"serie_obrigatoria": {
+										"status": 422,
+										"quando": "Há mais de uma série cadastrada e o pedido não disse qual."
+									},
+									"uf_nao_suportada": {
+										"status": 422,
+										"quando": "O cofre ainda não tem autorizador para a UF do emitente."
+									},
+									"emitente_divergente": {
+										"status": 422,
+										"quando": "O emitente não é o titular do certificado nem uma filial de mesma raiz de CNPJ."
+									},
+									"producao_bloqueada": {
+										"status": 422,
+										"quando": "O pedido é de produção e o emitente não liberou a produção no cofre."
+									},
+									"nfe_rejeitada": {
+										"status": 422,
+										"quando": "A SEFAZ rejeitou a nota; `mensagens` traz cStat e xMotivo. Corrija e reenvie, com a mesma referência se quiser."
+									},
+									"nfe_denegada": {
+										"status": 422,
+										"quando": "A SEFAZ denegou o uso da nota. O número fica consumido."
+									},
+									"nfse_rejeitada": {
+										"status": 422,
+										"quando": "A SEFIN rejeitou a NFS-e; `mensagens` traz os códigos."
+									},
+									"cancelamento_rejeitado": {
+										"status": 422,
+										"quando": "O governo rejeitou o cancelamento (por exemplo, fora do prazo)."
+									},
+									"carta_rejeitada": {
+										"status": 422,
+										"quando": "A SEFAZ rejeitou a carta de correção."
+									},
+									"carta_nao_se_aplica": {
+										"status": 422,
+										"quando": "Carta de correção pedida para documento que não é NF-e."
+									},
+									"limite_de_cartas": {
+										"status": 422,
+										"quando": "A nota já tem 20 cartas de correção."
+									},
+									"inutilizacao_rejeitada": {
+										"status": 422,
+										"quando": "A SEFAZ rejeitou a inutilização."
+									},
+									"inutilizacao_extinta": {
+										"status": 422,
+										"quando": "A UF não tem mais inutilização de numeração (SP, AC e BA)."
+									},
+									"host_nao_permitido": {
+										"status": 422,
+										"quando": "Falha interna: o cofre recusou transmitir para um endereço que não é do governo."
+									},
+									"certificado_do_cliente_invalido": {
+										"status": 422,
+										"quando": "O governo recusou o certificado na conexão."
+									},
+									"sem_resposta_conclusiva": {
+										"status": 502,
+										"quando": "A resposta do governo se perdeu ou não foi conclusiva. Na NF-e e NFC-e, chame /consultar; em qualquer documento, repetir com a mesma referência consulta antes de reenviar."
+									},
+									"sem_conexao": {
+										"status": 200,
+										"quando": "Só em GET /v1/sefaz/status, dentro de `mensagem.codigo`: não foi possível falar com a SEFAZ."
+									},
+									"erro_interno": {
+										"status": 500,
+										"quando": "Falha inesperada do cofre."
+									},
+									"cofre_nao_configurado": {
+										"status": 503,
+										"quando": "O segredo do cofre está ausente ou é fraco demais: a instalação não foi concluída."
+									}
+								}
 							},
 							"mensagem": {
 								"type": "string"
@@ -1980,6 +2211,7 @@
 						"type": "object",
 						"properties": {
 							"serie": {
+								"description": "Série cadastrada no cofre. Pode ser omitida quando só há uma para o modelo e o ambiente.",
 								"type": "integer",
 								"minimum": 0,
 								"maximum": 889
@@ -1990,6 +2222,7 @@
 								"maxLength": 60
 							},
 							"dataEmissao": {
+								"description": "Prefira omitir: o cofre usa a hora da emissão, no fuso da UF. Se for informada, entra na comparação de conteúdo da referência, e uma NFC-e com data antiga é rejeitada pela SEFAZ.",
 								"type": "string",
 								"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
 							},
@@ -3360,6 +3593,7 @@
 						"type": "object",
 						"properties": {
 							"serie": {
+								"description": "Série cadastrada no cofre. Pode ser omitida quando só há uma para o modelo e o ambiente.",
 								"type": "integer",
 								"minimum": 0,
 								"maximum": 889
@@ -3370,6 +3604,7 @@
 								"maxLength": 60
 							},
 							"dataEmissao": {
+								"description": "Prefira omitir: o cofre usa a hora da emissão, no fuso da UF. Se for informada, entra na comparação de conteúdo da referência, e uma NFC-e com data antiga é rejeitada pela SEFAZ.",
 								"type": "string",
 								"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
 							},

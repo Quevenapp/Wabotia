@@ -8,11 +8,16 @@ import typesSource from "../../../src/erp/emissor/contract/types.generated.ts?ra
 import {
   compatibleVersion,
   contractDiff,
+  errorCodesOf,
   generateTypes,
   operationsOf,
   type OpenApi,
 } from "../../../src/erp/emissor/contract/generate.ts";
-import { CONTRACT_OPERATIONS, CONTRACT_VERSION } from "../../../src/erp/emissor/contract/types.generated.ts";
+import {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_OPERATIONS,
+  CONTRACT_VERSION,
+} from "../../../src/erp/emissor/contract/types.generated.ts";
 import { CLIENT_OPERATIONS } from "../../../src/erp/emissor/nfapi.ts";
 import { ERROR_MAP, KNOWN_SITUACOES } from "../../../src/erp/emissor/nfapi-provider.ts";
 import { requestExample, requestSchema, validate } from "./schema";
@@ -22,7 +27,7 @@ const clone = () => structuredClone(spec) as OpenApi;
 
 /** Contrato conhecido por este cliente. Mudou? Revise o cliente e atualize. */
 const EXPECTED = {
-  version: "0.3.1",
+  version: "0.3.2",
   operations: {
     "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "502"],
     "GET /v1/nfe": ["200", "401"],
@@ -52,6 +57,41 @@ const EXPECTED = {
     EmissaoNfe: ["processando", "autorizada", "rejeitada", "denegada", "erro", "indefinida", "cancelada"],
     EmissaoNfse: ["processando", "autorizada", "rejeitada", "erro", "indefinida", "cancelada"],
   },
+  /** Tabela x-codigos: código → status. Código novo ou removido falha aqui. */
+  errors: {
+    requisicao_invalida: 400,
+    nao_autenticado: 401,
+    chave_somente_homologacao: 403,
+    nao_encontrado: 404,
+    certificado_ausente: 409,
+    certificado_vencido: 409,
+    emissao_em_andamento: 409,
+    referencia_com_conteudo_diferente: 409,
+    numero_ja_utilizado: 409,
+    nfe_nao_autorizada: 409,
+    nfse_nao_autorizada: 409,
+    faixa_em_uso: 409,
+    serie_nao_cadastrada: 422,
+    serie_obrigatoria: 422,
+    uf_nao_suportada: 422,
+    emitente_divergente: 422,
+    producao_bloqueada: 422,
+    nfe_rejeitada: 422,
+    nfe_denegada: 422,
+    nfse_rejeitada: 422,
+    cancelamento_rejeitado: 422,
+    carta_rejeitada: 422,
+    carta_nao_se_aplica: 422,
+    limite_de_cartas: 422,
+    inutilizacao_rejeitada: 422,
+    inutilizacao_extinta: 422,
+    host_nao_permitido: 422,
+    certificado_do_cliente_invalido: 422,
+    sem_resposta_conclusiva: 502,
+    sem_conexao: 200,
+    erro_interno: 500,
+    cofre_nao_configurado: 503,
+  } as Record<string, number>,
   /** Campos de Erro que o cliente lê. */
   erro: ["erro", "campo", "nfe", "nfce", "nfse", "mensagens"],
   /** Campos de Cofre que o painel mostra. */
@@ -120,6 +160,23 @@ describe("contrato do cofre NFapi", () => {
   it("a referência derivada do documento cabe no padrão do contrato", () => {
     const pattern = new RegExp(spec.components.schemas.Cabecalho.properties.referencia.pattern);
     expect(pattern.test("wb.0b5c3f0e-3c6a-4bb0-9a1e-7d1f2b3c4d5e.v9999")).toBe(true);
+  });
+
+  it("a tabela de códigos de erro (x-codigos) é a conhecida e o provedor mapeia todos", () => {
+    expect(errorCodesOf(spec)).toEqual(EXPECTED.errors);
+    expect(CONTRACT_ERROR_CODES).toEqual(EXPECTED.errors);
+    expect(Object.keys(ERROR_MAP).sort()).toEqual(Object.keys(EXPECTED.errors).sort());
+  });
+
+  it("listas filtram por referência e ambiente; eventos dizem se já existiam", () => {
+    for (const doc of ["nfe", "nfce", "nfse"]) {
+      const params = spec.paths[`/v1/${doc}`].get.parameters.map((p: any) => p.name);
+      expect(params, doc).toEqual(["referencia", "ambiente", "limite"]);
+    }
+    for (const path of ["/v1/nfe/{id}/cancelar", "/v1/nfce/{id}/cancelar", "/v1/nfse/{id}/cancelar", "/v1/nfe/{id}/carta-correcao"]) {
+      const schema = spec.paths[path].post.responses["200"].content["application/json"].schema;
+      expect(schema.allOf[1].required, path).toEqual(["repetido"]);
+    }
   });
 
   it("os códigos de erro mapeados incluem os casos conhecidos", () => {

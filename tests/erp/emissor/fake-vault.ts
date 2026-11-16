@@ -13,12 +13,13 @@
 //   "deny"          uso denegado: 422 nfe_denegada
 //   "gateway"       o cofre processa e a Cloudflare devolve HTML 502
 //   "same-zone"     página "error code: 1042" (não chega ao cofre)
+//   "internal"      o cofre emite e responde 500 erro_interno
 // `sefaz.get(referencia)` decide o que o governo sabe de uma emissão indefinida:
 //   "authorized" (padrão), "absent" (nunca recebeu) ou "unknown".
 import { expect } from "vitest";
 import { operation, responseSchema, validate, requestSchema } from "./schema";
 
-export type Behavior = "ok" | "lose" | "drop" | "inconclusive" | "reject" | "deny" | "gateway" | "same-zone";
+export type Behavior = "ok" | "lose" | "drop" | "inconclusive" | "reject" | "deny" | "gateway" | "same-zone" | "internal";
 type Doc = "nfe" | "nfce" | "nfse";
 type Env = "homologacao" | "producao";
 
@@ -155,7 +156,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     if (s && s.proximoNumero === e.numero + 1) s.proximoNumero = e.numero;
   }
 
-  type Out = { status: number; body?: unknown; text?: string; type?: string; lose?: boolean };
+  type Out = { status: number; body?: unknown; text?: string; type?: string; lose?: boolean; undeclared?: boolean };
 
   function emit(doc: Doc, body: any, behavior: Behavior): Out {
     const ambiente: Env = body.ambiente ?? "homologacao";
@@ -265,6 +266,10 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     }
     authorize(e);
     if (behavior === "lose") return { status: 201, body: view(e), lose: true };
+    // erro_interno está na tabela x-codigos (500), mas as operações não
+    // declaram 500: fica fora da conferência de status.
+    if (behavior === "internal")
+      return { status: 500, body: erro("erro_interno", "Falha inesperada do cofre."), undeclared: true };
     if (behavior === "gateway") return { status: 502, text: "<html>502 Bad Gateway</html>", type: "text/html" };
     return { status: 201, body: view(e) };
   }
@@ -277,8 +282,8 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       return {
         status: 200,
         body: {
-          versao: options.version ?? "0.3.1",
-          atualizacao: { versaoPublicada: options.published ?? options.version ?? "0.3.1", pendente: !!options.published && options.published !== (options.version ?? "0.3.1") },
+          versao: options.version ?? "0.3.2",
+          atualizacao: { versaoPublicada: options.published ?? options.version ?? "0.3.2", pendente: !!options.published && options.published !== (options.version ?? "0.3.2") },
           certificado: until
             ? {
                 titular: "EMPRESA EXEMPLO LTDA",
@@ -346,8 +351,9 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         return emit(doc, body, behavior);
       }
       const ref = query.get("referencia");
+      const amb = query.get("ambiente");
       const list = [...emissions.values()]
-        .filter((e) => e.doc === doc && (!ref || e.referencia === ref))
+        .filter((e) => e.doc === doc && (!ref || e.referencia === ref) && (!amb || e.ambiente === amb))
         .reverse()
         .slice(0, Number(query.get("limite") || 50))
         .map(view);
@@ -367,21 +373,21 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     if (action === "cancelar" && method === "POST") {
       const behavior = plan.shift() ?? "ok";
       if (behavior === "drop") throw new TypeError("network connection lost");
-      if (e.situacao === "cancelada") return { status: 200, body: view(e) };
+      if (e.situacao === "cancelada") return { status: 200, body: { ...view(e), repetido: true } };
       if (e.situacao !== "autorizada")
         return { status: 409, body: erro(doc === "nfse" ? "nfse_nao_autorizada" : "nfe_nao_autorizada", "Só é possível cancelar uma nota autorizada.") };
       if (behavior === "inconclusive")
         return { status: 502, body: erro("sem_resposta_conclusiva", "Sem resposta.", { mensagens: [{ codigo: "sem_resposta_conclusiva", descricao: "Sem resposta." }] }) };
       e.situacao = "cancelada";
       e.mensagens = [{ codigo: "135", descricao: "Evento registrado e vinculado a NF-e" }];
-      return { status: 200, body: view(e), lose: behavior === "lose" };
+      return { status: 200, body: { ...view(e), repetido: false }, lose: behavior === "lose" };
     }
     if (action === "carta-correcao" && method === "POST" && doc === "nfe") {
       const behavior = plan.shift() ?? "ok";
       if (e.situacao !== "autorizada") return { status: 409, body: erro("nfe_nao_autorizada", "Só é possível corrigir uma nota autorizada.") };
       if (e.cartas >= 20) return { status: 422, body: erro("limite_de_cartas", "A nota já tem o máximo de 20 cartas de correção.") };
       e.cartas++;
-      return { status: 200, body: view(e), lose: behavior === "lose" };
+      return { status: 200, body: { ...view(e), repetido: false }, lose: behavior === "lose" };
     }
     return { status: 404, body: erro("nao_encontrado", "Rota desconhecida.") };
   }
@@ -419,7 +425,8 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       if (out.lose) throw new TypeError("network connection lost");
       return new Response(out.text, { status: out.status, headers: { "Content-Type": out.type || "text/plain" } });
     }
-    if (opPath !== "/v1/openapi.json") {
+    if (out.undeclared) expect(validate({ $ref: "#/components/schemas/Erro" }, out.body, "$", true)).toEqual([]);
+    else if (opPath !== "/v1/openapi.json") {
       const rs = responseSchema(method, opPath, out.status);
       expect(rs, `${method} ${opPath} não declara HTTP ${out.status}`).not.toBeUndefined();
       if (rs) expect(validate(rs, out.body, "$", true), `${method} ${opPath} ${out.status} fora do contrato`).toEqual([]);

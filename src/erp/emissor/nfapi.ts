@@ -89,6 +89,21 @@ const isErro = (value: unknown): value is Erro =>
   typeof (value as Erro).erro.codigo === "string" &&
   typeof (value as Erro).erro.mensagem === "string";
 
+/**
+ * Formato antigo dos erros gerais do cofre (até 0.3.1: 503
+ * cofre_nao_configurado, 404 de rota, 500 erro_interno saíam como
+ * `{ error: { code, message } }`). Aceito enquanto houver cofre antigo
+ * instalado; a 0.3.2 usa `{ erro: { codigo, mensagem } }` em tudo.
+ */
+function legacyErro(value: unknown): Erro | null {
+  const e = (value as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+  if (!e || typeof e.code !== "string") return null;
+  return { erro: { codigo: e.code, mensagem: typeof e.message === "string" ? e.message : e.code } };
+}
+
+/** Cancelamento e carta de correção: a emissão e se o evento já existia. */
+export type ComRepetido<T> = T & { repetido: boolean };
+
 /** Caminho do contrato com os parâmetros preenchidos. */
 function fill(template: string, params: Record<string, string>) {
   return template.replace(/\{(\w+)\}/g, (_, name: string) => {
@@ -173,6 +188,8 @@ export class NfapiClient {
     }
     if (!response.ok) {
       if (isErro(parsed)) throw new NfapiError(response.status, parsed);
+      const legacy = legacyErro(parsed);
+      if (legacy) throw new NfapiError(response.status, legacy);
       throw new NfapiTransportError(
         "bad_response",
         `O cofre respondeu HTTP ${response.status} sem o corpo de erro do contrato.`,
@@ -187,9 +204,12 @@ export class NfapiClient {
   emitir<K extends NfapiDoc>(doc: K, pedido: Pedido<K>) {
     return this.call<Emissao<K>>(`POST /v1/${doc}` as ContractOperation, { body: pedido });
   }
-  async listar<K extends NfapiDoc>(doc: K, filtro: { referencia?: string; limite?: number } = {}) {
+  async listar<K extends NfapiDoc>(
+    doc: K,
+    filtro: { referencia?: string; ambiente?: "homologacao" | "producao"; limite?: number } = {},
+  ) {
     const r = await this.call<Record<string, Emissao<K>[]>>(`GET /v1/${doc}` as ContractOperation, {
-      query: { referencia: filtro.referencia, limite: filtro.limite },
+      query: { referencia: filtro.referencia, ambiente: filtro.ambiente, limite: filtro.limite },
     });
     return { status: r.status, body: Array.isArray(r.body?.[doc]) ? r.body[doc] : [] };
   }
@@ -204,13 +224,13 @@ export class NfapiClient {
     return this.call<EmissaoNfe>(`POST /v1/${doc}/{id}/consultar` as ContractOperation, { params: { id } });
   }
   cancelar<K extends NfapiDoc>(doc: K, id: string, pedido: K extends "nfse" ? CancelamentoNfse : CancelamentoNfe) {
-    return this.call<Emissao<K>>(`POST /v1/${doc}/{id}/cancelar` as ContractOperation, {
+    return this.call<ComRepetido<Emissao<K>>>(`POST /v1/${doc}/{id}/cancelar` as ContractOperation, {
       params: { id },
       body: pedido,
     });
   }
   cartaCorrecao(id: string, pedido: CartaCorrecao) {
-    return this.call<EmissaoNfe>("POST /v1/nfe/{id}/carta-correcao", { params: { id }, body: pedido });
+    return this.call<ComRepetido<EmissaoNfe>>("POST /v1/nfe/{id}/carta-correcao", { params: { id }, body: pedido });
   }
   inutilizar(pedido: Inutilizacao) {
     return this.call<InutilizacaoRegistrada>("POST /v1/inutilizacoes", { body: pedido });

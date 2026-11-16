@@ -163,6 +163,14 @@ export function typeOf(schema: Schema, indent = ""): string {
   return "unknown";
 }
 
+/** Tabela de códigos de erro (`x-codigos` em Erro.erro.codigo): código → status HTTP. */
+export function errorCodesOf(spec: OpenApi): Record<string, number> {
+  const table = spec.components.schemas.Erro?.properties?.erro?.properties?.codigo?.["x-codigos"] ?? {};
+  return Object.fromEntries(
+    Object.entries<any>(table).map(([code, info]) => [code, Number(info?.status) || 0]),
+  );
+}
+
 /** Fonte de types.generated.ts. Determinística: mesmo contrato, mesmo texto. */
 export function generateTypes(spec: OpenApi): string {
   const out: string[] = [
@@ -177,6 +185,11 @@ export function generateTypes(spec: OpenApi): string {
   for (const [name, schema] of Object.entries(spec.components.schemas)) {
     out.push(`${doc(schema, "")}export type ${name} = ${typeOf(schema)};`, "");
   }
+  out.push("/** Códigos de erro do contrato (Erro.erro.codigo, `x-codigos`) e o status HTTP de cada um. */");
+  out.push("export const CONTRACT_ERROR_CODES = {");
+  for (const [code, status] of Object.entries(errorCodesOf(spec))) out.push(`  ${propName(code)}: ${status},`);
+  out.push("} as const;");
+  out.push("export type ContractErrorCode = keyof typeof CONTRACT_ERROR_CODES;", "");
   out.push("/** Operações do contrato (método e caminho). */");
   out.push("export const CONTRACT_OPERATIONS = [");
   for (const op of operationsOf(spec)) out.push(`  ${literal(op.key)},`);
@@ -195,7 +208,8 @@ export function contractShape(spec: OpenApi) {
     if (!value || typeof value !== "object") return value;
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value).sort()) {
-      if (["description", "example", "examples", "summary", "title"].includes(key)) continue;
+      // `quando` é o texto de cada código em x-codigos.
+      if (["description", "example", "examples", "summary", "title", "quando"].includes(key)) continue;
       out[key] = strip((value as Record<string, unknown>)[key]);
     }
     return out;
