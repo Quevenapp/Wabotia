@@ -754,6 +754,45 @@ O que não sai do ERP sem reescrita:
   - bloqueio de CNAB;
   - `origin_stock`.
 
+**Insumos do painel (sessão M) e decisões**
+
+1. **Trava de posse.** No banco também não existe trava por bloco: só por registro.
+   - O documento espelho (`authority='origin'`) é barrado por `guard_document`/`guard_item` e pelo `guard_effect` em 31 tabelas de efeito. Entre elas estão os lançamentos de estoque e os títulos do documento espelho. O estoque e o financeiro nativos ficam livres.
+   - O documento convertido no Bling é barrado por `erp_sync.origin_locked`, que lê o payload do Bling.
+   - O título importado tem campos travados (`erp_finance.guard_origin_import_title`). É travado por registro, sem ramo próprio no painel: a recusa aparece como conflito comum.
+
+   Por isso o painel bate com o banco. Uma trava de **bloco** para estoque e financeiro na convivência é funcionalidade nova, e de pequeno porte:
+   - a tabela `integration_ownership(block)`;
+   - a conferência no despacho de RPC, com a classificação de escrita por RPC que já existe no inventário de rotas;
+   - o erro 409 e os testes;
+   - ao todo, ~0,3–0,5 mil linhas.
+
+   **Não dá para deixar só no componente.** Ele não impede edição local no ERP; só o ERP pode recusar. Proposta: entra no contrato genérico na última etapa, valendo para os quatro blocos. A trava por registro do título importado vira uma marca no vínculo externo, com o mesmo conjunto de campos.
+2. **Saldo de abertura.** `opening_command`, `opening_receipt` e `erp_stock_opening_{apply,batch,command,page,warehouses}` saem com o Origin.
+   - Só servem à adoção do saldo do Bling: exigem um depósito do Origin vinculado (FK para `erp_warehouse_import.binding`).
+   - Não viram abertura genérica. A empresa nova lança pelo "Lançamentos de estoque" (`erp_stock_post`, ajuste com data) ou pela planilha.
+   - O importador externo lê o saldo atual e lança a diferença com a versão (`expected_version`), na data que quiser.
+3. **Espelhos com dados próprios do Origin.** A lista do motor bate com a do painel:
+
+| Painel | RPCs que saem |
+|---|---|
+| `DocumentMirrorView`, `DocumentOriginTotals` | `erp_document_mirror_project` |
+| `OriginMirrorPanel` (contato e produto) | `erp_catalog_origin_mirror_get` |
+| `StockOriginMirror` | `erp_stock_mirror_list`, `_project`, `_product_summary` |
+| `OriginProductDeletions` | `erp_catalog_origin_deletions`, `_deletion_apply` |
+| `OriginCatalogSync` | `erp_catalog_import_sources`, `_preview`, `_apply` |
+| `OriginCategorySync` | `erp_catalog_origin_categories`, `_categories_sync` |
+| `FiscalMirrorCoverage` | `erp_fiscal_mirror_project` |
+| `FiscalOriginInvoiceView` | `erp_fiscal_invoice_origin_get`, `erp_synced_xml_list`, `_object`, `erp_history_xml`, `_xml_object` |
+
+   - **Os outros RPCs que saem** batem com as telas que a M já removeu: `erp_cutover_*`, `erp_origin_*` (importação financeira, prontidão de vendas e compras, histórico de vendas, depósitos, observações de estoque, progresso), `erp_sync_*`, `erp_read_records`, `erp_history_backups` e `erp_itau_legacy_readiness`. São 62 RPCs ao todo.
+   - **Campos que ficam como constante**, para não mudar a forma das respostas:
+     - `origin_stock` na lista de produtos: `null`;
+     - a cobertura dos relatórios: a constante `native_effects_only`;
+     - `document.origin`/`authority`: `'brufap'`.
+
+     O painel pode tirá-los quando quiser.
+
 **O que o componente externo precisa da API do ERP** (detalhe em `sessao-N-rotas-blocos.md`):
 - **Bloqueio:** `erpApi` recusa ator que não é pessoa, então nenhuma chave de aplicação chega ao ERP hoje (fase 3: escopos). Além disso, `/importacoes/*` é só de administrador no SQL.
 - **Rotas de escrita que já existem** (todas exigem `command_id`):
