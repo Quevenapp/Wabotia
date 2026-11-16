@@ -8,6 +8,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { intArg, jsonArg, textArg, uuidArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
 import { employeeAdmin, employeeDto, employeeForm, employeeInput, type EmployeeData } from "../employee.ts";
+import { fold } from "../internal.ts";
 
 const MAX_VERSION = 2147483647;
 const COLUMNS = [
@@ -63,8 +64,8 @@ export function erpCatalogEmployeeSave(ctx: RpcContext, a: RpcArgs) {
     target = crypto.randomUUID();
     const now = ctx.clock.next().toString();
     db.exec(
-      `INSERT INTO "erp_catalog__employee"(id, ${COLUMNS.join(", ")}, situation, version, created_by, updated_by, created_at, updated_at)
-       VALUES (?, ${COLUMNS.map(() => "?").join(", ")}, ?, 1, ?, ?, ?, ?)`,
+      `INSERT INTO "erp_catalog__employee"(id, ${COLUMNS.join(", ")}, situation, version, created_by, updated_by, created_at, updated_at, name__fold)
+       VALUES (?, ${COLUMNS.map(() => "?").join(", ")}, ?, 1, ?, ?, ?, ?, ?)`,
       target,
       ...values(v),
       situation,
@@ -72,6 +73,7 @@ export function erpCatalogEmployeeSave(ctx: RpcContext, a: RpcArgs) {
       user,
       now,
       now,
+      fold(v.name),
     );
     auxiliaryAudit(ctx, { actor: user!, command, subject: "employee", subjectId: target, action: "create", after: { name: v.name } });
   } else {
@@ -80,11 +82,12 @@ export function erpCatalogEmployeeSave(ctx: RpcContext, a: RpcArgs) {
     if (jsonbText(before) !== jsonbText(v) || situation !== row!.situation) {
       db.exec(
         `UPDATE "erp_catalog__employee" SET ${COLUMNS.map((c) => `${c}=?`).join(", ")}, situation=?, version=version+1,
-         updated_by=?, updated_at=? WHERE id=?`,
+         updated_by=?, updated_at=?, name__fold=? WHERE id=?`,
         ...values(v),
         situation,
         user,
         ctx.clock.next().toString(),
+        fold(v.name),
         id,
       );
       // Dados pessoais e salário ficam fora da trilha: só o fato e a situação.
