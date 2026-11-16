@@ -67,8 +67,6 @@ export const commissionOperationView = (..._args: unknown[]): never => notPorted
 export const commissionPolicy = (..._args: unknown[]): never => notPorted("erp_finance.commission_policy");
 /** erp_finance.commission_return_capture() → trigger */
 export const commissionReturnCapture = (..._args: unknown[]): never => notPorted("erp_finance.commission_return_capture");
-/** erp_finance.commission_rows(p_seller uuid) → TABLE(id uuid, seller_id uuid, origin text, rule text, parcel_cents bigint, base_cents bigint, rate numeric, commission_cents bigint, due_on date, description text, created_on date, released_on date, void boolean, document_id uuid, document_kind text, document_number bigint, title_id uuid, version integer) */
-export const commissionRows = (..._args: unknown[]): never => notPorted("erp_finance.commission_rows");
 /** erp_finance.commission_seller(p_reference jsonb) → uuid */
 export const commissionSeller = (..._args: unknown[]): never => notPorted("erp_finance.commission_seller");
 /** erp_finance.commission_weighted(p_document uuid, p_seller uuid, OUT items_cents bigint, OUT weighted numeric) → record */
@@ -171,8 +169,6 @@ export const settlementBordero = (..._args: unknown[]): never => notPorted("erp_
 export const settlementCaptureCategories = (..._args: unknown[]): never => notPorted("erp_finance.settlement_capture_categories");
 /** erp_finance.settlement_posting_check() → trigger */
 export const settlementPostingCheck = (..._args: unknown[]): never => notPorted("erp_finance.settlement_posting_check");
-/** erp_finance.statement_lines(p_account uuid, p_from date, p_to date, p_deleted boolean) → SETOF erp_finance.statement_line */
-export const statementLines = (..._args: unknown[]): never => notPorted("erp_finance.statement_lines");
 /** erp_finance.title_defaults() → trigger */
 export const titleDefaults = (..._args: unknown[]): never => notPorted("erp_finance.title_defaults");
 /** erp_finance.title_history_guard() → trigger */

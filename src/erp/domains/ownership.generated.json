@@ -1588,7 +1588,7 @@
    },
    "erp_finance.commission_rows": {
     "name": "commissionRows",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_seller": {
     "name": "commissionSeller",
@@ -1816,7 +1816,7 @@
    },
    "erp_finance.statement_lines": {
     "name": "statementLines",
-    "ported": false
+    "ported": true
    },
    "erp_finance.title_defaults": {
     "name": "titleDefaults",
