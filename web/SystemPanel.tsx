@@ -23,6 +23,7 @@ type Data = {
   cloudflare: any;
   deployments: any[];
   public_origin?: string | null;
+  bot_full_personal_data?: boolean;
 };
 const demoData: Data = {
   public_origin: "https://atendimento.exemplo.com.br",
@@ -767,8 +768,93 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
         current={data.public_origin || ""}
         refresh={system.refresh}
       />
+      <BotPersonalDataSection
+        api={api}
+        demo={demo}
+        current={!!data.bot_full_personal_data}
+        refresh={system.refresh}
+      />
       <PushSection api={api} demo={demo} />
     </div>
+  );
+}
+
+/**
+ * Bot da conversa interna agindo pela pessoa (src/bot-actions): por padrão,
+ * as consultas que ele faz chegam ao modelo com dado pessoal mascarado. O
+ * administrador pode liberar, sabendo que os dados vão ao provedor de IA.
+ */
+function BotPersonalDataSection({
+  api,
+  demo,
+  current,
+  refresh,
+}: {
+  api: Api;
+  demo: boolean;
+  current: boolean;
+  refresh: () => Promise<void>;
+}) {
+  const action = useAction(demo);
+  const [checked, setChecked] = useState(current);
+  useEffect(() => setChecked(current), [current]);
+  return (
+    <section className="card system-card">
+      <div className="section-heading">
+        <h2>
+          <ShieldCheck size={22} /> Bot e dados pessoais
+        </h2>
+        <span className={"badge " + (current ? "paused" : "active")}>
+          {current ? "Dados completos" : "Mascarados"}
+        </span>
+      </div>
+      <p>
+        Na conversa interna, o bot consulta e propõe ações em nome de quem
+        pediu, com o acesso dessa pessoa. Por padrão, telefone, documento,
+        e-mail, endereço e observações chegam ao modelo de IA mascarados.
+      </p>
+      <form
+        className="system-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void action.run("Salvando…", async () => {
+            await api("v1/system/bot-actions/configure", "POST", {
+              full_personal_data: checked,
+            });
+            await refresh();
+            action.setMessage(
+              checked
+                ? "O bot passa a ver dados pessoais completos nas consultas internas."
+                : "As consultas do bot voltam a chegar mascaradas.",
+            );
+          });
+        }}
+      >
+        <label className="system-check">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!!action.busy}
+            onChange={(e) => setChecked(e.target.checked)}
+          />{" "}
+          Permitir que o bot veja dados pessoais completos nas consultas
+          internas
+        </label>
+        <p className="muted">
+          Atenção: ligado, os dados pessoais dos clientes consultados são
+          enviados ao provedor de IA do bot (Anthropic, OpenAI, DeepSeek ou
+          outro), inclusive fora do Brasil. Mesmo ligado, o bot só vê o que a
+          própria pessoa pode ver.
+        </p>
+        <button
+          className="button"
+          disabled={!!action.busy || checked === current}
+        >
+          Salvar
+        </button>
+      </form>
+      <Feedback {...action} />
+    </section>
   );
 }
 
