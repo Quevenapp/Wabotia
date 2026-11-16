@@ -20,8 +20,9 @@ import { diffTables, IdMap } from "./harness/state-compare.mjs";
 const codecOf = (table, column) => ERP_TABLES[table].columns[column].codec;
 const forced = ERP_DEVIATIONS.map((d) => ({ ...d, applied: true }));
 
-test("lista: só valores semeados, com motivo; o primeiro é o padrão de 2 casas", () => {
-  assert.equal(ERP_DEVIATIONS[0].id, "telas-2-casas");
+test("lista: só valores semeados, com motivo (Origin desligado e padrão de 2 casas)", () => {
+  assert.ok(ERP_DEVIATIONS.some((d) => d.id === "origin-fora" && d.applied));
+  assert.ok(ERP_DEVIATIONS.some((d) => d.id === "telas-2-casas"));
   const seeded = new Set(ERP_SEED.map((t) => t.table));
   for (const d of ERP_DEVIATIONS) {
     assert.ok(seeded.has(d.table), `${d.table}: só dados semeados (referência e preferências)`);
@@ -51,9 +52,11 @@ test("o mecanismo troca só as linhas do desvio; a semeadura atual segue o Fagoo
   const changed = applyDeviations(ERP_SEED, forced, codecOf);
   let diffs = 0;
   ERP_SEED.forEach((t, i) => t.rows.forEach((r, j) => r.forEach((v, k) => (v !== changed[i].rows[j][k] ? diffs++ : 0))));
-  assert.equal(diffs, ERP_DEVIATIONS.length);
   const pending = ERP_DEVIATIONS.filter((d) => !d.applied);
+  assert.equal(diffs, pending.length, "os aplicados já estão na semeadura");
   assert.deepEqual(checkDeviations(ERP_SEED, pending, codecOf), [], "semeadura sem os desvios não aplicados");
+  const applied = ERP_DEVIATIONS.filter((d) => d.applied).map((d) => ({ ...d, oracle: d.value }));
+  assert.deepEqual(checkDeviations(ERP_SEED, applied, codecOf), [], "semeadura com os aplicados");
   assert.deepEqual(checkDeviations(changed, forced.map((d) => ({ ...d, oracle: d.value })), codecOf), []);
   assert.equal(liteValue("json", 2), "2");
 });
@@ -63,6 +66,7 @@ test("diferencial com o desvio valendo: mesmo valor nos dois motores, sem diverg
   try {
     assert.deepEqual(await diffTables(f.db, f.lite, ["erp_preferences__definition"], new IdMap()), []);
     for (const d of forced) {
+      if (d.table !== "erp_preferences__definition") continue;
       const value = await f.dual(
         "erp_preferences.get",
         async () => (await f.db.query("select erp_preferences.get($1) v", [d.key.key])).rows[0].v,
@@ -76,7 +80,7 @@ test("diferencial com o desvio valendo: mesmo valor nos dois motores, sem diverg
   // Sem aplicar (o padrão hoje): o valor do Fagoo, nos dois motores.
   const g = await dualFixture();
   try {
-    for (const d of ERP_DEVIATIONS.filter((x) => !x.applied))
+    for (const d of ERP_DEVIATIONS.filter((x) => !x.applied && x.table === "erp_preferences__definition"))
       assert.equal(
         await g.dual(
           "erp_preferences.get",

@@ -14,6 +14,11 @@ export function raise(code: string, message: string): never {
   throw new ErpError(code, message);
 }
 
+/** Função de outro domínio ainda não portada (stubs.generated.ts): 0A000, como RPC não portado. */
+export function notPorted(id: string): never {
+  throw new ErpError("0A000", `rpc_not_ported:${id}`);
+}
+
 /**
  * Erro do SQLite vindo de gatilho gerado (RAISE(ABORT,'<sqlstate>:<msg>')) ou
  * de restrição: vira ErpError com o código do Postgres equivalente.

@@ -1,7 +1,10 @@
 // Documentos (erp_documents): o que outros domínios usam. Portado de
 // erp_documents.allowed.
 
-const KINDS = ["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
+export * from "./stubs.generated.ts";
+export { autoProducts } from "./internal.ts";
+
+const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 
 /** erp_documents.allowed(role, kind, write) */
 export function allowed(role: string | null, kind: string | null, write: boolean): boolean {

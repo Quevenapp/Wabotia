@@ -1,0 +1,3892 @@
+{
+ "access": {
+  "rpcs": [
+   "erp_access_agent_resolve",
+   "erp_access_gate_v2",
+   "erp_access_me",
+   "erp_access_mfa_reset",
+   "erp_access_permissions_me",
+   "erp_access_profile_me",
+   "erp_access_security_policy_get",
+   "erp_access_security_policy_save",
+   "erp_access_storage",
+   "erp_access_user_command",
+   "erp_access_user_controls_get",
+   "erp_access_user_controls_save",
+   "erp_access_user_get",
+   "erp_access_user_invite_begin",
+   "erp_access_user_invite_complete",
+   "erp_access_user_save",
+   "erp_access_user_security",
+   "erp_access_users_list_v2",
+   "erp_activity_detail",
+   "erp_activity_list"
+  ],
+  "public_functions": {
+   "erp_access.gate_required": {
+    "name": "gateRequired",
+    "ported": false
+   },
+   "erp_access.member_role": {
+    "name": "memberRole",
+    "ported": true
+   },
+   "erp_access.mfa_policy_on": {
+    "name": "mfaPolicyOn",
+    "ported": false
+   },
+   "erp_access.permission_keys": {
+    "name": "permissionKeys",
+    "ported": false
+   },
+   "erp_access.permission_parent": {
+    "name": "permissionParent",
+    "ported": true
+   },
+   "erp_access.permitted": {
+    "name": "permitted",
+    "ported": true
+   },
+   "erp_access.read_admin": {
+    "name": "readAdmin",
+    "ported": false
+   },
+   "erp_access.record_summary": {
+    "name": "recordSummary",
+    "ported": false
+   },
+   "erp_access.require_admin": {
+    "name": "accessRequireAdmin",
+    "ported": false
+   },
+   "erp_access.require_history_role": {
+    "name": "requireHistoryRole",
+    "ported": false
+   },
+   "erp_access.require_permission": {
+    "name": "requirePermission",
+    "ported": false
+   },
+   "erp_access.resources_for_role": {
+    "name": "resourcesForRole",
+    "ported": false
+   },
+   "erp_access.scalar_text": {
+    "name": "scalarText",
+    "ported": false
+   },
+   "erp_activity.actor_label": {
+    "name": "actorLabel",
+    "ported": false
+   },
+   "erp_activity.clean": {
+    "name": "clean",
+    "ported": false
+   },
+   "erp_activity.period": {
+    "name": "period",
+    "ported": false
+   },
+   "erp_activity.require_admin": {
+    "name": "activityRequireAdmin",
+    "ported": false
+   }
+  },
+  "uses": {
+   "catalog": [
+    "erp_catalog.seller_access_allowed"
+   ],
+   "preferences": [
+    "erp_preferences.get"
+   ]
+  }
+ },
+ "catalog": {
+  "rpcs": [
+   "erp_catalog_access",
+   "erp_catalog_check",
+   "erp_catalog_contact_carrier_complement",
+   "erp_catalog_contact_check",
+   "erp_catalog_contact_code",
+   "erp_catalog_contact_code_set",
+   "erp_catalog_contact_comment_add",
+   "erp_catalog_contact_comments",
+   "erp_catalog_contact_export",
+   "erp_catalog_contact_export_tagged",
+   "erp_catalog_contact_get",
+   "erp_catalog_contact_history",
+   "erp_catalog_contact_import",
+   "erp_catalog_contact_labels",
+   "erp_catalog_contact_options",
+   "erp_catalog_contact_page",
+   "erp_catalog_contact_page_tagged",
+   "erp_catalog_contact_sales",
+   "erp_catalog_contact_save",
+   "erp_catalog_contact_set_seller",
+   "erp_catalog_contact_set_situation",
+   "erp_catalog_contact_summary",
+   "erp_catalog_contact_tags",
+   "erp_catalog_contact_tags_save",
+   "erp_catalog_contact_type_create",
+   "erp_catalog_contact_type_delete",
+   "erp_catalog_contact_types",
+   "erp_catalog_custom_field_delete",
+   "erp_catalog_custom_field_save",
+   "erp_catalog_custom_fields",
+   "erp_catalog_custom_fields_screen",
+   "erp_catalog_employee_get",
+   "erp_catalog_employee_page",
+   "erp_catalog_employee_save",
+   "erp_catalog_get",
+   "erp_catalog_import_apply",
+   "erp_catalog_import_preview",
+   "erp_catalog_import_sources",
+   "erp_catalog_invoice_list_tagged",
+   "erp_catalog_invoice_tags",
+   "erp_catalog_invoice_tags_save",
+   "erp_catalog_list",
+   "erp_catalog_origin_categories",
+   "erp_catalog_origin_categories_sync",
+   "erp_catalog_origin_deletion_apply",
+   "erp_catalog_origin_deletions",
+   "erp_catalog_origin_mirror_get",
+   "erp_catalog_page",
+   "erp_catalog_payment_method_action",
+   "erp_catalog_payment_method_get",
+   "erp_catalog_payment_method_page",
+   "erp_catalog_payment_method_save",
+   "erp_catalog_product_export",
+   "erp_catalog_product_export_v2",
+   "erp_catalog_product_form_context",
+   "erp_catalog_product_get",
+   "erp_catalog_product_image_claim",
+   "erp_catalog_product_image_delete",
+   "erp_catalog_product_image_finish",
+   "erp_catalog_product_image_object",
+   "erp_catalog_product_image_order",
+   "erp_catalog_product_image_reserve",
+   "erp_catalog_product_image_stop",
+   "erp_catalog_product_images",
+   "erp_catalog_product_list",
+   "erp_catalog_product_page",
+   "erp_catalog_product_page_custom",
+   "erp_catalog_product_page_v2",
+   "erp_catalog_product_page_v3",
+   "erp_catalog_product_price_adjust",
+   "erp_catalog_product_price_preview",
+   "erp_catalog_product_prices_update",
+   "erp_catalog_product_purchase_info",
+   "erp_catalog_product_save",
+   "erp_catalog_product_set_deleted",
+   "erp_catalog_product_variation_add",
+   "erp_catalog_product_variations",
+   "erp_catalog_save",
+   "erp_catalog_save_checked",
+   "erp_catalog_seller_from_contact",
+   "erp_catalog_seller_get",
+   "erp_catalog_seller_options",
+   "erp_catalog_seller_page",
+   "erp_catalog_seller_save",
+   "erp_catalog_set_active",
+   "erp_catalog_taxonomy_delete",
+   "erp_catalog_taxonomy_list",
+   "erp_catalog_taxonomy_save",
+   "erp_contact_billing_get",
+   "erp_contact_billing_save",
+   "erp_pricing_applicable_lists",
+   "erp_pricing_applicable_lists_v2",
+   "erp_pricing_list_clone",
+   "erp_pricing_list_delete",
+   "erp_pricing_list_get",
+   "erp_pricing_list_import",
+   "erp_pricing_list_items",
+   "erp_pricing_list_prices",
+   "erp_pricing_list_save",
+   "erp_pricing_lists",
+   "erp_pricing_product_lists"
+  ],
+  "public_functions": {
+   "erp_catalog.acknowledged_valid": {
+    "name": "acknowledgedValid",
+    "ported": false
+   },
+   "erp_catalog.allowed": {
+    "name": "allowed",
+    "ported": false
+   },
+   "erp_catalog.can_read_stock": {
+    "name": "canReadStock",
+    "ported": false
+   },
+   "erp_catalog.category_lineage": {
+    "name": "categoryLineage",
+    "ported": false
+   },
+   "erp_catalog.compact": {
+    "name": "compact",
+    "ported": false
+   },
+   "erp_catalog.composition_kits": {
+    "name": "compositionKits",
+    "ported": false
+   },
+   "erp_catalog.composition_sync": {
+    "name": "compositionSync",
+    "ported": false
+   },
+   "erp_catalog.composition_sync_on": {
+    "name": "compositionSyncOn",
+    "ported": false
+   },
+   "erp_catalog.contact_apply": {
+    "name": "contactApply",
+    "ported": false
+   },
+   "erp_catalog.contact_check_full": {
+    "name": "contactCheckFull",
+    "ported": false
+   },
+   "erp_catalog.contact_data": {
+    "name": "contactData",
+    "ported": false
+   },
+   "erp_catalog.contact_date": {
+    "name": "contactDate",
+    "ported": false
+   },
+   "erp_catalog.contact_dto": {
+    "name": "contactDto",
+    "ported": false
+   },
+   "erp_catalog.contact_email_list": {
+    "name": "contactEmailList",
+    "ported": false
+   },
+   "erp_catalog.contact_field_person_type": {
+    "name": "contactFieldPersonType",
+    "ported": false
+   },
+   "erp_catalog.contact_input": {
+    "name": "contactInput",
+    "ported": false
+   },
+   "erp_catalog.contact_merge": {
+    "name": "contactMerge",
+    "ported": false
+   },
+   "erp_catalog.contact_require_visible": {
+    "name": "contactRequireVisible",
+    "ported": false
+   },
+   "erp_catalog.contact_required_field": {
+    "name": "contactRequiredField",
+    "ported": false
+   },
+   "erp_catalog.contact_required_missing": {
+    "name": "contactRequiredMissing",
+    "ported": false
+   },
+   "erp_catalog.contact_scope": {
+    "name": "contactScope",
+    "ported": false
+   },
+   "erp_catalog.contact_situation": {
+    "name": "contactSituation",
+    "ported": false
+   },
+   "erp_catalog.contact_situation_of": {
+    "name": "contactSituationOf",
+    "ported": false
+   },
+   "erp_catalog.contact_source_situation": {
+    "name": "contactSourceSituation",
+    "ported": false
+   },
+   "erp_catalog.contact_take_code": {
+    "name": "contactTakeCode",
+    "ported": false
+   },
+   "erp_catalog.contact_text": {
+    "name": "contactText",
+    "ported": false
+   },
+   "erp_catalog.contact_type_slugs": {
+    "name": "contactTypeSlugs",
+    "ported": false
+   },
+   "erp_catalog.contact_uf": {
+    "name": "contactUf",
+    "ported": false
+   },
+   "erp_catalog.contact_visible_to": {
+    "name": "contactVisibleTo",
+    "ported": false
+   },
+   "erp_catalog.contact_warnings": {
+    "name": "contactWarnings",
+    "ported": false
+   },
+   "erp_catalog.contact_write": {
+    "name": "contactWrite",
+    "ported": false
+   },
+   "erp_catalog.custom_field_applies": {
+    "name": "customFieldApplies",
+    "ported": false
+   },
+   "erp_catalog.custom_value": {
+    "name": "customValue",
+    "ported": false
+   },
+   "erp_catalog.data": {
+    "name": "data",
+    "ported": true
+   },
+   "erp_catalog.detail_date": {
+    "name": "detailDate",
+    "ported": false
+   },
+   "erp_catalog.detail_decimal": {
+    "name": "detailDecimal",
+    "ported": false
+   },
+   "erp_catalog.detail_text": {
+    "name": "detailText",
+    "ported": false
+   },
+   "erp_catalog.detail_uuid": {
+    "name": "detailUuid",
+    "ported": false
+   },
+   "erp_catalog.document_issue": {
+    "name": "documentIssue",
+    "ported": false
+   },
+   "erp_catalog.document_product": {
+    "name": "documentProduct",
+    "ported": true
+   },
+   "erp_catalog.dto": {
+    "name": "dto",
+    "ported": true
+   },
+   "erp_catalog.employee_admin": {
+    "name": "employeeAdmin",
+    "ported": false
+   },
+   "erp_catalog.fold": {
+    "name": "fold",
+    "ported": true
+   },
+   "erp_catalog.gtin_check_digit": {
+    "name": "gtinCheckDigit",
+    "ported": true
+   },
+   "erp_catalog.guard_deleted_product": {
+    "name": "guardDeletedProduct",
+    "ported": false
+   },
+   "erp_catalog.guard_variation_parent": {
+    "name": "guardVariationParent",
+    "ported": false
+   },
+   "erp_catalog.items_per_box_follow": {
+    "name": "itemsPerBoxFollow",
+    "ported": false
+   },
+   "erp_catalog.matches": {
+    "name": "matches",
+    "ported": false
+   },
+   "erp_catalog.mutate": {
+    "name": "mutate",
+    "ported": false
+   },
+   "erp_catalog.next_product_code": {
+    "name": "nextProductCode",
+    "ported": true
+   },
+   "erp_catalog.origin_contact_roles": {
+    "name": "originContactRoles",
+    "ported": false
+   },
+   "erp_catalog.origin_count": {
+    "name": "originCount",
+    "ported": false
+   },
+   "erp_catalog.origin_decimal": {
+    "name": "originDecimal",
+    "ported": false
+   },
+   "erp_catalog.origin_mirror_fields": {
+    "name": "originMirrorFields",
+    "ported": false
+   },
+   "erp_catalog.origin_mirror_refresh": {
+    "name": "originMirrorRefresh",
+    "ported": false
+   },
+   "erp_catalog.origin_text": {
+    "name": "originText",
+    "ported": false
+   },
+   "erp_catalog.payment_condition_valid": {
+    "name": "paymentConditionValid",
+    "ported": false
+   },
+   "erp_catalog.product_cost_at": {
+    "name": "productCostAt",
+    "ported": false
+   },
+   "erp_catalog.product_cost_capture": {
+    "name": "productCostCapture",
+    "ported": false
+   },
+   "erp_catalog.product_custom_resolve": {
+    "name": "productCustomResolve",
+    "ported": false
+   },
+   "erp_catalog.product_custom_values": {
+    "name": "productCustomValues",
+    "ported": false
+   },
+   "erp_catalog.product_detail_data": {
+    "name": "productDetailData",
+    "ported": true
+   },
+   "erp_catalog.product_detail_keys": {
+    "name": "productDetailKeys",
+    "ported": false
+   },
+   "erp_catalog.product_detail_references": {
+    "name": "productDetailReferences",
+    "ported": false
+   },
+   "erp_catalog.product_detail_validate": {
+    "name": "productDetailValidate",
+    "ported": false
+   },
+   "erp_catalog.product_detail_write": {
+    "name": "productDetailWrite",
+    "ported": false
+   },
+   "erp_catalog.product_full": {
+    "name": "productFull",
+    "ported": true
+   },
+   "erp_catalog.require_access": {
+    "name": "requireAccess",
+    "ported": false
+   },
+   "erp_catalog.search_terms": {
+    "name": "searchTerms",
+    "ported": false
+   },
+   "erp_catalog.seller_access_allowed": {
+    "name": "sellerAccessAllowed",
+    "ported": false
+   },
+   "erp_catalog.unit_price": {
+    "name": "unitPrice",
+    "ported": true
+   },
+   "erp_catalog.unit_price_numeric": {
+    "name": "unitPriceNumeric",
+    "ported": true
+   },
+   "erp_catalog.valid_cnpj": {
+    "name": "validCnpj",
+    "ported": false
+   },
+   "erp_catalog.valid_cpf": {
+    "name": "validCpf",
+    "ported": false
+   },
+   "erp_catalog.validate_data": {
+    "name": "validateData",
+    "ported": true
+   },
+   "erp_catalog.validate_product_identifiers": {
+    "name": "validateProductIdentifiers",
+    "ported": true
+   },
+   "erp_catalog.warnings": {
+    "name": "warnings",
+    "ported": false
+   },
+   "erp_catalog.write_fields": {
+    "name": "writeFields",
+    "ported": false
+   },
+   "erp_pricing.list_price": {
+    "name": "listPrice",
+    "ported": false
+   },
+   "erp_pricing.require": {
+    "name": "require",
+    "ported": false
+   },
+   "erp_pricing.rule_text": {
+    "name": "ruleText",
+    "ported": false
+   },
+   "erp_pricing.valid_now": {
+    "name": "validNow",
+    "ported": false
+   },
+   "public.erp_catalog_contact_save": {
+    "name": "erpCatalogContactSave",
+    "ported": false
+   },
+   "public.erp_catalog_product_prices_update": {
+    "name": "erpCatalogProductPricesUpdate",
+    "ported": false
+   },
+   "public.erp_catalog_product_save": {
+    "name": "erpCatalogProductSave",
+    "ported": false
+   },
+   "public.erp_pricing_product_lists": {
+    "name": "erpPricingProductLists",
+    "ported": false
+   }
+  },
+  "uses": {
+   "access": [
+    "erp_access.gate_required",
+    "erp_access.mfa_policy_on",
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.resources_for_role",
+    "erp_activity.actor_label"
+   ],
+   "preferences": [
+    "erp_attachments.storage_ready",
+    "erp_preferences.get",
+    "erp_preferences.label_defaults",
+    "erp_preferences.report_clean"
+   ],
+   "documents": [
+    "erp_documents.allowed",
+    "erp_documents.contact_usable",
+    "erp_documents.os_permitted",
+    "erp_documents.require_access",
+    "erp_documents.require_role"
+   ],
+   "sync": [
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.enabled",
+    "erp_sync.enqueue"
+   ],
+   "stock": [
+    "erp_stock.composition_apply_values",
+    "erp_stock.composition_settings",
+    "erp_stock.composition_totals",
+    "erp_stock.protect_default_warehouse",
+    "erp_stock.protect_product_unit",
+    "erp_stock.require_access",
+    "erp_stock.supply_part"
+   ],
+   "fiscal": [
+    "erp_fiscal_invoices.digits",
+    "erp_fiscal_invoices.list_query",
+    "erp_fiscal_invoices.list_rows",
+    "erp_fiscal_invoices.money_text",
+    "erp_fiscal_invoices.origin_seller_ids",
+    "erp_fiscal_invoices.preference",
+    "erp_fiscal_invoices.require_read",
+    "erp_fiscal_invoices.require_write",
+    "erp_fiscal_invoices.role_of",
+    "erp_fiscal_invoices.status_group",
+    "erp_fiscal_invoices.ufs",
+    "erp_fiscal_mirror.coverage",
+    "erp_fiscal_mirror.native_visible",
+    "erp_fiscal_mirror.visible"
+   ]
+  }
+ },
+ "cnab": {
+  "rpcs": [
+   "erp_cnab_access",
+   "erp_cnab_approve",
+   "erp_cnab_file",
+   "erp_cnab_files",
+   "erp_cnab_finalize",
+   "erp_cnab_human_review_get",
+   "erp_cnab_human_review_history",
+   "erp_cnab_human_review_list",
+   "erp_cnab_human_review_save",
+   "erp_cnab_human_review_verify",
+   "erp_cnab_itau_boleto_context",
+   "erp_cnab_itau_boleto_items",
+   "erp_cnab_itau_net_credit_command",
+   "erp_cnab_itau_net_credit_preview",
+   "erp_cnab_itau_net_credit_settle",
+   "erp_cnab_operational_approve",
+   "erp_cnab_operational_approve_v2",
+   "erp_cnab_operational_bind",
+   "erp_cnab_operational_command_v2",
+   "erp_cnab_operational_event",
+   "erp_cnab_operational_events",
+   "erp_cnab_operational_file",
+   "erp_cnab_operational_file_v2",
+   "erp_cnab_operational_files",
+   "erp_cnab_operational_files_v2",
+   "erp_cnab_operational_finalize",
+   "erp_cnab_operational_finalize_v2",
+   "erp_cnab_operational_profiles",
+   "erp_cnab_operational_profiles_v2",
+   "erp_cnab_operational_reservation",
+   "erp_cnab_operational_reservation_v2",
+   "erp_cnab_operational_reserve",
+   "erp_cnab_operational_reserve_v2",
+   "erp_cnab_operational_return_commit",
+   "erp_cnab_operational_return_file",
+   "erp_cnab_operational_return_profile",
+   "erp_cnab_operational_return_verify",
+   "erp_cnab_operational_settle",
+   "erp_cnab_operational_settlement_get",
+   "erp_cnab_profile_context",
+   "erp_cnab_profile_save",
+   "erp_cnab_profiles",
+   "erp_cnab_remittance_candidates",
+   "erp_cnab_remittance_detail",
+   "erp_cnab_remittance_exclude",
+   "erp_cnab_remittance_page",
+   "erp_cnab_reservation",
+   "erp_cnab_reserve",
+   "erp_cnab_return_commit",
+   "erp_cnab_return_context",
+   "erp_cnab_return_detail",
+   "erp_cnab_return_exclude",
+   "erp_cnab_return_page",
+   "erp_cnab_review",
+   "erp_itau_legacy_readiness"
+  ],
+  "public_functions": {},
+  "uses": {
+   "finance": [
+    "erp_finance.account_defaults",
+    "erp_finance.assert_settlement_postings",
+    "erp_finance.audit_permission",
+    "erp_finance.category_depth",
+    "erp_finance.category_in_use",
+    "erp_finance.category_tree_guard",
+    "erp_finance.cents",
+    "erp_finance.cnab_cash_plan_check",
+    "erp_finance.cnab_plan_for_settlement",
+    "erp_finance.commission_seller",
+    "erp_finance.day",
+    "erp_finance.document_seller",
+    "erp_finance.dto",
+    "erp_finance.expected",
+    "erp_finance.guard_document_title",
+    "erp_finance.guard_grouped_title",
+    "erp_finance.guard_invoice_title",
+    "erp_finance.guard_origin_import_billing",
+    "erp_finance.guard_origin_import_title",
+    "erp_finance.keys",
+    "erp_finance.movement_account_start",
+    "erp_finance.payment_method_fee",
+    "erp_finance.permission_key",
+    "erp_finance.post_settlement_movements",
+    "erp_finance.project_result_link",
+    "erp_finance.reconciled_movement_guard",
+    "erp_finance.require_access",
+    "erp_finance.require_permission",
+    "erp_finance.settlement_bordero",
+    "erp_finance.settlement_capture_categories",
+    "erp_finance.settlement_posting_check",
+    "erp_finance.title_defaults",
+    "erp_finance.title_history_guard",
+    "erp_finance.title_inherited_seller",
+    "erp_finance.title_long_history",
+    "erp_finance.title_seller",
+    "erp_finance.transfer_leg_check",
+    "erp_finance.txt",
+    "erp_finance.uuid_value",
+    "public.erp_finance_execute"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted"
+   ],
+   "sync": [
+    "erp_sync.applying",
+    "erp_sync.capture_finance",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_number"
+   ]
+  }
+ },
+ "company": {
+  "rpcs": [
+   "erp_company_access",
+   "erp_company_confirm_fiscal",
+   "erp_company_extra_get",
+   "erp_company_extra_save",
+   "erp_company_file_claim",
+   "erp_company_file_delete",
+   "erp_company_file_finish",
+   "erp_company_file_object",
+   "erp_company_file_reserve",
+   "erp_company_file_stop",
+   "erp_company_get",
+   "erp_company_logo_claim",
+   "erp_company_logo_delete",
+   "erp_company_logo_finish",
+   "erp_company_logo_get",
+   "erp_company_logo_object",
+   "erp_company_logo_reserve",
+   "erp_company_logo_stop",
+   "erp_company_partners_get",
+   "erp_company_partners_save",
+   "erp_company_save_identity"
+  ],
+  "public_functions": {},
+  "uses": {
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_activity.require_admin"
+   ],
+   "reference": [
+    "erp_reference.company_extra_cnae"
+   ],
+   "preferences": [
+    "erp_attachments.storage_ready"
+   ]
+  }
+ },
+ "documents": {
+  "rpcs": [
+   "erp_document_access",
+   "erp_document_categories",
+   "erp_document_checkout_get",
+   "erp_document_checkout_lookup",
+   "erp_document_checkout_save",
+   "erp_document_commission_operation",
+   "erp_document_conversion_preview",
+   "erp_document_copy",
+   "erp_document_copy_origin",
+   "erp_document_copy_preview",
+   "erp_document_custom_field_delete",
+   "erp_document_custom_field_save",
+   "erp_document_custom_fields",
+   "erp_document_discount_approval",
+   "erp_document_discount_approval_save",
+   "erp_document_export",
+   "erp_document_freight_paid_get",
+   "erp_document_freight_paid_save",
+   "erp_document_get",
+   "erp_document_history",
+   "erp_document_invoice_balance",
+   "erp_document_list",
+   "erp_document_list_view_get",
+   "erp_document_list_view_save",
+   "erp_document_lot_options",
+   "erp_document_lot_products",
+   "erp_document_next_number",
+   "erp_document_notes_save",
+   "erp_document_numbering_set",
+   "erp_document_occurrence_add",
+   "erp_document_occurrence_list",
+   "erp_document_occurrence_remove",
+   "erp_document_payment_options",
+   "erp_document_pendencies",
+   "erp_document_print_header",
+   "erp_document_print_header_save",
+   "erp_document_product_search",
+   "erp_document_proposal_version",
+   "erp_document_sales_abc",
+   "erp_document_sales_bag",
+   "erp_document_sales_bag_change",
+   "erp_document_sales_report",
+   "erp_document_sales_report_options",
+   "erp_document_sales_romaneio",
+   "erp_document_save",
+   "erp_document_seller_commission",
+   "erp_document_service_occurrence_report",
+   "erp_document_service_report",
+   "erp_document_signature",
+   "erp_document_signature_save",
+   "erp_document_situations",
+   "erp_document_structures",
+   "erp_document_supplier_codes",
+   "erp_document_supplier_descriptions",
+   "erp_document_transition",
+   "erp_document_trash",
+   "erp_document_xml_match",
+   "erp_proposal_convert",
+   "erp_proposal_convert_to_service",
+   "erp_sales_order_convert_to_service",
+   "erp_service_journal_append",
+   "erp_service_journal_get",
+   "erp_service_journal_list"
+  ],
+  "public_functions": {
+   "erp_documents.advance_received_number": {
+    "name": "advanceReceivedNumber",
+    "ported": false
+   },
+   "erp_documents.allowed": {
+    "name": "allowed",
+    "ported": true
+   },
+   "erp_documents.approval_situations": {
+    "name": "approvalSituations",
+    "ported": false
+   },
+   "erp_documents.approval_target": {
+    "name": "approvalTarget",
+    "ported": false
+   },
+   "erp_documents.auto_finance": {
+    "name": "autoFinance",
+    "ported": false
+   },
+   "erp_documents.auto_product_key": {
+    "name": "autoProductKey",
+    "ported": false
+   },
+   "erp_documents.auto_products": {
+    "name": "autoProducts",
+    "ported": true
+   },
+   "erp_documents.carrier_usable": {
+    "name": "carrierUsable",
+    "ported": false
+   },
+   "erp_documents.category_usable": {
+    "name": "categoryUsable",
+    "ported": false
+   },
+   "erp_documents.check_credit_limit": {
+    "name": "checkCreditLimit",
+    "ported": false
+   },
+   "erp_documents.check_custom_fields": {
+    "name": "checkCustomFields",
+    "ported": false
+   },
+   "erp_documents.check_links": {
+    "name": "checkLinks",
+    "ported": false
+   },
+   "erp_documents.check_payment_links": {
+    "name": "checkPaymentLinks",
+    "ported": false
+   },
+   "erp_documents.check_preference_rules": {
+    "name": "checkPreferenceRules",
+    "ported": false
+   },
+   "erp_documents.check_situation_change": {
+    "name": "checkSituationChange",
+    "ported": false
+   },
+   "erp_documents.check_tax_preference": {
+    "name": "checkTaxPreference",
+    "ported": false
+   },
+   "erp_documents.command_replay": {
+    "name": "commandReplay",
+    "ported": false
+   },
+   "erp_documents.commercial_data": {
+    "name": "commercialData",
+    "ported": false
+   },
+   "erp_documents.commercial_reference": {
+    "name": "commercialReference",
+    "ported": false
+   },
+   "erp_documents.contact_usable": {
+    "name": "contactUsable",
+    "ported": false
+   },
+   "erp_documents.cost_apply": {
+    "name": "costApply",
+    "ported": false
+   },
+   "erp_documents.cost_apply_capture": {
+    "name": "costApplyCapture",
+    "ported": false
+   },
+   "erp_documents.current_version": {
+    "name": "currentVersion",
+    "ported": false
+   },
+   "erp_documents.custom_field_value": {
+    "name": "customFieldValue",
+    "ported": false
+   },
+   "erp_documents.date_value": {
+    "name": "dateValue",
+    "ported": false
+   },
+   "erp_documents.decimal_value": {
+    "name": "decimalValue",
+    "ported": false
+   },
+   "erp_documents.delivery_address": {
+    "name": "deliveryAddress",
+    "ported": false
+   },
+   "erp_documents.discount_approver": {
+    "name": "discountApprover",
+    "ported": false
+   },
+   "erp_documents.document_finance_category": {
+    "name": "documentFinanceCategory",
+    "ported": false
+   },
+   "erp_documents.document_situation_json": {
+    "name": "documentSituationJson",
+    "ported": false
+   },
+   "erp_documents.document_view": {
+    "name": "documentView",
+    "ported": false
+   },
+   "erp_documents.dto": {
+    "name": "dto",
+    "ported": false
+   },
+   "erp_documents.editable": {
+    "name": "editable",
+    "ported": false
+   },
+   "erp_documents.effect_flags": {
+    "name": "effectFlags",
+    "ported": false
+   },
+   "erp_documents.effects_transition_allowed": {
+    "name": "effectsTransitionAllowed",
+    "ported": false
+   },
+   "erp_documents.extension_data": {
+    "name": "extensionData",
+    "ported": false
+   },
+   "erp_documents.extension_keys": {
+    "name": "extensionKeys",
+    "ported": false
+   },
+   "erp_documents.finance_category": {
+    "name": "financeCategory",
+    "ported": false
+   },
+   "erp_documents.finance_payment_preview": {
+    "name": "financePaymentPreview",
+    "ported": false
+   },
+   "erp_documents.guard_trash": {
+    "name": "guardTrash",
+    "ported": false
+   },
+   "erp_documents.guard_trash_child": {
+    "name": "guardTrashChild",
+    "ported": false
+   },
+   "erp_documents.guard_variation_item": {
+    "name": "guardVariationItem",
+    "ported": false
+   },
+   "erp_documents.has_commercial_data": {
+    "name": "hasCommercialData",
+    "ported": false
+   },
+   "erp_documents.initial_status": {
+    "name": "initialStatus",
+    "ported": false
+   },
+   "erp_documents.installment_details": {
+    "name": "installmentDetails",
+    "ported": false
+   },
+   "erp_documents.legacy_transitions": {
+    "name": "legacyTransitions",
+    "ported": false
+   },
+   "erp_documents.next_number": {
+    "name": "nextNumber",
+    "ported": false
+   },
+   "erp_documents.normalize": {
+    "name": "normalize",
+    "ported": false
+   },
+   "erp_documents.normalize_core": {
+    "name": "normalizeCore",
+    "ported": false
+   },
+   "erp_documents.number_editable": {
+    "name": "numberEditable",
+    "ported": false
+   },
+   "erp_documents.optional_amount": {
+    "name": "optionalAmount",
+    "ported": false
+   },
+   "erp_documents.os_permitted": {
+    "name": "osPermitted",
+    "ported": false
+   },
+   "erp_documents.payment_types": {
+    "name": "paymentTypes",
+    "ported": false
+   },
+   "erp_documents.preference": {
+    "name": "preference",
+    "ported": false
+   },
+   "erp_documents.price_decimals": {
+    "name": "priceDecimals",
+    "ported": false
+   },
+   "erp_documents.project_result_flags": {
+    "name": "projectResultFlags",
+    "ported": false
+   },
+   "erp_documents.proposal_superseded": {
+    "name": "proposalSuperseded",
+    "ported": false
+   },
+   "erp_documents.proposal_version_json": {
+    "name": "proposalVersionJson",
+    "ported": false
+   },
+   "erp_documents.quantity_decimals": {
+    "name": "quantityDecimals",
+    "ported": false
+   },
+   "erp_documents.record_occurrence": {
+    "name": "recordOccurrence",
+    "ported": false
+   },
+   "erp_documents.record_situation_occurrence": {
+    "name": "recordSituationOccurrence",
+    "ported": false
+   },
+   "erp_documents.replace_items": {
+    "name": "replaceItems",
+    "ported": false
+   },
+   "erp_documents.report_last_purchase_until": {
+    "name": "reportLastPurchaseUntil",
+    "ported": false
+   },
+   "erp_documents.require_access": {
+    "name": "requireAccess",
+    "ported": false
+   },
+   "erp_documents.require_commercial_input": {
+    "name": "requireCommercialInput",
+    "ported": false
+   },
+   "erp_documents.require_os_permission": {
+    "name": "requireOsPermission",
+    "ported": false
+   },
+   "erp_documents.require_role": {
+    "name": "requireRole",
+    "ported": false
+   },
+   "erp_documents.require_seller": {
+    "name": "requireSeller",
+    "ported": false
+   },
+   "erp_documents.rich_text": {
+    "name": "richText",
+    "ported": false
+   },
+   "erp_documents.seller_rules": {
+    "name": "sellerRules",
+    "ported": false
+   },
+   "erp_documents.situation_adopted": {
+    "name": "situationAdopted",
+    "ported": false
+   },
+   "erp_documents.situation_follow_status": {
+    "name": "situationFollowStatus",
+    "ported": false
+   },
+   "erp_documents.situation_json": {
+    "name": "situationJson",
+    "ported": false
+   },
+   "erp_documents.situation_key_valid": {
+    "name": "situationKeyValid",
+    "ported": false
+   },
+   "erp_documents.situation_snapshot": {
+    "name": "situationSnapshot",
+    "ported": false
+   },
+   "erp_documents.stock_launch_date": {
+    "name": "stockLaunchDate",
+    "ported": false
+   },
+   "erp_documents.text_value": {
+    "name": "textValue",
+    "ported": false
+   },
+   "erp_documents.transition_action": {
+    "name": "transitionAction",
+    "ported": false
+   },
+   "erp_documents.transition_command": {
+    "name": "transitionCommand",
+    "ported": false
+   },
+   "erp_documents.transition_reason_required": {
+    "name": "transitionReasonRequired",
+    "ported": false
+   },
+   "erp_documents.transitions": {
+    "name": "transitions",
+    "ported": false
+   },
+   "erp_documents.uuid_value": {
+    "name": "uuidValue",
+    "ported": false
+   },
+   "public.erp_document_save": {
+    "name": "erpDocumentSave",
+    "ported": false
+   },
+   "public.erp_document_transition": {
+    "name": "erpDocumentTransition",
+    "ported": false
+   }
+  },
+  "uses": {
+   "preferences": [
+    "erp_home.biz_cost_visible",
+    "erp_home.biz_freight",
+    "erp_home.biz_role",
+    "erp_home.biz_unit_cost",
+    "erp_preferences.get",
+    "erp_preferences.situation_base_color",
+    "erp_preferences.situation_base_label",
+    "erp_preferences.situation_bases",
+    "erp_preferences.situation_list",
+    "erp_preferences.situation_of",
+    "erp_preferences.transition_allowed",
+    "erp_preferences.transition_list",
+    "erp_preferences.transition_rule"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.resources_for_role"
+   ],
+   "catalog": [
+    "erp_catalog.allowed",
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_visible_to",
+    "erp_catalog.data",
+    "erp_catalog.document_product",
+    "erp_catalog.dto",
+    "erp_catalog.fold",
+    "erp_catalog.gtin_check_digit",
+    "erp_catalog.guard_variation_parent",
+    "erp_catalog.items_per_box_follow",
+    "erp_catalog.matches",
+    "erp_catalog.next_product_code",
+    "erp_catalog.product_cost_at",
+    "erp_catalog.product_custom_values",
+    "erp_catalog.product_detail_data",
+    "erp_catalog.product_full",
+    "erp_catalog.require_access",
+    "erp_catalog.search_terms",
+    "erp_catalog.unit_price",
+    "erp_catalog.unit_price_numeric",
+    "erp_catalog.valid_cnpj",
+    "erp_catalog.valid_cpf",
+    "erp_catalog.validate_data",
+    "erp_catalog.validate_product_identifiers",
+    "erp_catalog.write_fields",
+    "erp_pricing.valid_now"
+   ],
+   "stock": [
+    "erp_purchase_receipts.active",
+    "erp_purchase_receipts.guard_document",
+    "erp_purchase_receipts.guard_item",
+    "erp_purchase_receipts.guard_legacy",
+    "erp_stock.average_costs",
+    "erp_stock.balance_kept",
+    "erp_stock.component_problem",
+    "erp_stock.component_quantity",
+    "erp_stock.composition_lines",
+    "erp_stock.composition_own_stock",
+    "erp_stock.cost_visible",
+    "erp_stock.default_supplier",
+    "erp_stock.derived_command",
+    "erp_stock.document_access",
+    "erp_stock.document_command_finish",
+    "erp_stock.document_command_start",
+    "erp_stock.document_eligible",
+    "erp_stock.document_item_lots",
+    "erp_stock.document_lock",
+    "erp_stock.document_meta",
+    "erp_stock.document_posting_summary",
+    "erp_stock.document_preview_data",
+    "erp_stock.document_reverse_preview_data",
+    "erp_stock.document_summary",
+    "erp_stock.effect_document_allowed",
+    "erp_stock.effect_edit_allowed",
+    "erp_stock.effect_item_allowed",
+    "erp_stock.effect_transition_allowed",
+    "erp_stock.forget_item_components",
+    "erp_stock.guard_document_posting",
+    "erp_stock.guard_lot_entry",
+    "erp_stock.guard_negative_insert",
+    "erp_stock.guard_posted_document",
+    "erp_stock.guard_posted_item",
+    "erp_stock.guard_reserved_balance",
+    "erp_stock.guard_reserved_document",
+    "erp_stock.guard_reserved_item",
+    "erp_stock.guard_reserved_posting",
+    "erp_stock.ignored_warehouse",
+    "erp_stock.invoice_posted_for_document",
+    "erp_stock.invoice_screen",
+    "erp_stock.invoice_unit_price",
+    "erp_stock.item_component_rows",
+    "erp_stock.item_composition_lines",
+    "erp_stock.last_purchase",
+    "erp_stock.ledger_document_price",
+    "erp_stock.ledger_origin",
+    "erp_stock.lot_apply",
+    "erp_stock.lot_product_problem",
+    "erp_stock.lot_quantity",
+    "erp_stock.movement_dto",
+    "erp_stock.negative_allowed",
+    "erp_stock.post",
+    "erp_stock.post_document_lots",
+    "erp_stock.post_physical_025",
+    "erp_stock.protect_product_unit",
+    "erp_stock.require_access",
+    "erp_stock.reservation_write_access",
+    "erp_stock.reserve_statuses",
+    "erp_stock.reserved_quantity",
+    "erp_stock.reverse_lot_entries",
+    "erp_stock.sales_negative_allowed",
+    "erp_stock.settings_dto",
+    "public.erp_document_stock_post",
+    "public.erp_document_stock_preview",
+    "public.erp_document_stock_reverse",
+    "public.erp_document_stock_reverse_preview"
+   ],
+   "finance": [
+    "erp_finance.audit_permission",
+    "erp_finance.cents",
+    "erp_finance.cents_of",
+    "erp_finance.commission_amounts",
+    "erp_finance.commission_capture",
+    "erp_finance.commission_capture_title",
+    "erp_finance.commission_confirmed",
+    "erp_finance.commission_document",
+    "erp_finance.commission_operation_capture",
+    "erp_finance.commission_operation_frozen",
+    "erp_finance.commission_operation_sync",
+    "erp_finance.commission_operation_titles",
+    "erp_finance.commission_operation_view",
+    "erp_finance.commission_policy",
+    "erp_finance.commission_seller",
+    "erp_finance.commission_weighted",
+    "erp_finance.day",
+    "erp_finance.document_command_finish",
+    "erp_finance.document_command_start",
+    "erp_finance.document_lock",
+    "erp_finance.document_posting_summary",
+    "erp_finance.document_preview_data",
+    "erp_finance.document_reverse_preview_data",
+    "erp_finance.document_seller",
+    "erp_finance.document_title_number",
+    "erp_finance.document_title_rows",
+    "erp_finance.expected",
+    "erp_finance.guard_document_title",
+    "erp_finance.guard_grouped_title",
+    "erp_finance.guard_invoice_title",
+    "erp_finance.guard_origin_import_title",
+    "erp_finance.guard_posted_document",
+    "erp_finance.guard_posted_item",
+    "erp_finance.invoice_effect_active",
+    "erp_finance.keys",
+    "erp_finance.notes_edit_allowed",
+    "erp_finance.notes_item_allowed",
+    "erp_finance.permission_key",
+    "erp_finance.require_access",
+    "erp_finance.title_defaults",
+    "erp_finance.title_history_guard",
+    "erp_finance.title_long_history",
+    "erp_finance.txt",
+    "erp_finance.uuid_value",
+    "public.erp_document_finance_post",
+    "public.erp_document_finance_preview",
+    "public.erp_document_finance_reverse",
+    "public.erp_document_finance_reverse_preview"
+   ],
+   "sync": [
+    "erp_sync.actor",
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.capture_document",
+    "erp_sync.capture_finance",
+    "erp_sync.capture_stock",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_origin_effects_document",
+    "erp_sync.guard_origin_effects_item",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_locked",
+    "erp_sync.origin_number",
+    "erp_sync.stock_import_allowed"
+   ],
+   "fiscal": [
+    "erp_fiscal_invoices.counts_for_balance",
+    "erp_fiscal_invoices.quantity_text",
+    "erp_fiscal_invoices.sales_balance",
+    "erp_fiscal_invoices.sales_full_invoice",
+    "erp_fiscal_invoices.sales_item_invoiced"
+   ],
+   "reference": [
+    "erp_reference.key",
+    "erp_reference.municipality_known"
+   ]
+  }
+ },
+ "finance": {
+  "rpcs": [
+   "erp_document_finance_get",
+   "erp_document_finance_list",
+   "erp_document_finance_post",
+   "erp_document_finance_preview",
+   "erp_document_finance_reverse",
+   "erp_document_finance_reverse_preview",
+   "erp_finance_access",
+   "erp_finance_account_detail",
+   "erp_finance_account_execute",
+   "erp_finance_account_page",
+   "erp_finance_bordero_execute",
+   "erp_finance_bordero_get",
+   "erp_finance_bordero_page",
+   "erp_finance_cash_entry_get",
+   "erp_finance_cash_execute",
+   "erp_finance_cash_session_execute",
+   "erp_finance_cash_session_get",
+   "erp_finance_cash_session_page",
+   "erp_finance_category_execute",
+   "erp_finance_category_tree",
+   "erp_finance_commission_execute",
+   "erp_finance_commission_page",
+   "erp_finance_commission_report",
+   "erp_finance_commission_statement",
+   "erp_finance_contact_ledger",
+   "erp_finance_contact_ledger_page",
+   "erp_finance_contact_open_titles",
+   "erp_finance_due_report",
+   "erp_finance_execute",
+   "erp_finance_file_claim",
+   "erp_finance_file_delete",
+   "erp_finance_file_finish",
+   "erp_finance_file_list",
+   "erp_finance_file_object",
+   "erp_finance_file_reserve",
+   "erp_finance_file_stop",
+   "erp_finance_get",
+   "erp_finance_grouped_billing_candidates",
+   "erp_finance_grouped_billing_documents",
+   "erp_finance_grouped_billing_execute",
+   "erp_finance_grouped_billing_page",
+   "erp_finance_import_execute",
+   "erp_finance_import_preview",
+   "erp_finance_invoice_finance_flags",
+   "erp_finance_invoice_finance_get",
+   "erp_finance_invoice_finance_post",
+   "erp_finance_invoice_finance_preview",
+   "erp_finance_invoice_finance_reverse",
+   "erp_finance_invoice_order_titles",
+   "erp_finance_list",
+   "erp_finance_payment_methods",
+   "erp_finance_reconciliation_candidates",
+   "erp_finance_reconciliation_dismiss",
+   "erp_finance_reconciliation_execute",
+   "erp_finance_reconciliation_page",
+   "erp_finance_recurrence_execute",
+   "erp_finance_recurrence_get",
+   "erp_finance_recurrence_page",
+   "erp_finance_report",
+   "erp_finance_statement_page",
+   "erp_finance_title_detail",
+   "erp_finance_title_execute",
+   "erp_finance_title_page_v2"
+  ],
+  "public_functions": {
+   "erp_finance.account_defaults": {
+    "name": "accountDefaults",
+    "ported": false
+   },
+   "erp_finance.active_account": {
+    "name": "activeAccount",
+    "ported": false
+   },
+   "erp_finance.active_category": {
+    "name": "activeCategory",
+    "ported": false
+   },
+   "erp_finance.assert_settlement_postings": {
+    "name": "assertSettlementPostings",
+    "ported": false
+   },
+   "erp_finance.audit_permission": {
+    "name": "auditPermission",
+    "ported": false
+   },
+   "erp_finance.bank_number": {
+    "name": "bankNumber",
+    "ported": false
+   },
+   "erp_finance.bordero_immutable": {
+    "name": "borderoImmutable",
+    "ported": false
+   },
+   "erp_finance.bp": {
+    "name": "bp",
+    "ported": false
+   },
+   "erp_finance.cash_account": {
+    "name": "cashAccount",
+    "ported": false
+   },
+   "erp_finance.cash_category": {
+    "name": "cashCategory",
+    "ported": false
+   },
+   "erp_finance.cash_compensate": {
+    "name": "cashCompensate",
+    "ported": false
+   },
+   "erp_finance.cash_contact": {
+    "name": "cashContact",
+    "ported": false
+   },
+   "erp_finance.cash_entry_view": {
+    "name": "cashEntryView",
+    "ported": false
+   },
+   "erp_finance.cash_post": {
+    "name": "cashPost",
+    "ported": false
+   },
+   "erp_finance.cash_text": {
+    "name": "cashText",
+    "ported": false
+   },
+   "erp_finance.category_depth": {
+    "name": "categoryDepth",
+    "ported": false
+   },
+   "erp_finance.category_in_use": {
+    "name": "categoryInUse",
+    "ported": false
+   },
+   "erp_finance.category_tree_guard": {
+    "name": "categoryTreeGuard",
+    "ported": false
+   },
+   "erp_finance.cents": {
+    "name": "cents",
+    "ported": false
+   },
+   "erp_finance.cents_of": {
+    "name": "centsOf",
+    "ported": false
+   },
+   "erp_finance.cnab_cash_immutable": {
+    "name": "cnabCashImmutable",
+    "ported": false
+   },
+   "erp_finance.cnab_cash_plan_check": {
+    "name": "cnabCashPlanCheck",
+    "ported": false
+   },
+   "erp_finance.cnab_plan_for_settlement": {
+    "name": "cnabPlanForSettlement",
+    "ported": false
+   },
+   "erp_finance.commission_amounts": {
+    "name": "commissionAmounts",
+    "ported": false
+   },
+   "erp_finance.commission_capture": {
+    "name": "commissionCapture",
+    "ported": false
+   },
+   "erp_finance.commission_capture_invoice": {
+    "name": "commissionCaptureInvoice",
+    "ported": false
+   },
+   "erp_finance.commission_capture_invoice_title": {
+    "name": "commissionCaptureInvoiceTitle",
+    "ported": false
+   },
+   "erp_finance.commission_capture_title": {
+    "name": "commissionCaptureTitle",
+    "ported": false
+   },
+   "erp_finance.commission_confirmed": {
+    "name": "commissionConfirmed",
+    "ported": false
+   },
+   "erp_finance.commission_document": {
+    "name": "commissionDocument",
+    "ported": false
+   },
+   "erp_finance.commission_invoice": {
+    "name": "commissionInvoice",
+    "ported": false
+   },
+   "erp_finance.commission_operation_capture": {
+    "name": "commissionOperationCapture",
+    "ported": false
+   },
+   "erp_finance.commission_operation_frozen": {
+    "name": "commissionOperationFrozen",
+    "ported": false
+   },
+   "erp_finance.commission_operation_sync": {
+    "name": "commissionOperationSync",
+    "ported": false
+   },
+   "erp_finance.commission_operation_titles": {
+    "name": "commissionOperationTitles",
+    "ported": false
+   },
+   "erp_finance.commission_operation_view": {
+    "name": "commissionOperationView",
+    "ported": false
+   },
+   "erp_finance.commission_policy": {
+    "name": "commissionPolicy",
+    "ported": false
+   },
+   "erp_finance.commission_return_capture": {
+    "name": "commissionReturnCapture",
+    "ported": false
+   },
+   "erp_finance.commission_rows": {
+    "name": "commissionRows",
+    "ported": false
+   },
+   "erp_finance.commission_seller": {
+    "name": "commissionSeller",
+    "ported": false
+   },
+   "erp_finance.commission_weighted": {
+    "name": "commissionWeighted",
+    "ported": false
+   },
+   "erp_finance.day": {
+    "name": "day",
+    "ported": false
+   },
+   "erp_finance.document_command_finish": {
+    "name": "documentCommandFinish",
+    "ported": false
+   },
+   "erp_finance.document_command_start": {
+    "name": "documentCommandStart",
+    "ported": false
+   },
+   "erp_finance.document_lock": {
+    "name": "documentLock",
+    "ported": false
+   },
+   "erp_finance.document_posting_summary": {
+    "name": "documentPostingSummary",
+    "ported": false
+   },
+   "erp_finance.document_preview_data": {
+    "name": "documentPreviewData",
+    "ported": false
+   },
+   "erp_finance.document_reverse_preview_data": {
+    "name": "documentReversePreviewData",
+    "ported": false
+   },
+   "erp_finance.document_seller": {
+    "name": "documentSeller",
+    "ported": false
+   },
+   "erp_finance.document_title_number": {
+    "name": "documentTitleNumber",
+    "ported": false
+   },
+   "erp_finance.document_title_rows": {
+    "name": "documentTitleRows",
+    "ported": false
+   },
+   "erp_finance.dto": {
+    "name": "dto",
+    "ported": false
+   },
+   "erp_finance.entry_movement_immutable": {
+    "name": "entryMovementImmutable",
+    "ported": false
+   },
+   "erp_finance.expected": {
+    "name": "expected",
+    "ported": false
+   },
+   "erp_finance.find_or_create_category": {
+    "name": "findOrCreateCategory",
+    "ported": false
+   },
+   "erp_finance.guard_document_title": {
+    "name": "guardDocumentTitle",
+    "ported": false
+   },
+   "erp_finance.guard_finance_invoice": {
+    "name": "guardFinanceInvoice",
+    "ported": false
+   },
+   "erp_finance.guard_grouped_title": {
+    "name": "guardGroupedTitle",
+    "ported": false
+   },
+   "erp_finance.guard_invoice_order_effect": {
+    "name": "guardInvoiceOrderEffect",
+    "ported": false
+   },
+   "erp_finance.guard_invoice_title": {
+    "name": "guardInvoiceTitle",
+    "ported": false
+   },
+   "erp_finance.guard_origin_import_billing": {
+    "name": "guardOriginImportBilling",
+    "ported": false
+   },
+   "erp_finance.guard_origin_import_title": {
+    "name": "guardOriginImportTitle",
+    "ported": false
+   },
+   "erp_finance.guard_posted_document": {
+    "name": "guardPostedDocument",
+    "ported": false
+   },
+   "erp_finance.guard_posted_item": {
+    "name": "guardPostedItem",
+    "ported": false
+   },
+   "erp_finance.invoice_auto_finance": {
+    "name": "invoiceAutoFinance",
+    "ported": false
+   },
+   "erp_finance.invoice_blocked_reason": {
+    "name": "invoiceBlockedReason",
+    "ported": false
+   },
+   "erp_finance.invoice_contact": {
+    "name": "invoiceContact",
+    "ported": false
+   },
+   "erp_finance.invoice_effect_active": {
+    "name": "invoiceEffectActive",
+    "ported": false
+   },
+   "erp_finance.invoice_kind": {
+    "name": "invoiceKind",
+    "ported": false
+   },
+   "erp_finance.invoice_label": {
+    "name": "invoiceLabel",
+    "ported": false
+   },
+   "erp_finance.invoice_lock": {
+    "name": "invoiceLock",
+    "ported": false
+   },
+   "erp_finance.invoice_orders_posted": {
+    "name": "invoiceOrdersPosted",
+    "ported": false
+   },
+   "erp_finance.invoice_post": {
+    "name": "invoicePost",
+    "ported": false
+   },
+   "erp_finance.invoice_posting_summary": {
+    "name": "invoicePostingSummary",
+    "ported": false
+   },
+   "erp_finance.invoice_preview_data": {
+    "name": "invoicePreviewData",
+    "ported": false
+   },
+   "erp_finance.invoice_title_rows": {
+    "name": "invoiceTitleRows",
+    "ported": false
+   },
+   "erp_finance.invoice_total_cents": {
+    "name": "invoiceTotalCents",
+    "ported": false
+   },
+   "erp_finance.keys": {
+    "name": "keys",
+    "ported": false
+   },
+   "erp_finance.movement_account_start": {
+    "name": "movementAccountStart",
+    "ported": false
+   },
+   "erp_finance.notes_edit_allowed": {
+    "name": "notesEditAllowed",
+    "ported": false
+   },
+   "erp_finance.notes_item_allowed": {
+    "name": "notesItemAllowed",
+    "ported": false
+   },
+   "erp_finance.owned_entry_guard": {
+    "name": "ownedEntryGuard",
+    "ported": false
+   },
+   "erp_finance.payment_method_fee": {
+    "name": "paymentMethodFee",
+    "ported": false
+   },
+   "erp_finance.payment_method_for": {
+    "name": "paymentMethodFor",
+    "ported": false
+   },
+   "erp_finance.permission_key": {
+    "name": "permissionKey",
+    "ported": false
+   },
+   "erp_finance.post_settlement_movements": {
+    "name": "postSettlementMovements",
+    "ported": false
+   },
+   "erp_finance.project_result_link": {
+    "name": "projectResultLink",
+    "ported": false
+   },
+   "erp_finance.reconciled_entry_guard": {
+    "name": "reconciledEntryGuard",
+    "ported": false
+   },
+   "erp_finance.reconciled_movement_guard": {
+    "name": "reconciledMovementGuard",
+    "ported": false
+   },
+   "erp_finance.require_access": {
+    "name": "requireAccess",
+    "ported": false
+   },
+   "erp_finance.require_permission": {
+    "name": "requirePermission",
+    "ported": false
+   },
+   "erp_finance.seller_for": {
+    "name": "sellerFor",
+    "ported": false
+   },
+   "erp_finance.settlement_bordero": {
+    "name": "settlementBordero",
+    "ported": false
+   },
+   "erp_finance.settlement_capture_categories": {
+    "name": "settlementCaptureCategories",
+    "ported": false
+   },
+   "erp_finance.settlement_posting_check": {
+    "name": "settlementPostingCheck",
+    "ported": false
+   },
+   "erp_finance.statement_lines": {
+    "name": "statementLines",
+    "ported": false
+   },
+   "erp_finance.title_defaults": {
+    "name": "titleDefaults",
+    "ported": false
+   },
+   "erp_finance.title_history_guard": {
+    "name": "titleHistoryGuard",
+    "ported": false
+   },
+   "erp_finance.title_inherited_seller": {
+    "name": "titleInheritedSeller",
+    "ported": false
+   },
+   "erp_finance.title_long_history": {
+    "name": "titleLongHistory",
+    "ported": false
+   },
+   "erp_finance.title_seller": {
+    "name": "titleSeller",
+    "ported": false
+   },
+   "erp_finance.title_text": {
+    "name": "titleText",
+    "ported": false
+   },
+   "erp_finance.titles_mark_returned": {
+    "name": "titlesMarkReturned",
+    "ported": false
+   },
+   "erp_finance.transfer_account": {
+    "name": "transferAccount",
+    "ported": false
+   },
+   "erp_finance.transfer_immutable": {
+    "name": "transferImmutable",
+    "ported": false
+   },
+   "erp_finance.transfer_leg_check": {
+    "name": "transferLegCheck",
+    "ported": false
+   },
+   "erp_finance.transfer_pair_check": {
+    "name": "transferPairCheck",
+    "ported": false
+   },
+   "erp_finance.txt": {
+    "name": "txt",
+    "ported": false
+   },
+   "erp_finance.utf16_length": {
+    "name": "utf16Length",
+    "ported": false
+   },
+   "erp_finance.uuid_value": {
+    "name": "uuidValue",
+    "ported": false
+   },
+   "public.erp_document_finance_post": {
+    "name": "erpDocumentFinancePost",
+    "ported": false
+   },
+   "public.erp_document_finance_preview": {
+    "name": "erpDocumentFinancePreview",
+    "ported": false
+   },
+   "public.erp_document_finance_reverse": {
+    "name": "erpDocumentFinanceReverse",
+    "ported": false
+   },
+   "public.erp_document_finance_reverse_preview": {
+    "name": "erpDocumentFinanceReversePreview",
+    "ported": false
+   },
+   "public.erp_finance_cash_execute": {
+    "name": "erpFinanceCashExecute",
+    "ported": false
+   },
+   "public.erp_finance_execute": {
+    "name": "erpFinanceExecute",
+    "ported": false
+   },
+   "public.erp_finance_title_execute": {
+    "name": "erpFinanceTitleExecute",
+    "ported": false
+   }
+  },
+  "uses": {
+   "documents": [
+    "erp_documents.advance_received_number",
+    "erp_documents.allowed",
+    "erp_documents.category_usable",
+    "erp_documents.contact_usable",
+    "erp_documents.cost_apply",
+    "erp_documents.cost_apply_capture",
+    "erp_documents.decimal_value",
+    "erp_documents.document_finance_category",
+    "erp_documents.dto",
+    "erp_documents.effect_flags",
+    "erp_documents.effects_transition_allowed",
+    "erp_documents.finance_category",
+    "erp_documents.finance_payment_preview",
+    "erp_documents.guard_trash",
+    "erp_documents.guard_trash_child",
+    "erp_documents.os_permitted",
+    "erp_documents.require_access",
+    "erp_documents.require_os_permission",
+    "erp_documents.require_role",
+    "erp_documents.situation_follow_status",
+    "erp_documents.text_value"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_activity.actor_label"
+   ],
+   "catalog": [
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_situation",
+    "erp_catalog.contact_source_situation",
+    "erp_catalog.contact_visible_to"
+   ],
+   "preferences": [
+    "erp_attachments.storage_ready",
+    "erp_home.biz_unit_cost",
+    "erp_preferences.get"
+   ],
+   "sync": [
+    "erp_sync.applying",
+    "erp_sync.capture_document",
+    "erp_sync.capture_finance",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_origin_effects_document",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_locked",
+    "erp_sync.origin_number"
+   ],
+   "stock": [
+    "erp_purchase_receipts.active",
+    "erp_purchase_receipts.guard_document",
+    "erp_stock.average_costs",
+    "erp_stock.effect_document_allowed",
+    "erp_stock.effect_edit_allowed",
+    "erp_stock.effect_transition_allowed",
+    "erp_stock.guard_posted_document",
+    "erp_stock.guard_reserved_document",
+    "erp_stock.invoice_unit_price",
+    "erp_stock.reserve_statuses",
+    "erp_stock.settings_dto"
+   ]
+  }
+ },
+ "fiscal": {
+  "rpcs": [
+   "erp_dfe_command",
+   "erp_dfe_configure",
+   "erp_dfe_documents",
+   "erp_dfe_object",
+   "erp_dfe_settings",
+   "erp_dfe_summaries",
+   "erp_dfe_summary_record",
+   "erp_fiscal_draft_execute",
+   "erp_fiscal_draft_get",
+   "erp_fiscal_draft_list",
+   "erp_fiscal_draft_review",
+   "erp_fiscal_draft_revisions",
+   "erp_fiscal_draft_status_list",
+   "erp_fiscal_event_execute",
+   "erp_fiscal_event_list",
+   "erp_fiscal_invoice_contact_source",
+   "erp_fiscal_invoice_context",
+   "erp_fiscal_invoice_execute",
+   "erp_fiscal_invoice_get",
+   "erp_fiscal_invoice_import",
+   "erp_fiscal_invoice_item_history",
+   "erp_fiscal_invoice_key_lookup",
+   "erp_fiscal_invoice_link",
+   "erp_fiscal_invoice_list",
+   "erp_fiscal_invoice_order_items",
+   "erp_fiscal_invoice_order_link_states",
+   "erp_fiscal_invoice_order_source_v3",
+   "erp_fiscal_invoice_origin_get",
+   "erp_fiscal_invoice_partial_create",
+   "erp_fiscal_invoice_payment_methods",
+   "erp_fiscal_invoice_pricing_record",
+   "erp_fiscal_invoice_pricing_states",
+   "erp_fiscal_invoice_product_groups",
+   "erp_fiscal_invoice_reconcile",
+   "erp_fiscal_invoice_returned",
+   "erp_fiscal_invoice_xml_get",
+   "erp_fiscal_invoice_xml_source",
+   "erp_fiscal_item_get",
+   "erp_fiscal_item_history",
+   "erp_fiscal_item_preview",
+   "erp_fiscal_item_save",
+   "erp_fiscal_mirror_project",
+   "erp_fiscal_nature_execute",
+   "erp_fiscal_nature_get",
+   "erp_fiscal_nature_list",
+   "erp_fiscal_nature_review_confirm",
+   "erp_fiscal_numbering_command",
+   "erp_fiscal_numbering_configure",
+   "erp_fiscal_numbering_draft",
+   "erp_fiscal_numbering_reservation",
+   "erp_fiscal_numbering_reserve",
+   "erp_fiscal_numbering_series",
+   "erp_fiscal_report_difal",
+   "erp_fiscal_report_invoices",
+   "erp_fiscal_tax_estimate_context_v2",
+   "erp_fiscal_tax_settings_get",
+   "erp_fiscal_tax_settings_save",
+   "erp_history_xml",
+   "erp_history_xml_object"
+  ],
+  "public_functions": {
+   "erp_fiscal_invoices.access_key_valid": {
+    "name": "accessKeyValid",
+    "ported": false
+   },
+   "erp_fiscal_invoices.allocate": {
+    "name": "allocate",
+    "ported": false
+   },
+   "erp_fiscal_invoices.array_input": {
+    "name": "arrayInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.authorized_input": {
+    "name": "authorizedInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.bool_input": {
+    "name": "boolInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.check_sales_item_links": {
+    "name": "checkSalesItemLinks",
+    "ported": false
+   },
+   "erp_fiscal_invoices.check_value": {
+    "name": "checkValue",
+    "ported": false
+   },
+   "erp_fiscal_invoices.command_hash": {
+    "name": "commandHash",
+    "ported": false
+   },
+   "erp_fiscal_invoices.command_replay": {
+    "name": "commandReplay",
+    "ported": false
+   },
+   "erp_fiscal_invoices.counts_for_balance": {
+    "name": "countsForBalance",
+    "ported": false
+   },
+   "erp_fiscal_invoices.digits": {
+    "name": "digits",
+    "ported": false
+   },
+   "erp_fiscal_invoices.edit_locks": {
+    "name": "editLocks",
+    "ported": false
+   },
+   "erp_fiscal_invoices.guard_invoice": {
+    "name": "guardInvoice",
+    "ported": false
+   },
+   "erp_fiscal_invoices.import_input": {
+    "name": "importInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.installments_signature": {
+    "name": "installmentsSignature",
+    "ported": false
+   },
+   "erp_fiscal_invoices.invoice_envelope": {
+    "name": "invoiceEnvelope",
+    "ported": false
+   },
+   "erp_fiscal_invoices.invoice_input": {
+    "name": "invoiceInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.invoice_record": {
+    "name": "invoiceRecord",
+    "ported": false
+   },
+   "erp_fiscal_invoices.invoice_specs": {
+    "name": "invoiceSpecs",
+    "ported": false
+   },
+   "erp_fiscal_invoices.ipi_situation_allowed": {
+    "name": "ipiSituationAllowed",
+    "ported": false
+   },
+   "erp_fiscal_invoices.item_input": {
+    "name": "itemInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.items_signature": {
+    "name": "itemsSignature",
+    "ported": false
+   },
+   "erp_fiscal_invoices.list_query": {
+    "name": "listQuery",
+    "ported": false
+   },
+   "erp_fiscal_invoices.list_rows": {
+    "name": "listRows",
+    "ported": false
+   },
+   "erp_fiscal_invoices.money_input": {
+    "name": "moneyInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.money_text": {
+    "name": "moneyText",
+    "ported": false
+   },
+   "erp_fiscal_invoices.order_effects": {
+    "name": "orderEffects",
+    "ported": false
+   },
+   "erp_fiscal_invoices.orders_finance_locked": {
+    "name": "ordersFinanceLocked",
+    "ported": false
+   },
+   "erp_fiscal_invoices.origin_seller_ids": {
+    "name": "originSellerIds",
+    "ported": false
+   },
+   "erp_fiscal_invoices.origin_status": {
+    "name": "originStatus",
+    "ported": false
+   },
+   "erp_fiscal_invoices.payment_input": {
+    "name": "paymentInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.preference": {
+    "name": "preference",
+    "ported": false
+   },
+   "erp_fiscal_invoices.quantity_text": {
+    "name": "quantityText",
+    "ported": false
+   },
+   "erp_fiscal_invoices.recipient_input": {
+    "name": "recipientInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.references_input": {
+    "name": "referencesInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.require_orders_readable": {
+    "name": "requireOrdersReadable",
+    "ported": false
+   },
+   "erp_fiscal_invoices.require_read": {
+    "name": "requireRead",
+    "ported": false
+   },
+   "erp_fiscal_invoices.require_single_invoice": {
+    "name": "requireSingleInvoice",
+    "ported": false
+   },
+   "erp_fiscal_invoices.require_write": {
+    "name": "requireWrite",
+    "ported": false
+   },
+   "erp_fiscal_invoices.role_of": {
+    "name": "roleOf",
+    "ported": false
+   },
+   "erp_fiscal_invoices.sales_balance": {
+    "name": "salesBalance",
+    "ported": false
+   },
+   "erp_fiscal_invoices.sales_full_invoice": {
+    "name": "salesFullInvoice",
+    "ported": false
+   },
+   "erp_fiscal_invoices.sales_item_invoiced": {
+    "name": "salesItemInvoiced",
+    "ported": false
+   },
+   "erp_fiscal_invoices.scalar": {
+    "name": "scalar",
+    "ported": false
+   },
+   "erp_fiscal_invoices.spec_object": {
+    "name": "specObject",
+    "ported": false
+   },
+   "erp_fiscal_invoices.status_group": {
+    "name": "statusGroup",
+    "ported": false
+   },
+   "erp_fiscal_invoices.store_items": {
+    "name": "storeItems",
+    "ported": false
+   },
+   "erp_fiscal_invoices.store_orders": {
+    "name": "storeOrders",
+    "ported": false
+   },
+   "erp_fiscal_invoices.text_input": {
+    "name": "textInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.transport_input": {
+    "name": "transportInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.ufs": {
+    "name": "ufs",
+    "ported": false
+   },
+   "erp_fiscal_invoices.uuid_input": {
+    "name": "uuidInput",
+    "ported": false
+   },
+   "erp_fiscal_invoices.version_input": {
+    "name": "versionInput",
+    "ported": false
+   },
+   "erp_fiscal_mirror.coverage": {
+    "name": "coverage",
+    "ported": false
+   },
+   "erp_fiscal_mirror.native_visible": {
+    "name": "nativeVisible",
+    "ported": false
+   },
+   "erp_fiscal_mirror.visible": {
+    "name": "visible",
+    "ported": false
+   },
+   "public.erp_fiscal_invoice_execute": {
+    "name": "erpFiscalInvoiceExecute",
+    "ported": false
+   }
+  },
+  "uses": {
+   "documents": [
+    "erp_documents.allowed",
+    "erp_documents.contact_usable",
+    "erp_documents.effect_flags",
+    "erp_documents.guard_trash_child",
+    "erp_documents.os_permitted",
+    "erp_documents.require_access",
+    "erp_documents.require_role",
+    "erp_documents.text_value",
+    "erp_documents.uuid_value"
+   ],
+   "catalog": [
+    "erp_catalog.allowed",
+    "erp_catalog.category_lineage",
+    "erp_catalog.compact",
+    "erp_catalog.contact_require_visible",
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_visible_to",
+    "erp_catalog.custom_field_applies",
+    "erp_catalog.custom_value",
+    "erp_catalog.data",
+    "erp_catalog.detail_date",
+    "erp_catalog.detail_decimal",
+    "erp_catalog.detail_text",
+    "erp_catalog.detail_uuid",
+    "erp_catalog.document_issue",
+    "erp_catalog.dto",
+    "erp_catalog.fold",
+    "erp_catalog.gtin_check_digit",
+    "erp_catalog.guard_deleted_product",
+    "erp_catalog.guard_variation_parent",
+    "erp_catalog.items_per_box_follow",
+    "erp_catalog.next_product_code",
+    "erp_catalog.origin_contact_roles",
+    "erp_catalog.origin_count",
+    "erp_catalog.origin_decimal",
+    "erp_catalog.origin_mirror_fields",
+    "erp_catalog.origin_mirror_refresh",
+    "erp_catalog.origin_text",
+    "erp_catalog.product_cost_capture",
+    "erp_catalog.product_custom_resolve",
+    "erp_catalog.product_custom_values",
+    "erp_catalog.product_detail_data",
+    "erp_catalog.product_detail_keys",
+    "erp_catalog.product_detail_references",
+    "erp_catalog.product_detail_validate",
+    "erp_catalog.product_detail_write",
+    "erp_catalog.product_full",
+    "erp_catalog.require_access",
+    "erp_catalog.unit_price",
+    "erp_catalog.unit_price_numeric",
+    "erp_catalog.valid_cnpj",
+    "erp_catalog.valid_cpf",
+    "erp_catalog.validate_data",
+    "erp_catalog.validate_product_identifiers",
+    "erp_catalog.warnings",
+    "erp_catalog.write_fields",
+    "public.erp_catalog_product_save"
+   ],
+   "preferences": [
+    "erp_preferences.get"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.require_history_role",
+    "erp_access.require_permission",
+    "erp_access.resources_for_role",
+    "erp_access.scalar_text"
+   ],
+   "finance": [
+    "erp_finance.audit_permission",
+    "erp_finance.commission_capture_invoice",
+    "erp_finance.commission_capture_invoice_title",
+    "erp_finance.commission_invoice",
+    "erp_finance.document_command_finish",
+    "erp_finance.document_command_start",
+    "erp_finance.expected",
+    "erp_finance.guard_finance_invoice",
+    "erp_finance.guard_invoice_order_effect",
+    "erp_finance.invoice_auto_finance",
+    "erp_finance.invoice_blocked_reason",
+    "erp_finance.invoice_contact",
+    "erp_finance.invoice_effect_active",
+    "erp_finance.invoice_kind",
+    "erp_finance.invoice_label",
+    "erp_finance.invoice_lock",
+    "erp_finance.invoice_orders_posted",
+    "erp_finance.invoice_post",
+    "erp_finance.invoice_posting_summary",
+    "erp_finance.invoice_preview_data",
+    "erp_finance.invoice_title_rows",
+    "erp_finance.invoice_total_cents",
+    "erp_finance.keys",
+    "erp_finance.permission_key",
+    "erp_finance.require_access",
+    "erp_finance.title_defaults",
+    "erp_finance.uuid_value"
+   ],
+   "stock": [
+    "erp_purchase_receipts.active",
+    "erp_stock.component_problem",
+    "erp_stock.guard_invoice_stock_delete",
+    "erp_stock.protect_default_warehouse",
+    "erp_stock.protect_product_unit"
+   ],
+   "sync": [
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.capture_finance",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_number"
+   ]
+  }
+ },
+ "pos": {
+  "rpcs": [
+   "erp_pos_cash_summary",
+   "erp_pos_context",
+   "erp_pos_favorites",
+   "erp_pos_order",
+   "erp_pos_return_execute",
+   "erp_pos_sale_execute",
+   "erp_pos_sale_get",
+   "erp_pos_sales",
+   "erp_pos_settings_execute"
+  ],
+  "public_functions": {},
+  "uses": {
+   "preferences": [
+    "erp_home.biz_unit_cost",
+    "erp_preferences.get",
+    "erp_preferences.situation_base_color",
+    "erp_preferences.situation_base_label",
+    "erp_preferences.situation_bases",
+    "erp_preferences.situation_list",
+    "erp_preferences.situation_of",
+    "erp_preferences.transition_allowed",
+    "erp_preferences.transition_rule"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.resources_for_role",
+    "erp_activity.actor_label"
+   ],
+   "stock": [
+    "erp_purchase_receipts.active",
+    "erp_purchase_receipts.guard_document",
+    "erp_purchase_receipts.guard_item",
+    "erp_purchase_receipts.guard_legacy",
+    "erp_stock.average_costs",
+    "erp_stock.balance_kept",
+    "erp_stock.component_problem",
+    "erp_stock.component_quantity",
+    "erp_stock.composition_lines",
+    "erp_stock.composition_own_stock",
+    "erp_stock.derived_command",
+    "erp_stock.document_access",
+    "erp_stock.document_command_finish",
+    "erp_stock.document_command_start",
+    "erp_stock.document_eligible",
+    "erp_stock.document_item_lots",
+    "erp_stock.document_lock",
+    "erp_stock.document_meta",
+    "erp_stock.document_posting_summary",
+    "erp_stock.document_preview_data",
+    "erp_stock.document_reverse_preview_data",
+    "erp_stock.document_summary",
+    "erp_stock.effect_document_allowed",
+    "erp_stock.effect_edit_allowed",
+    "erp_stock.effect_item_allowed",
+    "erp_stock.effect_transition_allowed",
+    "erp_stock.forget_item_components",
+    "erp_stock.guard_document_posting",
+    "erp_stock.guard_lot_entry",
+    "erp_stock.guard_negative_insert",
+    "erp_stock.guard_posted_document",
+    "erp_stock.guard_posted_item",
+    "erp_stock.guard_reserved_balance",
+    "erp_stock.guard_reserved_document",
+    "erp_stock.guard_reserved_item",
+    "erp_stock.guard_reserved_posting",
+    "erp_stock.invoice_posted_for_document",
+    "erp_stock.invoice_unit_price",
+    "erp_stock.item_component_rows",
+    "erp_stock.item_composition_lines",
+    "erp_stock.lot_apply",
+    "erp_stock.lot_product_problem",
+    "erp_stock.movement_dto",
+    "erp_stock.negative_allowed",
+    "erp_stock.post",
+    "erp_stock.post_document_lots",
+    "erp_stock.post_physical_025",
+    "erp_stock.protect_product_unit",
+    "erp_stock.require_access",
+    "erp_stock.reservation_write_access",
+    "erp_stock.reserve_statuses",
+    "erp_stock.reserved_quantity",
+    "erp_stock.reverse_lot_entries",
+    "erp_stock.sales_negative_allowed",
+    "erp_stock.settings_dto",
+    "public.erp_document_stock_post",
+    "public.erp_document_stock_preview",
+    "public.erp_document_stock_reverse",
+    "public.erp_document_stock_reverse_preview",
+    "public.erp_stock_post"
+   ],
+   "finance": [
+    "erp_finance.account_defaults",
+    "erp_finance.assert_settlement_postings",
+    "erp_finance.audit_permission",
+    "erp_finance.bordero_immutable",
+    "erp_finance.cash_account",
+    "erp_finance.cash_category",
+    "erp_finance.cash_compensate",
+    "erp_finance.cash_contact",
+    "erp_finance.cash_entry_view",
+    "erp_finance.cash_post",
+    "erp_finance.cash_text",
+    "erp_finance.category_depth",
+    "erp_finance.category_in_use",
+    "erp_finance.category_tree_guard",
+    "erp_finance.cents",
+    "erp_finance.cents_of",
+    "erp_finance.cnab_cash_immutable",
+    "erp_finance.cnab_plan_for_settlement",
+    "erp_finance.commission_amounts",
+    "erp_finance.commission_capture",
+    "erp_finance.commission_capture_title",
+    "erp_finance.commission_confirmed",
+    "erp_finance.commission_document",
+    "erp_finance.commission_operation_capture",
+    "erp_finance.commission_operation_frozen",
+    "erp_finance.commission_operation_sync",
+    "erp_finance.commission_operation_titles",
+    "erp_finance.commission_policy",
+    "erp_finance.commission_return_capture",
+    "erp_finance.commission_seller",
+    "erp_finance.commission_weighted",
+    "erp_finance.day",
+    "erp_finance.document_command_finish",
+    "erp_finance.document_command_start",
+    "erp_finance.document_lock",
+    "erp_finance.document_posting_summary",
+    "erp_finance.document_preview_data",
+    "erp_finance.document_reverse_preview_data",
+    "erp_finance.document_seller",
+    "erp_finance.document_title_number",
+    "erp_finance.document_title_rows",
+    "erp_finance.dto",
+    "erp_finance.entry_movement_immutable",
+    "erp_finance.expected",
+    "erp_finance.find_or_create_category",
+    "erp_finance.guard_document_title",
+    "erp_finance.guard_grouped_title",
+    "erp_finance.guard_invoice_title",
+    "erp_finance.guard_origin_import_title",
+    "erp_finance.guard_posted_document",
+    "erp_finance.guard_posted_item",
+    "erp_finance.invoice_effect_active",
+    "erp_finance.keys",
+    "erp_finance.movement_account_start",
+    "erp_finance.notes_edit_allowed",
+    "erp_finance.notes_item_allowed",
+    "erp_finance.owned_entry_guard",
+    "erp_finance.payment_method_fee",
+    "erp_finance.permission_key",
+    "erp_finance.post_settlement_movements",
+    "erp_finance.project_result_link",
+    "erp_finance.reconciled_entry_guard",
+    "erp_finance.reconciled_movement_guard",
+    "erp_finance.require_access",
+    "erp_finance.settlement_bordero",
+    "erp_finance.settlement_capture_categories",
+    "erp_finance.settlement_posting_check",
+    "erp_finance.title_defaults",
+    "erp_finance.title_history_guard",
+    "erp_finance.title_inherited_seller",
+    "erp_finance.title_long_history",
+    "erp_finance.title_seller",
+    "erp_finance.titles_mark_returned",
+    "erp_finance.transfer_account",
+    "erp_finance.transfer_immutable",
+    "erp_finance.transfer_leg_check",
+    "erp_finance.transfer_pair_check",
+    "erp_finance.txt",
+    "erp_finance.uuid_value",
+    "public.erp_document_finance_post",
+    "public.erp_document_finance_preview",
+    "public.erp_document_finance_reverse",
+    "public.erp_document_finance_reverse_preview",
+    "public.erp_finance_cash_execute",
+    "public.erp_finance_execute"
+   ],
+   "sync": [
+    "erp_sync.actor",
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.capture_document",
+    "erp_sync.capture_finance",
+    "erp_sync.capture_stock",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_origin_effects_document",
+    "erp_sync.guard_origin_effects_item",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_locked",
+    "erp_sync.origin_number",
+    "erp_sync.stock_import_allowed"
+   ],
+   "catalog": [
+    "erp_catalog.allowed",
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_visible_to",
+    "erp_catalog.data",
+    "erp_catalog.document_product",
+    "erp_catalog.dto",
+    "erp_catalog.fold",
+    "erp_catalog.gtin_check_digit",
+    "erp_catalog.guard_variation_parent",
+    "erp_catalog.items_per_box_follow",
+    "erp_catalog.next_product_code",
+    "erp_catalog.product_custom_values",
+    "erp_catalog.product_detail_data",
+    "erp_catalog.product_full",
+    "erp_catalog.require_access",
+    "erp_catalog.unit_price",
+    "erp_catalog.unit_price_numeric",
+    "erp_catalog.validate_data",
+    "erp_catalog.validate_product_identifiers",
+    "erp_catalog.write_fields",
+    "erp_pricing.list_price",
+    "erp_pricing.require",
+    "erp_pricing.rule_text",
+    "erp_pricing.valid_now",
+    "public.erp_pricing_product_lists"
+   ],
+   "documents": [
+    "erp_documents.advance_received_number",
+    "erp_documents.allowed",
+    "erp_documents.approval_situations",
+    "erp_documents.approval_target",
+    "erp_documents.auto_finance",
+    "erp_documents.auto_product_key",
+    "erp_documents.auto_products",
+    "erp_documents.carrier_usable",
+    "erp_documents.category_usable",
+    "erp_documents.check_credit_limit",
+    "erp_documents.check_custom_fields",
+    "erp_documents.check_links",
+    "erp_documents.check_payment_links",
+    "erp_documents.check_preference_rules",
+    "erp_documents.check_situation_change",
+    "erp_documents.check_tax_preference",
+    "erp_documents.command_replay",
+    "erp_documents.commercial_data",
+    "erp_documents.commercial_reference",
+    "erp_documents.contact_usable",
+    "erp_documents.cost_apply",
+    "erp_documents.cost_apply_capture",
+    "erp_documents.current_version",
+    "erp_documents.custom_field_value",
+    "erp_documents.date_value",
+    "erp_documents.decimal_value",
+    "erp_documents.delivery_address",
+    "erp_documents.discount_approver",
+    "erp_documents.document_finance_category",
+    "erp_documents.document_situation_json",
+    "erp_documents.document_view",
+    "erp_documents.dto",
+    "erp_documents.editable",
+    "erp_documents.effect_flags",
+    "erp_documents.effects_transition_allowed",
+    "erp_documents.extension_data",
+    "erp_documents.extension_keys",
+    "erp_documents.finance_category",
+    "erp_documents.finance_payment_preview",
+    "erp_documents.guard_trash",
+    "erp_documents.guard_trash_child",
+    "erp_documents.guard_variation_item",
+    "erp_documents.has_commercial_data",
+    "erp_documents.initial_status",
+    "erp_documents.installment_details",
+    "erp_documents.legacy_transitions",
+    "erp_documents.next_number",
+    "erp_documents.normalize",
+    "erp_documents.normalize_core",
+    "erp_documents.number_editable",
+    "erp_documents.optional_amount",
+    "erp_documents.os_permitted",
+    "erp_documents.payment_types",
+    "erp_documents.preference",
+    "erp_documents.price_decimals",
+    "erp_documents.project_result_flags",
+    "erp_documents.proposal_superseded",
+    "erp_documents.proposal_version_json",
+    "erp_documents.quantity_decimals",
+    "erp_documents.record_occurrence",
+    "erp_documents.record_situation_occurrence",
+    "erp_documents.replace_items",
+    "erp_documents.require_access",
+    "erp_documents.require_commercial_input",
+    "erp_documents.require_os_permission",
+    "erp_documents.require_role",
+    "erp_documents.require_seller",
+    "erp_documents.rich_text",
+    "erp_documents.seller_rules",
+    "erp_documents.situation_adopted",
+    "erp_documents.situation_follow_status",
+    "erp_documents.situation_json",
+    "erp_documents.situation_key_valid",
+    "erp_documents.situation_snapshot",
+    "erp_documents.stock_launch_date",
+    "erp_documents.text_value",
+    "erp_documents.transition_action",
+    "erp_documents.transition_command",
+    "erp_documents.transition_reason_required",
+    "erp_documents.transitions",
+    "erp_documents.uuid_value",
+    "public.erp_document_save",
+    "public.erp_document_transition"
+   ]
+  }
+ },
+ "preferences": {
+  "rpcs": [
+   "erp_attachment_claim",
+   "erp_attachment_contact_claim",
+   "erp_attachment_contact_delete",
+   "erp_attachment_contact_finish",
+   "erp_attachment_contact_list",
+   "erp_attachment_contact_object",
+   "erp_attachment_contact_reserve",
+   "erp_attachment_contact_stop",
+   "erp_attachment_delete",
+   "erp_attachment_employee_claim",
+   "erp_attachment_employee_delete",
+   "erp_attachment_employee_finish",
+   "erp_attachment_employee_list",
+   "erp_attachment_employee_object",
+   "erp_attachment_employee_reserve",
+   "erp_attachment_employee_stop",
+   "erp_attachment_finish",
+   "erp_attachment_list",
+   "erp_attachment_object",
+   "erp_attachment_reserve",
+   "erp_attachment_stop",
+   "erp_files_list_v2",
+   "erp_history_backups",
+   "erp_home_business_panel",
+   "erp_home_charts_get",
+   "erp_home_charts_save",
+   "erp_home_expiring",
+   "erp_home_notifications",
+   "erp_home_notifications_read",
+   "erp_home_overview",
+   "erp_home_shortcuts_get",
+   "erp_home_shortcuts_save",
+   "erp_home_summary",
+   "erp_home_top_products",
+   "erp_list_preferences_command",
+   "erp_list_preferences_get",
+   "erp_list_preferences_save",
+   "erp_platform_export_chunk",
+   "erp_platform_export_complete",
+   "erp_platform_export_expired",
+   "erp_platform_export_link",
+   "erp_platform_export_plan",
+   "erp_platform_export_removed",
+   "erp_platform_export_request",
+   "erp_platform_exports",
+   "erp_platform_new_invoices",
+   "erp_platform_new_invoices_seen",
+   "erp_platform_notifications_run",
+   "erp_platform_schedule",
+   "erp_platform_task_claim",
+   "erp_platform_task_finish",
+   "erp_platform_task_progress",
+   "erp_platform_tasks",
+   "erp_preferences_command",
+   "erp_preferences_framework_delete",
+   "erp_preferences_import_batch",
+   "erp_preferences_import_job",
+   "erp_preferences_import_jobs",
+   "erp_preferences_label_invoice_products",
+   "erp_preferences_label_records",
+   "erp_preferences_label_save",
+   "erp_preferences_labels",
+   "erp_preferences_page",
+   "erp_preferences_report_run",
+   "erp_preferences_report_save",
+   "erp_preferences_reports",
+   "erp_preferences_save",
+   "erp_preferences_situation_save",
+   "erp_preferences_situations",
+   "erp_preferences_transition_save",
+   "erp_preferences_transitions_delete",
+   "erp_read_records",
+   "erp_wabotia_state"
+  ],
+  "public_functions": {
+   "erp_attachments.storage_ready": {
+    "name": "storageReady",
+    "ported": false
+   },
+   "erp_home.biz_cost_visible": {
+    "name": "bizCostVisible",
+    "ported": false
+   },
+   "erp_home.biz_freight": {
+    "name": "bizFreight",
+    "ported": false
+   },
+   "erp_home.biz_role": {
+    "name": "bizRole",
+    "ported": false
+   },
+   "erp_home.biz_unit_cost": {
+    "name": "bizUnitCost",
+    "ported": false
+   },
+   "erp_preferences.get": {
+    "name": "get",
+    "ported": true
+   },
+   "erp_preferences.label_defaults": {
+    "name": "labelDefaults",
+    "ported": false
+   },
+   "erp_preferences.report_clean": {
+    "name": "reportClean",
+    "ported": false
+   },
+   "erp_preferences.situation_base_color": {
+    "name": "situationBaseColor",
+    "ported": false
+   },
+   "erp_preferences.situation_base_label": {
+    "name": "situationBaseLabel",
+    "ported": false
+   },
+   "erp_preferences.situation_bases": {
+    "name": "situationBases",
+    "ported": false
+   },
+   "erp_preferences.situation_list": {
+    "name": "situationList",
+    "ported": false
+   },
+   "erp_preferences.situation_of": {
+    "name": "situationOf",
+    "ported": false
+   },
+   "erp_preferences.transition_allowed": {
+    "name": "transitionAllowed",
+    "ported": false
+   },
+   "erp_preferences.transition_list": {
+    "name": "transitionList",
+    "ported": false
+   },
+   "erp_preferences.transition_rule": {
+    "name": "transitionRule",
+    "ported": false
+   }
+  },
+  "uses": {
+   "documents": [
+    "erp_documents.advance_received_number",
+    "erp_documents.allowed",
+    "erp_documents.approval_situations",
+    "erp_documents.approval_target",
+    "erp_documents.auto_finance",
+    "erp_documents.auto_product_key",
+    "erp_documents.auto_products",
+    "erp_documents.carrier_usable",
+    "erp_documents.category_usable",
+    "erp_documents.check_credit_limit",
+    "erp_documents.check_custom_fields",
+    "erp_documents.check_links",
+    "erp_documents.check_payment_links",
+    "erp_documents.check_preference_rules",
+    "erp_documents.check_tax_preference",
+    "erp_documents.command_replay",
+    "erp_documents.commercial_data",
+    "erp_documents.commercial_reference",
+    "erp_documents.contact_usable",
+    "erp_documents.cost_apply",
+    "erp_documents.cost_apply_capture",
+    "erp_documents.current_version",
+    "erp_documents.custom_field_value",
+    "erp_documents.date_value",
+    "erp_documents.decimal_value",
+    "erp_documents.delivery_address",
+    "erp_documents.discount_approver",
+    "erp_documents.document_finance_category",
+    "erp_documents.document_situation_json",
+    "erp_documents.document_view",
+    "erp_documents.dto",
+    "erp_documents.editable",
+    "erp_documents.effect_flags",
+    "erp_documents.effects_transition_allowed",
+    "erp_documents.extension_data",
+    "erp_documents.extension_keys",
+    "erp_documents.finance_category",
+    "erp_documents.finance_payment_preview",
+    "erp_documents.guard_trash",
+    "erp_documents.guard_trash_child",
+    "erp_documents.guard_variation_item",
+    "erp_documents.has_commercial_data",
+    "erp_documents.initial_status",
+    "erp_documents.installment_details",
+    "erp_documents.next_number",
+    "erp_documents.normalize",
+    "erp_documents.normalize_core",
+    "erp_documents.number_editable",
+    "erp_documents.optional_amount",
+    "erp_documents.os_permitted",
+    "erp_documents.payment_types",
+    "erp_documents.preference",
+    "erp_documents.price_decimals",
+    "erp_documents.project_result_flags",
+    "erp_documents.proposal_superseded",
+    "erp_documents.proposal_version_json",
+    "erp_documents.quantity_decimals",
+    "erp_documents.record_occurrence",
+    "erp_documents.record_situation_occurrence",
+    "erp_documents.replace_items",
+    "erp_documents.report_last_purchase_until",
+    "erp_documents.require_access",
+    "erp_documents.require_commercial_input",
+    "erp_documents.require_os_permission",
+    "erp_documents.require_role",
+    "erp_documents.require_seller",
+    "erp_documents.rich_text",
+    "erp_documents.seller_rules",
+    "erp_documents.situation_adopted",
+    "erp_documents.situation_follow_status",
+    "erp_documents.situation_json",
+    "erp_documents.situation_snapshot",
+    "erp_documents.text_value",
+    "erp_documents.transition_command",
+    "erp_documents.transitions",
+    "erp_documents.uuid_value",
+    "public.erp_document_save"
+   ],
+   "access": [
+    "erp_access.member_role",
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.read_admin",
+    "erp_access.record_summary",
+    "erp_access.require_admin",
+    "erp_access.require_history_role",
+    "erp_access.require_permission",
+    "erp_access.resources_for_role",
+    "erp_access.scalar_text",
+    "erp_activity.actor_label",
+    "erp_activity.clean",
+    "erp_activity.period",
+    "erp_activity.require_admin"
+   ],
+   "catalog": [
+    "erp_catalog.acknowledged_valid",
+    "erp_catalog.allowed",
+    "erp_catalog.category_lineage",
+    "erp_catalog.compact",
+    "erp_catalog.composition_kits",
+    "erp_catalog.composition_sync",
+    "erp_catalog.composition_sync_on",
+    "erp_catalog.contact_apply",
+    "erp_catalog.contact_check_full",
+    "erp_catalog.contact_data",
+    "erp_catalog.contact_date",
+    "erp_catalog.contact_dto",
+    "erp_catalog.contact_email_list",
+    "erp_catalog.contact_field_person_type",
+    "erp_catalog.contact_input",
+    "erp_catalog.contact_merge",
+    "erp_catalog.contact_require_visible",
+    "erp_catalog.contact_required_field",
+    "erp_catalog.contact_required_missing",
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_situation",
+    "erp_catalog.contact_situation_of",
+    "erp_catalog.contact_source_situation",
+    "erp_catalog.contact_take_code",
+    "erp_catalog.contact_text",
+    "erp_catalog.contact_type_slugs",
+    "erp_catalog.contact_uf",
+    "erp_catalog.contact_visible_to",
+    "erp_catalog.contact_warnings",
+    "erp_catalog.contact_write",
+    "erp_catalog.custom_field_applies",
+    "erp_catalog.custom_value",
+    "erp_catalog.data",
+    "erp_catalog.detail_date",
+    "erp_catalog.detail_decimal",
+    "erp_catalog.detail_text",
+    "erp_catalog.detail_uuid",
+    "erp_catalog.document_issue",
+    "erp_catalog.document_product",
+    "erp_catalog.dto",
+    "erp_catalog.employee_admin",
+    "erp_catalog.fold",
+    "erp_catalog.gtin_check_digit",
+    "erp_catalog.guard_deleted_product",
+    "erp_catalog.guard_variation_parent",
+    "erp_catalog.items_per_box_follow",
+    "erp_catalog.next_product_code",
+    "erp_catalog.origin_contact_roles",
+    "erp_catalog.origin_count",
+    "erp_catalog.origin_decimal",
+    "erp_catalog.origin_mirror_fields",
+    "erp_catalog.origin_mirror_refresh",
+    "erp_catalog.origin_text",
+    "erp_catalog.payment_condition_valid",
+    "erp_catalog.product_cost_at",
+    "erp_catalog.product_cost_capture",
+    "erp_catalog.product_custom_resolve",
+    "erp_catalog.product_custom_values",
+    "erp_catalog.product_detail_data",
+    "erp_catalog.product_detail_keys",
+    "erp_catalog.product_detail_references",
+    "erp_catalog.product_detail_validate",
+    "erp_catalog.product_detail_write",
+    "erp_catalog.product_full",
+    "erp_catalog.require_access",
+    "erp_catalog.unit_price",
+    "erp_catalog.unit_price_numeric",
+    "erp_catalog.valid_cnpj",
+    "erp_catalog.valid_cpf",
+    "erp_catalog.validate_data",
+    "erp_catalog.validate_product_identifiers",
+    "erp_catalog.warnings",
+    "erp_catalog.write_fields",
+    "erp_pricing.valid_now",
+    "public.erp_catalog_contact_save",
+    "public.erp_catalog_product_prices_update",
+    "public.erp_catalog_product_save"
+   ],
+   "stock": [
+    "erp_purchase_receipts.active",
+    "erp_purchase_receipts.guard_document",
+    "erp_purchase_receipts.guard_item",
+    "erp_stock.average_costs",
+    "erp_stock.balance_kept",
+    "erp_stock.command_taken",
+    "erp_stock.component_problem",
+    "erp_stock.composition_apply_values",
+    "erp_stock.composition_dto",
+    "erp_stock.composition_own_stock",
+    "erp_stock.composition_settings",
+    "erp_stock.composition_totals",
+    "erp_stock.count_physical",
+    "erp_stock.derived_command",
+    "erp_stock.effect_document_allowed",
+    "erp_stock.effect_edit_allowed",
+    "erp_stock.effect_item_allowed",
+    "erp_stock.effect_transition_allowed",
+    "erp_stock.forget_item_components",
+    "erp_stock.guard_composition",
+    "erp_stock.guard_composition_command",
+    "erp_stock.guard_composition_item",
+    "erp_stock.guard_invoice_stock_delete",
+    "erp_stock.guard_lot",
+    "erp_stock.guard_lot_entry",
+    "erp_stock.guard_negative_insert",
+    "erp_stock.guard_posted_document",
+    "erp_stock.guard_posted_item",
+    "erp_stock.guard_reserved_balance",
+    "erp_stock.guard_reserved_document",
+    "erp_stock.guard_reserved_item",
+    "erp_stock.ignored_warehouse",
+    "erp_stock.invoice_unit_price",
+    "erp_stock.ledger_document_price",
+    "erp_stock.lot_apply",
+    "erp_stock.lot_check",
+    "erp_stock.lot_dto",
+    "erp_stock.lot_expiry_state",
+    "erp_stock.lot_product_problem",
+    "erp_stock.lot_quantity",
+    "erp_stock.lot_settings",
+    "erp_stock.lots_expiring",
+    "erp_stock.movement_dto",
+    "erp_stock.negative_allowed",
+    "erp_stock.post",
+    "erp_stock.post_physical_025",
+    "erp_stock.protect_default_warehouse",
+    "erp_stock.protect_product_unit",
+    "erp_stock.require_access",
+    "erp_stock.reservation_write_access",
+    "erp_stock.reserve_statuses",
+    "erp_stock.reserved_quantity",
+    "erp_stock.reverse_lot_entries",
+    "erp_stock.settings_dto",
+    "erp_stock.supply_part",
+    "erp_stock.virtual_positions",
+    "erp_stock.virtual_quantity",
+    "public.erp_stock_post",
+    "public.erp_stock_product_compose"
+   ],
+   "fiscal": [
+    "erp_fiscal_invoices.access_key_valid",
+    "erp_fiscal_invoices.allocate",
+    "erp_fiscal_invoices.array_input",
+    "erp_fiscal_invoices.authorized_input",
+    "erp_fiscal_invoices.bool_input",
+    "erp_fiscal_invoices.check_sales_item_links",
+    "erp_fiscal_invoices.check_value",
+    "erp_fiscal_invoices.command_hash",
+    "erp_fiscal_invoices.command_replay",
+    "erp_fiscal_invoices.edit_locks",
+    "erp_fiscal_invoices.guard_invoice",
+    "erp_fiscal_invoices.import_input",
+    "erp_fiscal_invoices.installments_signature",
+    "erp_fiscal_invoices.invoice_envelope",
+    "erp_fiscal_invoices.invoice_input",
+    "erp_fiscal_invoices.invoice_record",
+    "erp_fiscal_invoices.invoice_specs",
+    "erp_fiscal_invoices.ipi_situation_allowed",
+    "erp_fiscal_invoices.item_input",
+    "erp_fiscal_invoices.items_signature",
+    "erp_fiscal_invoices.money_input",
+    "erp_fiscal_invoices.money_text",
+    "erp_fiscal_invoices.order_effects",
+    "erp_fiscal_invoices.orders_finance_locked",
+    "erp_fiscal_invoices.origin_status",
+    "erp_fiscal_invoices.payment_input",
+    "erp_fiscal_invoices.preference",
+    "erp_fiscal_invoices.recipient_input",
+    "erp_fiscal_invoices.references_input",
+    "erp_fiscal_invoices.require_orders_readable",
+    "erp_fiscal_invoices.require_single_invoice",
+    "erp_fiscal_invoices.require_write",
+    "erp_fiscal_invoices.role_of",
+    "erp_fiscal_invoices.scalar",
+    "erp_fiscal_invoices.spec_object",
+    "erp_fiscal_invoices.store_items",
+    "erp_fiscal_invoices.store_orders",
+    "erp_fiscal_invoices.text_input",
+    "erp_fiscal_invoices.transport_input",
+    "erp_fiscal_invoices.uuid_input",
+    "erp_fiscal_invoices.version_input",
+    "public.erp_fiscal_invoice_execute"
+   ],
+   "finance": [
+    "erp_finance.active_account",
+    "erp_finance.active_category",
+    "erp_finance.audit_permission",
+    "erp_finance.bank_number",
+    "erp_finance.bp",
+    "erp_finance.cents",
+    "erp_finance.cents_of",
+    "erp_finance.cnab_plan_for_settlement",
+    "erp_finance.commission_amounts",
+    "erp_finance.commission_capture",
+    "erp_finance.commission_capture_invoice",
+    "erp_finance.commission_capture_invoice_title",
+    "erp_finance.commission_capture_title",
+    "erp_finance.commission_confirmed",
+    "erp_finance.commission_document",
+    "erp_finance.commission_invoice",
+    "erp_finance.commission_operation_capture",
+    "erp_finance.commission_operation_frozen",
+    "erp_finance.commission_operation_sync",
+    "erp_finance.commission_operation_titles",
+    "erp_finance.commission_policy",
+    "erp_finance.commission_rows",
+    "erp_finance.commission_seller",
+    "erp_finance.commission_weighted",
+    "erp_finance.day",
+    "erp_finance.document_command_finish",
+    "erp_finance.document_command_start",
+    "erp_finance.document_lock",
+    "erp_finance.document_posting_summary",
+    "erp_finance.document_preview_data",
+    "erp_finance.document_seller",
+    "erp_finance.document_title_number",
+    "erp_finance.document_title_rows",
+    "erp_finance.dto",
+    "erp_finance.expected",
+    "erp_finance.guard_document_title",
+    "erp_finance.guard_finance_invoice",
+    "erp_finance.guard_grouped_title",
+    "erp_finance.guard_invoice_order_effect",
+    "erp_finance.guard_invoice_title",
+    "erp_finance.guard_origin_import_title",
+    "erp_finance.guard_posted_document",
+    "erp_finance.guard_posted_item",
+    "erp_finance.invoice_auto_finance",
+    "erp_finance.invoice_blocked_reason",
+    "erp_finance.invoice_contact",
+    "erp_finance.invoice_effect_active",
+    "erp_finance.invoice_kind",
+    "erp_finance.invoice_label",
+    "erp_finance.invoice_lock",
+    "erp_finance.invoice_orders_posted",
+    "erp_finance.invoice_post",
+    "erp_finance.invoice_posting_summary",
+    "erp_finance.invoice_preview_data",
+    "erp_finance.invoice_title_rows",
+    "erp_finance.invoice_total_cents",
+    "erp_finance.keys",
+    "erp_finance.notes_edit_allowed",
+    "erp_finance.notes_item_allowed",
+    "erp_finance.payment_method_fee",
+    "erp_finance.payment_method_for",
+    "erp_finance.permission_key",
+    "erp_finance.project_result_link",
+    "erp_finance.require_access",
+    "erp_finance.seller_for",
+    "erp_finance.statement_lines",
+    "erp_finance.title_defaults",
+    "erp_finance.title_history_guard",
+    "erp_finance.title_inherited_seller",
+    "erp_finance.title_long_history",
+    "erp_finance.title_seller",
+    "erp_finance.title_text",
+    "erp_finance.txt",
+    "erp_finance.utf16_length",
+    "erp_finance.uuid_value",
+    "public.erp_document_finance_post",
+    "public.erp_document_finance_preview",
+    "public.erp_finance_title_execute"
+   ],
+   "sync": [
+    "erp_sync.actor",
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.capture_document",
+    "erp_sync.capture_finance",
+    "erp_sync.capture_stock",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_origin_effects_document",
+    "erp_sync.guard_origin_effects_item",
+    "erp_sync.guard_zero_title",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_locked",
+    "erp_sync.origin_number",
+    "erp_sync.stock_import_allowed"
+   ]
+  }
+ },
+ "reference": {
+  "rpcs": [
+   "erp_reference_search"
+  ],
+  "public_functions": {
+   "erp_reference.company_extra_cnae": {
+    "name": "companyExtraCnae",
+    "ported": false
+   },
+   "erp_reference.key": {
+    "name": "key",
+    "ported": false
+   },
+   "erp_reference.municipality_known": {
+    "name": "municipalityKnown",
+    "ported": false
+   }
+  },
+  "uses": {
+   "access": [
+    "erp_access.member_role"
+   ]
+  }
+ },
+ "stock": {
+  "rpcs": [
+   "erp_document_stock_get",
+   "erp_document_stock_list",
+   "erp_document_stock_post",
+   "erp_document_stock_preview",
+   "erp_document_stock_reverse",
+   "erp_document_stock_reverse_preview",
+   "erp_purchase_receipts_command",
+   "erp_purchase_receipts_get",
+   "erp_purchase_receipts_preview",
+   "erp_purchase_receipts_receive",
+   "erp_purchase_receipts_reverse",
+   "erp_purchase_receipts_reverse_preview",
+   "erp_stock_availability",
+   "erp_stock_balances",
+   "erp_stock_checkin_batch",
+   "erp_stock_checkin_finish",
+   "erp_stock_checkin_finish_post",
+   "erp_stock_checkin_get",
+   "erp_stock_checkin_issue",
+   "erp_stock_checkin_notes",
+   "erp_stock_checkin_post_preview",
+   "erp_stock_checkin_restart",
+   "erp_stock_checkin_save",
+   "erp_stock_composition_components",
+   "erp_stock_composition_export",
+   "erp_stock_composition_get",
+   "erp_stock_composition_launch",
+   "erp_stock_composition_launches",
+   "erp_stock_count_balance",
+   "erp_stock_count_delete",
+   "erp_stock_count_get",
+   "erp_stock_count_read",
+   "erp_stock_count_restart",
+   "erp_stock_count_warehouse",
+   "erp_stock_dashboard_idle",
+   "erp_stock_dashboard_preference_get",
+   "erp_stock_dashboard_preference_set",
+   "erp_stock_dashboard_stock",
+   "erp_stock_document_warehouse_post",
+   "erp_stock_document_warehouse_preview",
+   "erp_stock_invoice_flags",
+   "erp_stock_invoice_get",
+   "erp_stock_invoice_post",
+   "erp_stock_invoice_preview",
+   "erp_stock_invoice_reverse",
+   "erp_stock_invoice_reverse_preview",
+   "erp_stock_invoice_unit_save",
+   "erp_stock_invoice_units",
+   "erp_stock_item_components",
+   "erp_stock_item_components_save",
+   "erp_stock_launch",
+   "erp_stock_launch_context",
+   "erp_stock_ledger",
+   "erp_stock_lot_get",
+   "erp_stock_lot_launch",
+   "erp_stock_lot_save",
+   "erp_stock_lot_status",
+   "erp_stock_lots",
+   "erp_stock_mirror_list",
+   "erp_stock_mirror_product_summary",
+   "erp_stock_mirror_project",
+   "erp_stock_movement_amend",
+   "erp_stock_movement_lots",
+   "erp_stock_movement_lots_assign",
+   "erp_stock_movements",
+   "erp_stock_opening_apply",
+   "erp_stock_opening_batch",
+   "erp_stock_opening_command",
+   "erp_stock_opening_page",
+   "erp_stock_opening_warehouses",
+   "erp_stock_policy_command",
+   "erp_stock_policy_get",
+   "erp_stock_policy_set",
+   "erp_stock_position_warehouses",
+   "erp_stock_positions",
+   "erp_stock_post",
+   "erp_stock_product_compose",
+   "erp_stock_product_create",
+   "erp_stock_product_locations",
+   "erp_stock_product_reservations",
+   "erp_stock_purchase_receive",
+   "erp_stock_purchase_receive_preview",
+   "erp_stock_purchase_reverse_all",
+   "erp_stock_purchase_suggestion",
+   "erp_stock_report_balances_at",
+   "erp_stock_report_below_min",
+   "erp_stock_report_entry_notes",
+   "erp_stock_report_financial",
+   "erp_stock_report_idle",
+   "erp_stock_report_movements",
+   "erp_stock_report_product",
+   "erp_stock_report_purchase_orders",
+   "erp_stock_report_top",
+   "erp_stock_report_transfers",
+   "erp_stock_reservation_apply",
+   "erp_stock_reservation_command",
+   "erp_stock_reservation_get",
+   "erp_stock_reservation_preview",
+   "erp_stock_reverse",
+   "erp_stock_source_lots",
+   "erp_stock_suppliers",
+   "erp_stock_totals",
+   "erp_stock_transfer_batch",
+   "erp_stock_transfer_positions",
+   "erp_stock_warehouse_options",
+   "erp_stock_warehouse_save",
+   "erp_stock_warehouse_set_default",
+   "erp_stock_warehouses"
+  ],
+  "public_functions": {
+   "erp_purchase_receipts.active": {
+    "name": "active",
+    "ported": false
+   },
+   "erp_purchase_receipts.guard_document": {
+    "name": "guardDocument",
+    "ported": false
+   },
+   "erp_purchase_receipts.guard_item": {
+    "name": "guardItem",
+    "ported": false
+   },
+   "erp_purchase_receipts.guard_legacy": {
+    "name": "guardLegacy",
+    "ported": false
+   },
+   "erp_stock.average_costs": {
+    "name": "averageCosts",
+    "ported": false
+   },
+   "erp_stock.balance_kept": {
+    "name": "balanceKept",
+    "ported": false
+   },
+   "erp_stock.command_taken": {
+    "name": "commandTaken",
+    "ported": false
+   },
+   "erp_stock.component_problem": {
+    "name": "componentProblem",
+    "ported": false
+   },
+   "erp_stock.component_quantity": {
+    "name": "componentQuantity",
+    "ported": false
+   },
+   "erp_stock.composition_apply_values": {
+    "name": "compositionApplyValues",
+    "ported": false
+   },
+   "erp_stock.composition_dto": {
+    "name": "compositionDto",
+    "ported": false
+   },
+   "erp_stock.composition_lines": {
+    "name": "compositionLines",
+    "ported": false
+   },
+   "erp_stock.composition_own_stock": {
+    "name": "compositionOwnStock",
+    "ported": false
+   },
+   "erp_stock.composition_settings": {
+    "name": "compositionSettings",
+    "ported": false
+   },
+   "erp_stock.composition_totals": {
+    "name": "compositionTotals",
+    "ported": false
+   },
+   "erp_stock.cost_visible": {
+    "name": "costVisible",
+    "ported": false
+   },
+   "erp_stock.count_physical": {
+    "name": "countPhysical",
+    "ported": false
+   },
+   "erp_stock.default_supplier": {
+    "name": "defaultSupplier",
+    "ported": false
+   },
+   "erp_stock.derived_command": {
+    "name": "derivedCommand",
+    "ported": false
+   },
+   "erp_stock.document_access": {
+    "name": "documentAccess",
+    "ported": false
+   },
+   "erp_stock.document_command_finish": {
+    "name": "documentCommandFinish",
+    "ported": false
+   },
+   "erp_stock.document_command_start": {
+    "name": "documentCommandStart",
+    "ported": false
+   },
+   "erp_stock.document_eligible": {
+    "name": "documentEligible",
+    "ported": false
+   },
+   "erp_stock.document_item_lots": {
+    "name": "documentItemLots",
+    "ported": false
+   },
+   "erp_stock.document_lock": {
+    "name": "documentLock",
+    "ported": false
+   },
+   "erp_stock.document_meta": {
+    "name": "documentMeta",
+    "ported": false
+   },
+   "erp_stock.document_posting_summary": {
+    "name": "documentPostingSummary",
+    "ported": false
+   },
+   "erp_stock.document_preview_data": {
+    "name": "documentPreviewData",
+    "ported": false
+   },
+   "erp_stock.document_reverse_preview_data": {
+    "name": "documentReversePreviewData",
+    "ported": false
+   },
+   "erp_stock.document_summary": {
+    "name": "documentSummary",
+    "ported": false
+   },
+   "erp_stock.effect_document_allowed": {
+    "name": "effectDocumentAllowed",
+    "ported": false
+   },
+   "erp_stock.effect_edit_allowed": {
+    "name": "effectEditAllowed",
+    "ported": false
+   },
+   "erp_stock.effect_item_allowed": {
+    "name": "effectItemAllowed",
+    "ported": false
+   },
+   "erp_stock.effect_transition_allowed": {
+    "name": "effectTransitionAllowed",
+    "ported": false
+   },
+   "erp_stock.forget_item_components": {
+    "name": "forgetItemComponents",
+    "ported": false
+   },
+   "erp_stock.guard_composition": {
+    "name": "guardComposition",
+    "ported": false
+   },
+   "erp_stock.guard_composition_command": {
+    "name": "guardCompositionCommand",
+    "ported": false
+   },
+   "erp_stock.guard_composition_item": {
+    "name": "guardCompositionItem",
+    "ported": false
+   },
+   "erp_stock.guard_document_posting": {
+    "name": "guardDocumentPosting",
+    "ported": false
+   },
+   "erp_stock.guard_invoice_stock_delete": {
+    "name": "guardInvoiceStockDelete",
+    "ported": false
+   },
+   "erp_stock.guard_lot": {
+    "name": "guardLot",
+    "ported": false
+   },
+   "erp_stock.guard_lot_entry": {
+    "name": "guardLotEntry",
+    "ported": false
+   },
+   "erp_stock.guard_negative_insert": {
+    "name": "guardNegativeInsert",
+    "ported": false
+   },
+   "erp_stock.guard_posted_document": {
+    "name": "guardPostedDocument",
+    "ported": false
+   },
+   "erp_stock.guard_posted_item": {
+    "name": "guardPostedItem",
+    "ported": false
+   },
+   "erp_stock.guard_reserved_balance": {
+    "name": "guardReservedBalance",
+    "ported": false
+   },
+   "erp_stock.guard_reserved_document": {
+    "name": "guardReservedDocument",
+    "ported": false
+   },
+   "erp_stock.guard_reserved_item": {
+    "name": "guardReservedItem",
+    "ported": false
+   },
+   "erp_stock.guard_reserved_posting": {
+    "name": "guardReservedPosting",
+    "ported": false
+   },
+   "erp_stock.ignored_warehouse": {
+    "name": "ignoredWarehouse",
+    "ported": false
+   },
+   "erp_stock.invoice_posted_for_document": {
+    "name": "invoicePostedForDocument",
+    "ported": false
+   },
+   "erp_stock.invoice_screen": {
+    "name": "invoiceScreen",
+    "ported": false
+   },
+   "erp_stock.invoice_unit_price": {
+    "name": "invoiceUnitPrice",
+    "ported": false
+   },
+   "erp_stock.item_component_rows": {
+    "name": "itemComponentRows",
+    "ported": false
+   },
+   "erp_stock.item_composition_lines": {
+    "name": "itemCompositionLines",
+    "ported": false
+   },
+   "erp_stock.last_purchase": {
+    "name": "lastPurchase",
+    "ported": false
+   },
+   "erp_stock.ledger_document_price": {
+    "name": "ledgerDocumentPrice",
+    "ported": false
+   },
+   "erp_stock.ledger_origin": {
+    "name": "ledgerOrigin",
+    "ported": false
+   },
+   "erp_stock.lot_apply": {
+    "name": "lotApply",
+    "ported": false
+   },
+   "erp_stock.lot_check": {
+    "name": "lotCheck",
+    "ported": false
+   },
+   "erp_stock.lot_dto": {
+    "name": "lotDto",
+    "ported": false
+   },
+   "erp_stock.lot_expiry_state": {
+    "name": "lotExpiryState",
+    "ported": false
+   },
+   "erp_stock.lot_product_problem": {
+    "name": "lotProductProblem",
+    "ported": false
+   },
+   "erp_stock.lot_quantity": {
+    "name": "lotQuantity",
+    "ported": false
+   },
+   "erp_stock.lot_settings": {
+    "name": "lotSettings",
+    "ported": false
+   },
+   "erp_stock.lots_expiring": {
+    "name": "lotsExpiring",
+    "ported": false
+   },
+   "erp_stock.movement_dto": {
+    "name": "movementDto",
+    "ported": true
+   },
+   "erp_stock.negative_allowed": {
+    "name": "negativeAllowed",
+    "ported": false
+   },
+   "erp_stock.post": {
+    "name": "post",
+    "ported": false
+   },
+   "erp_stock.post_document_lots": {
+    "name": "postDocumentLots",
+    "ported": false
+   },
+   "erp_stock.post_physical_025": {
+    "name": "postPhysical025",
+    "ported": false
+   },
+   "erp_stock.protect_default_warehouse": {
+    "name": "protectDefaultWarehouse",
+    "ported": false
+   },
+   "erp_stock.protect_product_unit": {
+    "name": "protectProductUnit",
+    "ported": false
+   },
+   "erp_stock.require_access": {
+    "name": "requireAccess",
+    "ported": true
+   },
+   "erp_stock.reservation_write_access": {
+    "name": "reservationWriteAccess",
+    "ported": false
+   },
+   "erp_stock.reserve_statuses": {
+    "name": "reserveStatuses",
+    "ported": false
+   },
+   "erp_stock.reserved_quantity": {
+    "name": "reservedQuantity",
+    "ported": true
+   },
+   "erp_stock.reverse_lot_entries": {
+    "name": "reverseLotEntries",
+    "ported": false
+   },
+   "erp_stock.sales_negative_allowed": {
+    "name": "salesNegativeAllowed",
+    "ported": false
+   },
+   "erp_stock.settings_dto": {
+    "name": "settingsDto",
+    "ported": false
+   },
+   "erp_stock.supply_part": {
+    "name": "supplyPart",
+    "ported": false
+   },
+   "erp_stock.virtual_positions": {
+    "name": "virtualPositions",
+    "ported": false
+   },
+   "erp_stock.virtual_quantity": {
+    "name": "virtualQuantity",
+    "ported": false
+   },
+   "public.erp_document_stock_post": {
+    "name": "erpDocumentStockPost",
+    "ported": false
+   },
+   "public.erp_document_stock_preview": {
+    "name": "erpDocumentStockPreview",
+    "ported": false
+   },
+   "public.erp_document_stock_reverse": {
+    "name": "erpDocumentStockReverse",
+    "ported": false
+   },
+   "public.erp_document_stock_reverse_preview": {
+    "name": "erpDocumentStockReversePreview",
+    "ported": false
+   },
+   "public.erp_stock_post": {
+    "name": "erpStockPost",
+    "ported": true
+   },
+   "public.erp_stock_product_compose": {
+    "name": "erpStockProductCompose",
+    "ported": false
+   }
+  },
+  "uses": {
+   "catalog": [
+    "erp_catalog.allowed",
+    "erp_catalog.can_read_stock",
+    "erp_catalog.category_lineage",
+    "erp_catalog.compact",
+    "erp_catalog.composition_kits",
+    "erp_catalog.composition_sync",
+    "erp_catalog.composition_sync_on",
+    "erp_catalog.contact_scope",
+    "erp_catalog.contact_visible_to",
+    "erp_catalog.custom_field_applies",
+    "erp_catalog.custom_value",
+    "erp_catalog.data",
+    "erp_catalog.detail_date",
+    "erp_catalog.detail_decimal",
+    "erp_catalog.detail_text",
+    "erp_catalog.detail_uuid",
+    "erp_catalog.document_issue",
+    "erp_catalog.dto",
+    "erp_catalog.fold",
+    "erp_catalog.gtin_check_digit",
+    "erp_catalog.guard_deleted_product",
+    "erp_catalog.guard_variation_parent",
+    "erp_catalog.items_per_box_follow",
+    "erp_catalog.mutate",
+    "erp_catalog.next_product_code",
+    "erp_catalog.origin_contact_roles",
+    "erp_catalog.origin_count",
+    "erp_catalog.origin_decimal",
+    "erp_catalog.origin_mirror_fields",
+    "erp_catalog.origin_mirror_refresh",
+    "erp_catalog.origin_text",
+    "erp_catalog.product_cost_capture",
+    "erp_catalog.product_custom_resolve",
+    "erp_catalog.product_custom_values",
+    "erp_catalog.product_detail_data",
+    "erp_catalog.product_detail_keys",
+    "erp_catalog.product_detail_references",
+    "erp_catalog.product_detail_validate",
+    "erp_catalog.product_detail_write",
+    "erp_catalog.product_full",
+    "erp_catalog.require_access",
+    "erp_catalog.unit_price",
+    "erp_catalog.unit_price_numeric",
+    "erp_catalog.valid_cnpj",
+    "erp_catalog.valid_cpf",
+    "erp_catalog.validate_data",
+    "erp_catalog.validate_product_identifiers",
+    "erp_catalog.warnings",
+    "erp_catalog.write_fields",
+    "public.erp_catalog_product_prices_update",
+    "public.erp_catalog_product_save"
+   ],
+   "documents": [
+    "erp_documents.advance_received_number",
+    "erp_documents.allowed",
+    "erp_documents.contact_usable",
+    "erp_documents.cost_apply",
+    "erp_documents.cost_apply_capture",
+    "erp_documents.editable",
+    "erp_documents.effects_transition_allowed",
+    "erp_documents.guard_trash",
+    "erp_documents.guard_trash_child",
+    "erp_documents.os_permitted",
+    "erp_documents.preference",
+    "erp_documents.require_access",
+    "erp_documents.require_os_permission",
+    "erp_documents.require_role",
+    "erp_documents.situation_follow_status",
+    "erp_documents.stock_launch_date"
+   ],
+   "access": [
+    "erp_access.permission_keys",
+    "erp_access.permission_parent",
+    "erp_access.permitted",
+    "erp_access.require_permission",
+    "erp_access.resources_for_role"
+   ],
+   "preferences": [
+    "erp_home.biz_unit_cost",
+    "erp_preferences.get"
+   ],
+   "finance": [
+    "erp_finance.cents_of",
+    "erp_finance.commission_amounts",
+    "erp_finance.commission_confirmed",
+    "erp_finance.commission_operation_capture",
+    "erp_finance.commission_operation_frozen",
+    "erp_finance.commission_operation_sync",
+    "erp_finance.commission_operation_titles",
+    "erp_finance.commission_policy",
+    "erp_finance.commission_seller",
+    "erp_finance.commission_weighted",
+    "erp_finance.document_seller",
+    "erp_finance.guard_posted_document",
+    "erp_finance.notes_edit_allowed"
+   ],
+   "sync": [
+    "erp_sync.actor",
+    "erp_sync.applying",
+    "erp_sync.capture_catalog",
+    "erp_sync.capture_document",
+    "erp_sync.capture_stock",
+    "erp_sync.enabled",
+    "erp_sync.enqueue",
+    "erp_sync.guard_origin_effects_document",
+    "erp_sync.origin_effects",
+    "erp_sync.origin_locked",
+    "erp_sync.stock_import_allowed"
+   ]
+  }
+ },
+ "sync": {
+  "rpcs": [],
+  "public_functions": {
+   "erp_sync.actor": {
+    "name": "actor",
+    "ported": true
+   },
+   "erp_sync.applying": {
+    "name": "applying",
+    "ported": true
+   },
+   "erp_sync.capture_catalog": {
+    "name": "captureCatalog",
+    "ported": false
+   },
+   "erp_sync.capture_document": {
+    "name": "captureDocument",
+    "ported": false
+   },
+   "erp_sync.capture_finance": {
+    "name": "captureFinance",
+    "ported": false
+   },
+   "erp_sync.capture_stock": {
+    "name": "captureStock",
+    "ported": false
+   },
+   "erp_sync.enabled": {
+    "name": "enabled",
+    "ported": true
+   },
+   "erp_sync.enqueue": {
+    "name": "enqueue",
+    "ported": true
+   },
+   "erp_sync.guard_origin_effects_document": {
+    "name": "guardOriginEffectsDocument",
+    "ported": false
+   },
+   "erp_sync.guard_origin_effects_item": {
+    "name": "guardOriginEffectsItem",
+    "ported": false
+   },
+   "erp_sync.guard_zero_title": {
+    "name": "guardZeroTitle",
+    "ported": false
+   },
+   "erp_sync.origin_effects": {
+    "name": "originEffects",
+    "ported": false
+   },
+   "erp_sync.origin_locked": {
+    "name": "originLocked",
+    "ported": false
+   },
+   "erp_sync.origin_number": {
+    "name": "originNumber",
+    "ported": false
+   },
+   "erp_sync.stock_import_allowed": {
+    "name": "stockImportAllowed",
+    "ported": false
+   }
+  },
+  "uses": {}
+ }
+}
