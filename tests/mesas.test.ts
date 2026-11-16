@@ -2,7 +2,7 @@
 // cozinha do Pedido.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { all, one } from "../src/db";
+import { all, exec, one } from "../src/db";
 import { json, uid } from "../src/types";
 import { perform } from "../src/service";
 import { openapi } from "../src/openapi";
@@ -43,15 +43,15 @@ async function mesasSetup(options: { config?: any } = {}) {
     section: "Bar",
   });
   const tables = [...created.data, ...card.data];
-  // O atendente da fixture é o garçom (papel mesas:waiter).
-  await perform(
+  // O atendente da fixture é o garçom: papel mesas:waiter no acesso da pessoa
+  // (Gestão → Pessoas e acessos, src/access.ts).
+  await exec(
     env,
-    f.admin,
-    f.profile,
-    "settings",
-    { module_grants: { "mesas:waiter": [f.member.id] } },
-    uid(),
+    "UPDATE users SET access=? WHERE id=?",
+    JSON.stringify(["*", "mesas:waiter"]),
+    f.member.id,
   );
+  (f.member as any).access = ["*", "mesas:waiter"];
   const waiter = await bearer(f.member);
   const P = `/profiles/${f.profile}`;
   return { f, menu, tables, waiter, P };

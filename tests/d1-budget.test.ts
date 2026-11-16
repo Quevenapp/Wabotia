@@ -241,9 +241,14 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
 
     // 6. Mesas: lançar itens na conta (vira pedido do Pedido), o mapa das
     // mesas e o fechamento com o pagamento.
-    await run("settings", {
-      module_grants: { "mesas:waiter": [f.member.id] },
-    });
+    // Garçom: papel mesas:waiter no acesso da pessoa (src/access.ts).
+    await exec(
+      env,
+      "UPDATE users SET access=? WHERE id=?",
+      JSON.stringify(["*", "mesas:waiter"]),
+      f.member.id,
+    );
+    (f.member as any).access = ["*", "mesas:waiter"];
     const [mesa] = (await run("mesas.table.create", { name: "Mesa 1" })).data;
     const tab = await run("mesas.tab.open", { table_id: mesa.id }, f.member);
     report["mesas: lançar pedido (comando no Coordinator)"] = await command(
