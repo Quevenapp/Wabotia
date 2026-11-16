@@ -242,6 +242,7 @@ private struct DeviceSettingsScreen: View {
     let onDone: (() -> Void)?
     @State private var pinSheet = false
     @State private var confirmLeave = false
+    @StateObject private var systemVolume = SystemVolume()
 
     var body: some View {
         if let config = vm.config {
@@ -279,10 +280,12 @@ private struct DeviceSettingsScreen: View {
                                 CardRow(icon: "speaker.wave.2.fill", iconColor: Theme.brand, title: "Voz das chamadas", subtitle: "Gongo e a senha falada duas vezes") {
                                     Toggle("", isOn: Binding(get: { vm.soundEnabled }, set: vm.setSound)).labelsHidden()
                                 }
+                                if vm.soundEnabled { PanelVolumeControls(vm: vm, system: systemVolume) }
                                 Button(action: vm.testSound) {
                                     CardRow(icon: "play.fill", iconColor: Theme.ticket, title: "Testar som", subtitle: "“Senha N 1. Guichê 1.”")
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityIdentifier("device.testSound")
                             }
                             // Em todo papel, para quem procura a impressora achá-la: no Painel ela já fica pronta para quando
                             // o papel virar Totem ou Painel híbrido, os que imprimem o cupom.
@@ -327,6 +330,9 @@ private struct DeviceSettingsScreen: View {
                 }
             }
             .background(Theme.background.ignoresSafeArea())
+            .onAppear { if config.role?.panel == true { systemVolume.start() } }
+            .onChange(of: config.role) { role in if role?.panel == true { systemVolume.start() } }
+            .onDisappear { systemVolume.stop() }
             .sheet(isPresented: $pinSheet, onDismiss: { vm.suggestPin = false }) { PinCreateSheet(onCreate: vm.createPin) }
             .onChange(of: vm.suggestPin) { suggest in if suggest { pinSheet = true } }
             .confirmationDialog(vm.demo ? "Sair da demonstração?" : "Desfazer pareamento?", isPresented: $confirmLeave, titleVisibility: .visible) {
@@ -481,6 +487,7 @@ private struct DevicePanelScreen: View {
     @ObservedObject var vm: DeviceViewModel
     let onSettings: () -> Void
     @State private var unlocking = false
+    @StateObject private var systemVolume = SystemVolume()
 
     var body: some View {
         if let config = vm.config, let role = config.role {
@@ -492,6 +499,12 @@ private struct DevicePanelScreen: View {
                     s.bg.ignoresSafeArea()
                     VStack(spacing: 0) {
                         PanelHeaderBar(name: config.name, role: vm.demo ? "Wabotia · demonstração" : "Wabotia", title: role.panel ? "Chamadas" : "Retire sua senha") {
+                            // Aviso discreto para quem cuida do painel: a recepção quase não ouve. Sobe pelos botões
+                            // laterais ou na engrenagem.
+                            if role.panel, vm.soundEnabled, PanelVolume.isLow(system: systemVolume.level, panel: vm.panelVolume) {
+                                Text("🔈 som baixo").font(s.text(base * 0.8, .semibold)).foregroundStyle(Color.red)
+                                    .accessibilityIdentifier("device.lowVolume")
+                            }
                             Text(connectionLabel).font(s.text(base * 0.8, .semibold))
                                 .foregroundStyle(vm.offline || vm.revoked ? Color.red : s.headerFg)
                                 .accessibilityIdentifier("device.connection")
@@ -530,8 +543,14 @@ private struct DevicePanelScreen: View {
             }
             .statusBarHidden(true)
             .modifier(HideSystemOverlays())
-            .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
-            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .onAppear {
+                UIApplication.shared.isIdleTimerDisabled = true
+                if role.panel { systemVolume.start() }
+            }
+            .onDisappear {
+                UIApplication.shared.isIdleTimerDisabled = false
+                systemVolume.stop()
+            }
             .sheet(isPresented: $unlocking) { UnlockSheet(vm: vm, onUnlocked: onSettings) }
             .accessibilityIdentifier("device.panel")
             #if DEBUG

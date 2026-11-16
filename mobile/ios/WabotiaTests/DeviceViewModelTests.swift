@@ -9,6 +9,36 @@ final class RecordingAudio: PanelCallAudio {
     func chime() { chimes += 1 }
     func speak(_ text: String) { spoken.append(text) }
     func stop() {}
+    var volumes: [Float] = []
+    func setVolume(_ level: Float) { volumes.append(level) }
+}
+
+final class PanelVolumeTests: XCTestCase {
+    func testClampKeepsTheChosenRange() {
+        XCTAssertEqual(PanelVolume.clamp(0), 0.1, "zero pareceria som quebrado; para calar há o interruptor")
+        XCTAssertEqual(PanelVolume.clamp(1.4), 1)
+        XCTAssertEqual(PanelVolume.clamp(0.55), 0.55)
+    }
+
+    func testLowWhenTheEffectiveVolumeIsLow() {
+        XCTAssertTrue(PanelVolume.isLow(system: 0.2, panel: 1), "volume de mídia do aparelho baixo")
+        XCTAssertTrue(PanelVolume.isLow(system: 0.5, panel: 0.4), "os dois juntos: 20%")
+        XCTAssertFalse(PanelVolume.isLow(system: 0.6, panel: 1))
+        XCTAssertFalse(PanelVolume.isLow(system: nil, panel: 1), "sem leitura do aparelho, só o do app conta")
+        XCTAssertTrue(PanelVolume.isLow(system: nil, panel: 0.2))
+        XCTAssertEqual(PanelVolume.percent(0.25), "25%")
+    }
+
+    func testDefaultsStoreKeepsTheVolumePerDevice() {
+        let defaults = UserDefaults(suiteName: "panel-volume-\(UUID().uuidString)")!
+        let store = DefaultsPanelSettingsStore(defaults: defaults, keychainService: "test.volume.\(UUID().uuidString)")
+        XCTAssertEqual(store.panelVolume("a"), 1, "nunca mexido: o máximo")
+        store.setPanelVolume("a", 0.4)
+        XCTAssertEqual(store.panelVolume("a"), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(store.panelVolume("b"), 1)
+        store.setPanelVolume("a", 0)
+        XCTAssertEqual(store.panelVolume("a"), 0.1, accuracy: 0.0001)
+    }
 }
 
 @MainActor
@@ -124,6 +154,23 @@ final class DeviceViewModelTests: XCTestCase {
         XCTAssertEqual(audio.chimes, 0)
         XCTAssertTrue(audio.spoken.isEmpty)
         XCTAssertFalse(settings.soundEnabled("dev"))
+    }
+
+    func testPanelVolumeIsAppliedSavedAndUsedByTheSoundTest() async {
+        let vm = model(role: .panel) { seen in
+            if seen.url.path.hasSuffix("/establishment") { return .json(404, "{}") }
+            return .json(200, self.overview(calls: []))
+        }
+        await waitUntil { vm.overview != nil }
+        XCTAssertEqual(vm.panelVolume, 1)
+        vm.setPanelVolume(0.5)
+        XCTAssertEqual(settings.panelVolume("dev"), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(audio.volumes.last ?? 0, 0.5, accuracy: 0.0001, "o player e a voz recebem o volume na hora")
+        vm.testSound()
+        vm.close()
+        XCTAssertEqual(audio.chimes, 1)
+        XCTAssertEqual(audio.spoken, ["Senha N 1. Guichê 1."])
+        XCTAssertEqual(audio.volumes.last ?? 0, 0.5, accuracy: 0.0001)
     }
 
     func testTotemIssuesPrintsAndNeverAnnounces() async {

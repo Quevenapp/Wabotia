@@ -69,6 +69,8 @@ final class DeviceViewModel: ObservableObject {
     @Published var notice: String?
     @Published private(set) var spotlight: StationCall?
     @Published private(set) var soundEnabled = true
+    /// Volume do painel no app, de 0,1 a 1 (`PanelVolume`).
+    @Published private(set) var panelVolume: Float = 1
     @Published private(set) var template = PanelTemplate.default
     @Published private(set) var pinSet = false
     @Published var pinError: String?
@@ -211,6 +213,8 @@ final class DeviceViewModel: ObservableObject {
 
     private func loadLocalSettings(_ config: DeviceConfig) {
         soundEnabled = services.settings.soundEnabled(config.deviceId)
+        panelVolume = services.settings.panelVolume(config.deviceId)
+        audio.setVolume(panelVolume)
         pinSet = services.settings.sealedPin(config.deviceId) != nil
         pinAttempts = PanelPinAttempts(saved: services.settings.pinAttempts(config.deviceId))
         template = services.settings.template(config.deviceId)
@@ -397,8 +401,19 @@ final class DeviceViewModel: ObservableObject {
         soundEnabled = enabled
     }
 
+    /// Volume do painel no app (10% a 100%), guardado só neste aparelho.
+    func setPanelVolume(_ level: Float) {
+        guard let id = config?.deviceId else { return }
+        let clamped = PanelVolume.clamp(level)
+        services.settings.setPanelVolume(id, clamped)
+        audio.setVolume(clamped)
+        panelVolume = clamped
+    }
+
     func testSound() {
         if config?.role?.panel != true { audio = services.audio() }
+        audio.setVolume(panelVolume)
+        audio.stop()
         audio.chime()
         audio.speak("Senha N 1. Guichê 1.")
     }

@@ -37,6 +37,11 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 - **Esqueci o PIN:** um administrador revoga o aparelho no Wabotia (Integrações). Com a credencial revogada, a
   engrenagem abre sem PIN para **Desfazer pareamento**, e o aparelho pareia de novo. Apagar e instalar o app também
   zera tudo, porque a primeira abertura de uma instalação nova apaga o Keychain que o iOS deixou.
+- **Som do painel:** gongo e voz saem na sessão `.playback`, no volume de mídia, mesmo com o silencioso ligado. O
+  iOS não deixa o app mudar esse volume sozinho, então os ajustes (papel com painel) mostram o controle do sistema
+  (`MPVolumeView`, o mesmo dos botões laterais) e o **Volume do painel** do app (10% a 100%, por aparelho, aplicado
+  ao gongo e à voz). Abaixo de 30% de volume efetivo aparece o aviso de som baixo nos ajustes e "som baixo" no topo
+  do painel (`PanelVolume`, `SystemVolume`). "Testar som" toca o gongo e uma senha.
 
 ### Regras comuns às verticais
 

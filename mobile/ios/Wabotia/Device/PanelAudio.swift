@@ -9,6 +9,8 @@ protocol PanelCallAudio: AnyObject {
     func speak(_ text: String)
     /// Corta a fala pendente (som desligado, tela fechada).
     func stop()
+    /// Volume do painel, de 0 a 1, dentro do volume de mídia do aparelho (que o app não pode mudar sozinho).
+    func setVolume(_ level: Float)
 }
 
 /// Sem áudio: nos testes, no totem (que não anuncia) e onde o aparelho não tem som.
@@ -16,6 +18,57 @@ final class SilentPanelAudio: PanelCallAudio {
     func chime() {}
     func speak(_ text: String) {}
     func stop() {}
+    func setVolume(_ level: Float) {}
+}
+
+/// A sessão de áudio do painel: `.playback` fala mesmo com a chave de silêncio ligada, como uma TV.
+enum PanelAudioSession {
+    static func activate() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try? session.setActive(true)
+    }
+}
+
+/// O que a tela diz do volume: o do painel no app vezes o de mídia do aparelho.
+enum PanelVolume {
+    /// O controle do app vai de 10% a 100%: zero pareceria som quebrado; para calar há o interruptor da voz.
+    static let range: ClosedRange<Float> = 0.1...1
+    /// Abaixo disso (volume efetivo), a recepção quase não ouve: a tela avisa "som baixo".
+    static let lowThreshold: Float = 0.3
+
+    static func clamp(_ level: Float) -> Float { min(max(level, range.lowerBound), range.upperBound) }
+
+    /// `system` é `nil` quando o aparelho não informa (simulador): aí só o do app conta.
+    static func isLow(system: Float?, panel: Float) -> Bool { (system ?? 1) * panel < lowThreshold }
+
+    static func percent(_ level: Float) -> String { "\(Int((level * 100).rounded()))%" }
+}
+
+/// O volume de mídia do aparelho, observado (os botões laterais o mudam a qualquer momento).
+@MainActor
+final class SystemVolume: ObservableObject {
+    @Published private(set) var level: Float?
+    private var observation: NSKeyValueObservation?
+
+    func start() {
+        guard observation == nil else { return }
+        PanelAudioSession.activate()
+        let session = AVAudioSession.sharedInstance()
+        level = session.outputVolume
+        #if DEBUG
+        print("[Wabotia] volume de mídia do aparelho: \(PanelVolume.percent(session.outputVolume))")
+        #endif
+        observation = session.observe(\.outputVolume, options: [.new]) { [weak self] _, change in
+            guard let value = change.newValue else { return }
+            Task { @MainActor in self?.level = value }
+        }
+    }
+
+    func stop() {
+        observation?.invalidate()
+        observation = nil
+    }
 }
 
 /// Voz com `AVSpeechSynthesizer` em pt-BR e um gongo gerado no próprio app (dois tons com decaimento, sem arquivo de
@@ -26,12 +79,11 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
     private var player: AVAudioPlayer?
     /// A próxima fala espera o gongo terminar.
     private var chimeUntil = Date.distantPast
+    private var volume: Float = 1
 
     override init() {
         super.init()
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true)
+        PanelAudioSession.activate()
         player = try? AVAudioPlayer(data: Self.chimeWAV())
         player?.prepareToPlay()
         synthesizer.delegate = self
@@ -66,6 +118,7 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
     func speak(_ text: String) {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
+        utterance.volume = volume
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.92
         utterance.postUtteranceDelay = 0.35
         let wait = chimeUntil.timeIntervalSinceNow
@@ -76,6 +129,11 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
         player?.stop()
+    }
+
+    func setVolume(_ level: Float) {
+        volume = PanelVolume.clamp(level)
+        player?.volume = volume
     }
 
     /// O gongo: dois tons (Mi e Dó) com harmônico e decaimento exponencial, 16 bits mono a 22,05 kHz.

@@ -121,6 +121,9 @@ struct PanelStyle {
 protocol PanelSettingsStore: AnyObject {
     func soundEnabled(_ deviceId: String) -> Bool
     func setSoundEnabled(_ deviceId: String, _ enabled: Bool)
+    /// Volume do painel no app (gongo e voz), de 0,1 a 1; 1 quando nunca foi mexido.
+    func panelVolume(_ deviceId: String) -> Float
+    func setPanelVolume(_ deviceId: String, _ level: Float)
     func template(_ deviceId: String) -> PanelTemplate
     func setTemplate(_ deviceId: String, _ template: PanelTemplate)
     func sealedPin(_ deviceId: String) -> String?
@@ -143,6 +146,10 @@ final class DefaultsPanelSettingsStore: PanelSettingsStore {
 
     func soundEnabled(_ id: String) -> Bool { defaults.object(forKey: "panel.sound.\(id)") as? Bool ?? true }
     func setSoundEnabled(_ id: String, _ enabled: Bool) { defaults.set(enabled, forKey: "panel.sound.\(id)") }
+    func panelVolume(_ id: String) -> Float {
+        (defaults.object(forKey: "panel.volume.\(id)") as? NSNumber).map { PanelVolume.clamp($0.floatValue) } ?? 1
+    }
+    func setPanelVolume(_ id: String, _ level: Float) { defaults.set(PanelVolume.clamp(level), forKey: "panel.volume.\(id)") }
     func template(_ id: String) -> PanelTemplate { .from(defaults.string(forKey: "panel.template.\(id)")) }
     func setTemplate(_ id: String, _ template: PanelTemplate) { defaults.set(template.rawValue, forKey: "panel.template.\(id)") }
 
@@ -182,6 +189,9 @@ final class MemoryPanelSettingsStore: PanelSettingsStore {
 
     func soundEnabled(_ id: String) -> Bool { sound[id] ?? true }
     func setSoundEnabled(_ id: String, _ enabled: Bool) { sound[id] = enabled }
+    private var volumes: [String: Float] = [:]
+    func panelVolume(_ id: String) -> Float { volumes[id] ?? 1 }
+    func setPanelVolume(_ id: String, _ level: Float) { volumes[id] = PanelVolume.clamp(level) }
     func template(_ id: String) -> PanelTemplate { templates[id] ?? .default }
     func setTemplate(_ id: String, _ template: PanelTemplate) { templates[id] = template }
     func sealedPin(_ id: String) -> String? { pins[id] }
