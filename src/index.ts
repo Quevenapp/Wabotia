@@ -130,6 +130,7 @@ import {
 import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
+import { erpApi } from "./erp/api/local-fetch";
 import {
   appProfiles,
   closeSockets,
@@ -879,6 +880,14 @@ app.get("/api/v1/profiles/:profile/establishment", async (c) => {
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   return c.json(await establishment(c.env, profile));
+});
+// ERP (Fagoo) pela erp-api original e o motor no objeto erp:<área>
+// (src/erp/api/local-fetch.ts; fase 0, docs/ERP-FASE0.md).
+app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return erpApi(c.env, c.req.raw, profile, c.get("actor"));
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
