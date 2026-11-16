@@ -6,6 +6,7 @@ import "./rpc/erp_finance_account_page.ts";
 import "./rpc/erp_finance_category_execute.ts";
 import "./rpc/erp_finance_commission_execute.ts";
 import "./rpc/erp_finance_execute.ts";
+import "./rpc/erp_finance_file.ts";
 import "./rpc/erp_finance_bordero_execute.ts";
 import "./rpc/erp_finance_cash_execute.ts";
 import "./rpc/erp_finance_cash_session_execute.ts";
