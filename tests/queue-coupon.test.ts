@@ -2,7 +2,9 @@ import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
 import { conversation, perform } from "../src/service";
-import { overview } from "../src/queue";
+import { overview, SEND_HINT_PATH } from "../src/queue";
+import { SEND_HINT_IMAGE } from "../src/send-hint";
+import wranglerConfig from "../wrangler.jsonc?raw";
 import { kioskLine } from "../src/queue-flow";
 import { uid, type Actor } from "../src/types";
 import {
@@ -78,7 +80,7 @@ describe("cupom da senha", () => {
       ticket.id,
     );
     expect(url.searchParams.get("text")).toBe(
-      `Aperte ENVIAR para ser chamado pelo WhatsApp.\nSENHA ${ticket.code} ${row.link_code}\nhttps://wabotia.example/imagemwa`,
+      `Aperte ENVIAR para ser chamado pelo WhatsApp.\nSENHA ${ticket.code} ${row.link_code}\nhttps://wabotia.example/api/public/imagemwa`,
     );
     expect((await overview(env, f.profile)).coupon.whatsapp_qr_issue).toBe(
       null,
@@ -185,17 +187,37 @@ describe("cupom da senha", () => {
     ).rejects.toThrow();
   });
 
-  it("/imagemwa traz a prévia com a imagem da seta em URL absoluta", async () => {
-    const response = await SELF.fetch("https://inst.example/imagemwa", {
-      headers: { "User-Agent": "WhatsApp/2.24.1.1 A" },
-    });
+  it("o link da prévia chega ao Worker e a imagem não, como no Cloudflare", () => {
+    // Fora de run_worker_first, o fallback de página única dos arquivos
+    // estáticos responde com o painel e o Worker nunca vê o pedido.
+    const config = JSON.parse(
+      wranglerConfig.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"),
+    );
+    const workerFirst = (path: string) =>
+      (config.assets.run_worker_first as string[]).some((pattern) =>
+        pattern.endsWith("/*")
+          ? path.startsWith(pattern.slice(0, -1))
+          : path === pattern,
+      );
+    expect(workerFirst(SEND_HINT_PATH)).toBe(true);
+    // A imagem é arquivo estático (public/), servido antes do Worker.
+    expect(workerFirst(SEND_HINT_IMAGE)).toBe(false);
+  });
+
+  it("/api/public/imagemwa traz a prévia com a imagem da seta em URL absoluta", async () => {
+    const response = await SELF.fetch(
+      "https://inst.example/api/public/imagemwa",
+      {
+        headers: { "User-Agent": "WhatsApp/2.24.1.1 A" },
+      },
+    );
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("text/html");
     const html = await response.text();
     const head = html.slice(0, html.indexOf("</head>"));
     for (const [property, value] of [
       ["og:title", "Aperte ENVIAR para ser chamado pelo WhatsApp"],
-      ["og:url", "https://inst.example/imagemwa"],
+      ["og:url", "https://inst.example/api/public/imagemwa"],
       ["og:image", "https://inst.example/imagemwa.png"],
       ["og:image:width", "1200"],
     ])
@@ -209,7 +231,7 @@ describe("cupom da senha", () => {
     expect(kioskLine("SENHA N023 AB23CD")?.[1]).toBe("N023");
     expect(
       kioskLine(
-        "Aperte ENVIAR para ser chamado pelo WhatsApp.\nSENHA N023 AB23CD\nhttps://x.example/imagemwa",
+        "Aperte ENVIAR para ser chamado pelo WhatsApp.\nSENHA N023 AB23CD\nhttps://x.example/api/public/imagemwa",
       )?.[2],
     ).toBe("AB23CD");
     expect(kioskLine("minha senha é\nSENHA N023 AB23CD")).toBe(null);

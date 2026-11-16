@@ -338,8 +338,13 @@ async function whatsappLine(env: Env, profile: string, queue: any) {
   return { lines: rows.length, number: null };
 }
 
-/** Caminho público da imagem que aponta o botão de enviar (prévia do link). */
-export const SEND_HINT_PATH = "/imagemwa";
+/**
+ * Página pública com a prévia (Open Graph) da imagem que aponta o botão de
+ * enviar. Fica sob /api/ porque só esses caminhos chegam ao Worker
+ * (run_worker_first em wrangler.jsonc); fora deles, o fallback de página
+ * única dos arquivos estáticos responde com o painel, sem Open Graph.
+ */
+export const SEND_HINT_PATH = "/api/public/imagemwa";
 
 /**
  * Texto que o QR do cupom deixa escrito no WhatsApp: instrução curta para

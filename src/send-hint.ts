@@ -1,8 +1,8 @@
-// Página /imagemwa: o texto que o QR do cupom da senha deixa escrito no
-// WhatsApp termina com este link, e a prévia dele (Open Graph) mostra uma
-// imagem com a seta no botão de enviar. Só quem busca a prévia (sem
-// "Sec-Fetch-Mode: navigate") chega ao Worker; no navegador, o mesmo endereço
-// abre a página do site (web/site/SendHint.tsx). Requisitos do WhatsApp
+// Página /api/public/imagemwa: o texto que o QR do cupom da senha deixa
+// escrito no WhatsApp termina com este link, e a prévia dele (Open Graph)
+// mostra uma imagem com a seta no botão de enviar. O caminho fica sob /api/
+// para chegar ao Worker (run_worker_first); a mesma página serve a quem abre
+// o link no navegador. Requisitos do WhatsApp
 // (Meta, "Link previews"): og:title, og:description e og:url não vazios no
 // <head> dentro dos primeiros 300 KB, og:image com URL absoluta, até 600 KB,
 // ao menos 300 px de largura e proporção até 4:1. A imagem é estática

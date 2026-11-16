@@ -509,8 +509,8 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     result.reason === "not_found" ? 404 : 410,
   );
 });
-// Prévia do link do cupom da senha (src/send-hint.ts). Chega aqui quem busca a
-// prévia; a navegação no navegador fica com a página do site.
+// Prévia do link do cupom da senha (src/send-hint.ts), pública, sob /api/
+// para o Worker responder em vez do fallback dos arquivos estáticos.
 app.get(SEND_HINT_PATH, async (c) => {
   const origin = (await publicOrigin(c.env)) || new URL(c.req.url).origin;
   return c.html(sendHintPage(origin), 200, {

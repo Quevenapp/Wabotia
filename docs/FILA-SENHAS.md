@@ -206,7 +206,7 @@ O `whatsapp_link` abre o WhatsApp com este texto já escrito:
 ```
 Aperte ENVIAR para ser chamado pelo WhatsApp.
 SENHA N023 AB23CD
-https://<endereço público>/imagemwa
+https://<endereço público>/api/public/imagemwa
 ```
 
 A linha `SENHA <senha> <código>` vincula a conversa à senha (o código é o
@@ -215,15 +215,17 @@ público configurado (Gestão → Sistema); a prévia desse link mostra uma imag
 com uma seta no botão de enviar (veja "Imagem do botão Enviar"). Cupons
 impressos antes, com só `SENHA N023 AB23CD`, continuam valendo.
 
-### Imagem do botão Enviar (`/imagemwa`)
+### Imagem do botão Enviar (`/api/public/imagemwa`)
 
-`GET /imagemwa` é público e devolve uma página com Open Graph para a prévia do
+`GET /api/public/imagemwa` é público e devolve uma página com Open Graph para a prévia do
 link: `og:title` "Aperte ENVIAR para ser chamado pelo WhatsApp",
 `og:description`, `og:url` e `og:image` em URL absoluta (endereço público
 configurado ou, sem ele, o endereço da requisição) apontando para
 `/imagemwa.png`, uma imagem estática de 1200 × 630 px (58 KB) com uma seta no
-botão verde de enviar. Quem abre o endereço no navegador vê a mesma imagem
-numa página do site. Para mudar o texto da imagem, edite
+botão verde de enviar. Quem abre o endereço no navegador vê a mesma página,
+com a imagem. O caminho fica sob `/api/` porque só esses caminhos chegam ao
+Worker (`run_worker_first`); um endereço fora deles cai no painel, sem Open
+Graph. Para mudar o texto da imagem, edite
 `scripts/imagemwa/fonte.html` e gere o PNG de novo (o comando está no
 arquivo).
 
@@ -331,7 +333,7 @@ Sem WebSocket, use `GET /queue` a cada 3–5 s ou `GET /events?after=` (eventos
    (`notifications.template_name`, variáveis `{{1}}` = "Senha N023", `{{2}}` =
    texto do aviso). Sem modelo, o guichê vê "fora da janela".
 6. Cupom do totem: QR `wa.me/<linha>` com o texto "Aperte ENVIAR…", a linha
-   `SENHA N023 <código>` e o link `/imagemwa` (veja "Cupom da senha") vincula a
+   `SENHA N023 <código>` e o link `/api/public/imagemwa` (veja "Cupom da senha") vincula a
    senha ao telefone e abre a janela.
 
 Botões só nas linhas Zernio/Meta; nas linhas QR o mesmo conteúdo vai como texto
