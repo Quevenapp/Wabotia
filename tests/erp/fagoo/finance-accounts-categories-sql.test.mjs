@@ -62,7 +62,7 @@ test('135 roles are checked (the grants half of the original test is discarded)'
   for (const role of ['vendas', 'estoque', 'fiscal', 'inactive']) { await assert.rejects(() => accounts({}, users[role]), code('42501')); await assert.rejects(() => tree('receivable', users[role]), code('42501')); }
 });
 
-test('135 contas financeiras: create with opening on the start date, Origin types, default account swap, CAS and idempotent replay', { todo: 'harness: id do movimento de saldo inicial ausente da resposta (pedido à N, sessao-O-pedido-harness-ids.md)' }, async () => {
+test('135 contas financeiras: create with opening on the start date, Origin types, default account swap, CAS and idempotent replay', async () => {
   // A legacy account becomes "Conta Corrente"; the 010 writer still works and keeps the type in step.
   const page = await accounts();
   assert.deepEqual(page.items.map(item => [item.name.slice(0, 11), item.account_type, item.boleto, item.start_on]), [['Banco legad', 'checking', 'none', null]]);
@@ -98,7 +98,7 @@ test('135 contas financeiras: create with opening on the start date, Origin type
   await assert.rejects(() => account('account_set_default', { id: savings.record.id, expected_version: 2, target: 'boleto', value: true }), code('22023'));
 });
 
-test('135 contas financeiras: update rules, inactivate, delete only unused, filters, total and pages', { todo: 'harness: id do movimento de saldo inicial ausente da resposta (pedido à N, sessao-O-pedido-harness-ids.md)' }, async () => {
+test('135 contas financeiras: update rules, inactivate, delete only unused, filters, total and pages', async () => {
   const page = await accounts({ p_query: 'itaú sint' });
   const itau = page.items[0];
   // Old long names stay until edited; a new name has at most 50 characters (Origin Descrição).
@@ -224,7 +224,7 @@ test('135 Worker contract: strict queries and bodies before any RPC; responses a
   await assert.rejects(() => executeFinanceRoute(treeRoute, { userId: users.consulta, rpc: async () => orphan }), error => error.status === 502);
 });
 
-test('135 padrão boleto needs the cobrança bancária of the account; agência, conta and DV must match its CNAB profile', { todo: 'harness: id do movimento de saldo inicial ausente da resposta (pedido à N, sessao-O-pedido-harness-ids.md)' }, async () => {
+test('135 padrão boleto needs the cobrança bancária of the account; agência, conta and DV must match its CNAB profile', async () => {
   const one = await account('account_create', bankData({ name: 'Cobrança 1', agency: '0001', account_number: '11111', account_digit: '1', start_on: '2026-01-01', opening_cents: '0' }));
   const two = await account('account_create', bankData({ name: 'Cobrança 2', agency: '0002', account_number: '22222', account_digit: '2', start_on: '2026-01-01', opening_cents: '0' }));
   for (const [row, n] of [[one, 1], [two, 2]]) await db.query("INSERT INTO erp_cnab.profile(account_id,identity,settings,account_scope,next_sequence) VALUES($1,$2,'{}'::jsonb,$3,1)", [row.record.id, JSON.stringify({ bank: '341', agency: `000${n}`, account: `${n}`.repeat(5), accountDigit: `${n}` }), `scope-${n}`]);

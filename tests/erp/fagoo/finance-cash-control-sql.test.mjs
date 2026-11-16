@@ -8,17 +8,17 @@
 // existe na fixture.
 // Descartado, declarado: a metade de grants/security definer do primeiro
 // teste (PLANO-FAGOO-MOTOR.md, seção 2); as conferências de papel ficam.
-// Todos como todo até o harness ligar ids de linhas novas ausentes da
-// resposta (feat/erp-harness, da L): a preparação grava saldo inicial e a
-// sangria e o suprimento gravam lançamentos e movimentos que não voltam na
-// resposta.
+// Todos como todo até o harness ligar uuid embutido em texto: a sangria e o
+// suprimento gravam cash_entry.source_key = 'cash_session:<id do movimento>',
+// e a linha de cash_entry e a de cash_session_move não se ligam (divergem só
+// nesse texto). Com o mapa de ids aplicado ao texto, 3 de 3 nos dois motores.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { parseFinanceRoute, executeFinanceRoute } from '../../../src/erp/fagoo/workers/erp-api/src/finance.mjs';
 import { dualFixture } from '../harness/dual-fixture.mjs';
 
-const HARNESS = process.env.ERP_HARNESS_IDS === '1' ? false : 'harness: ids de linhas novas ausentes da resposta (feat/erp-harness)';
+const HARNESS = process.env.ERP_HARNESS_IDS === '1' ? false : "harness: uuid embutido em texto (cash_entry.source_key 'cash_session:<id>')";
 let F; let db; let users; let caixa; let banco; let dinheiro; let cartao;
 const scalar = async (sql, args = []) => (await db.query(sql, args)).rows[0].value;
 const rpc = (name, args) => F.rpc(name, args);

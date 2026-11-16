@@ -6,16 +6,12 @@
 // seguido de F.sync().
 // Descartado, declarado: a metade de grants/security definer do primeiro
 // teste (PLANO-FAGOO-MOTOR.md, seção 2); as conferências de papel ficam.
-// Todos como todo até o harness ligar ids de linhas novas ausentes da
-// resposta (feat/erp-harness, da L): a preparação grava saldo inicial e
-// registros de caixa cujos movimentos não voltam na resposta.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { parseFinanceRoute, executeFinanceRoute } from '../../../src/erp/fagoo/workers/erp-api/src/finance.mjs';
 import { dualFixture } from '../harness/dual-fixture.mjs';
 
-const HARNESS = process.env.ERP_HARNESS_IDS === '1' ? false : 'harness: ids de linhas novas ausentes da resposta (feat/erp-harness)';
 let F; let db; let users; let caixa; let banco; let alfa; let despesa; let receita;
 const scalar = async (sql, args = []) => (await db.query(sql, args)).rows[0].value;
 const rpc = (name, args) => F.rpc(name, args);
@@ -38,11 +34,11 @@ before(async () => {
 });
 after(async () => F?.close());
 
-test('136 roles: consulta reads and cannot write (the grants half is discarded)', { todo: HARNESS }, async () => {
+test('136 roles: consulta reads and cannot write (the grants half is discarded)', async () => {
   await assert.rejects(() => cash('entry_save', entry(), users.consulta), code('42501'));
   for (const role of ['vendas', 'estoque', 'inactive']) await assert.rejects(() => statement({}, users[role]), code('42501'));
 });
-test('136 lançamento: incluir, editar, excluir e restaurar keep an append-only ledger whose daily sums equal the visible lines', { todo: HARNESS }, async () => {
+test('136 lançamento: incluir, editar, excluir e restaurar keep an append-only ledger whose daily sums equal the visible lines', async () => {
   const command = randomUUID();
   const created = await cash('entry_save', entry({ category_id: despesa.id, contact_id: alfa.id }), users.financeiro, command);
   assert.deepEqual([created.record.kind, created.record.amount_cents, created.record.category_name, created.record.contact_name, created.record.version], ['out', '1500', 'Limpeza', 'Alfa Sintética', 1]);
@@ -73,7 +69,7 @@ test('136 lançamento: incluir, editar, excluir e restaurar keep an append-only 
   assert.equal(restored.record.deleted, false); assert.equal(await balance(caixa.id), '8000');
 });
 
-test('136 Ajustar saldos records the difference on the date; the balance the user saw is the CAS', { todo: HARNESS }, async () => {
+test('136 Ajustar saldos records the difference on the date; the balance the user saw is the CAS', async () => {
   const current = await balance(caixa.id);
   await assert.rejects(() => cash('balance_adjust', { account_id: caixa.id, desired_cents: '9000', current_cents: '1', posted_on: '2026-04-01' }), code('40001'));
   await assert.rejects(() => cash('balance_adjust', { account_id: caixa.id, desired_cents: current, current_cents: current, posted_on: '2026-04-01' }), code('22023'));
@@ -85,7 +81,7 @@ test('136 Ajustar saldos records the difference on the date; the balance the use
   await cash('balance_adjust', { account_id: caixa.id, desired_cents: '9000', current_cents: '-100', posted_on: '2026-04-02' });
 });
 
-test('136 transferência com float bancário, categorias automáticas e exclusão pela transferência inversa', { todo: HARNESS }, async () => {
+test('136 transferência com float bancário, categorias automáticas e exclusão pela transferência inversa', async () => {
   await assert.rejects(() => cash('transfer_create', { from_account_id: caixa.id, to_account_id: banco.id, amount_cents: '500', posted_on: '2026-01-15' }), code('22023'), 'before the start date of the bank account');
   const command = randomUUID();
   const created = await cash('transfer_create', { from_account_id: caixa.id, to_account_id: banco.id, amount_cents: '500', posted_on: '2026-04-10', float_days: 2 }, users.financeiro, command);
@@ -107,7 +103,7 @@ test('136 transferência com float bancário, categorias automáticas e exclusã
   await assert.rejects(() => db.query('UPDATE erp_finance.transfer SET note=$2 WHERE id=$1', [created.record.id, 'x']), code('55000'));
 });
 
-test('136 extrato: lines of every origin, filters, order, pages, daily balances and Informações consistent with the ledger', { todo: HARNESS }, async () => {
+test('136 extrato: lines of every origin, filters, order, pages, daily balances and Informações consistent with the ledger', async () => {
   // A baixa of a conta a receber is a line with the conta, the contact and the categoria of the baixa.
   const title = (await rpc('erp_finance_title_execute', { p_user_id: users.financeiro, p_command_id: randomUUID(), p_action: 'title_create', p_data: { kind: 'receivable', contact_id: alfa.id, category_id: receita.id, description: 'Venda sintética', issued_on: '2026-04-01', competence_on: '2026-04-01', total_cents: '3000', installments: [{ amount_cents: '3000', due_on: '2026-04-20' }] } })).items[0];
   await rpc('erp_finance_bordero_execute', { p_user_id: users.financeiro, p_command_id: randomUUID(), p_action: 'settle_batch', p_data: { kind: 'receivable', grouped: false, items: [{ id: title.id, expected_version: 1, account_id: caixa.id, category_id: null, posted_on: '2026-04-20', principal_cents: '3000', interest_cents: '0', penalty_cents: '0', discount_cents: '0', fee_cents: '0' }] } });
@@ -132,7 +128,7 @@ test('136 extrato: lines of every origin, filters, order, pages, daily balances 
   await assert.rejects(() => statement({ p_account: randomUUID() }), code('P0002'));
 });
 
-test('136 Alterar categorias of a line uses the category seen as CAS: lançamento, transferência and baixa (in its borderô)', { todo: HARNESS }, async () => {
+test('136 Alterar categorias of a line uses the category seen as CAS: lançamento, transferência and baixa (in its borderô)', async () => {
   const lines = (await statement({ p_account: caixa.id })).items;
   const entryLine = lines.find(line => line.line_kind === 'entry' && line.entry_origin === 'manual'), settlementLine = lines.find(line => line.line_kind === 'settlement');
   await assert.rejects(() => cash('line_categorize', { line_kind: 'entry', line_id: entryLine.line_id, expected_category_id: despesa.id, category_id: receita.id }), code('40001'));
@@ -147,7 +143,7 @@ test('136 Alterar categorias of a line uses the category seen as CAS: lançament
   assert.ok(moved.moved.movements >= 1);
 });
 
-test('136 Ficha financeira: contas, baixas e lançamentos da ficha do contato com débitos, créditos e saldo', { todo: HARNESS }, async () => {
+test('136 Ficha financeira: contas, baixas e lançamentos da ficha do contato com débitos, créditos e saldo', async () => {
   await cash('entry_save', entry({ kind: 'in', amount_cents: '700', posted_on: '2026-05-02', competence_on: '2026-05-02', note: 'Adiantamento', contact_id: alfa.id, origin: 'ledger' }));
   const ledger = await rpc('erp_finance_contact_ledger', { p_user_id: users.consulta, p_contact: alfa.id, p_from: '2026-01-01', p_to: '2026-12-31' });
   const kinds = ledger.items.map(line => [line.line_kind, line.side, line.amount_cents]);
@@ -160,7 +156,7 @@ test('136 Ficha financeira: contas, baixas e lançamentos da ficha do contato co
   await assert.rejects(() => rpc('erp_finance_contact_ledger', { p_user_id: users.consulta, p_contact: randomUUID(), p_from: '2026-01-01', p_to: '2026-12-31' }), code('P0002'));
 });
 
-test('136 Worker contract: strict queries and bodies before any RPC; statement, entry and ficha responses are checked', { todo: HARNESS }, async () => {
+test('136 Worker contract: strict queries and bodies before any RPC; statement, entry and ficha responses are checked', async () => {
   for (const path of ['/v1/financeiro/extrato', '/v1/financeiro/extrato?from=2026-01-01&to=2025-01-01', '/v1/financeiro/extrato?from=2026-01-01&to=2026-01-31&tab=x', '/v1/financeiro/extrato?from=2026-01-01&to=2026-01-31&deleted=1',
     '/v1/financeiro/extrato?from=2026-01-01&to=2026-01-31&x=1', '/v1/financeiro/ficha?contact=x&from=2026-01-01&to=2026-01-31', `/v1/financeiro/ficha?contact=${alfa.id}&from=2026-01-01`]) {
     await assert.rejects(() => parseFinanceRoute(new Request(`https://api.example.test${path}`)), error => error.status === 400, path);
