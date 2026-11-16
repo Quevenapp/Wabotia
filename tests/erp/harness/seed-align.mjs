@@ -34,6 +34,21 @@ const NORMALIZED = ["fold", "computed"];
  */
 export const SEED_LEAVES_NORMALIZED_NULL = true;
 
+/**
+ * Colunas que o Fagoo semeia com uuid aleatório (as únicas da semeadura com
+ * uuid, conferido em 16/11). Só ids delas (e de quem aponta para elas) são
+ * alinhados; outro id da semeadura diferente entre os motores (um uuid fixo
+ * que mudou e o seed.generated.ts que ficou para trás, por exemplo) é
+ * divergência. Migração nova que semeie com gen_random_uuid() aparece como
+ * divergência aqui e entra na lista, com a origem.
+ */
+export const RANDOM_SEED_COLUMNS = {
+  // 202610160006_erp_catalog.sql e 202610200124_contact_profile.sql: insert sem id (default gen_random_uuid()).
+  erp_catalog__contact_type: ["id"],
+  // 202610160041_a1_custody.sql: vault_id uuid default gen_random_uuid(), insert só com singleton.
+  erp_a1__installation: ["vault_id"],
+};
+
 /** Os gatilhos gerados (imutabilidade) não valem para escrita do harness: saem e voltam iguais. */
 export function withoutTriggers(lite, t, fn) {
   const triggers = lite.prepare("SELECT name, sql FROM main.sqlite_master WHERE type='trigger' AND tbl_name=?").all(t);
@@ -104,7 +119,16 @@ export async function seedDifferences(pg, lite, { specs = derivedIds(), allowNor
       }
     }
   }
-  const { diffs, withFree } = compareState(data, new IdMap(), { specs });
+  const ids = new IdMap();
+  const { diffs, withFree } = compareState(data, ids, { specs });
+  const random = new Set();
+  for (const [t, cols] of Object.entries(RANDOM_SEED_COLUMNS))
+    for (const r of data[t]?.pg ?? []) for (const c of cols) if (r[c]) random.add(String(r[c]).toLowerCase());
+  for (const [p, l] of ids.pgToLite)
+    if (!random.has(p)) {
+      const where = tables.filter((t) => data[t].pg.some((r) => JSON.stringify(r).toLowerCase().includes(p)));
+      diffs.push({ table: where.join(","), pg: p, lite: l, why: "id da semeadura difere entre os motores fora das colunas aleatórias declaradas (RANDOM_SEED_COLUMNS)" });
+    }
   const align = [...new Set([...withFree, ...(allowNormalizedGap ? gaps.map((g) => g.split(".")[0]) : [])])];
   return { diffs, align, gaps, tables };
 }

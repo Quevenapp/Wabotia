@@ -66,6 +66,16 @@ test("item 1: linha a mais e linha a menos", () => {
 test("item 1: valor diferente numa linha cujo id não vem na resposta", () => {
   differs({ erp_finance__movement: { pg: [mov(U())], lite: [mov(U(), { delta_cents: "150001" })] } }, KNOWN);
   differs({ erp_finance__movement: { pg: [mov(U())], lite: [mov(U(), { note: "x" })] } }, KNOWN);
+  // A linha nova casa certo, mas uma linha que já existia (sem id livre)
+  // foi alterada diferente na mesma chamada.
+  const S = U();
+  differs(
+    {
+      erp_finance__movement: { pg: [mov(U())], lite: [mov(U())] },
+      erp_finance__settlement: { pg: [set(S, { note: "baixa" })], lite: [set(S, { note: "baixa errada" })] },
+    },
+    [...KNOWN, S],
+  );
 });
 
 test("item 1: grupo de linhas iguais a menos do id: multiconjunto", () => {
@@ -235,8 +245,19 @@ test("item 4: semeadura com uuid aleatório alinha; desalinhada de propósito pa
     );
     assert.notDeepEqual(await tamper(`DELETE FROM erp_a1__installation`), []);
     assert.notDeepEqual(await tamper(`UPDATE erp_preferences__definition SET default_value='"9"' WHERE rowid=(SELECT min(rowid) FROM erp_preferences__definition)`), []);
-    // Tabela sem uuid aleatório: o id trocado é divergência (não é "livre").
     assert.notDeepEqual(await tamper(`UPDATE erp_reference__country SET name=name||' ' WHERE rowid=1`), []);
+    // Uuid fixo diferente nos dois lados, fora de RANDOM_SEED_COLUMNS: os
+    // dois ids só existem num lado cada (seriam "livres"), mas não são
+    // alinhados.
+    await pg.exec("begin");
+    try {
+      await pg.exec("set session_replication_role = replica");
+      await pg.query("update erp_pos.settings set consumer_contact_id=$1", [U()]);
+      const d = await tamper(`UPDATE erp_pos__settings SET consumer_contact_id='${U()}'`);
+      assert.match(JSON.stringify(d), /RANDOM_SEED_COLUMNS/);
+    } finally {
+      await pg.exec("rollback");
+    }
   } finally {
     await pg.close();
   }
