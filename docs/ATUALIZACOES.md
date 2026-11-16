@@ -150,6 +150,66 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Próxima atualização (rascunho, número a definir): módulos, cobrança e verticais
+
+> Rascunho das notas da próxima versão do servidor, escrito sobre o branch `release/verticais`. O número da versão e a publicação ainda não foram decididos.
+
+Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz as migrações aditivas `0020` a `0058`, aplicadas pelo próprio atualizador. Elas criam as tabelas dos módulos e nenhum dado existente é apagado ou convertido. Não há Worker, banco, bucket nem Durable Object novos; nada muda na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
+
+**Recomendação: plano pago do Cloudflare para usar os verticais.** No plano gratuito cada invocação pode fazer 50 consultas ao D1. O atendimento sozinho cabe nisso, mas com os módulos ligados o alarme da área com trabalho acumulado e a conclusão do carrinho com Pix passam de 50. Quando isso acontece, a invocação para no meio: o trabalho do alarme atrasa e se repete, e no carrinho o cliente pode ficar com o pedido criado e sem a cobrança. O plano pago (Workers Paid) aceita 1000 consultas por invocação. As medições e as alternativas para caber no gratuito estão em [Limites do Cloudflare](LIMITES.md).
+
+**Módulos**, em **Gestão → Módulos**: cada um é ligado por área de atendimento e vem desligado, exceto a Fila nas instalações que já a usavam. Desligado, o módulo some do menu, do painel, dos aplicativos e das ferramentas dos bots. O contrato para integrações está em [Módulos](MODULOS.md).
+
+- **Fila presencial:** a fila com senha da 0.18 passa a ser um módulo; quem já a usava continua com ela ligada. [Fila de espera com senha](FILA-SENHAS.md).
+- **Formulários:** formulário enviado pela conversa como passo web (abaixo), com as respostas guardadas na conversa.
+- **Agenda:** o cliente marca, confirma, remarca ou cancela horário pelo WhatsApp, com lembrete; a equipe vê o dia e a semana. [Agenda](AGENDA.md).
+- **Ordem de Serviço:** entrada do item, orçamento aprovado ou recusado pelo WhatsApp e aviso de pronto, separados dos protocolos. [Ordem de Serviço](ORDEM-DE-SERVICO.md).
+- **Reserva:** quartos, chalés, quadras e salões, com sinal por Pix ou link, check-in online, lembrete e mensagem de saída. [Reserva](RESERVA.md).
+- **Pedido:** cardápio no menu do WhatsApp, carrinho numa página leve, quadro da cozinha e aviso a cada mudança de estado. [Pedido](PEDIDO.md).
+- **Mensalidade:** planos, assinaturas e parcelas, com o Pix enviado antes do vencimento e a baixa só pela confirmação do Mercado Pago, contratação de plano pelo WhatsApp e pagadores por CPF/CNPJ com telefones autorizados. [Mensalidade](MENSALIDADE.md).
+- **Suporte pago:** atendimento humano só depois de conferir o pagamento; quem não está em dia paga ali mesmo, compra suporte avulso ou contrata um plano, e a IA continua grátis. Exige a Mensalidade. [Suporte pago](SUPORTE.md).
+
+**Passo web e carrinho.** Os módulos e a equipe mandam ao cliente um link curto, de uso único e com prazo, para preencher um formulário ou montar um carrinho no celular. Na linha oficial, o formulário pode ir como Flow do WhatsApp. A resposta volta à conversa e conclui o passo sem abrir o menu.
+
+**Cobrança com Mercado Pago**, em **Gestão → Automação → Cobrança**: Pix (com o código copia e cola) e link de pagamento pela conversa, pela equipe ou pelos módulos. Um pagamento só é dado como pago depois do webhook assinado e da consulta ao Mercado Pago; "já paguei" ou o comprovante enviado pelo cliente nunca mudam o estado. Estorno e pagamento em duplicidade viram pendência para a equipe. O Access Token e a assinatura ficam cifrados. [Cobrança](COBRANCA.md).
+
+**Recursos interativos da Zernio:** lista, botão com URL, carrossel, pedido de localização, produto e catálogo, Flows (criar, publicar e enviar) e o recebimento de formulário, endereço e carrinho. Em linha QR, cada um tem um equivalente em texto. [Integração Zernio](ZERNIO-WHATSAPP.md#mensagens-interativas-flows-e-catálogo).
+
+**Muda para todas as instalações ao atualizar:**
+
+- **Listas só como mensagem interativa** nas linhas Zernio, sem o texto numerado junto. Vale para os menus e a fila já publicados.
+- **Consentimento por finalidade.** Notificações fora da janela de 24 horas com uma finalidade (cobrança, agendamento, pedido ou reserva) só saem com o consentimento dessa finalidade, registrado com data, módulo e evidência. A notificação de protocolo continua usando o consentimento de antes. REVOGAR revoga todas as finalidades.
+- **Revisão de segurança.** A revisão de novembro encontrou 23 achados (4 altos, 8 médios, 11 baixos), e a conferência trouxe mais 13; todos estão corrigidos e têm teste. Entre as mudanças:
+  - as ferramentas MCP montam o caminho só com identificadores;
+  - a confirmação de pagamento é entregue até concluir;
+  - CPF/CNPJ digitado nunca vincula telefone a um pagador;
+  - dados pessoais e notas exigem `contacts:read` e `notes:read`;
+  - operações financeiras de integrações exigem a permissão nova `billing:write`, que o painel nunca dá ao Vinki nem ao Fagoo;
+  - o webhook do Mercado Pago só aceita a consulta assinada.
+  
+  O endereço público da instalação fica fixo depois do primeiro valor e só o administrador troca, em **Gestão → Sistema**. Tabela completa em [Revisão de segurança](SEGURANCA-REVISAO-2026-11.md).
+
+**Para quem usa o Hermes com as ferramentas do Wabotia (MCP).** A chave criada em **Integrações → Ferramentas do Wabotia no Hermes Agent** passa a levar a permissão nova `conversations:bound`. Com ela, as ferramentas só alcançam as conversas que um bot da aplicação está atendendo (ou atendeu nos últimos 2 minutos), e o painel exige escolher o bot. Eventos, relatórios, presença e as outras conversas da área ficam de fora; para uma chave de área inteira, marque essa opção ao gerar a chave. Chaves já emitidas continuam com as permissões que têm; para restringir uma delas, gere uma chave nova e revogue a antiga.
+
+**Aplicativos.** Os aplicativos Android e iOS com modo aparelho (totem, painel e guichê), as verticais e a impressão de cupom estão no repositório ([mobile/README.md](../mobile/README.md)), mas não fazem parte desta atualização do servidor e saem pelas lojas à parte. Os aplicativos publicados continuam funcionando com esta versão.
+
+**Ainda não validado com contas reais.** Os testes automáticos usam respostas simuladas do WhatsApp e do Mercado Pago. Antes de usar com clientes, confira numa área de teste:
+
+- **Mercado Pago com uma conta real:**
+  - o Pix criado com o e-mail configurado e o vencimento no horário de Brasília;
+  - o link do Checkout Pro com prazo;
+  - o webhook chegando com assinatura válida;
+  - os estados de Pix vencido e de estorno;
+  - **Testar credenciais**.
+  
+  A lista completa está em [Cobrança](COBRANCA.md#o-que-só-uma-conta-real-confirma).
+- **Numa linha Zernio real:**
+  - a exibição das listas e demais interativos, agora sem o texto numerado, inclusive nos menus e na fila já publicados;
+  - o botão com URL e o código copia e cola da cobrança;
+  - os Flows publicados e a resposta deles;
+  - o carrinho e o formulário abertos no celular do cliente.
+- **CPU no plano gratuito:** a medição de consultas está em [Limites do Cloudflare](LIMITES.md); o tempo de CPU não foi medido, e cardápios grandes são os primeiros candidatos a passar de 10 ms.
+
 ## Atualização 0.19.3: resumo no protocolo já aberto
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. Com a equipe ausente, cada conversa tem um protocolo aberto por vez; quando o bot transfere de novo e já existe um, o cliente recebe o mesmo número e o resumo do novo pedido entra nesse protocolo como nota interna ("Nova solicitação nesta conversa"), visível só para a equipe. Depois de atualizar, clique em **Reabrir painel atualizado**.
