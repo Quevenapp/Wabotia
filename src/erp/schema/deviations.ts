@@ -31,11 +31,13 @@ export interface Deviation {
 }
 
 const TELAS_2_CASAS =
-  "Decisão do usuário: nas telas, padrão de 2 casas para preço e quantidade, configurável por empresa. " +
-  "O banco e o motor continuam com a precisão do Fagoo (preço até 10, quantidade 6, custo 10, alíquotas 4). " +
-  "Atenção: no Fagoo estas preferências também limitam a ENTRADA no servidor (preço: migrações 164/287, " +
-  "lançamento de estoque 277; quantidade: 287), não só a exibição. Com 2, o servidor recusa 3 casas ou mais " +
-  "até a empresa subir o valor. Aplicar só depois de confirmar esse efeito.";
+  'Usuário (16/11): "casas decimais usamos apenas 02" e "pode deixar padrão 02 casas". Opção (a): o padrão ' +
+  "das preferências vai a 2, com o limite de entrada no servidor valendo; quem precisar de mais sobe a " +
+  "preferência. O banco e o motor seguem com a precisão do Fagoo (preço até 10, quantidade 6, custo 10). " +
+  "decimais_peso fica em 3. Conferido para o preço de entrada: o limite só vale no que se digita (preço do " +
+  "pedido de compra, erp_documents.check_preference_rules; preço e custo do lançamento e do balanço de " +
+  "estoque, erp_stock.entry_price_check). A importação de XML de nota de entrada (erp_fiscal_invoice_import, " +
+  "vUnCom com até 10 casas), o recebimento de compra e o custo médio não passam por ele.";
 
 export const ERP_DEVIATIONS: readonly Deviation[] = [
   {
@@ -61,7 +63,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
   {
     id: "telas-2-casas",
@@ -72,7 +74,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
   {
     id: "telas-2-casas",
@@ -83,7 +85,7 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
     value: 2,
     reason: TELAS_2_CASAS,
     decided: "usuário, 16/11/2026",
-    applied: false,
+    applied: true,
   },
 ];
 

@@ -1652,7 +1652,7 @@
  "columns_unsupported": [],
  "deviations": {
   "registered": 4,
-  "applied": 1
+  "applied": 4
  },
  "seed": {
   "tables": 30,
