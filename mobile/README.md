@@ -4,10 +4,19 @@ Clientes nativos do Wabotia para a equipe de atendimento. Funcionam com **qualqu
 
 | Plataforma | Pasta | Stack | Mínimo |
 |---|---|---|---|
-| Android | [`android/`](android) | Kotlin 2.0, Jetpack Compose (Material 3), Retrofit/OkHttp, kotlinx.serialization, Coil, Media3, Firebase Messaging | Android 8.0 (API 26) |
-| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, AVFoundation | iOS 15 |
+| Android | [`android/`](android) | Kotlin 2.2, Jetpack Compose (Material 3), Retrofit/OkHttp, kotlinx.serialization, Coil, Media3, Firebase Messaging, ThermalPrinterKit | Android 8.0 (API 26) |
+| iOS | [`ios/`](ios) | Swift 5.10, SwiftUI, URLSession async/await, FirebaseMessaging, AVFoundation, ThermalPrinterKit | iOS 15 |
 
 Ambos usam o mesmo desenho de telas e os mesmos textos (pt-BR). Pacote/bundle: `br.com.queven.wabotia`.
+
+**Modo aparelho, guichê e verticais (servidor com módulos).** Os dois aplicativos passaram a cobrir os módulos do servidor ([`docs/MODULOS.md`](../docs/MODULOS.md)), cada um só quando está ligado na área (`GET /profiles/{p}/capabilities`; `409 module_disabled` esconde a entrada):
+
+- **Modo aparelho:** celular ou tablet pareado (RFC 8628, `client=senhapp`, escopos `queue:read` e `queue:issue`) vira **totem** de senhas com cupom impresso, **painel de chamadas** (senha em destaque, voz pt-BR, gongo) ou **híbrido**. Reabre direto no papel, com PIN dos ajustes e "desconectado" quando um administrador revoga o aparelho. A trava da tela é do sistema: fixação de tela ou *device owner* no Android ([`android/MODO-APARELHO.md`](android/MODO-APARELHO.md)) e Acesso Guiado ou Modo de App Único por MDM no iOS ([`ios/README-IOS.md`](ios/README-IOS.md)).
+- **Guichê:** Ajustes → Atendimento → Guichê: escolher o guichê, abrir, pausar e fechar, chamar a próxima senha, rechamar, iniciar, concluir, ausente e transferir.
+- **Verticais:** Agenda, Ordem de Serviço, Reserva, Mensalidade e Pedido, além da faixa de passagem e do Suporte pago na conversa e de "Enviar formulário" (passo web) e "Cobrar" (Pix ou link). Horário de Brasília e valores em centavos, seja qual for o fuso do aparelho.
+- **Impressão:** cupom do totem, comanda do Pedido e comprovante da OS saem pelo **ThermalPrinterKit**, biblioteca privada usada por caminho local (ver Compilar). Uma impressora para o app inteiro, escolhida em Ajustes → Impressora do cupom.
+
+O detalhe de cada parte, a demonstração e os atalhos de teste estão em [`ios/README-IOS.md`](ios/README-IOS.md) (o Android segue as mesmas regras e telas) e em [`android/MODO-APARELHO.md`](android/MODO-APARELHO.md) para a trava do aparelho no Android.
 
 **Versão 0.14.0 (central de atendimento).** Os aplicativos acompanham o contrato do servidor 0.14 descrito em [`docs/CENTRAL-ATENDIMENTO.md`](../docs/CENTRAL-ATENDIMENTO.md): **seis estados de protocolo** (Recebido, Em análise, Aguardando cliente, Aguardando terceiro, Resolvido, Encerrado), **categoria do protocolo** (aplicativo ou assunto, de `ticket_categories`), prévia da lista de conversas vinda de `last_message` e o destino de menu `ticket` ("Abrir protocolo"). Continuam funcionando com servidores 0.13: campos ausentes são tratados como "sem categoria" e "sem prévia do servidor", e um estado que o aplicativo ainda não conhece aparece como texto neutro.
 
@@ -92,7 +101,12 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 
 ## Compilar
 
-Veja [`docs/MOBILE.md`](../docs/MOBILE.md#4-compilar-os-aplicativos). Resumo: Android `cd android && ./gradlew assembleDebug` (JDK 17, SDK 35; `google-services.json` opcional); iOS `cd ios && xcodegen generate && xcodebuild -scheme Wabotia -destination "generic/platform=iOS" build` (Xcode 16+, `GoogleService-Info.plist` opcional).
+Veja [`docs/MOBILE.md`](../docs/MOBILE.md#4-compilar-os-aplicativos). Resumo: Android `cd android && ./gradlew assembleDebug` (JDK 17, SDK 36, Kotlin 2.2; `google-services.json` opcional); iOS `cd ios && xcodegen generate && xcodebuild -scheme Wabotia -destination "generic/platform=iOS" build` (Xcode 16+, `GoogleService-Info.plist` opcional).
+
+Os dois precisam do repositório **ThermalPrinterKit** ao lado:
+
+- **Android:** `-PthermalPrinterKitDir=…` (ou em `gradle.properties`), a variável `THERMAL_PRINTER_KIT_DIR`, ou o primeiro `ThermalPrinterKit` encontrado subindo da pasta do app.
+- **iOS:** pacote local em `../../../../ThermalPrinterKit/ios` (`project.yml`). Do Windows, `ios/build-on-mac.ps1` copia o app e a biblioteca para o Mac e compila; com `-Test`, também roda os testes.
 
 ## API de linhas e equipe
 
