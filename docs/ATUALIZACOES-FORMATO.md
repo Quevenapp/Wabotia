@@ -161,61 +161,145 @@ atualização.
   acrescentar se apoiam nos tipos dele. O maior item do Worker é o `unpdf`
   (2,27 MB, leitura de PDF no Conhecimento).
 
-## Proposta: manifesto assinado (Ed25519), não implementada
+## Assinatura do índice (Ed25519): desenho pronto, não implementado
 
-- O índice v2 ganha `signature` (Ed25519 sobre o JSON canônico do índice,
-  que já fixa o SHA-256 do manifesto, que fixa cada blob). O workerd tem
-  `crypto.subtle.verify({name: "Ed25519"})`.
-- A chave pública vai embutida na ponte (`src/release.ts`), numa lista para
-  permitir troca: uma chave nova entra numa versão assinada pela antiga.
-- A privada fica fora do repositório e da máquina de build; `release.mjs`
-  assina com ela num passo manual.
-- Ganho: um site oficial comprometido não consegue publicar código nas
-  instalações. Custo: guarda da chave, e perder a chave trava as
-  atualizações automáticas (só reinstalação). Decisão do usuário; se for
-  adotada, precisa estar na ponte, porque ela é a última versão que todos
-  instalam sem assinatura.
+Decisão pendente do usuário (envolve guardar chaves). O desenho entra na
+ponte sem retrabalho, porque a ponte é a última versão que todos instalam
+sem conferir assinatura.
+
+**O que é assinado.** O índice v2 ganha `signatures: [{key, sig}]`. A
+assinatura cobre os bytes `"wabotia-release-v2\n" + JSON` do índice sem o
+campo `signatures`, com as chaves em ordem alfabética (o mesmo `canonical`
+de `src/security.ts`). O índice fixa o SHA-256 do manifesto, que fixa o de
+cada arquivo: assinar o índice basta.
+
+**Chaves embutidas (`src/release.ts`).**
+
+```ts
+export const RELEASE_KEYS = [
+  { id: "principal-2026", ed25519: "<32 bytes em base64>" },
+  { id: "reserva-2026", ed25519: "<32 bytes em base64>" },
+];
+```
+
+- Vale o índice com **ao menos uma** assinatura válida de uma chave da
+  lista que não esteja revogada nesta instalação. Verificação com
+  `crypto.subtle.verify({name: "Ed25519"}, …)` (workerd e Node 22).
+- Conferem: `checkUpdate` e o automático (antes de qualquer etapa), o
+  instalador de terminal e o pelo navegador. Índice sem assinatura válida:
+  "A versão oficial não tem assinatura válida. Nada foi alterado."
+- A principal assina toda publicação; a reserva fica guardada em outro lugar
+  (cofre separado, offline) e só assina numa emergência.
+- **Troca planejada:** uma versão assinada pela principal traz a lista nova
+  (por exemplo, principal-2027 e a mesma reserva). Quem instala essa versão
+  passa a aceitar só a lista nova.
+
+**Chave perdida.**
+- Só a principal: a próxima versão sai assinada pela reserva e traz uma
+  principal nova. Nenhuma instalação trava.
+- As duas: nenhuma instalação aceita versão nova. Saída: reinstalação pelo
+  instalador (que tem a lista nova embutida), com exportação e importação
+  dos dados. Por isso as duas nunca ficam no mesmo lugar.
+
+**Chave comprometida.**
+- Publica-se, assinado pela outra chave, `releases/v2/revocations.json`
+  (`{revoked: ["principal-2026"], at}`), e uma versão nova sem a chave
+  comprometida, assinada pela que sobrou.
+- O atualizador lê as revogações a cada consulta, aceita só a lista
+  assinada por uma chave válida e guarda o resultado num segredo da
+  instalação: uma revogação vista não se desfaz, mesmo que o site volte a
+  servir a lista antiga.
+- **Limite:** uma instalação que ainda não leu a revogação aceita uma versão
+  assinada pela chave comprometida servida por quem controla o site. A
+  janela fecha na primeira consulta depois da revogação. Exigir as duas
+  assinaturas fecharia a janela, mas a perda de qualquer chave travaria
+  todas as instalações; o desenho prefere uma de duas.
+
+**Como o `release.mjs` assina.**
+- `--sign <arquivo>`: caminho de uma chave privada PKCS8 (PEM) **fora** do
+  repositório; o script recusa um caminho dentro da pasta do projeto ou
+  versionado pelo Git, e recusa publicar (sem `--candidate`) sem assinatura.
+- Lê a chave com `createPrivateKey`, assina com `crypto.sign(null, bytes,
+  chave)`, confere a assinatura contra a pública correspondente de
+  `RELEASE_KEYS` (chave errada ou fora da lista: para) e só então grava o
+  índice. A chave nunca é impressa, registrada em log nem copiada; o
+  processo não a passa a subprocessos (`wrangler` roda antes da assinatura).
+- Geração das chaves: `node -e` com `generateKeyPairSync("ed25519")`,
+  numa máquina sem rede, gravando a privada direto num pendrive cifrado; a
+  pública (32 bytes em base64) vai para `RELEASE_KEYS` num commit.
+- `--candidate` sai sem assinatura; os testes usam um par gerado na hora.
 
 ## Roteiro do teste de ponta a ponta (sessão K)
 
-Objetivo: 0.17.0 → ponte → versão fictícia de formato 2 com 300 estáticos e
-cerca de 30 MB, numa instalação de teste, sem tocar no catálogo oficial.
+Objetivo: versão antiga → ponte → versão fictícia de formato 2 com 300
+estáticos e cerca de 30 MB, numa instalação de teste, sem tocar no catálogo
+oficial.
 
-O endereço do catálogo é fixo (`RELEASE_ORIGIN`). Para não publicar no site
-oficial, use um **catálogo de teste**: um Worker só de estáticos
-(`wabotia-catalogo-teste`) e builds da ponte e da fictícia com
-`RELEASE_ORIGIN` trocado por esse endereço numa cópia local (sem commit).
+### Catálogo de teste: a própria instalação de teste
 
-1. **Catálogo de teste.** Numa cópia do `feat/pacote-v2`, troque
-   `RELEASE_ORIGIN` pelo endereço do catálogo de teste e mude a versão do
-   `package.json` só na cópia (por exemplo `0.20.90`).
-2. **Ponte.** `npm run release -- --bridge` na cópia. Confira no log: pacote
-   de formato 1 abaixo de 20 MB, `releases/latest.json` e
-   `releases/v2/bridge.json` gravados.
-3. **Fictícia.** Na mesma cópia, versão `0.20.91`, acrescente em `public/`
-   300 arquivos (por exemplo `public/e2e/<n>.bin`, cerca de 100 KB cada, mais
-   dois de 10 MB) para somar cerca de 30 MB, e rode `npm run release` sem
-   `--bridge`. Confira: `releases/latest.json` continua na `0.20.90`;
-   `releases/v2/latest.json` aponta para a `0.20.91` com
-   `requires.min_version` `0.20.90`.
-4. Publique a pasta `public/releases` da cópia no Worker de catálogo de teste.
-5. **Instalação 0.17.0** de teste com um build da 0.17.0 cujo
-   `RELEASE_ORIGIN` aponte para o catálogo de teste. Em Sistema e
-   atualizações: deve aparecer só a `0.20.90`. Atualize; confira
-   `/api/health` com o commit da ponte.
-6. Na ponte, consulte de novo: deve aparecer a `0.20.91`. Atualize e anote o
-   número de rodadas por etapa (o estado em `system:release-state`), o
-   tempo total e se alguma rodada passou do limite de CPU ou memória.
-   Confira `/api/health` e se os 300 arquivos respondem.
+A instalação de distribuição é um Wabotia comum que serve `/releases` dos
+próprios estáticos. No ensaio, a instalação de teste serve o próprio
+catálogo, e um build **só de teste** aponta o `RELEASE_ORIGIN` para ela.
+Proposta (não implementada; entra antes do ensaio, com a revisão da A):
+
+- **Constante de build** `__WABOTIA_TEST_RELEASE_ORIGIN__`, declarada em
+  `src/release.ts`:
+
+  ```ts
+  declare const __WABOTIA_TEST_RELEASE_ORIGIN__: string | undefined;
+  export const RELEASE_ORIGIN =
+    typeof __WABOTIA_TEST_RELEASE_ORIGIN__ === "string"
+      ? __WABOTIA_TEST_RELEASE_ORIGIN__
+      : "https://wabotia.queven.app";
+  ```
+
+  Ela só existe quando o build de teste a define
+  (`wrangler deploy --define __WABOTIA_TEST_RELEASE_ORIGIN__:'"https://<teste>.workers.dev"'`).
+  No build de produção ela não existe e o `typeof` cai no endereço oficial.
+- **`release.mjs` recusa num pacote oficial:** para se o `wrangler.jsonc`
+  tiver `define` com essa constante, se a variável de ambiente
+  `WABOTIA_TEST_RELEASE_ORIGIN` estiver definida, ou se o Worker gerado não
+  contiver o literal `https://wabotia.queven.app` (sinal de que a constante
+  foi substituída). O build de teste usa um script próprio
+  (`scripts/release-test.mjs`), que grava em `output/release-test/` e
+  imprime "BUILD DE TESTE: não publicar".
+- `/api/health` do build de teste traz `release_origin` diferente do
+  oficial, para conferir antes de começar.
+
+### Passos
+
+1. **Instalação de teste** com o build de teste da ponte (versão local
+   `0.20.90`, `RELEASE_ORIGIN` = ela mesma). Para partir da 0.17.0, é
+   preciso uma segunda instalação de teste com a 0.17.0 apontada para o
+   catálogo de teste (uma linha trocada numa cópia, sem commit): depende do
+   OK do usuário.
+2. **Catálogo da ponte:** `node scripts/release-test.mjs --bridge` no build
+   de teste; confira pacote de formato 1 abaixo de 20 MB,
+   `releases/latest.json` e `releases/v2/bridge.json`. Publique a pasta
+   `releases` nos estáticos da instalação de teste.
+3. **Fictícia:** versão local `0.20.91`, com 300 arquivos em
+   `public/e2e/` (cerca de 100 KB cada, mais dois de 10 MB, total perto de
+   30 MB); `release-test.mjs` sem `--bridge`. Confira:
+   `releases/latest.json` continua na `0.20.90`; `releases/v2/latest.json`
+   aponta para a `0.20.91` com `requires.min_version` `0.20.90`.
+4. **Versão antiga → ponte** (se houver a segunda instalação): em Sistema e
+   atualizações aparece só a `0.20.90`. Atualize; confira `/api/health`.
+5. **Ponte → fictícia:** consulte de novo; aparece a `0.20.91`. Atualize e
+   anote rodadas por etapa (`system:release-state`), tempo total e qualquer
+   estouro de CPU ou memória. Confira `/api/health` e os 300 arquivos.
+6. **Automático:** repita 4 e 5 com a atualização automática ligada e uma
+   janela que inclua a hora do ensaio; o automático deve parar em cada
+   degrau, nunca saltar da versão antiga para a `0.20.91`.
 7. **Lote real de estáticos:** anote quantos `buckets` a Cloudflare devolveu
-   e o tamanho de cada um (log do Coordinator ou estado); é a conferência
-   que a documentação não responde.
-8. **Falha entre `migrate` e `publish`:** repita os passos 5 e 6 numa
-   instalação nova revogando a permissão Workers Scripts: Edit do token logo
-   depois das migrações; espere `failed` em `publish`, devolva a permissão,
-   libere a nova tentativa e confira que a migração não é reaplicada.
-9. Apague o Worker de catálogo de teste e as instalações de teste ao fim
-   (com o OK do usuário).
+   e o tamanho de cada um.
+8. **Falha entre `migrate` e `publish`:** revogue a permissão Workers
+   Scripts: Edit do token logo depois das migrações; espere `failed` em
+   `publish`, devolva a permissão, libere a nova tentativa e confira que a
+   migração não é reaplicada.
+9. **Plano pago:** se o usuário tiver uma conta gratuita, rode a sonda numa
+   instalação de teste nela (marcando a fictícia com `--workers-paid`) e
+   anote se ela recusa. Até lá, a sonda fica **não comprovada**.
+10. Apague as instalações de teste ao fim, com o OK do usuário.
 
 ## Para a revisão da sessão A (núcleo)
 
