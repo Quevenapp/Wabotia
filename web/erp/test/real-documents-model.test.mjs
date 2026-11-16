@@ -55,5 +55,6 @@ test('documents allow bounded snapshots while finance and stock retain the one-M
   const controller=createAccessController(auth,'https://api.example.test',async url=>new Response(JSON.stringify(url.endsWith('/me')?me:{data:'x'.repeat(bytes)})));
   const stop=controller.start();await tick();assert.equal((await controller.documents('/v1/documentos')).data.length,bytes);
   for(const name of ['stock','finance'])await assert.rejects(controller[name](name==='stock'?'/v1/estoque':'/v1/financeiro'),error=>error.status===502);
-  bytes=8*1024*1024;await assert.rejects(controller.documents('/v1/documentos'),error=>error.status===502);stop();
+  // Wabotia: /v1/documentos fica 30 s no cache de sessão (envelope de permissão); o limite é conferido numa leitura fora do cache, pela mesma porta.
+  bytes=8*1024*1024;await assert.rejects(controller.documents('/v1/documentos/sales_orders'),error=>error.status===502);stop();
 });

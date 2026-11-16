@@ -29,6 +29,8 @@ import {captureReviewedAuthorizationRequest} from './fiscal-reviewed-authorizati
 import {captureSubsetReviewRequest} from './fiscal-subset-review-model.ts';
 import {captureReconciliationRequest} from './fiscal-reconciliation-model.ts';
 import type {UpdateAction,UpdateOptions} from './system-updates.ts';
+// Wabotia: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
+import {createSessionCache,cachePolicy} from '../../session-cache.ts';
 
 export const RESOURCE_LABELS = {
   contacts: 'Clientes e fornecedores', products: 'Produtos', sales_orders: 'Pedidos de venda',
@@ -136,8 +138,13 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   let listRequest: AbortController | null = null;
   let permissionRecheck: AbortController | null = null;
   let permissionPromise: Promise<void> | null = null;
+  // Wabotia: um cache por controlador (área/apiUrl); chave apiUrl+ator+papel+caminho. Só serve com a credencial já conferida pelo /v1/me.
+  const sessionCache = createSessionCache();
+  const cacheReady = () => !stopped&&!signingOut&&!!token&&state.phase==='ready'&&!!sessionActor&&state.membership?.user_id===sessionActor&&verifiedCredentialEpoch===credentialEpoch;
+  const cacheKey = (path: string) => JSON.stringify([apiUrl,sessionActor,state.membership?.role??null,path]);
   const update = (patch: Partial<AccessState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
-  const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; };
+  // Wabotia: fim de sessão (401, logout, troca de sessão, parada do controlador) também esvazia o cache.
+  const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; sessionCache.clear(); };
   const request = async (path: string, bearer: string, controller: AbortController, options: { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown; responseLimit?: number; timeoutMs?: number } = {}): Promise<unknown> => {
     requests.add(controller);
     const timeout = new AbortController();
@@ -180,7 +187,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
         if(me.user_id!==actor){denyAccess(401);return;}
         verifiedCredentialEpoch=credential;
         const changed=me.role!==state.membership!.role||JSON.stringify(me.resources)!==JSON.stringify(state.membership!.resources);
-        if(changed){listGeneration++;listRequest?.abort();listRequest=null;}
+        // Wabotia: papel ou recursos mudaram: nada do cache do papel anterior é servido.
+        if(changed){listGeneration++;listRequest?.abort();listRequest=null;sessionCache.clear();}
         update({membership:me,permissionMessage:null,...(changed?{records:null,listPending:false}:{})});
       }catch(error){
         if(!active())return;
@@ -218,6 +226,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if(bearer!==token||verifiedCredentialEpoch!==credentialEpoch)throw new AccessError(503);
   };
   const handleAccessFailure = (error: unknown,bearer:string|null,credential:number) => {
+    // Wabotia: qualquer 401/403 descarta os envelopes de permissão guardados.
+    if(error instanceof AccessError&&(error.status===401||error.status===403))sessionCache.dropPermissions();
     // A response to an older credential cannot log out a verified renewal of
     // the same actor. The component still receives an uncertain/retryable error.
     if(error instanceof AccessError&&error.status===401&&(bearer!==token||credential!==credentialEpoch)&&state.phase==='ready')return new AccessError(503);
@@ -279,11 +289,16 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       throw failure instanceof AccessError ? failure : new AccessError(503);
     } finally { clearTimeout(timer); requests.delete(controller); signal?.removeEventListener('abort', abort); }
   };
-  const nativeRequest = async (prefix: string, path: string, options: NativeRequestOptions = {}, responseLimit = 1024 * 1024, timeoutMs = 12000, beforeDispatch?:()=>void): Promise<unknown> => {
+  const nativeRequest = async (prefix: string, path: string, options: NativeRequestOptions = {}, responseLimit = 1024 * 1024, timeoutMs = 12000, beforeDispatch?:()=>void, shared = false): Promise<unknown> => {
     if (!token || state.phase !== 'ready' || stopped) throw new AccessError(401);
     if (path !== prefix && !path.startsWith(`${prefix}/`) && !path.startsWith(`${prefix}?`)) throw new AccessError(400);
     const pathname=path.split('?')[0];
     if (path.includes('#') || pathname.includes('\\') || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split('/').some(part => part === '.' || part === '..')) throw new AccessError(400);
+    // Wabotia: GET da lista estável passa pelo cache de sessão (o pedido compartilhado volta aqui com shared=true);
+    // escrita invalida antes de sair e de novo ao terminar (com ou sem sucesso), para nenhum GET em voo guardar o estado anterior.
+    const write=(options.method??'GET')!=='GET',policy=write||shared||beforeDispatch||options.body!==undefined?null:cachePolicy(path);
+    if(policy&&cacheReady())return sessionCache.read(cacheKey(path),path,policy,signal=>nativeRequest(prefix,path,{method:'GET',signal},responseLimit,timeoutMs,undefined,true),options.signal);
+    if(write)sessionCache.invalidateWrite(path);
     const current = generation; const controller = new AbortController(); const abort = () => controller.abort();
     options.signal?.addEventListener('abort', abort, { once: true }); if (options.signal?.aborted) controller.abort();requests.add(controller);
     let bearer=token,credential=credentialEpoch;
@@ -296,7 +311,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     } catch (error) {
       if (stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
       throw handleAccessFailure(error,bearer,credential);
-    } finally { requests.delete(controller);options.signal?.removeEventListener('abort', abort); }
+    } finally { requests.delete(controller);options.signal?.removeEventListener('abort', abort);if(write)sessionCache.invalidateWrite(path); }
   };
   const a1Request = async (path: string, options: A1RequestOptions = {}): Promise<unknown> => {
     if (!token || state.phase !== 'ready' || stopped) throw new AccessError(401);
@@ -371,6 +386,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const current = generation, controller = new AbortController(), timeout = new AbortController();
     const abort = () => controller.abort(), timer = setTimeout(() => timeout.abort(), upload ? 120000 : 45000);
     options.signal?.addEventListener('abort', abort, { once: true }); if (options.signal?.aborted) controller.abort(); requests.add(controller);
+    if(upload)sessionCache.invalidateWrite(path); // Wabotia: o PUT do envio também é escrita.
     let bearer=token,credential=credentialEpoch;
     try {
       const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);credential=credentialEpoch;
@@ -386,7 +402,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       if (stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
       const failure=handleAccessFailure(error,bearer,credential);
       throw failure instanceof AccessError ? failure : new AccessError(503);
-    } finally { clearTimeout(timer); requests.delete(controller); options.signal?.removeEventListener('abort', abort); }
+    } finally { clearTimeout(timer); requests.delete(controller); options.signal?.removeEventListener('abort', abort); if(upload)sessionCache.invalidateWrite(path); }
   };
   const unsignedRequest = async (path: string, options: NativeRequestOptions = {}): Promise<unknown> => {
     if (stopped || !token) throw new AccessError(401);
@@ -606,6 +622,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const selected=captureBackupRequest(path,options),current=generation,controller=new AbortController();
     const requireAdmin=()=>{if(stopped||signingOut||state.phase!=='ready'||state.membership?.role!=='admin')throw new AccessError(state.phase==='ready'?403:401);};
     requireAdmin();requests.add(controller);const abort=()=>controller.abort();selected.signal?.addEventListener('abort',abort,{once:true});if(selected.signal?.aborted)abort();
+    // Wabotia: a importação de backup reescreve a empresa inteira: cada escrita dela esvazia o cache (antes e ao terminar).
+    const write=selected.method!=='GET';if(write)sessionCache.clear();
     const timer=setTimeout(abort,selected.finish?900000:120000);let bearer=token,credential=credentialEpoch;
     try{
       const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;credential=credentialEpoch;
@@ -613,7 +631,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       return await fetchBackupRequest(apiUrl,{...selected,signal:controller.signal},bearer,fetcher,check);
     }catch(error){if(stopped||current!==generation||controller.signal.aborted)throw new DOMException('Request cancelled','AbortError');
       throw handleAccessFailure(error instanceof BackupImportHttpError?new AccessError(error.status):error,bearer,credential);
-    }finally{clearTimeout(timer);requests.delete(controller);selected.signal?.removeEventListener('abort',abort);controller.abort();}
+    }finally{clearTimeout(timer);requests.delete(controller);selected.signal?.removeEventListener('abort',abort);controller.abort();if(write)sessionCache.clear();}
   };
   return {
     storageOrigin: services.storageOrigin,
@@ -623,12 +641,14 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       requireAdmin();const current=generation,controller=new AbortController(),body=action==='status'?undefined:action==='check'?{}:structuredClone(options.body);
       const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)controller.abort();
       let bearer:string|null=null,credential=credentialEpoch;
+      // Wabotia: verificar/aplicar atualização é escrita: esvazia o cache antes e ao terminar.
+      if(action!=='status')sessionCache.clear();
       try{
         const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);requireAdmin();credential=credentialEpoch;
         const value=await request('/v1/system/updates'+(action==='status'?'':'/'+action),bearer,controller,{method:action==='status'?'GET':'POST',body,responseLimit:32768,timeoutMs:16000});
         assertDispatch(current,controller,bearer);requireAdmin();return value;
       }catch(error){throw handleAccessFailure(error,bearer,credential);}
-      finally{options.signal?.removeEventListener('abort',abort);controller.abort();}
+      finally{options.signal?.removeEventListener('abort',abort);controller.abort();if(action!=='status')sessionCache.clear();}
     },
     getSnapshot: () => state,
     backupImport: backupImportRequest,
