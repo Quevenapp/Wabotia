@@ -255,7 +255,8 @@ describe("ordem de serviço pelo WhatsApp", () => {
     expect(approved).toMatchObject({
       status: "approved",
       decision: "approved",
-      decided_by: "customer:5511961000003",
+      // A conversa, não o telefone (conferência N-9).
+      decided_by: `customer:${official.c.id}`,
       decided_via: "whatsapp",
     });
     expect(approved.decided_at).toBeGreaterThan(0);
@@ -289,9 +290,13 @@ describe("ordem de serviço pelo WhatsApp", () => {
     );
     expect((await events(f, "os.approved"))[0]).toMatchObject({
       via: "whatsapp",
-      by: "customer:5511961000003",
+      by: `customer:${official.c.id}`,
     });
     expect(await events(f, "os.declined")).toHaveLength(1);
+    // Nada de telefone em decision.by nem no histórico (conferência N-9).
+    expect(
+      JSON.stringify(await loadOrder(ctx, official.order.id)),
+    ).not.toContain("customer:5511961000003");
   });
   it("APROVAR com número, botão de versão antiga e menu aberto depois do orçamento", async () => {
     const { f, ctx } = await setup();

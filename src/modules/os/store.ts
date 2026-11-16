@@ -172,6 +172,16 @@ export function visibleOrder(
   if (!ctx.mayRead(actor, "contacts")) {
     const { phone: _phone, ...customer } = view.customer;
     out.customer = customer;
+    // Registros antigos guardavam "customer:<telefone>" (conferência N-9).
+    const hide = (who: string | null) =>
+      who && /^customer:\d+$/.test(who) ? "customer" : who;
+    if (out.decision)
+      out.decision = { ...out.decision, by: hide(out.decision.by) };
+    if (out.history)
+      out.history = out.history.map((h: any) => ({
+        ...h,
+        actor: hide(h.actor),
+      }));
   }
   if (!ctx.mayRead(actor, "notes")) {
     delete out.notes;
@@ -983,7 +993,8 @@ export async function handleQuoteReply(
       ctx,
       order,
       decision,
-      `customer:${phoneDigits(ctx.verifiedPhone(c) || "") || c.id}`,
+      // A conversa, não o telefone (conferência N-9).
+      `customer:${c.id}`,
       "whatsapp",
     );
   } catch (error) {
