@@ -30,8 +30,41 @@ class LoadBoundary extends React.Component<
   }
 }
 
+/** Opcionais do ERP com chave própria em Gestão → Módulos (PLANO-FAGOO.md, item 16). */
+const OPTIONAL = [
+  "erp-fiscal",
+  "erp-cobranca",
+  "erp-pdv",
+  "erp-origin",
+] as const;
+
 export function ErpArea() {
   const app = useApp();
+  if (!app.moduleOn("erp"))
+    return (
+      <div className="area">
+        <Empty
+          title="ERP desligado"
+          description={
+            app.isAdmin
+              ? "O ERP está desligado nesta área de atendimento. Ligue-o em Gestão → Módulos."
+              : "O ERP está desligado nesta área de atendimento. Fale com o administrador."
+          }
+          action={
+            app.isAdmin ? (
+              <Button
+                onClick={() => navigate({ area: "admin", page: "modules" })}
+              >
+                Abrir Módulos
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    );
+  const blocks = Object.fromEntries(
+    OPTIONAL.map((id) => [id, app.moduleOn(id)]),
+  );
   return (
     <div className="erp-area">
       <LoadBoundary>
@@ -43,9 +76,13 @@ export function ErpArea() {
           }
         >
           <ErpMount
+            key={JSON.stringify(blocks)}
             profile={app.profile}
             actor={String(app.me.id)}
             demo={app.demo}
+            blocks={blocks}
+            admin={app.isAdmin}
+            onModules={() => navigate({ area: "admin", page: "modules" })}
             onLeave={() => navigate({ area: "conversations" })}
             onExpired={() => void app.reloadSession()}
           />

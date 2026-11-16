@@ -2,6 +2,7 @@ import { originHistoryAvailable, isOriginIntegrationRoute } from './integration-
 // Access-controlled destinations consumed by the FAGOO workspace navigation.
 
 import { preferencePage, preferencePageHref } from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
+import { targetEnabled } from '../../blocks.ts';
 
 export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro';
 export type CompanyRole = 'admin' | 'consulta' | 'financeiro' | 'vendas' | 'estoque' | 'fiscal';
@@ -218,6 +219,8 @@ export interface CompanyAccess { role?: string; resources?: readonly string[]; c
 
 export function realTargetAllowed(target: RealTarget | undefined, access: CompanyAccess): target is RealTarget {
   if (!target || !access.role) return false;
+  // Wabotia: item de um bloco desligado na área (Fiscal, Cobrança, PDV, Origin) some do menu.
+  if (!targetEnabled(target.to)) return false;
   if (isOriginIntegrationRoute(target.to) && !originHistoryAvailable(access)) return false;
   if (target.resource && !(access.resources || []).includes(target.resource)) return false;
   return !target.roles || target.roles.includes(access.role as CompanyRole);
@@ -246,7 +249,8 @@ export type LinkedPreferenceEntry = PreferenceEntry & { to: string };
 // enabled ones (search links and breadcrumbs); sections also describe unavailable tools.
 export function resolvePreferences(access: CompanyAccess): ResolvedPreferenceCategory[] {
   if (!access.role) return [];
-  const mine = (entry: PreferenceEntry) => (!entry.to || !isOriginIntegrationRoute(entry.to) || originHistoryAvailable(access)) && (!entry.roles || entry.roles.includes(access.role as CompanyRole));
+  const mine = (entry: PreferenceEntry) => (!entry.to || !isOriginIntegrationRoute(entry.to) || originHistoryAvailable(access)) && (!entry.roles || entry.roles.includes(access.role as CompanyRole))
+    && (!entry.to || targetEnabled(entry.to));
   return COMPANY_PREFERENCES.map(category => {
     const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.filter(mine) })).filter(section => section.entries.length > 0);
     return { id: category.id, label: category.label, icon: category.icon, ...(category.notice ? { notice: category.notice } : {}), sections, entries: sections.flatMap(section => section.entries.filter((entry): entry is LinkedPreferenceEntry => Boolean(entry.to))) };

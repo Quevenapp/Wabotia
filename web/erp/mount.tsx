@@ -10,6 +10,7 @@ import {
 } from "./app/hooks/useUnsavedChanges";
 import { setNavigationGuard } from "../lib/routes";
 import { setErpPorts, type ErpPorts } from "./ports";
+import { setErpBlocks, type ErpBlock } from "./blocks";
 import { createFetchPort, erpApiUrl } from "./fetch-port";
 import {
   createCoreMfaPort,
@@ -40,6 +41,10 @@ type Props = {
   profile: string;
   actor: string;
   demo: boolean;
+  /** Opcionais ligados na área (erp-fiscal, erp-cobranca, erp-pdv, erp-origin). */
+  blocks: Partial<Record<ErpBlock, boolean>>;
+  admin: boolean;
+  onModules: () => void;
   onLeave: () => void;
   onExpired: () => void;
 };
@@ -60,10 +65,16 @@ export default function ErpMount({
   profile,
   actor: panelActor,
   demo,
+  blocks,
+  admin,
+  onModules,
   onLeave,
   onExpired,
 }: Props) {
   const actor = demo ? DEMO_ACTOR : panelActor;
+  // Lido pelo menu e pelas rotas do ERP ao renderizar (web/erp/blocks.ts); a
+  // casca remonta o ERP quando a chave de um opcional muda.
+  setErpBlocks(blocks);
   const [simulate, setSimulate] = useState<
     | null
     | ((
@@ -101,10 +112,12 @@ export default function ErpMount({
         },
       }),
       demo,
+      admin,
+      openModules: onModules,
     };
     // onLeave/onExpired mudam a cada render da casca; a sessão não.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, actor, demo, useSimulation, simulate]);
+  }, [profile, actor, demo, admin, useSimulation, simulate]);
 
   // StrictMode monta, desmonta e monta de novo: o roteador nasce no efeito e é
   // descartado (router.dispose) ao sair da área.

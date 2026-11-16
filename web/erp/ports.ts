@@ -16,6 +16,10 @@ export type ErpPorts = {
   fetch: typeof fetch;
   /** Demonstração: nada é gravado. */
   demo: boolean;
+  /** Administrador do Wabotia (atalho para Gestão → Módulos). */
+  admin?: boolean;
+  /** Abre Gestão → Módulos no painel. */
+  openModules?: () => void;
 };
 
 let current: ErpPorts | null = null;

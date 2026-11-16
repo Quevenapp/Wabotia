@@ -27,7 +27,7 @@
   "fiscal-wave-f-ui.test.mjs"
  ],
  "local": {
-  "web/erp/app/components/RealAccess.tsx": "alterado: sessão, MFA e API pelas portas do Wabotia (web/erp/ports.ts) no lugar do supabase-js; saem o login e o 'esqueci minha senha'; telas do gateway A1 (/certificado-a1, /conexao-sefaz, /emissor-fiscal) mostram o aviso de emissão externa",
+  "web/erp/app/components/RealAccess.tsx": "alterado: sessão, MFA e API pelas portas do Wabotia (web/erp/ports.ts) no lugar do supabase-js; saem o login e o 'esqueci minha senha'; telas do gateway A1 (/certificado-a1, /conexao-sefaz, /emissor-fiscal) mostram o aviso de emissão externa; rota de bloco desligado mostra 'Recurso desligado'",
   "web/erp/app/hooks/useTheme.ts": "alterado: o tema segue a preferência do painel (<html data-theme>, web/lib/theme.ts); applyStoredTheme não faz nada",
   "web/erp/app/main.tsx": "removido: entrada própria do Fagoo; web/erp/mount.tsx monta o ERP",
   "web/erp/app/erp-entry.tsx": "removido: substituído por web/erp/mount.tsx (basename /app/erp)",
@@ -40,7 +40,7 @@
   "web/erp/test/invite-activation-component.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-activation.test.mjs": "removido: testa a ativação por convite, que saiu",
   "web/erp/test/invite-auth-client.test.mjs": "removido: testa o cliente do supabase-js da ativação, que saiu",
-  "web/erp/app/components/native-modules.ts": "alterado: as telas de cada módulo do menu carregam juntas (web/erp/screens), para o ERP caber em 30 a 50 arquivos",
+  "web/erp/app/components/native-modules.ts": "alterado: as telas carregam juntas por módulo do menu e os blocos opcionais (Fiscal, Cobrança, PDV, Origin) em arquivos próprios (web/erp/screens), para o ERP caber em 30 a 50 arquivos e quem não liga um bloco não baixar as telas dele",
   "web/erp/test/fiscal-draft-status-parent.test.mjs": "removido: monta a rota /emissor-fiscal, que saiu com o gateway A1",
   "web/erp/test/fiscal-invoices-routes.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
   "web/erp/test/helpers/access-session-fixtures.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
@@ -60,7 +60,8 @@
   "web/erp/test/system-profile-ui.test.mjs": "alterado: o tema salvo no ERP não é aplicado ao entrar (1 asserção)",
   "web/erp/app/lib/qr-code.ts": "movido: para web/lib/qr-code.ts, byte a byte igual, para o painel também gerar QR (via de entrega do Pedido)",
   "web/erp/app/components/PdvReceiptPrint.tsx": "alterado: importa o gerador de QR de web/lib/qr-code.ts",
-  "web/erp/test/pix-static.test.mjs": "alterado: testa o gerador de QR em web/lib/qr-code.ts e lê o jsQR de upstream/vendor"
+  "web/erp/test/pix-static.test.mjs": "alterado: testa o gerador de QR em web/lib/qr-code.ts e lê o jsQR de upstream/vendor",
+  "web/erp/app/lib/origin-menu.ts": "alterado: itens e preferências de um bloco desligado na área (Fiscal, Cobrança, PDV, Origin; web/erp/blocks.ts) somem do menu"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
