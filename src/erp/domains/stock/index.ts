@@ -5,4 +5,5 @@ import "./rpc/policy.ts";
 import "./rpc/warehouses.ts";
 import "./rpc/balances.ts";
 import "./rpc/totals.ts";
+import "./rpc/ledger.ts";
 export {};
