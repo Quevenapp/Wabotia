@@ -10,7 +10,7 @@ import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
 import { requireModule } from "../../modules/registry";
 import { erpBlockOf } from "../blocks.ts";
-import { IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
+import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 
@@ -52,12 +52,18 @@ export function identityFor(actor: Actor): IdentityPort {
  * repetidos depois de um erro de stub (api/retry.ts). Escrita só se repete
  * com p_command_id.
  */
+/** Uma ida ao objeto erp: na requisição (Server-Timing da erp-api). */
+export interface ErpHop {
+  rpc: string;
+  ms: number;
+}
+
 export function localFetch(
   env: Env,
   profile: string,
   actor: Actor,
   identity: IdentityPort = identityFor(actor),
-  { read = false }: { read?: boolean } = {},
+  { read = false, hops, gate }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null } } = {},
 ) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -71,15 +77,26 @@ export function localFetch(
       const route = `/erp-rpc/${rpc[1]}` as const;
       // Erro de stub sai como ErpUnavailable; a erp-api do Fagoo responde 503
       // ERP_UPSTREAM_UNAVAILABLE para qualquer exceção do fetch (upstream()).
-      return withStubRetry(
-        () =>
-          erpFetch(env, profile, route, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
-            body,
-          }),
-        { idempotent: read || rpcHasCommand(body), route },
-      );
+      const started = Date.now();
+      try {
+        // O portão (horário, segundo fator) roda no objeto antes do RPC, na
+        // mesma ida: a erp-api não chama mais o erp_access_gate_v2 à parte
+        // (o /auth/v1/user responde sem a marca brufap_access_gate).
+        const response = await withStubRetry(
+          () =>
+            erpFetch(env, profile, route, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity), ...(gate ? { [GATE_HEADER]: "1" } : {}) },
+              body,
+            }),
+          { idempotent: read || rpcHasCommand(body), route },
+        );
+        const denied = response.headers.get(GATE_DENIED_HEADER);
+        if (gate && denied) gate.denied = denied;
+        return response;
+      } finally {
+        hops?.push({ rpc: rpc[1], ms: Date.now() - started });
+      }
     }
     if (url.pathname.startsWith("/storage/v1/"))
       return Response.json({ code: "0A000", message: "erp_storage_not_ported" }, { status: 501 });
@@ -151,6 +168,28 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   // @ts-ignore módulo JavaScript do Fagoo, sem tipos (allowJs desligado).
   const { createHandler } = await (erpApiModule ??= import("../fagoo/workers/erp-api/src/index.mjs"));
   const read = ["GET", "HEAD"].includes(request.method);
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identityFor(actor), { read }) });
-  return handler(inner, CONFIG) as Promise<Response>;
+  const hops: ErpHop[] = [];
+  const gate = { denied: null as string | null };
+  const started = Date.now();
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identityFor(actor), { read, hops, gate }) });
+  let response = (await handler(inner, CONFIG)) as Response;
+  // Portão fechado no objeto: o erro que o accessGate da erp-api daria, no formato dela.
+  if (gate.denied) {
+    const requestId = ((await response.json().catch(() => null)) as { error?: { request_id?: string } } | null)?.error?.request_id;
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.delete("content-type");
+    response = Response.json(
+      { error: { code: gate.denied === "mfa_required" ? "ERP_MFA_REQUIRED" : "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
+      { status: 403, headers },
+    );
+  }
+  // Idas ao objeto erp: nesta requisição, para medir no navegador e na
+  // Observabilidade: Server-Timing: erp;desc="hops=N";dur=…, erp-rpc-1;desc="<rpc>";dur=…
+  const out = new Response(response.body, response);
+  out.headers.set(
+    "Server-Timing",
+    [`erp;desc="hops=${hops.length}";dur=${Date.now() - started}`, ...hops.map((h, i) => `erp-rpc-${i + 1};desc="${h.rpc}";dur=${h.ms}`)].join(", "),
+  );
+  return out;
 }
