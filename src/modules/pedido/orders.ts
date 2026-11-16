@@ -610,14 +610,40 @@ export async function moveOrder(
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
     }
-  const next = await loadOrder(ctx, order.id);
+  return announceMove(
+    ctx,
+    order.id,
+    order.status,
+    to,
+    actor,
+    note,
+    historyId,
+    options,
+  );
+}
+
+/**
+ * Evento e aviso de uma mudança de estado já gravada, com chave pelo
+ * histórico: repetir não duplica.
+ */
+async function announceMove(
+  ctx: ModuleContext,
+  orderId: string,
+  from: string,
+  to: OrderStatus,
+  actor: string,
+  note: string,
+  historyId: string,
+  options: { notify?: boolean } = {},
+) {
+  const next = await loadOrder(ctx, orderId);
   await ctx.publish(
     "pedido.status_changed",
-    order.id,
+    orderId,
     {
-      order_id: order.id,
+      order_id: orderId,
       number: next.number,
-      from: order.status,
+      from,
       to,
       actor,
       note,
@@ -627,8 +653,31 @@ export async function moveOrder(
     { key: `status:${historyId}` },
   );
   if (options.notify !== false)
-    await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
+    await notify(ctx, next, to as TextKey, `status:${orderId}:${historyId}`);
   return next;
+}
+
+/**
+ * Gancho de pagamento repetido (segunda conferência, A3): a mudança de
+ * estado já foi gravada pela primeira vez, mas o evento ou o aviso podem ter
+ * se perdido numa falha depois da gravação. Refaz os dois pelo histórico.
+ */
+async function reannounceMove(
+  ctx: ModuleContext,
+  orderId: string,
+  from: OrderStatus,
+  to: OrderStatus,
+) {
+  const row = await one(
+    ctx.env,
+    "SELECT id,actor,note FROM pedido_history WHERE order_id=? AND profile_id=? AND kind='status' AND from_status=? AND to_status=? ORDER BY created DESC LIMIT 1",
+    orderId,
+    ctx.profile,
+    from,
+    to,
+  );
+  if (row)
+    await announceMove(ctx, orderId, from, to, row.actor, row.note, row.id);
 }
 
 /** POST pedido/orders/:id/status {status, note?, reason?}: transições da equipe. */
@@ -1106,6 +1155,46 @@ export async function paymentUpdated(
     // Repetição do gancho (conferência A3): já marcado pago por este
     // pagamento, refaz os passos seguintes (todos com chave) em vez de sair;
     // uma falha no meio da primeira vez não deixa o pedido parado.
+    // Pago à mão pela equipe e depois online (segunda conferência, N2-2): o
+    // cliente pagou duas vezes. Não é repetição: vira pendência de estorno.
+    if (
+      !claimed.meta.changes &&
+      order.payment_status === "paid" &&
+      order.paid_by !== "provider"
+    ) {
+      await exec(
+        ctx.env,
+        "UPDATE pedido_orders SET needs_refund=1,updated=? WHERE id=? AND profile_id=?",
+        at,
+        order.id,
+        ctx.profile,
+      );
+      await ctx.publish(
+        "pedido.payment_late",
+        order.id,
+        {
+          order_id: order.id,
+          number: order.number,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+          needs_refund: true,
+          reason: "paid_manually",
+          conversation_id: order.conversation_id,
+        },
+        { key: `double:${payment.id}` },
+      );
+      if (order.conversation_id)
+        try {
+          await ctx.note(
+            await ctx.conversation(order.conversation_id),
+            `O pedido nº ${order.number} já tinha baixa manual e o cliente também pagou online (${money(payment.amount_cents)}). Confira e estorne um dos pagamentos pelo Mercado Pago.`,
+            { key: `double:${payment.id}` },
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+        }
+      return;
+    }
     const repeat =
       !claimed.meta.changes &&
       order.payment_status === "paid" &&
@@ -1142,6 +1231,8 @@ export async function paymentUpdated(
         "provider",
         "Pagamento confirmado.",
       );
+    else if (repeat && fresh.status === "received")
+      await reannounceMove(ctx, order.id, "awaiting_payment", "received");
     else if (fresh.status === "cancelled") {
       await ctx.publish(
         "pedido.payment_late",
@@ -1173,16 +1264,24 @@ export async function paymentUpdated(
       at,
       order.id,
     );
-    if (!claimed.meta.changes) return;
-    await history(
-      ctx,
-      order,
-      "payment",
-      "provider",
-      payment.status === "expired"
-        ? "Cobrança vencida sem pagamento."
-        : "Cobrança cancelada.",
-    );
+    // Repetição do gancho (segunda conferência, A3): já marcada por esta
+    // cobrança, refaz os passos seguintes em vez de sair; antes, uma falha
+    // no meio deixava o pedido parado em awaiting_payment.
+    const repeat =
+      !claimed.meta.changes &&
+      order.payment_status === payment.status &&
+      (!order.payment_id || order.payment_id === payment.id);
+    if (!claimed.meta.changes && !repeat) return;
+    if (claimed.meta.changes)
+      await history(
+        ctx,
+        order,
+        "payment",
+        "provider",
+        payment.status === "expired"
+          ? "Cobrança vencida sem pagamento."
+          : "Cobrança cancelada.",
+      );
     await ctx.publish(
       "pedido.payment_expired",
       order.id,
@@ -1206,6 +1305,8 @@ export async function paymentUpdated(
         "Pagamento não confirmado no prazo.",
         { cancel_reason: "Pagamento não confirmado no prazo." },
       );
+    else if (repeat && fresh.status === "cancelled")
+      await reannounceMove(ctx, order.id, "awaiting_payment", "cancelled");
     return;
   }
   if (payment.status === "refunded") {

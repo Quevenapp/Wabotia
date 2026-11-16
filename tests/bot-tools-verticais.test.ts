@@ -10,6 +10,7 @@ import {
 } from "../src/modules/mensalidade/store";
 import { addDays, today } from "../src/modules/mensalidade/model";
 import { exec, one } from "../src/db";
+import { stepFor } from "../src/web-steps";
 import {
   application,
   drain,
@@ -98,6 +99,59 @@ describe("conferência N-8: leituras do bot sem dado pessoal, seja qual for o es
     expect(JSON.stringify(mine.data)).not.toContain("123.456.789-09");
     expect(JSON.stringify(mine.data)).not.toContain(phone);
     expect(mine.data.data.map((x: any) => x.id)).toEqual([b.id]);
+  });
+
+  it("segunda conferência N-8: respostas das ações do bot e respostas do passo web sem dado pessoal", async () => {
+    const s = await reservaSetup();
+    const f = s.f;
+    const phone = "5511974449903";
+    const r = await receive(f, f.line, "oi", phone);
+    await drain(f);
+    const c = await conversation(env, r.id, f.profile);
+    // Chave com contacts:read, como o painel dava ao Hermes.
+    const key = (
+      await application(f, [
+        "conversations:read",
+        "conversations:write",
+        "contacts:read",
+      ])
+    ).token;
+    expect(
+      (await tool(key, "claim_conversation", { conversation_id: c.id })).ok,
+    ).toBe(true);
+    const booked = await tool(key, "reserva_reservar", {
+      conversation_id: c.id,
+      unit_id: s.jardim.id,
+      start_date: future(16),
+      nights: 1,
+    });
+    expect(booked.ok).toBe(true);
+    const text = JSON.stringify(booked.data);
+    expect(text).not.toContain(phone);
+    expect(booked.data.created_by).toBeUndefined();
+    expect(booked.data.customer_phone).toBeUndefined();
+    // Passo web: a chave presa à conversa não recebe as respostas, mesmo
+    // com contacts:read.
+    const row = {
+      id: "p",
+      profile_id: f.profile,
+      conversation_id: c.id,
+      status: "completed",
+      spec: "{}",
+      result: JSON.stringify({ documento: "123.456.789-09" }),
+    };
+    const bound = {
+      id: "app:x",
+      kind: "app",
+      scopes: ["conversations:read", "contacts:read", "conversations:bound"],
+    } as any;
+    expect(stepFor(bound, row)?.answers).toBeNull();
+    expect(
+      stepFor(
+        { ...bound, scopes: ["conversations:read", "contacts:read"] },
+        row,
+      )?.answers,
+    ).toEqual({ documento: "123.456.789-09" });
   });
 
   it("conferência N-13: mensalidade_situacao (GET) não revincula a assinatura", async () => {

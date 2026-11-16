@@ -11,6 +11,29 @@ import { type Actor, type Env, json, now } from "./types";
 export const BOUND_SCOPE = "conversations:bound";
 export const isBound = (actor: Actor) =>
   actor.kind === "app" && actor.scopes.includes(BOUND_SCOPE);
+/**
+ * Marcação, não permissão: o administrador escolheu a área inteira para uma
+ * aplicação com bots (chave do Hermes "acesso a toda a área").
+ */
+export const WHOLE_AREA_SCOPE = "conversations:all";
+/**
+ * Chave de bot emitida antes de `conversations:bound` (segunda conferência,
+ * A1): aplicação com bots e acesso a conversas, sem a restrição nem a
+ * marcação de área inteira. O painel avisa e oferece prender às conversas do
+ * bot ou confirmar a área inteira; nada é rebaixado sozinho.
+ */
+export function wholeAreaPending(app: { scopes: unknown; bots: unknown }) {
+  const scopes: string[] = json(app.scopes as any, []);
+  const bots: string[] = json(app.bots as any, []);
+  return (
+    bots.length > 0 &&
+    scopes.some((s) =>
+      ["conversations:read", "conversations:write"].includes(s),
+    ) &&
+    !scopes.includes(BOUND_SCOPE) &&
+    !scopes.includes(WHOLE_AREA_SCOPE)
+  );
+}
 export async function boundAllows(env: Env, actor: Actor, c: any) {
   if (!isBound(actor)) return true;
   if (c.external_namespace === `app:${actor.id}`) return true;
@@ -31,6 +54,22 @@ export function visibleConversation(actor: Actor, c: any) {
     c.external_namespace === `app:${actor.id}`
   );
 }
+/** Nota interna preenchida no evento (até dois níveis: o registro dentro). */
+function carriesNotes(value: any, depth = 0): boolean {
+  if (!value || typeof value !== "object" || depth > 2) return false;
+  for (const [key, inner] of Object.entries(value)) {
+    if (
+      ["notes", "paid_note"].includes(key) &&
+      typeof inner === "string" &&
+      inner.trim()
+    )
+      return true;
+    if (inner && typeof inner === "object" && carriesNotes(inner, depth + 1))
+      return true;
+  }
+  return false;
+}
+
 export async function visibleEvent(env: Env, actor: Actor, e: any) {
   if (e.kind.startsWith("internal.")) {
     if (actor.kind !== "user") return false;
@@ -103,7 +142,11 @@ export async function visibleEvent(env: Env, actor: Actor, e: any) {
   )
     return false;
   if (
-    (payload.module_id === "os" || payload.module_id === "pedido") &&
+    (payload.module_id === "os" ||
+      payload.module_id === "pedido" ||
+      // Agenda, Reserva e os demais: quando o registro leva nota interna
+      // (segunda conferência, M6).
+      (payload.module_id && carriesNotes(payload))) &&
     !actor.scopes.includes("notes:read")
   )
     return false;

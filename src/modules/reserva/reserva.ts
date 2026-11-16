@@ -503,7 +503,15 @@ onRead(MODULE, "reserva/calendar", async (ctx, actor, { query }) => {
         };
       }),
     })),
-    bookings,
+    // Como na listagem: atendente não recebe os documentos do check-in de
+    // até 1000 reservas (segunda conferência, M6); vê no detalhe.
+    bookings:
+      actor.kind === "user" && actor.role !== "admin"
+        ? bookings.map(({ checkin_answers: _a, ...b }) => ({
+            ...b,
+            checkin_answers: null,
+          }))
+        : bookings,
   };
 });
 
@@ -646,6 +654,14 @@ onCommand(
       "Esta reserva não está ligada a uma conversa do WhatsApp.",
     );
     const c = await ctx.conversation(booking.conversation_id, actor);
+    // Mandar o link (que pede o documento) é a operação inteira: aplicação
+    // só quando atende a conversa (segunda conferência, B9).
+    if (!(await ctx.mayNotify(actor, c.id)))
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Assuma a conversa antes de enviar o check-in ao cliente.",
+      );
     const sent = await sendCheckin(ctx, await config(ctx), booking, {
       trigger: "agent",
       actor: actor.id,

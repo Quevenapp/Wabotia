@@ -5,7 +5,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all } from "../src/db";
-import { api, bearer, receive } from "./service-center-fixture";
+import { api, application, bearer, receive } from "./service-center-fixture";
 import { agendaSetup, at, future } from "./agenda-fixture";
 import { future as reservaDay, reservaSetup } from "./reserva-fixture";
 import { MENUS, pedidoSetup, seedMenu } from "./pedido-fixture";
@@ -102,5 +102,114 @@ describe("criar pela API sem atender a conversa não fala com o cliente (confer�
     );
     expect(order.status).toBe(200);
     expect(await sent(pc.id)).toBe(pBefore);
+  });
+});
+
+describe("segunda conferência B9: outras operações pela API", () => {
+  it("aplicação que não atende a conversa remarca, cancela, muda estado e envia orçamento sem avisar; a equipe avisa", async () => {
+    const s = await agendaSetup();
+    await s.run("module.set", { id: "os", enabled: true });
+    const p = s.f.profile;
+    const c = await receive(s.f, s.f.line, "oi", "5511986200011");
+    const admin = await bearer(s.f.admin);
+    const make = async () =>
+      (
+        await api(admin, `/profiles/${p}/service-orders`, "POST", {
+          conversation_id: c.id,
+          item: "Notebook",
+          problem: "Não liga",
+        })
+      ).json<any>();
+    const first = await make();
+    const second = await make();
+    const appt = await s.run("agenda.book", {
+      service_id: s.corte.id,
+      professional_id: s.ana.id,
+      starts: at(future(4), "10:00"),
+      conversation_id: c.id,
+    });
+    const app = (
+      await application(s.f, ["conversations:read", "conversations:write"])
+    ).token;
+    const before = await sent(c.id);
+    const ok = async (r: Response) => expect(r.status).toBe(200);
+    await ok(
+      await api(
+        app,
+        `/profiles/${p}/service-orders/${first.id}/status`,
+        "POST",
+        {
+          status: "in_progress",
+        },
+      ),
+    );
+    await ok(
+      await api(
+        app,
+        `/profiles/${p}/service-orders/${second.id}/quote`,
+        "PUT",
+        {
+          items: [{ description: "Troca da fonte", unit_cents: 15000 }],
+        },
+      ),
+    );
+    await ok(
+      await api(
+        app,
+        `/profiles/${p}/service-orders/${second.id}/quote/send`,
+        "POST",
+        {},
+      ),
+    );
+    await ok(
+      await api(
+        app,
+        `/profiles/${p}/agenda/appointments/${appt.id}/move`,
+        "POST",
+        { starts: at(future(5), "11:00") },
+      ),
+    );
+    await ok(
+      await api(
+        app,
+        `/profiles/${p}/agenda/appointments/${appt.id}/cancel`,
+        "POST",
+        {},
+      ),
+    );
+    expect(await sent(c.id)).toBe(before);
+    // A equipe, pelo painel, continua avisando ("pronto").
+    await ok(
+      await api(
+        await bearer(s.f.member),
+        `/profiles/${p}/service-orders/${first.id}/status`,
+        "POST",
+        { status: "ready" },
+      ),
+    );
+    expect(await sent(c.id)).toBeGreaterThan(before);
+  });
+
+  it("aplicação que não atende a conversa não manda o link do check-in", async () => {
+    const s = await reservaSetup();
+    const c = await receive(s.f, s.f.line, "oi", "5511986200012");
+    const b = await s.run("reserva.book", {
+      unit_id: s.jardim.id,
+      start_date: reservaDay(11),
+      nights: 1,
+      conversation_id: c.id,
+    });
+    const app = (
+      await application(s.f, ["conversations:read", "conversations:write"])
+    ).token;
+    const before = await sent(c.id);
+    const r = await api(
+      app,
+      `/profiles/${s.f.profile}/reserva/bookings/${b.id}/checkin`,
+      "POST",
+      {},
+    );
+    expect(r.status).toBe(403);
+    expect(await sent(c.id)).toBe(before);
   });
 });

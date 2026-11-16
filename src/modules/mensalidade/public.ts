@@ -99,11 +99,14 @@ async function situationOf(
 ): Promise<PayerSituation> {
   const cfg = mensalidadeSettings(await ctx.settings());
   const phones = await payerPhones(ctx, payer.id);
+  // Assinatura com o fim já passado não conta: sem parcela nova, ela deixava
+  // o pagador "em dia" para sempre (segunda conferência, M5).
   const subs = await all(
     ctx.env,
-    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' ORDER BY s.created LIMIT 50",
+    "SELECT s.id,s.plan_id,s.status,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE s.payer_id=? AND s.profile_id=? AND s.status='active' AND (s.end_date IS NULL OR s.end_date>=?) ORDER BY s.created LIMIT 50",
     payer.id,
     ctx.profile,
+    today(at),
   );
   const base = {
     payer: payerView(payer, phones),

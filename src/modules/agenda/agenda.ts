@@ -1,5 +1,6 @@
 // Agenda (módulo "agenda"): registra rotas, comandos e ganchos no núcleo
 // (src/modules/api.ts). Regras em catalog.ts (cadastros). Uso: docs/AGENDA.md.
+import { one } from "../../db";
 import {
   ApiError,
   type Actor,
@@ -451,8 +452,21 @@ onRoute(MODULE, {
   path: "agenda/appointments/:id/move",
   op: "agenda.move",
 });
+// Aplicação que não atende a conversa remarca e cancela sem avisar o cliente
+// (segunda conferência, B9).
+const quietFor = async (ctx: ModuleContext, actor: Actor, id: unknown) => {
+  const row = await one(
+    ctx.env,
+    "SELECT conversation_id FROM agenda_appointments WHERE id=? AND profile_id=?",
+    String(id ?? ""),
+    ctx.profile,
+  );
+  return !(await ctx.mayNotify(actor, row?.conversation_id ?? null));
+};
+
 onCommand(MODULE, "agenda.move", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
+  const quiet = data.notify === false || (await quietFor(ctx, actor, data.id));
   return move(ctx, await config(ctx), {
     id: data.id,
     starts: data.starts,
@@ -460,7 +474,7 @@ onCommand(MODULE, "agenda.move", async (ctx, actor, data) => {
     actor: actor.id,
     rules: { staff: true },
     force: staffFlag(data.force),
-    notify: data.notify === false ? false : undefined,
+    notify: quiet ? false : undefined,
   });
 });
 
@@ -471,11 +485,12 @@ onRoute(MODULE, {
 });
 onCommand(MODULE, "agenda.cancel", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
+  const quiet = data.notify === false || (await quietFor(ctx, actor, data.id));
   return cancel(ctx, await config(ctx), {
     id: data.id,
     actor: actor.id,
     reason: data.reason,
-    notify: data.notify === false ? false : undefined,
+    notify: quiet ? false : undefined,
   });
 });
 

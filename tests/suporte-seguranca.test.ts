@@ -10,6 +10,8 @@ import { GROUP_REPLY } from "../src/modules/suporte/suporte";
 import { startFlow, UNLINKED_REPLY } from "../src/modules/suporte/flow";
 import { situationByPhone } from "../src/modules/mensalidade/public";
 import { handoffGate } from "../src/modules/suporte/handoff";
+import { modulesApi } from "../src/modules/api";
+import { runDue } from "../src/modules/mensalidade/due";
 import {
   api,
   application,
@@ -461,6 +463,41 @@ describe("conferência N-5: documentos digitados têm prazo", () => {
       );
     await contract("contrato-antigo", "expired", 40 * day);
     await contract("contrato-recente", "cancelled", 5 * day);
+    // Segunda conferência N-5: o documento também fica na sessão e na compra.
+    const session = (id: string, status: string, age: number) =>
+      exec(
+        env,
+        "INSERT INTO suporte_sessions(id,profile_id,conversation_id,phone,status,step,document,expires_at,created,updated) VALUES(?,?,?,?,?,'ask_document',?,?,?,?)",
+        id,
+        f.profile,
+        "conversa-antiga",
+        "5511982000001",
+        status,
+        CPF_EM_DIA,
+        now() - age,
+        now() - age,
+        now() - age,
+      );
+    await session("sessao-encerrada", "closed", 2 * day);
+    await session("sessao-aguardando", "awaiting_team", 2 * day);
+    await session("sessao-velha", "awaiting_team", 8 * day);
+    await exec(
+      env,
+      "INSERT INTO suporte_purchases(id,profile_id,conversation_id,document,name,package_id,package_name,price_cents,mode,method,status,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "compra-antiga",
+      f.profile,
+      "conversa-antiga",
+      CPF_EM_DIA,
+      "Terceiro",
+      "avulso",
+      "Avulso",
+      5000,
+      "ticket",
+      "pix",
+      "expired",
+      now() - 40 * day,
+      now() - 40 * day,
+    );
     const phone = "5511982000009";
     const c = await talk(f, "oi", phone);
     await startFlow(s.sctx, c, uid());
@@ -490,6 +527,26 @@ describe("conferência N-5: documentos digitados têm prazo", () => {
       id: "contrato-recente",
       document: "52998224725",
     });
+    const docs = Object.fromEntries(
+      (
+        await all(
+          env,
+          "SELECT id,document FROM suporte_sessions WHERE id LIKE 'sessao-%'",
+        )
+      ).map((r) => [r.id, r.document]),
+    );
+    expect(docs).toEqual({
+      "sessao-encerrada": null,
+      // Ainda dentro dos 7 dias da confirmação pela equipe.
+      "sessao-aguardando": CPF_EM_DIA,
+      "sessao-velha": null,
+    });
+    expect(
+      await one(
+        env,
+        "SELECT document,name FROM suporte_purchases WHERE id='compra-antiga'",
+      ),
+    ).toEqual({ document: null, name: "" });
   });
 });
 
@@ -689,6 +746,93 @@ describe("M3, M6 e M7 no Suporte (base do núcleo)", () => {
   });
 });
 
+describe("segunda conferência M5 e N2-5: datas da assinatura", () => {
+  it("fim e início fora de hoje só por gerente; fim passado não deixa em dia", async () => {
+    const s = await setupSuporte();
+    const { f } = s;
+    const root = `/profiles/${f.profile}/mensalidade`;
+    const member = await bearer(f.member);
+    const admin = await bearer(f.admin);
+    const phone = "5511986000031";
+    const created = await (
+      await api(admin, `${root}/subscriptions`, "POST", {
+        plan_id: s.plan.id,
+        customer_name: "Prazo fixo",
+        phone,
+      })
+    ).json<any>();
+    // Atendente não põe fim (nem na criação, nem depois).
+    expect(
+      (
+        await api(member, `${root}/subscriptions/${created.id}`, "PATCH", {
+          end_date: "2099-01-01",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api(member, `${root}/subscriptions`, "POST", {
+          plan_id: s.plan.id,
+          customer_name: "Outro",
+          phone: "5511986000032",
+          end_date: "2099-01-01",
+        })
+      ).status,
+    ).toBe(403);
+    // N2-5: integração com conversations:write não cria assinatura
+    // retroativa no pagador de outra pessoa.
+    const integration = await application(f, [
+      "conversations:read",
+      "conversations:write",
+    ]);
+    const payer = await one(
+      env,
+      "SELECT payer_id FROM mensalidade_subscriptions WHERE id=?",
+      created.id,
+    );
+    expect(
+      (
+        await api(integration.token, `${root}/subscriptions`, "POST", {
+          plan_id: s.plan.id,
+          customer_name: "Retroativa",
+          payer_id: payer.payer_id,
+          start_date: "2025-01-01",
+        })
+      ).status,
+    ).toBe(403);
+    // Com uma parcela paga, em dia; com o fim já passado, não mais.
+    await runDue(modulesApi(env, f.profile, "mensalidade"), now());
+    const inst = await one(
+      env,
+      "SELECT id FROM mensalidade_installments WHERE subscription_id=?",
+      created.id,
+    );
+    await perform(
+      env,
+      f.admin,
+      f.profile,
+      "mensalidade.installment.pay",
+      { id: inst.id },
+      uid(),
+    );
+    const c = await talk(f, "oi", phone);
+    expect(await handoffGate(s.sctx, c, now())).toMatchObject({
+      allowed: true,
+    });
+    await exec(
+      env,
+      "UPDATE mensalidade_subscriptions SET start_date='2025-01-01',end_date='2025-06-30' WHERE id=?",
+      created.id,
+    );
+    expect((await situationByPhone(env, f.profile, phone))?.status).not.toBe(
+      "em_dia",
+    );
+    expect(await handoffGate(s.sctx, c, now())).toMatchObject({
+      allowed: false,
+    });
+  });
+});
+
 describe("conferência M5 e N-2", () => {
   it("M5: assinatura sem parcela paga criada por atendente com o telefone de um conhecido não libera", async () => {
     const s = await setupSuporte();
@@ -700,11 +844,19 @@ describe("conferência M5 e N-2", () => {
     const future = new Date(Date.now() + 365 * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    const created = await api(member, `${root}/subscriptions`, "POST", {
+    // Início no futuro por atendente: recusado (segunda conferência, M5).
+    const future_ = await api(member, `${root}/subscriptions`, "POST", {
       plan_id: plan.id,
       customer_name: "Conhecido",
       phone: friend,
       start_date: future,
+    });
+    expect(future_.status).toBe(403);
+    // Começando hoje, sem parcela paga: o portão segura.
+    const created = await api(member, `${root}/subscriptions`, "POST", {
+      plan_id: plan.id,
+      customer_name: "Conhecido",
+      phone: friend,
     });
     expect(created.status).toBe(200);
     expect((await situationByPhone(env, f.profile, friend))?.status).toBe(

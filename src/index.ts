@@ -21,7 +21,12 @@ import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { isBound, visibleEvent, visibleConversation } from "./visibility";
+import {
+  isBound,
+  visibleEvent,
+  visibleConversation,
+  wholeAreaPending,
+} from "./visibility";
 import { setCookie, deleteCookie } from "hono/cookie";
 import {
   type Bindings,
@@ -107,9 +112,9 @@ import {
   publicOrigin,
   rememberOrigin,
   statePage,
+  stepFor,
   touchWebStep,
   webStepByCode,
-  webStepView,
   whatsappReturnLink,
 } from "./web-steps";
 import { moduleRoutes } from "./modules/hooks";
@@ -1134,10 +1139,11 @@ app.get("/api/v1/users", async (c) => {
 app.get("/api/v1/applications", async (c) => {
   admin(c.get("actor"));
   return c.json({
-    applications: await all(
-      c.env,
-      "SELECT * FROM applications ORDER BY created DESC",
-    ),
+    // whole_area_pending: chave de bot de antes de conversations:bound, que
+    // o painel pede para prender ou confirmar (segunda conferência, A1).
+    applications: (
+      await all(c.env, "SELECT * FROM applications ORDER BY created DESC")
+    ).map((row) => ({ ...row, whole_area_pending: wholeAreaPending(row) })),
     keys: await all(
       c.env,
       "SELECT id,app_id,prefix,expires,revoked,created FROM api_keys",
@@ -2016,14 +2022,15 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
         conv.id,
       )
     ).map(paymentView),
-    // Passos web da conversa (enviado, aberto, concluído, expirado).
+    // Passos web da conversa (enviado, aberto, concluído, expirado). Respostas
+    // só com contacts:read (segunda conferência, M6), como em /web-steps.
     web_steps: (
       await all(
         c.env,
         "SELECT * FROM web_steps WHERE conversation_id=? ORDER BY created DESC,id DESC LIMIT 20",
         conv.id,
       )
-    ).map(webStepView),
+    ).map((row) => stepFor(c.get("actor"), row)),
   });
 });
 app.get("/api/v1/profiles/:profile/conversations/:id/web-steps", async (c) =>

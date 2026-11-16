@@ -187,6 +187,54 @@ describe("estorno e duplicidade (revisão M8)", () => {
     );
   });
 
+  it("segunda conferência N2-3: sinal pago numa reserva sem cobrança gravada confirma a reserva", async () => {
+    const mp = stubMercadoPago();
+    const s = await reservaSetup({
+      rules: { deposit_type: "percent", deposit_percent: 30 },
+    });
+    await exec(
+      env,
+      "INSERT OR REPLACE INTO instance_settings(key,value,updated) VALUES('public_origin','https://pousada.example.com',?)",
+      now(),
+    );
+    const account = await paymentAccount(s.f);
+    const c = await receive(s.f, s.f.line, "oi", "5511973100011");
+    const b = await s.run("reserva.book", {
+      unit_id: s.jardim.id,
+      start_date: future(14),
+      nights: 1,
+      conversation_id: c.id,
+      deposit: true,
+    });
+    const payment = await one(
+      env,
+      "SELECT * FROM payments WHERE id=?",
+      b.payment_id,
+    );
+    // Falha entre criar a cobrança e gravá-la na reserva.
+    await exec(
+      env,
+      "UPDATE reserva_bookings SET payment_id=NULL WHERE id=?",
+      b.id,
+    );
+    mp.remote.get(payment.provider_ref)!.status = "approved";
+    await webhook(account.id, payment.provider_ref);
+    expect(
+      await one(
+        env,
+        "SELECT status,payment_id FROM reserva_bookings WHERE id=?",
+        b.id,
+      ),
+    ).toEqual({ status: "confirmed", payment_id: payment.id });
+    expect(
+      await all(
+        env,
+        "SELECT id FROM events WHERE profile_id=? AND kind='reserva.payment_late'",
+        s.f.profile,
+      ),
+    ).toHaveLength(0);
+  });
+
   it("estorno antes do primeiro aviso: sem comprovante e o módulo vê só o estorno", async () => {
     const { mp, account, c, order, payment } = await pixOrder("5511973100002");
     mp.remote.get(payment.provider_ref)!.status = "refunded";

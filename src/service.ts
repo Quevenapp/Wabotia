@@ -123,6 +123,9 @@ export const scopes = [
   // Restrição, não permissão: só as conversas que um bot da aplicação está
   // atendendo agora (chave do Hermes; src/visibility.ts).
   "conversations:bound",
+  // Marcação, não permissão: área inteira escolhida para uma aplicação com
+  // bots (sem ela, o painel avisa a chave antiga do Hermes).
+  "conversations:all",
   "tickets:read",
   "tickets:write",
   "knowledge:read",

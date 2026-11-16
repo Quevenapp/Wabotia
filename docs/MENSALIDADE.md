@@ -137,11 +137,13 @@ Mensalidade (o Suporte pago) importa direto deste arquivo e confere antes
 ## Quem pode o quê
 
 - **Atendente**: cadastra assinaturas e pagadores pelo valor do plano,
-  corrige nome, telefone, dia e observações, reenvia cobrança. Na lista de
-  pagadores vê o documento mascarado (completo no detalhe).
+  começando hoje e sem fim, corrige nome, telefone, dia e observações,
+  reenvia cobrança. Na lista de pagadores vê o documento mascarado (completo
+  no detalhe).
 - **Administrador** (ou aplicação com `billing:write`): baixa manual,
-  isenção, planos, importação, pausar/retomar/encerrar, valor, desconto e
-  plano da assinatura, autorizar telefone num pagador, trocar o documento e
+  isenção, planos, importação, pausar/retomar/encerrar, valor, desconto,
+  plano, início fora de hoje e fim da assinatura, autorizar telefone num
+  pagador, trocar o documento e
   registrar o aceite de cobrança (com a evidência). `conversations:write` não
   basta para uma aplicação; aparelhos pareados do Vinki e do Fagoo não
   recebem `billing:write`.

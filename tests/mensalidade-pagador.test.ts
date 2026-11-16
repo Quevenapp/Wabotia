@@ -258,9 +258,11 @@ describe("mensalidade: pagadores", () => {
 describe("mensalidade: situação com carência", () => {
   it("em dia, em atraso além da carência e sem assinatura", async () => {
     const { f, ctx, plan } = await setup();
+    // Início fora de hoje: administrador (segunda conferência, M5).
+    const admin = await bearer(f.admin);
     const member = await bearer(f.member);
     const sub = await (
-      await api(member, root(f) + "/subscriptions", "POST", {
+      await api(admin, root(f) + "/subscriptions", "POST", {
         plan_id: plan.id,
         customer_name: "Bruno",
         phone: "11981000020",

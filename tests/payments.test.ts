@@ -585,6 +585,42 @@ describe("Cobrança: expiração, cancelamento e módulos", () => {
       ).n,
     ).toBe(1);
   });
+
+  it("segunda conferência N2-4: envio da cobrança cancelado na fila sai de novo, uma vez", async () => {
+    const { f } = await setup();
+    const c = await claimed(f, "5511970000024");
+    const ctx = modulesApi(env, f.profile, "forms");
+    const input = {
+      method: "pix" as const,
+      amount_cents: 4900,
+      description: "Pedido 13",
+      sourceKey: "pedido:13:pix",
+    };
+    const payment = await ctx.charge(c, input);
+    // O envio entrou na fila e foi cancelado (conversa reaberta, troca de época).
+    await exec(
+      env,
+      "UPDATE outbox SET status='cancelled' WHERE conversation_id=? AND dedupe LIKE 'payment%'",
+      c.id,
+    );
+    const again = await ctx.charge(c, input);
+    expect(again.id).toBe(payment.id);
+    const rows = async () =>
+      all(
+        env,
+        "SELECT dedupe,status FROM outbox WHERE conversation_id=? AND (dedupe=? OR dedupe LIKE ?) ORDER BY created,rowid",
+        c.id,
+        `payment:${payment.id}`,
+        `payment:${payment.id}#%`,
+      );
+    expect((await rows()).map((r) => r.dedupe)).toEqual([
+      `payment:${payment.id}`,
+      `payment:${payment.id}#1`,
+    ]);
+    // Com o reenvio na fila, cobrar de novo não manda mais nada.
+    await ctx.charge(c, input);
+    expect(await rows()).toHaveLength(2);
+  });
 });
 
 describe("Cobrança: lacunas dos módulos (cancelCharge, paymentsReady, receipt)", () => {

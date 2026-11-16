@@ -152,6 +152,13 @@ export interface ModuleContext {
    */
   mayMessage(actor: Actor, c: Conversation): boolean;
   /**
+   * Se uma operação pela API (remarcar, cancelar, mudar estado, enviar
+   * orçamento) pode avisar o cliente da conversa: pessoas da equipe sim;
+   * aplicação só quando `mayMessage` (segunda conferência, B9). Sem conversa,
+   * true (não há a quem avisar).
+   */
+  mayNotify(actor: Actor, conversationId: string | null): Promise<boolean>;
+  /**
    * Filtros de busca seguros para o ator (conferência M6): sem contacts:read,
    * a busca `q` perde os dígitos e somem os filtros `phone` e `document`, para
    * a lista não virar oráculo (documento ou telefone → cliente).
@@ -396,6 +403,16 @@ export function modulesApi(
       c.owner === actor.id ||
       (actor.kind === "user" && actor.role === "admin") ||
       (actor.id.startsWith("bot:") && c.state === "ai"),
+    async mayNotify(actor, conversationId) {
+      if (actor.kind !== "app" || !conversationId) return true;
+      const c = await one(
+        env,
+        "SELECT * FROM conversations WHERE id=? AND profile_id=?",
+        conversationId,
+        profile,
+      );
+      return !!c && ctx.mayMessage(actor, c as Conversation);
+    },
     safeQuery(actor, query) {
       if (mayRead(actor, "contacts")) return query;
       const { phone: _p, document: _d, ...rest } = query;
@@ -767,7 +784,13 @@ export function onConversationAction(
   registerConversationAction(action, async (env, actor, c, data, requestId) => {
     const ctx = modulesApi(env, c.profile_id, moduleId);
     await ctx.requireEnabled();
-    return handler(ctx, actor, c, data, { requestId });
+    // Ação do bot ou da integração na conversa: a resposta sai sem documento,
+    // telefones, check-in nem quem cadastrou, seja qual for o escopo
+    // (segunda conferência, N-8). Pessoas da equipe recebem tudo.
+    return ctx.botView(
+      actor,
+      await handler(ctx, actor, c, data, { requestId }),
+    );
   });
 }
 

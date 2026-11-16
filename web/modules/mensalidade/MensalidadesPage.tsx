@@ -274,8 +274,10 @@ function SubscriptionForm({
           customer_name: draft.customer_name,
           phone: draft.phone,
           notes: draft.notes,
-          end_date: draft.end_date || null,
         };
+        // Datas só vão quando mudam (só administrador muda).
+        if ((draft.end_date || null) !== (initial?.end_date || null))
+          body.end_date = draft.end_date || null;
         // Plano, valor e desconto só vão quando mudam (só administrador muda).
         if (!initial || draft.plan_id !== initial.plan_id)
           body.plan_id = draft.plan_id;
@@ -394,7 +396,12 @@ function SubscriptionForm({
             type="date"
             value={draft.start_date}
             onChange={set("start_date")}
-            help="Em branco, hoje."
+            help={
+              app.isAdmin
+                ? "Em branco, hoje."
+                : "Hoje. Outra data: somente administradores."
+            }
+            disabled={!app.isAdmin}
           />
         )}
         <Field
@@ -402,6 +409,7 @@ function SubscriptionForm({
           type="date"
           value={draft.end_date}
           onChange={set("end_date")}
+          disabled={!app.isAdmin}
         />
       </div>
       <Field

@@ -29,9 +29,14 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
    autorizados dos pagadores (Mensalidades → Pagadores). Se não achar, pede o
    CPF ou CNPJ de quem paga, com os dígitos conferidos (aceita o CNPJ com
    letras), em até 3 tentativas por vez (configurável). Por telefone e por
-   dia: no máximo 3 documentos diferentes e 10 tentativas. Os documentos
-   digitados ficam guardados só um dia (para esse limite), e a contratação de
-   plano não paga perde o documento e o nome depois de 30 dias.
+   dia: no máximo 3 documentos diferentes e 10 tentativas. Prazos dos
+   documentos digitados: a consulta vale um dia (para esse limite); a sessão
+   encerrada perde o documento depois de um dia, e qualquer sessão depois de
+   7; compra e contratação de plano não pagas perdem documento e nome depois
+   de 30 dias. A limpeza não tem rodada própria (o teto de consultas do
+   alarme não comporta): ela acontece quando alguém digita um documento ou
+   contrata um plano na área. Numa área sem esse movimento, os dados
+   vencidos ficam até a próxima vez.
 2. **CPF/CNPJ de um cadastro, vindo de telefone que ele não autorizou.**
    Documento não é prova de identidade (CNPJ é público, CPF vaza). O cliente
    recebe sempre a mesma resposta ("vamos confirmar com a nossa equipe"), sem
@@ -44,7 +49,10 @@ avulso ou contratar um plano mensal. A IA continua grátis. API em
    vincula telefone nem contrata em nome de um cadastro que já existe.
 3. **Situação** (Mensalidade, com a carência das regras), só para o pagador
    que autorizou o telefone:
-   - **em dia**: liberado;
+   - **em dia**: liberado, se a assinatura já tem uma parcela paga ou foi
+     cadastrada por um administrador (ou integração com `billing:write`).
+     Assinatura nova de atendente, sem parcela paga, não libera sozinha; e
+     assinatura com o fim já passado não conta;
    - **em atraso**: o cliente paga a parcela em aberto (Pix ou link) e é
      liberado quando o pagamento é confirmado;
    - **sem assinatura**: escolhe **Suporte avulso** (pacotes) ou **Plano
