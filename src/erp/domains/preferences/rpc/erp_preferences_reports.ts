@@ -1,20 +1,21 @@
-// Relatórios customizados (migrações 149, 230, 264 e 284): public.erp_preferences_reports
-// e _report_save. (_report_run lê as bases pelo report_source, que depende de
-// funções ainda em stub no Financeiro e no Catálogo.)
+// Relatórios customizados (migrações 149, 230, 264 e 284): public.erp_preferences_reports,
+// _report_save e _report_run (as linhas vêm de report-source.ts).
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { pgLower } from "../../../engine/text.ts";
+import { pgLength, pgLower } from "../../../engine/text.ts";
+import { compareDec, formatScaled, toScaled } from "../../../engine/dec.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { accessRequireAdmin, permitted, requirePermission } from "../../access/public.ts";
 import { allowed as catalogAllowed } from "../../catalog/public.ts";
-import { allowed as documentsAllowed } from "../../documents/public.ts";
-import { int, json, uuid } from "../args.ts";
+import { allowed as documentsAllowed, reportCoverage } from "../../documents/public.ts";
+import { int, json, text, uuid } from "../args.ts";
 import { directory, readerRole } from "../center.ts";
 import { frameworkHash, frameworkKeys, frameworkReplay, frameworkText, frameworkVersion } from "../framework.ts";
 import { compareText } from "../order.ts";
 import { REPORT_CATALOG } from "../report-catalog.ts";
+import { reportSource } from "../report-source.ts";
 import { reportDto } from "./erp_preferences_framework_delete.ts";
 
 const FIN = ["admin", "financeiro", "consulta"];
@@ -270,5 +271,81 @@ export function erpPreferencesReportSave(ctx: RpcContext, a: RpcArgs) {
   return { ...result, replayed: false };
 }
 
+/** Soma de decimais em texto como o sum(numeric) do Postgres: escala = a maior das parcelas. */
+function decSum(values: string[]): string {
+  if (values.length === 0) return "0";
+  const scale = Math.max(...values.map((v) => (v.includes(".") ? v.split(".")[1].length : 0)));
+  return formatScaled(
+    values.reduce((s, v) => s + toScaled(v, scale), 0n),
+    scale,
+  );
+}
+
+const REPORT_KIND: Record<string, string> = {
+  vendas: "sales_orders", venda_parcela: "sales_orders", curva_abc: "sales_orders", ocorrencias_vendas: "sales_orders", transporte_venda: "sales_orders",
+  propostas: "sales_proposals", ocorrencias_propostas: "sales_proposals", pedidos_compra: "purchase_orders", ordens_servico: "service_orders", ocorrencias_os: "service_orders",
+};
+
+export function erpPreferencesReportRun(ctx: RpcContext, a: RpcArgs) {
+  const db = ctx.db;
+  const user = uuid(a, "p_user_id");
+  const role = readerRole(db, user);
+  const base = text(a, "p_base");
+  if (base === null || !reportVisible(db, user!, role, base)) raise("42501", "erp_preferences_report_access_denied");
+  const columns = json(a, "p_columns") as string[];
+  const filters = json(a, "p_filters") as { column: string; value: string }[];
+  reportCheck(base!, columns, filters);
+  const limit = int(a, "p_view_limit");
+  const page = int(a, "p_page");
+  const offset = int(a, "p_offset");
+  if (limit === null || limit < 1 || limit > 2000 || page === null || page < 1 || page > 200 || offset === null || offset < 0 || offset >= Math.max(limit, 1))
+    raise("22023", "erp_preferences_report_page_invalid");
+  const b = REPORT_CATALOG.find((x) => x.base === base)!;
+  const type = (col: string) => b.columns.find((k) => k.id === col)?.type ?? null;
+  const numeric = (t: string | null) => t !== null && ["money", "decimal", "int"].includes(t);
+  const src = reportSource(db, base!)
+    .filter((s) =>
+      filters.every((f) => {
+        const v = s.data[f.column] ?? null;
+        if (numeric(type(f.column))) return v !== null && compareDec(v, f.value) === 0;
+        return pgLower(v ?? "").includes(pgLower(f.value));
+      }),
+    )
+    // row_number() over(order by sort_key): nulos por último.
+    .sort((x, y) => (x.sort === null ? (y.sort === null ? 0 : 1) : y.sort === null ? -1 : compareText(x.sort, y.sort)));
+  const rows: unknown[][] = [];
+  let acc = 0;
+  for (let n = offset! + 1; n <= Math.min(offset! + page!, limit!) && n <= src.length; n++) {
+    const line = columns.map((c) => src[n - 1].data[c] ?? null);
+    acc += pgLength(jsonbText(line));
+    // A página para antes de 180 kB de linhas (a tela pede a próxima a partir de offset + linhas).
+    if (acc > 180000) break;
+    rows.push(line);
+  }
+  const totals: Record<string, string> = {};
+  for (const c of columns)
+    if (["money", "decimal"].includes(type(c) ?? ""))
+      totals[c] = decSum(
+        src
+          .slice(0, limit!)
+          .map((s) => s.data[c] ?? null)
+          .filter((v): v is string => v !== null),
+      );
+  const kind = REPORT_KIND[base!];
+  return {
+    scope: "report_rows",
+    data_mode: "erp_native",
+    base,
+    columns,
+    rows,
+    offset,
+    total_rows: Math.min(src.length, limit!),
+    truncated: src.length > limit!,
+    totals,
+    ...(kind ? reportCoverage() : {}),
+  };
+}
+
+registerRpc("erp_preferences_report_run", erpPreferencesReportRun);
 registerRpc("erp_preferences_reports", erpPreferencesReports);
 registerRpc("erp_preferences_report_save", erpPreferencesReportSave);
