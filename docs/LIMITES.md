@@ -21,7 +21,7 @@ Cada uma destas é uma invocação separada, com a própria conta:
 ## Como medimos
 
 `tests/d1-budget.test.ts` liga todos os módulos numa área (Fila, Formulários,
-Cobrança, Agenda, OS, Reserva, Pedido, Mensalidade e Suporte), monta um menu com
+Cobrança, Agenda, OS, Reserva, Pedido, Mensalidade, Suporte e Mesas), monta um menu com
 itens de vários módulos e mede cada fluxo com `tests/d1-counter.ts`, que envolve
 o `env.DB` e conta as instruções. Um `batch` conta como uma ida ao banco, mas a
 tabela abaixo usa o número de **instruções** (cada uma do batch conta), a
@@ -43,6 +43,9 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 15     |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
+| Mesas: lançar itens (vira pedido do Pedido)              | Coordinator `/command`   | —     | 25     |
+| Mesas: mapa das mesas                                    | Worker (leitura)         | —     | 5      |
+| Mesas: fechar a conta com o pagamento                    | Coordinator `/command`   | —     | 19     |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
 

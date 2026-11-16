@@ -86,6 +86,11 @@ permitido para corrigir engano.
 Na conversa, **Pedidos** mostra os pedidos em andamento do cliente e
 **Montar pedido para este cliente** envia o link do carrinho.
 
+**Mesas**: com o módulo [Mesas](MESAS.md) ligado, o garçom lança os itens na
+conta da mesa e eles chegam a este quadro já em "Novos", com o nome da mesa
+("Mesa 5") e o pagamento "Na conta da mesa". Na mesa, pronto é "Pronto para
+servir" e entregue é "Servido"; o pagamento é o da conta da mesa.
+
 ## Integrações e aplicativos
 
 Rotas, formatos e eventos `pedido.*` em [API.md](API.md#pedido-módulo-pedido).

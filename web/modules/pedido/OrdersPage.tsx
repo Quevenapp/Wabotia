@@ -178,9 +178,17 @@ export function OrderDetail({
     (status: string) => status !== "cancelled",
   );
   const payment = order.payment;
+  // Pedido de mesa (módulo Mesas): paga-se a conta da mesa, não o pedido.
+  const table = order.fulfillment === "table";
   const canMarkPaid =
-    !["paid", "awaiting"].includes(payment.status) &&
+    !["paid", "awaiting", "tab"].includes(payment.status) &&
     order.status !== "cancelled";
+  const moveLabel = (status: string) =>
+    table && status === "ready"
+      ? "Pronto para servir"
+      : table && status === "delivered"
+        ? "Servido"
+        : moveLabels[status] || statusLabels[status];
   return (
     <>
       <Dialog
@@ -224,11 +232,11 @@ export function OrderDetail({
                   void after(
                     () =>
                       write(`/orders/${order.id}/status`, "POST", { status }),
-                    `Pedido nº ${order.number}: ${statusLabels[status]}.`,
+                    `Pedido nº ${order.number}: ${moveLabel(status)}.`,
                   )
                 }
               >
-                {moveLabels[status] || statusLabels[status]}
+                {moveLabel(status)}
               </Button>
             ))}
           </>
@@ -294,12 +302,18 @@ export function OrderDetail({
             {order.customer.conversation_id ? " · conversa no WhatsApp" : ""}
           </dd>
           <dt>
-            {order.fulfillment === "delivery" ? "Entregar em" : "Retirada"}
+            {order.fulfillment === "delivery"
+              ? "Entregar em"
+              : table
+                ? "Mesa"
+                : "Retirada"}
           </dt>
           <dd>
             {order.fulfillment === "delivery"
               ? order.address_text || "—"
-              : "No balcão"}
+              : table
+                ? order.fulfillment_label
+                : "No balcão"}
           </dd>
           {order.note && (
             <>
@@ -528,7 +542,9 @@ function Board({ onOpen }: { onOpen: (id: string) => void }) {
                   <Pill tone={paymentTones[order.payment.status] || "muted"}>
                     {order.payment.method
                       ? paymentLabels[order.payment.method]
-                      : "A definir"}
+                      : order.payment.status === "tab"
+                        ? "Na conta"
+                        : "A definir"}
                     {order.payment.status === "paid" ? " · pago" : ""}
                   </Pill>
                 </span>
