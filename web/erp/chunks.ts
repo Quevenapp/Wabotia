@@ -27,7 +27,6 @@ export const EMBEDDED = new Set([
   "DocumentXmlImport",
   "DocumentMirrorView",
   "DocumentOriginTotals",
-  "DocumentCopyOrigin",
   "PdvOrderOrigin",
   "InvoiceStock",
   "StockOriginMirror",

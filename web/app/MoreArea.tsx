@@ -15,11 +15,8 @@ import {
 } from "lucide-react";
 import { Avatar, Switch } from "../ui";
 import { linkProps } from "../lib/routes";
-import {
-  canOpenPage,
-  moduleAllows,
-  railPages,
-} from "../workspace-navigation";
+import { canOpenPage, railPages } from "../workspace-navigation";
+import { erpModuleOn } from "../erp/modules";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
 
@@ -75,7 +72,7 @@ export function MoreArea() {
           <span>Contatos</span>
           <ChevronRight size={18} />
         </a>
-        {moduleAllows("erp", app.modules) && (
+        {erpModuleOn(app.modules, "erp") && (
           <a className="more-link" {...linkProps({ area: "erp" })}>
             <Building2 size={21} />
             <span>ERP</span>

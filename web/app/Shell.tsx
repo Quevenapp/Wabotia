@@ -38,6 +38,7 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
+import { erpModuleOn } from "../erp/modules";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -100,7 +101,12 @@ function useItems(): Item[] {
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "erp", label: "ERP", icon: Building2 },
     { area: "admin", label: "Gestão", icon: Settings },
-  ].filter((item) => moduleAllows(item.area, app.modules)) as Item[];
+  ].filter((item) =>
+    // ERP: desligado de fábrica, até o servidor declarar o módulo (web/erp/modules.ts).
+    item.area === "erp"
+      ? erpModuleOn(app.modules, "erp")
+      : moduleAllows(item.area, app.modules),
+  ) as Item[];
 }
 
 const itemRoute = (item: Item): Route =>

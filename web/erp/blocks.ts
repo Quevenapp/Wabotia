@@ -57,6 +57,23 @@ export function blockOf(target: string): ErpBlock {
   return "erp";
 }
 
+/**
+ * Telas do Fagoo que o Wabotia já faz pelo núcleo e que ficam escondidas:
+ * a atualização da instalação (o painel atualiza) e o pareamento com o
+ * próprio Wabotia.
+ */
+const HIDDEN = [
+  "/atualizacao",
+  "/preferencias/sistema/atualizacoes",
+  "/preferencias/sistema/wabotia",
+];
+export const hiddenInWabotia = (target: string) => {
+  const path = target.split("?")[0];
+  return HIDDEN.some(
+    (hidden) => path === hidden || path.startsWith(hidden + "/"),
+  );
+};
+
 /** Blocos ligados na área; sem registro (testes do Fagoo), todos ligados. */
 let enabled: Partial<Record<ErpBlock, boolean>> | null = null;
 export function setErpBlocks(next: Partial<Record<ErpBlock, boolean>> | null) {
@@ -64,4 +81,5 @@ export function setErpBlocks(next: Partial<Record<ErpBlock, boolean>> | null) {
 }
 export const blockEnabled = (block: ErpBlock) =>
   !enabled || enabled[block] !== false;
-export const targetEnabled = (target: string) => blockEnabled(blockOf(target));
+export const targetEnabled = (target: string) =>
+  !hiddenInWabotia(target) && blockEnabled(blockOf(target));

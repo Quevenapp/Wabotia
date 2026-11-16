@@ -2,7 +2,7 @@ import { originHistoryAvailable, isOriginIntegrationRoute } from '../lib/integra
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { erpPorts } from '../../ports';
-import { blockOf, ERP_BLOCK_LABELS, targetEnabled } from '../../blocks';
+import { blockOf, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks';
 import { registerAuthClient } from '../lib/auth-client';
 import { createAccessController, decimalMoney, RESOURCE_LABELS, ROLE_LABELS, type AccessController, type AccessState, type Entity, type ListQuery, type Summary } from '../lib/real-access';
 import './real-access.css';
@@ -36,6 +36,7 @@ function Login({ state }: { controller: AccessController; state: AccessState }) 
 const FISCAL_GATEWAY_PATHS = ['/certificado-a1', '/conexao-sefaz', '/emissor-fiscal'];
 /** Wabotia: rota de um bloco do ERP desligado nesta área (Fiscal, Cobrança, PDV, Origin; web/erp/blocks.ts). */
 function BlockOff({ target }: { target: string }) {
+  if (hiddenInWabotia(target)) return <section className="real-state-panel"><h1>Página indisponível</h1><p>As atualizações e as conexões ficam no painel do Wabotia, em Gestão.</p><Link to="/acesso">Voltar ao início</Link></section>;
   const ports = erpPorts(), label = ERP_BLOCK_LABELS[blockOf(target)];
   return <section className="real-state-panel"><h1>Recurso desligado</h1><p>{label} está desligado nesta área de atendimento. {ports?.admin ? 'Ligue-o em Gestão › Módulos para usar esta tela.' : 'Peça ao administrador para ligá-lo em Gestão › Módulos.'}</p>
     {ports?.admin && ports.openModules && <button type="button" className="primary-button" onClick={ports.openModules}>Abrir Módulos</button>} <Link to="/acesso">Voltar ao início</Link></section>;

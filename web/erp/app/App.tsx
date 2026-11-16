@@ -3,11 +3,10 @@ import { Navigate, useLocation } from 'react-router-dom';
 import NativeModuleBoundary from './components/NativeModuleBoundary';
 
 const RealAccess = lazy(() => import('./components/RealAccess'));
-const SystemUpdateProgress = lazy(() => import('./components/SystemUpdateProgress'));
 
 export default function App() {
   const { pathname } = useLocation();
-  if(pathname==='/atualizacao')return <SystemUpdateProgress/>;
+  // Wabotia: a atualização da instalação é do painel (Gestão › Sistema); /atualizacao volta ao início.
   if (pathname === '/') return <Navigate to="/acesso" replace />;
   return ['/acesso', '/preferencias', '/cadastros-reais', '/historico-fiscal', '/documentos-empresa', '/estoque-empresa', '/financeiro-empresa', '/cobranca-empresa', '/cobranca-operacional', '/retornos-operacionais', '/notas-recebidas', '/numeracao-fiscal', '/certificado-a1', '/conexao-sefaz', '/empresa-configuracoes','/estoque-abertura','/emissor-fiscal','/relatorio-vencimentos','/painel-produtos-empresa','/conferencia-estoque-empresa','/checkin-recebimentos','/relatorios-estoque',
     '/notas-entrada','/naturezas-operacao','/inutilizacoes-nfe','/cartas-correcao',

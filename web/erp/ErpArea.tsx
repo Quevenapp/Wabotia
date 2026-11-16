@@ -4,6 +4,7 @@
 import React, { lazy, Suspense } from "react";
 import { useApp } from "../app/AppContext";
 import { navigate } from "../lib/routes";
+import { erpModuleOn } from "./modules";
 import { Empty, Spinner, Button } from "../ui";
 
 const ErpMount = lazy(() => import("./mount"));
@@ -35,7 +36,14 @@ const OPTIONAL = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
 
 export function ErpArea() {
   const app = useApp();
-  if (!app.moduleOn("erp"))
+  // As chaves vêm de GET /status; até lá não se sabe se o ERP está ligado.
+  if (!app.statusLoaded)
+    return (
+      <div className="loading">
+        <Spinner label="Abrindo o ERP…" />
+      </div>
+    );
+  if (!erpModuleOn(app.modules, "erp"))
     return (
       <div className="area">
         <Empty
@@ -58,7 +66,7 @@ export function ErpArea() {
       </div>
     );
   const blocks = Object.fromEntries(
-    OPTIONAL.map((id) => [id, app.moduleOn(id)]),
+    OPTIONAL.map((id) => [id, erpModuleOn(app.modules, id)]),
   );
   return (
     <div className="erp-area">
