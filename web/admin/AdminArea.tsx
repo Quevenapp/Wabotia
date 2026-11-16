@@ -43,6 +43,7 @@ import { ReservaPage } from "../modules/reserva/ReservaPage";
 import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import { OrdersPage } from "../modules/pedido/OrdersPage";
 import { MenuPage } from "../modules/pedido/MenuPage";
+import { MesasPage } from "../modules/mesas/MesasPage";
 import {
   GroupsPage,
   LogsPage,
@@ -174,6 +175,8 @@ function Page({ page }: { page: PageId }) {
       return <OrdersPage />;
     case "pedidos-cardapio":
       return <MenuPage />;
+    case "mesas":
+      return <MesasPage />;
     case "users":
       return <UsersPage />;
     case "applications":

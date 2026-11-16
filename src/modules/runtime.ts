@@ -10,3 +10,4 @@ import "./mensalidade/mensalidade";
 import "./suporte/suporte";
 import "./reserva/reserva";
 import "./pedido/pedido";
+import "./mesas/mesas";

@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Star,
+  Armchair,
   Store,
   Ticket,
   Users,
@@ -82,6 +83,7 @@ export const sections = [
   ["establishment", "Estabelecimento", Store],
   ["pedidos", "Pedidos", ShoppingBag],
   ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
+  ["mesas", "Mesas", Armchair],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -145,7 +147,7 @@ export const workspaceGroups = [
     id: "pedidos",
     label: "Pedidos",
     icon: ShoppingBag,
-    pages: ["pedidos", "pedidos-cardapio"],
+    pages: ["pedidos", "mesas", "pedidos-cardapio"],
   },
   {
     id: "automation",
@@ -242,6 +244,7 @@ export const pageModules: Partial<Record<string, string>> = {
   "reserva-settings": "reserva",
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
+  mesas: "mesas",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -404,4 +407,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Quadro da cozinha com os pedidos em andamento: mude o estado, registre o pagamento e imprima a comanda.",
   "pedidos-cardapio":
     "Cardápio com fotos e adicionais, imagens do WhatsApp, horário, entrega, pagamento e mensagens ao cliente.",
+  mesas:
+    "Mapa das mesas e comandas: abra a conta, lance os itens para a cozinha, divida e feche com a forma de pagamento.",
 };

@@ -19,6 +19,7 @@ const PAYMENT_STATUSES = [
   "failed",
   "refunded",
   "cancelled",
+  "tab",
 ];
 const METHODS = ["pix", "link", "cash", "card"];
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -335,10 +336,29 @@ export function pedidoSchemas() {
             conversation_id: nullable("string"),
           },
         },
-        source: { enum: ["cart", "catalog", "panel", "api"] },
+        source: {
+          enum: ["cart", "catalog", "panel", "api", "table"],
+          description: "table: lançado pelo garçom numa conta de mesa (Mesas).",
+        },
         web_step_id: nullable("string"),
-        fulfillment: { enum: ["pickup", "delivery"] },
-        fulfillment_label: { type: "string" },
+        fulfillment: {
+          enum: ["pickup", "delivery", "table"],
+          description:
+            "table: pedido de mesa, segue o caminho da retirada (pronto para servir → servido).",
+        },
+        fulfillment_label: {
+          type: "string",
+          description: "Retirada, Entrega ou o nome da mesa (Mesa 5).",
+        },
+        table: {
+          type: ["object", "null"],
+          description:
+            "Conta de mesa do pedido (módulo Mesas, GET /mesas/tabs/{tab_id}); null fora da mesa.",
+          properties: {
+            tab_id: { type: "string" },
+            label: { type: "string" },
+          },
+        },
         address: {
           type: ["object", "null"],
           properties: {
@@ -767,6 +787,7 @@ export function describePedidoOperation(
         "q",
         "phone",
         "conversation_id",
+        "tab_id",
         "from",
         "to",
         "limit",
@@ -795,9 +816,9 @@ export function describePedidoOperation(
       " Transições: aguardando pagamento → recebido ou cancelado; recebido → em preparo, pronto (retirada) ou saiu para entrega (entrega), ou cancelado; em preparo → pronto ou saiu para entrega, recebido ou cancelado; pronto ou saiu para entrega → entregue, em preparo ou cancelado. Outras: 409 invalid_transition. Avisa o cliente com o texto do estado (modelo de notificação fora da janela de 24 h). Publica pedido.status_changed.";
   if (path.endsWith("/paid"))
     entry.description +=
-      " Pagamento feito na hora (dinheiro, maquininha) ou por fora depois de uma cobrança vencida. Cobrança online aberta: 409 payment_online (só o provedor confirma); já pago: 409 already_paid.";
+      " Pagamento feito na hora (dinheiro, maquininha) ou por fora depois de uma cobrança vencida. Cobrança online aberta: 409 payment_online (só o provedor confirma); já pago: 409 already_paid; pedido de mesa: 409 tab_order (paga-se a conta da mesa).";
   if (path.endsWith("/payment"))
     entry.description +=
-      " Só com o pedido aguardando a escolha (ou com a cobrança não gerada); senão 409 payment_chosen.";
+      " Só com o pedido aguardando a escolha (ou com a cobrança não gerada); senão 409 payment_chosen. Pedido de mesa: 409 tab_order.";
   schema(ref("PedidoOrder"));
 }

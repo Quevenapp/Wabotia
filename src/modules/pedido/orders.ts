@@ -20,11 +20,13 @@ import {
   STATUS_LABELS,
   clockOf,
   fill,
+  statusLabel,
   isOnline,
   isStatus,
   money,
   nextStatuses,
   phoneDigits,
+  type Fulfillment,
   type OrderStatus,
   type PaymentMethod,
   type PedidoConfig,
@@ -32,7 +34,7 @@ import {
 } from "./model";
 import { config, offeredMethods, paymentsReady } from "./store";
 
-export type OrderSource = "cart" | "catalog" | "panel" | "api";
+export type OrderSource = "cart" | "catalog" | "panel" | "api" | "table";
 
 export interface OrderLine {
   item_id: string;
@@ -67,6 +69,8 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   failed: "Cobrança não gerada",
   refunded: "Estornado",
   cancelled: "Cobrança cancelada",
+  // Pedido de mesa: pago no fechamento da conta (módulo Mesas).
+  tab: "Na conta da mesa",
 };
 
 const notFound = () => new ApiError(404, "not_found", "Pedido não encontrado.");
@@ -105,7 +109,7 @@ export function orderView(row: any, history?: any[]) {
     id: row.id,
     number: row.number,
     status,
-    status_label: STATUS_LABELS[status] || status,
+    status_label: statusLabel(status, row.fulfillment),
     status_at: row.status_at,
     customer: {
       name: row.customer_name,
@@ -115,8 +119,20 @@ export function orderView(row: any, history?: any[]) {
     },
     source: row.source,
     web_step_id: row.web_step_id,
-    fulfillment: row.fulfillment as "pickup" | "delivery",
-    fulfillment_label: row.fulfillment === "delivery" ? "Entrega" : "Retirada",
+    fulfillment: row.fulfillment as Fulfillment,
+    fulfillment_label:
+      row.fulfillment === "delivery"
+        ? "Entrega"
+        : row.fulfillment === "table"
+          ? row.table_label || "Mesa"
+          : "Retirada",
+    /** Pedido lançado numa conta de mesa (módulo Mesas); senão null. */
+    table: row.tab_id
+      ? {
+          tab_id: row.tab_id as string,
+          label: (row.table_label as string) || "",
+        }
+      : null,
     address,
     address_text: addressText(address),
     lines: json(row.lines, []) as OrderLine[],
@@ -413,11 +429,16 @@ export interface NewOrder {
   subtotal_cents: number;
   delivery_fee_cents: number;
   total_cents: number;
-  fulfillment: "pickup" | "delivery";
+  fulfillment: Fulfillment;
   address: OrderAddress | null;
   note: string;
   notes?: string;
   actor: string;
+  /**
+   * Conta de mesa (módulo Mesas): o pedido nasce "Recebido", direto para a
+   * cozinha, com o pagamento na conta da mesa (payment_status "tab").
+   */
+  tab?: { id: string; label: string };
 }
 
 /**
@@ -448,6 +469,8 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     input.fulfillment === "delivery"
       ? cfg.delivery_minutes
       : cfg.pickup_minutes;
+  const tab = input.tab || null;
+  const status: OrderStatus = tab ? "received" : "awaiting_payment";
   const counter = await one<{ last: number }>(
     ctx.env,
     "INSERT INTO pedido_counters(profile_id,last) VALUES(?,1) ON CONFLICT(profile_id) DO UPDATE SET last=last+1 RETURNING last",
@@ -457,11 +480,12 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     at = now();
   const [inserted] = await batch(ctx.env, [
     [
-      "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,created_by,created,updated) VALUES(?,?,?,'awaiting_payment',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'choosing',?,?,?) ON CONFLICT(source_key) DO NOTHING",
+      "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,tab_id,table_label,confirmed_at,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
       [
         id,
         ctx.profile,
         counter!.last,
+        status,
         at,
         c?.id || null,
         contact?.id || null,
@@ -480,19 +504,26 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         input.note || "",
         input.notes || "",
         eta || null,
+        tab ? "tab" : "choosing",
+        tab?.id || null,
+        tab?.label || null,
+        tab ? at : null,
         input.actor,
         at,
         at,
       ],
     ],
     [
-      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'created',NULL,'awaiting_payment',?,?,? WHERE changes()=1",
+      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'created',NULL,?,?,?,? WHERE changes()=1",
       [
         uid(),
         ctx.profile,
         id,
+        status,
         input.actor,
-        `Pedido criado (${input.source}).`,
+        tab
+          ? `Pedido da ${tab.label} enviado para a cozinha.`
+          : `Pedido criado (${input.source}).`,
         at,
       ],
     ],
@@ -529,6 +560,8 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
       conversation_id: order.conversation_id,
       contact_id: order.contact_id,
       phone: order.phone,
+      tab_id: order.tab_id || null,
+      table_label: order.table_label || null,
       actor: input.actor,
     },
     { key: `created:${id}` },
@@ -649,6 +682,7 @@ async function announceMove(
       note,
       conversation_id: next.conversation_id,
       fulfillment: next.fulfillment,
+      tab_id: next.tab_id || null,
     },
     { key: `status:${historyId}` },
   );
