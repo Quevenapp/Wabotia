@@ -175,6 +175,7 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
         moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) }, openPrinter = { nav.navigate(Routes.PRINTER) })
         composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.LICENSES) { br.com.queven.wabotia.ui.settings.LicensesScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.ACCOUNT_MFA) { br.com.queven.wabotia.ui.settings.AccountMfaScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.COUNTER) {
             CounterScreen(container, onBack = { nav.popBackStack() }, openConversation = { nav.navigate(Routes.conversation(it)) })
         }
@@ -252,4 +253,8 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
             BotChatScreen(container, entry.arguments?.getString("botId") ?: return@composable, entry.arguments?.getString("conversationId"), onBack = { nav.popBackStack() })
         }
     }
+
+    // Segundo fator: "Confirme que é você" (ou o cadastro) por cima de qualquer tela, quando uma ação pede.
+    if (auth.isLoggedIn) br.com.queven.wabotia.ui.settings.MfaGate(container, openEnroll = { nav.navigate(Routes.ACCOUNT_MFA) })
+
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Gavel
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -109,6 +110,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     openPrinter: () -> Unit = {},
     openLicenses: () -> Unit = {},
+    openMfa: () -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -126,6 +128,7 @@ fun SettingsScreen(
     val enabledModules by container.modules.enabled.collectAsState()
     val modules = enabledModules[container.session.profileId].orEmpty()
     val printAvailable = SettingsTexts.printerSubtitle(modules) != null
+    val features by container.modules.features.collectAsState()
     LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
@@ -247,6 +250,26 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = c.textSecondary,
                             modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            // --- Segurança: segundo fator (só com o recurso `mfa` no servidor, e na demonstração) ---
+            if ("mfa" in features || demo) {
+                item("security-label") { SectionLabel("Segurança") }
+                item("security") {
+                    WbCard(Modifier.padding(horizontal = 16.dp)) {
+                        SettingsRow(
+                            Icons.Filled.VerifiedUser,
+                            "Verificação em duas etapas",
+                            subtitle = when (container.mfa.hasFactor) {
+                                true -> "Ativa: entrar e as ações sensíveis pedem o código do autenticador"
+                                false -> "Desligada: cadastre um aplicativo autenticador"
+                                null -> "Aplicativo autenticador e códigos de recuperação"
+                            },
+                            tint = if (container.mfa.hasFactor == true) c.ok else c.warn,
+                            onClick = openMfa,
                         )
                     }
                 }

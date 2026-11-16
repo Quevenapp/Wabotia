@@ -117,6 +117,8 @@ fun formatPhone(phone: String?): String {
 /** Traduz a exceção e, em 401, encerra a sessão mantendo o servidor (regra do contrato). Use em todo `catch` de tela. */
 fun AppContainer.handleError(e: Throwable): String {
     if (e is ApiException && e.isUnauthorized) onLoggedOut(keepServer = true)
+    // Segundo fator: a ação pede o código (ou o cadastro); a tela global abre e a pessoa repete a ação.
+    if (e is ApiException && e.isMfaRequired) mfa.required()
     // Acesso por pessoa: o que ela não acessa some depois de reler `/capabilities`.
     if (e is ApiException && e.status == 403 && e.code == "access_denied") modules.accessDenied()
     return ApiClient.describe(e)

@@ -186,7 +186,13 @@ fun HomeScreen(
     val profileModules = enabledModules[profileId].orEmpty()
     val tabs = remember(access, profileModules) { AccessRules.tabs(access, profileModules).map(HomeTab::of) }
     // Relê ao abrir e ao voltar ao primeiro plano (o acesso pode ter mudado; a consulta tem limite de 1 por minuto).
-    LaunchedEffect(lifecycle, profileId) { lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { container.modules.refresh() } }
+    LaunchedEffect(lifecycle, profileId) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            container.modules.refresh()
+            // Segundo fator: nível da sessão e se a pessoa tem fator, para a tela global saber se pede o código ou o cadastro.
+            if ("mfa" in container.modules.features.value) container.mfa.refresh()
+        }
+    }
     LaunchedEffect(tabs, tab) { if (tab !in tabs) onTab(tabs.first()) }
     // O pedido da aba (atalho de demonstração) recria o conteúdo da aba uma vez com o valor inicial e some em seguida.
     var initialArg by remember { mutableStateOf<String?>(null) }
@@ -270,7 +276,7 @@ fun HomeScreen(
                 )
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
-                HomeTab.Settings -> SettingsScreen(container, modifier, openPrinter = openPrinter, openLicenses = { openRoute(br.com.queven.wabotia.ui.nav.Routes.LICENSES) })
+                HomeTab.Settings -> SettingsScreen(container, modifier, openPrinter = openPrinter, openLicenses = { openRoute(br.com.queven.wabotia.ui.nav.Routes.LICENSES) }, openMfa = { openRoute(br.com.queven.wabotia.ui.nav.Routes.ACCOUNT_MFA) })
             }
             }
         }

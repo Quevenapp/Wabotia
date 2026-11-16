@@ -19,7 +19,10 @@ import java.util.concurrent.TimeUnit
 
 /** Erro devolvido pela API no formato {"error":{"code","message","request_id"}}. */
 class ApiException(val status: Int, val code: String, override val message: String, val requestId: String? = null) : IOException(message) {
-    val isUnauthorized get() = status == 401
+    /** A sessão não vale mais. Código errado do segundo fator (`invalid_code`) e login que pede o código não são isso. */
+    val isUnauthorized get() = status == 401 && code !in setOf("invalid_code", "mfa_required")
+    /** A ação pede o segundo fator: confirmar com o código (ou cadastrar) e repetir; nunca desloga. */
+    val isMfaRequired get() = status == 403 && code == "mfa_required"
     val isIdempotencyConflict get() = code == "idempotency_conflict"
     val isDefinitiveWriteRejection get() = status in 400..499 && status !in listOf(408, 429) && code !in listOf("operation_unknown", "idempotency_conflict")
 }

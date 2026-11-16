@@ -18,8 +18,11 @@ import kotlinx.serialization.json.JsonObject
 // WabotiaJson usa encodeDefaults = false: um campo igual ao seu valor padrão não é enviado. Todo campo de
 // requisição que o servidor exige e que aqui tem padrão precisa de @EncodeDefault (ver RequestEncodingTest).
 @Serializable data class DeviceInfo(@EncodeDefault val platform: String = "android", val name: String, val app_version: String)
-@Serializable data class MobileLoginRequest(val email: String, val password: String, val device: DeviceInfo)
-@Serializable data class MobileSession(val token: String, val expires: Long, val user: User)
+/** [totp] (6 dígitos) ou [recovery_code] só na segunda etapa, depois de `401 mfa_required`. */
+@Serializable data class MobileLoginRequest(val email: String, val password: String, val device: DeviceInfo, val totp: String? = null, val recovery_code: String? = null)
+/** [aal] 1 só senha, 2 com o código; [mfa] `{policy, factor, next}` (`next: enroll`: a instalação exige e a pessoa não cadastrou). */
+@Serializable data class MobileSession(val token: String, val expires: Long, val user: User, val aal: Int? = null, val mfa: SessionMfa? = null)
+@Serializable data class SessionMfa(val policy: String? = null, val factor: Boolean? = null, val next: String? = null)
 @Serializable data class User(
     val id: String,
     val name: String = "",
@@ -35,7 +38,18 @@ import kotlinx.serialization.json.JsonObject
     val name: String = "",
     val role: String = "operator",
     val profiles: List<String> = emptyList(),
+    /** Nível efetivo da sessão (já com o prazo de 7 dias do código). */
+    val aal: Int? = null,
+    val mfa: SessionMfa? = null,
 )
+
+/** `GET /api/v1/account/mfa`. */
+@Serializable data class AccountMfa(val policy: String? = null, val aal: Int = 1, val factors: List<MfaFactor> = emptyList(), val recovery_codes_left: Int = 0) {
+    val active: MfaFactor? get() = factors.firstOrNull { it.status == "active" }
+}
+@Serializable data class MfaFactor(val id: String, val kind: String = "totp", val status: String = "active", val created: Long = 0, val activated_at: Long? = null)
+@Serializable data class MfaEnrollment(val factor_id: String, val secret: String, val otpauth_url: String)
+@Serializable data class MfaVerified(val aal: Int = 2, val recovery_codes: List<String> = emptyList())
 
 @Serializable data class Profile(val id: String, val name: String, val enabled: Int = 0, val settings: JsonElement? = null, val created: Long = 0)
 @Serializable data class Page<T>(val data: List<T> = emptyList(), val next_cursor: String? = null)

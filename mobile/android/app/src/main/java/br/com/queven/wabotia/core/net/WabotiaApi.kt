@@ -106,8 +106,16 @@ interface WabotiaApi {
     @POST("api/v1/profiles/{p}/internal-chats/{id}/proposals/{proposal}/cancel") suspend fun cancelProposal(@Path("p") p: String, @Path("id") id: String, @Path("proposal") proposal: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): BotProposal
     @GET("api/v1/profiles/{p}/approvals/{id}") suspend fun approval(@Path("p") p: String, @Path("id") id: String): Approval
     @POST("api/v1/profiles/{p}/approvals/{id}/decide") suspend fun decideApproval(@Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: JsonObject): Approval
-    /** Segundo fator da sessão (contrato em feat/login-mfa): `{code}` ou `{recovery_code}`; a sessão sobe para aal2 por um tempo. */
+    // --- segundo fator (docs/API.md, "Login e segundo fator") ---
+    /** `{code}` ou `{recovery_code}`: a sessão sobe para aal2 por 7 dias contados do código. */
     @POST("api/v1/account/mfa/challenge") suspend fun mfaChallenge(@Body body: JsonObject): JsonObject
+    @GET("api/v1/account/mfa") suspend fun accountMfa(): AccountMfa
+    /** `{password}`; trocar um fator ativo exige aal2. */
+    @POST("api/v1/account/mfa/enroll") suspend fun mfaEnroll(@Body body: JsonObject): MfaEnrollment
+    /** `{factor_id, code}`: ativa, sobe esta sessão e derruba as outras da pessoa. */
+    @POST("api/v1/account/mfa/verify") suspend fun mfaVerify(@Body body: JsonObject): MfaVerified
+    @POST("api/v1/account/mfa/recovery-codes") suspend fun mfaRecoveryCodes(@Body body: JsonObject): MfaVerified
+    @DELETE("api/v1/account/mfa/factors/{id}") suspend fun mfaRemoveFactor(@Path("id") id: String): JsonObject
     // --- genérico, para respostas cruas quando necessário ---
     @GET suspend fun raw(@Url url: String): Response<JsonObject>
 }

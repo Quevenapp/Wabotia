@@ -30,7 +30,8 @@ fun interface MfaChallenger {
 /** `POST /api/v1/account/mfa/challenge` com `{code}` (6 dígitos) ou `{recovery_code}` (o resto). */
 class ApiMfaChallenger(private val container: AppContainer) : MfaChallenger {
     override suspend fun submit(code: String) {
-        container.api.mfaChallenge(BotActionTexts.mfaBody(code))
+        // O mesmo desafio da tela global: sobe a sessão por 7 dias e avisa quem espera (MfaState).
+        container.mfa.challenge(code)
     }
 }
 
@@ -129,11 +130,6 @@ object BotActionTexts {
         else -> v.display()
     }
 
-    fun mfaBody(code: String): JsonObject {
-        val clean = code.trim()
-        return buildJsonObject { if (clean.length == 6 && clean.all(Char::isDigit)) put("code", clean) else put("recovery_code", clean) }
-    }
-
     fun message(error: BotActionError): String? = when (error) {
         BotActionError.PROPOSAL_EXPIRED -> "A proposta venceu (vale 10 minutos). Peça de novo ao bot."
         BotActionError.PROPOSAL_DECIDED -> "Esta proposta já foi decidida."
@@ -200,7 +196,12 @@ class BotActionsController(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                mfaError = (e as? ApiException)?.message ?: "Código não aceito. Confira e tente de novo."
+                // Sem fator cadastrado: o cadastro abre pela tela global; este diálogo fecha.
+                if ((e as? ApiException)?.code == "mfa_not_enrolled") {
+                    dismissMfa()
+                    return@launch
+                }
+                mfaError = br.com.queven.wabotia.ui.settings.MfaTexts.challengeError(e)
             }
         }
     }
@@ -223,7 +224,10 @@ class BotActionsController(
                 throw e
             } catch (e: Exception) {
                 when (val kind = BotActionError.of(e)) {
-                    BotActionError.MFA -> {
+                    BotActionError.MFA -> if (container.mfa.factorKnown() == false) {
+                        // Sem fator cadastrado não há código a pedir: a tela global leva ao cadastro.
+                        container.mfa.required()
+                    } else {
                         retry = attempt
                         mfaPending = true
                     }

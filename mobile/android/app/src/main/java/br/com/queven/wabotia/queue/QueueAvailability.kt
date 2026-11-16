@@ -65,6 +65,13 @@ object ModuleCapabilities {
         return ids.map { if (it in QUEUE_IDS) "queue" else it }.toSet()
     }
 
+    /** `features` no topo (ou em `data`): os recursos que o servidor entende. */
+    fun features(json: JsonElement): Set<String> {
+        val root = json as? JsonObject ?: return emptySet()
+        val list = (root["features"] ?: (root["data"] as? JsonObject)?.get("features")) as? JsonArray ?: return emptySet()
+        return list.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+    }
+
     private fun JsonObject.enabledFlag(): Boolean {
         val flag = (this["enabled"] ?: this["active"]) as? JsonPrimitive ?: return true
         return flag.booleanOrNull ?: (flag.contentOrNull?.toLongOrNull()?.let { it != 0L } ?: true)
@@ -89,6 +96,10 @@ class QueueAvailabilityProbe(
     var access: Set<String>? = null
         private set
 
+    /** `features` da resposta de capacidades (`mfa`, `person_access`…). */
+    var features: Set<String> = emptySet()
+        private set
+
     suspend fun check(): QueueAvailability =
         when (val found = modules()) {
             null -> QueueAvailability.UNKNOWN
@@ -104,6 +115,7 @@ class QueueAvailabilityProbe(
             when (val answer = get(path)) {
                 is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let {
                     access = br.com.queven.wabotia.core.AccessRules.parse(answer.json, profileId)
+                    features = ModuleCapabilities.features(answer.json)
                     return@withContext it
                 }
                 is Answer.Failed -> if (answer.status == 0) return@withContext null

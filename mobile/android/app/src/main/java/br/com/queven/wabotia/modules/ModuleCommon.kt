@@ -324,6 +324,7 @@ object ModuleFailure {
         if (e.unauthorized) container.onLoggedOut(keepServer = true)
         if (e.moduleDisabled) container.modules.markDisabled(module)
         if (e.accessDenied) container.modules.accessDenied()
+        if (e.status == 403 && e.code == "mfa_required") container.mfa.required()
     }
 
     fun message(error: Throwable): String = when {

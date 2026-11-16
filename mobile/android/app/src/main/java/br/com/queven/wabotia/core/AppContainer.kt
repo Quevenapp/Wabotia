@@ -65,6 +65,9 @@ class AppContainer(context: Context) {
     /** Os módulos ligados no servidor para o perfil aberto (capacidades; sem elas, a fila por `GET /queue`). */
     val modules = ModuleFeature(this)
 
+    /** O segundo fator da sessão de pessoa: o desafio ou o cadastro quando uma ação pede (`403 mfa_required`). */
+    val mfa = MfaState(this)
+
     /** A credencial do modo aparelho (totem/painel), cifrada e separada da sessão de pessoa. */
     val deviceStore: DeviceConfigStore by lazy { KeystoreDeviceConfigStore(appContext) }
 
@@ -134,6 +137,7 @@ class AppContainer(context: Context) {
         conversationCache.clear()
         internalChats.clear()
         modules.clear()
+        mfa.clear()
         wipeLocalData()
         _auth.value = AuthState.from(session)
     }

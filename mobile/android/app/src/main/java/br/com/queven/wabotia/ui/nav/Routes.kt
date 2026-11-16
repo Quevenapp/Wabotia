@@ -20,6 +20,8 @@ object Routes {
     const val PRINTER = "printer"
     /** Ajustes → Sobre → Licenças de código aberto. */
     const val LICENSES = "licenses"
+    /** Ajustes → Verificação em duas etapas. */
+    const val ACCOUNT_MFA = "account-mfa"
     /** Guichê da fila de senhas (com o token da pessoa). */
     const val COUNTER = "counter"
     const val CONVERSATION = "conversation/{id}?sheet={sheet}&arg={arg}"

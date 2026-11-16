@@ -35,6 +35,10 @@ class ModuleFeature(private val container: AppContainer) {
     /** O que a pessoa acessa em cada área ([AccessRules]); ausente ou null = tudo. */
     private val _access = MutableStateFlow<Map<String, Set<String>?>>(emptyMap())
     val access: StateFlow<Map<String, Set<String>?>> = _access.asStateFlow()
+
+    /** Os recursos do servidor (`features` de `/capabilities`): `mfa` liga o segundo fator no app. */
+    private val _features = MutableStateFlow<Set<String>>(emptySet())
+    val features: StateFlow<Set<String>> = _features.asStateFlow()
     private val checkedAt = mutableMapOf<String, Long>()
 
     fun has(module: String, profileId: String? = container.session.profileId): Boolean =
@@ -54,6 +58,7 @@ class ModuleFeature(private val container: AppContainer) {
         } else {
             _enabled.update { it + (profile to found) }
             _access.update { it + (profile to probe.access) }
+            _features.value = probe.features
         }
     }
 
@@ -81,5 +86,6 @@ class ModuleFeature(private val container: AppContainer) {
         checkedAt.clear()
         _enabled.value = emptyMap()
         _access.value = emptyMap()
+        _features.value = emptySet()
     }
 }

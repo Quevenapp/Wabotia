@@ -127,7 +127,9 @@ internal object DemoServer {
     private var cobranca: DemoCobranca? = null
     private var botActions: DemoBotActions? = null
 
-    private fun botActionsOf(s: DemoState, now: Long): DemoBotActions = botActions ?: DemoBotActions(s, now).also { botActions = it }
+    private var account = DemoAccount()
+
+    private fun botActionsOf(s: DemoState, now: Long): DemoBotActions = botActions ?: DemoBotActions(s, now, account).also { botActions = it }
     private var actionReplays = DemoReplays()
 
     private fun cobrancaOf(s: DemoState): DemoCobranca = cobranca ?: DemoCobranca(s.t0).also { cobranca = it }
@@ -152,7 +154,7 @@ internal object DemoServer {
             j(
                 "capabilities_version" to 1,
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
-                "features" to listOf("modules", "establishment", "queue_coupon", "person_access"),
+                "features" to listOf("modules", "establishment", "queue_coupon", "person_access", "mfa"),
                 // Acesso por pessoa (docs/API.md): `["*"]` é o atendente completo; `--es demo access` troca a lista.
                 "profiles" to listOf(
                     j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules)
@@ -182,6 +184,7 @@ internal object DemoServer {
         suporte = null
         cobranca = null
         botActions = null
+        account = DemoAccount()
         actionReplays = DemoReplays()
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
@@ -250,20 +253,21 @@ internal object DemoServer {
         when (path) {
             listOf("health") -> return ok(j("service" to "wabotia", "version" to "demonstração", "commit" to "", "runtime" to "demo"))
             listOf("auth", "status") -> return ok(j("initialized" to true, "configured" to true))
-            listOf("auth", "mobile", "login") -> return ok(sessionJson(now))
+            // Com o segundo fator ativo, entrar pede o código (401 mfa_required / invalid_code).
+            listOf("auth", "mobile", "login") -> return account.login(bodyJson(request), now) ?: ok(JsonObject(sessionJson(now) + mapOf("aal" to JsonPrimitive(account.aal(now)), "mfa" to account.mfaJson())))
             listOf("pairing", "start") -> return queueOf(s).pairingStart(bodyJson(request))
             listOf("pairing", "token") -> return queueOf(s).pairingToken(bodyJson(request))
         }
         if (path.firstOrNull() != "v1") return notFound()
         val p = path.drop(1)
         return when {
-            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE)))
+            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE), "aal" to account.aal(now), "mfa" to account.mfaJson()))
             p == listOf("profiles") -> ok(JsonArray(listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS))))
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
             p == listOf("capabilities") -> capabilities()
-            p == listOf("account", "mfa", "challenge") && method == "POST" -> botActionsOf(s, now).mfaChallenge(bodyJson(request), now)
+            p.firstOrNull() == "account" -> account.route(method, p.drop(1), bodyJson(request), now)
             p.firstOrNull() == "devices" -> devices(s, method, p.drop(1), request, now)
             p == listOf("bot-runs") && method == "POST" -> startBotRun(s, bodyJson(request), now)
             p.size == 2 && p[0] == "bot-runs" && method == "GET" ->

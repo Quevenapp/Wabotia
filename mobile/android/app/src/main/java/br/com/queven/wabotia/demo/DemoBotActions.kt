@@ -5,9 +5,10 @@ import kotlinx.serialization.json.JsonObject
 /**
  * Ações pelo bot na demonstração (contrato de feat/bot-acoes): na conversa interna com o bot de vendas, uma proposta
  * para mudar a OS nº 12, uma proposta sensível (estorno; o código de demonstração do autenticador é 123456), um pedido
- * de aprovação de desconto pendente e outro já decidido pela Ana. Escrever "muda…" ao bot gera outra proposta.
+ * de aprovação de desconto pendente e outro já decidido pela Ana. Escrever "muda…" ao bot gera outra proposta. O código
+ * vem do [DemoAccount] (a pessoa cadastra o segundo fator primeiro).
  */
-internal class DemoBotActions(private val s: DemoState, created: Long) {
+internal class DemoBotActions(private val s: DemoState, created: Long, private val account: DemoAccount = DemoAccount()) {
     private class P(
         val id: String, val chatId: String, val message: Row, val operation: String, val operationSummary: String, val module: String,
         val summary: String, val params: JsonObject, val sensitive: Boolean, val expiresAt: Long, val created: Long,
@@ -22,7 +23,6 @@ internal class DemoBotActions(private val s: DemoState, created: Long) {
 
     private val proposals = LinkedHashMap<String, P>()
     private val approvals = LinkedHashMap<String, A>()
-    private var mfaUntil = 0L
     private val bot = "bot:${Ids.BOT_VENDAS}"
     private val chatId = Ids.CHAT_VENDAS
 
@@ -71,7 +71,7 @@ internal class DemoBotActions(private val s: DemoState, created: Long) {
             "done", "failed" -> return if (action == "confirm") Reply.json(proposalJson(p)) else Reply.error(409, "proposal_closed", "A proposta já foi confirmada.")
         }
         if (action == "confirm") {
-            if (p.sensitive && now > mfaUntil) return Reply.error(403, "mfa_required", "Esta ação pede o código do autenticador.")
+            if (p.sensitive && account.aal(now) < 2) return Reply.error(403, "mfa_required", "Esta ação pede o código do autenticador.")
             p.status = "done"
             p.result = if (p.operation == "pedido.refund") "Estorno de R$ 48,00 pedido ao provedor de pagamento." else "OS nº 12 agora está Pronta; o cliente foi avisado."
         } else {
@@ -109,14 +109,6 @@ internal class DemoBotActions(private val s: DemoState, created: Long) {
         a.decidedAt = now
         refresh(now)
         return Reply.json(approvalJson(a))
-    }
-
-    /** `POST /api/v1/account/mfa/challenge`: na demonstração, o código é 123456 e vale 10 minutos. */
-    fun mfaChallenge(body: JsonObject, now: Long): Reply {
-        val code = body.str("code") ?: body.str("recovery_code")
-        if (code != DEMO_CODE) return Reply.error(400, "invalid_code", "Código não aceito. Na demonstração, use $DEMO_CODE.")
-        mfaUntil = now + 10 * 60_000
-        return Reply.json(j("aal" to 2, "expires_at" to mfaUntil))
     }
 
     private fun statusOf(decision: String) = when (decision) {

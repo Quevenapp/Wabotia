@@ -88,8 +88,8 @@ class BotActionsTest {
     }
 
     @Test fun segundoFatorEErros() {
-        assertEquals("""{"code":"123456"}""", BotActionTexts.mfaBody(" 123456 ").toString())
-        assertEquals("""{"recovery_code":"abcd-efgh"}""", BotActionTexts.mfaBody("abcd-efgh").toString())
+        assertEquals("""{"code":"123456"}""", br.com.queven.wabotia.core.MfaState.body(" 123456 ").toString())
+        assertEquals("""{"recovery_code":"abcd-efgh"}""", br.com.queven.wabotia.core.MfaState.body("abcd-efgh").toString())
         assertEquals(BotActionError.MFA, BotActionError.of(ApiException(403, "mfa_required", "x")))
         assertEquals(BotActionError.PROPOSAL_EXPIRED, BotActionError.of(ApiException(409, "proposal_expired", "x")))
         assertEquals(BotActionError.PROPOSAL_DECIDED, BotActionError.of(ApiException(409, "proposal_closed", "x")))
@@ -107,7 +107,8 @@ class BotActionsTest {
         DemoServer.reset()
         DemoServer.withState { s ->
             val now = System.currentTimeMillis()
-            val demo = DemoBotActions(s, now)
+            val account = br.com.queven.wabotia.demo.DemoAccount()
+            val demo = DemoBotActions(s, now, account)
             val messages = s.chatMessages[Ids.CHAT_VENDAS]!!
             val kinds = messages.mapNotNull { (it["kind"] as? JsonPrimitive)?.content }
             assertTrue(kinds.containsAll(listOf("proposal", "approval")))
@@ -117,8 +118,11 @@ class BotActionsTest {
             val normal = proposals.first { !it.sensitive }
 
             assertEquals(403, demo.decideProposal(sensitive.id, "confirm", now).code)
-            assertEquals(400, demo.mfaChallenge(j("code" to "000000"), now).code)
-            assertEquals(200, demo.mfaChallenge(j("code" to DemoBotActions.DEMO_CODE), now).code)
+            // Sem fator, não há desafio: a pessoa cadastra (código 123456) e a sessão sobe para aal2.
+            assertEquals(400, account.challenge(j("code" to "123456"), now).code)
+            account.route("POST", listOf("mfa", "enroll"), j("password" to "x"), now)
+            assertEquals(401, account.route("POST", listOf("mfa", "verify"), j("factor_id" to "fct-demo", "code" to "000000"), now).code)
+            assertEquals(200, account.route("POST", listOf("mfa", "verify"), j("factor_id" to "fct-demo", "code" to DemoBotActions.DEMO_CODE), now).code)
             assertEquals("done", (body(demo.decideProposal(sensitive.id, "confirm", now))["status"] as JsonPrimitive).content)
             // Confirmar de novo devolve o mesmo resultado; cancelar a confirmada é recusado.
             assertEquals(200, demo.decideProposal(sensitive.id, "confirm", now).code)
