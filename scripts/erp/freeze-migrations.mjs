@@ -17,8 +17,9 @@ if (process.argv[2] === "--check") {
   const listed = manifest.files.map((f) => f.name);
   if (JSON.stringify(present) !== JSON.stringify(listed))
     throw Error("Arquivos diferentes do manifesto.");
+  // O SHA-256 é do texto com LF (o checkout do Git no Windows pode trazer CRLF).
   for (const f of manifest.files)
-    if (sha(readFileSync(join(target, f.name))) !== f.sha256)
+    if (sha(Buffer.from(readFileSync(join(target, f.name), "utf8").replace(/\r\n/g, "\n"))) !== f.sha256)
       throw Error(`SHA-256 diferente: ${f.name}`);
   console.log(`${manifest.files.length} migrações conferem com o manifesto.`);
   process.exit(0);
