@@ -6,6 +6,7 @@ import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { api, type Row } from "../lib/api";
 import { setupTokenFromHash } from "../../src/install-links";
 import { Button, Field, Logo, Notice } from "../ui";
+import { SourceFooterLink } from "../ui/SourceLink";
 
 function PasswordField({
   label,
@@ -155,6 +156,7 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
         <a href="/install">Precisa de ajuda para instalar?</a>
         <a href="/app?demo=1">Ver telas de demonstração</a>
         <a href="/">Página inicial</a>
+        <SourceFooterLink />
       </nav>
     </div>
   );

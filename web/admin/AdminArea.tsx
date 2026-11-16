@@ -14,6 +14,7 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { SetupWizard } from "../SetupWizard";
+import { SourceFooterLink } from "../ui/SourceLink";
 import { SystemPanel } from "../SystemPanel";
 import { NumberRouter } from "../NumberRouter";
 import { LinesPanel, MenusPanel } from "../ServicePanels";
@@ -407,9 +408,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
             )}
             <footer className="app-footer">
               <span>Wabotia · Atendimento conectado</span>
-              <a href="https://github.com/Quevenapp/Wabotia">
-                Código aberto ↗
-              </a>
+              <SourceFooterLink />
             </footer>
           </div>
         </div>

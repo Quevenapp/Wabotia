@@ -28,6 +28,7 @@ import {
 } from "./service";
 import { activeTicketSql } from "./protocols";
 import { isBound } from "./visibility";
+import { LICENSE_NAME, sourceInfo } from "./source";
 import { webStepHook, webStepValidator } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
@@ -1117,9 +1118,15 @@ export const STYLE = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 syste
  * documento, endereço, telefone e o texto livre).
  */
 export type PageBrand =
-  string | { app: string; establishment?: Establishment | null };
+  | string
+  | {
+      app: string;
+      establishment?: Establishment | null;
+      /** Código-fonte do commit em execução (src/source.ts); padrão: o oficial. */
+      source?: string;
+    };
 
-const BRAND_CSS = `.brand{text-align:center;font-weight:600;color:#54656f;margin:0 0 12px}footer p{margin:0 0 4px;white-space:pre-line}footer .app{margin-top:10px;font-size:12px}`;
+const BRAND_CSS = `.brand{text-align:center;font-weight:600;color:#54656f;margin:0 0 12px}footer p{margin:0 0 4px;white-space:pre-line}footer .app{margin-top:10px;font-size:12px}footer .source{display:block;margin-top:6px;font-size:12px;color:inherit}`;
 
 export function page(
   title: string,
@@ -1152,7 +1159,11 @@ export function page(
         .map((line) => `<p>${escape(line)}</p>`)
         .join("")}<div class="app">${escape(app)}</div>`
     : escape(app);
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${BRAND_CSS}${extraCss}</style></head><body><main>${header}${body}<footer>${footer}</footer></main></body></html>`;
+  // AGPL-3.0, §13: quem usa a página pela rede recebe o código em execução.
+  const source =
+    (typeof brand === "string" ? null : brand.source) || sourceInfo().url;
+  const sourceLink = `<a class="source" href="${escape(source)}" rel="noreferrer" target="_blank">Código-fonte (${LICENSE_NAME})</a>`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${BRAND_CSS}${extraCss}</style></head><body><main>${header}${body}<footer>${footer}${sourceLink}</footer></main></body></html>`;
 }
 
 function fieldHtml(field: WebField, value: unknown, error: string | undefined) {

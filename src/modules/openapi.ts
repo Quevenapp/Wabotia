@@ -38,6 +38,17 @@ export const moduleSchemas = {
           commit: { type: "string" },
         },
       },
+      source: {
+        type: "object",
+        description:
+          "Código-fonte do commit em execução (AGPL-3.0, §13). WABOTIA_SOURCE_URL troca o repositório.",
+        properties: {
+          url: { type: "string", format: "uri" },
+          repository: { type: "string", format: "uri" },
+          commit: { type: "string" },
+          license: { type: "string", example: "AGPL-3.0" },
+        },
+      },
       features: {
         type: "array",
         items: { type: "string" },

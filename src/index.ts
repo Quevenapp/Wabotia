@@ -76,6 +76,7 @@ import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
 import { mountMcp, takeInternalActor } from "./mcp";
 import { buildInfo } from "./build-info.generated";
+import { sourceInfo } from "./source";
 import {
   listContacts,
   contactDetail,
@@ -239,6 +240,8 @@ app.get("/api/health", (c) =>
     service: "wabotia",
     ...buildInfo,
     runtime: "cloudflare-workers",
+    // Código-fonte do commit em execução (AGPL-3.0, §13).
+    source: sourceInfo(c.env),
   }),
 );
 app.get("/api/system/update-plan", async (c) =>
@@ -281,7 +284,11 @@ app.get("/api/public/queue/:token", async (c) => {
     c.req.param("token"),
   );
   if (owner) await requireModule(c.env, owner.profile_id, "queue");
-  return c.json(await publicTicket(c.env, c.req.param("token")));
+  // Acompanhamento aberto pelo cliente: leva o código-fonte (AGPL-3.0, §13).
+  return c.json({
+    ...(await publicTicket(c.env, c.req.param("token"))),
+    source: sourceInfo(c.env),
+  });
 });
 // Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
@@ -297,6 +304,8 @@ const appName = (env: Env) => env.APP_NAME || "Wabotia";
 // Páginas do passo web assinadas com os dados do estabelecimento da área.
 const pageBrand = async (env: Env, profile: string) => ({
   app: appName(env),
+  // Código-fonte do commit em execução no rodapé (AGPL-3.0, §13).
+  source: sourceInfo(env).url,
   establishment: await establishment(env, profile).catch(() => null),
 });
 async function webStepRate(c: any) {
@@ -314,7 +323,7 @@ async function webStepAvailable(env: Env, row: any) {
 app.get("/api/w/:code", async (c) => {
   await webStepRate(c);
   const row = await webStepByCode(c.env, c.req.param("code"));
-  if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  if (!row) return webStepHtml(c, statePage("not_found", { app: appName(c.env), source: sourceInfo(c.env).url }), 404);
   const brand = await pageBrand(c.env, row.profile_id);
   const current = await touchWebStep(c.env, row);
   const conv = await one(
@@ -386,7 +395,7 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   if (origin && origin !== "null" && origin !== new URL(c.req.url).origin)
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");
   const row = await webStepByCode(c.env, c.req.param("code"));
-  if (!row) return webStepHtml(c, statePage("not_found", appName(c.env)), 404);
+  if (!row) return webStepHtml(c, statePage("not_found", { app: appName(c.env), source: sourceInfo(c.env).url }), 404);
   // O código da URL, para as fotos da área na página (formPage).
   row.public_code = c.req.param("code");
   const brand = await pageBrand(c.env, row.profile_id);

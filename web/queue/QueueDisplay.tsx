@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import { Maximize, Volume2 } from "lucide-react";
+import { SourceFooterLink } from "../ui/SourceLink";
 import {
   createAnnouncer,
   unlockAudio,
@@ -191,6 +192,7 @@ export function QueueDisplay() {
           <Volume2 size={22} /> Toque para ativar o som das chamadas
         </button>
       )}
+      <SourceFooterLink className="display-source" />
     </main>
   );
 }
