@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-16",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.20.0",
+  "commit": "6b91d0f993bd5342337be5bc8a0d069b4c3a727e",
+  "previous_version": "0.19.3",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.20.0-distribution-20261116 (fora do Git)",
+  "migrations": ["0020_modules.sql", "0021_web_steps.sql", "0022_pairing_scopes.sql", "0023_web_step_flow.sql", "0024_conversation_handoff.sql", "0025_payments.sql", "0026_payments_receipt.sql", "0027_consent_purpose.sql", "0028_payments_hook_pending.sql", "0029_payments_duplicate.sql", "0030_agenda.sql", "0031_agenda_appointments.sql", "0032_agenda_chats.sql", "0035_os_orders.sql", "0040_pedido_menu.sql", "0041_pedido_store.sql", "0042_pedido_orders.sql", "0045_reserva.sql", "0046_reserva_bookings.sql", "0047_reserva_chats.sql", "0050_mensalidade.sql", "0051_mensalidade_payers.sql", "0052_mensalidade_contratos.sql", "0055_suporte.sql", "0056_suporte_liberacao_protocolo.sql", "0057_suporte_identificacao.sql", "0058_suporte_compras.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": true,
+  "package_verified": true,
+  "package_sha256_matches_catalog": true,
+  "package_size": 18317612,
+  "previous_versions_intact": 38,
+  "tests": { "files": 136, "passed": 1112 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.20.0" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.20.0" },
+    { "route": "/releases/0.20.0/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/*/release.json", "versions": 39, "mismatches": 0 }
+  ]
+}

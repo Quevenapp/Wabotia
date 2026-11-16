@@ -1,5 +1,11 @@
 # Validação e limites
 
+## Publicação 0.20.0 de 16/11/2026: módulos, cobrança e verticais
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `6b91d0f993bd5342337be5bc8a0d069b4c3a727e`, a partir da `main` (`554a836`, branch `release/verticais` com núcleo, módulos e apps). Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.20.0-distribution-20261116`, fora do Git); as 27 migrações aditivas `0020` a `0058` foram aplicadas à distribuição antes da implantação. `/api/health` responde 0.20.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `76181bb9804e8b7e292a22fa2b2ee9929c37acc9753c765c74aab918c25635a6` (18317612 bytes, abaixo dos 20 MB aceitos pelas instalações até a 0.17.0), e as 38 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
+
+Acrescenta os módulos por área (Fila, Formulários, Agenda, Ordem de Serviço, Reserva, Pedido, Mensalidade e Suporte pago), o passo web, a cobrança com Mercado Pago, os interativos da Zernio, o consentimento por finalidade e as correções da revisão de segurança de novembro. **1112 testes em 136 arquivos**, TypeScript e build passaram no commit publicado. WhatsApp e Mercado Pago reais ainda não foram validados (ver [Atualização 0.20.0](ATUALIZACOES.md#atualização-0200-módulos-cobrança-e-verticais)). [Evidência](reference/release-0.20.0-distribution.json).
+
 ## Publicação 0.19.3 de 14/11/2026: resumo no protocolo já aberto
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `06461756c58367c5f83a277a1fa86d51a8c1f83c`, a partir da `main` (0.19.2) com o PR 23. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.19.3-distribution-20261114`, fora do Git); não havia migração pendente. `/api/health` responde 0.19.3 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `1fca118f63358f192fe9a5e6f7255401539d7db1a1d901463a8995ee257da55a` (16348196 bytes), e as 37 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
