@@ -62,6 +62,13 @@ export function uuidArg(value: unknown): string | null {
   return value.toLowerCase();
 }
 
+/**
+ * Argumento com DEFAULT na assinatura do Postgres: ausente vale o padrão;
+ * null explícito continua null (pg_get_function_arguments do oráculo).
+ */
+export const argOr = <T>(a: Record<string, unknown>, key: string, fallback: T): T | null =>
+  a[key] === undefined ? fallback : ((a[key] as T | null) ?? null);
+
 /** Argumento jsonb do RPC (a API manda objeto; o texto também vale). */
 export const jsonArg = (value: unknown) => (typeof value === "string" ? JSON.parse(value) : value);
 

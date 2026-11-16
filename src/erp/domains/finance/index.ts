@@ -6,4 +6,6 @@ import "./rpc/erp_finance_category_execute.ts";
 import "./rpc/erp_finance_payment_methods.ts";
 import "./rpc/erp_finance_title_detail.ts";
 import "./rpc/erp_finance_title_execute.ts";
+import "./rpc/erp_finance_title_page_v2.ts";
+import "./rpc/erp_finance_list.ts";
 export {};
