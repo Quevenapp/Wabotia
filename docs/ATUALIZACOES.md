@@ -179,7 +179,9 @@ Faça backup e use **Sistema e atualizações → Verificar atualização → At
 
 - **Listas só como mensagem interativa** nas linhas Zernio, sem o texto numerado junto. Vale para os menus e a fila já publicados.
 - **Consentimento por finalidade.** Notificações fora da janela de 24 horas com uma finalidade (cobrança, agendamento, pedido ou reserva) só saem com o consentimento dessa finalidade, registrado com data, módulo e evidência. A notificação de protocolo continua usando o consentimento de antes. REVOGAR revoga todas as finalidades.
-- **Revisão de segurança.** A revisão de novembro encontrou 23 achados (4 altos, 8 médios, 11 baixos), e a conferência trouxe mais 13; todos estão corrigidos e têm teste. Entre as mudanças:
+- **Mensalidade:** atendente cadastra assinatura começando hoje e sem fim; início em outra data e fim da assinatura passam a ser só do administrador (ou de integração com `billing:write`). Assinatura com o fim já passado não deixa mais o pagador "em dia".
+- **Avisos pela API:** uma integração que não atende a conversa remarca, cancela, muda o estado ou envia orçamento sem avisar o cliente, e não manda o link do check-in. Pessoas da equipe continuam avisando como antes.
+- **Revisão de segurança.** A revisão de novembro encontrou 23 achados (4 altos, 8 médios, 11 baixos), a conferência trouxe mais 13 e a segunda conferência mais 5; todos estão corrigidos e têm teste. Entre as mudanças:
   - as ferramentas MCP montam o caminho só com identificadores;
   - a confirmação de pagamento é entregue até concluir;
   - CPF/CNPJ digitado nunca vincula telefone a um pagador;
@@ -189,7 +191,16 @@ Faça backup e use **Sistema e atualizações → Verificar atualização → At
   
   O endereço público da instalação fica fixo depois do primeiro valor e só o administrador troca, em **Gestão → Sistema**. Tabela completa em [Revisão de segurança](SEGURANCA-REVISAO-2026-11.md).
 
-**Para quem usa o Hermes com as ferramentas do Wabotia (MCP).** A chave criada em **Integrações → Ferramentas do Wabotia no Hermes Agent** passa a levar a permissão nova `conversations:bound`. Com ela, as ferramentas só alcançam as conversas que um bot da aplicação está atendendo (ou atendeu nos últimos 2 minutos), e o painel exige escolher o bot. Eventos, relatórios, presença e as outras conversas da área ficam de fora; para uma chave de área inteira, marque essa opção ao gerar a chave. Chaves já emitidas continuam com as permissões que têm; para restringir uma delas, gere uma chave nova e revogue a antiga.
+**Para quem usa o Hermes com as ferramentas do Wabotia (MCP).** A chave criada em **Integrações → Ferramentas do Wabotia no Hermes Agent** passa a levar a permissão nova `conversations:bound`. Com ela, as ferramentas só alcançam as conversas que um bot da aplicação está atendendo (ou atendeu nos últimos 2 minutos), e o painel exige escolher o bot. Eventos, relatórios, presença e as outras conversas da área ficam de fora; para uma chave de área inteira, marque essa opção ao gerar a chave.
+
+**Chave do Hermes criada antes desta versão: confira depois de atualizar.** Ela continua alcançando todas as conversas da área, e um cliente que convença o bot pode levá-lo até a conversa de outro. Nada é rebaixado sozinho. Passo a passo:
+
+1. Abra **Integrações**. No topo, **Chaves de bot com acesso a toda a área** lista essas aplicações.
+2. Toque em **Prender às conversas do bot** (recomendado). A mesma chave continua valendo: no Hermes, com plugin ou por URL, não há nada a trocar no `.env` nem no `config.yaml`.
+3. No Hermes, envie `/reload-mcp` numa sessão aberta, ou reinicie o gateway, e confira com `hermes mcp test wabotia`.
+4. Se o Hermes precisa mesmo da área inteira (relatórios, um bot interno que não atende clientes), toque em **Manter a área inteira**.
+
+Detalhes em [MCP para o Hermes Agent](API.md#mcp-para-o-hermes-agent).
 
 **Aplicativos.** Os aplicativos Android e iOS com modo aparelho (totem, painel e guichê), as verticais e a impressão de cupom estão no repositório ([mobile/README.md](../mobile/README.md)), mas não fazem parte desta atualização do servidor e saem pelas lojas à parte. Os aplicativos publicados continuam funcionando com esta versão.
 
