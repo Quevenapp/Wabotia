@@ -35,7 +35,7 @@ export const compact = (value: string | null) => fold(value ?? "")!.replace(/[^0
 // Gatilhos
 
 /** erp_catalog.guard_deleted_product (BEFORE UPDATE de record, entity='products'). */
-function guardDeletedProduct(ctx: RpcContext, id: string) {
+export function guardDeletedProduct(ctx: RpcContext, id: string) {
   if (ctx.settings.get("erp_catalog.product_lifecycle") === "on") return;
   if (one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product_detail" WHERE record_id=? AND deleted_at IS NOT NULL', id))
     raise("40001", "erp_catalog_product_deleted");
@@ -63,7 +63,7 @@ function itemsPerBoxFollow(ctx: RpcContext, id: string, items: number | null) {
 // record
 
 /** UPDATE de record com os gatilhos (BEFORE: deleted_product, default_warehouse; AFTER: zz_origin_sync). */
-function updateRecord(
+export function updateRecord(
   ctx: RpcContext,
   id: string,
   row: { entity: string; active: boolean },
@@ -116,7 +116,7 @@ function productColumn(k: string, v: Record<string, unknown>): unknown {
 const PRODUCT_WRITE = [...PRODUCT_TEXT, "price", ...MEASURES, ...COUNTS];
 
 /** UPDATE do produto (o ON CONFLICT DO UPDATE de write_fields com os dados completos). */
-function updateProduct(ctx: RpcContext, id: string, v: Record<string, unknown>) {
+export function updateProduct(ctx: RpcContext, id: string, v: Record<string, unknown>) {
   const old = one(ctx.db, 'SELECT format, unit, kind, items_per_box FROM "erp_catalog__product" WHERE record_id=?', id)!;
   const next = (k: string) => (k in v ? v[k] : old[k]) ?? null;
   // BEFORE UPDATE por nome: guard_variation_parent, protect_stock_product_unit.
