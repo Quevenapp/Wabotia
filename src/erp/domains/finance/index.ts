@@ -17,6 +17,7 @@ import "./rpc/erp_finance_report.ts";
 import "./rpc/erp_finance_recurrence_execute.ts";
 import "./rpc/erp_finance_statement_page.ts";
 import "./rpc/erp_finance_title_detail.ts";
+import "./rpc/erp_finance_transfer.ts";
 import "./rpc/erp_finance_title_execute.ts";
 import "./rpc/erp_finance_title_page_v2.ts";
 import "./rpc/erp_finance_list.ts";
