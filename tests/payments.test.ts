@@ -546,6 +546,45 @@ describe("Cobrança: expiração, cancelamento e módulos", () => {
     expect(sent.kind).toBe("notification");
     expect(json(sent.payload).text).toContain(late.url);
   });
+
+  it("conferência B11: cobrança aberta que nunca chegou ao cliente é reenviada ao cobrar de novo", async () => {
+    const { f } = await setup();
+    const c = await claimed(f, "5511970000023");
+    const ctx = modulesApi(env, f.profile, "forms");
+    const input = {
+      method: "pix" as const,
+      amount_cents: 4900,
+      description: "Pedido 12",
+      sourceKey: "pedido:12:pix",
+    };
+    const payment = await ctx.charge(c, input);
+    // O envio falhou depois de criar no provedor (simulado: nada na fila).
+    await exec(
+      env,
+      "DELETE FROM outbox WHERE conversation_id=? AND dedupe LIKE 'payment%'",
+      c.id,
+    );
+    const again = await ctx.charge(c, input);
+    expect(again.id).toBe(payment.id);
+    expect(
+      await one(
+        env,
+        "SELECT id FROM outbox WHERE dedupe=?",
+        `payment:${payment.id}`,
+      ),
+    ).toBeTruthy();
+    // Já entregue: cobrar de novo não manda outra vez.
+    await ctx.charge(c, input);
+    expect(
+      (
+        await one(
+          env,
+          "SELECT count(*) AS n FROM outbox WHERE dedupe=?",
+          `payment:${payment.id}`,
+        )
+      ).n,
+    ).toBe(1);
+  });
 });
 
 describe("Cobrança: lacunas dos módulos (cancelCharge, paymentsReady, receipt)", () => {

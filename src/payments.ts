@@ -361,6 +361,28 @@ export async function createPayment(env: Env, input: ChargeInput) {
   );
   for (let step = 0; old?.provider_ref && step < 20; step++) {
     const open = old.status === "created" && old.expires_at > now();
+    // Aberta mas nunca entregue (o envio falhou depois de criar no provedor:
+    // consentimento, política da linha): tenta entregar de novo; a chave
+    // payment:<id> não deixa sair duas vezes (conferência B11).
+    if (
+      open &&
+      old.conversation_id === c.id &&
+      !(await one(
+        env,
+        "SELECT id FROM outbox WHERE dedupe=?",
+        `payment:${old.id}`,
+      ))
+    ) {
+      const official = await interactiveLine(env, c);
+      const windowOpen = now() - c.last_customer < 86400000;
+      if (official && !windowOpen && !input.notification)
+        throw new ApiError(
+          409,
+          "window_closed",
+          "O cliente precisa ter escrito nas últimas 24 horas para receber a cobrança.",
+        );
+      await deliver(env, c, old, input.actor, official && !windowOpen);
+    }
     if (open || old.status === "paid" || old.status === "refunded")
       return { payment: paymentView(old)!, created: false };
     sourceKey = `${input.sourceKey}#${old.id}`;
