@@ -96,11 +96,114 @@ function convert(type: ArgSpec[1], value: unknown): unknown {
       return typeof value === "string" ? value : asText(value);
     case "U":
     case "T": {
-      if (!Array.isArray(value)) throw new ErpError("22P02", `malformed array literal: "${asText(value)}"`);
-      return value.map((v) => (v === null ? null : type === "U" ? uuidIn(asText(v)) : typeof v === "string" ? v : asText(v)));
+      // Lista JS (o corpo da erp-api) ou o literal do Postgres em texto ('{a,"b c",NULL}', '{{a},{b}}').
+      const list = Array.isArray(value) ? value : typeof value === "string" ? arrayIn(value) : null;
+      if (list === null) throw new ErpError("22P02", `malformed array literal: "${asText(value)}"`);
+      const leaf = (v: unknown): unknown =>
+        Array.isArray(v) ? v.map(leaf) : v === null ? null : type === "U" ? uuidIn(asText(v)) : typeof v === "string" ? v : asText(v);
+      return list.map(leaf);
     }
     default:
       return value;
+  }
+}
+
+type ArrayValue = (string | null | ArrayValue)[];
+const SPACE = /[ \t\n\r\v\f]/;
+/**
+ * array_in do Postgres para text[]/uuid[]: chaves, vírgulas, aspas com barra
+ * invertida, NULL sem aspas (qualquer caixa), espaço em volta ignorado e
+ * várias dimensões com sub-listas do mesmo tamanho. Erro: 22P02.
+ */
+export function arrayIn(text: string): ArrayValue {
+  const fail = (): never => {
+    throw new ErpError("22P02", `malformed array literal: "${text}"`);
+  };
+  let i = 0;
+  const skip = () => {
+    while (i < text.length && SPACE.test(text[i])) i++;
+  };
+  const parse = (): ArrayValue => {
+    if (text[i] !== "{") fail();
+    i++;
+    const out: ArrayValue = [];
+    skip();
+    if (text[i] === "}") {
+      i++;
+      return out;
+    }
+    for (;;) {
+      skip();
+      if (text[i] === "{") out.push(parse());
+      else if (text[i] === '"') {
+        i++;
+        let s = "";
+        for (;;) {
+          if (i >= text.length) fail();
+          const c = text[i++];
+          if (c === "\\") {
+            if (i >= text.length) fail();
+            s += text[i++];
+          } else if (c === '"') break;
+          else s += c;
+        }
+        out.push(s);
+      } else {
+        let s = "",
+          escaped = false;
+        while (i < text.length && text[i] !== "," && text[i] !== "}") {
+          if (text[i] === "{" || text[i] === '"') fail();
+          if (text[i] === "\\") {
+            i++;
+            if (i >= text.length) fail();
+            escaped = true;
+          }
+          s += text[i++];
+        }
+        const trimmed = s.replace(/^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, "");
+        if (trimmed === "") fail();
+        out.push(!escaped && trimmed.toUpperCase() === "NULL" ? null : trimmed);
+      }
+      skip();
+      if (text[i] === ",") {
+        i++;
+        continue;
+      }
+      if (text[i] === "}") {
+        i++;
+        break;
+      }
+      fail();
+    }
+    // Uma dimensão por nível: tudo lista ou tudo valor, listas do mesmo tamanho.
+    const lists = out.filter(Array.isArray) as ArrayValue[];
+    if (lists.length && (lists.length !== out.length || lists.some((l) => l.length !== lists[0].length))) fail();
+    return out;
+  };
+  skip();
+  const value = parse();
+  skip();
+  if (i !== text.length) fail();
+  // Sem nenhum valor ('{{}}', '{{},{}}'), o Postgres devolve a lista vazia.
+  const leaves = (v: ArrayValue): number => v.reduce<number>((t, x) => t + (Array.isArray(x) ? leaves(x) : 1), 0);
+  if (leaves(value) === 0) return [];
+  const depth = (v: ArrayValue): number => (v.length && Array.isArray(v[0]) ? 1 + depth(v[0] as ArrayValue) : 1);
+  const same = (v: ArrayValue, d: number): boolean => (d === 1 ? v.every((x) => !Array.isArray(x)) : v.every((x) => Array.isArray(x) && same(x, d - 1)));
+  if (!same(value, depth(value))) fail();
+  return value;
+}
+
+/**
+ * Argumento jsonb como o corpo o traz: valor JSON (objeto, lista, número…)
+ * ou texto JSON (como o harness e a erp-api mandam às vezes). Texto que não é
+ * JSON: 22P02 do Postgres.
+ */
+export function jsonbArg(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new ErpError("22P02", "invalid input syntax for type json");
   }
 }
 

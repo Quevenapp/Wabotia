@@ -143,7 +143,11 @@ export async function erpProbe(env: Env, request: Request, profile: string, acto
  * só pessoas com acesso à área; o motor confere o vínculo (erp_access) como
  * no Fagoo. Papéis erp:<papel> e escopos de aplicação vêm na fase 3.
  */
-export async function erpApi(env: Env, request: Request, profile: string, actor: Actor) {
+/**
+ * `identity`: o envelope montado pelo núcleo (papel erp:<papel>, sessão e aal,
+ * fator, agente, pessoas da área). Sem ele, o envelope mínimo do identityFor.
+ */
+export async function erpApi(env: Env, request: Request, profile: string, actor: Actor, identity: IdentityPort = identityFor(actor)) {
   if (actor.kind !== "user")
     throw new ApiError(403, "erp_user_required", "O ERP atende só pessoas nesta fase.");
   const url = new URL(request.url);
@@ -156,7 +160,15 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   if (block === "externo")
     throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
   if (block !== "erp") await requireModule(env, profile, block);
-  const headers = new Headers({ Authorization: "Bearer wabotia-session" });
+  // Token em forma de JWT, sem assinatura (alg none), com sessão e aal do
+  // envelope: o accessGate e a rota de segurança da erp-api leem session_id e
+  // aal das claims (tokenSession). Nunca é conferido como JWT: o /auth/v1/user
+  // responde pela costura, e o motor só aceita a sessão que bate com o
+  // envelope (sessionAal2). Achado da sessão A: com "Bearer wabotia-session" o
+  // session_id ia null e o aal2 nunca passava.
+  const claims = { sub: identity.actor?.user_id ?? actor.id, session_id: identity.actor?.session_id ?? null, aal: identity.actor?.aal ?? "aal1" };
+  const part = (v: unknown) => btoa(JSON.stringify(v)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const headers = new Headers({ Authorization: `Bearer ${part({ alg: "none", typ: "JWT" })}.${part(claims)}.wabotia` });
   const type = request.headers.get("Content-Type");
   if (type) headers.set("Content-Type", type);
   const inner = new Request(new URL(path + url.search, "https://erp-api.wabotia.invalid"), {
@@ -171,7 +183,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const hops: ErpHop[] = [];
   const gate = { denied: null as string | null };
   const started = Date.now();
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identityFor(actor), { read, hops, gate }) });
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate }) });
   let response = (await handler(inner, CONFIG)) as Response;
   // Portão fechado no objeto: o erro que o accessGate da erp-api daria, no formato dela.
   if (gate.denied) {

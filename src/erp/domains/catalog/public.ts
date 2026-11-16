@@ -14,6 +14,7 @@ import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../engine/json.ts";
 import { pgLower } from "../../engine/text.ts";
+import { mutate as mutateRecord } from "./record.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { activeRole } from "../access/public.ts";
 import { allowed as documentsAllowed } from "../documents/public.ts";
@@ -56,6 +57,25 @@ export {
 } from "./fields.ts";
 export { paymentConditionValid } from "./payment-method.ts";
 export { sellerAccessAllowed } from "./seller.ts";
+export { canReadStock, productCostAt } from "./cost.ts";
+export { compositionKits, compositionSync, compositionSyncOn } from "./composition.ts";
+export { compact, guardDeletedProduct, guardVariationParent, itemsPerBoxFollow, writeFields } from "./record.ts";
+
+/**
+ * erp_catalog.mutate na ordem do Postgres (p_user_id, p_entity, p_id,
+ * p_expected_version, p_command_id, p_data, p_set_active, p_active).
+ */
+export const mutate = (
+  ctx: RpcContext,
+  user: string | null,
+  entity: string | null,
+  id: string | null,
+  expected: number | null,
+  command: string | null,
+  data: unknown,
+  setActive: boolean,
+  active: boolean | null,
+) => mutateRecord(ctx, { user, entity, id, expected, command, data, setActive, active });
 export {
   contactRequireVisible,
   contactScope,

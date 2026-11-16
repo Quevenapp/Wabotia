@@ -77,7 +77,7 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     oracle: "nextval('erp_preferences.transition_version'), a única sequência do Fagoo (erp_preferences.transition_save)",
     reason: "O SQLite do objeto não tem sequências; uma tabela só para isso não se paga.",
     replaced_by:
-      "Maior número já gravado + 1, na mesma transação (domínio Preferências, sessão G). Diferença: o nextval não volta atrás quando a transação falha; no motor o número volta junto. Depois de uma recusa, o Postgres pula um número e o motor não; o diferencial não compara a numeração nesse caminho.",
+      "Maior número já emitido + 1, lido da trilha imutável (framework_audit.after_data.version), na mesma transação (domínio Preferências, sessão G): a linha da transição pode ser apagada, a trilha não. O nextval do transition_save vem depois de todas as validações, então uma chamada recusada não consome número em nenhum dos motores. Diferença que sobra: o Postgres pula um número se a transação de fora for desfeita depois de um transition_save aceito; no motor o número volta junto.",
   },
   {
     id: "origin",

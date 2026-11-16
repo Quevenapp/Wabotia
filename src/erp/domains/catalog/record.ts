@@ -42,7 +42,7 @@ export function guardDeletedProduct(ctx: RpcContext, id: string) {
 }
 
 /** erp_catalog.guard_variation_parent (BEFORE UPDATE de product). */
-function guardVariationParent(ctx: RpcContext, id: string, oldFormat: unknown, newFormat: unknown) {
+export function guardVariationParent(ctx: RpcContext, id: string, oldFormat: unknown, newFormat: unknown) {
   if (oldFormat === "V" && newFormat !== "V" && one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product_variation" WHERE parent_id=?', id))
     raise("40001", "erp_catalog_variation_parent_locked");
   if (newFormat === "V" && one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product_variation" WHERE child_id=?', id))
@@ -50,7 +50,7 @@ function guardVariationParent(ctx: RpcContext, id: string, oldFormat: unknown, n
 }
 
 /** erp_catalog.items_per_box_follow (AFTER UPDATE OF items_per_box, quando muda). */
-function itemsPerBoxFollow(ctx: RpcContext, id: string, items: number | null) {
+export function itemsPerBoxFollow(ctx: RpcContext, id: string, items: number | null) {
   if (ctx.settings.get("erp_catalog.items_per_box_detail") === "on") return;
   const value = items === null ? null : toParam(toScaled(String(items), 6));
   if (one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product_detail" WHERE record_id=?', id))

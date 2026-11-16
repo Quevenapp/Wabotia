@@ -216,7 +216,7 @@
    },
    "erp_catalog.can_read_stock": {
     "name": "canReadStock",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.category_lineage": {
     "name": "categoryLineage",
@@ -224,19 +224,19 @@
    },
    "erp_catalog.compact": {
     "name": "compact",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_kits": {
     "name": "compositionKits",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_sync": {
     "name": "compositionSync",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.composition_sync_on": {
     "name": "compositionSyncOn",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_apply": {
     "name": "contactApply",
@@ -384,15 +384,15 @@
    },
    "erp_catalog.guard_deleted_product": {
     "name": "guardDeletedProduct",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.guard_variation_parent": {
     "name": "guardVariationParent",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.items_per_box_follow": {
     "name": "itemsPerBoxFollow",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.matches": {
     "name": "matches",
@@ -400,7 +400,7 @@
    },
    "erp_catalog.mutate": {
     "name": "mutate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.next_product_code": {
     "name": "nextProductCode",
@@ -436,7 +436,7 @@
    },
    "erp_catalog.product_cost_at": {
     "name": "productCostAt",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_cost_capture": {
     "name": "productCostCapture",
@@ -516,7 +516,7 @@
    },
    "erp_catalog.write_fields": {
     "name": "writeFields",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.list_price": {
     "name": "listPrice",
@@ -909,7 +909,7 @@
    },
    "erp_documents.contact_usable": {
     "name": "contactUsable",
-    "ported": false
+    "ported": true
    },
    "erp_documents.cost_apply": {
     "name": "costApply",
@@ -1037,7 +1037,7 @@
    },
    "erp_documents.os_permitted": {
     "name": "osPermitted",
-    "ported": false
+    "ported": true
    },
    "erp_documents.payment_types": {
     "name": "paymentTypes",
@@ -1085,7 +1085,7 @@
    },
    "erp_documents.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_commercial_input": {
     "name": "requireCommercialInput",
@@ -1097,7 +1097,7 @@
    },
    "erp_documents.require_role": {
     "name": "requireRole",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_seller": {
     "name": "requireSeller",
@@ -1153,7 +1153,7 @@
    },
    "erp_documents.transitions": {
     "name": "transitions",
-    "ported": false
+    "ported": true
    },
    "erp_documents.uuid_value": {
     "name": "uuidValue",
@@ -3419,7 +3419,7 @@
    },
    "erp_stock.count_physical": {
     "name": "countPhysical",
-    "ported": false
+    "ported": true
    },
    "erp_stock.default_supplier": {
     "name": "defaultSupplier",
@@ -3551,7 +3551,7 @@
    },
    "erp_stock.ignored_warehouse": {
     "name": "ignoredWarehouse",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_posted_for_document": {
     "name": "invoicePostedForDocument",
@@ -3563,7 +3563,7 @@
    },
    "erp_stock.invoice_unit_price": {
     "name": "invoiceUnitPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.item_component_rows": {
     "name": "itemComponentRows",
@@ -3579,7 +3579,7 @@
    },
    "erp_stock.ledger_document_price": {
     "name": "ledgerDocumentPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.ledger_origin": {
     "name": "ledgerOrigin",
@@ -3607,7 +3607,7 @@
    },
    "erp_stock.lot_quantity": {
     "name": "lotQuantity",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_settings": {
     "name": "lotSettings",
@@ -3615,7 +3615,7 @@
    },
    "erp_stock.lots_expiring": {
     "name": "lotsExpiring",
-    "ported": false
+    "ported": true
    },
    "erp_stock.movement_dto": {
     "name": "movementDto",
@@ -3679,11 +3679,11 @@
    },
    "erp_stock.virtual_positions": {
     "name": "virtualPositions",
-    "ported": false
+    "ported": true
    },
    "erp_stock.virtual_quantity": {
     "name": "virtualQuantity",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_post": {
     "name": "erpDocumentStockPost",
