@@ -99,12 +99,23 @@ fun ProposalCard(payload: ProposalPayload, now: Long, busy: Boolean, onConfirm: 
         else -> c.muted
     }
     BotCard(Icons.Filled.SmartToy, c.bot, "Proposta do bot", Modifier.testTag("bot.proposal")) {
-        Text(p.summary, style = MaterialTheme.typography.titleSmall, color = c.textPrimary, fontWeight = FontWeight.SemiBold)
-        payload.operationSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.textSecondary) }
-        val params = BotActionTexts.params(p.params)
-        if (params.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            ParamRows(params)
+        // O que vale é a descrição do servidor (operação, valores, datas); o texto do bot fica à parte, menor.
+        val headline = BotActionTexts.headline(p)
+        payload.operationSummary?.takeIf { op -> !headline.startsWith(op) }?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = c.textSecondary) }
+        Text(headline, style = MaterialTheme.typography.titleSmall, color = c.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("bot.proposal.description"))
+        if (p.description.isNullOrBlank()) {
+            val params = BotActionTexts.params(p.params)
+            if (params.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                ParamRows(params)
+            }
+        }
+        BotActionTexts.botText(p)?.let { botText ->
+            Spacer(Modifier.height(8.dp))
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.soft(c.bot, 0.08f)).padding(8.dp)) {
+                Text("Texto do bot (não conferido)", style = MaterialTheme.typography.labelSmall, color = c.bot, fontWeight = FontWeight.SemiBold)
+                Text(botText, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -116,7 +127,7 @@ fun ProposalCard(payload: ProposalPayload, now: Long, busy: Boolean, onConfirm: 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Lock, contentDescription = null, tint = c.warn, modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Ação sensível: o app vai pedir o código do autenticador.", style = MaterialTheme.typography.labelSmall, color = c.warn)
+                Text("Ação sensível: o código do autenticador pode ser pedido.", style = MaterialTheme.typography.labelSmall, color = c.warn)
             }
         }
         BotActionTexts.outcome(p)?.let {
@@ -147,7 +158,7 @@ fun ResultCard(payload: ProposalPayload) {
         if (ok) "Feito" else if (p.status == "failed") "Não foi possível" else BotActionTexts.proposalStatus(p.status),
         Modifier.testTag("bot.result"),
     ) {
-        Text(p.summary, style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+        Text(BotActionTexts.headline(p), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
         BotActionTexts.outcome(p)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (ok) c.textSecondary else c.danger) }
     }
 }
@@ -192,6 +203,8 @@ fun ApprovalCard(approval: Approval, now: Long, busy: Boolean, onApprove: (Doubl
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatusPill(BotActionTexts.approvalStatus(status), tone)
+            // Em decisão: transitório (até 2 minutos, retomável); o cartão espera e a tela relê.
+            if (BotActionTexts.transitional(status)) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = c.warn)
             if (status == "pending") BotActionTexts.countdown(approval.expiresAt, now)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
         }
         BotActionTexts.decided(approval, approval.adjust?.type == "money")?.let {

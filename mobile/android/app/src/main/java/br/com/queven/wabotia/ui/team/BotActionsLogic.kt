@@ -60,6 +60,18 @@ enum class BotActionError {
 
 /** Textos dos cartões, sem Compose, para testar. */
 object BotActionTexts {
+    /** `confirm:<proposta>:<tentativa>`: uma chave por toque em Confirmar ou Cancelar. */
+    fun attemptKey(action: String, proposalId: String) = "$action:$proposalId:${java.util.UUID.randomUUID()}"
+
+    /** O destaque do cartão: a descrição do servidor; proposta antiga, sem ela, mostra o texto do bot. */
+    fun headline(p: BotProposal): String = p.description?.trim()?.takeIf { it.isNotEmpty() } ?: p.summary
+
+    /** O texto do bot vai à parte só quando há descrição do servidor (senão ele já é o destaque). */
+    fun botText(p: BotProposal): String? = p.summary.trim().takeIf { it.isNotEmpty() && !p.description.isNullOrBlank() && it != p.description.trim() }
+
+    /** `deciding` dura até 2 minutos e é retomada: o cartão espera e relê. */
+    fun transitional(status: String) = status == "deciding"
+
     fun proposalStatus(status: String) = when (status) {
         "pending" -> "Aguardando você"
         "running" -> "Executando…"
@@ -72,7 +84,7 @@ object BotActionTexts {
 
     fun approvalStatus(status: String) = when (status) {
         "pending" -> "Aguardando a equipe"
-        "deciding" -> "Em decisão"
+        "deciding" -> "Em decisão…"
         "approved" -> "Aprovado"
         "declined" -> "Recusado"
         "handoff" -> "Conversa assumida"
@@ -102,6 +114,8 @@ object BotActionTexts {
 
     /** "Aprovado por Ana · R$ 6,20 · cliente frequente". */
     fun decided(a: Approval, money: Boolean): String? {
+        // Em decisão ainda não há decisão a mostrar: o cartão espera assentar.
+        if (a.status == "pending" || transitional(a.status)) return null
         val who = a.decidedByName ?: return null
         val value = a.value?.let { if (money) Money.format(Math.round(it * 100)) else it.display() }
         return listOfNotNull("${approvalStatus(a.status)} por $who", value, a.reason?.takeIf { it.isNotBlank() }).joinToString(" · ")
@@ -165,12 +179,16 @@ class BotActionsController(
 
     fun consumeNotice() { notice = null }
 
+    /**
+     * Cada tentativa leva uma chave nova (contrato revisado): depois de um `403 mfa_required` a proposta continua aberta
+     * e a confirmação depois do código é outra tentativa, que não pode reaproveitar a chave da recusada.
+     */
     fun confirm(chatId: String, proposalId: String) = run(proposalId) {
-        container.api.confirmProposal(profile, chatId, proposalId, "confirm:$proposalId", JsonObject(emptyMap()))
+        container.api.confirmProposal(profile, chatId, proposalId, BotActionTexts.attemptKey("confirm", proposalId), JsonObject(emptyMap()))
     }
 
     fun cancel(chatId: String, proposalId: String) = run(proposalId) {
-        container.api.cancelProposal(profile, chatId, proposalId, "cancel:$proposalId", JsonObject(emptyMap()))
+        container.api.cancelProposal(profile, chatId, proposalId, BotActionTexts.attemptKey("cancel", proposalId), JsonObject(emptyMap()))
     }
 
     fun decide(approval: Approval, decision: String, value: Double? = null, reason: String? = null) = run(approval.id) {

@@ -22,7 +22,12 @@ data class BotProposal(
     /** `pending`, `running`, `done`, `failed`, `cancelled`, `expired`. */
     val status: String = "pending",
     val operation: String = "",
-    /** Escrito pelo bot. */
+    /**
+     * O que roda ao confirmar, montado pelo servidor (operação, valores em R$, datas de Brasília, um item por linha). É
+     * o que vale e o que o cartão destaca. Propostas antigas não têm: aí o cartão mostra [summary] e [params].
+     */
+    val description: String? = null,
+    /** Escrito pelo bot (modelo): aparece à parte, como "Texto do bot (não conferido)", nunca como resumo da ação. */
     val summary: String = "",
     val params: JsonObject? = null,
     /** Operação sensível: pede o código do autenticador. */

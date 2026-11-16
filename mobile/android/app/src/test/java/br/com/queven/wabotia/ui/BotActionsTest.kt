@@ -71,10 +71,27 @@ class BotActionsTest {
         assertEquals("OS pronta", BotActionTexts.outcome(p.copy(status = "done", result = JsonPrimitive("OS pronta"))))
     }
 
+    @Test fun descricaoDoServidorETextoDoBotAParte() {
+        val p = BotProposal(id = "p", summary = "Muda a 12 pra pronta", description = "Mudar o estado da ordem de serviço\n• OS nº 12\n• Para: Pronta")
+        assertTrue(BotActionTexts.headline(p).startsWith("Mudar o estado"))
+        assertEquals("Muda a 12 pra pronta", BotActionTexts.botText(p))
+        // Proposta antiga, sem descrição: o texto do bot é o destaque e não aparece de novo.
+        val old = p.copy(description = null)
+        assertEquals("Muda a 12 pra pronta", BotActionTexts.headline(old))
+        assertNull(BotActionTexts.botText(old))
+        // Cada toque em Confirmar é outra tentativa, com outra chave.
+        val a = BotActionTexts.attemptKey("confirm", "p")
+        assertTrue(a.startsWith("confirm:p:"))
+        assertTrue(a != BotActionTexts.attemptKey("confirm", "p"))
+        assertTrue(BotActionTexts.transitional("deciding"))
+        assertTrue(!BotActionTexts.transitional("pending"))
+    }
+
     @Test fun quemDecidiu() {
         val a = Approval(id = "a", status = "approved", value = 6.2, reason = "frequente", decidedBy = j("id" to "u1", "name" to "Ana"))
         assertEquals("Aprovado por Ana · R$ 6,20 · frequente", BotActionTexts.decided(a, money = true))
         assertNull(BotActionTexts.decided(a.copy(decidedBy = null), money = true))
+        assertNull(BotActionTexts.decided(a.copy(status = "deciding"), money = true))
     }
 
     @Test fun ajusteDaAprovacao() {
@@ -132,10 +149,14 @@ class BotActionsTest {
             // Depois de 10 minutos, a proposta normal venceu.
             assertEquals(409, demo.decideProposal(normal.id, "confirm", now + 11 * 60_000).code)
 
-            val decided = body(demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "approve", "value" to 5.5), now))
+            val deciding = body(demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "approve", "value" to 5.5), now))
+            // Decisão transitória: `deciding` e depois o estado final na releitura.
+            assertEquals("deciding", (deciding["status"] as JsonPrimitive).content)
+            val later = now + DemoBotActions.DECIDING_MS + 1
+            val decided = body(demo.approvals("GET", listOf(DemoBotActions.DESCONTO_ID), j(), later))
             assertEquals("approved", (decided["status"] as JsonPrimitive).content)
-            assertEquals(200, demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "approve"), now).code)
-            assertEquals(409, demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "decline"), now).code)
+            assertEquals(200, demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "approve"), later).code)
+            assertEquals(409, demo.approvals("POST", listOf(DemoBotActions.DESCONTO_ID, "decide"), j("decision" to "decline"), later).code)
             // O outro pedido já foi decidido pela Ana: o primeiro a decidir vence.
             assertEquals(409, demo.approvals("POST", listOf("apr-taxa-121", "decide"), j("decision" to "approve"), now).code)
         }

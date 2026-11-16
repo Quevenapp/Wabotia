@@ -62,6 +62,13 @@ fun ApprovalScreen(container: AppContainer, approvalId: String, onBack: () -> Un
     val now by rememberNow()
     val c = Wb.colors
     LaunchedEffect(vm) { vm.load() }
+    // `deciding` é transitório (até 2 minutos): relê até virar outro estado.
+    LaunchedEffect(vm.approval?.status) {
+        while (vm.approval?.status?.let(BotActionTexts::transitional) == true) {
+            kotlinx.coroutines.delay(3_000)
+            vm.load()
+        }
+    }
     if (vm.actions.mfaPending) MfaDialog(vm.actions.mfaError, onSubmit = vm.actions::submitMfa, onDismiss = vm.actions::dismissMfa)
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         DetailTopBar("Pedido de aprovação", onBack = onBack)

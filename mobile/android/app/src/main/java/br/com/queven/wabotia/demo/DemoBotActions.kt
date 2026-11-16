@@ -11,7 +11,7 @@ import kotlinx.serialization.json.JsonObject
 internal class DemoBotActions(private val s: DemoState, created: Long, private val account: DemoAccount = DemoAccount()) {
     private class P(
         val id: String, val chatId: String, val message: Row, val operation: String, val operationSummary: String, val module: String,
-        val summary: String, val params: JsonObject, val sensitive: Boolean, val expiresAt: Long, val created: Long,
+        val summary: String, val description: String, val params: JsonObject, val sensitive: Boolean, val expiresAt: Long, val created: Long,
         var status: String = "pending", var result: String? = null, var error: String? = null, var decidedAt: Long? = null,
     )
 
@@ -19,6 +19,8 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
         val id: String, val message: Row, val title: String, val fields: List<Pair<String, String>>, val hidden: Int, val summary: String,
         val maxCents: Long, val conversationId: String, val expiresAt: Long, val created: Long,
         var status: String = "pending", var value: Double? = null, var reason: String? = null, var decidedBy: String? = null, var decidedAt: Long? = null,
+        /** `deciding` até esta hora, depois o estado final (a decisão transitória do contrato revisado). */
+        var decidingUntil: Long = 0, var finalStatus: String? = null,
     )
 
     private val proposals = LinkedHashMap<String, P>()
@@ -36,9 +38,9 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
             hidden = 0, summary = "Atraso de 40 minutos na última entrega.", maxCents = 700,
         ).apply { status = "approved"; value = 7.0; decidedBy = s.userName(Ids.ANA); decidedAt = now - 25 * 60_000; reason = "Compensação pelo atraso" }
         s.addChatMessage(chatId, Ids.ME, "Muda a OS nº 12 para Pronta, por favor.", now - 8 * 60_000)
-        propose(now - 8 * 60_000 + 5_000, "os.status", "Mudar o estado da ordem de serviço", "os", "Mudar a OS nº 12 para Pronta", j("ordem" to "OS nº 12", "status" to "ready"), sensitive = false)
+        propose(now - 8 * 60_000 + 5_000, "os.status", "Mudar o estado da ordem de serviço", "os", "Muda a 12 pra pronta, avisa o cliente", OS_DESCRIPTION, j("ordem" to "OS nº 12", "status" to "ready"), sensitive = false)
         s.addChatMessage(chatId, Ids.ME, "Estorna o pagamento do pedido nº 126, o cliente desistiu.", now - 6 * 60_000)
-        propose(now - 6 * 60_000 + 5_000, "pedido.refund", "Estornar o pagamento de um pedido", "pedido", "Estornar R$ 48,00 do pedido nº 126", j("pedido" to "nº 126", "valor" to "R$ 48,00"), sensitive = true)
+        propose(now - 6 * 60_000 + 5_000, "pedido.refund", "Estornar o pagamento de um pedido", "pedido", "Estorno do 126, cliente desistiu", "Estornar o pagamento de um pedido\n• Pedido nº 126 (Mariana Costa)\n• Valor: R$ 48,00\n• Pago em 16/11/2026 11:42", j("pedido" to "nº 126", "valor" to "R$ 48,00"), sensitive = true)
         approval(
             DESCONTO_ID, now - 4 * 60_000, "Desconto de 10% no pedido nº 128 de Mariana Costa",
             listOf("Itens" to "2x X-Burger, 1x Batata média, 2x Refrigerante", "Total de tabela" to "R$ 62,00", "Pedido do cliente" to "10% de desconto", "Últimas compras" to "4 pedidos em 30 dias (R$ 231,00)"),
@@ -50,14 +52,18 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
     /** O estado vem sempre atual na leitura: vence o que passou do prazo e regrava os payloads. */
     fun refresh(now: Long) {
         proposals.values.forEach { p -> if (p.status == "pending" && now >= p.expiresAt) p.status = "expired"; p.message.assign("payload", proposalPayload(p, withActions = true)) }
-        approvals.values.forEach { a -> if (a.status == "pending" && now >= a.expiresAt) a.status = "expired"; a.message.assign("payload", j("approval" to approvalJson(a))) }
+        approvals.values.forEach { a ->
+            if (a.status == "deciding" && now >= a.decidingUntil) a.status = a.finalStatus ?: "pending"
+            if (a.status == "pending" && now >= a.expiresAt) a.status = "expired"
+            a.message.assign("payload", j("approval" to approvalJson(a)))
+        }
     }
 
     /** Mensagem da pessoa ao bot: "muda…"/"marca…" vira proposta; o resto segue a resposta comum da demonstração. */
     fun onUserMessage(text: String, now: Long): Boolean {
         val t = text.lowercase()
         if (listOf("muda", "mude", "marca", "marque", "altera").none { it in t }) return false
-        propose(now + 1_500, "os.status", "Mudar o estado da ordem de serviço", "os", "Mudar a OS nº 12 para Pronta", j("ordem" to "OS nº 12", "status" to "ready"), sensitive = false)
+        propose(now + 1_500, "os.status", "Mudar o estado da ordem de serviço", "os", text.trim().take(120), OS_DESCRIPTION, j("ordem" to "OS nº 12", "status" to "ready"), sensitive = false)
         return true
     }
 
@@ -78,7 +84,7 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
             p.status = "cancelled"
         }
         p.decidedAt = now
-        val text = if (p.status == "done") "Feito: ${p.summary}" else "Cancelada: ${p.summary}"
+        val text = if (p.status == "done") "Feito: ${p.description.lineSequence().first()}" else "Cancelada: ${p.description.lineSequence().first()}"
         s.addChatMessage(chatId, bot, text, now + 1).apply {
             assign("kind", "result")
             assign("payload", proposalPayload(p, withActions = false))
@@ -97,12 +103,15 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
         val decision = body.str("decision").orEmpty()
         if (a.status == "expired") return Reply.error(409, "approval_expired", "O prazo deste pedido venceu.")
         if (a.status != "pending") {
-            val same = a.decidedBy == s.userName(Ids.ME) && a.status == statusOf(decision)
+            val same = a.decidedBy == s.userName(Ids.ME) && (a.status == statusOf(decision) || a.status == "deciding" && a.finalStatus == statusOf(decision))
             return if (same) Reply.json(approvalJson(a)) else Reply.error(409, "approval_closed", "Outra pessoa decidiu primeiro.")
         }
         val value = body.str("value")?.toDoubleOrNull()
         if (value != null && (value < 0 || value * 100 > a.maxCents)) return Reply.error(400, "invalid_value", "Ajuste fora dos limites.")
-        a.status = statusOf(decision) ?: return Reply.error(400, "invalid_decision", "Decisão inválida.")
+        // A decisão fica alguns segundos em `deciding` (no servidor, até 2 minutos) e depois assenta.
+        a.finalStatus = statusOf(decision) ?: return Reply.error(400, "invalid_decision", "Decisão inválida.")
+        a.status = "deciding"
+        a.decidingUntil = now + DECIDING_MS
         a.value = value
         a.reason = body.str("reason")
         a.decidedBy = s.userName(Ids.ME)
@@ -118,10 +127,10 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
         else -> null
     }
 
-    private fun propose(at: Long, operation: String, operationSummary: String, module: String, summary: String, params: JsonObject, sensitive: Boolean) {
-        val message = s.addChatMessage(chatId, bot, "Proposta do bot: $summary\nOperação: $operationSummary\nConfirme no painel ou no app atualizado (vale 10 minutos).", at, status = "completed")
+    private fun propose(at: Long, operation: String, operationSummary: String, module: String, summary: String, description: String, params: JsonObject, sensitive: Boolean) {
+        val message = s.addChatMessage(chatId, bot, "Proposta do bot:\n$description\nTexto do bot (não conferido): $summary\nConfirme no painel ou no app atualizado (vale 10 minutos).", at, status = "completed")
         message.assign("kind", "proposal")
-        val p = P(s.nextId("prop"), chatId, message, operation, operationSummary, module, summary, params, sensitive, at + 10 * 60_000, at)
+        val p = P(s.nextId("prop"), chatId, message, operation, operationSummary, module, summary, description, params, sensitive, at + 10 * 60_000, at)
         proposals[p.id] = p
         message.assign("payload", proposalPayload(p, withActions = true))
     }
@@ -135,7 +144,7 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
     }
 
     private fun proposalJson(p: P) = j(
-        "id" to p.id, "status" to p.status, "operation" to p.operation, "summary" to p.summary, "params" to p.params,
+        "id" to p.id, "status" to p.status, "operation" to p.operation, "description" to p.description, "summary" to p.summary, "params" to p.params,
         "sensitive" to p.sensitive, "expires_at" to p.expiresAt, "decided_at" to p.decidedAt,
         "result" to p.result?.let { j("message" to it) }, "error" to p.error?.let { j("message" to it) },
         "bot_id" to Ids.BOT_VENDAS, "chat_id" to p.chatId, "created" to p.created,
@@ -160,6 +169,8 @@ internal class DemoBotActions(private val s: DemoState, created: Long, private v
 
     companion object {
         const val DEMO_CODE = "123456"
+        const val DECIDING_MS = 3_000L
+        private const val OS_DESCRIPTION = "Mudar o estado da ordem de serviço\n• OS nº 12 (João Pereira, notebook)\n• De: Em execução\n• Para: Pronta (o cliente é avisado)"
 
         /** O pedido de desconto pendente (atalho `--es demo approval`). */
         const val DESCONTO_ID = "apr-desconto-128"
