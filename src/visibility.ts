@@ -11,6 +11,29 @@ import { type Actor, type Env, json, now } from "./types";
 export const BOUND_SCOPE = "conversations:bound";
 export const isBound = (actor: Actor) =>
   actor.kind === "app" && actor.scopes.includes(BOUND_SCOPE);
+/**
+ * Marcação, não permissão: o administrador escolheu a área inteira para uma
+ * aplicação com bots (chave do Hermes "acesso a toda a área").
+ */
+export const WHOLE_AREA_SCOPE = "conversations:all";
+/**
+ * Chave de bot emitida antes de `conversations:bound` (segunda conferência,
+ * A1): aplicação com bots e acesso a conversas, sem a restrição nem a
+ * marcação de área inteira. O painel avisa e oferece prender às conversas do
+ * bot ou confirmar a área inteira; nada é rebaixado sozinho.
+ */
+export function wholeAreaPending(app: { scopes: unknown; bots: unknown }) {
+  const scopes: string[] = json(app.scopes as any, []);
+  const bots: string[] = json(app.bots as any, []);
+  return (
+    bots.length > 0 &&
+    scopes.some((s) =>
+      ["conversations:read", "conversations:write"].includes(s),
+    ) &&
+    !scopes.includes(BOUND_SCOPE) &&
+    !scopes.includes(WHOLE_AREA_SCOPE)
+  );
+}
 export async function boundAllows(env: Env, actor: Actor, c: any) {
   if (!isBound(actor)) return true;
   if (c.external_namespace === `app:${actor.id}`) return true;

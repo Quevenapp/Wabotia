@@ -7,7 +7,13 @@ import { describe, expect, it } from "vitest";
 import { exec, one } from "../src/db";
 import { now, uid } from "../src/types";
 import { agendaSetup, at, future } from "./agenda-fixture";
-import { api, application, bot, receive } from "./service-center-fixture";
+import {
+  api,
+  application,
+  bearer,
+  bot,
+  receive,
+} from "./service-center-fixture";
 import { mcp, tool } from "./mcp-fixture";
 
 const BOUND = [
@@ -153,6 +159,61 @@ describe("chave do bot presa à conversa em atendimento (conferência A1)", () =
     expect(names).not.toContain("list_conversations");
     expect(names).not.toContain("list_contacts");
     expect(names).not.toContain("list_events");
+  });
+
+  it("segunda conferência A1: chave antiga de bot é avisada e presa com um toque", async () => {
+    const { s, victim } = await setup();
+    // Chave do painel antigo: bots marcados e sem conversations:bound.
+    const old = await application(s.f, [
+      "conversations:read",
+      "conversations:write",
+      "contacts:read",
+    ]);
+    await exec(
+      env,
+      "UPDATE applications SET bots=(SELECT bots FROM applications WHERE id<>? AND bots<>'[]' LIMIT 1) WHERE id=?",
+      old.id,
+      old.id,
+    );
+    // Integração comum (sem bots) e área inteira escolhida: sem aviso.
+    const plain = await application(s.f, ["conversations:read"]);
+    const chosen = await application(s.f, [
+      "conversations:read",
+      "conversations:all",
+    ]);
+    await exec(
+      env,
+      "UPDATE applications SET bots=(SELECT bots FROM applications WHERE id=?) WHERE id=?",
+      old.id,
+      chosen.id,
+    );
+    const admin = await bearer(s.f.admin);
+    const pending = async () =>
+      (await (await api(admin, "/applications")).json<any>()).applications
+        .filter((a: any) => a.whole_area_pending)
+        .map((a: any) => a.id);
+    expect(await pending()).toEqual([old.id]);
+    expect(await pending()).not.toContain(plain.id);
+    // Antes: a chave antiga ainda lê a conversa de outro cliente.
+    const p = s.f.profile;
+    expect(
+      (await api(old.token, `/profiles/${p}/conversations/${victim.id}`))
+        .status,
+    ).toBe(200);
+    // "Prender às conversas do bot": a mesma chave passa a ser restrita.
+    const scopes = JSON.parse(
+      (await one(env, "SELECT scopes FROM applications WHERE id=?", old.id))
+        .scopes,
+    );
+    const saved = await api(admin, `/applications/${old.id}`, "PATCH", {
+      scopes: [...scopes, "conversations:bound"],
+    });
+    expect(saved.status).toBe(200);
+    expect(await pending()).toEqual([]);
+    expect(
+      (await api(old.token, `/profiles/${p}/conversations/${victim.id}`))
+        .status,
+    ).toBe(404);
   });
 
   it("execução encerrada há mais de 2 minutos não vale mais", async () => {

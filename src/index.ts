@@ -21,7 +21,12 @@ import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { isBound, visibleEvent, visibleConversation } from "./visibility";
+import {
+  isBound,
+  visibleEvent,
+  visibleConversation,
+  wholeAreaPending,
+} from "./visibility";
 import { setCookie, deleteCookie } from "hono/cookie";
 import {
   type Bindings,
@@ -1134,10 +1139,11 @@ app.get("/api/v1/users", async (c) => {
 app.get("/api/v1/applications", async (c) => {
   admin(c.get("actor"));
   return c.json({
-    applications: await all(
-      c.env,
-      "SELECT * FROM applications ORDER BY created DESC",
-    ),
+    // whole_area_pending: chave de bot de antes de conversations:bound, que
+    // o painel pede para prender ou confirmar (segunda conferência, A1).
+    applications: (
+      await all(c.env, "SELECT * FROM applications ORDER BY created DESC")
+    ).map((row) => ({ ...row, whole_area_pending: wholeAreaPending(row) })),
     keys: await all(
       c.env,
       "SELECT id,app_id,prefix,expires,revoked,created FROM api_keys",

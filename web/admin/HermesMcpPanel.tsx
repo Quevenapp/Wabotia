@@ -18,8 +18,10 @@ const baseScopes = [
   "bots:read",
 ];
 // Acesso a toda a área (listas, contatos, eventos, relatórios): não
-// recomendado para um bot que atende clientes.
+// recomendado para um bot que atende clientes. conversations:all marca a
+// escolha (sem ela, o painel trata como chave antiga e avisa).
 const wholeAreaScopes = [
+  "conversations:all",
   "conversations:read",
   "conversations:write",
   "contacts:read",
