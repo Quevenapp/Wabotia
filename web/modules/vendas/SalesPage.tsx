@@ -170,7 +170,7 @@ function FiscalDialog({ sale, onClose }: { sale: Row; onClose: () => void }) {
         <>
           {!data.provider && (
             <Notice tone="warn">
-              Emissão de nota ainda não ligada: o administrador escolhe o emissor em Regras e nota fiscal.
+              Emissão de nota ainda não ligada: o emissor previsto é a NFapi, com integração futura.
             </Notice>
           )}
           {data.ready ? (

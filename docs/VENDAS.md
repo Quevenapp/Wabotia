@@ -149,8 +149,8 @@ orçamentos dele e reenvia os botões do pendente.
 
 O Wabotia **monta** a NFC-e (modelo 65) ou a NF-e (55) a partir da venda e do
 emitente e **não emite sozinho**: a emissão fica atrás da interface
-`FiscalProvider` (`src/modules/vendas/fiscal.ts`) e nenhum emissor está
-integrado. Hoje:
+`FiscalProvider` (`src/modules/vendas/fiscal.ts`) e nenhum provedor está
+ligado. Hoje:
 
 - `GET /vendas/sales/{id}/fiscal` mostra o documento e as pendências (sem
   CNPJ, sem regime, sem NCM, CFOP que não serve para NFC-e, CSOSN num emitente
@@ -160,58 +160,43 @@ integrado. Hoje:
 - `POST /vendas/sales/{id}/fiscal/emit` responde
   `409 fiscal_provider_not_configured`.
 
+**Emissor previsto: NFapi**, a API de notas da Queven, com integração futura
+(decisão do dono). Nenhum cliente da NFapi existe ainda no Wabotia. Quando ela
+estiver pronta, entra como um provedor que implementa `FiscalProvider` e chama
+`registerFiscalProvider`; o resto do módulo não muda.
+
 O emitente vem de **Estabelecimento** (nome fantasia e CNPJ) e da chave
 `vendas.fiscal` (regime, razão social, IE, IM, CNAE, endereço com o código
 IBGE do município, UF, CEP, ambiente, séries e padrões). A tabela
 `vendas_fiscal_documents` já existe para guardar número, série, chave de
-acesso, protocolo, XML e DANFE quando houver emissor.
+acesso, protocolo, XML e DANFE devolvidos pelo emissor.
 
-### Integrar um emissor (quando o dono decidir)
+### O que o Wabotia entrega ao emissor
 
-1. Um arquivo `src/modules/vendas/fiscal-<emissor>.ts` que implementa
-   `FiscalProvider` (`emit`, e opcionalmente `status` e `cancel`), traduz o
-   documento neutro para o JSON do emissor e chama `registerFiscalProvider`.
-2. O token da conta do emissor guardado cifrado (como a conta do Mercado
-   Pago em `payment_accounts`), nunca em arquivo nem nas configurações
-   legíveis. Precisa de uma tela de conta, como **Gestão → Cobrança**.
-3. O webhook ou a consulta de situação do emissor atualiza
-   `vendas_fiscal_documents` e publica `vendas.fiscal_updated`.
-4. `auto_emit` (já nas regras) emite a NFC-e ao concluir a venda.
+`provider.emit(env, profile, document, {key})`, com `key` idempotente (a
+mesma chave não pode gerar outra nota) e `document` (`FiscalDocument`) assim:
 
-O **certificado digital A1** (e-CNPJ, arquivo .pfx, validade de 1 ano) e o
-**CSC** da NFC-e ficam no emissor, cadastrados pelo dono; nunca passam pelo
-Wabotia.
+| Parte | Campos |
+|---|---|
+| Documento | `model` ("65" NFC-e ou "55" NF-e), `environment` (homologacao, producao), `series`, `crt` (1 Simples, 2 Simples com excesso, 3 normal, 4 MEI), `sale {id, number, created}` |
+| Emitente | `cnpj`, `legal_name`, `trade_name`, `ie`, `im`, `cnae`, `phone`, `address {street, number, complement, district, city, city_code (IBGE), uf, cep}` |
+| Destinatário | `document` (CPF/CNPJ), `name`, `ie`, `email`, `address` (obrigatório na NF-e) ou `null` na NFC-e sem CPF |
+| Itens | `number`, `code` (SKU ou id), `ean` (ou "SEM GTIN"), `description`, `ncm`, `cest`, `cfop`, `unit`, `quantity`, `unit_value_cents`, `gross_cents`, `discount_cents` (desconto da linha + parte do desconto da venda), `tax_unit`, `tax_quantity`, `tax_ean`, `icms {origin, cst \| csosn, rate, base_reduction, base_cents, value_cents, fcp_rate}`, `pis {cst, rate, value_cents}`, `cofins {cst, rate, value_cents}`, `ipi {cst, rate}` (NF-e), `cbenef`, `ibs_cbs {cst, cclasstrib}` |
+| Totais | `products_cents`, `discount_cents`, `total_cents`, `icms_cents`, `pis_cents`, `cofins_cents` |
+| Pagamento | `payments [{tpag, method, amount_cents}]` (tPag: 01 dinheiro, 03 crédito, 04 débito, 17 Pix dinâmico, 20 Pix estático, 99 outros) e `change_cents` (troco) |
+| Informações | `additional_info` (observação da venda) |
 
-### O que cada emissor pede e quanto custa (consultado em 16/11/2026)
+Valores em centavos; quantidades em decimal. O emissor devolve
+`FiscalResult`: `status` (authorized, processing, rejected, error),
+`provider_ref`, `series`, `number`, `access_key`, `protocol`, `xml_url`,
+`pdf_url` e `message`. O Wabotia grava isso em `vendas_fiscal_documents`,
+atualiza `fiscal_status` da venda e publica `vendas.fiscal_updated`.
 
-| Emissor | Preço publicado | Notas incluídas | O que pede |
-|---|---|---|---|
-| **Focus NFe** | Retail (NFC-e) R$ 62,90/mês para 1 CNPJ; Solo R$ 94,90/mês (NF-e e NFC-e) | Retail: 500 NFC-e + 100 NF-e/mês (adicional R$ 0,055 a NFC-e); Solo: 100 notas (R$ 0,11 a adicional) | Certificado A1 do CNPJ (só A1), token da API; para NFC-e, o CSC da SEFAZ |
-| **NFE.io** | NFC-e: Inicial R$ 88/mês (anual, até 2 CNPJs); Base R$ 220/mês (mensal) | Inicial 700; Base 2.000 notas/mês | Certificado A1, chave da API; NF-e por proposta comercial |
-| **PlugNotas** (TecnoSpeed) | Sem preço publicado: cotação pelo formulário | Sem taxa por documento, segundo a página | Certificado (.pfx/.p12) de cada CNPJ; contrato comercial |
-
-Além do emissor, o dono precisa de:
-
-- **Certificado e-CNPJ A1**: cerca de R$ 165 a R$ 235 por ano, conforme a
-  certificadora (valores de referência de 2026, a confirmar na compra).
-- **Inscrição estadual** ativa e **credenciamento como emitente de NFC-e**
-  na SEFAZ do estado; depois, gerar o **CSC** (identificador e código) no
-  portal da SEFAZ. Sem CSC a NFC-e não tem validade.
-- O **contador** para definir regime, CFOP, CSOSN/CST e NCM dos produtos.
-
-Fontes: [Focus NFe, preços](https://focusnfe.com.br/precos/);
-[NFE.io, preços NFC-e](https://nfe.io/precos/emissao-nfce);
-[NFE.io, preços NF-e](https://nfe.io/precos/emissao-nfe);
-[PlugNotas](https://tecnospeed.com.br/plugnotas/);
-[preço de certificado digital 2026](https://rolmyjuncontabilidade.com.br/certificado-digital/certificado-digital-preco/);
-[requisitos da NFC-e, Receita Federal/ENAT](https://enat.receita.economia.gov.br/pt-br/area_nacional/eventos/x-enat-encontro-nacional-de-administradores-tributarios/noticias/arquivos-pdf/nota-fiscal-de-consumidor-eletronica-nfc-e/at_download/file);
-[credenciamento, SEFAZ-PE](https://www.sefaz.pe.gov.br/Servicos/Nota-Fiscal-de-Consumidor-Eletronica/Paginas/Credenciamento-de-Contribuintes.aspx).
-Os preços mudam; confira antes de contratar.
-
-**Para quem só vende no balcão, a Focus NFe Retail é a opção mais barata
-publicada** (NFC-e, 1 CNPJ). Quem tem vários CNPJs ou muito volume deve
-comparar o plano anual da NFE.io e uma cotação do PlugNotas. A decisão é do
-dono da instalação.
+O certificado digital e o CSC da NFC-e ficam com o emissor; nunca passam pelo
+Wabotia. Na integração, o token de acesso ao emissor deve ser guardado
+cifrado (como a conta do Mercado Pago), nunca em arquivo nem nas
+configurações legíveis, e `auto_emit` (já nas regras) passa a emitir a NFC-e
+ao concluir a venda.
 
 ## Pedido e o catálogo
 

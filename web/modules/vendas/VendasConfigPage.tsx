@@ -115,9 +115,8 @@ function FiscalStatus() {
         <>
           {!data.provider_configured && (
             <Notice tone="warn">
-              Nenhum emissor de nota fiscal está integrado ainda. A escolha do emissor (Focus NFe, NFE.io, PlugNotas ou outro)
-              é uma decisão do dono da instalação; até lá, o Wabotia monta a prévia da nota de cada venda e aponta as
-              pendências, sem emitir.
+              A emissão de nota fiscal ainda não está ligada: o emissor previsto é a NFapi, com integração futura. Até
+              lá, o Wabotia monta a prévia da nota de cada venda e aponta as pendências, sem emitir.
             </Notice>
           )}
           <dl className="vendas-facts">

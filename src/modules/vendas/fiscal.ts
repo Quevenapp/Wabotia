@@ -2,9 +2,9 @@
 // documento a partir da venda (cópia fiscal de cada linha), do emitente
 // (configurações "vendas".fiscal + Estabelecimento) e dos pagamentos, aponta
 // o que falta, e entrega a emissão a um provedor (FiscalProvider). Nenhum
-// provedor está integrado: a escolha (Focus NFe, NFE.io, PlugNotas…) e o
-// certificado digital são decisão do dono da instalação (docs/VENDAS.md,
-// "Nota fiscal"). O certificado e o CSC ficam no provedor, nunca aqui.
+// provedor está ligado: o emissor previsto é a NFapi, com integração futura
+// (docs/VENDAS.md, "Nota fiscal"). O certificado e o CSC ficam no emissor,
+// nunca aqui.
 import { all, batch, one } from "../../db";
 import { ApiError, type Actor, type Env, json, now, requireValue, uid } from "../../types";
 import type { Establishment, ModuleContext } from "../api";
@@ -465,7 +465,7 @@ export async function emitFiscal(
     throw new ApiError(
       409,
       "fiscal_provider_not_configured",
-      "A emissão de nota fiscal ainda não está ligada nesta instalação: o administrador precisa escolher um emissor (Focus NFe, NFE.io, PlugNotas ou outro) e cadastrar o certificado digital nele. Veja a prévia em GET /vendas/sales/{id}/fiscal.",
+      "A emissão de nota fiscal ainda não está ligada nesta instalação: o emissor previsto (NFapi) será integrado depois. Veja a prévia em GET /vendas/sales/{id}/fiscal.",
     );
   requireValue(
     provider.models.includes(model),
