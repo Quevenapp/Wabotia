@@ -123,8 +123,9 @@ class ServiceOrderReceipt(private var data: ServiceOrderReceiptData?) : ThermalR
         val d = data ?: error("Comprovante indisponível.")
         val n = ThermalTextSize.NORMAL
         fun center(text: String, style: ThermalTextStyle = ThermalTextStyle.NORMAL, size: ThermalTextSize = n) =
-            layout.text(layout.wrap(text, size) + "\n", ThermalTextAlignment.CENTER, style, size)
-        fun left(text: String, style: ThermalTextStyle = ThermalTextStyle.NORMAL) = layout.text(text + "\n", ThermalTextAlignment.LEFT, style, n)
+            layout.text(layout.wrap(PaperText.clean(text), size) + "\n", ThermalTextAlignment.CENTER, style, size)
+        // Linhas em colunas (valores do orçamento): saneia sem juntar os espaços do alinhamento.
+        fun left(text: String, style: ThermalTextStyle = ThermalTextStyle.NORMAL) = layout.text(PaperText.clean(text, tidy = false) + "\n", ThermalTextAlignment.LEFT, style, n)
         val rule = "-".repeat(layout.columns)
         val parts = buildList {
             add(center(d.header, ThermalTextStyle.BOLD))
@@ -132,7 +133,7 @@ class ServiceOrderReceipt(private var data: ServiceOrderReceiptData?) : ThermalR
             add(center("ORDEM DE SERVIÇO", ThermalTextStyle.BOLD))
             add(center("Nº ${d.number}", ThermalTextStyle.BOLD, BIG))
             add(left(rule))
-            ServiceOrderReceiptText.fields(d).forEach { (label, value) -> add(left(layout.wrap("$label: $value"))) }
+            ServiceOrderReceiptText.fields(d).forEach { (label, value) -> add(left(layout.wrap(PaperText.clean("$label: $value")))) }
             if (d.quote.isNotEmpty()) {
                 add(left(rule))
                 add(left("ORÇAMENTO", ThermalTextStyle.BOLD))

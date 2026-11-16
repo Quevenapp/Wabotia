@@ -96,24 +96,24 @@ class SenhaTicketReceipt(private var data: CouponData?) : ThermalReceiptPayload 
         val parts =
             buildList {
                 if (d.header.isNotBlank()) {
-                    add(layout.text(layout.wrap(d.header) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
+                    add(layout.text(layout.wrap(PaperText.clean(d.header)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
                 }
-                d.headerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
+                d.headerLines.forEach { add(layout.text(layout.wrap(PaperText.clean(it)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 if (d.queueName.isNotBlank()) {
-                    add(layout.text(layout.wrap(d.queueName) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
+                    add(layout.text(layout.wrap(PaperText.clean(d.queueName)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
                 add(layout.text("SENHA ${CouponText.type(d)}\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, ThermalTextSize.NORMAL))
                 // Corpo triplo: a senha se lê de longe e é o que a pessoa compara com o painel.
-                add(layout.text(layout.wrap(d.code, BIG) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, BIG))
-                add(layout.text(CouponText.issued(d) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
+                add(layout.text(layout.wrap(PaperText.clean(d.code), BIG) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.BOLD, BIG))
+                add(layout.text(PaperText.clean(CouponText.issued(d)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 if (d.showPosition) {
-                    add(layout.text(layout.wrap(CouponText.position(d)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
+                    add(layout.text(layout.wrap(PaperText.clean(CouponText.position(d))) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
                 d.whatsappLink?.let { link ->
                     add(requireNotNull(layout.qrRaster(link)) { "QR da senha inválido." })
-                    add(layout.text(layout.wrap(CouponText.WHATSAPP) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
+                    add(layout.text(layout.wrap(PaperText.clean(CouponText.WHATSAPP)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL))
                 }
-                d.footerLines.forEach { add(layout.text(layout.wrap(it) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
+                d.footerLines.forEach { add(layout.text(layout.wrap(PaperText.clean(it)) + "\n", ThermalTextAlignment.CENTER, ThermalTextStyle.NORMAL, ThermalTextSize.NORMAL)) }
                 add(layout.finish())
             }
         return receiptBytes(parts)

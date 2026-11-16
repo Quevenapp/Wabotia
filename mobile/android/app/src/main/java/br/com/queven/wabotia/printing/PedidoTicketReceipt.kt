@@ -21,7 +21,8 @@ class PedidoTicketReceipt(private var texts: Map<Int, String>) : ThermalReceiptP
         val text = text(layout.columns, texts) ?: error("Comanda indisponível.")
         val n = ThermalTextSize.NORMAL
         val parts = buildList {
-            text.split("\n").forEachIndexed { index, line ->
+            // O texto vem do servidor, alinhado com espaços: saneia sem mexer no alinhamento.
+            PaperText.clean(text, tidy = false).split("\n").forEachIndexed { index, line ->
                 // A primeira linha é o nome do estabelecimento; a do número do pedido sai em negrito.
                 val bold = index == 0 || isNumberLine(line)
                 val fits = line.length <= layout.columns
