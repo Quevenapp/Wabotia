@@ -170,10 +170,6 @@ const ENTRY_COLS = ["id", "account_id", "kind", "amount_cents", "posted_on", "co
 export function insertCashEntry(ctx: RpcContext, e: Record<string, unknown>): Row {
   const now = ctx.clock.next().toString();
   const row: Row = { id: crypto.randomUUID(), contact_id: null, source_key: null, version: 1, created_at: now, updated_at: now, ...e };
-  // Índice único erp_finance_cash_entry_source (source_key, excluídos inclusive), com a mensagem do Postgres:
-  // o fromSqlite do motor ainda não traduz UNIQUE (pedido à N). Ponto único no Financeiro.
-  if (row.source_key !== null && one(ctx.db, 'SELECT 1 x FROM "erp_finance__cash_entry" WHERE source_key=? LIMIT 1', row.source_key))
-    raise("23505", 'duplicate key value violates unique constraint "erp_finance_cash_entry_source"');
   ctx.db.exec(
     `INSERT INTO "erp_finance__cash_entry"(${ENTRY_COLS.map((c) => `"${c}"`).join(", ")}) VALUES(${ENTRY_COLS.map(() => "?").join(",")})`,
     ...ENTRY_COLS.map((c) => row[c] ?? null),
