@@ -10,6 +10,7 @@ import "./rpc/erp_finance_category_execute.ts";
 // import "./rpc/erp_finance_execute.ts";
 // import "./rpc/erp_finance_bordero_execute.ts";
 // import "./rpc/erp_finance_cash_execute.ts";
+// import "./rpc/erp_finance_cash_session_execute.ts";
 import "./rpc/erp_finance_payment_methods.ts";
 import "./rpc/erp_finance_statement_page.ts";
 import "./rpc/erp_finance_title_detail.ts";
