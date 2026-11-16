@@ -113,6 +113,14 @@ export interface WebStepSpec {
   /** Protocolo: anexa ao ativo da conversa, abre um se não houver, ou nada. */
   ticket?: "attach" | "open" | "none";
   ticket_category?: string | null;
+  /**
+   * Respostas com dado pessoal que o módulo guarda mascarado (Cadastro de
+   * clientes): o núcleo não grava as respostas no passo, na nota interna,
+   * no protocolo nem no evento web_step.completed; só o gancho
+   * onWebStepCompleted as recebe. Não sai como Flow (a resposta do Flow
+   * ficaria na conversa).
+   */
+  private_answers?: boolean;
 }
 
 const str = (value: unknown, max: number, what: string, required = true) => {
@@ -221,6 +229,7 @@ export function validateSpec(value: any): WebStepSpec {
   }
   if (value.ticket_category)
     spec.ticket_category = str(value.ticket_category, 100, "a categoria");
+  if (value.private_answers === true && !cart) spec.private_answers = true;
   return spec;
 }
 
@@ -546,6 +555,7 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   // Flow só para formulários: o carrinho é sempre a página.
   const flow =
     spec.page !== "cart" &&
+    !spec.private_answers &&
     input.flow?.flow_id &&
     (await interactiveLine(env, c));
   const token = flow ? flowToken(input.flow!.flow_id, id) : null;
@@ -872,7 +882,7 @@ export async function completeWebStep(
   const claimed = await exec(
     env,
     "UPDATE web_steps SET status='completed',result=?,completed_at=?,opened_at=coalesce(opened_at,?),updated=? WHERE id=? AND status IN ('sent','opened') AND expires_at>?",
-    JSON.stringify(answers),
+    spec.private_answers ? null : JSON.stringify(answers),
     at,
     at,
     at,
@@ -892,7 +902,7 @@ export async function completeWebStep(
     ref_id: row.ref_id,
     ticket_id: done.ticket_id,
     contact_id: done.contact_id,
-    answers,
+    answers: spec.private_answers ? null : answers,
   });
   // Retorno padrão antes das mensagens do módulo. Com return_message
   // "module", o módulo responde: a string devolvida pelo gancho vira o
@@ -976,8 +986,9 @@ async function afterCompletion(
   spec: WebStepSpec,
   answers: Answers,
 ) {
-  const summary =
-    spec.page === "cart"
+  const summary = spec.private_answers
+    ? "Os dados ficam no módulo, mascarados para a equipe."
+    : spec.page === "cart"
       ? cartSummary(answers as CartOrder)
       : answersText(spec.fields, answers);
   const contact = await one(

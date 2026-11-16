@@ -221,6 +221,43 @@ export const moduleRoutes = () => ({
   read: [...readRoutes],
 });
 
+/**
+ * Exclusão de dados de um cliente a pedido dele (LGPD, art. 18, VI), pedida
+ * pelo Cadastro de clientes: (env, profile, erasure) → resumo do que o
+ * módulo apagou e do que guardou por obrigação legal. Roda para todo módulo
+ * com o gancho, ligado ou não na área (o dado existe mesmo desligado).
+ */
+const customerEraseHooks = new Map<string, Hook>();
+export function registerCustomerEraseHook(
+  module: string,
+  hook: (env: any, profile: string, erasure: any) => Promise<any>,
+) {
+  customerEraseHooks.set(module, hook);
+}
+export const customerEraseHooksList = () => [...customerEraseHooks.entries()];
+
+/** Rota de leitura de módulo que casa com `path` (sem a área), e os parâmetros. */
+export function matchReadRoute(path: string) {
+  const parts = path.split("/");
+  for (const route of readRoutes) {
+    const pattern = route.path.split("/");
+    if (pattern.length !== parts.length) continue;
+    const params: Record<string, string> = {};
+    if (
+      pattern.every((segment, i) => {
+        if (segment.startsWith(":")) {
+          if (!parts[i]) return false;
+          params[segment.slice(1)] = parts[i];
+          return true;
+        }
+        return segment === parts[i];
+      })
+    )
+      return { route, params };
+  }
+  return null;
+}
+
 /** Validação estrita de uma chave das configurações (PUT /settings). */
 export function registerSettingsValidator(
   key: string,

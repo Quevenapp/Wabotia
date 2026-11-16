@@ -3,8 +3,11 @@
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
 import {
+  customerEraseHooksList,
+  matchReadRoute,
   registerCommand,
   registerConversationAction,
+  registerCustomerEraseHook,
   registerHandoffGate,
   registerInboundHandler,
   registerMenuHandler,
@@ -50,6 +53,13 @@ import {
   type Payment,
 } from "../payments";
 import { establishment, type Establishment } from "../establishment";
+import {
+  conversationsByPhones,
+  eraseConversations,
+  ticketsOfConversations,
+  type CustomerConversation,
+  type EraseConversationsResult,
+} from "../customer-erasure";
 import {
   CONSENT_PURPOSES,
   consentFor,
@@ -307,6 +317,44 @@ export interface ModuleContext {
    * que segurou. Com `key`, repetir a chamada não passa de novo.
    */
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+  /**
+   * Leitura de outro módulo pela API pública dele (rota `onRead`), dentro do
+   * Worker e com o mesmo ator: permissões, filtros de dado pessoal e
+   * `409 module_disabled` valem como numa chamada HTTP. Devolve null quando a
+   * rota não existe, o módulo dono está desligado na área ou o registro não
+   * existe (404); outros erros sobem. Não importa código do outro módulo nem
+   * cria dependência (`requires`). Ex.: `ctx.read(actor, "agenda/conversations/" + id)`.
+   */
+  read(
+    actor: Actor,
+    path: string,
+    query?: Record<string, string>,
+  ): Promise<any | null>;
+  /**
+   * Conversas individuais da área com algum dos telefones, autenticados pelo
+   * canal, mais recentes primeiro (até `limit`, padrão 50): `{id,
+   * connection_id, state, created, updated, last_customer}`. Para o
+   * relacionamento do cliente; o conteúdo continua em `conversation(id)`.
+   */
+  customerConversations(
+    phones: string[],
+    options?: { limit?: number },
+  ): Promise<CustomerConversation[]>;
+  /** Protocolos das conversas dadas: `{id, number, status, title, conversation_id, created, updated}`. */
+  customerTickets(conversationIds: string[]): Promise<any[]>;
+  /**
+   * Eliminação dos dados pessoais do cliente nas tabelas do núcleo (LGPD,
+   * art. 18, VI), para o Cadastro de clientes: mensagens e anexos, textos de
+   * protocolo, respostas de passo web, contatos, eventos… das conversas
+   * dadas. Ficam as linhas de conversa e protocolo, sem conteúdo (vínculos).
+   * Com `releaseIdentity`, tira também o telefone da conversa quando não há
+   * envio pendente. Idempotente. Detalhes em src/customer-erasure.ts.
+   */
+  eraseConversations(
+    conversationIds: string[],
+    phones: string[],
+    options?: { releaseIdentity?: boolean; force?: boolean },
+  ): Promise<EraseConversationsResult>;
 }
 
 export interface ActiveTicket {
@@ -665,6 +713,30 @@ export function modulesApi(
         );
       return conversation(env, c.id, profile);
     },
+    async read(actor, path, query = {}) {
+      const clean = String(path || "").replace(/^\/+|\/+$/g, "");
+      const match = matchReadRoute(clean);
+      if (!match) return null;
+      try {
+        return await match.route.handler(env, actor, profile, {
+          params: { profile, ...match.params },
+          query,
+        });
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 404 ||
+            (error.status === 409 && error.code === "module_disabled"))
+        )
+          return null;
+        throw error;
+      }
+    },
+    customerConversations: (phones, options = {}) =>
+      conversationsByPhones(env, profile, phones, options.limit),
+    customerTickets: (ids) => ticketsOfConversations(env, profile, ids),
+    eraseConversations: (ids, phones, options = {}) =>
+      eraseConversations(env, profile, ids, phones, options),
     async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))
         throw new Error(
@@ -1031,6 +1103,67 @@ export function onMcpTool(
   )
     throw new Error(`Ferramenta ${tool.name}: use o prefixo ${moduleId}_.`);
   registerMcpTool({ ...tool, module: moduleId });
+}
+
+/** Pedido de exclusão confirmado pelo titular, repassado a cada módulo. */
+export interface CustomerErasure {
+  /** Pedido no Cadastro de clientes (estável: use nas chaves). */
+  erasure_id: string;
+  /** Ficha no Cadastro de clientes (vínculo que outros módulos guardam). */
+  customer_id: string;
+  /** Telefones da ficha, só dígitos com DDI. */
+  phones: string[];
+  /** CPF ou CNPJ normalizado (sem pontuação), ou null. */
+  document: string | null;
+  /** Conversas da área com esses telefones (também as já encerradas). */
+  conversation_ids: string[];
+  /**
+   * Até quando a lei fiscal obriga a guardar notas emitidas a este cliente
+   * (ms Unix), ou null sem nota. Registro ligado a nota fiscal emitida guarda
+   * só o que a nota exige, até essa data; o resto sai agora.
+   */
+  fiscal_retention_until: number | null;
+}
+export interface CustomerEraseResult {
+  /** Registros apagados ou anonimizados. */
+  erased?: number;
+  /** Registros guardados por obrigação legal (nota fiscal, por exemplo). */
+  kept?: number;
+  /** Explicação curta para o histórico de exclusões (sem dado pessoal). */
+  note?: string;
+}
+
+/**
+ * O titular confirmou a exclusão dos dados (Cadastro de clientes). O módulo
+ * apaga ou anonimiza o que guarda desse cliente (pelos telefones, documento,
+ * conversas ou `customer_id`) e devolve um resumo sem dado pessoal. Roda em
+ * toda área, com o módulo ligado ou não. Deve ser idempotente: o Cadastro
+ * repete o gancho que lançar erro (a cada rodada periódica) até concluir.
+ * Não mande mensagem ao cliente daqui: o Cadastro já avisa.
+ */
+export function onCustomerErase(
+  moduleId: string,
+  hook: (
+    ctx: ModuleContext,
+    erasure: CustomerErasure,
+  ) => Promise<CustomerEraseResult | void>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerCustomerEraseHook(moduleId, (env, profile, erasure) =>
+    hook(modulesApi(env, profile, moduleId), erasure),
+  );
+}
+
+/**
+ * Ganchos onCustomerErase registrados, na ordem de registro: o Cadastro de
+ * clientes repassa a cada um o pedido confirmado pelo titular.
+ */
+export function customerEraseHandlers(): [
+  string,
+  (env: Env, profile: string, erasure: CustomerErasure) => Promise<any>,
+][] {
+  return customerEraseHooksList();
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */
