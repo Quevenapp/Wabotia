@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { dualFixture } from "./harness/dual-fixture.mjs";
 import { readSignatures } from "../../scripts/erp/gen-signatures.mjs";
 import { SIGNATURES } from "../../src/erp/engine/signatures.generated.ts";
-import { boolIn, intIn, uuidIn } from "../../src/erp/engine/args.ts";
+import { arrayIn, boolIn, intIn, uuidIn } from "../../src/erp/engine/args.ts";
 import { portedRpcs } from "../../src/erp/engine/registry.ts";
 import "../../src/erp/domains/index.ts";
 
@@ -89,4 +89,21 @@ test("chamada: resolução por nome, tipos na ordem dos argumentos e DEFAULT", a
   // DEFAULT: p_write omitido vale false; p_lease omitido vale null.
   await f.rpc("erp_company_logo_object", { p_user_id: user, p_id: randomUUID() }).catch(divergence);
   await f.rpc("erp_company_logo_stop", { p_user_id: user, p_id: randomUUID(), p_abort: true }).catch(divergence);
+});
+
+const ARRAYS = ["{}", " { } ", "{a,b}", "{open,NULL}", "{null,NuLl,\"NULL\"}", "{{open},{paid}}", "{{a,b},{c}}", "{{a},b}", "{\"com espaço\", sem aspas , \"aspas \\\" e \\\\ barra\"}",
+  "{a,,b}", "{a", "a,b", "{a}}", "{a} x", "{\"a}", "{\\,x}", "{a b}", "{{}}", "{{},{}}", "{ {1}, {2} }", "{{{x}}}", "{\"\"}", "{a\\\"b}"];
+
+test("literal de array (text[]) igual ao do Postgres: aninhado, NULL, aspas e erros", async () => {
+  for (const text of ARRAYS) {
+    const r = (await f.db.query(`select pg_input_is_valid($1::text,'text[]') ok, (pg_input_error_info($1::text,'text[]')).sql_error_code c`, [text])).rows[0];
+    const pg = r.ok ? { value: (await f.db.query(`select array_to_json($1::text::text[]) v`, [text])).rows[0].v } : { error: r.c };
+    let mine;
+    try {
+      mine = { value: arrayIn(text) };
+    } catch (e) {
+      mine = { error: e.code };
+    }
+    assert.deepEqual(mine, pg, JSON.stringify(text));
+  }
 });
