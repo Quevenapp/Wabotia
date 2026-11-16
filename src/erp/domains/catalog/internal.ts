@@ -29,7 +29,9 @@ export function fold(value: string | null): string | null {
     const i = FOLD_FROM.indexOf(ch);
     // lower() do Postgres é caractere a caractere: sem o sigma final do JS
     // ("ΑΣ" → "ασ", não "ας").
-    out += i >= 0 ? FOLD_TO[i].toLowerCase() : ch.toLowerCase();
+    // Mapeamento simples, como o Postgres: "İ" → "i" (o JS dá "i̇").
+    const l = i >= 0 ? FOLD_TO[i].toLowerCase() : ch === "İ" ? "i" : ch.toLowerCase();
+    out += [...l].length === 1 ? l : ch;
   }
   return out;
 }

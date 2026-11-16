@@ -2,7 +2,7 @@
 // payment_method_input, payment_method_dto, payment_method_accounts,
 // payment_condition_valid e o gatilho payment_method_defaults_fit (camada de
 // tabela: toda escrita passa por writeRow, que aplica a regra antes do SQL).
-// A conta é a tabela erp_finance.account, lida como o Fagoo a lê (só leitura).
+// A conta vem de finance/public.ts (leituras de erp_finance.account).
 import { formatScaled, fromColumn, toParam, toScaled } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
@@ -10,7 +10,8 @@ import { jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { activeRole } from "../access/public.ts";
-import { btrim, chars, collapseSpaces, compareText, contactText, lower, percentValid, upper, validCnpj } from "./fields.ts";
+import * as finance from "../finance/public.ts";
+import { btrim, chars, collapseSpaces, contactText, lower, percentValid, upper, validCnpj } from "./fields.ts";
 
 /** erp_catalog.payment_method_access(p_user_id, p_write): o papel. */
 export function paymentMethodAccess(db: SqlDriver, user: string | null, write: boolean): string {
@@ -237,14 +238,7 @@ export function updateRow(ctx: RpcContext, id: string, changes: Row) {
   );
 }
 
-const accountName = (db: SqlDriver, id: string | null) => {
-  if (id === null) return null;
-  const a = one(db, 'SELECT name FROM "erp_finance__account" WHERE id=?', id);
-  return a ? [...String(a.name)].slice(0, 200).join("") : null;
-};
-
-export const accountActive = (db: SqlDriver, id: string) =>
-  !!one(db, 'SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1', id);
+export const accountActive = (db: SqlDriver, id: string) => finance.accountActive(db, id);
 
 /** erp_catalog.payment_method_dto (null se não existe ou foi excluída). */
 export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unknown> | null {
@@ -258,7 +252,7 @@ export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unkn
     condition: m.condition,
     destination: m.destination,
     account_id: m.account_id,
-    account_name: accountName(db, m.account_id as string | null),
+    account_name: finance.accountName(db, m.account_id as string | null),
     applicable: m.applicable,
     card_brand: m.card_brand,
     card_integration: m.card_integration,
@@ -276,12 +270,5 @@ export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unkn
   return out;
 }
 
-/** erp_catalog.payment_method_accounts: até 500 contas por lower(name), id. */
-export function paymentMethodAccounts(db: SqlDriver) {
-  return db
-    .exec('SELECT id, name, active FROM "erp_finance__account"')
-    .rows.map((a) => ({ id: String(a.id), name: String(a.name), active: !!Number(a.active), key: lower(String(a.name)) }))
-    .sort((x, y) => compareText(x.key, y.key) || compareText(x.id, y.id))
-    .slice(0, 500)
-    .map((a) => ({ id: a.id, name: [...a.name].slice(0, 200).join(""), active: a.active }));
-}
+/** erp_catalog.payment_method_accounts */
+export const paymentMethodAccounts = (db: SqlDriver) => finance.accountOptions(db);

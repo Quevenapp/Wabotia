@@ -23,9 +23,27 @@ export const collapseSpaces = (s: string) => s.replace(new RegExp(`[${SPACE}]+`,
  * upper()/lower() do Postgres: caractere a caractere, sem expansão do JS
  * ("ß" → "ẞ", não "SS"; sigma sem a forma final).
  */
-export const upper = (s: string) =>
-  [...s].map((c) => (c === "ß" ? "ẞ" : [...c.toUpperCase()].length === 1 ? c.toUpperCase() : c)).join("");
-export const lower = (s: string) => [...s].map((c) => ([...c.toLowerCase()].length === 1 ? c.toLowerCase() : c)).join("");
+export const upper = (s: string) => [...s].map(upperChar).join("");
+export const lower = (s: string) => [...s].map(lowerChar).join("");
+
+/**
+ * Mapeamento simples de caixa (o do Postgres, conferido no oráculo): onde o
+ * JS expande (İ → i̇, ß → SS, ᾀ → ἈΙ), vale o caractere único.
+ */
+export function lowerChar(c: string) {
+  if (c === "İ") return "i";
+  const l = c.toLowerCase();
+  return [...l].length === 1 ? l : c;
+}
+export function upperChar(c: string) {
+  if (c === "ß") return "ẞ";
+  const p = c.codePointAt(0)!;
+  // Gregas com iota subscrita: ᾀ-ᾇ, ᾐ-ᾗ, ᾠ-ᾧ → +8; ᾳ ῃ ῳ → ᾼ ῌ ῼ.
+  if ((p >= 0x1f80 && p <= 0x1f87) || (p >= 0x1f90 && p <= 0x1f97) || (p >= 0x1fa0 && p <= 0x1fa7)) return String.fromCodePoint(p + 8);
+  if (p === 0x1fb3 || p === 0x1fc3 || p === 0x1ff3) return String.fromCodePoint(p + 9);
+  const u = c.toUpperCase();
+  return [...u].length === 1 ? u : c;
+}
 const LIST_SEPARATOR = new RegExp(`[${SPACE}]*[;,][${SPACE}]*`);
 const EMAIL = new RegExp(`^[^@${SPACE};,]+@[^@${SPACE};,]+\\.[^@${SPACE};,]+$`);
 
