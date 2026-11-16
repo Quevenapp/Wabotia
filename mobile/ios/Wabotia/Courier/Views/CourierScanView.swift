@@ -16,6 +16,11 @@ struct CourierScanView: View {
             SheetHeader(title: "Escanear pedido", subtitle: vm.demo ? "Demonstração" : nil, onClose: onClose).padding(.horizontal, 16)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    AuthField(label: "Seu nome", error: vm.scanError != nil && vm.courierName.trimmingCharacters(in: .whitespaces).isEmpty) {
+                        TextField("Como a loja e o cliente vão ver você", text: $vm.courierName)
+                            .textContentType(.name).textInputAutocapitalization(.words)
+                            .accessibilityIdentifier("courier.name")
+                    }
                     if vm.demo {
                         DeviceNotice(text: "Na demonstração não há QR de verdade: toque abaixo para ler um pedido fictício da Lanchonete Exemplo. Leia mais de um para ver várias entregas ao mesmo tempo.",
                                      color: Theme.warn)

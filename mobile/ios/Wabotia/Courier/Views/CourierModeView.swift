@@ -18,6 +18,7 @@ struct CourierModeView: View {
     /// A entrega aberta na pilha.
     @State private var opened: String?
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     init(launch: CourierLaunch, onFinish: @escaping (String?) -> Void) {
         _vm = StateObject(wrappedValue: CourierViewModel(services: launch.demo ? .demo() : .live()))
@@ -93,6 +94,11 @@ struct CourierModeView: View {
         }
         .onDisappear { vm.close() }
         .onChange(of: vm.finished) { finished in if finished { onFinish(vm.notice) } }
+        // Só com o app aberto: em segundo plano a fila vai e o GPS para; ao voltar, retoma.
+        .onChange(of: scenePhase) { phase in
+            if phase == .background { Task { await vm.pause() } }
+            if phase == .active { Task { await vm.resume() } }
+        }
     }
 
     private var emptyState: some View {

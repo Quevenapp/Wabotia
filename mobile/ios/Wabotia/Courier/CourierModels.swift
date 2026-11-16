@@ -57,6 +57,8 @@ struct CourierGrant: Codable, Equatable, Identifiable {
     var profileId: String?
     var label: String
     var demo = false
+    /// Validade da credencial (ms); depois disso o servidor responde 401.
+    var expiresAt: Int64?
     var id: String { deliveryId }
 }
 
@@ -87,20 +89,48 @@ struct CourierEta: Codable, Equatable {
     var distanceM: Double?
 }
 
-/// A entrega como o entregador a vê.
+/// O resumo do pedido para conferir e cobrar (`order` de `…/courier`; nulo fora do módulo Pedido).
+struct CourierOrder: Codable, Equatable {
+    struct Line: Codable, Equatable {
+        var name: String?
+        var quantity: Double?
+        var options: [String]?
+        var note: String?
+    }
+    struct Payment: Codable, Equatable {
+        var methodLabel: String?
+        var status: String?
+        var statusLabel: String?
+        var paid: Bool?
+        var changeForCents: Int?
+    }
+    var lines: [Line]?
+    var totalCents: Int?
+    var customerNote: String?
+    var payment: Payment?
+}
+
+/// Estado da conversa na entrega: a última mensagem e se dá para escrever ao cliente (janela de 24 h).
+struct CourierChatState: Codable, Equatable {
+    var lastSeq: Int?
+    var customerOpen: Bool?
+}
+
+/// A entrega como o entregador a vê (`GET …/entrega/deliveries/{id}/courier`): sem telefone nem notas internas.
 struct CourierDelivery: Codable, Equatable, Identifiable {
     var id: String
     var label: String?
-    /// `assigned`, `en_route`, `delivered`, `cancelled`.
+    /// `pending`, `assigned`, `en_route`, `delivered`, `cancelled`.
     var status: String?
-    var storeName: String?
+    var statusLabel: String?
+    /// Só o primeiro nome.
     var customerName: String?
     var addressText: String?
     var destination: CourierCoordinate?
-    var items: [String]?
-    var paymentText: String?
     var eta: CourierEta?
     var arriving: Bool?
+    var order: CourierOrder?
+    var chat: CourierChatState?
     var app: CourierRhythm?
 
     var displayLabel: String { label?.isEmpty == false ? label! : "Entrega" }
@@ -114,6 +144,25 @@ struct CourierDelivery: Codable, Equatable, Identifiable {
         case "cancelled": return "Não entregue"
         default: return "Aguardando saída"
         }
+    }
+
+    /// "2× X-Bacon (bacon extra) — sem cebola".
+    var items: [String] {
+        (order?.lines ?? []).map { line in
+            let q = line.quantity.map { $0 == $0.rounded() ? "\(Int($0))× " : "\($0)× " } ?? ""
+            let options = (line.options ?? []).isEmpty ? "" : " (\((line.options ?? []).joined(separator: ", ")))"
+            let note = (line.note ?? "").isEmpty ? "" : " — \(line.note ?? "")"
+            return "\(q)\(line.name ?? "Item")\(options)\(note)"
+        }
+    }
+
+    /// "Dinheiro · a receber R$ 28,00 · troco para R$ 50,00", ou "Pix · pago".
+    var paymentText: String? {
+        guard let p = order?.payment else { return nil }
+        var parts = [p.methodLabel ?? "Pagamento"]
+        if p.paid == true { parts.append("pago") } else if let total = order?.totalCents { parts.append("a receber \(Money.format(total))") }
+        if let change = p.changeForCents, change > 0 { parts.append("troco para \(Money.format(change))") }
+        return parts.joined(separator: " · ")
     }
 
     /// "cerca de 12 min (2,4 km)".
@@ -147,22 +196,45 @@ struct CourierPositionsReply: Codable, Equatable {
     var eta: CourierEta?
     var arriving: Bool?
     var app: CourierRhythm?
+    /// Conversa: quando muda, o app busca `…/messages?after=`.
+    var chat: CourierChatState?
 }
 
-/// Com quem o entregador conversa.
+/// Com quem o entregador conversa: o canal da mensagem (`store` ou `customer`).
 enum CourierPeer: String, Codable, CaseIterable, Identifiable {
     case store, customer
     var id: String { rawValue }
     var title: String { self == .store ? "Loja" : "Cliente" }
 }
 
+/// Uma mensagem da conversa da entrega (os dois canais vêm juntos, em ordem de `seq`).
 struct CourierMessage: Codable, Equatable, Identifiable {
-    var id: String
+    var seq: Int
+    /// `store` ou `customer`.
+    var channel: String
     /// `courier` (eu), `store` ou `customer`.
-    var from: String
+    var sender: String
+    var authorName: String?
     var text: String
-    var at: Int64
-    var mine: Bool { from == "courier" }
+    var created: Int64?
+
+    var id: Int { seq }
+    var mine: Bool { sender == "courier" }
+    var peer: CourierPeer { channel == CourierPeer.customer.rawValue ? .customer : .store }
+}
+
+/// `GET …/messages?after=<seq>`: até 100 por chamada.
+struct CourierMessagesPage: Codable, Equatable {
+    var data: [CourierMessage]
+    var lastSeq: Int?
+    var customerOpen: Bool?
+    var open: Bool?
+}
+
+/// A troca do QR: a credencial e o que a entrega já mostra.
+struct CourierClaim: Equatable {
+    var grant: CourierGrant
+    var delivery: CourierDelivery?
 }
 
 /// A fila local de pontos (docs/ENTREGA.md, "Sem sinal"): guarda até 2 horas, manda os mais antigos primeiro em lotes

@@ -44,7 +44,7 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > Único por `UIAccessibility.requestGuidedAccessSession`, e nos demais aparelhos nada acontece.
 >
 > **Modo entregador.** Na primeira tela, **Ver o modo entregador (demonstração)** abre o que o entregador vê depois de
-> escanear o QR de um pedido, sem conta: toque em **Ler o pedido de demonstração** (leia mais de um para ver várias
+> escanear o QR de um pedido, sem conta (o nome do entregador já vem preenchido): toque em **Ler o pedido de demonstração** (leia mais de um para ver várias
 > entregas), abra a entrega, toque em **Iniciar rota** e leia o aviso de compartilhamento da localização antes de
 > **Continuar**. A tela mostra o destino no mapa, **Abrir rota no Mapas**, a previsão de chegada, **Falar com a loja** e
 > **Falar com o cliente** (as respostas fictícias chegam sozinhas) e **Entreguei**, que encerra o acesso àquela entrega;
@@ -99,7 +99,7 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 > `UIAccessibility.requestGuidedAccessSession`, and on other devices nothing happens.
 >
 > **Courier mode.** On the first screen, **Ver o modo entregador (demonstração)** opens what a courier sees after
-> scanning an order's QR code, with no account: tap **Ler o pedido de demonstração** (read more than one to see several
+> scanning an order's QR code, with no account (the courier's name is already filled in): tap **Ler o pedido de demonstração** (read more than one to see several
 > deliveries at once), open the delivery, tap **Iniciar rota** (start route) and read the location-sharing notice before
 > **Continuar**. The screen shows the destination on a map, **Abrir rota no Mapas** (directions in Maps), the estimated
 > arrival, **Falar com a loja** and **Falar com o cliente** (chat with the store and the customer; fictitious replies

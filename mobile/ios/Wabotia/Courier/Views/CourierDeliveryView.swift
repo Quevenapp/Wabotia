@@ -73,7 +73,11 @@ struct CourierDeliveryView: View {
             ForEach(CourierPeer.allCases) { peer in
                 NavigationLink { CourierChatView(vm: vm, id: id, peer: peer) } label: {
                     CardRow(icon: peer == .store ? "building.2.fill" : "person.crop.circle.fill", iconColor: peer == .store ? Theme.warn : Theme.brand,
-                            title: peer == .store ? "Falar com a loja" : "Falar com o cliente", chevron: true, divider: peer == .store)
+                            title: peer == .store ? "Falar com a loja" : "Falar com o cliente",
+                            subtitle: peer == .customer && !vm.customerOpen(id) ? "Indisponível: o cliente não escreve há mais de 24 h" : vm.messages(id, peer).last?.text,
+                            chevron: true, divider: peer == .store) {
+                        if let n = vm.unread[vm.chatKey(id, peer)], n > 0 { CountBadge(count: n, color: Theme.accent) }
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("courier.chat.\(peer.rawValue)")
@@ -81,12 +85,18 @@ struct CourierDeliveryView: View {
         }
     }
 
+    @ViewBuilder
     private func order(_ d: CourierDelivery) -> some View {
-        SectionCard(title: d.storeName ?? "Pedido") {
-            ForEach(Array((d.items ?? []).enumerated()), id: \.offset) { _, item in
-                CardRow(icon: "bag.fill", iconColor: Theme.muted, title: item)
+        if d.order != nil {
+            SectionCard(title: "Pedido") {
+                ForEach(Array(d.items.enumerated()), id: \.offset) { _, item in
+                    CardRow(icon: "bag.fill", iconColor: Theme.muted, title: item)
+                }
+                if let note = d.order?.customerNote, !note.isEmpty {
+                    CardRow(icon: "text.bubble.fill", iconColor: Theme.ticket, title: "Observação do cliente", subtitle: note)
+                }
+                if let payment = d.paymentText { CardRow(icon: "banknote.fill", iconColor: Theme.ok, title: payment, divider: false) }
             }
-            if let payment = d.paymentText { CardRow(icon: "banknote.fill", iconColor: Theme.ok, title: payment, divider: false) }
         }
     }
 

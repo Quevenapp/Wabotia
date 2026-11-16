@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import UIKit
 
 /// O que o modo entregador usa do sistema; trocável nos testes.
 @MainActor
@@ -16,6 +17,13 @@ struct CourierServices {
     var acceptDisclosure: () -> Void
     /// Quanto esperar entre duas leituras de conferência das entregas (revogação, mudanças da loja).
     var refreshSeconds: TimeInterval = 30
+    /// Sondagem da conversa aberta na tela (sem WebSocket nesta versão).
+    var chatPollSeconds: TimeInterval = 15
+    /// O nome que o entregador digitou (vai na troca do QR; a loja e o cliente veem o primeiro nome).
+    var loadName: () -> String = { UserDefaults.standard.string(forKey: "courier.name") ?? "" }
+    var saveName: (String) -> Void = { UserDefaults.standard.set($0, forKey: "courier.name") }
+    /// O aparelho, para a loja saber quem leu o QR: modelo e sistema, nunca o nome que a pessoa deu ao aparelho.
+    var device: String = "\(UIDevice.current.model) (iOS \(UIDevice.current.systemVersion))"
 
     static func live() -> CourierServices {
         CourierServices(api: HTTPCourierAPI(), store: KeychainCourierGrantStore(), location: SystemCourierLocation(), demo: false,
@@ -30,8 +38,10 @@ struct CourierServices {
     /// Demonstração: pedidos fictícios, posição simulada, nada guardado.
     static func demo() -> CourierServices {
         var accepted = false
+        var name = "Carlos"
         return CourierServices(api: DemoCourierAPI(), store: MemoryCourierGrantStore(), location: SimulatedCourierLocation(), demo: true,
-                               geocode: { _ in nil }, disclosureAccepted: { accepted }, acceptDisclosure: { accepted = true }, refreshSeconds: 5)
+                               geocode: { _ in nil }, disclosureAccepted: { accepted }, acceptDisclosure: { accepted = true }, refreshSeconds: 5,
+                               chatPollSeconds: 3, loadName: { name }, saveName: { name = $0 })
     }
 }
 
@@ -42,7 +52,14 @@ struct CourierServices {
 final class CourierViewModel: ObservableObject {
     @Published private(set) var grants: [CourierGrant]
     @Published private(set) var deliveries: [String: CourierDelivery] = [:]
-    @Published private(set) var chats: [String: [CourierMessage]] = [:]
+    /// A conversa de cada entrega (os dois canais juntos, em ordem de `seq`).
+    @Published private(set) var feeds: [String: [CourierMessage]] = [:]
+    /// Mensagens da loja ou do cliente ainda não vistas, por entrega e canal (`chatKey`).
+    @Published private(set) var unread: [String: Int] = [:]
+    /// O nome que vai na troca do QR.
+    @Published var courierName: String
+    /// Recusa ao mandar mensagem (janela do cliente fechada, por exemplo), mostrada na conversa.
+    @Published var chatError: String?
     @Published var notice: String?
     @Published var scanError: String?
     @Published private(set) var scanning = false
@@ -61,10 +78,17 @@ final class CourierViewModel: ObservableObject {
     private var uploadTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var near = false
+    /// A última mensagem lida de cada entrega (`after` da próxima busca).
+    private var lastSeq: [String: Int] = [:]
+    /// Conversa aberta na tela (não conta como não lida).
+    private var viewing: String?
+    /// App em segundo plano: GPS parado (permissão só durante o uso).
+    private var paused = false
 
     init(services: CourierServices) {
         self.services = services
         grants = services.store.load()
+        courierName = services.loadName()
         services.location.onPoint = { [weak self] point in self?.received(point) }
         services.location.onAuthorization = { [weak self] auth in self?.authorizationChanged(auth) }
     }
@@ -93,7 +117,24 @@ final class CourierViewModel: ObservableObject {
     func close() {
         refreshTask?.cancel()
         uploadTask?.cancel()
+        uploadTask = nil
         services.location.stop()
+    }
+
+    /// O app foi para segundo plano: manda o que está na fila e para o GPS (só "Quando em uso", sem modo de fundo).
+    func pause() async {
+        paused = true
+        services.location.stop()
+        uploadTask?.cancel()
+        uploadTask = nil
+        for id in deliveries.keys.sorted() where deliveries[id]?.enRoute == true { await flush(id) }
+    }
+
+    /// De volta ao app: confere as entregas e retoma o GPS das que estão na rua.
+    func resume() async {
+        guard paused else { return }
+        paused = false
+        await refreshAll()
     }
 
     func refreshAll() async {
@@ -104,12 +145,19 @@ final class CourierViewModel: ObservableObject {
     private func refresh(_ grant: CourierGrant) async {
         do {
             let d = try await services.api.delivery(grant)
-            deliveries[grant.deliveryId] = d
-            if let app = d.app { rhythm = app }
+            apply(d)
             if !d.open { drop(grant.deliveryId, reason: "\(grant.label): \(d.statusText.lowercased()). O acesso a ela terminou.") }
         } catch let error as CourierError {
             handle(error, grant.deliveryId)
         } catch {}
+    }
+
+    private func apply(_ d: CourierDelivery) {
+        var d = d
+        if d.destination == nil { d.destination = deliveries[d.id]?.destination }
+        deliveries[d.id] = d
+        if let app = d.app { rhythm = app }
+        if let seq = d.chat?.lastSeq { chatMoved(d.id, to: seq) }
     }
 
     // MARK: - QR
@@ -126,15 +174,22 @@ final class CourierViewModel: ObservableObject {
             scanError = demo ? "Na demonstração, use o pedido de demonstração." : "Este é um pedido de demonstração."
             return false
         }
+        let name = courierName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            scanError = "Digite o seu nome antes de ler o QR: a loja e o cliente veem quem leva o pedido."
+            return false
+        }
+        services.saveName(name)
         scanning = true
         defer { scanning = false }
         do {
-            let grant = try await services.api.redeem(scan)
+            let claim = try await services.api.claim(scan, name: String(name.prefix(80)), device: services.device)
+            let grant = claim.grant
             if !grants.contains(where: { $0.deliveryId == grant.deliveryId }) { grants.append(grant) } else {
                 grants = grants.map { $0.deliveryId == grant.deliveryId ? grant : $0 }
             }
             services.store.save(grants)
-            await refresh(grant)
+            if let d = claim.delivery { apply(d) } else { await refresh(grant) }
             notice = nil
             return true
         } catch let error as CourierError {
@@ -189,10 +244,15 @@ final class CourierViewModel: ObservableObject {
         var destination = deliveries[id]?.destination
         if destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty { destination = await services.geocode(address) }
         do {
-            var d = try await services.api.start(grant, destination: destination)
-            if d.destination == nil { d.destination = destination }
-            deliveries[id] = d
-            if let app = d.app { rhythm = app }
+            if var d = try await services.api.start(grant, destination: destination) {
+                if d.destination == nil { d.destination = destination }
+                apply(d)
+            } else {
+                await refresh(grant)
+            }
+            // Resposta sem a entrega (ou atrasada): a saída foi aceita, a rota começa.
+            if deliveries[id]?.enRoute != true { deliveries[id]?.status = "en_route" }
+            if deliveries[id]?.destination == nil { deliveries[id]?.destination = destination }
             queues[id] = PositionQueue()
             updateTracking()
         } catch let error as CourierError {
@@ -207,7 +267,7 @@ final class CourierViewModel: ObservableObject {
         defer { busy.remove(id) }
         await flush(id)
         do {
-            try await services.api.delivered(grant)
+            try await services.api.delivered(grant, note: nil)
             drop(id, reason: "\(grant.label) entregue. Obrigado!")
         } catch let error as CourierError {
             handle(error, id)
@@ -257,7 +317,8 @@ final class CourierViewModel: ObservableObject {
 
     /// Liga o GPS e o envio enquanto houver entrega na rua; desliga quando não houver.
     private func updateTracking() {
-        let onRoad = deliveries.values.contains { $0.enRoute && grant($0.id) != nil }
+        // Em segundo plano o GPS fica parado até o app voltar.
+        let onRoad = !paused && deliveries.values.contains { $0.enRoute && grant($0.id) != nil }
         if onRoad {
             services.location.start(near: near, toward: trackingTarget)
             if uploadTask == nil {
@@ -298,6 +359,8 @@ final class CourierViewModel: ObservableObject {
                     return
                 }
                 notice = nil
+                // Mensagem nova da loja ou do cliente: busca a conversa.
+                if let seq = reply.chat?.lastSeq { chatMoved(id, to: seq) }
             } catch let error as CourierError {
                 handle(error, id)
                 return
@@ -309,18 +372,56 @@ final class CourierViewModel: ObservableObject {
 
     func chatKey(_ id: String, _ peer: CourierPeer) -> String { "\(id)|\(peer.rawValue)" }
 
-    func loadChat(_ id: String, _ peer: CourierPeer) async {
+    /// As mensagens de um canal da entrega.
+    func messages(_ id: String, _ peer: CourierPeer) -> [CourierMessage] { (feeds[id] ?? []).filter { $0.peer == peer } }
+
+    /// Pode escrever ao cliente agora (janela de 24 h aberta, `chat.customer_open`).
+    func customerOpen(_ id: String) -> Bool { deliveries[id]?.chat?.customerOpen ?? true }
+
+    /// A conversa aberta na tela: o que chega nela não conta como não lida.
+    func viewChat(_ id: String, _ peer: CourierPeer?) {
+        viewing = peer.map { chatKey(id, $0) }
+        if let peer { unread[chatKey(id, peer)] = nil }
+    }
+
+    /// `chat.last_seq` da entrega ou do lote andou: busca o que falta.
+    private func chatMoved(_ id: String, to seq: Int) {
+        guard seq > (lastSeq[id] ?? 0) else { return }
+        Task { await loadChat(id) }
+    }
+
+    /// `GET …/messages?after=`: junta o que veio à conversa da entrega (até esgotar, 100 por vez).
+    func loadChat(_ id: String) async {
         guard let grant = grant(id) else { return }
-        do { chats[chatKey(id, peer)] = try await services.api.messages(grant, with: peer) } catch let error as CourierError { handle(error, id) } catch {}
+        do {
+            for _ in 0..<10 {
+                let after = lastSeq[id] ?? 0
+                let page = try await services.api.messages(grant, after: after)
+                if let open = page.customerOpen { deliveries[id]?.chat = CourierChatState(lastSeq: page.lastSeq, customerOpen: open) }
+                let fresh = page.data.filter { $0.seq > after }
+                guard !fresh.isEmpty else { return }
+                feeds[id, default: []].append(contentsOf: fresh)
+                lastSeq[id] = fresh.map(\.seq).max() ?? after
+                for m in fresh where !m.mine {
+                    let key = chatKey(id, m.peer)
+                    if key != viewing { unread[key, default: 0] += 1 }
+                }
+                if fresh.count < 100 { return }
+            }
+        } catch let error as CourierError { handle(error, id) } catch {}
     }
 
     func send(_ id: String, _ peer: CourierPeer, _ text: String) async -> Bool {
-        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clean = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1000))
         guard let grant = grant(id), !clean.isEmpty else { return false }
         do {
             let sent = try await services.api.send(grant, to: peer, text: clean)
-            chats[chatKey(id, peer), default: []].append(sent)
+            if !(feeds[id] ?? []).contains(where: { $0.seq == sent.seq }) { feeds[id, default: []].append(sent) }
+            chatError = nil
             return true
+        } catch CourierError.server(let text) {
+            // 409 window_closed (o cliente não escreve há mais de 24 h), no_conversation, texto longo: fica na conversa.
+            chatError = text
         } catch let error as CourierError {
             handle(error, id)
         } catch {}
@@ -346,7 +447,9 @@ final class CourierViewModel: ObservableObject {
         services.store.save(grants)
         deliveries[id] = nil
         queues[id] = nil
-        for peer in CourierPeer.allCases { chats[chatKey(id, peer)] = nil }
+        feeds[id] = nil
+        lastSeq[id] = nil
+        for peer in CourierPeer.allCases { unread[chatKey(id, peer)] = nil }
         notice = reason
         updateTracking()
         if grants.isEmpty {
