@@ -4,7 +4,6 @@ import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import * as preferences from "../../preferences/public.ts";
 import { requireAccess } from "../access.ts";
-import { uuidArg } from "../args.ts";
 import { contactCodeCounter, highestContactCode } from "../contact-code.ts";
 
 /** erp_preferences.get(key) #>> '{}' */
@@ -26,4 +25,4 @@ export function contactCode(ctx: RpcContext, user: string | null) {
   };
 }
 
-registerRpc("erp_catalog_contact_code", (ctx: RpcContext, a: RpcArgs) => contactCode(ctx, uuidArg(a, "p_user_id")));
+registerRpc("erp_catalog_contact_code", (ctx: RpcContext, a: RpcArgs) => contactCode(ctx, ((a.p_user_id ?? null) as string | null)));
