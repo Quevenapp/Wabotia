@@ -5,8 +5,6 @@ import {
   digest,
   parsePackage,
   validateIndex,
-  validateInstalledSettings,
-  workerUpload,
   RELEASE_ORIGIN,
 } from "../src/release";
 import {
@@ -16,11 +14,18 @@ import {
   processUpdate,
   updateStatus,
   resetUpdate,
+  workPrefix,
 } from "../src/updates";
 import { secret, setSecret } from "../src/security";
 import { exec, one } from "../src/db";
 import { type Actor, type Env, now } from "../src/types";
 import { buildInfo } from "../src/build-info.generated";
+import {
+  buildRelease,
+  serveRelease,
+  type BuiltRelease,
+  type ReleaseSpec,
+} from "./release-v2-fixture";
 const account = "d".repeat(32),
   worker = "release-test",
   identity = "test-installation-identity",
@@ -43,31 +48,12 @@ const actor: Actor = {
   rate: 60,
   runLimit: 3,
 };
-let index: any,
-  pkg: any,
-  bytes: Buffer,
+let spec: ReleaseSpec,
+  release: BuiltRelease,
   settings: any,
   calls: { url: string; method: string; body: any; auth: string }[],
   uploadError = false,
   wrongIdentity = false;
-async function file(name: string, type: string, body: string) {
-  return {
-    name,
-    type,
-    data: Buffer.from(body).toString("base64"),
-    sha256: await digest(body),
-  };
-}
-async function packageBytes() {
-  bytes = Buffer.from(JSON.stringify(pkg));
-  index = {
-    format: 1,
-    version: pkg.version,
-    commit: pkg.commit,
-    package_sha256: await digest(bytes),
-    package_size: bytes.length,
-  };
-}
 const ok = (result: any) => Response.json({ success: true, result });
 beforeEach(async () => {
   calls = [];
@@ -76,28 +62,16 @@ beforeEach(async () => {
   await exec(env, "DELETE FROM secrets WHERE id LIKE 'system:release-%'");
   await exec(env, "DROP TABLE IF EXISTS release_probe");
   await exec(env, "DROP TABLE IF EXISTS d1_migrations");
-  pkg = {
-    format: 1,
+  spec = {
     version: "0.3.1",
     commit: target,
-    main_module: "index.js",
-    compatibility_date: "2026-11-04",
-    compatibility_flags: ["nodejs_compat"],
-    assets_config: {
-      not_found_handling: "single-page-application",
-      run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
-      _headers:
-        "/*\n  Permissions-Policy: microphone=(self), camera=()\n  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'; media-src 'self' blob:\n",
-    },
-    durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
     modules: [
-      await file(
-        "index.js",
-        "application/javascript+module",
-        "export default {fetch(){return new Response('test')}}",
-      ),
+      {
+        name: "index.js",
+        body: "export default {fetch(){return new Response('test')}}",
+      },
     ],
-    assets: [await file("/index.html", "text/html", "<html>test</html>")],
+    assets: [{ name: "/index.html", body: "<html>test</html>" }],
     migrations: [
       {
         name: "0001_probe.sql",
@@ -107,8 +81,14 @@ beforeEach(async () => {
         ],
       },
     ],
+    assets_config: {
+      not_found_handling: "single-page-application",
+      run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
+      _headers:
+        "/*\n  Permissions-Policy: microphone=(self), camera=()\n  Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'; media-src 'self' blob:\n",
+    },
   };
-  await packageBytes();
+  release = await buildRelease(spec);
   settings = {
     observability: { enabled: true },
     limits: { cpu_ms: 30000 },
@@ -142,9 +122,7 @@ beforeEach(async () => {
     calls.push({ url: request.url, method, body, auth });
     if (url.origin === RELEASE_ORIGIN) {
       expect(auth).toBe("");
-      return url.pathname.endsWith("latest.json")
-        ? Response.json(index)
-        : new Response(bytes);
+      return serveRelease(url, release)!;
     }
     expect(url.origin).toBe("https://api.cloudflare.com");
     if (url.pathname.includes("/workers/services/"))
@@ -154,7 +132,7 @@ beforeEach(async () => {
     if (url.pathname.endsWith("/assets-upload-session"))
       return ok({
         jwt: "temporary-upload-token",
-        buckets: [[pkg.assets[0].sha256.slice(0, 32)]],
+        buckets: [[release.manifest.assets[0].sha256.slice(0, 32)]],
       });
     if (url.pathname.endsWith("/assets/upload")) {
       expect(auth).toBe("Bearer temporary-upload-token");
@@ -172,7 +150,7 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 async function runToEnd() {
-  for (let i = 0; i < 9; i++) await processUpdate(e);
+  for (let i = 0; i < 12; i++) await processUpdate(e);
 }
 it("publica sem GitHub/Builds preservando ligações e migrações, e só confirma o código ativo", async () => {
   await configureUpdates(e, actor, { token: "new-private-token-000000000000" });
@@ -200,7 +178,17 @@ it("publica sem GitHub/Builds preservando ligações e migrações, e só confir
   expect(metadata.observability).toEqual(settings.observability);
   expect(metadata.limits).toEqual(settings.limits);
   expect(metadata.assets.jwt).toBe("temporary-completion-token");
-  expect(metadata.assets.config._headers).toBe(pkg.assets_config._headers);
+  expect(metadata.assets.config._headers).toBe(spec.assets_config!._headers);
+  // O módulo publicado é o blob baixado e conferido.
+  expect(await publication[0].body.get("index.js").text()).toBe(
+    spec.modules[0].body,
+  );
+  // O estático foi enviado em base64, como a Cloudflare espera.
+  const upload = calls.find((call) => call.url.includes("/assets/upload"))!;
+  const sent = upload.body.get(release.manifest.assets[0].sha256.slice(0, 32));
+  expect(Buffer.from(await sent.text(), "base64").toString()).toBe(
+    "<html>test</html>",
+  );
   expect(
     calls.some(
       (call) =>
@@ -211,12 +199,17 @@ it("publica sem GitHub/Builds preservando ligações e migrações, e só confir
     /private-token|temporary-upload|temporary-completion|package_key/,
   );
   const state = await secret(e, "system:release-state");
+  expect(
+    (await env.MEDIA.list({ prefix: workPrefix(state.id) })).objects.length,
+  ).toBeGreaterThan(0);
   await setSecret(e, "system:release-state", {
     ...state,
     target: buildInfo.commit,
   });
   expect((await updateStatus(e)).state?.status).toBe("completed");
-  expect(await env.MEDIA.get(state.package_key)).toBeNull();
+  expect(
+    (await env.MEDIA.list({ prefix: workPrefix(state.id) })).objects,
+  ).toHaveLength(0);
 });
 it("recusa troca de identidade e token de aplicação antes da publicação", async () => {
   await expect(
@@ -253,23 +246,69 @@ it("não repete publicação com confirmação perdida", async () => {
   expect(
     (await resetUpdate(e, actor, { confirmed_build_stopped: true }))?.status,
   ).toBe("cancelled");
+  expect(
+    (await env.MEDIA.list({ prefix: workPrefix(state.id) })).objects,
+  ).toHaveLength(0);
 });
-it("recusa pacote alterado, caminho externo e migração Durable Object incompatível", async () => {
-  await expect(parsePackage(index, Buffer.from("modified"))).rejects.toThrow(
-    /integridade/,
+it("formato 1 continua conferido: pacote alterado, caminho externo e Durable Object", async () => {
+  // A ponte ainda publica o pacote de formato 1 para as instalações antigas.
+  const file = async (name: string, type: string, body: string) => ({
+    name,
+    type,
+    data: Buffer.from(body).toString("base64"),
+    sha256: await digest(body),
+  });
+  const pkg: any = {
+    format: 1,
+    version: "0.3.1",
+    commit: target,
+    main_module: "index.js",
+    compatibility_date: "2026-11-04",
+    compatibility_flags: [],
+    assets_config: spec.assets_config,
+    durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
+    modules: [await file("index.js", "application/javascript+module", "x")],
+    assets: [await file("/index.html", "text/html", "<html></html>")],
+    migrations: [],
+  };
+  const v1 = async () => {
+    const bytes = Buffer.from(JSON.stringify(pkg));
+    return {
+      bytes,
+      index: {
+        format: 1,
+        version: pkg.version,
+        commit: pkg.commit,
+        package_sha256: await digest(bytes),
+        package_size: bytes.length,
+      },
+    };
+  };
+  let built = await v1();
+  expect((await parsePackage(built.index as any, built.bytes)).version).toBe(
+    "0.3.1",
   );
+  await expect(
+    parsePackage(built.index as any, Buffer.from("modified")),
+  ).rejects.toThrow(/integridade/);
   pkg.assets[0].name = "/../../secret";
-  await packageBytes();
-  await expect(parsePackage(index, bytes)).rejects.toThrow(/Arquivo inválido/);
+  built = await v1();
+  await expect(parsePackage(built.index as any, built.bytes)).rejects.toThrow(
+    /Arquivo inválido/,
+  );
   pkg.assets[0].name = "/index.html";
   pkg.durable_migrations.push({ tag: "v2", deleted_classes: ["Coordinator"] });
-  await packageBytes();
-  await expect(parsePackage(index, bytes)).rejects.toThrow(/Durable Objects/);
-  expect(() => validateIndex({ ...index, package_size: 1000000000 })).toThrow();
+  built = await v1();
+  await expect(parsePackage(built.index as any, built.bytes)).rejects.toThrow(
+    /Durable Objects/,
+  );
+  expect(() =>
+    validateIndex({ ...built.index, package_size: 1000000000 }),
+  ).toThrow();
 });
 it("rollback da migração preserva o recibo e impede ativar código", async () => {
-  pkg.migrations[0].statements.push("INSERT INTO missing_table VALUES('fail')");
-  await packageBytes();
+  spec.migrations[0].statements.push("INSERT INTO missing_table VALUES('fail')");
+  release = await buildRelease(spec);
   await startUpdate(e, actor, { commit: target });
   await runToEnd();
   expect((await updateStatus(e)).state?.status).toBe("failed");

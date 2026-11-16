@@ -48,18 +48,22 @@ beforeEach(async () => {
   packageFailure = "network";
   catalogFailure = false;
   index = {
-    format: 1,
+    format: 2,
     version: "99.0.0",
     commit: target,
-    package_sha256: "b".repeat(64),
-    package_size: 3,
+    manifest_sha256: "b".repeat(64),
+    manifest_size: 3,
+    total_size: 3,
+    requires: { min_version: "0.0.1", workers_paid: true },
   };
   vi.stubGlobal("fetch", async (input: any, init: any = {}) => {
     const request = new Request(input, init);
     calls.push(request.url);
     expect(request.headers.get("Authorization")).toBeNull();
     expect(new URL(request.url).origin).toBe(RELEASE_ORIGIN);
+    // A ponte só lê o índice do formato 2.
     if (request.url.endsWith("latest.json")) {
+      expect(request.url).toBe(RELEASE_ORIGIN + "/releases/v2/latest.json");
       if (catalogFailure) throw new TypeError("network unavailable");
       return Response.json(index);
     }
@@ -215,7 +219,7 @@ it("retries only transient pre-publication failures, reusing the job with a boun
     status: "blocked",
     attempt: 3,
   });
-  expect(calls.filter((url) => url.endsWith("package.json"))).toHaveLength(3);
+  expect(calls.filter((url) => url.endsWith("manifest.json"))).toHaveLength(3);
 });
 
 it("does not retry an invalid package, migration failure, or uncertain publication", async () => {

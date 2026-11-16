@@ -198,6 +198,366 @@ export async function parsePackage(
   return p;
 }
 
+// ---------------------------------------------------------------------------
+// Formato 2 (versão ponte em diante; docs/ATUALIZACOES-FORMATO.md)
+//
+//   /releases/v2/latest.json            índice: {format:2, version, commit,
+//                                       manifest_sha256, manifest_size,
+//                                       total_size, requires}
+//   /releases/<versão>/manifest.json    metadados; modules/assets/migrations
+//                                       como {name, type, size, sha256}
+//   /releases/blobs/<sha256>            bytes crus, endereçados por conteúdo
+//
+// Sem base64 e sem um JSON único: o atualizador baixa o manifesto (até
+// 2 MiB) e depois só os arquivos de que precisa, conferindo o SHA-256 de cada
+// um. O releases/latest.json antigo (formato 1) fica congelado na ponte: uma
+// instalação antiga só enxerga a ponte e, depois dela, o índice v2.
+
+export const MAX_MANIFEST = 2 * 1024 * 1024;
+/** Teto por arquivo: o de um estático da Cloudflare, que serve os blobs. */
+export const MAX_BLOB = 25 * 1024 * 1024;
+/** Módulos do Worker somados (o Worker aceita 64 MiB sem compressão). */
+export const MAX_MODULES_TOTAL = 40 * 1024 * 1024;
+/** Todos os arquivos únicos da versão somados. */
+export const MAX_TOTAL = 160 * 1024 * 1024;
+export const MAX_MODULES = 256;
+export const MAX_ASSETS = 2000;
+export const MAX_MIGRATIONS = 1000;
+/** Hashes por lote da sessão de envio de estáticos da Cloudflare. */
+export const MAX_UPLOAD_BATCH = 2000;
+/** Por rodada do atualizador: até 20 arquivos ou 16 MiB (o que vier antes). */
+export const ROUND_FILES = 20;
+export const ROUND_BYTES = 16 * 1024 * 1024;
+
+export interface ReleaseIndexV2 {
+  format: 2;
+  version: string;
+  commit: string;
+  manifest_sha256: string;
+  manifest_size: number;
+  total_size: number;
+  requires: { min_version: string; workers_paid: boolean };
+}
+export interface BlobRef {
+  name: string;
+  type: string;
+  size: number;
+  sha256: string;
+}
+export interface ReleaseManifest {
+  format: 2;
+  version: string;
+  commit: string;
+  main_module: string;
+  compatibility_date: string;
+  compatibility_flags: string[];
+  assets_config: Record<string, unknown>;
+  durable_migrations: { tag: string; new_sqlite_classes?: string[] }[];
+  modules: BlobRef[];
+  assets: BlobRef[];
+  /** Cada blob de migração é um JSON: lista de instruções SQL. */
+  migrations: BlobRef[];
+}
+
+const semver = /^\d+\.\d+\.\d+$/;
+/** a >= b, em versões x.y.z. */
+export function versionAtLeast(a: string, b: string) {
+  if (!semver.test(a) || !semver.test(b)) return false;
+  const x = a.split(".").map(Number),
+    y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return true;
+}
+
+export function validateIndexV2(value: any): ReleaseIndexV2 {
+  assertRelease(
+    value?.format === 2 &&
+      semver.test(value.version) &&
+      /^[a-f0-9]{40}$/.test(value.commit) &&
+      /^[a-f0-9]{64}$/.test(value.manifest_sha256) &&
+      Number.isSafeInteger(value.manifest_size) &&
+      value.manifest_size > 0 &&
+      value.manifest_size <= MAX_MANIFEST &&
+      Number.isSafeInteger(value.total_size) &&
+      value.total_size > 0 &&
+      value.total_size <= MAX_TOTAL &&
+      semver.test(value.requires?.min_version) &&
+      typeof value.requires?.workers_paid === "boolean",
+    "A versão oficial não contém um índice de publicação válido.",
+  );
+  return {
+    format: 2,
+    version: value.version,
+    commit: value.commit,
+    manifest_sha256: value.manifest_sha256,
+    manifest_size: value.manifest_size,
+    total_size: value.total_size,
+    requires: {
+      min_version: value.requires.min_version,
+      workers_paid: value.requires.workers_paid,
+    },
+  };
+}
+
+export const indexV2Url = () => `${RELEASE_ORIGIN}/releases/v2/latest.json`;
+export const manifestPath = (version: string) =>
+  `/releases/${version}/manifest.json`;
+export const blobPath = (sha256: string) => `/releases/blobs/${sha256}`;
+
+export async function latestReleaseV2(): Promise<ReleaseIndexV2> {
+  const r = await fetch(indexV2Url(), {
+    redirect: "manual",
+    signal: AbortSignal.timeout(20000),
+  });
+  return validateIndexV2(
+    JSON.parse((await limitedBody(r, 8192)).toString("utf8")),
+  );
+}
+
+function validRef(f: any, group: "module" | "asset" | "migration") {
+  return (
+    f &&
+    typeof f.name === "string" &&
+    f.name.length <= 300 &&
+    (group === "asset"
+      ? /^\/[a-zA-Z0-9_./-]+$/
+      : group === "module"
+        ? /^[a-zA-Z0-9_./-]+$/
+        : /^\d{4}_[a-z0-9_]+\.sql$/
+    ).test(f.name) &&
+    !f.name.split("/").includes("..") &&
+    typeof f.type === "string" &&
+    f.type.length < 120 &&
+    Number.isSafeInteger(f.size) &&
+    f.size >= 0 &&
+    f.size <= MAX_BLOB &&
+    /^[a-f0-9]{64}$/.test(f.sha256)
+  );
+}
+
+/** Confere o manifesto contra o índice; as regras de estrutura do formato 1 valem. */
+export async function parseManifest(
+  index: ReleaseIndexV2,
+  bytes: Uint8Array,
+): Promise<ReleaseManifest> {
+  assertRelease(
+    bytes.length === index.manifest_size &&
+      (await digest(bytes)) === index.manifest_sha256,
+    "A integridade do manifesto oficial não confere. Nenhuma publicação foi feita.",
+  );
+  const p = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  assertRelease(
+    p.format === 2 && p.version === index.version && p.commit === index.commit,
+    "O manifesto não corresponde à versão escolhida.",
+  );
+  assertRelease(
+    /^\d{4}-\d{2}-\d{2}$/.test(p.compatibility_date) &&
+      Array.isArray(p.compatibility_flags) &&
+      p.compatibility_flags.every((v: unknown) => typeof v === "string") &&
+      Array.isArray(p.modules) &&
+      p.modules.length > 0 &&
+      p.modules.length <= MAX_MODULES &&
+      Array.isArray(p.assets) &&
+      p.assets.length > 0 &&
+      p.assets.length <= MAX_ASSETS &&
+      Array.isArray(p.migrations) &&
+      p.migrations.length <= MAX_MIGRATIONS,
+    "Estrutura do pacote oficial inválida.",
+  );
+  const seen = new Set<string>();
+  const sizes = new Map<string, number>();
+  let modulesTotal = 0;
+  for (const [group, files] of [
+    ["module", p.modules],
+    ["asset", p.assets],
+    ["migration", p.migrations],
+  ] as const) {
+    for (const f of files) {
+      assertRelease(
+        validRef(f, group) && !seen.has(group + f.name),
+        group === "migration"
+          ? "Migração inválida no pacote oficial."
+          : "Arquivo inválido no pacote oficial.",
+      );
+      seen.add(group + f.name);
+      // O mesmo conteúdo tem o mesmo tamanho em qualquer lugar.
+      assertRelease(
+        !sizes.has(f.sha256) || sizes.get(f.sha256) === f.size,
+        "Arquivo corrompido no pacote oficial.",
+      );
+      sizes.set(f.sha256, f.size);
+      if (group === "module") modulesTotal += f.size;
+    }
+  }
+  const migrationNames = p.migrations.map((m: BlobRef) => m.name);
+  assertRelease(
+    migrationNames.every(
+      (name: string, i: number) => i === 0 || migrationNames[i - 1] < name,
+    ),
+    "Migrações fora de ordem no pacote oficial.",
+  );
+  assertRelease(
+    modulesTotal <= MAX_MODULES_TOTAL,
+    "O Worker desta versão excede o tamanho permitido.",
+  );
+  assertRelease(
+    [...sizes.values()].reduce((a, b) => a + b, 0) === index.total_size,
+    "O tamanho total do pacote não confere com o índice.",
+  );
+  assertRelease(
+    p.modules.some(
+      (f: BlobRef) =>
+        f.name === p.main_module && f.type === "application/javascript+module",
+    ),
+    "Módulo principal inválido.",
+  );
+  // Inalterado em relação ao formato 1: Durable Objects e rotas do Worker.
+  assertRelease(
+    JSON.stringify(p.durable_migrations) ===
+      JSON.stringify([{ tag: "v1", new_sqlite_classes: ["Coordinator"] }]),
+    "Esta versão altera Durable Objects e exige atualização manual.",
+  );
+  assertRelease(
+    p.assets_config?.not_found_handling === "single-page-application" &&
+      JSON.stringify(p.assets_config?.run_worker_first) ===
+        JSON.stringify(["/api/*", "/webhooks/*", "/internal/*"]),
+    "Configuração de arquivos incompatível.",
+  );
+  return p;
+}
+
+export async function fetchManifest(index: ReleaseIndexV2) {
+  validateIndexV2(index);
+  const r = await fetch(RELEASE_ORIGIN + manifestPath(index.version), {
+    redirect: "manual",
+    signal: AbortSignal.timeout(20000),
+  });
+  const bytes = await limitedBody(r, MAX_MANIFEST);
+  return { manifest: await parseManifest(index, bytes), bytes };
+}
+
+/** Confere tamanho e SHA-256 de um arquivo baixado. */
+export async function checkBlob(ref: BlobRef, bytes: Uint8Array) {
+  assertRelease(
+    bytes.length === ref.size && (await digest(bytes)) === ref.sha256,
+    `Arquivo corrompido no pacote oficial (${ref.name}). Nenhuma publicação foi feita.`,
+  );
+  return bytes;
+}
+
+export async function fetchBlob(ref: BlobRef) {
+  const r = await fetch(RELEASE_ORIGIN + blobPath(ref.sha256), {
+    redirect: "manual",
+    signal: AbortSignal.timeout(60000),
+  });
+  return checkBlob(ref, await limitedBody(r, Math.min(MAX_BLOB, ref.size)));
+}
+
+/** Arquivos únicos da versão (por SHA-256), em ordem estável. */
+export function uniqueBlobs(m: ReleaseManifest) {
+  const out = new Map<string, BlobRef>();
+  for (const f of [...m.modules, ...m.migrations, ...m.assets])
+    if (!out.has(f.sha256)) out.set(f.sha256, f);
+  return [...out.values()];
+}
+
+/** Próxima rodada: até ROUND_FILES arquivos ou ROUND_BYTES (pelo menos um). */
+export function nextRound<T extends { size: number }>(
+  items: T[],
+  from: number,
+  maxFiles = ROUND_FILES,
+  maxBytes = ROUND_BYTES,
+) {
+  const out: T[] = [];
+  let bytes = 0;
+  for (let i = from; i < items.length && out.length < maxFiles; i++) {
+    if (out.length && bytes + items[i].size > maxBytes) break;
+    out.push(items[i]);
+    bytes += items[i].size;
+  }
+  return out;
+}
+
+export function assetManifestV2(m: ReleaseManifest) {
+  return Object.fromEntries(
+    m.assets.map((f) => [f.name, { hash: f.sha256.slice(0, 32), size: f.size }]),
+  );
+}
+
+/** Estáticos pedidos pela Cloudflare num lote (até MAX_UPLOAD_BATCH hashes). */
+export function assetsForHashes(m: ReleaseManifest, hashes: unknown) {
+  assertRelease(
+    Array.isArray(hashes) &&
+      hashes.length <= MAX_UPLOAD_BATCH &&
+      hashes.every((h) => typeof h === "string"),
+    "Lote de arquivos inválido.",
+  );
+  return (hashes as string[]).map((hash) => {
+    const f = m.assets.find((file) => file.sha256.slice(0, 32) === hash);
+    assertRelease(
+      f,
+      "A Cloudflare solicitou um arquivo fora da versão escolhida.",
+    );
+    return { hash, file: f! };
+  });
+}
+
+/** Corpo do envio de estáticos (?base64=true), lendo cada arquivo só aqui. */
+export async function assetUploadV2(
+  items: { hash: string; file: BlobRef }[],
+  read: (ref: BlobRef) => Promise<Uint8Array>,
+) {
+  const body = new FormData();
+  for (const { hash, file } of items)
+    body.set(
+      hash,
+      new Blob([Buffer.from(await read(file)).toString("base64")], {
+        type: file.type,
+      }),
+      hash,
+    );
+  return body;
+}
+
+/** Corpo da publicação do Worker no formato 2: módulos lidos sob demanda. */
+export async function workerUploadV2(
+  m: ReleaseManifest,
+  settings: any,
+  completionToken: string,
+  read: (ref: BlobRef) => Promise<Uint8Array>,
+) {
+  const body = workerUpload(
+    { ...(m as any), modules: [] } as ReleasePackage,
+    settings,
+    completionToken,
+  );
+  for (const f of m.modules)
+    body.set(
+      f.name,
+      new Blob([(await read(f)) as Uint8Array<ArrayBuffer>], { type: f.type }),
+      f.name,
+    );
+  return body;
+}
+
+/** Instruções SQL de um blob de migração (JSON: lista de textos). */
+export function migrationStatements(ref: BlobRef, bytes: Uint8Array) {
+  let statements: unknown;
+  try {
+    statements = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    statements = null;
+  }
+  assertRelease(
+    Array.isArray(statements) &&
+      statements.length > 0 &&
+      statements.length <= 100 &&
+      statements.every((s) => typeof s === "string" && s.length < 100000),
+    `Migração inválida no pacote oficial (${ref.name}).`,
+  );
+  return statements as string[];
+}
+
 export class CloudflareCallError extends Error {
   constructor(
     message: string,
@@ -331,7 +691,7 @@ export function assetManifest(pkg: ReleasePackage) {
 export function assetUpload(pkg: ReleasePackage, hashes: string[]) {
   const body = new FormData();
   assertRelease(
-    Array.isArray(hashes) && hashes.length <= 100,
+    Array.isArray(hashes) && hashes.length <= MAX_UPLOAD_BATCH,
     "Lote de arquivos inválido.",
   );
   for (const hash of hashes) {
