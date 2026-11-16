@@ -11,7 +11,7 @@ import { openInstallments } from "./chat";
 import { resendCharge } from "./billing";
 import { loadInstallment, waive } from "./installments";
 import { dayLabel, money, periodLabel } from "./model";
-import { cancelOpenCharge, isManager } from "./store";
+import { cancelOpenCharge, manager } from "./store";
 
 export type RequestKind = "dispensa" | "desconto";
 export const REQUEST_KINDS: RequestKind[] = ["dispensa", "desconto"];
@@ -219,16 +219,15 @@ export async function validateRequest(
   approval: any,
   decision: ApprovalDecision,
 ) {
-  // Segundo fator: a decisão é financeira. Na junção com feat/login-mfa,
-  // `requireFinancialAal(decision.actor)` (src/mfa.ts) entra aqui, ou no
-  // decideApproval do núcleo (revisão da A, item 5); o ator da rota de
-  // decisão é a sessão da pessoa, com o aal dela. Nesta base não há aal.
-  if (!decision.actor || !isManager(decision.actor))
-    throw moduleError(
-      403,
-      "admin_required",
-      "Somente administradores dispensam ou dão desconto em mensalidade.",
-    );
+  if (!decision.actor)
+    throw moduleError(403, "admin_required", "Decisão sem pessoa.");
+  // Mesma regra do waive: administrador e, como a decisão é financeira, o
+  // segundo fator pela política da instalação (manager → requireFinancialAal,
+  // src/mfa.ts). O ator da rota de decisão é a sessão da pessoa, com o aal.
+  manager(
+    decision.actor,
+    "Somente administradores dispensam ou dão desconto em mensalidade.",
+  );
   const inst = await loadInstallment(ctx, approval.ref_id);
   // Gancho repetido depois de aplicar: segue para avisar o cliente.
   if (approval.kind === "dispensa" && inst.status === "waived") return;

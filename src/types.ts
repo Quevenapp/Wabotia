@@ -30,9 +30,17 @@ export interface Actor {
    */
   access?: string[] | null;
   /**
-   * Só auditoria: a pessoa agiu pelo bot na conversa interna
-   * (src/bot-actions). As regras dos módulos não olham este campo; o núcleo
-   * usa para gravar `audit.via` e mascarar o que vai ao modelo.
+   * Pessoa: nível da sessão (1 só senha, 2 com segundo fator) e o id público
+   * da sessão (src/mfa.ts). Aplicações não têm.
+   */
+  aal?: 1 | 2;
+  sessionId?: string;
+  /** Pessoa: tem fator ativo e a política da instância (src/mfa.ts). */
+  mfa?: { factor: boolean; policy: "off" | "financial" | "all" };
+  /**
+   * A pessoa agiu pelo bot na conversa interna (src/bot-actions): o núcleo
+   * grava `audit.via` e mascara o que vai ao modelo. O segundo fator trata o
+   * ator com `via` como pessoa (src/mfa.ts, requireFinancialAal).
    */
   via?: BotVia;
   rate: number;

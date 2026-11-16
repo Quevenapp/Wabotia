@@ -32,6 +32,23 @@ D1 Time Travel é uma recuperação adicional conforme o plano Cloudflare; não 
 4. Configure a MASTER_KEY original nos secrets do Worker restaurado. Publique a mesma versão do código e teste a leitura de dados/arquivos antes de apontar o domínio.
 5. Desative a instalação antiga antes de ligar os mesmos canais na restaurada. Revogue tokens de canal que não serão mais usados.
 
+## Administrador sem acesso
+
+Quando uma pessoa esquece a senha ou perde o celular do segundo fator, outro administrador resolve em Pessoas e acessos:
+- **Link de nova senha:** vale 24 horas e uma vez só.
+- **Zerar o segundo fator:** derruba as sessões da pessoa, que cadastra o fator de novo ao entrar.
+
+Se o único administrador ativo perdeu a senha ou o segundo fator e não tem mais códigos de recuperação:
+1. Abra a entrada do painel e clique em **Esqueci a senha**.
+2. Informe o código de instalação (`SETUP_TOKEN`, guardado em `chaves.local.json` ou nos secrets do Worker) e uma senha nova de pelo menos 12 caracteres.
+   - Pela API, a chamada é `POST /api/auth/recover-admin` com `{setup_token, password}`.
+   - Cinco tentativas a cada 10 minutos por endereço.
+3. O servidor troca a senha, tira o segundo fator e derruba todas as sessões desse administrador. Entre com a senha nova e cadastre o fator de novo em Minha conta.
+
+A recuperação só funciona quando existe **um único administrador ativo**. Com mais de um, outro administrador gera o link. Isso impede que quem tem o `SETUP_TOKEN` tome a conta de uma equipe que ainda tem acesso.
+
+Se o `SETUP_TOKEN` também se perdeu, cadastre um novo nos secrets do Worker (`npx wrangler secret put SETUP_TOKEN --config <seu arquivo>`) e repita os passos. O `SETUP_TOKEN` abre a conta do administrador: guarde-o como a MASTER_KEY.
+
 ## Falhas e diagnósticos
 
 Execute `node scripts/diagnose.mjs https://seu-worker.workers.dev`. Use o dashboard Workers > Logs ou `npx wrangler tail --config wrangler.production.local.json` para erros sanitizados. Nunca copie cookies, tokens ou conversas de clientes em chamados públicos.

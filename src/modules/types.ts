@@ -92,6 +92,19 @@ export interface ModuleBotOptions {
   sensitive?: string[];
   /** Descrição melhor por op ou caminho de leitura; aparece primeiro na busca. */
   hints?: Record<string, string>;
+  /**
+   * Texto da proposta por op (modo equipe), montado com dados lidos por
+   * código: o que a pessoa confirma. Sem ele, o núcleo lista a operação e os
+   * parâmetros (src/bot-actions/describe.ts).
+   */
+  describe?: Record<
+    string,
+    (
+      env: any,
+      profile: string,
+      params: Record<string, any>,
+    ) => Promise<string | null>
+  >;
 }
 
 /** Papel concedido por pessoa e por área ("technician" vira "os:technician"). */

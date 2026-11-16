@@ -19,6 +19,7 @@ import {
   type CustomerToolContext,
 } from "../src/bot-actions/customer";
 import { issueTicket } from "../src/queue";
+import { sha } from "../src/security";
 import {
   api,
   bearer,
@@ -317,6 +318,54 @@ describe("ferramentas de cliente: Mensalidade, Suporte e Fila", () => {
         })
       ).estado,
     ).toBe("aprovado pela equipe");
+  });
+
+  it("política financial: aprovar desconto pede o segundo fator", async () => {
+    const s = await setup();
+    const asked = await call(s.a.ctx, "mensalidade_pedir_desconto", {
+      installment_id: s.instA.id,
+    });
+    const setPolicy = (value: string) =>
+      exec(
+        env,
+        "INSERT INTO instance_settings(key,value,updated) VALUES('mfa_policy',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        value,
+        now(),
+      );
+    await setPolicy("financial");
+    try {
+      const denied = await decide(s, s.admin, asked.pedido, {
+        decision: "approve",
+        value: 10,
+      });
+      expect(denied.status).toBe(403);
+      expect((await denied.json<any>()).error.code).toBe("mfa_required");
+      expect(
+        (
+          await one(
+            env,
+            "SELECT status FROM approvals WHERE id=?",
+            asked.pedido,
+          )
+        ).status,
+      ).toBe("pending");
+      expect((await installment(s.instA.id)).amount_cents).toBe(9900);
+      // Com o código (sessão aal2), a mesma decisão passa.
+      await exec(
+        env,
+        "UPDATE sessions SET aal=2,mfa_at=? WHERE hash=?",
+        now(),
+        await sha(s.admin),
+      );
+      const ok = await decide(s, s.admin, asked.pedido, {
+        decision: "approve",
+        value: 10,
+      });
+      expect(ok.status).toBe(200);
+      expect((await installment(s.instA.id)).amount_cents).toBe(8900);
+    } finally {
+      await setPolicy("off");
+    }
   });
 
   it("dispensa: um cliente não pede pela parcela do outro; recusa e aprovação", async () => {

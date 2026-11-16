@@ -139,6 +139,7 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?, receipt?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar"). `receipt: false`: o núcleo não manda o "Pagamento recebido" (o módulo manda o próprio comprovante no `onPaymentUpdated`) |
 | `recordConsent(c, {purpose, source, status?, evidence?, key?})` | Consentimento de notificação por finalidade (`billing`, `scheduling`, `order`, `booking`), registrado quando o cliente contrata, agenda, pede ou reserva pelo WhatsApp (`source: "whatsapp"`) ou a equipe registra o aceite (`"panel"`, `"contract"`), com data, módulo e evidência. Publica `consent.updated`. REVOGAR do cliente revoga todas as finalidades; um novo aceite depois vale de novo |
 | `consent(c, purpose)` | Último registro que vale para a finalidade (o dela ou o REVOGAR geral), ou null |
+| `sendEmail(c, {to, subject, text, html?}, {purpose, key})` | E-mail ao cliente da conversa pelo Cloudflare Email Sending da instalação ([EMAIL.md](EMAIL.md)). Exige o consentimento da finalidade (`recordConsent`, senão `409 consent_required`). `key` torna o envio idempotente na área (a repetição devolve o anterior com `repeated: true`). Limite de 200 envios por área em 24 h (`429 email_limit`). Sem e-mail configurado, `409 email_unavailable`: use o WhatsApp. O assunto não leva link nem código (`400 invalid_subject`); links vão no corpo. Cada envio fica em `email_log`, sem o corpo e com o endereço mascarado. Devolve `{id, status: "sent"\|"queued"\|"bounced"}` |
 | `cancelCharge(payment \| id)` | Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes do sinal), no provedor também. Já cancelada ou expirada: devolve como está; paga ou estornada: `409 payment_closed`; de outro módulo: 404 |
 | `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
 
@@ -390,9 +391,13 @@ onMcpTool("mensalidade", {
 - `conversation_id` nunca vem do modelo: sai do esquema e é sempre o da execução. Ids de registro que o modelo mandar passam pela regra do módulo, que responde 404 para registro de outro cliente.
 - Leitura roda como o bot preso à conversa, sem `contacts:read`. O módulo mostra ao cliente só o mínimo (os últimos dígitos do documento, nunca o documento inteiro), como já faz para a chave presa. O núcleo ainda tira dado pessoal e segredo do que vai ao modelo.
 - Escrita (`write` sem `customer: "read"`) vira proposta e não executa. O cliente recebe "Para eu fazer isto, confirme:" com **Confirmar** e **Cancelar**.
-  - **Confirmar**: só o toque no botão do próprio canal, ou CONFIRMAR (ou CANCELAR) digitado na mesma conversa. Números não valem: "1" e "2" são escolhas do menu, e tratá-los custaria uma consulta ao D1 por mensagem.
+  - **O texto que o cliente confirma vem do módulo, nunca do modelo**: declare `describe(env, profile, input)` na ferramenta e devolva o que roda, com dados lidos por código (serviço, data, valor). O `input` já traz o `conversation_id` da execução; leia só registros desta conversa, para não mostrar dado de outro cliente. Sem `describe`, o núcleo lista a ação e os campos do pedido (`src/bot-actions/describe.ts`). O `resumo` do modelo só fica no registro.
+  - **Confirmar**:
+    - o toque no botão do próprio canal, tratado antes dos ganchos dos módulos (o id leva a proposta);
+    - CONFIRMAR ou CANCELAR digitado, só depois de os ganchos dos módulos (`onConversationTurn`) terem a chance de tratar a mensagem, e só com **uma** proposta aberta na conversa. Com mais de uma, o cliente é avisado para tocar no botão de cada uma.
+    - "sim", "não", "1" e "2" soltos não confirmam nada: são respostas comuns a outras perguntas, e tratá-los custaria uma consulta ao D1 por mensagem.
   - **Prazo**: a proposta vale 10 minutos.
-  - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>`, então tocar de novo não repete.
+  - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>:<tentativa>`, e a proposta só roda uma vez (estado `running` antes de chamar), então tocar de novo não repete.
   - **Rota**: só ação da própria conversa (`/conversations/<id>/actions`).
 - Preço, desconto, total e estado financeiro saem do módulo, nunca dos parâmetros do modelo. "Já paguei" e comprovante não mudam estado: só o webhook do provedor muda.
 - CPF/CNPJ digitado nunca abre dado financeiro nem vincula telefone (achado A4 da revisão de segurança). A identidade é o telefone verificado da conversa.
@@ -465,7 +470,8 @@ onApproval("pedido", "desconto", {
   - é uma rota que exige sessão de pessoa da audiência `approvers` (senão `403 approval_forbidden`); bot e chave de aplicação nunca decidem;
   - o primeiro a decidir vence; os outros recebem `409 approval_closed`;
   - `validate` e `decided` recebem o ator de quem decidiu, então as regras do módulo (papel, limite) valem;
-  - erro em qualquer um devolve o pedido a pendente.
+  - erro em qualquer um devolve o pedido a pendente;
+  - uma decisão que travou no meio (o Worker caiu entre o início e o fim) fica em `deciding` no máximo 2 minutos (`DECIDING_TTL`): depois a rodada periódica devolve o pedido a pendente (ou vence, se o prazo dele passou), e outra pessoa pode decidir. Por isso `decided` deve ser idempotente pelo `approval.id`: numa retomada, roda de novo.
 - **Assumir**: `handoff` passa a conversa a quem tocou (`handoffToPerson`) e depois chama `decided` com `status: "handoff"`.
 - **Prazo**: padrão 30 minutos, de 5 minutos a 7 dias. A rodada periódica vence os pedidos e chama `decided` com `status: "expired"`; sem `decided`, o núcleo avisa o cliente e põe a conversa na fila da equipe.
 - **Auditoria**: `audit` com `approval.approve|decline|handoff`, e o pedido guarda conversa, cartão, quem decidiu, valor e quando.
@@ -483,11 +489,15 @@ Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pe
 ```ts
 bot: {
   deny: ["os.decide"],                      // ops ou caminhos fora do catálogo (prefixos)
-  sensitive: ["mensalidade.installment.pay"], // exigem segundo fator ao confirmar
+  sensitive: ["mensalidade.installment.pay"], // segundo fator ao confirmar, conforme a política
   hints: { "consulta:service-orders": "Ordens de serviço abertas, por estado ou cliente" },
+  // O que a pessoa confirma, com dados lidos por código (opcional):
+  describe: { "os.status": async (env, profile, p) => `OS nº … para ${p.status}` },
 }
 ```
 - As operações com permissão de aplicação `billing:write` já contam como sensíveis.
+- **Segundo fator**: `sensitive` pede o código pela política da instalação (`requireFinancialAal`, em `src/mfa.ts`). A operação roda com o `aal`, a sessão e a política de quem confirmou, então os guardas do módulo (`requireFinancialAal` na Mensalidade e no Suporte) valem também sem `sensitive`. Quando o guarda pede o código, a proposta continua aberta e o confirmar responde `403 mfa_required`.
+- **Texto da proposta**: o cartão mostra o `describe` do módulo ou, sem ele, a operação e os parâmetros que vão rodar. O `resumo` do modelo aparece à parte, como "Texto do bot (não conferido)".
 - Configurações (`PUT /settings`), módulos, pessoas, chaves e sistema nunca entram: não são rotas de módulo.
 
 **Identidade.** A chamada chega ao módulo como se viesse da tela:
@@ -512,7 +522,7 @@ O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, mask
 | Rotas `…/proposals/:id/confirm\|cancel` e `/system/bot-actions/configure` | `src/index.ts` |
 | Campo `wabotia_run` no job do plugin | `src/integrations.ts`, `src/engine.ts` |
 | Cabeçalho `X-Wabotia-Run` no MCP | `src/mcp.ts` |
-| Gancho `requireAal2` local até a `feat/login-mfa` | `src/bot-actions/mfa.ts` |
+| Segundo fator: `requireFinancialAal` do núcleo na proposta sensível; o ator que executa leva `aal`, `sessionId` e `mfa` de quem confirmou, e o guarda trata o ator com `via` como pessoa | `src/mfa.ts`, `src/bot-actions/actions.ts` |
 | Laço de ferramentas e `aiCompleteWithTools` | `src/bot-tools.ts`, `src/ai-provider.ts`; escolha do modo em `aiRun` (`src/engine.ts`) |
 | Modo cliente | `src/bot-actions/customer.ts`; resposta ao botão antes dos módulos no `processInbox`; campo `customer` em `ModuleMcpTool` (`src/modules/hooks.ts`) |
 | Pedido de aprovação | `src/approvals.ts`; `ctx.requestApproval` e `onApproval` (`src/modules/api.ts`); rotas `/approvals`; push `approval.requested`; segmento `approvals` livre no acesso (a audiência decide) |

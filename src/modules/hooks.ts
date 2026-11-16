@@ -166,6 +166,17 @@ export interface ModuleMcpTool {
    * cobrança nova (segunda via), sem confirmação.
    */
   customer?: false | "read" | "propose";
+  /**
+   * Texto que o cliente confirma (modo cliente, src/bot-actions/describe.ts):
+   * montado pelo módulo com dados lidos por código (itens, valores, datas),
+   * nunca pelo modelo. `input` já vem com o conversation_id da execução. Sem
+   * ele, o núcleo lista a ação e os campos do pedido.
+   */
+  describe?: (
+    env: any,
+    profile: string,
+    input: Record<string, any>,
+  ) => Promise<string | null>;
   call: (
     args: Record<string, any>,
     profile: string,
@@ -234,11 +245,25 @@ export const moduleRoutes = () => ({
  * e aplica o efeito da decisão. (env, profile, approval, decision).
  */
 export interface ApprovalHook {
-  validate?: (env: any, profile: string, approval: any, decision: any) => Promise<void>;
-  decided?: (env: any, profile: string, approval: any, decision: any) => Promise<void>;
+  validate?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
+  decided?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
 }
 const approvalHooks = new Map<string, ApprovalHook>();
-export function registerApprovalHook(module: string, kind: string, hook: ApprovalHook) {
+export function registerApprovalHook(
+  module: string,
+  kind: string,
+  hook: ApprovalHook,
+) {
   approvalHooks.set(`${module}:${kind}`, hook);
 }
 export const approvalHook = (module: string, kind: string) =>

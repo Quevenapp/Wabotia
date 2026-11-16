@@ -2,6 +2,7 @@
 // ./flow.ts; banco em ./store.ts; passagem para humano em ./handoff.ts.
 // Depende da Mensalidade por src/modules/mensalidade/public.ts (até o núcleo
 // formalizar `requires`). Uso: docs/SUPORTE.md.
+import { requireFinancialAal } from "../../mfa";
 import { all, one } from "../../db";
 import { ApiError, type Actor, type Conversation, now } from "../../types";
 import {
@@ -191,7 +192,8 @@ function mayAct(
     return;
   }
   if (actor.kind === "user" && (actor.role === "admin" || c.owner === actor.id))
-    return;
+    // Política do segundo fator (src/mfa.ts): pessoa precisa de aal2.
+    return requireFinancialAal(actor);
   throw new ApiError(403, "forbidden", message);
 }
 

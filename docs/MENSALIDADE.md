@@ -89,6 +89,10 @@ comprovante não mudam nada: só o webhook do Mercado Pago dá baixa.
 
 - O bot só registra o pedido (`ctx.requestApproval`) e diz ao cliente que a
   equipe vai responder. Parcela de outro cliente: 404.
+- Decidir exige o mesmo que o "Isentar" do painel: administrador e, com a
+  política de segundo fator `financial` ou `all`, a sessão com o código
+  (`manager()` → `requireFinancialAal`; senão 403 `mfa_required` e o pedido
+  segue pendente).
 - O cartão vai à conversa interna dos **administradores** (quem hoje isenta
   parcela) e ao painel, com dados lidos do banco: cliente, plano, a parcela,
   assinatura desde, parcelas pagas e em aberto, histórico de atrasos e

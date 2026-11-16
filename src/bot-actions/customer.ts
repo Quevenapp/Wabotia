@@ -9,14 +9,23 @@
 // - escrita vira proposta que o próprio cliente confirma por botão na
 //   conversa; preço, desconto e estado financeiro vêm do módulo, nunca do
 //   modelo; "já paguei" não muda nada (só o webhook do provedor).
-import { exec, one } from "../db";
+import { all, exec, one } from "../db";
 import { internalCall } from "../mcp";
 import { sha } from "../security";
 import { moduleMcpTools, type ModuleMcpTool } from "../modules/hooks";
 import { moduleStates } from "../modules/registry";
 import { enqueue } from "../service";
 import { sendInteractive } from "../line-service";
-import { ApiError, type Actor, type Conversation, type Env, json, now, uid } from "../types";
+import {
+  ApiError,
+  type Actor,
+  type Conversation,
+  type Env,
+  json,
+  now,
+  uid,
+} from "../types";
+import { describeFields, describeWith } from "./describe";
 import {
   MAX_PROPOSALS,
   MAX_TOOL_CALLS,
@@ -35,9 +44,12 @@ const normalize = (value: unknown) =>
     .trim()
     .toUpperCase();
 export const CUSTOMER_REPLY = "botacao:";
-/** Respostas digitadas que podem ser a uma proposta (o resto nem consulta). */
-// Sem "1"/"2": são as escolhas do menu, e cada uma custaria uma consulta.
-const REPLY_WORDS = new Set(["CONFIRMAR", "CONFIRMO", "SIM", "CANCELAR", "NAO"]);
+/**
+ * Respostas digitadas que valem para uma proposta (o resto nem consulta).
+ * Só as palavras do botão: "sim", "não", "1" e "2" são respostas comuns a
+ * outras perguntas (menu, módulos) e não confirmam nada.
+ */
+const REPLY_WORDS = new Set(["CONFIRMAR", "CANCELAR"]);
 
 export interface CustomerToolContext {
   env: Env;
@@ -83,7 +95,11 @@ export async function customerToolContext(
       name: "Bot",
       role: "service",
       profiles: [run.profile_id],
-      scopes: ["conversations:read", "conversations:write", "conversations:bound"],
+      scopes: [
+        "conversations:read",
+        "conversations:write",
+        "conversations:bound",
+      ],
       bots: [run.bot_id],
       rate: 120,
       runLimit: 3,
@@ -118,7 +134,8 @@ export function customerToolDefs(tools: ModuleMcpTool[]): BotTool[] {
     if (kindOf(t) === "propose")
       properties.resumo = {
         type: "string",
-        description: "Frase curta, para o cliente, do que será feito ao confirmar.",
+        description:
+          "Frase curta, para o cliente, do que será feito ao confirmar.",
       };
     return {
       name: t.name,
@@ -145,14 +162,22 @@ function callFor(ctx: CustomerToolContext, tool: ModuleMcpTool, args: any) {
   const call = tool.call(input, ctx.profile);
   const prefix = `/profiles/${ctx.profile}/`;
   if (!call.path.startsWith(prefix) || /\.\.|[?#]/.test(call.path))
-    throw new ApiError(400, "invalid_request", "Caminho da ferramenta inválido.");
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Caminho da ferramenta inválido.",
+    );
   // Toda escrita do cliente é ação da própria conversa.
   if (
     (call.method || "GET") !== "GET" &&
     call.path !== `${prefix}conversations/${ctx.conversation.id}/actions`
   )
-    throw new ApiError(400, "invalid_request", "Ação fora da conversa do cliente.");
-  return call;
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Ação fora da conversa do cliente.",
+    );
+  return Object.assign(call, { input });
 }
 
 const err = (message: string) => JSON.stringify({ erro: message });
@@ -166,8 +191,12 @@ export async function runCustomerTool(
 ): Promise<string> {
   state.calls++;
   if (state.calls > MAX_TOOL_CALLS)
-    return err(`Limite de ${MAX_TOOL_CALLS} consultas por resposta. Responda com o que já tem.`);
-  const tool = (await customerTools(ctx.env, ctx.profile)).find((t) => t.name === name);
+    return err(
+      `Limite de ${MAX_TOOL_CALLS} consultas por resposta. Responda com o que já tem.`,
+    );
+  const tool = (await customerTools(ctx.env, ctx.profile)).find(
+    (t) => t.name === name,
+  );
   if (!tool) return err("Ferramenta indisponível.");
   try {
     const call = callFor(ctx, tool, args);
@@ -179,16 +208,26 @@ export async function runCustomerTool(
       return JSON.stringify({
         proposta: id,
         estado: "aguardando_confirmacao_do_cliente",
-        aviso: "O cliente recebeu um botão para confirmar. Não diga que foi feito.",
+        aviso:
+          "O cliente recebeu um botão para confirmar. Não diga que foi feito.",
       });
     }
     // Mesma chamada na mesma execução (provedor repetido): a mesma chave.
-    const key = `bot:${ctx.run.id}:${await sha(JSON.stringify([name, call]))}`;
-    const response = await internalCall(ctx.env, ctx.bound, call, key.slice(0, 200));
+    const { input: _input, ...request } = call;
+    const key = `bot:${ctx.run.id}:${await sha(JSON.stringify([name, request]))}`;
+    const response = await internalCall(
+      ctx.env,
+      ctx.bound,
+      request,
+      key.slice(0, 200),
+    );
     const body = await response.json<any>().catch(() => null);
-    if (!response.ok) return err(body?.error?.message || `Falha HTTP ${response.status}.`);
+    if (!response.ok)
+      return err(body?.error?.message || `Falha HTTP ${response.status}.`);
     const text = JSON.stringify(sanitize(body, true));
-    return text.length <= MAX_RESULT ? text : text.slice(0, MAX_RESULT) + "… [cortado]";
+    return text.length <= MAX_RESULT
+      ? text
+      : text.slice(0, MAX_RESULT) + "… [cortado]";
   } catch (error) {
     if (error instanceof ApiError) return err(error.message);
     return err("Falha ao executar a ferramenta.");
@@ -199,7 +238,7 @@ export async function runCustomerTool(
 async function proposeToCustomer(
   ctx: CustomerToolContext,
   tool: ModuleMcpTool,
-  call: ReturnType<ModuleMcpTool["call"]>,
+  call: ReturnType<typeof callFor>,
   summary: unknown,
 ) {
   // Execução repetida (provedor caiu no meio): a mesma proposta, sem outro botão.
@@ -213,12 +252,20 @@ async function proposeToCustomer(
   if (same) return same.id as string;
   const id = uid(),
     at = now();
-  const text =
-    String(summary ?? "").replace(/\s+/g, " ").trim().slice(0, 200) ||
-    tool.description.slice(0, 120);
+  // O cliente confirma o texto do módulo (itens, valores, datas lidos por
+  // código), nunca o resumo do modelo: um texto injetado não troca o que ele
+  // vê pelo que roda. Sem descrição do módulo, a ação e os campos do pedido.
+  const describe = tool.describe;
+  const text = await describeWith(
+    describe ? () => describe(ctx.env, ctx.profile, call.input) : null,
+    () =>
+      describeFields(tool.description.split(/(?<=\.)\s/)[0], call.body ?? {}, [
+        "action",
+      ]),
+  );
   await exec(
     ctx.env,
-    "INSERT INTO bot_proposals(id,profile_id,mode,actor,bot_id,run_id,conversation_id,operation,method,path,params,summary,sensitive,status,expires_at,created,updated) VALUES(?,?,'customer',?,?,?,?,?,?,?,?,?,0,'pending',?,?,?)",
+    "INSERT INTO bot_proposals(id,profile_id,mode,actor,bot_id,run_id,conversation_id,operation,method,path,params,summary,description,sensitive,status,expires_at,created,updated) VALUES(?,?,'customer',?,?,?,?,?,?,?,?,?,?,0,'pending',?,?,?)",
     id,
     ctx.profile,
     `customer:${ctx.conversation.id}`,
@@ -229,6 +276,11 @@ async function proposeToCustomer(
     call.method || "POST",
     call.path,
     JSON.stringify(call.body ?? {}),
+    // Resumo do modelo: só registro, o cliente não vê.
+    String(summary ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200) || tool.name,
     text,
     at + PROPOSAL_TTL,
     at,
@@ -253,45 +305,91 @@ async function proposeToCustomer(
 }
 
 /**
- * Resposta do cliente a uma proposta aberta desta conversa (botão do próprio
- * canal, ou CONFIRMAR/CANCELAR digitado). true quando era a resposta.
+ * Resposta do cliente a uma proposta aberta desta conversa. true quando era a
+ * resposta.
+ * - "button": o toque no botão da proposta (o id leva a proposta); roda antes
+ *   dos ganchos dos módulos, porque o id é do núcleo.
+ * - "typed": só CONFIRMAR ou CANCELAR digitados, só depois de os ganchos dos
+ *   módulos terem a chance de tratar a mensagem, e só com uma única proposta
+ *   aberta na conversa. "sim" solto não confirma nada.
  */
 export async function handleCustomerProposalTurn(
   env: Env,
   c: Conversation,
   turn: { text: string; replyId: string | null; rowId: string },
+  mode: "button" | "typed",
 ) {
   const match = turn.replyId?.match(/^botacao:(sim|nao):(.+)$/);
-  if (turn.replyId && !match) return false;
-  // Mensagem comum: nenhuma consulta ao D1 (docs/LIMITES.md).
-  if (!match && !REPLY_WORDS.has(normalize(turn.text))) return false;
-  const row = match
-    ? await one(
+  let row: any;
+  let yes: boolean;
+  if (mode === "button") {
+    if (!match) return false;
+    row = await one(
+      env,
+      "SELECT * FROM bot_proposals WHERE id=? AND conversation_id=? AND mode='customer'",
+      match[2],
+      c.id,
+    );
+    if (!row) return true;
+    yes = match[1] === "sim";
+  } else {
+    if (turn.replyId) return false;
+    // Mensagem comum: nenhuma consulta ao D1 (docs/LIMITES.md).
+    const word = normalize(turn.text);
+    if (!REPLY_WORDS.has(word)) return false;
+    const pending = await all(
+      env,
+      "SELECT * FROM bot_proposals WHERE conversation_id=? AND mode='customer' AND status='pending' ORDER BY created DESC LIMIT 5",
+      c.id,
+    );
+    if (!pending.length) return false;
+    const open = pending.filter((p) => p.expires_at > now());
+    if (open.length > 1) {
+      await enqueue(
         env,
-        "SELECT * FROM bot_proposals WHERE id=? AND conversation_id=? AND mode='customer'",
-        match[2],
-        c.id,
-      )
-    : await one(
-        env,
-        "SELECT * FROM bot_proposals WHERE conversation_id=? AND mode='customer' AND status='pending' ORDER BY created DESC LIMIT 1",
-        c.id,
+        c,
+        "system",
+        "text",
+        {
+          text: "Há mais de um pedido aberto. Toque em Confirmar ou Cancelar na mensagem de cada um.",
+          automation: "bot",
+        },
+        `bot-proposal-ambiguous:${turn.rowId}`,
       );
-  if (!row) return !!match;
-  const word = normalize(turn.text);
-  const yes = match ? match[1] === "sim" : ["CONFIRMAR", "CONFIRMO", "SIM"].includes(word);
-  const no = match ? match[1] === "nao" : ["CANCELAR", "NAO"].includes(word);
-  if (!yes && !no) return false;
+      return true;
+    }
+    row = open[0] || pending[0];
+    yes = word === "CONFIRMAR";
+  }
+  const no = !yes;
   const reply = (text: string) =>
-    enqueue(env, c, "system", "text", { text, automation: "bot" }, `bot-proposal-reply:${row.id}:${turn.rowId}`);
+    enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      { text, automation: "bot" },
+      `bot-proposal-reply:${row.id}:${turn.rowId}`,
+    );
   if (row.status !== "pending" || row.expires_at <= now()) {
     if (row.status === "pending")
-      await exec(env, "UPDATE bot_proposals SET status='expired',updated=? WHERE id=? AND status='pending'", now(), row.id);
+      await exec(
+        env,
+        "UPDATE bot_proposals SET status='expired',updated=? WHERE id=? AND status='pending'",
+        now(),
+        row.id,
+      );
     await reply("Este pedido não está mais aberto. Peça de novo, por favor.");
     return true;
   }
   if (no) {
-    await exec(env, "UPDATE bot_proposals SET status='cancelled',decided_at=?,updated=? WHERE id=? AND status='pending'", now(), now(), row.id);
+    await exec(
+      env,
+      "UPDATE bot_proposals SET status='cancelled',decided_at=?,updated=? WHERE id=? AND status='pending'",
+      now(),
+      now(),
+      row.id,
+    );
     await reply("Tudo bem, não fiz nada.");
     return true;
   }
@@ -315,7 +413,13 @@ export async function handleCustomerProposalTurn(
     bots: [row.bot_id],
     rate: 120,
     runLimit: 3,
-    via: { kind: "bot", bot_id: row.bot_id, run_id: row.run_id, proposal_id: row.id, masked: true },
+    via: {
+      kind: "bot",
+      bot_id: row.bot_id,
+      run_id: row.run_id,
+      proposal_id: row.id,
+      masked: true,
+    },
   };
   let status = "done",
     error: string | null = null;
@@ -328,13 +432,22 @@ export async function handleCustomerProposalTurn(
     );
     if (!response.ok) {
       status = "failed";
-      error = (await response.json<any>().catch(() => null))?.error?.message || `Falha HTTP ${response.status}.`;
+      error =
+        (await response.json<any>().catch(() => null))?.error?.message ||
+        `Falha HTTP ${response.status}.`;
     }
   } catch (e) {
     status = "failed";
     error = e instanceof ApiError ? e.message : "Falha ao executar.";
   }
-  await exec(env, "UPDATE bot_proposals SET status=?,error=?,updated=? WHERE id=?", status, error, now(), row.id);
+  await exec(
+    env,
+    "UPDATE bot_proposals SET status=?,error=?,updated=? WHERE id=?",
+    status,
+    error,
+    now(),
+    row.id,
+  );
   if (status === "failed") await reply(`Não consegui concluir: ${error}`);
   return true;
 }

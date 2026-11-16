@@ -479,6 +479,10 @@ onMcpTool("mensalidade", {
   write: true,
   // Só reenvia o código da parcela do próprio cliente: sem botão.
   customer: "read",
+  // Texto do botão, se um dia voltar a pedir confirmação: sem consultar a
+  // parcela pelo id do modelo (o valor e o vencimento vão na segunda via).
+  describe: async () =>
+    "Enviar a segunda via (Pix ou link) da sua mensalidade em aberto.",
   call: (a, profile) => ({
     method: "POST",
     path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`,

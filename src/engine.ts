@@ -336,10 +336,13 @@ export async function processInbox(env: Env, profile: string) {
             : null,
         rowId: row.id,
       };
-      // Resposta do cliente a uma ação proposta pelo bot (src/bot-actions/customer.ts).
-      if (await handleCustomerProposalTurn(env, c, turn)) return;
+      // Resposta do cliente a uma ação proposta pelo bot
+      // (src/bot-actions/customer.ts): o toque no botão antes dos módulos; o
+      // CONFIRMAR ou CANCELAR digitado só se nenhum módulo tratou a mensagem.
+      if (await handleCustomerProposalTurn(env, c, turn, "button")) return;
       for (const [, handler] of turnHandlersList())
         if (await handler(env, c, turn)) return;
+      if (await handleCustomerProposalTurn(env, c, turn, "typed")) return;
       c = await conversation(env, c.id, profile);
     }
     // Front door of the queue: any first message of the session gets the menu.

@@ -1,6 +1,7 @@
 import { scryptSync, timingSafeEqual } from "node:crypto";
 import { one, exec } from "./db";
 import { ApiError, type Env, type Actor, uid, now, json } from "./types";
+import { mfaPolicy, requireSchedule, sessionAal } from "./mfa";
 const enc = new TextEncoder();
 export const hex = (b: ArrayBuffer | Uint8Array) =>
   Array.from(new Uint8Array(b))
@@ -166,15 +167,56 @@ function userActor(row: any): Actor {
 }
 /**
  * A pessoa como ator, relida do banco (bot agindo em nome dela, src/bot-actions):
- * desabilitada ou inexistente, null. Mesma forma do login, sem sessão.
+ * desabilitada ou inexistente, null. Sem sessão: nível 1 e a política do
+ * segundo fator, para os guardas falharem fechados (src/mfa.ts). Quem
+ * confirma uma proposta passa a sessão dele (bot-actions/actions.ts).
  */
-export async function actorForUser(env: Env, id: string): Promise<Actor | null> {
+export async function actorForUser(
+  env: Env,
+  id: string,
+): Promise<Actor | null> {
   const row = await one(
     env,
-    "SELECT * FROM users WHERE id=? AND disabled=0",
+    `SELECT u.*,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor FROM users u WHERE u.id=? AND u.disabled=0`,
     id,
   );
-  return row ? userActor(row) : null;
+  if (!row) return null;
+  return {
+    ...userActor(row),
+    aal: 1,
+    mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
+  };
+}
+/** Colunas da sessão e do segundo fator lidas junto com a pessoa. */
+const SESSION_COLUMNS =
+  "s.id session_id,s.aal session_aal,s.mfa_at session_mfa_at,s.kind session_kind,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor";
+/**
+ * Ator de uma sessão de pessoa: horário de acesso (403 outside_schedule),
+ * nível da sessão e política do segundo fator (src/mfa.ts). Sessão antiga
+ * sem id público ganha um aqui.
+ */
+async function sessionActor(env: Env, row: any, hash: string) {
+  requireSchedule(row);
+  let sessionId = row.session_id as string | null;
+  if (!sessionId) {
+    sessionId = uid();
+    await exec(
+      env,
+      "UPDATE sessions SET id=? WHERE hash=? AND id IS NULL",
+      sessionId,
+      hash,
+    );
+    sessionId =
+      (await one(env, "SELECT id FROM sessions WHERE hash=?", hash))?.id ||
+      sessionId;
+  }
+  return {
+    ...userActor(row),
+    // Confirmação do segundo fator vale por um prazo (src/mfa.ts).
+    aal: sessionAal(row.session_kind, row.session_aal, row.session_mfa_at),
+    sessionId: sessionId!,
+    mfa: { factor: !!row.has_factor, policy: await mfaPolicy(env) },
+  } as Actor;
 }
 export const MOBILE_TOKEN_PREFIX = "wabu_";
 export async function authenticate(env: Env, request: Request): Promise<Actor> {
@@ -186,7 +228,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
     const hash = await sha(bearer);
     const row = await one(
       env,
-      "SELECT u.*,s.last_used session_last_used,s.expires session_expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0",
+      `SELECT u.*,s.last_used session_last_used,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='bearer' AND s.expires>? AND u.disabled=0`,
       hash,
       now(),
     );
@@ -203,7 +245,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
         now(),
         hash,
       );
-    return userActor(row);
+    return sessionActor(env, row, hash);
   }
   if (bearer) {
     const row = await one(
@@ -232,11 +274,12 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
   const token = request.headers
     .get("Cookie")
     ?.match(/(?:^|;\s*)wabotia=([^;]+)/)?.[1];
+  const cookieHash = token ? await sha(token) : "";
   const row = token
     ? await one(
         env,
-        "SELECT u.*,s.expires session_expires FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0",
-        await sha(token),
+        `SELECT u.*,s.expires session_expires,${SESSION_COLUMNS} FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.kind='cookie' AND s.expires>? AND u.disabled=0`,
+        cookieHash,
         now(),
       )
     : null;
@@ -250,7 +293,7 @@ export async function authenticate(env: Env, request: Request): Promise<Actor> {
         "Origem da requisição inválida.",
       );
   }
-  return userActor(row);
+  return sessionActor(env, row, cookieHash);
 }
 export function publicUrl(value: string) {
   let url: URL;
