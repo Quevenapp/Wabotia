@@ -42,8 +42,8 @@ test("erp_finance_cash_session_execute: mesmas respostas, erros e estado em sequ
   for (const [description, type] of [["Dinheiro", "01"], ["cartão de débito", "04"], ["Cartão de crédito", "03"]])
     methods.push((await f.db.query("INSERT INTO erp_catalog.payment_method(description,payment_type,destination,applicable,created_by,updated_by) VALUES($1,$2,'caixa','ambos',$3,$3) RETURNING id", [description, type, u.admin])).rows[0].id);
   await f.sync();
-  const sessions = async () => (await f.db.query("select id,version,state,checked from erp_finance.cash_session where deleted_at is null order by id")).rows;
-  const moves = async (session) => (await f.db.query("select id from erp_finance.cash_session_move where session_id=$1 order by id", [session])).rows.map((r) => r.id);
+  const sessions = async () => (await f.db.query("select id,version,state,checked from erp_finance.cash_session where deleted_at is null order by created_at,id")).rows;
+  const moves = async (session) => (await f.db.query("select id from erp_finance.cash_session_move where session_id=$1 order by created_at,id", [session])).rows.map((r) => r.id);
   const operators = [u.financeiro, u.admin];
   const commands = [];
   const outcomes = {};
