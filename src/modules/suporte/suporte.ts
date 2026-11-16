@@ -22,6 +22,7 @@ import {
   mensalidadeAvailable,
   onInstallmentPaid,
   onInstallmentRefunded,
+  payerForReview,
   sellablePlans,
 } from "../mensalidade/public";
 import {
@@ -218,14 +219,33 @@ async function conversationStatus(
   const sessions = await recentSessions(ctx, c.id);
   const current = sessions[0] || null;
   const gate = await handoffGate(ctx, c, at);
-  const unlinked =
+  const unlinkedPayer =
     (rel && !rel.phone_linked && rel.payer_id) ||
     (current && current.phone_linked === 0 && current.payer_id)
-      ? {
-          payer_id: rel?.payer_id || current?.payer_id,
-          payer_name: rel?.payer_name || current?.name || "",
-        }
+      ? ((rel?.payer_id || current?.payer_id) as string)
       : null;
+  // Para conferir antes de vincular ou confirmar (conferência N-6): pagador
+  // provisório (nascido de documento digitado) e os telefones dele, com quem
+  // cadastrou cada um.
+  const review = unlinkedPayer
+    ? await payerForReview(ctx.env, ctx.profile, unlinkedPayer)
+    : null;
+  const unlinked = unlinkedPayer
+    ? {
+        payer_id: unlinkedPayer,
+        payer_name: rel?.payer_name || current?.name || "",
+        provisional: review?.provisional ?? false,
+        ...(ctx.mayRead(actor, "contacts")
+          ? {
+              phones: (review?.phones ?? []).map((p) => ({
+                phone: p.phone,
+                created_by: p.created_by,
+                created: p.created,
+              })),
+            }
+          : {}),
+      }
+    : null;
   const purchases = await listPurchases(ctx, {
     conversation_id: c.id,
     limit: "5",

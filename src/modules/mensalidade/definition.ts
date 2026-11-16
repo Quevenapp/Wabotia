@@ -37,6 +37,7 @@ export const mensalidadeModule: ModuleDefinition = {
   ],
   events: [
     "mensalidade.contract_created",
+    "mensalidade.contract_unlinked",
     "mensalidade.subscription_created",
     "mensalidade.subscription_changed",
     "mensalidade.installment_created",

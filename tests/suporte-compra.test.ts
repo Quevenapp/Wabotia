@@ -6,7 +6,9 @@ import { perform } from "../src/service";
 import { startFlow } from "../src/modules/suporte/flow";
 import { expirePayments } from "../src/payments";
 import { situationByPhone } from "../src/modules/mensalidade/public";
-import { api, bearer } from "./service-center-fixture";
+import { modulesApi } from "../src/modules/api";
+import { createPayer } from "../src/modules/mensalidade/payers";
+import { api, bearer, claim } from "./service-center-fixture";
 import { approve, mp, remoteStatus, useMercadoPago } from "./mensalidade-mp";
 import {
   CPF_EM_DIA,
@@ -340,6 +342,86 @@ describe("suporte: sem cadastro, plano mensal", () => {
       name: "Maria Souza",
       document: "11144477735",
     });
+  });
+
+  // Contrata o plano com CPF_NOVO e devolve sessão, contrato e cobrança.
+  async function contractWithNewCpf(s: any, phone: string) {
+    const { f } = s;
+    let c = await talk(f, "oi", phone);
+    await startFlow(s.sctx, c, uid());
+    await talk(f, CPF_NOVO, phone);
+    await tap(f, phone, `suporte:plan:${s.plan.id}`, "Suporte Mensal");
+    await talk(f, "Maria Souza", phone);
+    c = await tap(f, phone, "suporte:method:pix", "Pix");
+    const session = await one(
+      env,
+      "SELECT * FROM suporte_sessions WHERE conversation_id=?",
+      c.id,
+    );
+    return { c, session, payment: await paymentFor(session.contract_id) };
+  }
+
+  it("conferência N-6 (a): documento cadastrado antes do pagamento avisa a equipe", async () => {
+    const s = await setupSuporte();
+    const { f, account } = s;
+    const { c, session, payment } = await contractWithNewCpf(
+      s,
+      "5511971000011",
+    );
+    // Entre o Pix e o pagamento, o CPF passa a ser de um pagador cadastrado.
+    const owner = await createPayer(
+      modulesApi(env, f.profile, "mensalidade"),
+      { document: CPF_NOVO, name: "Dono do CPF", phones: ["5511971000012"] },
+      f.admin.id,
+    );
+    await approve(account.id, payment.id, 2);
+    const contract = await one(
+      env,
+      "SELECT payer_id,payer_linked FROM mensalidade_contracts WHERE id=?",
+      session.contract_id,
+    );
+    expect(contract).toEqual({ payer_id: owner.id, payer_linked: 0 });
+    const alerts = await eventsOf(f, "mensalidade.contract_unlinked");
+    expect(alerts).toHaveLength(1);
+    expect(
+      await all(
+        env,
+        "SELECT id FROM messages WHERE conversation_id=? AND external_id=?",
+        c.id,
+        `note:mensalidade:desvinculado:${session.contract_id}`,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("conferência N-6 (b): pagador da contratação é provisório e a confirmação mostra os telefones", async () => {
+    const s = await setupSuporte();
+    const { f, account } = s;
+    const buyer = "5511971000013";
+    const { payment } = await contractWithNewCpf(s, buyer);
+    await approve(account.id, payment.id);
+    const bought = await situationByPhone(env, f.profile, buyer);
+    expect(bought?.payer).toMatchObject({ provisional: true });
+    expect(bought?.payer.created_by).toMatch(/^contrato:/);
+    expect(bought?.payer.phones[0].created_by).toMatch(/^contrato:/);
+    // O dono verdadeiro do CPF fala de outro telefone: aguarda confirmação,
+    // e a equipe vê que o cadastro é provisório e de quem é o telefone.
+    const real = "5511971000014";
+    let c = await talk(f, "oi", real);
+    await startFlow(s.sctx, c, uid());
+    c = await talk(f, CPF_NOVO, real);
+    await claim(f, f.member, c.id);
+    const status = await (
+      await api(
+        await bearer(f.member),
+        `/profiles/${f.profile}/suporte/conversations/${c.id}`,
+      )
+    ).json<any>();
+    expect(status.awaiting_team).toBe(true);
+    expect(status.unlinked_phone).toMatchObject({
+      provisional: true,
+      phones: [{ phone: buyer }],
+    });
+    expect(status.unlinked_phone.phones[0].created_by).toMatch(/^contrato:/);
   });
 
   it("sem planos oferecidos: só o avulso, com CPF e nome na compra", async () => {

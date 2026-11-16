@@ -2197,6 +2197,24 @@ function suporteSchemas() {
           properties: {
             payer_id: { type: "string" },
             payer_name: { type: "string" },
+            provisional: {
+              type: "boolean",
+              description:
+                "Pagador criado por contratação paga pelo WhatsApp, a partir de documento digitado.",
+            },
+            phones: {
+              type: "array",
+              description:
+                "Telefones autorizados do pagador e quem cadastrou cada um (requer contacts:read).",
+              items: {
+                type: "object",
+                properties: {
+                  phone: { type: "string" },
+                  created_by: { type: "string" },
+                  created: { type: "integer" },
+                },
+              },
+            },
           },
         },
         purchases: {

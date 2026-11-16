@@ -10,7 +10,12 @@ import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
 import { formatDocument } from "../../establishment";
 import { money, today } from "./model";
-import { createPayer, loadPayer, payerByDocument } from "./payers";
+import {
+  CONTRACT_ACTOR_PREFIX,
+  createPayer,
+  loadPayer,
+  payerByDocument,
+} from "./payers";
 import { createSubscription } from "./store";
 import { announcePaid } from "./listeners";
 import { sendReceipt } from "./billing";
@@ -298,7 +303,8 @@ async function contractPaid(
           name: contract.name,
           phones: contract.phone ? [contract.phone] : [],
         },
-        contract.actor,
+        // Provisório: documento e telefone vieram de quem digitou.
+        `${CONTRACT_ACTOR_PREFIX}${contract.id}`,
       ));
     await exec(
       ctx.env,
@@ -440,12 +446,46 @@ async function contractAnnounce(
     },
     { key: `${inst.id}:paid:${payment.id}` },
   );
+  if (!contract.payer_linked) await contractUnlinked(ctx, contract, inst);
   await announcePaid(ctx.env, ctx.profile, inst.id, {
     conversation_id: payment.conversation_id ?? contract.conversation_id,
     contract_id: contract.id,
     rethrow: true,
   });
   await sendReceipt(ctx, inst.id);
+}
+
+/**
+ * O documento da contratação já era de outro pagador quando o pagamento
+ * chegou: a assinatura nasceu nele sem vincular o telefone. A equipe é
+ * avisada (evento e nota na conversa), porque uma parcela não paga dessa
+ * assinatura deixaria o pagador de verdade em atraso (conferência N-6).
+ */
+async function contractUnlinked(ctx: ModuleContext, contract: any, inst: any) {
+  await ctx.publish(
+    "mensalidade.contract_unlinked",
+    contract.id,
+    {
+      contract_id: contract.id,
+      payer_id: contract.payer_id,
+      subscription_id: inst.subscription_id,
+      installment_id: inst.id,
+      conversation_id: contract.conversation_id,
+    },
+    { key: contract.id },
+  );
+  let c: Conversation | null = null;
+  try {
+    c = await ctx.conversation(contract.conversation_id);
+  } catch {
+    return;
+  }
+  const payer = await loadPayer(ctx, contract.payer_id);
+  await ctx.note(
+    c,
+    `Atenção: o CPF/CNPJ desta contratação já era do pagador ${payer.name || "sem nome"}. A assinatura foi criada nele sem vincular este telefone. Confira com o pagador antes de vincular; se não for ele, encerre a assinatura em Mensalidades.`,
+    { key: `desvinculado:${contract.id}` },
+  );
 }
 
 /**

@@ -9,7 +9,7 @@ import { useIntents, type Row } from "../../lib/api";
 import { Button, Field, Notice, Pill } from "../../ui";
 import { FormDialog, useResource } from "../../admin/shared";
 import type { ConversationExtensionProps } from "../conversation";
-import { kindLabels, stampLabel } from "./shared";
+import { kindLabels, phoneLabel, stampLabel } from "./shared";
 
 export function ConversationSuporte({
   conversation,
@@ -80,6 +80,7 @@ export function ConversationSuporte({
           </Notice>
         )
       )}
+      {data.unlinked_phone && <PayerReview payer={data.unlinked_phone} />}
       <div className="card-actions">
         {data.unlinked_phone && (
           <Button
@@ -146,5 +147,43 @@ export function ConversationSuporte({
         </FormDialog>
       )}
     </section>
+  );
+}
+
+// Quem cadastrou cada telefone do pagador (conferência N-6).
+const phoneOrigin = (by: string) =>
+  by.startsWith("contrato:")
+    ? "pela contratação no WhatsApp"
+    : by.startsWith("app:")
+      ? "por integração"
+      : "pela equipe";
+
+/** O que conferir antes de vincular ou confirmar: provisório e telefones. */
+function PayerReview({ payer }: { payer: Row }) {
+  const phones: Row[] = payer.phones || [];
+  if (!payer.provisional && !phones.length) return null;
+  return (
+    <div className="muted">
+      {payer.provisional && (
+        <p>
+          <Pill tone="warn">Cadastro provisório</Pill> Criado a partir de um
+          CPF/CNPJ digitado numa contratação pelo WhatsApp, sem conferência
+          da equipe.
+        </p>
+      )}
+      {phones.length > 0 && (
+        <p>
+          <small>
+            Telefones autorizados do pagador:{" "}
+            {phones
+              .map(
+                (p) =>
+                  `${phoneLabel(p.phone)} (cadastrado ${phoneOrigin(String(p.created_by || ""))} em ${stampLabel(p.created)})`,
+              )
+              .join("; ")}
+          </small>
+        </p>
+      )}
+    </div>
   );
 }

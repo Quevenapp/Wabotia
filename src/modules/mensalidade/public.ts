@@ -210,6 +210,25 @@ export async function situationByPayer(
   );
 }
 
+/**
+ * Pagador com os telefones autorizados e quem cadastrou cada um, para a
+ * equipe conferir antes de confirmar quem digitou o documento (N-6).
+ */
+export async function payerForReview(
+  env: Env,
+  profile: string,
+  payerId: string,
+) {
+  const ctx = ctxOf(env, profile);
+  const row = await one(
+    env,
+    "SELECT * FROM mensalidade_payers WHERE id=? AND profile_id=?",
+    payerId,
+    profile,
+  );
+  return row ? payerView(row, await payerPhones(ctx, row.id)) : null;
+}
+
 /** Confere um documento sem consultar nada (para quem pede ao cliente digitar). */
 export const validDocument = (value: unknown) => parseDocument(value);
 

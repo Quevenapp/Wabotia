@@ -102,7 +102,14 @@ conversa), a assinatura e a primeira parcela, já paga.
   autorizou**. Um CPF/CNPJ digitado que já tem cadastro é recusado
   (`payer_exists`): a equipe confirma o telefone antes.
 - Se, entre a cobrança e o pagamento, o documento passar a ser de outro
-  pagador, a assinatura fica com ele, mas o telefone **não** é vinculado.
+  pagador, a assinatura fica com ele, mas o telefone **não** é vinculado, e
+  a equipe é avisada (evento `mensalidade.contract_unlinked` e nota na
+  conversa): uma parcela não paga dessa assinatura deixaria o pagador de
+  verdade em atraso.
+- O pagador que nasce da contratação é **provisório** (`provisional: true`,
+  `created_by` = `contrato:<id>`): documento e telefone vieram de quem
+  digitou. Na confirmação do Suporte pago, a equipe vê os telefones do
+  pagador e quem cadastrou cada um.
 - Trocar a forma de pagamento cancela a cobrança aberta antes de criar outra
   (vale também para as parcelas).
 

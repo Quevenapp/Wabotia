@@ -12,6 +12,15 @@ export const PHONES_LIMIT = 50;
 export const payerNotFound = () =>
   new ApiError(404, "not_found", "Pagador não encontrado.");
 
+/**
+ * Quem cadastra o pagador nascido de uma contratação paga pelo WhatsApp
+ * (`contrato:<id>`): documento e telefone vieram de quem digitou, sem
+ * conferência da equipe. O pagador fica "provisório" (conferência N-6).
+ */
+export const CONTRACT_ACTOR_PREFIX = "contrato:";
+export const provisionalPayer = (row: any) =>
+  String(row?.created_by || "").startsWith(CONTRACT_ACTOR_PREFIX);
+
 export function payerView(
   row: any,
   phones: any[] = [],
@@ -32,6 +41,7 @@ export function payerView(
       created: p.created,
     })),
     created_by: row.created_by,
+    provisional: provisionalPayer(row),
     created: row.created,
     updated: row.updated,
     ...extra,
