@@ -3224,15 +3224,15 @@
   "public_functions": {
    "erp_reference.company_extra_cnae": {
     "name": "companyExtraCnae",
-    "ported": false
+    "ported": true
    },
    "erp_reference.key": {
     "name": "key",
-    "ported": false
+    "ported": true
    },
    "erp_reference.municipality_known": {
     "name": "municipalityKnown",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
