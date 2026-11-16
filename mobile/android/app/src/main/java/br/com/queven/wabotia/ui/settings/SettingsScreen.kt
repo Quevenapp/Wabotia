@@ -540,13 +540,13 @@ object SettingsTexts {
     /** Para que serve a impressora neste perfil; null quando nenhum módulo ligado imprime (a linha some). */
     fun printerSubtitle(modules: Set<String>): String? {
         val uses = listOfNotNull(
-            "a senha do totem".takeIf { ModuleIds.QUEUE in modules },
-            "o comprovante da ordem de serviço".takeIf { ModuleIds.SERVICE_ORDERS in modules },
-            "a comanda do pedido".takeIf { ModuleIds.PEDIDO in modules },
+            "senha do totem".takeIf { ModuleIds.QUEUE in modules },
+            "ordem de serviço".takeIf { ModuleIds.SERVICE_ORDERS in modules },
+            "pedido".takeIf { ModuleIds.PEDIDO in modules },
         )
         if (uses.isEmpty()) return null
         val list = if (uses.size == 1) uses[0] else uses.dropLast(1).joinToString(", ") + " e " + uses.last()
-        return "Bluetooth, USB ou Wi-Fi, para imprimir $list"
+        return "Bluetooth, USB ou Wi-Fi · $list"
     }
 }
 

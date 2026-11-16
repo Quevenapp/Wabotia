@@ -4,6 +4,9 @@ package br.com.queven.wabotia.ui.tickets
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -403,6 +406,12 @@ fun TicketsScreen(
             if (onBack != null) DetailTopBar("Protocolos", onBack = onBack, actions = search) else TabTopBar("Protocolos", actions = search)
         }
         ConnectionStrip(container)
+        // Aberta já filtrada pela aba Atendimento (Atrasados fica fora da tela num celular): o chip escolhido rola à vista.
+        val selectedChip = remember { BringIntoViewRequester() }
+        LaunchedEffect(vm.filter) {
+            withFrameNanos { }
+            selectedChip.bringIntoView()
+        }
         FilterRow {
             TicketFilter.entries.forEach { f ->
                 WbFilterChip(
@@ -411,6 +420,7 @@ fun TicketsScreen(
                     onClick = { vm.selectFilter(f) },
                     count = vm.counts[f],
                     tone = if (f == TicketFilter.Overdue) c.danger else null,
+                    modifier = if (vm.filter == f) Modifier.bringIntoViewRequester(selectedChip) else Modifier,
                 )
             }
         }

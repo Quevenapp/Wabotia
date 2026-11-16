@@ -48,9 +48,9 @@ class ServiceTabTest {
     @Test fun impressoraFicaEmAjustesQuandoAlgumModuloImprime() {
         assertNull(SettingsTexts.printerSubtitle(emptySet()))
         assertNull(SettingsTexts.printerSubtitle(setOf(ModuleIds.AGENDA, ModuleIds.RESERVA)))
-        assertEquals("Bluetooth, USB ou Wi-Fi, para imprimir a senha do totem", SettingsTexts.printerSubtitle(setOf(ModuleIds.QUEUE)))
+        assertEquals("Bluetooth, USB ou Wi-Fi · senha do totem", SettingsTexts.printerSubtitle(setOf(ModuleIds.QUEUE)))
         assertEquals(
-            "Bluetooth, USB ou Wi-Fi, para imprimir a senha do totem, o comprovante da ordem de serviço e a comanda do pedido",
+            "Bluetooth, USB ou Wi-Fi · senha do totem, ordem de serviço e pedido",
             SettingsTexts.printerSubtitle(setOf(ModuleIds.QUEUE, ModuleIds.SERVICE_ORDERS, ModuleIds.PEDIDO)),
         )
     }
