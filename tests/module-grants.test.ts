@@ -69,7 +69,8 @@ describe("papéis por pessoa nos módulos", () => {
     const f = await setup();
     await expect(
       run(f, f.admin, "settings", {
-        module_grants: { "entrega:courier": [f.member.id] },
+        // A Entrega declara entrega:courier; um papel que ninguém declara:
+        module_grants: { "entrega:dispatcher": [f.member.id] },
       }),
     ).rejects.toThrow("Papel desconhecido");
     const outsider = uid();

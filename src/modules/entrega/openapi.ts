@@ -209,6 +209,57 @@ export function entregaSchemas() {
         app: appParams,
       },
     },
+    EntregaMessage: {
+      type: "object",
+      required: ["text"],
+      properties: {
+        channel: {
+          type: "string",
+          enum: ["store", "customer"],
+          default: "store",
+          description:
+            "store: entregador e loja (interna). customer: entregador ao cliente, pelo WhatsApp da loja como \"Nome - Entregador: …\" (só o entregador; janela de 24 h aberta).",
+        },
+        text: { type: "string", maxLength: 1000 },
+      },
+    },
+    EntregaChatMessage: {
+      type: "object",
+      properties: {
+        seq: { type: "integer" },
+        channel: { type: "string", enum: ["store", "customer"] },
+        sender: { type: "string", enum: ["courier", "store", "customer"] },
+        author_name: { type: "string" },
+        text: { type: "string" },
+        created: { type: "integer" },
+      },
+    },
+    EntregaQr: {
+      type: "object",
+      properties: {
+        delivery_id: { type: "string" },
+        qr: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "Conteúdo do QR: <origem>/c/<código>. Uso único.",
+            },
+            expires_at: { type: "integer" },
+          },
+        },
+        slip: {
+          type: "object",
+          description: "O que a via impressa leva além da comanda.",
+          properties: {
+            title: { type: "string" },
+            qr: { type: "string" },
+            lines: { type: "array", items: { type: "string" } },
+          },
+        },
+        access: { type: "array", items: { type: "object" } },
+      },
+    },
     EntregaOverview: {
       type: "object",
       properties: {
@@ -297,6 +348,31 @@ export const entregaOperations: [string, string, string, string?, string?][] = [
     write,
     "EntregaCancel",
   ],
+  [
+    "post",
+    `${base}/deliveries/{id}/qr`,
+    "Entrega: gerar o QR do entregador sem login",
+    write,
+  ],
+  [
+    "get",
+    `${base}/deliveries/{id}/courier`,
+    "Entrega: o que o app do entregador mostra",
+    "",
+  ],
+  [
+    "get",
+    `${base}/deliveries/{id}/messages`,
+    "Entrega: conversa da entrega",
+    "",
+  ],
+  [
+    "post",
+    `${base}/deliveries/{id}/messages`,
+    "Entrega: escrever na conversa da entrega",
+    "",
+    "EntregaMessage",
+  ],
 ];
 
 export function describeEntregaOperation(
@@ -311,6 +387,33 @@ export function describeEntregaOperation(
   const schema = (value: any) =>
     (success.content["application/json"].schema = value);
   if (path === base) return schema(ref("EntregaOverview"));
+  if (path.endsWith("/qr")) {
+    entry.description +=
+      " A equipe gera o QR da entrega para um entregador sem login: o app lê em Escanear pedido e troca em POST /api/credentials/claim (uso único) por uma credencial só desta entrega, revogada ao concluir ou cancelar. Um QR novo revoga o anterior e a credencial ativa. `access` mostra quem leu.";
+    return schema(ref("EntregaQr"));
+  }
+  if (path.endsWith("/courier")) {
+    entry.description +=
+      " Credencial do QR desta entrega ou a pessoa atribuída: destino, endereço, primeiro nome do cliente, resumo do pedido (itens, total, pagamento e troco), situação, `chat.last_seq` e `app`. Nunca traz telefone nem a conversa.";
+    return;
+  }
+  if (path.endsWith("/messages")) {
+    entry.description +=
+      method === "get"
+        ? " ?after=<seq>: até 100 mensagens dos dois canais. O entregador (QR ou pessoa) ou a equipe. Sonde a cada 15 s com a tela da conversa aberta; fora dela, compare `chat.last_seq` da resposta das posições."
+        : " O entregador escreve à loja (store) ou ao cliente (customer); a equipe escreve ao entregador (store). Ao cliente fora da janela de 24 h: 409 window_closed. Conversa fechada (entrega encerrada): 400.";
+    if (method === "get")
+      return schema({
+        type: "object",
+        properties: {
+          data: { type: "array", items: ref("EntregaChatMessage") },
+          last_seq: { type: "integer" },
+          customer_open: { type: "boolean" },
+          open: { type: "boolean" },
+        },
+      });
+    return schema(ref("EntregaChatMessage"));
+  }
   if (path.endsWith("/positions")) {
     // A destination usa o mesmo corpo que start: {lat,lng} vai no topo.
     entry.description +=

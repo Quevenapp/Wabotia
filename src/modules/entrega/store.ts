@@ -159,6 +159,22 @@ export const PERSONAL = [
 ];
 
 /**
+ * Visão do entregador do QR: o destino e o necessário para entregar, sem a
+ * conversa, o telefone, o sobrenome do cliente, notas internas e histórico.
+ */
+export function courierSafe(view: Record<string, any>) {
+  const {
+    conversation_id: _c,
+    note: _n,
+    history: _h,
+    created_by: _b,
+    customer_name,
+    ...rest
+  } = view;
+  return { ...rest, customer_name: firstName(customer_name || "") };
+}
+
+/**
  * Visão para o ator: aplicação sem contacts:read não vê cliente, endereço nem
  * posição; sem notes:read, não vê a observação interna.
  */
@@ -166,6 +182,8 @@ export function visible(ctx: ModuleContext, actor: Actor, value: any): any {
   if (Array.isArray(value)) return value.map((v) => visible(ctx, actor, v));
   if (value && typeof value === "object" && Array.isArray(value.data))
     return { ...value, data: visible(ctx, actor, value.data) };
+  if (value && typeof value === "object" && "status_label" in value && actor.credential)
+    return courierSafe(value);
   if (value && typeof value === "object" && "status_label" in value)
     return ctx.redact(actor, value, {
       contacts: PERSONAL,
@@ -199,6 +217,9 @@ export async function detail(ctx: ModuleContext, id: string) {
   const cfg = await config(ctx);
   return {
     ...deliveryView(row, cfg),
+    // QRs gerados e quem leu (nome digitado, aparelho, hora): a loja confere
+    // e gera outro QR se não reconhecer (o anterior é revogado).
+    access: await ctx.credentials(row.id),
     history: await all(
       ctx.env,
       "SELECT status,actor,note,created FROM entrega_history WHERE delivery_id=? AND profile_id=? ORDER BY created,rowid",
@@ -249,47 +270,82 @@ export async function list(
 // ---------------------------------------------------------------------------
 // Quem pode
 
-export const isCourier = (cfg: EntregaConfig, actor: Actor) =>
-  actor.kind === "user" && cfg.couriers.includes(actor.id);
+/** Pessoa da equipe com o papel `entrega:courier` (entregador com login). */
+export const isCourier = (ctx: ModuleContext, actor: Actor) =>
+  ctx.granted(actor, "courier");
 
-/** Pessoa da equipe na área, entregadora segundo a configuração. */
-async function courierPerson(
-  ctx: ModuleContext,
-  cfg: EntregaConfig,
-  id: string,
-) {
-  requireValue(
-    cfg.couriers.includes(id),
-    "Essa pessoa não está na lista de entregadores (Gestão → Entrega).",
-  );
-  const user = await one(
-    ctx.env,
-    "SELECT id,name,role,profiles,disabled FROM users WHERE id=?",
-    id,
-  );
-  requireValue(
-    user &&
-      !user.disabled &&
-      (user.role === "admin" ||
-        (json(user.profiles, []) as string[]).includes(ctx.profile)),
-    "Entregador não encontrado nesta área.",
-  );
-  return { id: user.id as string, name: firstName(user.name) };
+export const roleRequired = (message: string) =>
+  new ApiError(403, "role_required", message);
+
+/** Pessoa com o papel de entregador nesta área, ou 403 role_required. */
+async function courierPerson(ctx: ModuleContext, id: string) {
+  const person = (await ctx.grantees("courier")).find((p) => p.id === id);
+  if (!person)
+    throw roleRequired(
+      "Essa pessoa não tem o papel de entregador (Gestão → Pessoas). Para um entregador avulso, use o QR da entrega.",
+    );
+  return { id: person.id, name: firstName(person.name) };
 }
 
-/** Equipe que acompanha entregas: pessoas, ou aplicação com conversations:write. */
+/** Credencial por QR desta entrega (entregador sem login). */
+export const qrCourierOf = (actor: Actor, row: DeliveryRow) =>
+  !!actor.credential &&
+  actor.credential.module === "entrega" &&
+  actor.credential.subject === row.id &&
+  row.courier_id === actor.id;
+
+/**
+ * Equipe que acompanha entregas: pessoas, ou aplicação com
+ * conversations:write. A credencial por QR nunca é equipe.
+ */
 function team(ctx: ModuleContext, actor: Actor) {
+  if (actor.credential)
+    throw new ApiError(
+      403,
+      "credential_scope",
+      "Este acesso vale só para a entrega do QR.",
+    );
   ctx.access(actor, "conversations:write");
 }
 
-function mustBeCourierOf(actor: Actor, row: DeliveryRow) {
-  if (actor.kind !== "user" || row.courier_id !== actor.id)
+/** O entregador desta entrega: a pessoa atribuída ou a credencial do QR. */
+export function isCourierOf(actor: Actor, row: DeliveryRow) {
+  if (actor.credential) return qrCourierOf(actor, row);
+  return actor.kind === "user" && row.courier_id === actor.id;
+}
+
+export function mustBeCourierOf(actor: Actor, row: DeliveryRow) {
+  if (!isCourierOf(actor, row))
     throw new ApiError(
       403,
       "not_your_delivery",
       "Só o entregador desta entrega pode fazer isso.",
     );
 }
+
+/**
+ * Ator com que a Entrega lê e muda o pedido no Pedido em nome do entregador
+ * por QR (que não tem escopos): só depois de conferir que a credencial é desta
+ * entrega. Aparece no histórico do pedido como "module:entrega".
+ */
+export function pedidoActor(ctx: ModuleContext, actor: Actor): Actor {
+  if (!actor.credential) return actor;
+  return {
+    id: "module:entrega",
+    kind: "user",
+    name: `Entrega (${actor.name})`,
+    role: "operator",
+    profiles: [ctx.profile],
+    scopes: [],
+    bots: [],
+    rate: 0,
+    runLimit: 0,
+  };
+}
+
+/** Fecha o QR e a credencial da entrega: o app recebe 401. */
+export const endAccess = (ctx: ModuleContext, id: string, reason: string) =>
+  ctx.revokeCredentials(id, reason).catch(() => 0);
 
 // ---------------------------------------------------------------------------
 // Pedido (API pública do módulo Pedido, lida em nome do ator)
@@ -452,7 +508,6 @@ export async function createDelivery(
   if (data.courier_id !== undefined && data.courier_id !== null)
     courier = await courierPerson(
       ctx,
-      cfg,
       data.courier_id === "me" ? actor.id : String(data.courier_id),
     );
   const id = uid(),
@@ -460,7 +515,7 @@ export async function createDelivery(
   try {
     await exec(
       ctx.env,
-      "INSERT INTO entrega_deliveries(id,profile_id,source,source_ref,source_key,label,conversation_id,customer_name,address_text,dest_lat,dest_lng,dest_source,courier_id,courier_name,status,assigned_at,note,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO entrega_deliveries(id,profile_id,source,source_ref,source_key,label,conversation_id,customer_name,address_text,dest_lat,dest_lng,dest_source,courier_id,courier_name,courier_kind,status,assigned_at,note,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       id,
       ctx.profile,
       source,
@@ -475,6 +530,7 @@ export async function createDelivery(
       dest ? "panel" : null,
       courier?.id ?? null,
       courier?.name ?? "",
+      courier ? "person" : null,
       courier ? "assigned" : "pending",
       courier ? at : null,
       text(data.note, 500, "Observação"),
@@ -525,15 +581,15 @@ export async function assign(ctx: ModuleContext, actor: Actor, data: any) {
   const target = data.courier_id === "me" ? actor.id : data.courier_id;
   requireValue(typeof target === "string" && target, "Informe courier_id.");
   // Entregador assume uma entrega sem dono; trocar o de outra é da equipe.
-  if (row.courier_id && row.courier_id !== target && isCourier(cfg, actor))
+  if (row.courier_id && row.courier_id !== target && (await isCourier(ctx, actor)))
     requireValue(
       actor.kind === "user" && actor.role === "admin",
       "Esta entrega já tem entregador. Peça à equipe para trocar.",
     );
-  const courier = await courierPerson(ctx, cfg, target);
+  const courier = await courierPerson(ctx, target);
   await exec(
     ctx.env,
-    "UPDATE entrega_deliveries SET courier_id=?,courier_name=?,status='assigned',assigned_at=?,updated=? WHERE id=? AND profile_id=? AND status IN ('pending','assigned')",
+    "UPDATE entrega_deliveries SET courier_id=?,courier_name=?,courier_kind='person',status='assigned',assigned_at=?,updated=? WHERE id=? AND profile_id=? AND status IN ('pending','assigned')",
     courier.id,
     courier.name,
     now(),
@@ -542,6 +598,9 @@ export async function assign(ctx: ModuleContext, actor: Actor, data: any) {
     ctx.profile,
   );
   await history(ctx, row.id, "assigned", actor.id, courier.name);
+  // Passou do entregador do QR para uma pessoa: o QR deixa de valer.
+  if (row.courier_kind === "qr")
+    await endAccess(ctx, row.id, "Entrega passada a outro entregador.");
   const view = deliveryView(await loadDelivery(ctx, row.id), cfg);
   await ctx.publish("entrega.assigned", row.id, eventPayload(view), {
     key: `${row.id}:assigned:${courier.id}:${row.updated}`,
@@ -555,16 +614,17 @@ export async function setDestination(
   actor: Actor,
   data: any,
 ) {
-  team(ctx, actor);
   const cfg = await config(ctx);
   const row = await loadDelivery(ctx, data.id);
+  const courier = isCourierOf(actor, row);
+  if (!courier) team(ctx, actor);
   requireValue(
     OPEN.includes(row.status),
     "A entrega já terminou.",
   );
   const dest = destinationOf(data);
   requireValue(dest, "Informe lat e lng do destino.");
-  const sourceOfDest = row.courier_id === actor.id ? "app" : "panel";
+  const sourceOfDest = courier ? "app" : "panel";
   await exec(
     ctx.env,
     "UPDATE entrega_deliveries SET dest_lat=?,dest_lng=?,dest_source=?,updated=? WHERE id=?",
@@ -599,9 +659,10 @@ export async function start(
   );
   const dest = destinationOf(data.destination);
   let pedidoStatus: string | null = null;
+  const asPedido = pedidoActor(ctx, actor);
   const order =
     row.source === "pedido"
-      ? await pedidoOrder(ctx, actor, row.source_ref)
+      ? await pedidoOrder(ctx, asPedido, row.source_ref)
       : null;
   if (order && !DELIVERABLE.includes(order.status))
     throw new ApiError(
@@ -629,7 +690,7 @@ export async function start(
   if (order && ["received", "preparing"].includes(order.status)) {
     try {
       await ctx.run(
-        actor,
+        asPedido,
         "pedido.status",
         { id: row.source_ref, status: "out_for_delivery" },
         `${requestId}:pedido`,
@@ -678,7 +739,7 @@ export async function finish(
 ) {
   const cfg = await config(ctx);
   const row = await loadDelivery(ctx, data.id);
-  if (row.courier_id !== actor.id) team(ctx, actor);
+  if (!isCourierOf(actor, row)) team(ctx, actor);
   requireValue(
     ["assigned", "en_route"].includes(row.status),
     row.status === "delivered"
@@ -698,22 +759,24 @@ export async function finish(
     row.id,
   );
   await history(ctx, row.id, "delivered", actor.id, note);
+  await endAccess(ctx, row.id, "Entrega concluída.");
+  const asPedido = pedidoActor(ctx, actor);
   let pedidoError: string | null = null;
   if (row.source === "pedido") {
     try {
-      const order = await pedidoOrder(ctx, actor, row.source_ref);
+      const order = await pedidoOrder(ctx, asPedido, row.source_ref);
       if (order.status !== "delivered") {
         // Do pronto/em preparo direto para entregue não é permitido no
         // Pedido: passa por "Saiu para entrega" sem avisar de novo.
         if (["received", "preparing"].includes(order.status))
           await ctx.run(
-            actor,
+            asPedido,
             "pedido.status",
             { id: row.source_ref, status: "out_for_delivery", notify: false },
             `${requestId}:pedido-out`,
           );
         await ctx.run(
-          actor,
+          asPedido,
           "pedido.status",
           { id: row.source_ref, status: "delivered" },
           `${requestId}:pedido`,
@@ -735,7 +798,7 @@ export async function finish(
 export async function cancel(ctx: ModuleContext, actor: Actor, data: any) {
   const cfg = await config(ctx);
   const row = await loadDelivery(ctx, data.id);
-  if (row.courier_id !== actor.id) team(ctx, actor);
+  if (!isCourierOf(actor, row)) team(ctx, actor);
   requireValue(OPEN.includes(row.status), "A entrega já terminou.");
   const reason = text(data.reason, 300, "Motivo");
   requireValue(reason, "Informe o motivo (reason).");
@@ -750,6 +813,7 @@ export async function cancel(ctx: ModuleContext, actor: Actor, data: any) {
     row.id,
   );
   await history(ctx, row.id, "cancelled", actor.id, reason);
+  await endAccess(ctx, row.id, "Entrega cancelada.");
   const view = deliveryView(await loadDelivery(ctx, row.id), cfg);
   await ctx.publish("entrega.cancelled", row.id, eventPayload(view), {
     key: `${row.id}:cancelled`,
@@ -815,6 +879,16 @@ export function acceptPoints(
   return { fixes: unique, ignored: ignored + fixes.length - unique.length };
 }
 
+/** Última mensagem da conversa da entrega (o app compara com a dele). */
+const chatSeq = async (ctx: ModuleContext, id: string) =>
+  (
+    await one(
+      ctx.env,
+      "SELECT max(seq) seq FROM entrega_messages WHERE delivery_id=?",
+      id,
+    )
+  )?.seq || 0;
+
 export async function positions(
   ctx: ModuleContext,
   actor: Actor,
@@ -863,6 +937,7 @@ export async function positions(
       ignored,
       last_at: row.last_at,
       app: appParams(cfg, row),
+      chat: { last_seq: await chatSeq(ctx, row.id) },
     };
   const last = fixes[fixes.length - 1];
   const trail: TrailPoint[] = [
@@ -940,6 +1015,8 @@ export async function positions(
       : null,
     arriving: arriving || !!row.arriving_at,
     app: appParams(cfg, fresh),
+    // Mensagem nova na conversa da entrega: o app busca em …/messages.
+    chat: { last_seq: await chatSeq(ctx, row.id) },
   };
 }
 

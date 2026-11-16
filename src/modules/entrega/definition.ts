@@ -14,6 +14,16 @@ export const entregaModule: ModuleDefinition = {
     "Acompanhamento da entrega em tempo real: o entregador inicia a rota no app e o cliente recebe no WhatsApp a previsão de chegada, a localização e o link com o mapa.",
   builtin: true,
   default_enabled: false,
+  // Entregador fixo da loja, com login. O caminho principal é o QR da
+  // entrega, sem login (docs/ENTREGA.md).
+  grants: [
+    {
+      id: "courier",
+      label: "Entregador",
+      description:
+        "Entregador fixo da loja, com login no app: vê e assume as entregas, envia a posição e conversa com a loja e o cliente. Entregadores avulsos usam o QR da entrega, sem login.",
+    },
+  ],
   navigation: [
     { id: "entregas", label: "Entregas", place: "admin", admin: false },
     {
@@ -39,6 +49,8 @@ export const entregaModule: ModuleDefinition = {
     "entrega.delivered",
     "entrega.cancelled",
     "entrega.signal_lost",
+    "entrega.qr_claimed",
+    "entrega.message",
   ],
   settings: [
     {

@@ -14,6 +14,7 @@ import {
 import {
   config,
   deliveryView,
+  endAccess,
   eventPayload,
   history,
   signalOf,
@@ -61,6 +62,12 @@ onOrderStatusChanged(MODULE, async (env, profile, { order, to, actor }) => {
     to,
     actor || "system",
     delivered ? "Marcado como entregue no Pedido." : reason,
+  );
+  // O acesso do entregador pelo QR fecha junto.
+  await endAccess(
+    ctx,
+    row.id,
+    delivered ? "Pedido entregue no Pedido." : reason,
   );
   // O cliente já recebe o aviso do próprio Pedido; o link cancelado some só
   // quando a entrega foi cancelada (entregue, a página mostra "Entregue").

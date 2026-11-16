@@ -5,7 +5,17 @@
 import { all } from "../../db";
 import { now, requireValue } from "../../types";
 import {
+  courierDelivery,
+  customerTurn,
+  issueQr,
+  listMessages,
+  qrClaimed,
+  sendMessage,
+} from "./courier";
+import {
   filteredHandlers,
+  onConversationTurn,
+  onCredentialClaim,
   onInboundContent,
   onMenuChoice,
   onRoute,
@@ -58,16 +68,10 @@ onSettingsSave(MODULE, "entrega", validateEntregaConfig);
 onRead(MODULE, "entrega", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
   const cfg = await config(ctx);
-  const couriers = cfg.couriers.length
-    ? await all(
-        ctx.env,
-        `SELECT id,name FROM users WHERE disabled=0 AND id IN (${cfg.couriers.map(() => "?").join(",")})`,
-        ...cfg.couriers,
-      )
-    : [];
   return {
-    courier: isCourier(cfg, actor),
-    couriers: couriers.map((u) => ({ id: u.id, name: u.name })),
+    courier: await isCourier(ctx, actor),
+    // Pessoas com o papel entrega:courier (entregadores com login).
+    couriers: await ctx.grantees("courier"),
     app: appParams(cfg, {}),
     updates: cfg.updates,
     tracking_link: cfg.tracking_link,
@@ -98,7 +102,7 @@ onRead(MODULE, "entrega/mine", async (ctx, actor) => {
   );
   const at = now();
   return {
-    courier: isCourier(cfg, actor),
+    courier: await isCourier(ctx, actor),
     data: rows.map((r) => deliveryView(r, cfg, at)),
     app: appParams(cfg, rows.find((r) => r.status === "en_route") || {}),
   };
@@ -108,6 +112,42 @@ onRead(MODULE, "entrega/available", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
   return available(ctx, actor);
 });
+
+// ---------------------------------------------------------------------------
+// Entregador sem login: QR da entrega (./courier.ts)
+
+// POST …/deliveries/:id/qr: a equipe gera o QR (painel e via impressa).
+onRoute(MODULE, {
+  method: "POST",
+  path: "entrega/deliveries/:id/qr",
+  op: "entrega.qr",
+});
+onCommand(MODULE, "entrega.qr", (ctx, actor, data) => issueQr(ctx, actor, data));
+// O app leu o QR: quem leu vira o entregador (primeira leitura vence).
+onCredentialClaim(MODULE, (ctx, credential) => qrClaimed(ctx, credential));
+
+// O que o app do entregador mostra (credencial do QR ou pessoa atribuída).
+onRead(MODULE, "entrega/deliveries/:id/courier", (ctx, actor, { params }) =>
+  courierDelivery(ctx, actor, params.id),
+);
+
+// Conversa da entrega: entregador ↔ loja (store) e entregador ↔ cliente
+// (customer, pelo WhatsApp da loja).
+onRead(
+  MODULE,
+  "entrega/deliveries/:id/messages",
+  (ctx, actor, { params, query }) => listMessages(ctx, actor, params.id, query),
+);
+onRoute(MODULE, {
+  method: "POST",
+  path: "entrega/deliveries/:id/messages",
+  op: "entrega.message",
+});
+onCommand(MODULE, "entrega.message", (ctx, actor, data, { requestId }) =>
+  sendMessage(ctx, actor, data, requestId),
+);
+// Resposta do cliente no WhatsApp com uma entrega aberta: vai ao app.
+onConversationTurn(MODULE, (ctx, c, turn) => customerTurn(ctx, c, turn));
 
 onRoute(MODULE, {
   method: "POST",
@@ -179,7 +219,12 @@ onTelemetry(
   MODULE,
   "entrega/deliveries/:id/positions",
   async (ctx, actor, { params, body }) => {
-    requireValue(actor.kind === "user", "Só o entregador envia posições.");
+    // Pessoa entregadora ou a credencial do QR desta entrega (conferido no
+    // positions); aplicações e conectores, não.
+    requireValue(
+      actor.kind === "user" || !!actor.credential,
+      "Só o entregador envia posições.",
+    );
     return positions(ctx, actor, params.id, body);
   },
 );

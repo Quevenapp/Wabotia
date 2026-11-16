@@ -25,8 +25,11 @@ export const TEXT_KEYS = [
 export type TextKey = (typeof TEXT_KEYS)[number];
 
 export interface EntregaConfig {
-  /** Ids das pessoas da equipe que fazem entregas. */
-  couriers: string[];
+  /**
+   * QR da entrega (entregador sem login): validade do QR até ser lido e da
+   * credencial depois de lido (revogada antes, quando a entrega termina).
+   */
+  qr: { claim_minutes: number; credential_hours: number };
   /** Velocidade média para a previsão (km/h). */
   speed_kmh: number;
   /** Fator de ruas sobre a linha reta. */
@@ -88,7 +91,7 @@ export const DEFAULT_TEXTS: Record<TextKey, string> = {
 };
 
 export const DEFAULT_CONFIG: EntregaConfig = {
-  couriers: [],
+  qr: { claim_minutes: 180, credential_hours: 8 },
   speed_kmh: 25,
   road_factor: 1.3,
   route_provider: "straight_line",
@@ -158,26 +161,6 @@ function choice<T extends string>(
 function normalize(raw: unknown, strict: boolean): EntregaConfig {
   const v = obj(raw);
   const d = DEFAULT_CONFIG;
-  let couriers: string[] = [];
-  if (v.couriers !== undefined && v.couriers !== null) {
-    if (strict)
-      requireValue(
-        Array.isArray(v.couriers) &&
-          v.couriers.length <= 200 &&
-          v.couriers.every(
-            (id: unknown) =>
-              typeof id === "string" && id.length >= 1 && id.length <= 100,
-          ),
-        "Entregadores: lista de até 200 ids de pessoas da equipe.",
-      );
-    couriers = Array.isArray(v.couriers)
-      ? [
-          ...new Set(
-            v.couriers.filter((id: unknown) => typeof id === "string"),
-          ),
-        ].slice(0, 200) as string[]
-      : [];
-  }
   const updates = obj(v.updates),
     notices = obj(v.notices),
     app = obj(v.app),
@@ -237,8 +220,12 @@ function normalize(raw: unknown, strict: boolean): EntregaConfig {
       appCfg.sample_seconds <= appCfg.upload_seconds,
       "A leitura do GPS precisa ser mais frequente que o envio.",
     );
+  const qr = obj(v.qr);
   return {
-    couriers,
+    qr: {
+      claim_minutes: int(qr.claim_minutes, d.qr.claim_minutes, 10, 1440, "Validade do QR (min)", strict),
+      credential_hours: int(qr.credential_hours, d.qr.credential_hours, 1, 12, "Validade do acesso pelo QR (h)", strict),
+    },
     speed_kmh: int(v.speed_kmh, d.speed_kmh, 5, 120, "Velocidade média (km/h)", strict),
     road_factor:
       Math.round(

@@ -60,7 +60,9 @@ async function setup(entrega: any = {}, enabled = true) {
         ...MENUS,
         { id: "onde", label: "Onde está minha entrega", type: "entrega_onde" },
       ],
-      entrega: { couriers: [f.member.id], ...entrega },
+      // Entregador com login: papel entrega:courier (Gestão → Pessoas).
+      module_grants: { "entrega:courier": [f.member.id] },
+      entrega,
     });
   }
   const menu = await seedMenu(f);
@@ -497,7 +499,8 @@ describe("entrega: avulsa, localização do cliente e privacidade", () => {
       ref_id: order.id,
       courier_id: f.other.id,
     }).catch((e) => e);
-    expect(err.status).toBe(400);
+    expect(err.status).toBe(403);
+    expect(err.code).toBe("role_required");
     // Pedido de retirada não vira entrega.
     const pickup = await run(f, f.admin, "pedido.order.create", {
       fulfillment: "pickup",
@@ -606,6 +609,153 @@ describe("entrega: ganchos do Pedido", () => {
       .flatMap((col: any) => col.orders)
       .find((o: any) => o.id === order.id);
     expect(card.delivery.courier_id).toBe(f.member.id);
+  });
+});
+
+describe("entrega: entregador pelo QR, sem login", () => {
+  const claim = (body: any, ip = "203.0.113." + Math.floor(Math.random() * 250)) =>
+    SELF.fetch("https://test/api/credentials/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify(body),
+    });
+
+  async function qrDelivery() {
+    const { f, menu } = await setup();
+    const phone = "5511973" + String(Math.random()).slice(2, 8);
+    const { c, order } = await deliveryOrder(f, menu, phone);
+    const admin = await bearer(f.admin);
+    const base = `/profiles/${f.profile}/entrega/deliveries`;
+    const created = await (
+      await api(admin, base, "POST", { source: "pedido", ref_id: order.id })
+    ).json<any>();
+    const qr = await (
+      await api(admin, `${base}/${created.id}/qr`, "POST", {})
+    ).json<any>();
+    return { f, c, order, phone, admin, base, created, qr };
+  }
+
+  it("QR → credencial só desta entrega: rota, conversa, conclusão e revogação", async () => {
+    const { f, c, order, phone, admin, base, created, qr } = await qrDelivery();
+    expect(created.status).toBe("pending");
+    expect(qr.qr.url).toMatch(/\/c\/[A-Za-z0-9]{32}$/);
+    expect(qr.slip.lines.join(" ")).toContain("Escanear pedido");
+    // Câmera do celular, fora do app: só orienta, não gasta o QR.
+    const camera = await SELF.fetch("https://test" + new URL(qr.qr.url).pathname);
+    expect(await camera.text()).toContain("Escanear pedido");
+
+    const res = await claim({ code: qr.qr.url, name: "Carlos Souza", device: "Moto G" });
+    expect(res.status).toBe(200);
+    const got = await res.json<any>();
+    expect(got.token).toMatch(/^wabx_/);
+    expect(got).toMatchObject({
+      profile: f.profile,
+      module: "entrega",
+      subject: created.id,
+      data: { delivery: { status: "assigned", courier: { name: "Carlos" } } },
+    });
+    // Uso único: a segunda leitura não vale.
+    const second = await claim({ code: qr.qr.url, name: "Outro" });
+    expect(second.status).toBe(410);
+    expect((await second.json<any>()).error.code).toBe("claim_used");
+    const token = got.token;
+
+    // Só as rotas da entrega dela.
+    expect((await api(token, `/profiles/${f.profile}/conversations`)).status).toBe(403);
+    expect((await api(token, `/profiles/${f.profile}/pedido/board`)).status).toBe(403);
+    expect((await api(token, base)).status).toBe(403);
+    expect((await api(token, `${base}/${created.id}`)).status).toBe(403);
+
+    // O que o app mostra: destino e resumo, sem telefone nem conversa.
+    const view = await (await api(token, `${base}/${created.id}/courier`)).json<any>();
+    expect(view.address_text).toContain("Rua C");
+    expect(view.customer_name).toBe("Caio");
+    expect(view.order.lines).toHaveLength(1);
+    expect(view).not.toHaveProperty("conversation_id");
+    expect(JSON.stringify(view)).not.toContain(phone);
+
+    // A loja vê quem leu.
+    const detail = await (await api(admin, `${base}/${created.id}`)).json<any>();
+    expect(detail.access[0]).toMatchObject({
+      status: "active",
+      label: "Carlos Souza",
+      device: "Moto G",
+    });
+
+    // Corrige o pino, sai e manda posição (o Pedido vai para Saiu para entrega).
+    const pin = await api(token, `${base}/${created.id}/destination`, "POST", FAR);
+    expect(pin.status).toBe(200);
+    expect((await api(token, `${base}/${created.id}/assign`, "POST", { courier_id: "me" })).status).toBe(403);
+    const go = await api(token, `${base}/${created.id}/start`, "POST", { destination: DEST });
+    expect(go.status).toBe(200);
+    expect(await orderStatus(order.id)).toBe("out_for_delivery");
+    const pos = await (
+      await positions(token, f, created.id, { points: [{ t: now(), ...FAR }] })
+    ).json<any>();
+    expect(pos.accepted).toBe(1);
+
+    // Conversa com o cliente pelo WhatsApp da loja.
+    const msg = await api(token, `${base}/${created.id}/messages`, "POST", {
+      channel: "customer",
+      text: "Estou na portaria",
+    });
+    expect(msg.status).toBe(200);
+    expect(
+      (await outbox(c.id)).some((m) => m.text === "Carlos - Entregador: Estou na portaria"),
+    ).toBe(true);
+    await say(f, "Já desço!", phone);
+    // Com a loja: interna, também como nota na conversa do cliente.
+    await api(token, `${base}/${created.id}/messages`, "POST", {
+      channel: "store",
+      text: "Interfone não funciona",
+    });
+    await api(admin, `${base}/${created.id}/messages`, "POST", { text: "Ok, aguarde" });
+    const note = await one(
+      env,
+      "SELECT text FROM messages WHERE conversation_id=? AND direction='note' AND text LIKE 'Entregador Carlos%'",
+      c.id,
+    );
+    expect(note).toBeTruthy();
+    const chat = await (
+      await api(token, `${base}/${created.id}/messages?after=0`)
+    ).json<any>();
+    expect(chat.data.map((m: any) => [m.channel, m.sender, m.text])).toEqual([
+      ["customer", "courier", "Estou na portaria"],
+      ["customer", "customer", "Já desço!"],
+      ["store", "courier", "Interfone não funciona"],
+      ["store", "store", "Ok, aguarde"],
+    ]);
+    expect(JSON.stringify(chat)).not.toContain(phone);
+    const pos2 = await (
+      await positions(token, f, created.id, { points: [{ t: now() + 500, ...FAR }] })
+    ).json<any>();
+    expect(pos2.chat.last_seq).toBe(chat.last_seq);
+
+    // Conclui: o Pedido vai para Entregue e o acesso fecha (401).
+    const done = await api(token, `${base}/${created.id}/delivered`, "POST", {});
+    expect(done.status).toBe(200);
+    expect(await orderStatus(order.id)).toBe("delivered");
+    const after = await api(token, `${base}/${created.id}/courier`);
+    expect(after.status).toBe(401);
+  });
+
+  it("QR novo revoga o anterior; entrega encerrada fecha o QR", async () => {
+    const { f, admin, base, created, qr } = await qrDelivery();
+    const first = await (await claim({ code: qr.qr.url, name: "Ana" })).json<any>();
+    const again = await (await api(admin, `${base}/${created.id}/qr`, "POST", {})).json<any>();
+    expect((await api(first.token, `${base}/${created.id}/courier`)).status).toBe(401);
+    // Cancelada: o QR ainda não lido também deixa de valer.
+    await api(admin, `${base}/${created.id}/cancel`, "POST", { reason: "Cliente desistiu" });
+    const late = await claim({ code: again.qr.url, name: "Bia" });
+    expect(late.status).toBe(410);
+    void f;
+  });
+
+  it("limite de leituras por IP", async () => {
+    const ip = "198.51.100.77";
+    for (let i = 0; i < 10; i++)
+      expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(404);
+    expect((await claim({ code: "x".repeat(32), name: "Ana" }, ip)).status).toBe(429);
   });
 });
 
@@ -741,7 +891,7 @@ describe("entrega: contrato da API", () => {
       ...moduleRoutes().write.filter((r) => r.path.startsWith("entrega")).map((r) => [r.method.toLowerCase(), r.path]),
       ...moduleRoutes().telemetry.filter((r) => r.path.startsWith("entrega")).map((r) => ["post", r.path]),
     ];
-    expect(routes.length).toBe(12);
+    expect(routes.length).toBe(16);
     for (const [method, path] of routes) {
       const entry = spec.paths[toSpec(path)]?.[method];
       expect(entry, `${method} ${path}`).toBeTruthy();

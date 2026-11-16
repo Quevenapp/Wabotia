@@ -10,6 +10,7 @@ import { fill, type EntregaConfig } from "./config";
 import {
   config,
   deliveryView,
+  endAccess,
   eventPayload,
   hhmm,
   MAX_ROUTE_MS,
@@ -314,6 +315,7 @@ export async function runDue(ctx: ModuleContext, at: number) {
         );
         if (row.track_step_id)
           await ctx.cancelWebStep(row.track_step_id).catch(() => undefined);
+        await endAccess(ctx, row.id, "Rota encerrada depois de 8 horas.");
         await ctx.publish(
           "entrega.cancelled",
           row.id,
@@ -339,7 +341,7 @@ export async function runDue(ctx: ModuleContext, at: number) {
         await ctx
           .note(
             c,
-            `Entrega: sem posição de ${row.courier_name || "o entregador"} desde ${hhmm(seen)} (${row.label}).`,
+            `Entrega: sem posição de ${row.courier_name || "o entregador"} desde ${hhmm(seen)} (${row.label}); app fechado ou sem sinal.`,
             { key: `signal:${row.id}:${seen}` },
           )
           .catch(() => undefined);
@@ -408,6 +410,12 @@ export async function purge(ctx: ModuleContext, cfg: EntregaConfig, at: number) 
     );
     if (row.track_step_id)
       await ctx.cancelWebStep(row.track_step_id).catch(() => undefined);
+    // A conversa da entrega some junto com a posição.
+    await exec(
+      ctx.env,
+      "DELETE FROM entrega_messages WHERE delivery_id=?",
+      row.id,
+    );
   }
   return rows.length;
 }
@@ -467,7 +475,7 @@ export async function trackView(
         : "A caminho.",
     notice:
       signal === "stale"
-        ? `Sem sinal do entregador desde ${hhmm(row.last_at)}. A posição volta a aparecer quando o sinal voltar.`
+        ? `Última posição há ${Math.max(1, Math.round((at - row.last_at) / 60000))} min (${hhmm(row.last_at)}). A posição volta a aparecer quando o entregador abrir o app.`
         : signal === "none"
           ? "Aguardando a primeira posição do entregador."
           : null,
