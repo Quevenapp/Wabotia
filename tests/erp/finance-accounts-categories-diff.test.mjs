@@ -38,8 +38,8 @@ test("erp_finance contas e categorias: mesmas respostas, erros e estado em sequ�
     await legacy("account_save", { expected_version: 0, name, kind });
   const names = ["Vendas", "vendas", "Serviços", "Água e luz", "Ébano", "Zinco", "Ação", "Impostos", "Σίγμα", "Ωmega", "  Espaço  ", "Tab\tcontrole"];
   const dres = { receivable: ["none", "gross_revenue", "financial_revenue", "other_revenue"], payable: ["none", "operating_expenses", "income_taxes", "financial_expenses"] };
-  const categories = async (kind) => (await f.db.query("select id,version,parent_id,active from erp_finance.category where kind=$1 and deleted_at is null order by id", [kind])).rows;
-  const accounts = async () => (await f.db.query("select id,version,active,kind,default_movements,default_boleto from erp_finance.account where deleted_at is null order by id")).rows;
+  const categories = async (kind) => (await f.db.query("select id,version,parent_id,active from erp_finance.category where kind=$1 and deleted_at is null order by created_at,id", [kind])).rows;
+  const accounts = async () => (await f.db.query("select id,version,active,kind,default_movements,default_boleto from erp_finance.account where deleted_at is null order by created_at,id")).rows;
   const defaults = async () => (await f.db.query("select key,version from erp_finance.category_default order by key")).rows;
   const commands = [];
   const outcomes = {};

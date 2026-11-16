@@ -40,8 +40,8 @@ test("erp_finance_execute: mesmas respostas, erros e estado em sequÃªncia aleatÃ
   for (const [name, kind] of [["Banco", "bank"], ["Caixa", "cash"]]) accounts.push((await exec("account_save", { expected_version: 0, name: `${name} diferencial`, kind })).record);
   const categories = [];
   for (const [name, kind] of [["Receita", "receivable"], ["Despesa", "payable"]]) categories.push((await exec("category_save", { expected_version: 0, name: `${name} diferencial`, kind })).record);
-  const titleRows = async () => (await f.db.query("select id,version,kind,cancelled,amount_cents::text amount,settled_cents::text settled,issued_on::text issued from erp_finance.title where deleted_at is null order by id")).rows;
-  const settlementRows = async (title) => (await f.db.query("select s.id,s.posted_on::text posted from erp_finance.settlement s where s.title_id=$1 and s.kind='payment' order by s.id", [title])).rows;
+  const titleRows = async () => (await f.db.query("select id,version,kind,cancelled,amount_cents::text amount,settled_cents::text settled,issued_on::text issued from erp_finance.title where deleted_at is null order by created_at,id")).rows;
+  const settlementRows = async (title) => (await f.db.query("select s.id,s.posted_on::text posted from erp_finance.settlement s where s.title_id=$1 and s.kind='payment' order by s.created_at,s.id", [title])).rows;
   const commands = [];
   const outcomes = {};
   let accepted = 0,

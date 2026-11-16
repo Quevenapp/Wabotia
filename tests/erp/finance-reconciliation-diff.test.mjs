@@ -40,11 +40,11 @@ test("erp_finance_reconciliation_execute: mesmas respostas, erros e estado em se
   const amounts = ["1500", "-1500", "30000", "-5000", "-8000", "2500"];
   const reconcile = (action, data, user = u.financeiro, command = randomUUID()) =>
     ({ name: "erp_finance_reconciliation_execute", args: { p_user_id: user, p_command_id: command, p_action: action, p_data: data } });
-  const lines = async () => (await f.db.query("select id,version,state,account_id,amount_cents::text amount,statement_id from erp_finance.bank_statement_line where deleted_at is null order by id")).rows;
-  const statements = async () => (await f.db.query("select id from erp_finance.bank_statement where deleted_at is null order by id")).rows.map((r) => r.id);
-  const entries = async (acc) => (await f.db.query("select id from erp_finance.cash_entry where account_id=$1 and deleted_at is null order by id", [acc])).rows.map((r) => r.id);
-  const movements = async (acc) => (await f.db.query("select id from erp_finance.movement where account_id=$1 and (transfer_id is not null or kind in ('payment','bank_fee')) order by id", [acc])).rows.map((r) => r.id);
-  const titles = async () => (await f.db.query("select id,version,kind,(amount_cents-settled_cents)::text balance from erp_finance.title where deleted_at is null and not cancelled and settled_cents<amount_cents order by id")).rows;
+  const lines = async () => (await f.db.query("select id,version,state,account_id,amount_cents::text amount,statement_id from erp_finance.bank_statement_line where deleted_at is null order by created_at,id")).rows;
+  const statements = async () => (await f.db.query("select id from erp_finance.bank_statement where deleted_at is null order by created_at,id")).rows.map((r) => r.id);
+  const entries = async (acc) => (await f.db.query("select id from erp_finance.cash_entry where account_id=$1 and deleted_at is null order by created_at,id", [acc])).rows.map((r) => r.id);
+  const movements = async (acc) => (await f.db.query("select id from erp_finance.movement where account_id=$1 and (transfer_id is not null or kind in ('payment','bank_fee')) order by created_at,id", [acc])).rows.map((r) => r.id);
+  const titles = async () => (await f.db.query("select id,version,kind,(amount_cents-settled_cents)::text balance from erp_finance.title where deleted_at is null and not cancelled and settled_cents<amount_cents order by created_at,id")).rows;
   // Lançamentos e contas para casar com as linhas.
   for (const amount of amounts) {
     const value = amount.replace("-", "");
