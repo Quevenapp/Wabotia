@@ -12,7 +12,7 @@ import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
 import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
 import { callRpc } from "../../../src/erp/engine/registry.ts";
-import { dualFixture } from "./dual-fixture.mjs";
+import { dualFixture, wireArgs } from "./dual-fixture.mjs";
 import { pgIdentity } from "./identity.mjs";
 import { freshLite } from "./node-driver.mjs";
 import { SEED_LEAVES_NORMALIZED_NULL, applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
@@ -256,6 +256,32 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   });
   equal(data("after_data"), KNOWN);
   differs(data("before_data"), KNOWN);
+});
+
+test("item 6: uuid embutido em texto (source_key = 'cash_session:<movimento>')", () => {
+  const key = (id) => `cash_session:${id}`;
+  const pair = () => [U(), U()];
+  const [p1, p2] = pair(),
+    [l1, l2] = pair();
+  // O movimento que aponta para o outro movimento novo, só pelo texto.
+  const pgRows = [mov(p1, { delta_cents: "5" }), mov(p2, { delta_cents: "7", note: key(p1) })];
+  const data = (note) => ({ erp_finance__movement: { pg: pgRows, lite: [mov(l1, { delta_cents: "5" }), mov(l2, { delta_cents: "7", note })] } });
+  const { diffs, ids } = compare(data(key(l1)), KNOWN);
+  assert.deepEqual(diffs, []);
+  assert.equal(ids.map(l1), p1);
+  differs(data(key(l2)), KNOWN); // aponta para o movimento errado (ele mesmo)
+  differs(data(key(A)), KNOWN); // para um id que já existia
+  differs(data(key(U())), KNOWN); // para um id sem correspondência
+  differs(data(`cash_sessio:${l1}`), KNOWN); // prefixo diferente
+  differs(data(`${key(l1)}:${l1}`), KNOWN); // texto a mais
+  // Na resposta.
+  const r = () => new IdMap(new Set(KNOWN));
+  assert.deepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l1), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(p1), id: p1 }, { k: key(l2), id: l1 }, r()), []);
+  assert.notDeepEqual(diffValues({ k: key(A) }, { k: key(A2) }, r()), []);
+  assert.notDeepEqual(diffValues({ k: `x:${p1}` }, { k: `y:${l1}` }, r()), []);
+  // Hexa maior que um uuid não é uuid embutido: comparado literalmente.
+  assert.notDeepEqual(diffValues({ k: `${p1}aa` }, { k: `${l1}aa` }, r()), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -512,4 +538,12 @@ test("ponta a ponta: espelho, ids novos, __fold, ids existentes e resposta", asy
   } finally {
     await f.close();
   }
+});
+
+test("argumentos pelo fio: undefined some nos dois motores (achado da G)", () => {
+  const id = randomUUID();
+  assert.deepEqual(wireArgs({ p_user_id: id, p_extra: undefined, p_data: { campo: undefined, nome: "x", lista: [1, undefined] } }), {
+    p_user_id: id,
+    p_data: { nome: "x", lista: [1, null] },
+  });
 });
