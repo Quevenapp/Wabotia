@@ -345,6 +345,68 @@ Com `sensitive: true`, avise que o código do autenticador será pedido.
 
 As novidades chegam pelo evento `internal.message` (`chat_id`), como as demais mensagens.
 
+**Pedido de aprovação** (`kind: "approval"`, autor `bot:<id>`): um cliente pediu algo que precisa da equipe (desconto, dispensa de parcela).
+- **Quem recebe**: o cartão chega a cada pessoa que pode decidir, na conversa interna com o bot que atendeu, e também por push (`data.type: "approval"`, `approval_id`, `conversation_id`).
+- **Texto de reserva**: "Pedido de aprovação: … Decida no painel ou no app atualizado".
+- **Payload**: `payload.approval`, sempre atual e já filtrado para quem lê:
+
+```json
+{
+  "id": "…", "module_id": "pedido", "kind": "desconto", "ref_id": "…", "conversation_id": "…",
+  "title": "Desconto de 10% no pedido nº 128 de Mariana Costa",
+  "status": "pending",
+  "fields": [{"key": "total", "label": "Total de tabela", "value": "R$ 62,00"}],
+  "hidden_fields": 1,
+  "model_summary": "Cliente frequente; diz que o concorrente cobra menos.",
+  "adjust": {"label": "Desconto concedido (R$)", "type": "money", "min": 0, "max": 6.2},
+  "can_decide": true,
+  "value": null, "reason": null, "decided_by": null, "decided_at": null,
+  "expires_at": 1794841500000, "created": 1794839700000
+}
+```
+
+**O que o cartão mostra**
+- `fields`: montado pelo módulo com dados lidos por código. Mostre como vem.
+- `hidden_fields`: quantos campos restritos (custo, margem) a pessoa não pode ver.
+- `model_summary`: o que o bot escreveu. Mostre separado, como "Resumo do bot (não verificado)", **nunca** junto dos números.
+- Estados (`status`):
+
+| Estado | Significado |
+|---|---|
+| `pending` | aguardando a equipe |
+| `deciding` | em decisão |
+| `approved` | aprovado |
+| `declined` | recusado |
+| `handoff` | conversa assumida |
+| `expired` | venceu |
+
+- Depois de decidido, mostre `decided_by`, `value` e `reason`.
+
+**Botões** só com `pending` e `can_decide`:
+- **Aprovar**, com campo opcional do `adjust`;
+- **Recusar**, com motivo opcional;
+- **Assumir a conversa**: a conversa passa a quem tocou, e o app abre a conversa.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /profiles/{perfil}/approvals?status=pending` | Pedidos que a pessoa pode decidir (aba de aprovações, se o app tiver) |
+| `GET /profiles/{perfil}/approvals/{id}` | Um pedido, como a pessoa vê |
+| `POST /profiles/{perfil}/approvals/{id}/decide` | `{"decision": "approve"\|"decline"\|"handoff", "value"?: número, "reason"?: texto}`, com `Idempotency-Key` (ex.: `decide:<id>:<decisão>`). Só sessão de pessoa. Resposta: o pedido |
+
+**A decisão**
+- O **primeiro a decidir vence**. Quem vier depois recebe `409 approval_closed` e recarrega o cartão, que já mostra quem decidiu.
+- Repetir a mesma decisão (mesma pessoa) devolve o mesmo resultado.
+
+| Erro | Quando |
+|---|---|
+| `403 approval_forbidden` | sem permissão para decidir |
+| `403` do módulo | limite da pessoa: o pedido continua pendente para outra pessoa |
+| `403 person_required` | chave de aplicação ou o próprio bot |
+| `409 approval_expired` | o prazo venceu |
+| `400` | ajuste fora dos limites |
+
+O evento `approval.requested` sai ao criar e `approval.decided` sai ao decidir ou vencer.
+
 ### Dados pessoais e regra da instalação
 
 - **Padrão**: as consultas que o bot faz chegam ao modelo de IA sem telefone, documento, e-mail, endereço e observações, como para uma aplicação sem `contacts:read` e `notes:read`.

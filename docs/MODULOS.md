@@ -404,6 +404,67 @@ onMcpTool("mensalidade", {
 | Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
 | Suporte e Fila | nenhuma |
 
+### Pedido de aprovação à equipe (`ctx.requestApproval` + `onApproval`)
+
+Para o cliente pedir o que só a equipe concede (desconto, isenção de taxa, dispensa de parcela). O bot **nunca concede**: a ferramenta do cliente só registra o pedido e diz que vai consultar a equipe. Núcleo em `src/approvals.ts`, migração 0086.
+
+```ts
+// 1. Ferramenta do cliente (modo cliente), que só registra o pedido:
+onMcpTool("pedido", {
+  name: "pedido_pedir_desconto",
+  description: "Pede à equipe um desconto no pedido aberto do cliente da conversa. Não concede nada.",
+  input: { conversation_id: { type: "string" }, observacao: { type: "string" } },
+  required: ["conversation_id"], write: true, customer: "read",
+  call: (a, p) => ({ method: "POST", path: `/profiles/${p}/conversations/${a.conversation_id}/actions`,
+                     body: { action: "pedido_desconto", observacao: a.observacao } }),
+});
+
+// 2. A ação monta o cartão com dados lidos por código, nunca com números do modelo:
+onConversationAction("pedido", "pedido_desconto", async (ctx, actor, c, data) => {
+  const order = /* pedido aberto do telefone verificado da conversa */;
+  const approval = await ctx.requestApproval(c, {
+    kind: "desconto", ref: order.id,
+    title: `Desconto no pedido nº ${order.number}`,
+    fields: [
+      { key: "itens", label: "Itens", value: "…" },
+      { key: "total", label: "Total de tabela", value: "R$ 62,00" },
+      { key: "ultimas", label: "Últimas compras", value: "5 pedidos, média R$ 58,00" },
+      { key: "margem", label: "Margem", value: "38%", restricted: { admin: true } },
+    ],
+    approvers: { access: "pedido" },          // ou { admin: true } ou { role: "pedido:gerente" }
+    adjust: { label: "Desconto (R$)", type: "money", min: 0, max: 6.2 },
+    ttlMinutes: 30,
+    modelSummary: data.observacao,            // guardado à parte, como não verificado
+    botId: actor.via?.bot_id, runId: actor.via?.run_id,
+    key: order.id,                            // repetir não abre outro
+  });
+  return { pedido: approval.id, estado: "aguardando a equipe" };
+});
+
+// 3. A decisão: o módulo confere o limite de quem decide e aplica o efeito.
+onApproval("pedido", "desconto", {
+  async validate(ctx, approval, d) { /* ex.: atendente até R$ 5; lance ApiError 403 */ },
+  async decided(ctx, approval, d) {
+    // d.status: approved (d.value), declined (d.reason), handoff, expired (d.actor null)
+  },
+});
+```
+
+**Regras do núcleo**
+- **O cartão**:
+  - `fields` fica guardado como foi mostrado, para a auditoria;
+  - `restricted` esconde o campo de quem não está na audiência (o app recebe `hidden_fields`);
+  - `modelSummary` vai à parte, como "Resumo do bot (não verificado)".
+- **A decisão**:
+  - é uma rota que exige sessão de pessoa da audiência `approvers` (senão `403 approval_forbidden`); bot e chave de aplicação nunca decidem;
+  - o primeiro a decidir vence; os outros recebem `409 approval_closed`;
+  - `validate` e `decided` recebem o ator de quem decidiu, então as regras do módulo (papel, limite) valem;
+  - erro em qualquer um devolve o pedido a pendente.
+- **Assumir**: `handoff` passa a conversa a quem tocou (`handoffToPerson`) e depois chama `decided` com `status: "handoff"`.
+- **Prazo**: padrão 30 minutos, de 5 minutos a 7 dias. A rodada periódica vence os pedidos e chama `decided` com `status: "expired"`; sem `decided`, o núcleo avisa o cliente e põe a conversa na fila da equipe.
+- **Auditoria**: `audit` com `approval.approve|decline|handoff`, e o pedido guarda conversa, cartão, quem decidiu, valor e quando.
+- **Avisos**: o cartão vai à conversa interna de cada pessoa que pode decidir com o bot que atendeu (até 20), e o evento `approval.requested` dispara o push.
+
 ### Ações pelo bot na conversa interna (`definition.bot`)
 
 Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pediu** (`src/bot-actions/`, contrato dos apps em `docs/API.md`, "Ações pelo bot"). O módulo não escreve nada para isso.
@@ -446,6 +507,10 @@ O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, mask
 | Campo `wabotia_run` no job do plugin | `src/integrations.ts`, `src/engine.ts` |
 | Cabeçalho `X-Wabotia-Run` no MCP | `src/mcp.ts` |
 | Gancho `requireAal2` local até a `feat/login-mfa` | `src/bot-actions/mfa.ts` |
+| Laço de ferramentas e `aiCompleteWithTools` | `src/bot-tools.ts`, `src/ai-provider.ts`; escolha do modo em `aiRun` (`src/engine.ts`) |
+| Modo cliente | `src/bot-actions/customer.ts`; resposta ao botão antes dos módulos no `processInbox`; campo `customer` em `ModuleMcpTool` (`src/modules/hooks.ts`) |
+| Pedido de aprovação | `src/approvals.ts`; `ctx.requestApproval` e `onApproval` (`src/modules/api.ts`); rotas `/approvals`; push `approval.requested`; segmento `approvals` livre no acesso (a audiência decide) |
+| Vencimento de pedidos e propostas | na rodada periódica (`src/modules/schedule.ts`) |
 
 ### Tarefas periódicas (`onSchedule`)
 
