@@ -169,6 +169,24 @@ O `FiscalError` estende `ApiError`. Em `details` vêm:
 | página `error code: 1042` | `502 fiscal_provider_same_zone` | não |
 | sem emissor | `409 fiscal_provider_not_configured` | não |
 
+**Rejeições de cadastro.** Algumas rejeições da SEFAZ dependem de cadastro fora
+do sistema e não se resolvem repetindo. Elas ficam em
+`REGISTRATION_REJECTIONS` (`provider.ts`), pelo cStat da primeira mensagem.
+Na emissão viram erro, não resultado, para o ERP e o caixa não insistirem.
+O erro traz:
+- o código e a mensagem para a pessoa;
+- `messages` com o cStat e o xMotivo originais;
+- `emission` com a emissão rejeitada;
+- `retryable: false`.
+
+| cStat | Erro | O que a pessoa faz |
+|---|---|---|
+| 245 "CNPJ Emitente não cadastrado" | `422 fiscal_issuer_not_accredited` | Credenciar a empresa na SEFAZ do estado (visto na NFC-e em SP). |
+| 181 CNPJ do destinatário inexistente na Receita | `422 fiscal_recipient_not_registered` | Corrigir o CNPJ do cliente. Em homologação, só CNPJ existente passa. |
+
+Corrigido o cadastro ou o dado, a emissão segue a regra da rejeição: reenvie
+na **mesma** versão.
+
 A tabela segue `x-codigos` do contrato: 32 códigos com status, em
 `CONTRACT_ERROR_CODES`. Código desconhecido é tratado pelo status HTTP, como
 o contrato pede.
@@ -355,11 +373,17 @@ antes de chamar o cofre, e todo resultado vem com `contingency: null`.
 - **Flag de compatibilidade** se o cofre puder estar na mesma zona.
 - **PDF (DANFE/DANFCE) e contingência:** a NFapi ainda não tem.
 - **Teste real a partir do Wabotia:** este cliente nunca falou com um cofre
-  real; os testes usam um cofre simulado. Do lado da NFapi, uma NF-e real foi
-  autorizada pela SEFAZ-SP em homologação (cStat 100) em 16/11, com o cofre
-  0.3.1. Carta de correção, cancelamento e NFC-e reais ainda não rodaram.
-  Em homologação, a SEFAZ confere o CNPJ do destinatário na Receita (rejeição
-  181): um teste real precisa de CNPJ existente.
+  real; os testes usam um cofre simulado. Do lado da NFapi, em 16/11, com um
+  script local sobre o código do cofre (não pela API de um cofre publicado),
+  na SEFAZ-SP em homologação:
+  - **NF-e:** autorizada (cStat 100), com carta de correção (135) e
+    cancelamento (135) registrados;
+  - **NFC-e:** rejeitada com 245, porque o emitente de teste não é
+    credenciado. Segue sem validação real, inclusive o QR Code versão 3;
+  - **Inutilização:** não testada.
+
+  Em homologação, a SEFAZ confere o CNPJ do destinatário na Receita
+  (rejeição 181), então um teste real precisa de CNPJ existente.
 - **Lacuna do contrato:** `500 erro_interno` e `503 cofre_nao_configurado`
   estão em `x-codigos`, mas as operações não declaram 500 nem 503. O cliente
   trata os dois mesmo assim.

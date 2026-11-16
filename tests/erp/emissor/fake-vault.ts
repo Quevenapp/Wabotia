@@ -9,7 +9,8 @@
 //   "lose"          o cofre processa e a resposta se perde (rede)
 //   "drop"          o pedido nem chega ao cofre (rede)
 //   "inconclusive"  o governo não responde: emissão indefinida, 502
-//   "reject"        o governo rejeita: 422 nfe_rejeitada com cStat
+//   "reject"        o governo rejeita: 422 nfe_rejeitada com cStat 539
+//   "reject:245"    idem, com o cStat escolhido (245, 181)
 //   "deny"          uso denegado: 422 nfe_denegada
 //   "gateway"       o cofre processa e a Cloudflare devolve HTML 502
 //   "same-zone"     página "error code: 1042" (não chega ao cofre)
@@ -19,7 +20,24 @@
 import { expect } from "vitest";
 import { operation, responseSchema, validate, requestSchema } from "./schema";
 
-export type Behavior = "ok" | "lose" | "drop" | "inconclusive" | "reject" | "deny" | "gateway" | "same-zone" | "internal";
+export type Behavior =
+  | "ok"
+  | "lose"
+  | "drop"
+  | "inconclusive"
+  | "reject"
+  | `reject:${keyof typeof REJECTIONS}`
+  | "deny"
+  | "gateway"
+  | "same-zone"
+  | "internal";
+
+/** cStat e xMotivo das rejeições simuladas (245 e 181 como relatados pela NFapi). */
+const REJECTIONS = {
+  "539": "Rejeição: Duplicidade de NF-e, com diferença na Chave de Acesso",
+  "245": "Rejeição: CNPJ Emitente não cadastrado",
+  "181": "Rejeição: CNPJ do destinatário inexistente na Receita Federal",
+} as const;
 type Doc = "nfe" | "nfce" | "nfse";
 type Env = "homologacao" | "producao";
 
@@ -239,9 +257,10 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       emissions.set(e.id, e);
     } else Object.assign(e, { hash, serie, numero, situacao: "processando", mensagens: [], atualizadaEm: now });
     e.chaveAcesso = `35261199888777000166${doc === "nfce" ? "65" : "55"}${String(serie).padStart(3, "0")}${String(numero).padStart(9, "0")}1${String(seq).padStart(8, "0")}`.padEnd(44, "0").slice(0, 44);
-    if (behavior === "reject") {
+    if (behavior === "reject" || behavior.startsWith("reject:")) {
+      const cstat = (behavior.split(":")[1] ?? "539") as keyof typeof REJECTIONS;
       e.situacao = "rejeitada";
-      e.mensagens = [{ codigo: "539", descricao: "Rejeição: Duplicidade de NF-e, com diferença na Chave de Acesso" }];
+      e.mensagens = [{ codigo: cstat, descricao: REJECTIONS[cstat] }];
       const s = series.find((x) => x.modelo === doc && x.ambiente === ambiente && x.serie === serie);
       if (s) s.proximoNumero--;
       return { status: 422, body: erro("nfe_rejeitada", e.mensagens[0].descricao, { mensagens: e.mensagens, [doc]: view(e) }) };

@@ -5,7 +5,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { createNfapiProvider, fiscalReference } from "../../../src/erp/emissor/nfapi-provider.ts";
 import { fiscalProviderFor } from "../../../src/erp/emissor/index.ts";
-import { FiscalError } from "../../../src/erp/emissor/provider.ts";
+import { FiscalError, REGISTRATION_REJECTIONS } from "../../../src/erp/emissor/provider.ts";
 import { uid } from "../../../src/types";
 import { requestExample } from "./schema";
 import { example, vaultArea } from "./helpers";
@@ -184,6 +184,30 @@ describe("emissão", () => {
     const fixed = await provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, key);
     expect(fixed).toMatchObject({ status: "authorized", provider_ref: r.provider_ref });
     expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
+  it("rejeição de cadastro (245, 181) vira erro próprio, com cStat e xMotivo, sem repetir", async () => {
+    const cases = [
+      ["245", "fiscal_issuer_not_accredited", /credenciar na SEFAZ/],
+      ["181", "fiscal_recipient_not_registered", /destinatário na Receita Federal/],
+    ] as const;
+    for (const [cstat, code, text] of cases) {
+      const { ctx, vault } = await vaultArea();
+      const key = doc();
+      vault.plan.push(`reject:${cstat}`);
+      const error = await provider.emit(ctx, "nfce", nfce(), key).catch((e) => e);
+      expect(error, cstat).toBeInstanceOf(FiscalError);
+      expect(error, cstat).toMatchObject({ status: 422, code });
+      expect(error.message, cstat).toMatch(text);
+      expect(error.details, cstat).toMatchObject({
+        provider_code: "nfe_rejeitada",
+        retryable: false,
+        messages: [{ code: cstat, description: expect.stringMatching(/^Rejeição: /) }],
+        emission: { status: "rejected", reference: fiscalReference(key) },
+      });
+      expect(vault.calls.filter((c) => c.method === "POST"), cstat).toHaveLength(1);
+    }
+    expect(Object.keys(REGISTRATION_REJECTIONS).sort()).toEqual(["181", "245"]);
   });
 
   it("denegada volta como resultado", async () => {

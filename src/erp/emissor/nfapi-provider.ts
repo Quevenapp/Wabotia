@@ -27,6 +27,7 @@ import {
   type FiscalResult,
   type FiscalStatus,
   providerNotConfigured,
+  registrationRejection,
 } from "./provider.ts";
 import { emissorConnection } from "./config.ts";
 
@@ -158,12 +159,14 @@ export function fiscalError(error: unknown, kind: FiscalKind | null = null): unk
       known ?? (error.status >= 500 ? [503, "fiscal_provider_unavailable", true] : [422, "fiscal_provider_rejected", false]);
     const emission = error.emissao;
     const emissionKind = kind ?? (emission && "idDps" in emission ? "nfse" : null);
-    return new FiscalError(status, code, error.message, {
+    const messages = error.mensagens.map((m) => ({ code: m.codigo, description: m.descricao }));
+    const registration = error.status === 422 ? registrationRejection(messages) : null;
+    return new FiscalError(status, registration?.code ?? code, registration?.message ?? error.message, {
       provider_code: error.codigo,
       field: error.campo,
-      messages: error.mensagens.map((m) => ({ code: m.codigo, description: m.descricao })),
+      messages,
       emission: emission && emissionKind ? toResult(emissionKind, emission) : null,
-      retryable,
+      retryable: registration ? false : retryable,
     });
   }
   return error;
@@ -326,8 +329,20 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
             if (found) return toResult(kind, found, true);
             throw error;
           }
-          // Rejeição, denegação ou erro antes de transmitir: resultado com a emissão.
-          if (error.status === 422 && error.emissao) return toResult(kind, error.emissao);
+          // Rejeição, denegação ou erro antes de transmitir: resultado com a
+          // emissão, salvo rejeição de cadastro (não adianta repetir): erro.
+          if (error.status === 422 && error.emissao) {
+            const rejected = toResult(kind, error.emissao);
+            const registration = registrationRejection(rejected.messages);
+            if (registration)
+              throw new FiscalError(422, registration.code, registration.message, {
+                provider_code: error.codigo,
+                messages: rejected.messages,
+                emission: rejected,
+                retryable: false,
+              });
+            return rejected;
+          }
           throw error;
         }
       }

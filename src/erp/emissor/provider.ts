@@ -249,6 +249,31 @@ export class FiscalError extends ApiError {
   }
 }
 
+/**
+ * Rejeições "de cadastro" da SEFAZ (cStat): dependem de cadastro fora do
+ * sistema e não se resolvem repetindo. Na emissão viram FiscalError com o
+ * código próprio, a mensagem para a pessoa, o cStat e o xMotivo originais
+ * em `messages` e a emissão rejeitada em `emission`. O ERP não insiste.
+ */
+export const REGISTRATION_REJECTIONS: Record<string, { code: string; message: string }> = {
+  "245": {
+    code: "fiscal_issuer_not_accredited",
+    message:
+      "A SEFAZ informou que o CNPJ da empresa não está cadastrado para este documento. Para emitir NFC-e, a empresa precisa se credenciar na SEFAZ do seu estado. Repetir a emissão não resolve.",
+  },
+  "181": {
+    code: "fiscal_recipient_not_registered",
+    message:
+      "A SEFAZ não encontrou o CNPJ do destinatário na Receita Federal. Confira o CNPJ do cliente (em homologação, só CNPJ existente passa) e emita de novo com o dado corrigido.",
+  },
+};
+
+/** Rejeição de cadastro conhecida na primeira mensagem, ou null. */
+export function registrationRejection(messages: FiscalMessage[]) {
+  const first = messages[0];
+  return first && REGISTRATION_REJECTIONS[first.code] ? { cstat: first.code, ...REGISTRATION_REJECTIONS[first.code] } : null;
+}
+
 export const providerNotConfigured = () =>
   new FiscalError(
     409,
