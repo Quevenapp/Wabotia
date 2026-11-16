@@ -167,19 +167,26 @@ o entregador **não digita o endereço do servidor** (várias lojas, vários
 servidores: cada QR leva o seu).
 
 **0. O QR.** Contém o endereço completo:
-`https://<endereço público da instalação>/c/<código>`, com o código de 32
-caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. O servidor é tudo antes de
-`/c/` (sempre `https://`). Num caso típico
-(`https://wabotia.queven.app/c/` + 32) são 61 bytes: QR versão 4 (33×33
-módulos) com correção M, legível na térmica de 58 mm. Sem endereço público
-https definido, a loja não consegue gerar o QR (`409 origin_unknown`, com o
-motivo no painel).
+`https://<endereço público da instalação>/api/public/c/<código>`, com o
+código de 32 caracteres do alfabeto `[2-9A-HJ-NP-Za-km-np-z]`. O servidor é
+tudo antes de `/api/public/c/` (sempre `https://`). O caminho fica debaixo de
+`/api/` porque só ele chega ao Worker antes dos arquivos do painel
+(`run_worker_first` do `wrangler.jsonc`). Num caso típico
+(`https://wabotia.queven.app/api/public/c/` + 32) são 72 bytes: QR versão 5
+(37×37 módulos) com correção M, legível na térmica de 58 mm. Sem endereço
+público https definido, a loja não consegue gerar o QR
+(`409 origin_unknown`, com o motivo no painel).
+
+QR antigo (`https://<servidor>/c/<código>`, das primeiras vias impressas): a
+troca ainda aceita, mas a leitura pública por esse caminho não chega ao
+Worker. Aceite os dois caminhos ao validar o QR e, para o antigo, faça a
+leitura pública em `https://<servidor>/api/public/c/<código>`.
 
 **Leitura pública antes da troca.** Para mostrar "Entrega da loja X, servidor
 Y — continuar?" sem gastar o código:
 
 ```
-GET https://<servidor>/c/<código>
+GET https://<servidor>/api/public/c/<código>
 Accept: application/json
 → 200 {"valid": true, "store": "Lanchonete da Ana", "server": "https://<servidor>", "expires_at": ms}
 → 200 {"valid": false, "server": "https://<servidor>"}
