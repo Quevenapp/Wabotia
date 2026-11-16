@@ -8,15 +8,25 @@
 import { Buffer } from "node:buffer";
 import { ApiError, type Env } from "./types";
 import {
-  assetManifest,
-  assetUpload,
+  assetManifestV2,
+  assetsForHashes,
+  assetUploadV2,
+  blobPath,
+  checkBlob,
   limitedBody,
-  parsePackage,
-  validateIndex,
-  MAX_PACKAGE,
+  manifestPath,
+  migrationStatements,
+  nextRound,
+  parseManifest,
+  validateIndexV2,
+  MAX_BLOB,
+  MAX_MANIFEST,
+  MAX_UPLOAD_BATCH,
   RELEASE_ORIGIN,
-  type ReleaseIndex,
-  type ReleasePackage,
+  ROUND_BYTES,
+  type BlobRef,
+  type ReleaseIndexV2,
+  type ReleaseManifest,
 } from "./release";
 
 export const webInstallerEnabled = (env: Env) =>
@@ -116,9 +126,13 @@ async function releaseFile(env: Env, path: string, limit: number) {
   let response: Response | null = null;
   try {
     const local = await env.ASSETS.fetch(new Request("https://assets" + path));
+    // JSON do catálogo ou arquivo do formato 2 (bytes crus, sem extensão).
+    const type = local.headers.get("Content-Type") || "";
     if (
       local.ok &&
-      (local.headers.get("Content-Type") || "").includes("application/json")
+      (type.includes("application/json") ||
+        (path.startsWith("/releases/blobs/") &&
+          type.includes("application/octet-stream")))
     )
       response = local;
   } catch {
@@ -130,29 +144,42 @@ async function releaseFile(env: Env, path: string, limit: number) {
   });
   return limitedBody(response, limit);
 }
-async function releasePackage(env: Env, index: ReleaseIndex) {
+const unavailable = (error: unknown) =>
+  new ApiError(
+    502,
+    "release_unavailable",
+    error instanceof Error
+      ? error.message
+      : "Não foi possível obter a versão oficial.",
+  );
+/** Manifesto da versão (formato 2): até 2 MiB, conferido contra o índice. */
+async function releaseManifest(env: Env, index: ReleaseIndexV2) {
   try {
-    return await parsePackage(
+    return await parseManifest(
       index,
-      await releaseFile(
-        env,
-        `/releases/${index.version}/package.json`,
-        MAX_PACKAGE,
-      ),
+      await releaseFile(env, manifestPath(index.version), MAX_MANIFEST),
     );
   } catch (error) {
-    throw new ApiError(
-      502,
-      "release_unavailable",
-      error instanceof Error
-        ? error.message
-        : "Não foi possível obter a versão oficial.",
-    );
+    throw unavailable(error);
   }
 }
+/** Um arquivo da versão, lido só quando o passo precisa, SHA conferido. */
+function blobReader(env: Env) {
+  return async (ref: BlobRef) => {
+    try {
+      return await checkBlob(
+        ref,
+        await releaseFile(env, blobPath(ref.sha256), MAX_BLOB),
+      );
+    } catch (error) {
+      throw unavailable(error);
+    }
+  };
+}
 
-function publishBody(
-  pkg: ReleasePackage,
+async function publishBody(
+  pkg: ReleaseManifest,
+  read: (ref: BlobRef) => Promise<Uint8Array>,
   input: {
     account: string;
     name: string;
@@ -215,7 +242,7 @@ function publishBody(
   for (const file of pkg.modules)
     body.set(
       file.name,
-      new Blob([Buffer.from(file.data, "base64")], { type: file.type }),
+      new Blob([Buffer.from(await read(file))], { type: file.type }),
       file.name,
     );
   return body;
@@ -276,11 +303,11 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
         );
       if (databases.length < 100) break;
     }
-    let index: ReleaseIndex;
+    let index: ReleaseIndexV2;
     try {
-      index = validateIndex(
+      index = validateIndexV2(
         JSON.parse(
-          (await releaseFile(env, "/releases/latest.json", 8192)).toString(
+          (await releaseFile(env, "/releases/v2/latest.json", 8192)).toString(
             "utf8",
           ),
         ),
@@ -299,9 +326,9 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     };
   }
 
-  let index: ReleaseIndex;
+  let index: ReleaseIndexV2;
   try {
-    index = validateIndex(cursor.index);
+    index = validateIndexV2(cursor.index);
   } catch {
     throw invalid("Andamento inválido. Recomece a instalação.");
   }
@@ -380,7 +407,8 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     };
   }
 
-  const pkg = await releasePackage(env, index);
+  const pkg = await releaseManifest(env, index);
+  const read = blobReader(env);
 
   if (step === "migrate") {
     const position = Number(cursor.migration) || 0;
@@ -398,7 +426,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
         (position === 0
           ? "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);\n"
           : "") +
-        migration.statements.join(";\n") +
+        migrationStatements(migration, await read(migration)).join(";\n") +
         `;\nINSERT INTO d1_migrations(name) VALUES('${migration.name}');`,
     });
     const done = position + 1;
@@ -414,7 +442,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       const session = await call(
         `/workers/scripts/${name}/assets-upload-session`,
         "POST",
-        { manifest: assetManifest(pkg) },
+        { manifest: assetManifestV2(pkg) },
       );
       if (typeof session?.jwt !== "string" || !Array.isArray(session.buckets))
         throw new ApiError(
@@ -425,32 +453,51 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       const upload = { jwt: session.jwt, buckets: session.buckets };
       return {
         next: upload.buckets.length ? "assets" : "publish",
-        cursor: { ...cursor, upload, bucket: 0 },
+        cursor: { ...cursor, upload, bucket: 0, offset: 0 },
         message: "Envio dos arquivos do painel iniciado.",
       };
     }
     const upload = cursor.upload,
-      bucket = Number(cursor.bucket) || 0;
+      bucket = Number(cursor.bucket) || 0,
+      offset = Number(cursor.offset) || 0;
     if (
       typeof upload.jwt !== "string" ||
       !Array.isArray(upload.buckets) ||
       !Array.isArray(upload.buckets[bucket])
     )
       throw invalid("Andamento inválido. Recomece a instalação.");
+    // Um lote da Cloudflare pode ser grande: cada passo envia uma parte de
+    // até 16 MiB; só o último envio da sessão traz o token de conclusão.
+    let part;
+    try {
+      part = nextRound(
+        assetsForHashes(pkg, upload.buckets[bucket]).map((item) => ({
+          ...item,
+          size: item.file.size,
+        })),
+        offset,
+        MAX_UPLOAD_BATCH,
+        ROUND_BYTES,
+      );
+    } catch {
+      throw invalid("Andamento inválido. Recomece a instalação.");
+    }
     // This call is authorised by the upload session itself, not by the token.
     const result = await cloudflare(
       upload.jwt,
       account,
       "/workers/assets/upload?base64=true",
       "POST",
-      assetUpload(pkg, upload.buckets[bucket]),
+      await assetUploadV2(part, read),
     );
-    const sent = bucket + 1;
+    const moved = offset + part.length;
+    const bucketDone = moved >= upload.buckets[bucket].length;
+    const sent = bucketDone ? bucket + 1 : bucket;
     if (sent < upload.buckets.length)
       return {
         next: "assets",
-        cursor: { ...cursor, bucket: sent },
-        message: `Enviando os arquivos do painel: ${sent} de ${upload.buckets.length}.`,
+        cursor: { ...cursor, bucket: sent, offset: bucketDone ? 0 : moved },
+        message: `Enviando os arquivos do painel: lote ${sent + 1} de ${upload.buckets.length}.`,
       };
     if (typeof result?.jwt !== "string")
       throw new ApiError(
@@ -483,7 +530,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
   const published = await call(
     `/workers/scripts/${name}`,
     "PUT",
-    publishBody(pkg, {
+    await publishBody(pkg, read, {
       account,
       name,
       token,
@@ -500,7 +547,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       "cloudflare_error",
       "A Cloudflare não confirmou a publicação.",
     );
-  const { upload, bucket, ...rest } = cursor;
+  const { upload, bucket, offset, ...rest } = cursor;
   return {
     next: "finish",
     cursor: rest,

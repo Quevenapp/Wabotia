@@ -57,11 +57,11 @@ Para adotar o fluxo direto com uma instalação nova, siga [INSTALACAO.md](INSTA
 ## Publicar uma versão oficial (mantenedor)
 
 1. Execute tipos, testes e homologação. Atualize versão e manual. Faça commit do código.
-2. Execute `npm run release`. O script produz o instalador, o Worker, os arquivos web e o pacote com SHA-256. Publicações de uma versão são imutáveis: use outra versão para alterar o pacote.
-3. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas. O arquivo `releases/latest.json` aponta para o novo pacote.
+2. Execute `npm run release` (a versão ponte, uma única vez: `npm run release -- --bridge`). O script produz o instalador, o Worker minificado, os arquivos web e o pacote no **formato 2**: manifesto em `releases/<versão>/manifest.json`, arquivos por SHA-256 em `releases/blobs/` e o índice `releases/v2/latest.json`. Só a ponte grava também o pacote antigo (formato 1) e congela `releases/latest.json` nela. Publicações de uma versão são imutáveis: use outra versão para alterar o pacote. Formato, degrau e limites em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md).
+3. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas e `releases/blobs/`. O índice `releases/v2/latest.json` aponta para a versão nova; `releases/latest.json` fica na ponte para sempre.
 4. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
 
-Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para gerar um candidato local sem alterar o catálogo, use `npm run release -- --candidate`.
+Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para gerar um candidato local sem alterar o catálogo, use `npm run release -- --candidate` (com `--bridge` para o candidato da ponte). Uma versão que exige o plano Workers Paid sai com `--workers-paid`.
 
 Referência do protocolo: [upload direto de arquivos Cloudflare](https://developers.cloudflare.com/workers/static-assets/direct-upload/).
 

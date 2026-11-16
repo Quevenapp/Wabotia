@@ -1,7 +1,12 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
-import { digest, RELEASE_ORIGIN } from "../src/release";
+import { RELEASE_ORIGIN } from "../src/release";
+import {
+  buildRelease,
+  serveRelease,
+  type BuiltRelease,
+} from "./release-v2-fixture";
 import { installStep, webInstallerEnabled } from "../src/web-install";
 import { type Env } from "../src/types";
 import { all } from "../src/db";
@@ -20,43 +25,25 @@ const noCatalogue = {
 const e: Env = { ...env, WABOTIA_WEB_INSTALLER: "1", ASSETS: noCatalogue };
 const api = `https://api.cloudflare.com/client/v4/accounts/${account}`;
 
-let index: any, bytes: Buffer, calls: any[], cloud: any;
+let release: BuiltRelease, calls: any[], cloud: any;
 const ok = (result: any) => Response.json({ success: true, result });
 const refuse = (status: number, message: string) =>
   Response.json({ success: false, errors: [{ message }] }, { status });
 
-async function file(fileName: string, type: string, body: string) {
-  return {
-    name: fileName,
-    type,
-    data: Buffer.from(body).toString("base64"),
-    sha256: await digest(body),
-  };
-}
 beforeEach(async () => {
-  const pkg = {
-    format: 1,
+  // Formato 2: índice v2, manifesto e arquivos por SHA-256.
+  release = await buildRelease({
     version: "0.15.0",
     commit,
-    main_module: "index.js",
-    compatibility_date: "2026-11-04",
-    compatibility_flags: ["nodejs_compat"],
     assets_config: {
       not_found_handling: "single-page-application",
       run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
       _headers: "/*\n  X-Frame-Options: DENY\n",
     },
-    durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
-    modules: [
-      await file(
-        "index.js",
-        "application/javascript+module",
-        "export default {}",
-      ),
-    ],
+    modules: [{ name: "index.js", body: "export default {}" }],
     assets: [
-      await file("/index.html", "text/html", "<html></html>"),
-      await file("/app.js", "application/javascript", "console.log(1)"),
+      { name: "/index.html", body: "<html></html>" },
+      { name: "/app.js", type: "application/javascript", body: "console.log(1)" },
     ],
     migrations: [
       {
@@ -65,15 +52,8 @@ beforeEach(async () => {
       },
       { name: "0002_more.sql", statements: ["ALTER TABLE a ADD COLUMN x"] },
     ],
-  };
-  bytes = Buffer.from(JSON.stringify(pkg));
-  index = {
-    format: 1,
-    version: pkg.version,
-    commit,
-    package_sha256: await digest(bytes),
-    package_size: bytes.length,
-  };
+  });
+  const pkg = release.manifest;
   calls = [];
   cloud = {
     worker: false,
@@ -88,10 +68,8 @@ beforeEach(async () => {
       method = init.method || "GET",
       auth = init.headers?.Authorization || "";
     calls.push({ url, method, auth, body: init.body });
-    if (url === `${RELEASE_ORIGIN}/releases/latest.json`)
-      return Response.json(index);
-    if (url === `${RELEASE_ORIGIN}/releases/0.15.0/package.json`)
-      return new Response(bytes);
+    if (url.startsWith(RELEASE_ORIGIN))
+      return serveRelease(new URL(url), release)!;
     if (url === `https://${name}.minhaconta.workers.dev/api/health`)
       return cloud.live
         ? Response.json({ commit })
@@ -306,11 +284,8 @@ describe("instalador pelo navegador", () => {
         fetch: async (request: Request) => {
           const path = new URL(request.url).pathname;
           served.push(path);
-          if (path === "/releases/latest.json") return Response.json(index);
-          if (path === "/releases/0.15.0/package.json")
-            return new Response(bytes, {
-              headers: { "Content-Type": "application/json" },
-            });
+          if (path.startsWith("/releases/"))
+            return serveRelease(new URL(RELEASE_ORIGIN + path), release)!;
           // Caminho desconhecido: a página do painel, como no site real.
           return new Response("<html></html>", {
             headers: { "Content-Type": "text/html" },
@@ -334,9 +309,11 @@ describe("instalador pelo navegador", () => {
       cursor: { ...checked.cursor, database_id: database, migration: 0 },
     });
     expect(migrated.cursor.migration).toBe(1);
+    // O índice v2, o manifesto e só o arquivo da migração daquele passo.
     expect(served).toEqual([
-      "/releases/latest.json",
-      "/releases/0.15.0/package.json",
+      "/releases/v2/latest.json",
+      "/releases/0.15.0/manifest.json",
+      `/releases/blobs/${release.manifest.migrations[0].sha256}`,
     ]);
     expect(calls.filter((c) => c.url.startsWith(RELEASE_ORIGIN))).toEqual([]);
   });

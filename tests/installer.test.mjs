@@ -184,3 +184,73 @@ test("instalação nova recusa recursos existentes, inclusive D1 paginado", asyn
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test("instalador no formato 2: catálogo local, arquivos conferidos um a um", async () => {
+  const { createHash } = await import("node:crypto");
+  const { mkdir, writeFile, readFile } = await import("node:fs/promises");
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  const root = await mkdtemp(join(tmpdir(), "wabotia-release-v2-"));
+  try {
+    const blobs = join(root, "blobs"),
+      version = join(root, "9.9.9");
+    await mkdir(blobs, { recursive: true });
+    await mkdir(version, { recursive: true });
+    const ref = async (name, type, body) => {
+      const raw = Buffer.from(body);
+      await writeFile(join(blobs, sha(raw)), raw);
+      return { name, type, size: raw.length, sha256: sha(raw) };
+    };
+    const manifest = {
+      format: 2,
+      version: "9.9.9",
+      commit: "a".repeat(40),
+      main_module: "index.js",
+      compatibility_date: "2026-11-04",
+      compatibility_flags: [],
+      assets_config: {
+        not_found_handling: "single-page-application",
+        run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
+      },
+      durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
+      modules: [await ref("index.js", "application/javascript+module", "export default {}")],
+      assets: [await ref("/app/index.html", "text/html", "<html></html>")],
+      migrations: [
+        await ref("0001_core.sql", "application/json", JSON.stringify(["CREATE TABLE t(id)", "INSERT INTO t VALUES(1)"])),
+      ],
+    };
+    const text = JSON.stringify(manifest);
+    const total = [...manifest.modules, ...manifest.assets, ...manifest.migrations].reduce((a, f) => a + f.size, 0);
+    await writeFile(join(version, "manifest.json"), text);
+    await writeFile(
+      join(version, "release-v2.json"),
+      JSON.stringify({
+        format: 2,
+        version: "9.9.9",
+        commit: "a".repeat(40),
+        manifest_sha256: sha(text),
+        manifest_size: Buffer.byteLength(text),
+        total_size: total,
+        requires: { min_version: "0.0.1", workers_paid: false },
+      }),
+    );
+    await bundledInstaller(async ({ localRelease, materializeRelease }) => {
+      const source = await localRelease(version);
+      const out = join(root, "instalacao");
+      await materializeRelease(out, source.manifest, source.read);
+      assert.equal(await readFile(join(out, "worker", "index.js"), "utf8"), "export default {}");
+      assert.equal(await readFile(join(out, "web", "app", "index.html"), "utf8"), "<html></html>");
+      assert.equal(
+        await readFile(join(out, "migrations", "0001_core.sql"), "utf8"),
+        "CREATE TABLE t(id);\nINSERT INTO t VALUES(1);\n",
+      );
+      // Arquivo adulterado no catálogo: recusa antes de gravar.
+      await writeFile(join(blobs, manifest.assets[0].sha256), "<html>outro</html>");
+      await assert.rejects(
+        materializeRelease(join(root, "outra"), source.manifest, source.read),
+        /corrompido/,
+      );
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

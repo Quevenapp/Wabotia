@@ -205,6 +205,8 @@ async function main() {
     const files = [
       "src",
       "web",
+      // Pacotes compartilhados do painel (ERP Fagoo, web/erp/).
+      "packages",
       "public",
       "migrations",
       "scripts",
