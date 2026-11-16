@@ -539,7 +539,7 @@ um token que só alcança aquele registro. Núcleo em
 // Equipe gera (num comando): revoga o QR e a credencial anteriores do registro.
 const qr = await ctx.issueCredential(entrega.id, {
   actor: actor.id, claimMinutes: 20, ttlMinutes: 3 * 60,
-}); // {id, url: "<origem>/c/<código>", claim_expires_at}
+}); // {id, url: "<origem>/api/public/c/<código>", claim_expires_at}
 
 // O app leu o QR (roda no Coordinator, depois de gravar a leitura):
 onCredentialClaim("entrega", async (ctx, credential) => {
@@ -564,7 +564,7 @@ await ctx.credentials(entrega.id); // quem leu, quando, de que aparelho
   `/api/v1`, sem autenticação, 10 por IP a cada 10 minutos, uso único
   (`410 claim_used`, `410 claim_expired`, `404 claim_not_found`). Responde
   `{token: "wabx_…", expires_at, profile, module, subject, credential_id,
-  data}`. `GET /c/<código>` (câmera comum) só orienta e não gasta o QR.
+  data}`. `GET /api/public/c/<código>` só orienta (câmera comum) ou, com `Accept: application/json`, diz se o código vale e o nome da loja; não gasta o QR. Fica debaixo de `/api/` por causa do `run_worker_first` do `wrangler.jsonc` (fora dele, a instalação serve o painel).
 - **Escopo, negado por padrão:** o middleware de `/api/v1` recusa
   (`403 credential_scope`) qualquer caminho fora de
   `/api/v1/profiles/<área>/<rota do módulo>/…`. Dentro do módulo, **só a rota

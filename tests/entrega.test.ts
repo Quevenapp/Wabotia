@@ -13,6 +13,8 @@ import { entregaConfig } from "../src/modules/entrega/config";
 import { distanceM, straightLine } from "../src/modules/entrega/geo";
 import { mapGrid } from "../src/web-track";
 import { hmac, sha } from "../src/security";
+import { CLAIM_PATH } from "../src/module-credentials";
+import wranglerConfig from "../wrangler.jsonc?raw";
 import { measure } from "./d1-counter";
 import {
   api,
@@ -645,7 +647,7 @@ describe("entrega: entregador pelo QR, sem login", () => {
   it("QR → credencial só desta entrega: rota, conversa, conclusão e revogação", async () => {
     const { f, c, order, phone, admin, base, created, qr } = await qrDelivery();
     expect(created.status).toBe("pending");
-    expect(qr.qr.url).toMatch(/\/c\/[A-Za-z0-9]{32}$/);
+    expect(qr.qr.url).toMatch(/\/api\/public\/c\/[A-Za-z0-9]{32}$/);
     expect(qr.slip.lines.join(" ")).toContain("Escanear pedido");
     // Câmera do celular, fora do app: só orienta, não gasta o QR.
     const camera = await SELF.fetch("https://test" + new URL(qr.qr.url).pathname);
@@ -1051,7 +1053,7 @@ describe("entrega: entregador pelo QR, sem login", () => {
       await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
     ).json<any>();
     expect(qr.qr.url).toMatch(
-      /^https:\/\/lanchonete\.example\.com\/c\/[2-9A-HJ-NP-Za-km-np-z]{32}$/,
+      /^https:\/\/lanchonete\.example\.com\/api\/public\/c\/[2-9A-HJ-NP-Za-km-np-z]{32}$/,
     );
     expect(qr.slip.qr).toBe(qr.qr.url);
     // ~61 bytes num endereço típico: cabe com folga na versão 15 do gerador.
@@ -1111,8 +1113,8 @@ describe("entrega: entregador pelo QR, sem login", () => {
     expect(got.status).toBe(200);
     // Lido, inexistente e vencido: a mesma resposta.
     const used = await (await peek(path)).json<any>();
-    const unknown = await (await peek("/c/" + "a".repeat(32))).json<any>();
-    const garbage = await (await peek("/c/xyz")).json<any>();
+    const unknown = await (await peek("/api/public/c/" + "a".repeat(32))).json<any>();
+    const garbage = await (await peek("/api/public/c/xyz")).json<any>();
     const fresh = await (
       await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
     ).json<any>();
@@ -1125,14 +1127,55 @@ describe("entrega: entregador pelo QR, sem login", () => {
     const expired = await (await peek(new URL(fresh.qr.url).pathname)).json<any>();
     for (const r of [used, unknown, garbage, expired])
       expect(r).toEqual({ valid: false, server: "https://lanchonete.example.com" });
-    const generic = await (await peek("/c/" + "a".repeat(32), "text/html")).text();
+    const generic = await (await peek("/api/public/c/" + "a".repeat(32), "text/html")).text();
     expect(generic).not.toContain(store);
+  });
+
+  it("a rota do QR fica debaixo do run_worker_first do wrangler.jsonc", () => {
+    // Fora dele, a instalação serve o index.html do painel e o Worker nunca
+    // vê o pedido (achado da K: /c/<código> devolvia o painel).
+    const config = JSON.parse(
+      wranglerConfig.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"),
+    );
+    const workerFirst = (path: string) =>
+      (config.assets.run_worker_first as string[]).some((pattern) =>
+        pattern.endsWith("/*")
+          ? path.startsWith(pattern.slice(0, -1))
+          : path === pattern,
+      );
+    expect(workerFirst(CLAIM_PATH + "A".repeat(32))).toBe(true);
+    expect(workerFirst("/api/credentials/claim")).toBe(true);
+    // O caminho antigo não chegaria ao Worker.
+    expect(workerFirst("/c/" + "A".repeat(32))).toBe(false);
+  });
+
+  it("a troca aceita o QR antigo (/c/) já impresso e só o código", async () => {
+    const { admin, base, other } = await twoDeliveries();
+    const qr = await (
+      await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
+    ).json<any>();
+    const code = qr.qr.url.split("/").pop();
+    // ~72 bytes num endereço típico: folgado no gerador (versão 15 M: 412).
+    expect(
+      new TextEncoder().encode(`https://wabotia.queven.app${CLAIM_PATH}${code}`)
+        .length,
+    ).toBe(72);
+    const old = await claim({
+      code: `https://lanchonete.example.com/c/${code}`,
+      name: "Duda",
+    });
+    expect(old.status).toBe(200);
+    const again = await (
+      await api(admin, `${base}/${other.created.id}/qr`, "POST", {})
+    ).json<any>();
+    const bare = await claim({ code: again.qr.url.split("/").pop(), name: "Edu" });
+    expect(bare.status).toBe(200);
   });
 
   it("leitura pública do QR tem limite por IP", async () => {
     const ip = "192.0.2." + Math.floor(Math.random() * 250);
     const peek = () =>
-      SELF.fetch("https://test/c/" + "b".repeat(32), {
+      SELF.fetch("https://test/api/public/c/" + "b".repeat(32), {
         headers: { Accept: "application/json", "CF-Connecting-IP": ip },
       });
     for (let i = 0; i < 30; i++) expect((await peek()).status).toBe(200);
