@@ -3,6 +3,7 @@
 
 export * from "./stubs.generated.ts";
 export { autoProducts } from "./internal.ts";
+export { transitions } from "./preferences.ts";
 
 const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 
