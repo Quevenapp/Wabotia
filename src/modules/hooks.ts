@@ -158,6 +158,14 @@ export interface ModuleMcpTool {
   required?: string[];
   /** Escrita: o núcleo acrescenta idempotency_key. */
   write?: boolean;
+  /**
+   * Bot do provedor de IA direto atendendo o cliente no WhatsApp
+   * (src/bot-actions/customer.ts). Padrão: leitura vira consulta direta;
+   * escrita vira proposta que o cliente confirma por botão. `false`: fora
+   * do atendimento ao cliente. `"read"`: escrita sem efeito de compra ou
+   * cobrança nova (segunda via), sem confirmação.
+   */
+  customer?: false | "read" | "propose";
   call: (
     args: Record<string, any>,
     profile: string,

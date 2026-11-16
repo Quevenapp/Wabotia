@@ -58,6 +58,7 @@ import {
 } from "./service";
 import { hermesRequest, hermesArtifact } from "./integrations";
 import { botActionContext, signRun } from "./bot-actions/actions";
+import { handleCustomerProposalTurn } from "./bot-actions/customer";
 import { AiError, aiCallTimeout, aiComplete } from "./ai-provider";
 import { signedPayload } from "./signature";
 import { secret, hmac, safeFetch } from "./security";
@@ -311,6 +312,8 @@ export async function processInbox(env: Env, profile: string) {
             : null,
         rowId: row.id,
       };
+      // Resposta do cliente a uma ação proposta pelo bot (src/bot-actions/customer.ts).
+      if (await handleCustomerProposalTurn(env, c, turn)) return;
       for (const [, handler] of turnHandlersList())
         if (await handler(env, c, turn)) return;
       c = await conversation(env, c.id, profile);

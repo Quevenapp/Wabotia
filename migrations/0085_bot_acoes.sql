@@ -11,18 +11,24 @@ ALTER TABLE internal_messages ADD COLUMN payload TEXT;
 -- proposal_id}); nulo nas ações feitas pela tela.
 ALTER TABLE audit ADD COLUMN via TEXT;
 
--- Proposta de escrita do bot. Só a própria pessoa confirma, pela sessão dela,
--- até expires_at; a operação roda com Idempotency-Key "proposal:<id>".
+-- Proposta de escrita do bot, até expires_at; a operação roda com
+-- Idempotency-Key "proposal:<id>". Modo "team": a pessoa da conversa interna
+-- confirma pela sessão dela. Modo "customer": o cliente da conversa do
+-- WhatsApp confirma pelo botão, na própria conversa.
 CREATE TABLE IF NOT EXISTS bot_proposals (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL,
-  -- Pessoa em nome de quem o bot propôs (users.id).
+  -- team | customer
+  mode TEXT NOT NULL DEFAULT 'team',
+  -- Pessoa em nome de quem o bot propôs (users.id), ou "customer:<conversa>".
   actor TEXT NOT NULL,
   bot_id TEXT NOT NULL,
   run_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  -- Mensagem da conversa interna que mostra a proposta.
-  message_id TEXT NOT NULL,
+  -- Conversa interna (modo team) e a mensagem que mostra a proposta.
+  chat_id TEXT,
+  message_id TEXT,
+  -- Conversa do cliente (modo customer).
+  conversation_id TEXT,
   -- Operação do catálogo (op do comando) e a chamada que ela faz.
   operation TEXT NOT NULL,
   method TEXT NOT NULL,
@@ -42,3 +48,4 @@ CREATE TABLE IF NOT EXISTS bot_proposals (
 );
 CREATE INDEX IF NOT EXISTS bot_proposals_run ON bot_proposals(run_id, created);
 CREATE INDEX IF NOT EXISTS bot_proposals_open ON bot_proposals(profile_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS bot_proposals_conversation ON bot_proposals(conversation_id, status, created);

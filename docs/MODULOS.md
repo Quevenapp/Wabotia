@@ -357,6 +357,53 @@ onMcpTool("agenda", {
   `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
   ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
 
+### Ferramentas do cliente no bot do provedor direto (`onMcpTool` + `customer`)
+
+O bot de provedor de IA direto (Anthropic, OpenAI, DeepSeek) que atende o cliente no WhatsApp recebe **as mesmas ferramentas `onMcpTool`** que o Hermes usa com a chave presa à conversa (`src/bot-actions/customer.ts`). **Nunca recebe o catálogo** nem ferramenta de equipe. São dois modos separados em código:
+
+| | Modo equipe | Modo cliente |
+|---|---|---|
+| Quando | execução de conversa interna, pedida por uma pessoa | execução de conversa individual de linha (telefone autenticado) |
+| Ferramentas | `buscar_operacoes`, `consultar`, `propor_acao` | as `onMcpTool` dos módulos ligados |
+| Identidade | a pessoa (`actor` dela, `via`) | a conversa: o bot preso a ela (`conversations:bound`) |
+| Escrita | proposta; a pessoa confirma no painel ou no app | proposta; **o cliente** confirma tocando no botão na conversa |
+
+**Contrato para declarar uma ferramenta de cliente:**
+```ts
+onMcpTool("mensalidade", {
+  name: "mensalidade_segunda_via",          // prefixo do módulo
+  description: "…",                         // o que faz, em português
+  input: { conversation_id: { type: "string" }, installment_id: { type: "string" } },
+  required: ["conversation_id"],
+  write: true,
+  customer: "read",   // false: fora do cliente; "read": sem confirmação; "propose" (padrão de write): com botão
+  call: (a, profile) => ({ method: "POST", path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`, body: { action: "mensalidade_copy" } }),
+});
+```
+
+**Regras do núcleo (valem sem o módulo fazer nada):**
+- `conversation_id` nunca vem do modelo: sai do esquema e é sempre o da execução. Ids de registro que o modelo mandar passam pela regra do módulo, que responde 404 para registro de outro cliente.
+- Leitura roda como o bot preso à conversa, sem `contacts:read`. O módulo mostra ao cliente só o mínimo (os últimos dígitos do documento, nunca o documento inteiro), como já faz para a chave presa. O núcleo ainda tira dado pessoal e segredo do que vai ao modelo.
+- Escrita (`write` sem `customer: "read"`) vira proposta e não executa. O cliente recebe "Para eu fazer isto, confirme:" com **Confirmar** e **Cancelar**.
+  - **Confirmar**: só o toque no botão do próprio canal, ou CONFIRMAR digitado na mesma conversa. Um "1" vale só nos 3 minutos seguintes à pergunta.
+  - **Prazo**: a proposta vale 10 minutos.
+  - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>`, então tocar de novo não repete.
+  - **Rota**: só ação da própria conversa (`/conversations/<id>/actions`).
+- Preço, desconto, total e estado financeiro saem do módulo, nunca dos parâmetros do modelo. "Já paguei" e comprovante não mudam estado: só o webhook do provedor muda.
+- CPF/CNPJ digitado nunca abre dado financeiro nem vincula telefone (achado A4 da revisão de segurança). A identidade é o telefone verificado da conversa.
+- Limites: 6 chamadas e 3 propostas por resposta; resultado cortado em 4.000 caracteres.
+
+**Ferramentas de cliente que existem hoje:**
+
+| Módulo | Ferramentas |
+|---|---|
+| OS | `os_situacao` |
+| Mensalidade | `mensalidade_situacao`; `mensalidade_segunda_via` (hoje com botão; a H pode marcar `customer: "read"`) |
+| Agenda | `agenda_servicos`, `agenda_horarios_livres`, `agenda_meus_agendamentos`; com botão: `agenda_agendar`, `agenda_remarcar`, `agenda_cancelar` |
+| Pedido | `pedido_cardapio`, `pedido_consultar`; com botão: `pedido_enviar_carrinho` |
+| Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
+| Suporte e Fila | nenhuma |
+
 ### Ações pelo bot na conversa interna (`definition.bot`)
 
 Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pediu** (`src/bot-actions/`, contrato dos apps em `docs/API.md`, "Ações pelo bot"). O módulo não escreve nada para isso.
