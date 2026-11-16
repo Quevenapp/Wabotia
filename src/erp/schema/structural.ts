@@ -73,6 +73,13 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by: "aal e session_id do envelope de identidade; a costura (src/erp/api/local-fetch.ts) passa a mandá-los na fase 3.",
   },
   {
+    id: "sequencias",
+    oracle: "nextval('erp_preferences.transition_version'), a única sequência do Fagoo (erp_preferences.transition_save)",
+    reason: "O SQLite do objeto não tem sequências; uma tabela só para isso não se paga.",
+    replaced_by:
+      "Maior número já gravado + 1, na mesma transação (domínio Preferências, sessão G). Diferença: o nextval não volta atrás quando a transação falha; no motor o número volta junto. Depois de uma recusa, o Postgres pula um número e o motor não; o diferencial não compara a numeração nesse caminho.",
+  },
+  {
     id: "origin",
     oracle: "domínio 12 (Origin): coletor do Bling, espelhos, mão dupla, virada, capturas de preço",
     reason: "O Origin sai da instalação principal (PLANO-FAGOO.md, item 17).",
