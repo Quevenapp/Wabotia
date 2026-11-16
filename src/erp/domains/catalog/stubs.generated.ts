@@ -5,8 +5,6 @@ import { notPorted } from "../../engine/errors.ts";
 export const acknowledgedValid = (..._args: unknown[]): never => notPorted("erp_catalog.acknowledged_valid");
 /** erp_catalog.can_read_stock(p_user_id uuid) → boolean */
 export const canReadStock = (..._args: unknown[]): never => notPorted("erp_catalog.can_read_stock");
-/** erp_catalog.category_lineage(p_category uuid) → uuid[] */
-export const categoryLineage = (..._args: unknown[]): never => notPorted("erp_catalog.category_lineage");
 /** erp_catalog.compact(p_value text) → text */
 export const compact = (..._args: unknown[]): never => notPorted("erp_catalog.compact");
 /** erp_catalog.composition_kits(p_products uuid[]) → uuid[] */
@@ -53,16 +51,6 @@ export const contactVisibleTo = (..._args: unknown[]): never => notPorted("erp_c
 export const contactWarnings = (..._args: unknown[]): never => notPorted("erp_catalog.contact_warnings");
 /** erp_catalog.contact_write(p_id uuid, p jsonb) → void */
 export const contactWrite = (..._args: unknown[]): never => notPorted("erp_catalog.contact_write");
-/** erp_catalog.custom_field_applies(p_field_id uuid, p_grouped boolean, p_lineage uuid[]) → boolean */
-export const customFieldApplies = (..._args: unknown[]): never => notPorted("erp_catalog.custom_field_applies");
-/** erp_catalog.custom_value(p_field erp_catalog.custom_field, p_value jsonb) → text */
-export const customValue = (..._args: unknown[]): never => notPorted("erp_catalog.custom_value");
-/** erp_catalog.detail_date(p_value jsonb) → text */
-export const detailDate = (..._args: unknown[]): never => notPorted("erp_catalog.detail_date");
-/** erp_catalog.detail_decimal(p_value jsonb, p_integers integer, p_scale integer, p_max numeric) → text */
-export const detailDecimal = (..._args: unknown[]): never => notPorted("erp_catalog.detail_decimal");
-/** erp_catalog.detail_text(p_value jsonb, p_max integer, p_lines boolean) → text */
-export const detailText = (..._args: unknown[]): never => notPorted("erp_catalog.detail_text");
 /** erp_catalog.document_issue(p_person_type text, p_document text) → text */
 export const documentIssue = (..._args: unknown[]): never => notPorted("erp_catalog.document_issue");
 /** erp_catalog.guard_deleted_product() → trigger */
@@ -87,37 +75,9 @@ export const originMirrorRefresh = (..._args: unknown[]): never => notPorted("er
 export const originText = (..._args: unknown[]): never => notPorted("erp_catalog.origin_text");
 /** erp_catalog.product_cost_at(p_product uuid, p_day date) → numeric */
 export const productCostAt = (..._args: unknown[]): never => notPorted("erp_catalog.product_cost_at");
-/** erp_catalog.product_cost_capture() → trigger */
-export const productCostCapture = (..._args: unknown[]): never => notPorted("erp_catalog.product_cost_capture");
-/** erp_catalog.product_custom_resolve(p_id uuid, p_detail jsonb) → jsonb */
-export const productCustomResolve = (..._args: unknown[]): never => notPorted("erp_catalog.product_custom_resolve");
-/** erp_catalog.product_custom_values(p_id uuid) → jsonb */
-export const productCustomValues = (..._args: unknown[]): never => notPorted("erp_catalog.product_custom_values");
-/** erp_catalog.product_detail_keys() → text[] */
-export const productDetailKeys = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_keys");
-/** erp_catalog.product_detail_references(p_detail jsonb) → void */
-export const productDetailReferences = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_references");
-/** erp_catalog.product_detail_validate(p_data jsonb) → jsonb */
-export const productDetailValidate = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_validate");
-/** erp_catalog.product_detail_write(p_id uuid, p_detail jsonb) → void */
-export const productDetailWrite = (..._args: unknown[]): never => notPorted("erp_catalog.product_detail_write");
 /** erp_catalog.warnings(p_entity text, p_id uuid, p_data jsonb) → jsonb */
 export const warnings = (..._args: unknown[]): never => notPorted("erp_catalog.warnings");
 /** erp_catalog.write_fields(p_id uuid, p_entity text, p_data jsonb) → void */
 export const writeFields = (..._args: unknown[]): never => notPorted("erp_catalog.write_fields");
-/** erp_pricing.list_price(p_list erp_pricing.price_list, p_base numeric, p_custom numeric) → numeric */
-export const listPrice = (..._args: unknown[]): never => notPorted("erp_pricing.list_price");
-/** erp_pricing.require(p_user_id uuid, p_write boolean) → void */
-export const require = (..._args: unknown[]): never => notPorted("erp_pricing.require");
-/** erp_pricing.rule_text(p_list erp_pricing.price_list) → text */
-export const ruleText = (..._args: unknown[]): never => notPorted("erp_pricing.rule_text");
-/** erp_pricing.valid_now(p_list erp_pricing.price_list) → boolean */
-export const validNow = (..._args: unknown[]): never => notPorted("erp_pricing.valid_now");
 /** public.erp_catalog_contact_save(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb) → jsonb */
 export const erpCatalogContactSave = (..._args: unknown[]): never => notPorted("public.erp_catalog_contact_save");
-/** public.erp_catalog_product_prices_update(p_user_id uuid, p_command_id uuid, p_supplier_id uuid, p_items jsonb) → jsonb */
-export const erpCatalogProductPricesUpdate = (..._args: unknown[]): never => notPorted("public.erp_catalog_product_prices_update");
-/** public.erp_catalog_product_save(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb) → jsonb */
-export const erpCatalogProductSave = (..._args: unknown[]): never => notPorted("public.erp_catalog_product_save");
-/** public.erp_pricing_product_lists(p_user_id uuid, p_product_id uuid) → jsonb */
-export const erpPricingProductLists = (..._args: unknown[]): never => notPorted("public.erp_pricing_product_lists");

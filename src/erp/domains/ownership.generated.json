@@ -220,7 +220,7 @@
    },
    "erp_catalog.category_lineage": {
     "name": "categoryLineage",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.compact": {
     "name": "compact",
@@ -332,11 +332,11 @@
    },
    "erp_catalog.custom_field_applies": {
     "name": "customFieldApplies",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.custom_value": {
     "name": "customValue",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.data": {
     "name": "data",
@@ -344,15 +344,15 @@
    },
    "erp_catalog.detail_date": {
     "name": "detailDate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_decimal": {
     "name": "detailDecimal",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_text": {
     "name": "detailText",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_uuid": {
     "name": "detailUuid",
@@ -440,15 +440,15 @@
    },
    "erp_catalog.product_cost_capture": {
     "name": "productCostCapture",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_custom_resolve": {
     "name": "productCustomResolve",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_custom_values": {
     "name": "productCustomValues",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_data": {
     "name": "productDetailData",
@@ -456,19 +456,19 @@
    },
    "erp_catalog.product_detail_keys": {
     "name": "productDetailKeys",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_references": {
     "name": "productDetailReferences",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_validate": {
     "name": "productDetailValidate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_write": {
     "name": "productDetailWrite",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_full": {
     "name": "productFull",
@@ -520,19 +520,19 @@
    },
    "erp_pricing.list_price": {
     "name": "listPrice",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.require": {
     "name": "require",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.rule_text": {
     "name": "ruleText",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.valid_now": {
     "name": "validNow",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_contact_save": {
     "name": "erpCatalogContactSave",
@@ -540,15 +540,15 @@
    },
    "public.erp_catalog_product_prices_update": {
     "name": "erpCatalogProductPricesUpdate",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_product_save": {
     "name": "erpCatalogProductSave",
-    "ported": false
+    "ported": true
    },
    "public.erp_pricing_product_lists": {
     "name": "erpPricingProductLists",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
