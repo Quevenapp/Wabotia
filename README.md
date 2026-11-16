@@ -100,6 +100,8 @@ npm run migrate:local
 npm run dev
 ```
 
+Durante o desenvolvimento, rode só os testes do que mudou (`npx vitest run tests/<arquivo>`). Rode a suíte completa antes de enviar, com `npm run test:ci`, que limita o vitest a 3 trabalhadores para não saturar a máquina quando há outras suítes rodando. Se um teste estourar o tempo sob carga, rode o arquivo sozinho antes de concluir que há falha. Só um teste que depende de tempo real ganha um prazo próprio; não aumente o tempo-limite global.
+
 Copie `.dev.vars.example` para `.dev.vars` com valores locais antes de testar autenticação. O modo `/app?demo=1` mostra dados fictícios e não permite gravações. Desenvolvimento local não é uma opção de hospedagem de produção.
 
 Atualizar pelo painel: [use a autorização direta configurada pelo instalador](docs/ATUALIZACOES.md) e use **Sistema e atualizações → Atualizar Wabotia**. Publicação manual: `npm run build`, `npx wrangler d1 migrations apply DB --remote --config wrangler.production.local.json`, `npx wrangler deploy --config wrangler.production.local.json`. [Backup, restauração e diagnóstico](docs/OPERACAO.md).

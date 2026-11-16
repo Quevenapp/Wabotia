@@ -11,6 +11,7 @@
     "check": "node scripts/build-info.mjs && node scripts/check-conflict-markers.mjs && tsc --noEmit",
     "pretest": "node scripts/build-info.mjs && node scripts/check-conflict-markers.mjs",
     "test": "vitest run",
+    "test:ci": "node scripts/build-info.mjs && node scripts/check-conflict-markers.mjs && vitest run --maxWorkers=3",
     "deploy": "node scripts/deploy.mjs",
     "release": "node scripts/release.mjs",
     "migrate": "wrangler d1 migrations apply DB --remote",
