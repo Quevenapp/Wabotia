@@ -161,7 +161,8 @@ describe("dados do estabelecimento", () => {
     expect(ids).toContain(f.admin.id);
     expect(ids).not.toContain(other.member.id);
     for (const person of list.body.data) {
-      expect(Object.keys(person).sort()).toEqual(["id", "name", "role"]);
+      expect(Object.keys(person).sort()).toEqual(["grants", "id", "name", "role"]);
+      expect(person.grants).toEqual([]);
       expect(["admin", "operator"]).toContain(person.role);
     }
     // Chave de aplicação: só com conversations:read.

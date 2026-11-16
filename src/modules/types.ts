@@ -66,4 +66,21 @@ export interface ModuleDefinition {
    * `src/modules/<id>/public.ts` (docs/MODULOS.md, "Dependência entre módulos").
    */
   requires?: string[];
+  /**
+   * Papéis que o administrador concede a pessoas da área neste módulo
+   * (entregador, garçom, técnico, caixa). A concessão fica em
+   * `module_grants` das configurações da área, com o id `<módulo>:<papel>`;
+   * o módulo confere com `ctx.granted(actor, papel)` (docs/MODULOS.md,
+   * "Papéis por pessoa").
+   */
+  grants?: ModuleGrant[];
+}
+
+/** Papel concedido por pessoa e por área ("technician" vira "os:technician"). */
+export interface ModuleGrant {
+  /** Minúsculo, sem o módulo: "courier", "waiter", "technician", "cashier". */
+  id: string;
+  /** Nome no painel ("Entregador"). */
+  label: string;
+  description: string;
 }
