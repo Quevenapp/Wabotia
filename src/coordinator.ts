@@ -237,6 +237,8 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result, { status: 202 });
     }
+    // Qualquer outro caminho só agenda o alarme; o /wake dos módulos
+    // (ctx.wake, rotas de telemetria) usa este caminho.
     await this.schedule();
     return Response.json({ scheduled: true });
   }

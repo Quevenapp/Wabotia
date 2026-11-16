@@ -333,7 +333,21 @@ app.get("/api/w/:code", async (c) => {
       hook &&
       (await webStepAvailable(c.env, row))
         ? await hook(c.env, row.profile_id, webStepView(current)).catch(
-            () => null,
+            (error: unknown) => {
+              // O cliente vê "Acompanhamento encerrado"; o erro vai ao log.
+              console.error(
+                JSON.stringify({
+                  component: "web-step-page",
+                  module: row.module_id,
+                  web_step: row.id,
+                  error: String((error as Error)?.message || error).slice(
+                    0,
+                    300,
+                  ),
+                }),
+              );
+              return null;
+            },
           )
         : null;
     if (!view)
@@ -1498,15 +1512,31 @@ for (const route of moduleRoutes().write)
     }),
   );
 // Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
-// Coordinator, para posições em lote; corpo até 64 KB.
+// Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
+// chamadas por minuto por credencial, área e rota.
+const TELEMETRY_RATE = 60;
 for (const route of moduleRoutes().telemetry)
   app.post(
     `/api/v1/profiles/:profile/${route.path}`,
     bodyLimit({ maxSize: 64 * 1024 }),
     async (c) => {
       const profile = c.req.param("profile")!;
-      if (!canProfile(c.get("actor"), profile))
+      const actor = c.get("actor");
+      if (!canProfile(actor, profile))
         throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      // Conectores não mandam telemetria; a escrita mais barata da API tem
+      // limite por credencial e rota no núcleo (revisão A).
+      if (actor.kind === "connector")
+        throw new ApiError(
+          403,
+          "forbidden",
+          "Conectores não enviam dados para esta rota.",
+        );
+      await rate(
+        c.env,
+        `telemetry:${actor.keyId || actor.id}:${profile}:${route.path}`,
+        TELEMETRY_RATE,
+      );
       const body = await c.req.json().catch(() => null);
       requireValue(
         body && typeof body === "object" && !Array.isArray(body),

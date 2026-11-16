@@ -33,6 +33,7 @@ import {
   requireValue,
 } from "../types";
 import { access } from "../security";
+import { isBound } from "../visibility";
 import { activeTicketSql } from "../protocols";
 import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
@@ -415,10 +416,29 @@ function purposeField(purpose: ConsentPurpose | undefined) {
   return { consent_purpose: purpose };
 }
 
+/** A chave presa à conversa não alcança outro módulo por dentro (revisão A). */
+function refuseBound(actor: Actor) {
+  if (isBound(actor))
+    throw new ApiError(
+      403,
+      "bound_key",
+      "Esta chave atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
+    );
+}
+
+export interface ModuleContextOptions {
+  /**
+   * Contexto criado no Worker, fora da fila serializada da área
+   * (onTelemetry, onWebStepPage): `run` é recusado.
+   */
+  worker?: boolean;
+}
+
 export function modulesApi(
   env: Env,
   profile: string,
   moduleId: string,
+  options: ModuleContextOptions = {},
 ): ModuleContext {
   const definition = moduleById(moduleId);
   if (!definition) throw new Error(`Módulo não registrado: ${moduleId}`);
@@ -729,6 +749,7 @@ export function modulesApi(
       );
     },
     async read(actor, path, query = {}) {
+      refuseBound(actor);
       for (const route of moduleRoutes().read) {
         const params = matchRoute(route.path, path);
         if (params) {
@@ -738,7 +759,13 @@ export function modulesApi(
       }
       throw new ApiError(404, "not_found", "Rota não encontrada.");
     },
-    run(actor, op, data, requestId) {
+    async run(actor, op, data, requestId) {
+      // Fora do Coordinator, o comando rodaria sem a serialização da área.
+      if (options.worker)
+        throw new Error(
+          `run: ${op} chamado fora do Coordinator (onTelemetry/onWebStepPage).`,
+        );
+      refuseBound(actor);
       // Só comandos de módulo (rotas públicas deles), nunca os do núcleo.
       if (!moduleForOperation(op) || moduleForOperation(op)!.id === moduleId)
         throw new Error(`run: ${op} não é comando de outro módulo.`);
@@ -950,7 +977,7 @@ export function onTelemetry(
   registerTelemetryRoute({
     path,
     handler: async (env, actor, profile, request) => {
-      const ctx = modulesApi(env, profile, moduleId);
+      const ctx = modulesApi(env, profile, moduleId, { worker: true });
       await ctx.requireEnabled();
       return handler(ctx, actor, request);
     },
@@ -971,7 +998,7 @@ export function onWebStepPage(
   if (!moduleById(moduleId))
     throw new Error(`Módulo não registrado: ${moduleId}`);
   registerWebStepPage(moduleId, (env, profile, step) =>
-    handler(modulesApi(env, profile, moduleId), step),
+    handler(modulesApi(env, profile, moduleId, { worker: true }), step),
   );
 }
 export type { TrackView } from "../web-track";
