@@ -339,7 +339,7 @@ Com `sensitive: true`, avise que o código do autenticador será pedido.
 | `404 not_found` | proposta de outra pessoa ou de outra conversa | some com os botões |
 | `409 proposal_expired` | passou dos 10 minutos | mostra "Venceu"; a pessoa pede de novo ao bot |
 | `409 proposal_cancelled` / `409 proposal_closed` | já cancelada / já confirmada | recarrega a conversa |
-| `403 mfa_required` | operação sensível com sessão sem segundo fator | pede o código do autenticador, valida na rota de MFA do login (sessão A, `feat/login-mfa`) e toca em Confirmar de novo |
+| `403 mfa_required` | operação sensível com sessão sem segundo fator | pede o código do autenticador, envia `POST /api/v1/account/mfa/challenge` com `{code}` (ou `{recovery_code}`), a sessão sobe para aal2 por um tempo, e toca em Confirmar de novo. Não há token por operação. Contrato completo em "Login e segundo fator" (`feat/login-mfa`) |
 
 **Resultado** (`kind: "result"`, autor `bot:<id>`): sai depois de confirmar ou cancelar, com `payload.proposal` (estado `done`, `failed` ou `cancelled`, e `result` ou `error`). Depois, o bot não continua sozinho; a pessoa segue a conversa.
 

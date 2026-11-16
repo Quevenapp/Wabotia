@@ -385,7 +385,7 @@ onMcpTool("mensalidade", {
 - `conversation_id` nunca vem do modelo: sai do esquema e é sempre o da execução. Ids de registro que o modelo mandar passam pela regra do módulo, que responde 404 para registro de outro cliente.
 - Leitura roda como o bot preso à conversa, sem `contacts:read`. O módulo mostra ao cliente só o mínimo (os últimos dígitos do documento, nunca o documento inteiro), como já faz para a chave presa. O núcleo ainda tira dado pessoal e segredo do que vai ao modelo.
 - Escrita (`write` sem `customer: "read"`) vira proposta e não executa. O cliente recebe "Para eu fazer isto, confirme:" com **Confirmar** e **Cancelar**.
-  - **Confirmar**: só o toque no botão do próprio canal, ou CONFIRMAR digitado na mesma conversa. Um "1" vale só nos 3 minutos seguintes à pergunta.
+  - **Confirmar**: só o toque no botão do próprio canal, ou CONFIRMAR (ou CANCELAR) digitado na mesma conversa. Números não valem: "1" e "2" são escolhas do menu, e tratá-los custaria uma consulta ao D1 por mensagem.
   - **Prazo**: a proposta vale 10 minutos.
   - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>`, então tocar de novo não repete.
   - **Rota**: só ação da própria conversa (`/conversations/<id>/actions`).

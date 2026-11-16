@@ -6,7 +6,6 @@ import { withReadCache } from "../db";
 import { scheduledModules } from "./hooks";
 import { moduleStates } from "./registry";
 import { expireApprovals } from "../approvals";
-import { expireProposals } from "../bot-actions/actions";
 
 /** Intervalo mínimo entre rodadas da mesma área. */
 export const SCHEDULE_INTERVAL_MS = 60_000;
@@ -26,11 +25,11 @@ export async function runModuleSchedules(
   profile: string,
   now: number,
 ): Promise<ScheduleOutcome[]> {
-  // Prazos do núcleo na mesma rodada: pedidos de aprovação e propostas do
-  // bot vencidos (src/approvals.ts, src/bot-actions).
+  // Pedidos de aprovação vencidos (src/approvals.ts): o módulo decide ou o
+  // cliente é avisado e vai para a equipe. Uma consulta por rodada. As
+  // propostas do bot vencem na leitura e na confirmação, sem rodada.
   try {
     await expireApprovals(env, profile);
-    await expireProposals(env, profile);
   } catch (error) {
     console.error(
       JSON.stringify({

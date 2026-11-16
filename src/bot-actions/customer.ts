@@ -34,9 +34,10 @@ const normalize = (value: unknown) =>
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
-/** Respostas por número ("1"/"2") só logo depois da pergunta. */
-const NUMBER_WINDOW = 3 * 60000;
 export const CUSTOMER_REPLY = "botacao:";
+/** Respostas digitadas que podem ser a uma proposta (o resto nem consulta). */
+// Sem "1"/"2": são as escolhas do menu, e cada uma custaria uma consulta.
+const REPLY_WORDS = new Set(["CONFIRMAR", "CONFIRMO", "SIM", "CANCELAR", "NAO"]);
 
 export interface CustomerToolContext {
   env: Env;
@@ -239,7 +240,7 @@ async function proposeToCustomer(
     ctx.conversation,
     {
       type: "button",
-      body: `Para eu fazer isto, confirme:\n${text}`,
+      body: `Para eu fazer isto, confirme:\n${text}\n\n(Ou responda CONFIRMAR ou CANCELAR.)`,
       buttons: [
         { id: `${CUSTOMER_REPLY}sim:${id}`, title: "Confirmar" },
         { id: `${CUSTOMER_REPLY}nao:${id}`, title: "Cancelar" },
@@ -253,8 +254,7 @@ async function proposeToCustomer(
 
 /**
  * Resposta do cliente a uma proposta aberta desta conversa (botão do próprio
- * canal, ou CONFIRMAR/CANCELAR; "1"/"2" só logo depois da pergunta). true
- * quando era a resposta.
+ * canal, ou CONFIRMAR/CANCELAR digitado). true quando era a resposta.
  */
 export async function handleCustomerProposalTurn(
   env: Env,
@@ -263,6 +263,8 @@ export async function handleCustomerProposalTurn(
 ) {
   const match = turn.replyId?.match(/^botacao:(sim|nao):(.+)$/);
   if (turn.replyId && !match) return false;
+  // Mensagem comum: nenhuma consulta ao D1 (docs/LIMITES.md).
+  if (!match && !REPLY_WORDS.has(normalize(turn.text))) return false;
   const row = match
     ? await one(
         env,
@@ -277,13 +279,8 @@ export async function handleCustomerProposalTurn(
       );
   if (!row) return !!match;
   const word = normalize(turn.text);
-  const recent = now() - row.created < NUMBER_WINDOW;
-  const yes = match
-    ? match[1] === "sim"
-    : ["CONFIRMAR", "CONFIRMO", "SIM"].includes(word) || (recent && word === "1");
-  const no = match
-    ? match[1] === "nao"
-    : ["CANCELAR", "NAO"].includes(word) || (recent && word === "2");
+  const yes = match ? match[1] === "sim" : ["CONFIRMAR", "CONFIRMO", "SIM"].includes(word);
+  const no = match ? match[1] === "nao" : ["CANCELAR", "NAO"].includes(word);
   if (!yes && !no) return false;
   const reply = (text: string) =>
     enqueue(env, c, "system", "text", { text, automation: "bot" }, `bot-proposal-reply:${row.id}:${turn.rowId}`);

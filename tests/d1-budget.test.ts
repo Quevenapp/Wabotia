@@ -83,7 +83,9 @@ const CEILINGS: Record<string, number> = {
   "fila: chamar a próxima (comando no Coordinator)": 18,
   // Passa de 50: manutenção, rodada dos módulos e motor na mesma invocação;
   // aqui as duas entregas são canceladas (época antiga), o caminho barato.
-  "alarme com uma mensagem e entregas pendentes": 70,
+  // 71: mais uma consulta por rodada para vencer pedidos de aprovação
+  // (src/approvals.ts, feat/bot-acoes).
+  "alarme com uma mensagem e entregas pendentes": 71,
 };
 
 describe("consultas ao D1 por invocação, com todos os módulos ligados", () => {

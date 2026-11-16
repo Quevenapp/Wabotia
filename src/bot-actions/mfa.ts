@@ -1,15 +1,17 @@
-// Segundo fator para confirmar operação sensível pelo bot. O login com MFA
-// (sessão aal2) é da sessão A, em `feat/login-mfa`; até ele chegar, nenhuma
-// sessão tem aal2 e toda operação sensível proposta pelo bot responde
-// 403 mfa_required. Quando `requireAal2` existir no núcleo, este arquivo passa
-// a reexportá-lo.
+// Segundo fator para confirmar operação sensível pelo bot. O contrato é o da
+// sessão A em `feat/login-mfa` (src/mfa.ts): só pessoa (`kind: "user"`) com
+// `aal === 2` passa; aplicação, chave e ator interno sem sessão nunca passam.
+// A confirmação usa o `aal` da sessão de quem tocou em Confirmar.
+// Na junção, troque este arquivo pelo import do núcleo: `requireFinancialAal`
+// (exige aal2 só com a política da instalação `financial` ou `all`) ou
+// `requireAal2` (sempre). Recomendado: `requireFinancialAal`.
 import { ApiError, type Actor } from "../types";
 
 export function requireAal2(actor: Actor) {
-  if ((actor as any).aal === "aal2") return;
+  if (actor.kind === "user" && !actor.via && (actor as any).aal === 2) return;
   throw new ApiError(
     403,
     "mfa_required",
-    "Esta operação pede o código do autenticador. Confirme o código e toque em Confirmar de novo.",
+    "Confirme com o código do aplicativo autenticador para continuar.",
   );
 }
