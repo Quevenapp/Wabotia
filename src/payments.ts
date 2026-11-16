@@ -1003,8 +1003,14 @@ export async function refreshFromProvider(
   )
     return { status: row.status, changed: false, ignored: "attempt" };
   // Pagamento aprovado e depois estornado antes de chegar o primeiro aviso:
-  // o "paga" só fica registrado; o módulo e o cliente veem o estorno.
-  if (next === "refunded" && row.status !== "paid") {
+  // o "paga" só fica registrado; o módulo e o cliente veem o estorno. Já
+  // estornada, segue abaixo: o reenvio entrega o gancho pendente (segunda
+  // conferência, N2-1).
+  if (
+    next === "refunded" &&
+    row.status !== "paid" &&
+    row.status !== "refunded"
+  ) {
     await transition(env, row, "paid", extra, { silent: true });
     const paid = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
     const changed = await transition(env, paid, "refunded", extra);

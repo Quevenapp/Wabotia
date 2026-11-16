@@ -128,6 +128,29 @@ describe("gancho de pagamento durável (revisão A3)", () => {
     });
   });
 
+  it("segunda conferência N2-1: estorno com gancho pendente é entregue no reenvio do webhook", async () => {
+    const { pay, account } = await pixDaParcela();
+    await approve(account, pay.id);
+    const seen: string[] = [];
+    // Só o gancho do estorno falha, uma vez.
+    const restore = failing(1, seen);
+    try {
+      await remoteStatus(account, pay.id, "refunded");
+      expect(JSON.parse((await hookState(pay.id)).hook_pending)).toHaveLength(
+        1,
+      );
+      // O Mercado Pago reenvia o estorno: o pendente roda agora.
+      await webhook(account, pay.provider_ref);
+    } finally {
+      restore();
+    }
+    expect(seen).toEqual(["refunded<paid", "refunded<paid"]);
+    expect(await hookState(pay.id)).toMatchObject({
+      status: "refunded",
+      hook_pending: null,
+    });
+  });
+
   it("conferência N-10: esgotadas as tentativas, avisa a equipe uma vez", async () => {
     const { f, pay, account } = await pixDaParcela();
     const restore = failing(1000);
