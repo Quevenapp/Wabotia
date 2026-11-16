@@ -14,16 +14,17 @@ import {
   blobPath,
   checkBlob,
   limitedBody,
+  INDEX_PATH,
+  INDEX_SIGNATURE_PATH,
   manifestPath,
+  manifestSignaturePath,
   migrationStatements,
-  nextRound,
+  parseIndex,
   parseManifest,
   validateIndexV2,
   MAX_BLOB,
   MAX_MANIFEST,
-  MAX_UPLOAD_BATCH,
   RELEASE_ORIGIN,
-  ROUND_BYTES,
   type BlobRef,
   type ReleaseIndexV2,
   type ReleaseManifest,
@@ -126,11 +127,14 @@ async function releaseFile(env: Env, path: string, limit: number) {
   let response: Response | null = null;
   try {
     const local = await env.ASSETS.fetch(new Request("https://assets" + path));
-    // JSON do catálogo ou arquivo do formato 2 (bytes crus, sem extensão).
+    // JSON do catálogo, assinatura (.sig) ou arquivo do formato 2 (bytes
+    // crus, sem extensão). Um caminho ausente volta como a página do painel
+    // (text/html), que nunca vale como arquivo do catálogo.
     const type = local.headers.get("Content-Type") || "";
     if (
       local.ok &&
       (type.includes("application/json") ||
+        (path.endsWith(".sig") && !type.includes("text/html")) ||
         (path.startsWith("/releases/blobs/") &&
           type.includes("application/octet-stream")))
     )
@@ -152,12 +156,15 @@ const unavailable = (error: unknown) =>
       ? error.message
       : "Não foi possível obter a versão oficial.",
   );
-/** Manifesto da versão (formato 2): até 2 MiB, conferido contra o índice. */
+/** Manifesto da versão (formato 2): até 2 MiB, assinado e conferido contra o índice. */
 async function releaseManifest(env: Env, index: ReleaseIndexV2) {
   try {
     return await parseManifest(
       index,
       await releaseFile(env, manifestPath(index.version), MAX_MANIFEST),
+      await releaseFile(env, manifestSignaturePath(index.version), 4096).catch(
+        () => null,
+      ),
     );
   } catch (error) {
     throw unavailable(error);
@@ -304,20 +311,25 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       if (databases.length < 100) break;
     }
     let index: ReleaseIndexV2;
+    let bytes: Uint8Array;
     try {
-      index = validateIndexV2(
-        JSON.parse(
-          (await releaseFile(env, "/releases/v2/latest.json", 8192)).toString(
-            "utf8",
-          ),
-        ),
-      );
+      bytes = await releaseFile(env, INDEX_PATH, 8192);
     } catch {
       throw new ApiError(
         502,
         "release_unavailable",
         "Não foi possível consultar a versão oficial. Tente de novo em instantes.",
       );
+    }
+    // Assinatura e validade conferidas antes de criar qualquer recurso. Sem
+    // assinatura válida a instalação não começa.
+    try {
+      index = await parseIndex(
+        bytes,
+        await releaseFile(env, INDEX_SIGNATURE_PATH, 4096).catch(() => null),
+      );
+    } catch (error) {
+      throw unavailable(error);
     }
     return {
       next: "database",
@@ -453,32 +465,23 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       const upload = { jwt: session.jwt, buckets: session.buckets };
       return {
         next: upload.buckets.length ? "assets" : "publish",
-        cursor: { ...cursor, upload, bucket: 0, offset: 0 },
+        cursor: { ...cursor, upload, bucket: 0 },
         message: "Envio dos arquivos do painel iniciado.",
       };
     }
     const upload = cursor.upload,
-      bucket = Number(cursor.bucket) || 0,
-      offset = Number(cursor.offset) || 0;
+      bucket = Number(cursor.bucket) || 0;
     if (
       typeof upload.jwt !== "string" ||
       !Array.isArray(upload.buckets) ||
       !Array.isArray(upload.buckets[bucket])
     )
       throw invalid("Andamento inválido. Recomece a instalação.");
-    // Um lote da Cloudflare pode ser grande: cada passo envia uma parte de
-    // até 16 MiB; só o último envio da sessão traz o token de conclusão.
+    // A Cloudflare pede que cada lote vá inteiro num só envio; só a resposta
+    // do último lote da sessão traz o token de conclusão.
     let part;
     try {
-      part = nextRound(
-        assetsForHashes(pkg, upload.buckets[bucket]).map((item) => ({
-          ...item,
-          size: item.file.size,
-        })),
-        offset,
-        MAX_UPLOAD_BATCH,
-        ROUND_BYTES,
-      );
+      part = assetsForHashes(pkg, upload.buckets[bucket]);
     } catch {
       throw invalid("Andamento inválido. Recomece a instalação.");
     }
@@ -490,13 +493,11 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       "POST",
       await assetUploadV2(part, read),
     );
-    const moved = offset + part.length;
-    const bucketDone = moved >= upload.buckets[bucket].length;
-    const sent = bucketDone ? bucket + 1 : bucket;
+    const sent = bucket + 1;
     if (sent < upload.buckets.length)
       return {
         next: "assets",
-        cursor: { ...cursor, bucket: sent, offset: bucketDone ? 0 : moved },
+        cursor: { ...cursor, bucket: sent },
         message: `Enviando os arquivos do painel: lote ${sent + 1} de ${upload.buckets.length}.`,
       };
     if (typeof result?.jwt !== "string")
@@ -547,7 +548,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       "cloudflare_error",
       "A Cloudflare não confirmou a publicação.",
     );
-  const { upload, bucket, offset, ...rest } = cursor;
+  const { upload, bucket, ...rest } = cursor;
   return {
     next: "finish",
     cursor: rest,

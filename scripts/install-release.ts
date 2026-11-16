@@ -18,9 +18,13 @@ import {
   parseManifest,
   validateIndexV2,
   scriptPath,
+  verifySignature,
   type BlobRef,
   type ReleaseManifest,
 } from "../src/release";
+// Os testes do instalador (tests/installer.test.mjs) trocam as chaves por um
+// par gerado na hora.
+export { latestReleaseV2, trustReleaseKeysForTests } from "../src/release";
 import { installTokenUrl, setupLink } from "../src/install-links";
 
 /**
@@ -52,14 +56,33 @@ export async function materializeRelease(
     );
 }
 
-/** Catálogo local (--release-dir): <versão>/release-v2.json e ../blobs/<sha>. */
+const optionalFile = async (path: string) => {
+  try {
+    return await readFile(path);
+  } catch (e: any) {
+    if (e?.code === "ENOENT") return null;
+    throw e;
+  }
+};
+
+/**
+ * Catálogo local (--release-dir): <versão>/release-v2.json e .sig,
+ * manifest.json e .sig, e ../blobs/<sha>. As assinaturas valem como no
+ * catálogo publicado; só o prazo do índice não conta (a pasta é uma cópia
+ * guardada de uma versão já assinada).
+ */
 export async function localRelease(directory: string) {
-  const index = validateIndexV2(
-    JSON.parse(await readFile(join(directory, "release-v2.json"), "utf8")),
+  const bytes = await readFile(join(directory, "release-v2.json"));
+  await verifySignature(
+    "index",
+    bytes,
+    await optionalFile(join(directory, "release-v2.sig")),
   );
+  const index = validateIndexV2(JSON.parse(bytes.toString("utf8")));
   const manifest = await parseManifest(
     index,
     await readFile(join(directory, "manifest.json")),
+    await optionalFile(join(directory, "manifest.sig")),
   );
   const read = async (ref: BlobRef) =>
     checkBlob(ref, await readFile(join(directory, "..", "blobs", ref.sha256)));

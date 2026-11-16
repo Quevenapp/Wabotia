@@ -1,12 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
-import {
-  digest,
-  parsePackage,
-  validateIndex,
-  RELEASE_ORIGIN,
-} from "../src/release";
+import { RELEASE_ORIGIN } from "../src/release";
 import {
   checkUpdate,
   configureUpdates,
@@ -63,7 +58,7 @@ beforeEach(async () => {
   await exec(env, "DROP TABLE IF EXISTS release_probe");
   await exec(env, "DROP TABLE IF EXISTS d1_migrations");
   spec = {
-    version: "0.3.1",
+    version: "99.3.1",
     commit: target,
     modules: [
       {
@@ -249,62 +244,6 @@ it("não repete publicação com confirmação perdida", async () => {
   expect(
     (await env.MEDIA.list({ prefix: workPrefix(state.id) })).objects,
   ).toHaveLength(0);
-});
-it("formato 1 continua conferido: pacote alterado, caminho externo e Durable Object", async () => {
-  // A ponte ainda publica o pacote de formato 1 para as instalações antigas.
-  const file = async (name: string, type: string, body: string) => ({
-    name,
-    type,
-    data: Buffer.from(body).toString("base64"),
-    sha256: await digest(body),
-  });
-  const pkg: any = {
-    format: 1,
-    version: "0.3.1",
-    commit: target,
-    main_module: "index.js",
-    compatibility_date: "2026-11-04",
-    compatibility_flags: [],
-    assets_config: spec.assets_config,
-    durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
-    modules: [await file("index.js", "application/javascript+module", "x")],
-    assets: [await file("/index.html", "text/html", "<html></html>")],
-    migrations: [],
-  };
-  const v1 = async () => {
-    const bytes = Buffer.from(JSON.stringify(pkg));
-    return {
-      bytes,
-      index: {
-        format: 1,
-        version: pkg.version,
-        commit: pkg.commit,
-        package_sha256: await digest(bytes),
-        package_size: bytes.length,
-      },
-    };
-  };
-  let built = await v1();
-  expect((await parsePackage(built.index as any, built.bytes)).version).toBe(
-    "0.3.1",
-  );
-  await expect(
-    parsePackage(built.index as any, Buffer.from("modified")),
-  ).rejects.toThrow(/integridade/);
-  pkg.assets[0].name = "/../../secret";
-  built = await v1();
-  await expect(parsePackage(built.index as any, built.bytes)).rejects.toThrow(
-    /Arquivo inválido/,
-  );
-  pkg.assets[0].name = "/index.html";
-  pkg.durable_migrations.push({ tag: "v2", deleted_classes: ["Coordinator"] });
-  built = await v1();
-  await expect(parsePackage(built.index as any, built.bytes)).rejects.toThrow(
-    /Durable Objects/,
-  );
-  expect(() =>
-    validateIndex({ ...built.index, package_size: 1000000000 }),
-  ).toThrow();
 });
 it("rollback da migração preserva o recibo e impede ativar código", async () => {
   spec.migrations[0].statements.push("INSERT INTO missing_table VALUES('fail')");

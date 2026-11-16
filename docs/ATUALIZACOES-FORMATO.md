@@ -1,29 +1,41 @@
-# Formato do pacote de atualização e a versão ponte
+# Formato do pacote de atualização (formato 2) e assinatura
 
 O pacote antigo (formato 1) era um JSON único com tudo em base64, até 24 MiB,
 relido e decodificado em toda etapa do atualizador, com no máximo 100
-estáticos. O ERP (Fagoo) não cabe nele. A **versão ponte** troca o formato e
-os limites; as instalações antigas chegam ao formato novo passando por ela.
+estáticos. O ERP (Fagoo) não cabe nele. O formato 2 troca o formato, os
+limites e passa a exigir assinatura.
+
+**Sem ponte.** Nenhuma instalação baixou o formato 1 (decisão de 16/11/2026),
+então não há versão de transição: o leitor do formato 1, o `--bridge`, o
+degrau e o caminho antigo por GitHub/Deploy Hook saíram do código. O catálogo
+publicado do formato 1 **não muda**: `releases/latest.json` fica parado na
+0.20.0, com os 39 pacotes antigos, e nada no código o lê ou escreve.
 
 ## Formato 2
 
 ```
-/releases/latest.json              congelado na ponte (último formato 1)
+/releases/latest.json              formato 1, parado na 0.20.0 (intocado)
 /releases/v2/latest.json           índice: {format:2, version, commit,
                                    manifest_sha256, manifest_size,
-                                   total_size, requires}
-/releases/v2/bridge.json           {version, commit} da ponte
+                                   total_size, requires, issued_at, expires}
+/releases/v2/latest.sig            assinatura do índice
 /releases/<versão>/manifest.json   metadados; modules/assets/migrations
                                    como {name, type, size, sha256}
-/releases/<versão>/release-v2.json o índice daquela versão
+/releases/<versão>/manifest.sig    assinatura do manifesto
+/releases/<versão>/release-v2.json o índice daquela versão (e .sig), para
+                                   instalar de uma pasta local
 /releases/blobs/<sha256>           bytes crus, endereçados por conteúdo
 ```
 
 - Sem base64. O mesmo conteúdo vira um blob só, compartilhado entre versões.
 - Migração: o blob é um JSON com a lista de instruções SQL.
-- `requires.min_version`: versão mínima instalada (a ponte, nas versões
-  seguintes); o atualizador recusa começar abaixo dela.
-- `requires.workers_paid`: liga a sonda do plano pago antes de migrar.
+- `requires.min_version`: versão mínima instalada; o atualizador (manual e
+  automático) recusa começar abaixo dela. Padrão `0.0.0`; muda com
+  `npm run release -- --min-version x.y.z`. Mecanismo para o futuro: nenhuma
+  versão o usa hoje.
+- `requires.workers_paid`: liga a sonda do plano pago antes de migrar
+  (`--workers-paid`).
+- `issued_at` e `expires` (ms Unix): o prazo do índice, abaixo.
 
 **Limites** (`src/release.ts`): manifesto 2 MiB; arquivo 25 MiB (teto de um
 estático da Cloudflare, que serve os blobs); módulos do Worker somados
@@ -32,57 +44,158 @@ migrações; lote de envio de estáticos 2.000 hashes. Inalterados: Durable
 Object só `v1` com `Coordinator`, `run_worker_first` fixo e as ligações
 conferidas antes de publicar.
 
-## Degrau fixo
+**Fora do pacote:** o catálogo (`releases/`) e o guia em PDF ficam só no
+site oficial (`excludedAsset` em `scripts/release-plan.mjs`). O Worker sai
+com `--minify`, só na linha de comando do dry-run, não no `wrangler.jsonc`.
 
-1. A ponte sai com `npm run release -- --bridge`: grava o formato 2 **e** o
-   pacote de formato 1 (abaixo de 20 MB, o teto das instalações até a
-   0.17.0), aponta `releases/latest.json` para ela e registra
-   `releases/v2/bridge.json`.
-2. A ponte só lê `releases/v2/latest.json`.
-3. As versões seguintes saem sem `--bridge`: só formato 2; o script recusa
-   publicar sem a ponte registrada e nunca mais muda `releases/latest.json`.
-4. Uma instalação antiga lê `latest.json`, vê a ponte, atualiza, e só então
-   enxerga o índice v2. O leitor do formato 1 recusa um índice de formato 2
-   (`validateIndex` exige `format: 1`), então mesmo um engano no catálogo
-   não a leva a um pacote que ela não sabe instalar.
-
-### Atualização automática não pula a ponte
-
-- **Antes da ponte (0.17.x a 0.20.x):** o automático instala "versão maior
-  que a atual" a partir de `releases/latest.json`, que fica congelado na
-  ponte. Quem estiver várias versões atrás cai na ponte; o índice v2 não
-  existe para essas versões.
-- **Na ponte em diante:** o automático lê `releases/v2/latest.json` e só põe
-  na fila uma versão cujo `requires.min_version` a instalação atende. Se não
-  atende, para em `release_requires_review` com a mensagem "exige a X
-  instalada antes" e não cria trabalho. O início manual recusa do mesmo
-  jeito.
-- Testes: `tests/release-v2.test.ts` (o leitor antigo só enxerga a ponte) e
-  `tests/automatic-updates.test.ts` (na ponte, o automático respeita
-  `min_version`).
-
-### Instaladores no mesmo dia
-
-O instalador de terminal (`public/install-wabotia.mjs`) e o pelo navegador
-(o Worker do site oficial) já leem o formato 2 na ponte. Os dois saem do
-mesmo commit que grava o `releases/v2/latest.json`: `release.mjs` gera o
-instalador, e o deploy do site oficial leva o catálogo **e** o código do
-instalador pelo navegador juntos. Regra de publicação: nunca subir o
-catálogo da ponte sem o código da ponte no site (nem o contrário); um site
-antigo com o catálogo novo instalaria a ponte pelo formato 1 (funciona, mas
-fica uma versão atrás depois da primeira de formato 2), e um site novo com o
-catálogo antigo não acharia o índice v2.
+**Instaladores.** O de terminal (`public/install-wabotia.mjs`) e o pelo
+navegador (o Worker do site oficial) só leem o formato 2 e conferem as duas
+assinaturas. Os dois saem do mesmo commit que grava o índice: o
+`release.mjs` gera o instalador, e o deploy do site leva o catálogo e o
+código do instalador pelo navegador juntos.
 
 ### Migrações
 
+- **Todas as migrações da versão são conferidas antes de aplicar a
+  primeira** (etapa `prepare`, até 20 por rodada): uma segunda migração
+  malformada para o trabalho antes de tocar no banco.
 - Cada arquivo é aplicado num `batch` do D1 com o registro em
   `d1_migrations` na mesma transação: ou o arquivo inteiro entra com o
   recibo, ou nada.
 - Limite por arquivo: 100 instruções, cada uma com menos de 100 mil
-  caracteres (o mesmo do formato 1). Migração grande se divide em vários
-  arquivos numerados; o atualizador aplica um por rodada.
+  caracteres. Migração grande se divide em vários arquivos numerados; o
+  atualizador aplica um por rodada.
 - O esquema do ERP não passa pelo D1: fica no SQLite do objeto e é
   versionado em código. Os módulos que ainda usam o D1 seguem esta regra.
+
+### Ordem das versões
+
+- **Instalação:** o atualizador (manual e automático) só instala versão
+  **maior** que a instalada. Igual com outro commit ou menor: recusa ("A
+  atualização não volta de versão"). Um índice antigo ou adulterado não faz
+  voltar código sobre um banco já migrado.
+- **Publicação:** `release.mjs` recusa versão que não seja maior que a do
+  índice v2 publicado e que a 0.20.0 (a última do formato 1). Republicar a
+  mesma versão só com o mesmo manifesto (é o que `--renew` faz).
+
+## Assinatura (Ed25519)
+
+**O que é assinado.** Dois arquivos, cada um com seu `.sig`:
+
+- o **índice** (`v2/latest.json`): fixa versão, commit, SHA-256 do
+  manifesto e o prazo. A assinatura do índice é o que impede servir um
+  índice antigo para sempre (congelamento) e voltar versão;
+- o **manifesto** de cada versão: fixa o SHA-256 de cada arquivo. Assinar
+  o manifesto também deixa conferir uma versão instalada de uma pasta local
+  ou buscada pelo número, sem depender do índice do dia.
+
+A assinatura cobre `domínio + bytes exatos do arquivo`, com domínios
+diferentes (`"wabotia-release-index-v2\n"` e
+`"wabotia-release-manifest-v2\n"`): a assinatura de um nunca vale como a do
+outro. O `.sig` é `{"format":1,"algorithm":"Ed25519","key_id":"principal",
+"signature":"<64 bytes em base64>"}`. Os blobs não são assinados um a um:
+o SHA-256 de cada um está no manifesto assinado.
+
+**Chaves embutidas** (`src/release-keys.json`): `principal` e `reserva`,
+públicas, 32 bytes em base64url. Vale a assinatura de **qualquer uma** das
+duas. Verificação com `crypto.subtle.verify({name: "Ed25519"}, …)`, igual no
+workerd e no Node 22.
+
+**Quem confere:** `checkUpdate` (botão e automático, antes de qualquer
+etapa), a etapa `manifest` do atualizador (e de novo a cada rodada, ao reler
+o manifesto guardado no R2), o instalador de terminal (pela rede e de pasta
+local) e o instalador pelo navegador (antes de criar qualquer recurso).
+Sem assinatura válida: "A assinatura da versão oficial não confere (…).
+Nada foi alterado."
+
+### Prazo do índice (`expires`)
+
+- **Proposta adotada: 90 dias.** `release.mjs` grava `issued_at` = agora e
+  `expires` = agora + 90 dias. O verificador aceita no máximo 180 dias entre
+  os dois e recusa `issued_at` mais de um dia no futuro.
+- **Sem versão nova em 90 dias:** `npm run release -- --renew` reassina o
+  mesmo índice com prazo novo (mesma versão, mesmo manifesto) e o site é
+  publicado de novo. Lembrete: renovar aos 60 dias.
+- **Índice vencido numa instalação:** a consulta e a atualização são
+  recusadas com "O índice da versão oficial venceu: o mantenedor precisa
+  renová-lo. O atendimento continua normal; tente mais tarde." Nada mais
+  para: o Worker instalado segue atendendo, o automático registra
+  `check_failed` e tenta de novo na próxima janela. Os dois instaladores
+  também recusam começar (o de pasta local não confere o prazo: a pasta é
+  uma cópia guardada de uma versão já assinada).
+- **Por que um prazo:** quem controlar o site (ou um cache) poderia servir
+  para sempre um índice antigo e assinado, escondendo uma versão de
+  correção. Com o prazo, isso dura no máximo 90 dias.
+
+### Chaves privadas
+
+- Geradas por `node scripts/release-keygen.mjs --id <principal|reserva>
+  --out <arquivo .pem>`: o script recusa caminho dentro do repositório e
+  arquivo existente, grava a chave PKCS8 com acesso só do usuário atual
+  (no Windows, `icacls /inheritance:r /grant:r <usuário>:F`) e imprime só a
+  chave pública.
+- Ficam em `D:\Code\Env\wabotia\chaves-release\` (`principal.pem`,
+  `reserva.pem`), fora do repositório, com acesso só do usuário do Windows.
+  **Recomendação:** guardar também uma cópia da `reserva.pem` em mídia
+  offline separada; as duas no mesmo disco caem juntas.
+- **Nunca** viram segredo de CI, variável do Worker ou arquivo do
+  repositório. `release.mjs` lê o caminho de `WABOTIA_RELEASE_KEY` ou de
+  `release-signing.local.json` (`{"key": "<caminho>"}`, no `.gitignore`),
+  recusa caminho dentro do repositório, confere que a pública derivada está
+  em `src/release-keys.json`, confere cada assinatura antes de gravar e não
+  imprime, registra nem copia a chave. O `.gitignore` também ignora `*.pem`
+  e `*.key`; o pacote só leva `output/release-worker` e `dist`.
+- A principal assina toda publicação; a reserva só numa emergência.
+
+### Troca, perda e comprometimento
+
+- **Troca planejada:** uma versão assinada por uma chave ainda válida traz
+  o `src/release-keys.json` novo. Quem instala essa versão passa a aceitar
+  só a lista nova. Gere a chave nova com `release-keygen.mjs`, troque a
+  pública no JSON, publique (assinada pela chave atual) e só então passe a
+  assinar com a nova.
+- **Perda da principal:** a próxima versão sai assinada pela reserva (aponte
+  `WABOTIA_RELEASE_KEY` para `reserva.pem`) e traz uma principal nova na
+  lista. Nenhuma instalação trava.
+- **Perda das duas:** nenhuma instalação aceita versão nova. Saída:
+  reinstalar pelo instalador (que traz a lista nova embutida) com
+  exportação e importação dos dados. Por isso a reserva deve ficar também
+  fora do disco da principal.
+- **Comprometimento de uma chave:** publique o quanto antes, assinada pela
+  outra, uma versão cuja lista não tem a chave comprometida. **Limite:**
+  até instalar essa versão, uma instalação ainda aceita um pacote assinado
+  pela chave comprometida, desde que servido pelo site oficial (o atacante
+  precisa também do site). Não há lista de revogação; se for preciso fechar
+  essa janela, o próximo passo é `releases/v2/revocations.json` assinado e
+  guardado pela instalação.
+
+### Candidato e build de teste
+
+- **`--candidate`**: grava em `output/release-candidate/` **sem
+  assinatura**, com `"candidate": true` no índice; as instalações recusam
+  ("versão sem assinatura"). Serve para medir e conferir, nunca para
+  publicar. Mesmo com a chave configurada, o candidato não assina.
+- **`--test-origin <url>`** (só para o ensaio): build de teste em que o
+  `RELEASE_ORIGIN` aponta para `<url>/api/test-catalog`, a própria
+  instalação de teste.
+  - Constante de build `__WABOTIA_TEST_RELEASE_ORIGIN__`, declarada em
+    `src/release.ts` e definida só no build de teste (um wrangler
+    temporário, `wrangler.release-test.local.json`, no dry-run, e o
+    `define` do esbuild no instalador); sem ela vale o endereço oficial.
+  - Índice e manifesto levam `test_origin` **assinado**: o build oficial
+    recusa qualquer pacote de teste, e o de teste só aceita os da própria
+    origem.
+  - Só no build de teste existe a rota `GET /api/test-catalog/releases/*`,
+    que serve o catálogo do R2 da instalação (prefixo `test-catalog/`,
+    enviado por `scripts/release-test-upload.mjs`); `/api/health` mostra
+    `test_build: true` e `release_origin`.
+  - Grava em `output/release-test/`; o instalador de teste fica em
+    `output/release-test/install-wabotia.mjs`. Imprime "BUILD DE TESTE: não
+    publicar".
+  - **Recusa num pacote oficial:** sem `--test-origin`, `release.mjs` para
+    se `WABOTIA_TEST_RELEASE_ORIGIN` estiver definida ou se o
+    `wrangler.jsonc` tiver `define` com a constante, e confere que o Worker
+    e o instalador gerados contêm o endereço oficial.
 
 ## Etapas do atualizador (`src/updates.ts`)
 
@@ -92,17 +205,24 @@ rodada.
 
 | Etapa | O que faz |
 |---|---|
-| `manifest` | Baixa o manifesto, confere SHA-256 e estrutura, guarda em `system/releases/<id>/manifest.json` |
+| `manifest` | Baixa o manifesto e o `.sig`, confere assinatura, SHA-256 e estrutura, guarda os dois em `system/releases/<id>/` |
 | `blobs` | Baixa até 20 arquivos ou 16 MiB por rodada (ao menos um), confere tamanho e SHA-256, guarda em `system/releases/<id>/b/<sha>`; retomada pula o que já está guardado |
-| `prepare` | Confere a instalação (Durable Object, ligações) e abre a sessão de envio de estáticos |
-| `assets` | Envia uma parte de até 16 MiB de um lote da Cloudflare por rodada (em base64); só o último envio traz o token de conclusão |
+| `prepare` | Confere todas as migrações (20 por rodada); depois a instalação (Durable Object, ligações) e abre a sessão de envio de estáticos |
+| `assets` | Envia um lote inteiro da Cloudflare por rodada (em base64), como a documentação pede; só o último traz o token de conclusão |
 | `migrate` | Sonda do plano pago (uma vez, se `workers_paid`), depois uma migração por rodada, cada uma num `batch` com o registro em `d1_migrations` |
 | `publish` | Publica o Worker com os módulos guardados (lidos e conferidos de novo) |
 
-Os temporários são apagados pelo prefixo `system/releases/<id>/` ao concluir
-ou cancelar. Nova tentativa automática recomeça na etapa que falhou (em
-`assets`, volta a `prepare`: a sessão da Cloudflare vale uma hora e só pede o
-que faltou).
+**Limpeza do R2.**
+- Ao concluir, o trabalho é gravado como `completed` **antes** de apagar o
+  prefixo `system/releases/<id>/`; se o R2 falhar, `cleanup_pending` fica
+  marcado e a limpeza se repete na próxima consulta.
+- Ao cancelar, o prefixo é apagado.
+- Ao começar um trabalho novo, tudo o que sobrou em `system/releases/`
+  (trabalho anterior falho, cancelado ou com limpeza interrompida) é
+  apagado.
+
+Nova tentativa automática recomeça na etapa que falhou (em `assets`, volta a
+`prepare`: a sessão da Cloudflare vale uma hora e só pede o que faltou).
 
 ## Sonda do plano pago
 
@@ -129,25 +249,20 @@ atualização.
   25 MiB por arquivo; 128 MB de memória por isolate.
 - **Envio direto de estáticos:** a página não dá limite numérico de
   arquivos ou bytes por envio nem por lote ("Limits differ based on account
-  plan"); cada lote de `buckets` deve ir junto; o token da sessão e o de
-  conclusão valem uma hora; o de conclusão vem quando todos os arquivos
-  chegaram. Por isso o atualizador aceita lotes de até 2.000 hashes e os
-  envia em partes de até 16 MiB. O tamanho real de um lote só se confirma
-  com o envio real (roteiro abaixo).
+  plan"); cada lote de `buckets` deve ir junto num envio; o token da sessão
+  e o de conclusão valem uma hora; o de conclusão vem quando todos os
+  arquivos chegaram. Por isso o atualizador e o instalador pelo navegador
+  mandam um lote por envio. O tamanho real de um lote só se confirma com o
+  envio real (roteiro abaixo): um lote grande demais para a memória do
+  Worker apareceria ali.
 
 ## Tamanhos medidos (0.20.0, `4ea7864`)
 
-| Pacote | Worker | Formato 1 (JSON base64) |
+| Pacote | Worker | Tamanho |
 |---|---|---|
-| Como era | 8,91 MB | ≈18,28 MB (publicado: 18,3 MB) |
-| Com `--minify` | 4,65 MB | ≈12,59 MB |
-| Com `--minify` e sem os PDFs do guia (2,84 MB) | 4,65 MB | **8,85 MB** (candidato da ponte) |
-| Formato 2 do mesmo código | 4,65 MB | 6,65 MB em 63 arquivos únicos, manifesto 10 KB |
+| Formato 1, como era | 8,91 MB | ≈18,28 MB (publicado: 18,3 MB) |
+| Formato 2 com `--minify` e sem os PDFs do guia | 4,65 MB | 6,65 MB em 63 arquivos únicos, manifesto 10 KB |
 
-- `--minify` vai só na linha de comando do dry-run (`scripts/release.mjs`),
-  não no `wrangler.jsonc`.
-- Os PDFs do guia ficam só no site oficial; as páginas `/` e `/install`
-  apontam para `https://wabotia.queven.app/guide/…`.
 - **`@anthropic-ai/sdk` por `fetch` direto (avaliado, recusado):** no
   Worker minificado, o SDK ocupa 0,39 MB e o `zod` (usado só pela saída
   estruturada do mesmo arquivo), 0,48 MB: 0,87 MB de 4,65 MB. O ganho não
@@ -161,159 +276,92 @@ atualização.
   acrescentar se apoiam nos tipos dele. O maior item do Worker é o `unpdf`
   (2,27 MB, leitura de PDF no Conhecimento).
 
-## Assinatura do índice (Ed25519): desenho pronto, não implementado
+## Testes
 
-Decisão pendente do usuário (envolve guardar chaves). O desenho entra na
-ponte sem retrabalho, porque a ponte é a última versão que todos instalam
-sem conferir assinatura.
+- `tests/release-v2.test.ts`: índice e prazo, manifesto e limites,
+  assinatura (principal, reserva, chave desconhecida, chave errada com nome
+  confiável, sem assinatura, arquivo inválido, troca de papel índice ↔
+  manifesto, índice vencido); no atualizador: manifesto alterado em um
+  byte, blob trocado e blob corrompido, segunda migração malformada, queda
+  no meio de `assets`, limpeza (`completed` antes, `cleanup_pending`,
+  restos antigos), ordem das versões, lote de 250 hashes, blobs de 20 MB,
+  falha entre `migrate` e `publish`, sonda do plano pago; regras de
+  publicação (`checkVersionOrder`, `excludedAsset`, `insideRepository`).
+- `tests/web-install.test.ts`: os mesmos casos no instalador pelo
+  navegador (sem assinatura, chave desconhecida, vencido, reserva, manifesto
+  alterado, blob trocado/corrompido, um lote por envio).
+- `tests/installer.test.mjs`: os mesmos casos no instalador de terminal
+  (pasta local e rede), com as assinaturas geradas por
+  `scripts/release-sign.mjs`, o mesmo código do `release.mjs`.
+- `tests/automatic-updates.test.ts`: o automático com índice assinado,
+  `min_version` e sem voltar versão.
 
-**O que é assinado.** O índice v2 ganha `signatures: [{key, sig}]`. A
-assinatura cobre os bytes `"wabotia-release-v2\n" + JSON` do índice sem o
-campo `signatures`, com as chaves em ordem alfabética (o mesmo `canonical`
-de `src/security.ts`). O índice fixa o SHA-256 do manifesto, que fixa o de
-cada arquivo: assinar o índice basta.
+## Roteiro do ensaio de ponta a ponta (sessão K)
 
-**Chaves embutidas (`src/release.ts`).**
+Objetivo: instalação do zero com um pacote de formato 2 assinado, depois
+atualização formato 2 → formato 2 pelo painel, em
+`wabotia-staging-verticais`, sem tocar no catálogo oficial.
 
-```ts
-export const RELEASE_KEYS = [
-  { id: "principal-2026", ed25519: "<32 bytes em base64>" },
-  { id: "reserva-2026", ed25519: "<32 bytes em base64>" },
-];
-```
+**Pré-condições:** revisão da sessão A concluída; os aparelhos de teste não
+estão usando a staging; OK do usuário para reinstalar a staging do zero (a
+instalação atual tem dados de teste e aparelhos pareados). Sem esse OK, use
+outro nome na mesma conta (por exemplo `wabotia-staging-pacote`) e troque o
+nome nos passos.
 
-- Vale o índice com **ao menos uma** assinatura válida de uma chave da
-  lista que não esteja revogada nesta instalação. Verificação com
-  `crypto.subtle.verify({name: "Ed25519"}, …)` (workerd e Node 22).
-- Conferem: `checkUpdate` e o automático (antes de qualquer etapa), o
-  instalador de terminal e o pelo navegador. Índice sem assinatura válida:
-  "A versão oficial não tem assinatura válida. Nada foi alterado."
-- A principal assina toda publicação; a reserva fica guardada em outro lugar
-  (cofre separado, offline) e só assina numa emergência.
-- **Troca planejada:** uma versão assinada pela principal traz a lista nova
-  (por exemplo, principal-2027 e a mesma reserva). Quem instala essa versão
-  passa a aceitar só a lista nova.
-
-**Chave perdida.**
-- Só a principal: a próxima versão sai assinada pela reserva e traz uma
-  principal nova. Nenhuma instalação trava.
-- As duas: nenhuma instalação aceita versão nova. Saída: reinstalação pelo
-  instalador (que tem a lista nova embutida), com exportação e importação
-  dos dados. Por isso as duas nunca ficam no mesmo lugar.
-
-**Chave comprometida.**
-- Publica-se, assinado pela outra chave, `releases/v2/revocations.json`
-  (`{revoked: ["principal-2026"], at}`), e uma versão nova sem a chave
-  comprometida, assinada pela que sobrou.
-- O atualizador lê as revogações a cada consulta, aceita só a lista
-  assinada por uma chave válida e guarda o resultado num segredo da
-  instalação: uma revogação vista não se desfaz, mesmo que o site volte a
-  servir a lista antiga.
-- **Limite:** uma instalação que ainda não leu a revogação aceita uma versão
-  assinada pela chave comprometida servida por quem controla o site. A
-  janela fecha na primeira consulta depois da revogação. Exigir as duas
-  assinaturas fecharia a janela, mas a perda de qualquer chave travaria
-  todas as instalações; o desenho prefere uma de duas.
-
-**Como o `release.mjs` assina.**
-- `--sign <arquivo>`: caminho de uma chave privada PKCS8 (PEM) **fora** do
-  repositório; o script recusa um caminho dentro da pasta do projeto ou
-  versionado pelo Git, e recusa publicar (sem `--candidate`) sem assinatura.
-- Lê a chave com `createPrivateKey`, assina com `crypto.sign(null, bytes,
-  chave)`, confere a assinatura contra a pública correspondente de
-  `RELEASE_KEYS` (chave errada ou fora da lista: para) e só então grava o
-  índice. A chave nunca é impressa, registrada em log nem copiada; o
-  processo não a passa a subprocessos (`wrangler` roda antes da assinatura).
-- Geração das chaves: `node -e` com `generateKeyPairSync("ed25519")`,
-  numa máquina sem rede, gravando a privada direto num pendrive cifrado; a
-  pública (32 bytes em base64) vai para `RELEASE_KEYS` num commit.
-- `--candidate` sai sem assinatura; os testes usam um par gerado na hora.
-
-## Roteiro do teste de ponta a ponta (sessão K)
-
-Objetivo: versão antiga → ponte → versão fictícia de formato 2 com 300
-estáticos e cerca de 30 MB, numa instalação de teste, sem tocar no catálogo
-oficial.
-
-### Catálogo de teste: a própria instalação de teste
-
-A instalação de distribuição é um Wabotia comum que serve `/releases` dos
-próprios estáticos. No ensaio, a instalação de teste serve o próprio
-catálogo, e um build **só de teste** aponta o `RELEASE_ORIGIN` para ela.
-Proposta (não implementada; entra antes do ensaio, com a revisão da A):
-
-- **Constante de build** `__WABOTIA_TEST_RELEASE_ORIGIN__`, declarada em
-  `src/release.ts`:
-
-  ```ts
-  declare const __WABOTIA_TEST_RELEASE_ORIGIN__: string | undefined;
-  export const RELEASE_ORIGIN =
-    typeof __WABOTIA_TEST_RELEASE_ORIGIN__ === "string"
-      ? __WABOTIA_TEST_RELEASE_ORIGIN__
-      : "https://wabotia.queven.app";
-  ```
-
-  Ela só existe quando o build de teste a define
-  (`wrangler deploy --define __WABOTIA_TEST_RELEASE_ORIGIN__:'"https://<teste>.workers.dev"'`).
-  No build de produção ela não existe e o `typeof` cai no endereço oficial.
-- **`release.mjs` recusa num pacote oficial:** para se o `wrangler.jsonc`
-  tiver `define` com essa constante, se a variável de ambiente
-  `WABOTIA_TEST_RELEASE_ORIGIN` estiver definida, ou se o Worker gerado não
-  contiver o literal `https://wabotia.queven.app` (sinal de que a constante
-  foi substituída). O build de teste usa um script próprio
-  (`scripts/release-test.mjs`), que grava em `output/release-test/` e
-  imprime "BUILD DE TESTE: não publicar".
-- `/api/health` do build de teste traz `release_origin` diferente do
-  oficial, para conferir antes de começar.
-
-### Passos
-
-1. **Instalação de teste** com o build de teste da ponte (versão local
-   `0.20.90`, `RELEASE_ORIGIN` = ela mesma). Para partir da 0.17.0, é
-   preciso uma segunda instalação de teste com a 0.17.0 apontada para o
-   catálogo de teste (uma linha trocada numa cópia, sem commit): depende do
-   OK do usuário.
-2. **Catálogo da ponte:** `node scripts/release-test.mjs --bridge` no build
-   de teste; confira pacote de formato 1 abaixo de 20 MB,
-   `releases/latest.json` e `releases/v2/bridge.json`. Publique a pasta
-   `releases` nos estáticos da instalação de teste.
-3. **Fictícia:** versão local `0.20.91`, com 300 arquivos em
-   `public/e2e/` (cerca de 100 KB cada, mais dois de 10 MB, total perto de
-   30 MB); `release-test.mjs` sem `--bridge`. Confira:
-   `releases/latest.json` continua na `0.20.90`; `releases/v2/latest.json`
-   aponta para a `0.20.91` com `requires.min_version` `0.20.90`.
-4. **Versão antiga → ponte** (se houver a segunda instalação): em Sistema e
-   atualizações aparece só a `0.20.90`. Atualize; confira `/api/health`.
-5. **Ponte → fictícia:** consulte de novo; aparece a `0.20.91`. Atualize e
-   anote rodadas por etapa (`system:release-state`), tempo total e qualquer
-   estouro de CPU ou memória. Confira `/api/health` e os 300 arquivos.
-6. **Automático:** repita 4 e 5 com a atualização automática ligada e uma
-   janela que inclua a hora do ensaio; o automático deve parar em cada
-   degrau, nunca saltar da versão antiga para a `0.20.91`.
-7. **Lote real de estáticos:** anote quantos `buckets` a Cloudflare devolveu
-   e o tamanho de cada um.
-8. **Falha entre `migrate` e `publish`:** revogue a permissão Workers
-   Scripts: Edit do token logo depois das migrações; espere `failed` em
-   `publish`, devolva a permissão, libere a nova tentativa e confira que a
-   migração não é reaplicada.
+1. **Versão A (build de teste):** na cópia de trabalho, sem commit, mude a
+   versão do `package.json` para `0.21.90` e rode
+   `npm run release -- --test-origin https://wabotia-staging-verticais.<subdomínio>.workers.dev`
+   com a chave configurada. Confira a mensagem "BUILD DE TESTE" e
+   `output/release-test/v2/latest.json` com `test_origin`.
+2. **Instalação do zero:**
+   `node output/release-test/install-wabotia.mjs --name wabotia-staging-verticais --release-dir output/release-test/0.21.90`.
+   O instalador confere `release-v2.sig` e `manifest.sig`. Confira
+   `/api/health`: `version` 0.21.90, `test_build: true` e `release_origin`.
+3. **Versão B:** versão `0.21.91`, com 300 arquivos em `public/e2e/` (cerca
+   de 100 KB cada, mais dois de 10 MB, perto de 30 MB no total); rode o
+   mesmo `release --test-origin`. Confira que `v2/latest.json` aponta para a
+   0.21.91.
+4. **Catálogo de teste no R2:**
+   `node scripts/release-test-upload.mjs --config <pasta da instalação>/wrangler.jsonc`.
+   Confira `GET <url>/api/test-catalog/releases/v2/latest.json`.
+5. **A → B pelo painel:** Sistema e atualizações → Verificar atualização →
+   Atualizar. Anote:
+   - as rodadas por etapa (`system:release-state`) e o tempo total;
+   - quantos `buckets` a Cloudflare devolveu e o tamanho de cada um;
+   - qualquer estouro de CPU ou memória.
+   Confira `/api/health` (0.21.91) e os 300 arquivos.
+6. **Assinatura na prática:** suba por cima, no R2, um `v2/latest.sig` de
+   outra versão; Verificar atualização deve recusar com "conteúdo alterado".
+   Devolva o original.
+7. **Falha entre `migrate` e `publish`:** numa versão C com uma migração,
+   revogue a permissão Workers Scripts: Edit do token logo depois das
+   migrações; espere `failed` em `publish`, devolva a permissão, libere a
+   nova tentativa e confira que a migração não é reaplicada.
+8. **Automático:** repita 5 numa versão D com a atualização automática
+   ligada e uma janela que inclua a hora do ensaio.
 9. **Plano pago:** se o usuário tiver uma conta gratuita, rode a sonda numa
-   instalação de teste nela (marcando a fictícia com `--workers-paid`) e
-   anote se ela recusa. Até lá, a sonda fica **não comprovada**.
-10. Apague as instalações de teste ao fim, com o OK do usuário.
+   instalação de teste nela (versão marcada com `--workers-paid`) e anote se
+   ela recusa. Até lá, a sonda fica **não comprovada**.
+10. **Ao fim:** volte a versão do `package.json`, apague
+    `output/release-test/` e o prefixo `test-catalog/` do R2. A staging fica
+    com um build de teste, que só lê o catálogo de teste: volte ao build
+    oficial reinstalando, com o OK do usuário.
 
 ## Para a revisão da sessão A (núcleo)
 
-- `src/release.ts`: formato 1 intacto (só o lote de envio sobe para 2.000);
-  formato 2 novo: `validateIndexV2`, `parseManifest` (mesmas travas de
-  Durable Object, rotas e ligações), `fetchManifest`, `fetchBlob`,
-  `checkBlob`, `uniqueBlobs`, `nextRound`, `assetManifestV2`,
-  `assetsForHashes`, `assetUploadV2`, `workerUploadV2`,
-  `migrationStatements`, `versionAtLeast` e as constantes de limite.
-- `src/updates.ts`: `checkUpdate` lê só `releases/v2/latest.json`;
-  `startDirectUpdate` confere `requires.min_version` e começa em `manifest`;
-  `automaticUpdateTick` para em `release_requires_review` quando a versão
-  exige outra instalada antes;
-  `processPhase` com as seis etapas; `paidPlanProbe`; `dropTemporary` apaga
-  o prefixo `system/releases/<id>/` (e o `package_key` antigo, se houver);
-  nova tentativa automática recomeça na etapa que falhou (`assets` volta a
-  `prepare`); fases tentáveis: `manifest`, `blobs`, `prepare`, `assets`.
+- `src/release.ts`: só formato 2 (`validateIndexV2` com prazo,
+  `parseIndex`, `parseManifest` com assinatura e as mesmas travas de Durable
+  Object, rotas e ligações), `verifySignature` com domínios separados,
+  chaves de `src/release-keys.json`, `RELEASE_ORIGIN` com a constante de
+  teste e `test_origin`.
+- `src/updates.ts`: `checkUpdate` lê e confere o índice assinado;
+  `startDirectUpdate` recusa voltar versão, confere `min_version` e limpa
+  restos em `system/releases/`; o automático faz o mesmo; `processPhase`
+  guarda e reconfere `manifest.sig`, confere todas as migrações em
+  `prepare`, manda um lote inteiro por rodada; `updateStatus` grava
+  `completed` antes da limpeza (`cleanup_pending`).
+- `src/web-install.ts`: confere `v2/latest.sig` antes de criar recursos e
+  `manifest.sig` a cada passo; um lote por envio.
+- `scripts/release.mjs`, `release-sign.mjs`, `release-plan.mjs`,
+  `release-keygen.mjs`, `release-test-upload.mjs`.
+- `src/index.ts`: rota `/api/test-catalog/releases/*` só no build de teste.

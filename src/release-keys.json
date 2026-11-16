@@ -1,0 +1,7 @@
+{
+  "comment": "Chaves públicas Ed25519 (32 bytes, base64url) que assinam as versões do Wabotia. As privadas ficam fora do repositório (docs/ATUALIZACOES-FORMATO.md, Assinatura). Trocar esta lista exige uma versão assinada por uma chave ainda válida.",
+  "keys": [
+    { "id": "principal", "ed25519": "jhLX8Tps0pWv5jGaVIJScGdbrZOAE1FgMJmiMpt5U5Q" },
+    { "id": "reserva", "ed25519": "j4WXl7uhNqwJBNBpAlVD1DHc7juftUvZUqU0YL6UXi8" }
+  ]
+}

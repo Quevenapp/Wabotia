@@ -13,23 +13,11 @@ import {
   retryCloudflareJob,
   saveCloudflareSettings,
 } from "../src/cloudflare";
-import {
-  checkUpdate,
-  configureUpdates,
-  deployHookUrl,
-  resetUpdate,
-  startUpdate,
-  updatePlan,
-  updateStatus,
-} from "../src/updates";
-import { buildInfo } from "../src/build-info.generated";
+import { checkUpdate, updateStatus } from "../src/updates";
 
 const account = "a".repeat(32),
-  zone = "b".repeat(32),
-  target = "c".repeat(40);
+  zone = "b".repeat(32);
 const token = "private-cloudflare-api-token-test";
-const hook =
-  "https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/0123456789abcdef0123456789abcdef";
 const admin: Actor = {
   id: "test-admin",
   name: "Admin",
@@ -59,7 +47,7 @@ beforeEach(async () => {
   await exec(env, "DELETE FROM cloudflare_jobs");
   await exec(
     env,
-    "DELETE FROM secrets WHERE id LIKE 'cloudflare:%' OR id LIKE 'system:update-%'",
+    "DELETE FROM secrets WHERE id LIKE 'cloudflare:%' OR id LIKE 'system:release-%'",
   );
   vi.stubGlobal("fetch", async (input: any, init: any = {}) => {
     // Validate request options in workerd even when the provider response is simulated.
@@ -78,19 +66,8 @@ beforeEach(async () => {
     });
     if (fault === path) throw new Error("network interrupted");
     if (special === path && method === "POST") return ok({ id: uid() });
-    if (url.origin === "https://api.github.com") {
-      if (path.endsWith("/commits/main")) return Response.json({ sha: target });
-      if (
-        path.endsWith("/contents/package.json") &&
-        url.search === `?ref=${target}`
-      )
-        return Response.json({
-          content: btoa(JSON.stringify({ version: "0.2.1" })),
-        });
-    }
     if (url.origin !== "https://api.cloudflare.com")
       throw Error("Unexpected destination");
-    if (url.href === hook) return ok({ build_uuid: uid() });
     if (path === `/zones/${zone}`)
       return ok({
         name: "example.com",
@@ -214,10 +191,7 @@ it("restringe manutenção a administradores e recusa origem cruzada", async () 
   expect((await request(op, "/cloudflare/x/connector")).status).toBe(403);
   expect(
     (
-      await request(op, "/updates/configure", {
-        hook_url: hook,
-        build_configured: true,
-      })
+      await request(op, "/updates/configure", { token: "t".repeat(40) })
     ).status,
   ).toBe(403);
   expect(
@@ -225,7 +199,7 @@ it("restringe manutenção a administradores e recusa origem cruzada", async () 
       await request(
         user,
         "/updates/configure",
-        { hook_url: hook, build_configured: true },
+        { token: "t".repeat(40) },
         uid(),
         "https://attacker.example",
       )
@@ -238,33 +212,29 @@ it("restringe manutenção a administradores e recusa origem cruzada", async () 
 it("mantém idempotência, conflito e sigilo pela API", async () => {
   const user = await session(),
     key = uid(),
-    body = { hook_url: hook, build_configured: true };
-  expect((await request(user, "/updates/configure", body, key)).status).toBe(
-    200,
-  );
-  const replay = await request(user, "/updates/configure", body, key);
+    body = { account_id: account, zone_id: zone, token };
+  expect(
+    (await request(user, "/cloudflare/configure", body, key)).status,
+  ).toBe(200);
+  const replay = await request(user, "/cloudflare/configure", body, key);
   expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
   expect(
     (
       await request(
         user,
-        "/updates/configure",
-        { ...body, hook_url: hook + "x" },
+        "/cloudflare/configure",
+        { ...body, token: token + "x" },
         key,
       )
     ).status,
   ).toBe(409);
   const visible = await request(user, "");
   expect(visible.headers.get("Cache-Control")).toBe("no-store");
-  expect(await visible.text()).not.toContain(hook);
+  expect(await visible.text()).not.toContain(token);
   expect(
-    (
-      await one(
-        env,
-        "SELECT value FROM secrets WHERE id='system:update-config'",
-      )
-    ).value,
-  ).not.toContain("deploy_hooks");
+    (await one(env, "SELECT value FROM secrets WHERE id='cloudflare:config'"))
+      .value,
+  ).not.toContain(token);
 });
 it("cifra autorização e chaves, publica só metadados", async () => {
   const f = await job();
@@ -447,38 +417,13 @@ it.each([302, 500, 200])(
     ).rejects.toMatchObject({ ambiguous: true });
   },
 );
-it("recusa URLs arbitrárias para hooks e requisições Cloudflare", async () => {
-  for (const value of [
-    "https://evil.example/hook",
-    hook + "?redirect=evil",
-    hook.replace("https:", "http:"),
-    "https://user:secret@api.cloudflare.com/client/v4/workers/builds/deploy_hooks/01234567890123456789",
-  ])
-    expect(() => deployHookUrl(value)).toThrow();
+it("recusa URLs arbitrárias em requisições Cloudflare", async () => {
   await expect(
     cloudflareRequest(token, "https://evil.example"),
   ).rejects.toMatchObject({ status: 400 });
   expect(calls).toHaveLength(0);
 });
-it("fixa commit oficial antes do hook, deduplica e só confirma o código instalado", async () => {
-  await configureUpdates(env, admin, {
-    hook_url: hook,
-    build_configured: true,
-  });
-  await checkUpdate(env);
-  const first = await startUpdate(env, admin, { commit: target });
-  expect(first.status).toBe("requested");
-  expect((await updatePlan(env)).commit).toBe(target);
-  expect((await startUpdate(env, admin, { commit: target })).id).toBe(first.id);
-  expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
-  expect((await updateStatus(env)).state.status).toBe("requested");
-  await setSecret(env, "system:update-state", {
-    ...first,
-    target: buildInfo.commit,
-  });
-  expect((await updateStatus(env)).state.status).toBe("completed");
-});
-it("recusa redirecionamento do repositório sem registrar uma versão", async () => {
+it("recusa redirecionamento da publicação oficial sem registrar uma versão", async () => {
   const redirectedFetch = vi.fn(async (input: any, init: any) => {
     const request = new Request(input, init);
     expect(request.redirect).toBe("manual");
@@ -494,29 +439,4 @@ it("recusa redirecionamento do repositório sem registrar uma versão", async ()
   });
   expect(redirectedFetch).toHaveBeenCalledTimes(1);
   expect((await updateStatus(env)).latest).toBeNull();
-});
-it("não repete hook ambíguo e exige revisão antes de liberar outra tentativa", async () => {
-  await configureUpdates(env, admin, {
-    hook_url: hook,
-    build_configured: true,
-  });
-  fault = new URL(hook).pathname.replace("/client/v4", "");
-  const first = await startUpdate(env, admin, { commit: target });
-  expect(first.status).toBe("unknown");
-  await startUpdate(env, admin, { commit: target });
-  expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
-  await expect(
-    resetUpdate(env, admin, { confirmed_build_stopped: true }),
-  ).rejects.toMatchObject({ status: 400 });
-  await setSecret(env, "system:update-state", {
-    ...first,
-    created: now() - 1000000,
-  });
-  await expect(resetUpdate(env, admin, {})).rejects.toMatchObject({
-    status: 400,
-  });
-  expect(
-    (await resetUpdate(env, admin, { confirmed_build_stopped: true })).status,
-  ).toBe("cancelled");
-  expect((await updatePlan(env)).commit).toBe(buildInfo.commit);
 });

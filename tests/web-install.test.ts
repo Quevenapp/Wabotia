@@ -6,6 +6,7 @@ import {
   buildRelease,
   serveRelease,
   type BuiltRelease,
+  type ReleaseSpec,
 } from "./release-v2-fixture";
 import { installStep, webInstallerEnabled } from "../src/web-install";
 import { type Env } from "../src/types";
@@ -30,9 +31,7 @@ const ok = (result: any) => Response.json({ success: true, result });
 const refuse = (status: number, message: string) =>
   Response.json({ success: false, errors: [{ message }] }, { status });
 
-beforeEach(async () => {
-  // Formato 2: índice v2, manifesto e arquivos por SHA-256.
-  release = await buildRelease({
+const spec = (): ReleaseSpec => ({
     version: "0.15.0",
     commit,
     assets_config: {
@@ -52,7 +51,11 @@ beforeEach(async () => {
       },
       { name: "0002_more.sql", statements: ["ALTER TABLE a ADD COLUMN x"] },
     ],
-  });
+});
+
+beforeEach(async () => {
+  // Formato 2: índice v2 e manifesto assinados, arquivos por SHA-256.
+  release = await buildRelease(spec());
   const pkg = release.manifest;
   calls = [];
   cloud = {
@@ -312,7 +315,9 @@ describe("instalador pelo navegador", () => {
     // O índice v2, o manifesto e só o arquivo da migração daquele passo.
     expect(served).toEqual([
       "/releases/v2/latest.json",
+      "/releases/v2/latest.sig",
       "/releases/0.15.0/manifest.json",
+      "/releases/0.15.0/manifest.sig",
       `/releases/blobs/${release.manifest.migrations[0].sha256}`,
     ]);
     expect(calls.filter((c) => c.url.startsWith(RELEASE_ORIGIN))).toEqual([]);
@@ -359,6 +364,63 @@ describe("instalador pelo navegador", () => {
     ).rejects.toMatchObject({ status: 400 });
     expect(cloud.worker).toBe(false);
   });
+});
+
+describe("assinatura no instalador pelo navegador", () => {
+  const created = () =>
+    calls.filter((c) => c.method !== "GET" && c.url.startsWith(api));
+  it("cada lote da Cloudflare vai inteiro num envio", async () => {
+    await run();
+    expect(
+      calls.filter((c) => c.url.endsWith("upload?base64=true")),
+    ).toHaveLength(cloud.assetHashes.length);
+  });
+  it("aceita a reserva", async () => {
+    release = await buildRelease({ ...spec(), signer: "reserva" });
+    expect((await run()).messages.at(-1)).toBe("Instalação no ar e conferida.");
+  });
+  it.each([
+    ["sem assinatura", { signer: null }, /sem assinatura/],
+    ["chave desconhecida", { signer: "unknown" }, /chave desconhecida/],
+    [
+      "índice vencido",
+      {
+        issued_at: Date.now() - 100 * 86400000,
+        expires: Date.now() - 86400000,
+      },
+      /venceu/,
+    ],
+  ] as const)("%s: não cria nada", async (_label, change, error) => {
+    release = await buildRelease({ ...spec(), ...(change as any) });
+    await expect(run()).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringMatching(error),
+    });
+    expect(created()).toHaveLength(0);
+  });
+  it("manifesto alterado em um byte: para antes da primeira migração", async () => {
+    const { cursor } = await run("migrate");
+    release.manifestBytes[3] ^= 1;
+    await expect(
+      installStep(e, { account, name, token, step: "migrate", cursor }),
+    ).rejects.toThrow(/assinatura/);
+    expect(cloud.queries).toHaveLength(0);
+  });
+  it.each(["trocado", "corrompido"])(
+    "blob %s: para sem aplicar a migração",
+    async (kind) => {
+      const { cursor } = await run("migrate");
+      const sha = release.manifest.migrations[0].sha256;
+      const other = release.manifest.migrations[1].sha256;
+      const bytes = new Uint8Array(release.blobs.get(kind === "trocado" ? other : sha)!);
+      if (kind === "corrompido") bytes[0] ^= 1;
+      release.blobs.set(sha, bytes);
+      await expect(
+        installStep(e, { account, name, token, step: "migrate", cursor }),
+      ).rejects.toThrow(/corrompido/);
+      expect(cloud.queries).toHaveLength(0);
+    },
+  );
 });
 
 describe("rota do instalador", () => {

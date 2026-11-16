@@ -291,8 +291,7 @@ function AutomaticUpdates({
         </label>
         {!updates.configured && (
           <p>
-            Primeiro configure a atualização direta no cartão acima. Esta opção
-            não utiliza o fluxo antigo de Deploy Hook.
+            Primeiro configure a atualização direta no cartão acima.
           </p>
         )}
         <div className="system-grid">
@@ -505,7 +504,8 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   Etapa:{" "}
                   {(
                     {
-                      download: "baixando pacote",
+                      manifest: "conferindo a versão",
+                      blobs: "baixando arquivos",
                       prepare: "verificando instalação",
                       assets: "enviando arquivos",
                       migrate: "preparando banco",
@@ -619,11 +619,9 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           ) : (
             <div className="callout">
               <p>
-                Esta instalação foi criada pelo fluxo anterior.
-                {u.method === "legacy" &&
-                  " O hook existente continua disponível até a migração."}
-                Use o instalador novo para criar uma instalação sem repositório
-                próprio.
+                Esta instalação não tem a identificação para atualizar pelo
+                painel. Use o instalador para criar uma instalação sem
+                repositório próprio.
               </p>
               <a href="/install#reinstalar" className="text-link">
                 Ver o roteiro de reinstalação

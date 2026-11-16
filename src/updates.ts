@@ -9,7 +9,6 @@ import {
 } from "./types";
 import { buildInfo } from "./build-info.generated";
 import { all, exec } from "./db";
-import * as legacy from "./legacy-updates";
 import {
   assetManifestV2,
   assetsForHashes,
@@ -25,12 +24,12 @@ import {
   nextRound,
   parseManifest,
   releaseCloudflare,
-  ROUND_BYTES,
   scriptPath,
   uniqueBlobs,
   validateIndexV2,
   validateInstalledSettings,
   versionAtLeast,
+  versionGreater,
   workerUploadV2,
   type BlobRef,
   type ReleaseManifest,
@@ -107,14 +106,6 @@ export function automaticWindow(at: number, hour: number, windowHours: number) {
   };
 }
 
-function newerVersion(candidate: string, installed: string) {
-  if (!/^\d+\.\d+\.\d+$/.test(candidate) || !/^\d+\.\d+\.\d+$/.test(installed))
-    return false;
-  const a = candidate.split(".").map(Number),
-    b = installed.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
-}
 
 export async function automaticUpdateStatus(env: Env) {
   const config = {
@@ -185,8 +176,6 @@ export async function configureAutomaticUpdates(
     return automaticUpdateStatus(env);
   });
 }
-export const deployHookUrl = legacy.deployHookUrl;
-export const updatePlan = legacy.updatePlan;
 const isDirect = (env: Env) =>
   !!(
     env.WABOTIA_INSTALLATION_ID &&
@@ -196,9 +185,7 @@ const isDirect = (env: Env) =>
 async function tokenFor(env: Env) {
   return (await secret(env, configId)).token || env.WABOTIA_UPDATE_TOKEN || "";
 }
-async function legacyMode(env: Env) {
-  return !isDirect(env) && !!(await secret(env, "system:update-config")).hook;
-}
+
 function failure(error: unknown): never {
   if (error instanceof ApiError) throw error;
   throw new ApiError(
@@ -210,11 +197,10 @@ function failure(error: unknown): never {
   );
 }
 export async function checkUpdate(env: Env, force = false) {
-  if (await legacyMode(env)) return legacy.checkUpdate(env, force);
   const cached = await secret(env, latestId);
   if (!force && cached.checked_at > now() - 300000) return cached;
   try {
-    // A partir da ponte, só o índice do formato 2 (releases/v2/latest.json).
+    // Índice do formato 2 com a assinatura e a validade conferidas.
     const index = await latestReleaseV2();
     const latest = {
       ...index,
@@ -250,20 +236,24 @@ function publicState(state: any) {
   );
 }
 export async function updateStatus(env: Env) {
-  if (await legacyMode(env))
-    return {
-      ...(await legacy.updateStatus(env)),
-      method: "legacy",
-      installation_ready: false,
-      automatic: await automaticUpdateStatus(env),
-    };
   const state = await secret(env, stateId),
     latest = await secret(env, latestId);
   if (state.target === buildInfo.commit && state.status !== "completed") {
+    // Concluída primeiro; a limpeza do R2 vem depois e, se falhar, é
+    // repetida na próxima consulta (cleanup_pending).
     state.status = "completed";
     state.completed_at = now();
+    state.cleanup_pending = true;
     await setSecret(env, stateId, state);
-    await dropTemporary(env, state);
+  }
+  if (state.cleanup_pending) {
+    try {
+      await dropTemporary(env, state);
+      state.cleanup_pending = false;
+      await setSecret(env, stateId, state);
+    } catch {
+      // Fica pendente para a próxima consulta.
+    }
   }
   return {
     installed: buildInfo,
@@ -283,11 +273,9 @@ export async function updateStatus(env: Env) {
 }
 export async function configureUpdates(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (!isDirect(env) && data.hook_url)
-    return legacy.configureUpdates(env, actor, data);
   requireValue(
     isDirect(env),
-    "Esta instalação usa o fluxo antigo. Siga o guia de reinstalação sem repositório.",
+    "Esta instalação não tem a identificação para atualizar pelo painel. Reinstale com o instalador (docs/INSTALACAO.md).",
   );
   requireValue(
     typeof data.token === "string" &&
@@ -319,7 +307,6 @@ export async function configureUpdates(env: Env, actor: Actor, data: any) {
 }
 export async function startUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (await legacyMode(env)) return legacy.startUpdate(env, actor, data);
   return updateLock(env, () => startDirectUpdate(env, data));
 }
 async function startDirectUpdate(env: Env, data: any, source = "manual") {
@@ -334,10 +321,20 @@ async function startDirectUpdate(env: Env, data: any, source = "manual") {
     data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
   );
+  // Sem retrocesso: nunca uma versão menor que a instalada, nem a mesma
+  // versão com outro código (um índice antigo ou adulterado não faz voltar
+  // código sobre um banco já migrado).
+  requireValue(
+    versionGreater(index.version, buildInfo.version),
+    `A versão oficial (${index.version}) não é maior que a instalada (${buildInfo.version}). A atualização não volta de versão.`,
+  );
   requireValue(
     versionAtLeast(buildInfo.version, index.requires?.min_version),
     `Esta versão exige a ${index.requires?.min_version} instalada antes. Atualize em etapas.`,
   );
+  // Temporários de trabalhos anteriores (falhos ou cancelados) saem antes de
+  // começar: um trabalho novo não deixa até 160 MiB para trás.
+  await sweepTemporary(env);
   const state = {
     id: uid(),
     index,
@@ -482,15 +479,15 @@ export async function automaticUpdateTick(env: Env) {
         } else if (
           !versionAtLeast(buildInfo.version, index.requires?.min_version)
         ) {
-          // Degrau: uma versão que exige outra instalada antes nunca é
-          // pulada pelo automático (docs/ATUALIZACOES-FORMATO.md).
+          // Uma versão que exige outra instalada antes (`requires.min_version`)
+          // nunca é pulada pelo automático (docs/ATUALIZACOES-FORMATO.md).
           await save({
             ...checkState,
             status: "release_requires_review",
             error: `A versão ${index.version} exige a ${index.requires?.min_version} instalada antes. Atualize em etapas.`,
             target: index.commit,
           });
-        } else if (!newerVersion(index.version, buildInfo.version)) {
+        } else if (!versionGreater(index.version, buildInfo.version)) {
           await save({
             ...checkState,
             status: "release_requires_review",
@@ -583,7 +580,6 @@ async function processDirectUpdate(env: Env) {
 }
 export async function resetUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (await legacyMode(env)) return legacy.resetUpdate(env, actor, data);
   return updateLock(env, () => resetDirectUpdate(env, data));
 }
 async function resetDirectUpdate(env: Env, data: any) {
@@ -611,44 +607,64 @@ async function resetDirectUpdate(env: Env, data: any) {
 // novo em seguida. Nenhuma rodada lê o pacote inteiro: o manifesto (até
 // 2 MiB) e só os arquivos daquela rodada.
 //
-//   manifest  baixa e confere o manifesto; guarda no R2
+//   manifest  baixa o manifesto, confere assinatura e SHA; guarda no R2
 //   blobs     baixa até 20 arquivos ou 16 MiB por rodada, SHA conferido
-//   prepare   confere a instalação e abre a sessão de envio de estáticos
-//   assets    envia um lote (até 16 MiB) da sessão por rodada
+//   prepare   confere todas as migrações (20 por rodada), a instalação, e
+//             abre a sessão de envio de estáticos
+//   assets    envia um lote inteiro da sessão por rodada
 //   migrate   sonda o plano pago (uma vez) e aplica uma migração por rodada
 //   publish   publica o Worker com os módulos guardados
 
 /** Prefixo dos arquivos temporários de um trabalho no R2. */
 export const workPrefix = (id: string) => `system/releases/${id}/`;
 const manifestKey = (id: string) => workPrefix(id) + "manifest.json";
+const manifestSigKey = (id: string) => workPrefix(id) + "manifest.sig";
 const blobKey = (id: string, sha: string) => workPrefix(id) + "b/" + sha;
 
-/** Apaga tudo o que o trabalho guardou no R2 (formato 1 e formato 2). */
-export async function dropTemporary(env: Env, state: any) {
-  if (state.package_key) await env.MEDIA.delete(state.package_key);
-  if (!state.id) return;
+async function deletePrefix(env: Env, prefix: string, keep?: string) {
   let cursor: string | undefined;
   do {
-    const page = await env.MEDIA.list({
-      prefix: workPrefix(state.id),
-      cursor,
-      limit: 1000,
-    });
-    if (page.objects.length)
-      await env.MEDIA.delete(page.objects.map((o) => o.key));
+    const page = await env.MEDIA.list({ prefix, cursor, limit: 1000 });
+    const keys = page.objects
+      .map((o) => o.key)
+      .filter((key) => !keep || !key.startsWith(keep));
+    if (keys.length) await env.MEDIA.delete(keys);
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
 }
 
+/** Apaga tudo o que o trabalho guardou no R2. */
+export async function dropTemporary(env: Env, state: any) {
+  if (state.id) await deletePrefix(env, workPrefix(state.id));
+}
+
+/**
+ * Antes de um trabalho novo, apaga o que sobrou de trabalhos anteriores
+ * (falhas, cancelamentos ou limpeza interrompida). Só arquivos temporários
+ * de atualização: `system/releases/`.
+ */
+export async function sweepTemporary(env: Env, keepId?: string) {
+  await deletePrefix(
+    env,
+    "system/releases/",
+    keepId ? workPrefix(keepId) : undefined,
+  );
+}
+
 async function storedManifest(env: Env, state: any) {
-  const stored = await env.MEDIA.get(manifestKey(state.id));
+  const [stored, signature] = await Promise.all([
+    env.MEDIA.get(manifestKey(state.id)),
+    env.MEDIA.get(manifestSigKey(state.id)),
+  ]);
   requireValue(
-    stored,
+    stored && signature,
     "O manifesto temporário não está disponível. Libere uma nova tentativa.",
   );
+  // Reconfere a assinatura e o SHA a cada rodada: o R2 não é confiável.
   return parseManifest(
     validateIndexV2(state.index),
     new Uint8Array(await stored!.arrayBuffer()),
+    new Uint8Array(await signature!.arrayBuffer()),
   );
 }
 
@@ -683,15 +699,14 @@ export async function paidPlanProbe(env: Env, queries = 60) {
 }
 
 async function processPhase(env: Env, state: any, token: string, base: string) {
-  if (state.phase === "download")
-    throw new Error(
-      "Atualização no formato antigo. Cancele e comece de novo pela versão disponível.",
-    );
   if (state.phase === "manifest") {
-    const { manifest, bytes } = await fetchManifest(
+    const { manifest, bytes, signature } = await fetchManifest(
       validateIndexV2(state.index),
     );
     await env.MEDIA.put(manifestKey(state.id), bytes, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    await env.MEDIA.put(manifestSigKey(state.id), signature, {
       httpMetadata: { contentType: "application/json" },
     });
     state.blob = 0;
@@ -717,6 +732,18 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
     return;
   }
   if (state.phase === "prepare") {
+    // Todas as migrações são conferidas antes de qualquer uma ser aplicada:
+    // uma segunda migração malformada não deixa o banco pela metade.
+    // Em rodadas de até 20, para caber nos limites de uma invocação.
+    const checked = state.migrations_checked || 0;
+    if (checked < manifest.migrations.length) {
+      const read = blobReader(env, state);
+      const round = nextRound(manifest.migrations, checked);
+      for (const migration of round)
+        migrationStatements(migration, await read(migration));
+      state.migrations_checked = checked + round.length;
+      return;
+    }
     const settings = await installedSettings(token, base);
     validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
     const upload = await releaseCloudflare(
@@ -735,31 +762,20 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
     );
     state.upload = upload;
     state.bucket = 0;
-    state.offset = 0;
     state.phase = upload.buckets.length ? "assets" : "migrate";
     return;
   }
   if (state.phase === "assets") {
-    // Um lote da Cloudflare pode ser grande: envia em partes de até 16 MiB.
-    // Só a resposta do último envio da sessão traz o token de conclusão.
+    // A Cloudflare pede que cada lote vá inteiro num só envio. Só a
+    // resposta do último lote da sessão traz o token de conclusão.
     const bucket = assetsForHashes(manifest, state.upload.buckets[state.bucket]);
-    const part = nextRound(
-      bucket.map((item) => ({ ...item, size: item.file.size })),
-      state.offset || 0,
-      MAX_UPLOAD_BATCH,
-      ROUND_BYTES,
-    );
     const result = await releaseCloudflare(
       state.upload.jwt,
       `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
       "POST",
-      await assetUploadV2(part, blobReader(env, state)),
+      await assetUploadV2(bucket, blobReader(env, state)),
     );
-    state.offset = (state.offset || 0) + part.length;
-    if (state.offset >= bucket.length) {
-      state.bucket++;
-      state.offset = 0;
-    }
+    state.bucket++;
     if (state.bucket === state.upload.buckets.length) {
       requireValue(
         typeof result?.jwt === "string",

@@ -1,25 +1,26 @@
-// Formato 2 do pacote (versão ponte): manifesto, blobs por conteúdo, índice
-// v2, etapas retomáveis do atualizador, lote grande de estáticos, blobs de
-// 20 MB, falha entre migrate e publish, sonda do plano pago e o degrau fixo
-// (instalação no formato 1 nunca enxerga o índice v2).
+// Formato 2 do pacote: manifesto, blobs por conteúdo, índice v2 assinado
+// (Ed25519) com prazo, etapas retomáveis do atualizador, lote grande de
+// estáticos, blobs de 20 MB, falha entre migrate e publish, sonda do plano
+// pago, ordem das versões, limpeza do R2 e as regras de publicação.
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
 import {
   assetsForHashes,
   digest,
-  latestRelease,
   MAX_ASSETS,
   MAX_BLOB,
   MAX_MIGRATIONS,
   MAX_MODULES,
   MAX_UPLOAD_BATCH,
   nextRound,
+  parseIndex,
   parseManifest,
-  RELEASE_ORIGIN,
-  validateIndex,
+  SIGNATURE_DOMAIN,
   validateIndexV2,
+  verifySignature,
   versionAtLeast,
+  versionGreater,
 } from "../src/release";
 import {
   checkUpdate,
@@ -32,15 +33,19 @@ import {
 } from "../src/updates";
 import { secret, setSecret } from "../src/security";
 import { all, exec, one } from "../src/db";
-import { type Actor, type Env, now } from "../src/types";
+import { type Actor, type Env } from "../src/types";
 import { buildInfo } from "../src/build-info.generated";
 import {
+  checkVersionOrder,
   excludedAsset,
-  releaseOutputs,
+  insideRepository,
+  LAST_FORMAT1,
 } from "../scripts/release-plan.mjs";
 import {
   buildRelease,
   serveRelease,
+  signFile,
+  testKeys,
   type BuiltRelease,
   type ReleaseSpec,
 } from "./release-v2-fixture";
@@ -102,7 +107,7 @@ function baseSpec(): ReleaseSpec {
 }
 
 describe("formato 2: índice e manifesto", () => {
-  it("valida o índice v2 e recusa o formato 1 nele (e vice-versa)", async () => {
+  it("valida o índice v2 e o prazo", async () => {
     const { index } = await buildRelease(baseSpec());
     expect(validateIndexV2(index).requires).toEqual({
       min_version: "0.0.1",
@@ -114,11 +119,31 @@ describe("formato 2: índice e manifesto", () => {
     expect(() =>
       validateIndexV2({ ...index, requires: { min_version: "x" } }),
     ).toThrow();
-    // Uma instalação no formato 1 recusa o índice novo.
-    expect(() => validateIndex(index)).toThrow(/pacote de publicação válido/);
+    // Prazo: obrigatório, depois da emissão, no máximo 180 dias.
+    expect(() => validateIndexV2({ ...index, expires: undefined })).toThrow();
+    expect(() =>
+      validateIndexV2({ ...index, expires: index.issued_at }),
+    ).toThrow();
+    expect(() =>
+      validateIndexV2({
+        ...index,
+        expires: index.issued_at + 181 * 86400000,
+      }),
+    ).toThrow();
+    const at = index.issued_at;
+    expect(() => validateIndexV2(index, index.expires + 1)).toThrow(/venceu/);
+    expect(() => validateIndexV2(index, at - 2 * 86400000)).toThrow(
+      /futuro/,
+    );
+    // Pacote de teste não vale no build oficial.
+    expect(() =>
+      validateIndexV2({ ...index, test_origin: "https://teste.example" }),
+    ).toThrow(/pacote de teste/);
     expect(versionAtLeast("0.21.0", "0.21.0")).toBe(true);
     expect(versionAtLeast("0.20.9", "0.21.0")).toBe(false);
     expect(versionAtLeast("1.0.0", "0.99.99")).toBe(true);
+    expect(versionGreater("0.21.0", "0.21.0")).toBe(false);
+    expect(versionGreater("0.21.1", "0.21.0")).toBe(true);
   });
 
   it("aplica os limites novos e mantém as travas de Durable Object e rotas", async () => {
@@ -126,16 +151,24 @@ describe("formato 2: índice e manifesto", () => {
       const s = baseSpec();
       patch(s);
       const r = await buildRelease(s);
-      await expect(parseManifest(r.index, r.manifestBytes)).rejects.toThrow(
-        error,
-      );
+      await expect(
+        parseManifest(r.index, r.manifestBytes, r.manifestSignature),
+      ).rejects.toThrow(error);
     };
+    const keys = await testKeys();
     const r = await buildRelease(baseSpec());
-    expect((await parseManifest(r.index, r.manifestBytes)).version).toBe(
-      "99.1.0",
-    );
+    expect(
+      (await parseManifest(r.index, r.manifestBytes, r.manifestSignature))
+        .version,
+    ).toBe("99.1.0");
+    // Assinado, mas não é o manifesto que o índice fixa.
+    const other = Buffer.from("x");
     await expect(
-      parseManifest(r.index, Buffer.from("x")),
+      parseManifest(
+        r.index,
+        other,
+        await signFile("manifest", other, keys.principal),
+      ),
     ).rejects.toThrow(/integridade/);
     await check((s) => {
       s.modules.push(
@@ -180,7 +213,9 @@ describe("formato 2: índice e manifesto", () => {
     const bad = { ...t.index, total_size: t.index.total_size + 1 };
     const bytes = Buffer.from(JSON.stringify(t.manifest));
     bad.manifest_sha256 = await digest(bytes);
-    await expect(parseManifest(bad, bytes)).rejects.toThrow(/tamanho total/);
+    await expect(
+      parseManifest(bad, bytes, t.manifestSignature),
+    ).rejects.toThrow(/tamanho total/);
     // Arquivo acima de 25 MiB não entra no manifesto.
     const big = JSON.parse(JSON.stringify(t.manifest));
     big.assets[0].size = MAX_BLOB + 1;
@@ -193,8 +228,105 @@ describe("formato 2: índice e manifesto", () => {
           manifest_size: bigBytes.length,
         },
         bigBytes,
+        await signFile("manifest", bigBytes, keys.principal),
       ),
     ).rejects.toThrow(/Arquivo inválido/);
+  });
+
+  it("regras de publicação: estáticos fora do pacote, ordem das versões, chave fora do repositório", () => {
+    expect(excludedAsset("guide/wabotia-instalacao.pdf")).toBe(true);
+    expect(excludedAsset("releases/blobs/x")).toBe(true);
+    expect(excludedAsset("assets/app.js")).toBe(false);
+    const frozen = { version: LAST_FORMAT1 };
+    expect(LAST_FORMAT1).toBe("0.20.0");
+    // A primeira de formato 2 passa da última do formato 1.
+    expect(() =>
+      checkVersionOrder({ version: "0.20.0", current: null, frozen, manifestSha: "a" }),
+    ).toThrow(/maior que a 0\.20\.0/);
+    checkVersionOrder({ version: "0.21.0", current: null, frozen, manifestSha: "a" });
+    const current = { version: "0.21.0", manifest_sha256: "a" };
+    expect(() =>
+      checkVersionOrder({ version: "0.20.5", current, frozen, manifestSha: "b" }),
+    ).toThrow(/menor que a publicada/);
+    // Mesma versão: só com o mesmo manifesto (renovação).
+    checkVersionOrder({ version: "0.21.0", current, frozen, manifestSha: "a" });
+    expect(() =>
+      checkVersionOrder({ version: "0.21.0", current, frozen, manifestSha: "b" }),
+    ).toThrow(/versão nova/);
+    checkVersionOrder({ version: "0.22.0", current, frozen, manifestSha: "b" });
+    expect(insideRepository("/repo/chaves/x.pem", "/repo")).toBe(true);
+    expect(insideRepository("/repo", "/repo")).toBe(true);
+    expect(insideRepository("/fora/chaves/x.pem", "/repo")).toBe(false);
+    expect(insideRepository("/repo-irmao/x.pem", "/repo")).toBe(false);
+  });
+});
+
+describe("assinatura do índice e do manifesto", () => {
+  it("aceita principal e reserva; recusa chave desconhecida, ausente, alterada e trocada de papel", async () => {
+    const keys = await testKeys();
+    const r = await buildRelease(baseSpec());
+    expect(await verifySignature("index", r.indexBytes, r.indexSignature)).toBe(
+      "principal",
+    );
+    const reserva = await buildRelease({ ...baseSpec(), signer: "reserva" });
+    expect(
+      await verifySignature("index", reserva.indexBytes, reserva.indexSignature),
+    ).toBe("reserva");
+    expect(
+      (
+        await parseManifest(
+          reserva.index,
+          reserva.manifestBytes,
+          reserva.manifestSignature,
+        )
+      ).version,
+    ).toBe("99.1.0");
+    // Manifesto alterado em um byte.
+    const altered = Buffer.from(r.manifestBytes);
+    altered[altered.length - 2] ^= 1;
+    await expect(
+      parseManifest(r.index, altered, r.manifestSignature),
+    ).rejects.toThrow(/conteúdo alterado/);
+    // Chave fora da lista.
+    const unknown = await buildRelease({ ...baseSpec(), signer: "unknown" });
+    await expect(
+      parseIndex(unknown.indexBytes, unknown.indexSignature),
+    ).rejects.toThrow(/chave desconhecida/);
+    // Chave fora da lista usando o nome de uma confiável.
+    const forged = await signFile(
+      "index",
+      r.indexBytes,
+      keys.unknown,
+      "principal",
+    );
+    await expect(parseIndex(r.indexBytes, forged)).rejects.toThrow(
+      /conteúdo alterado ou chave errada/,
+    );
+    // Sem assinatura, ou com um arquivo que não é assinatura.
+    await expect(parseIndex(r.indexBytes, null)).rejects.toThrow(
+      /sem assinatura/,
+    );
+    await expect(
+      parseManifest(r.index, r.manifestBytes, null),
+    ).rejects.toThrow(/sem assinatura/);
+    await expect(
+      parseIndex(r.indexBytes, Buffer.from("<html>")),
+    ).rejects.toThrow(/arquivo de assinatura inválido/);
+    // A assinatura do índice não vale como a do manifesto (e vice-versa).
+    const asManifest = await signFile("index", r.manifestBytes, keys.principal);
+    await expect(
+      parseManifest(r.index, r.manifestBytes, asManifest),
+    ).rejects.toThrow(/conteúdo alterado/);
+    expect(SIGNATURE_DOMAIN.index).not.toBe(SIGNATURE_DOMAIN.manifest);
+    // Índice assinado, mas vencido.
+    const old = await buildRelease({
+      ...baseSpec(),
+      issued_at: Date.now() - 100 * 86400000,
+      expires: Date.now() - 10 * 86400000,
+    });
+    await expect(
+      parseIndex(old.indexBytes, old.indexSignature),
+    ).rejects.toThrow(/venceu/);
   });
 
   it("rodadas de até 20 arquivos ou 16 MiB, sempre com ao menos um", () => {
@@ -226,89 +358,19 @@ describe("formato 2: índice e manifesto", () => {
   });
 });
 
-describe("degrau fixo: formato 1 nunca enxerga o índice v2", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("instalação antiga (0.17 a 0.20) vê só a ponte, mesmo com versões de formato 2 publicadas", async () => {
-    // Catálogo depois da ponte e de uma versão de formato 2: latest.json
-    // congelado na ponte (formato 1), v2/latest.json na versão nova.
-    const v2 = await buildRelease(baseSpec());
-    const bridge = {
-      format: 1,
-      version: "0.21.0",
-      commit: "b".repeat(40),
-      package_sha256: "c".repeat(64),
-      package_size: 8851969,
-    };
-    vi.stubGlobal("fetch", async (input: any) => {
-      const url = new URL(String(input instanceof Request ? input.url : input));
-      return url.pathname === "/releases/latest.json"
-        ? Response.json(bridge)
-        : url.pathname === "/releases/v2/latest.json"
-          ? Response.json(v2.index)
-          : new Response("", { status: 404 });
-    });
-    // O leitor do formato 1 (o mesmo das versões antigas) chega na ponte,
-    // e o automático delas instala "maior que a atual": a ponte.
-    expect(await latestRelease()).toMatchObject({ version: "0.21.0", format: 1 });
-    expect(versionAtLeast("0.21.0", "0.17.0")).toBe(true);
-  });
-
-  it("o leitor do formato 1 só pede releases/latest.json e recusa o índice v2", async () => {
-    const r = await buildRelease(baseSpec());
-    const urls: string[] = [];
-    vi.stubGlobal("fetch", async (input: any) => {
-      urls.push(String(input instanceof Request ? input.url : input));
-      // Mesmo se a origem respondesse o índice novo, o formato 1 recusa.
-      return Response.json(r.index);
-    });
-    await expect(latestRelease()).rejects.toThrow(/pacote de publicação/);
-    expect(urls).toEqual([RELEASE_ORIGIN + "/releases/latest.json"]);
-  });
-
-  it("depois da ponte, a publicação só grava o índice v2", () => {
-    expect(() =>
-      releaseOutputs({ bridge: false, version: "0.22.0", existingBridge: null }),
-    ).toThrow(/ponte/);
-    expect(
-      releaseOutputs({ bridge: true, version: "0.21.0", existingBridge: null }),
-    ).toMatchObject({
-      legacy: true,
-      min_version: "0.21.0",
-      files: expect.arrayContaining(["releases/latest.json"]),
-    });
-    const after = releaseOutputs({
-      bridge: false,
-      version: "0.22.0",
-      existingBridge: { version: "0.21.0" },
-    });
-    expect(after).toEqual({
-      legacy: false,
-      files: ["releases/v2/latest.json"],
-      min_version: "0.21.0",
-    });
-    expect(() =>
-      releaseOutputs({
-        bridge: true,
-        version: "0.22.0",
-        existingBridge: { version: "0.21.0" },
-      }),
-    ).toThrow(/já foi publicada/);
-    expect(excludedAsset("guide/wabotia-instalacao.pdf")).toBe(true);
-    expect(excludedAsset("releases/blobs/x")).toBe(true);
-    expect(excludedAsset("assets/app.js")).toBe(false);
-  });
-});
-
 describe("atualizador do formato 2", () => {
   let release: BuiltRelease,
     calls: { url: string; method: string; body: any }[],
     publishFails: false | "hard" = false,
-    bucketsFor: (hashes: string[]) => string[][] = (h) => [h];
+    bucketsFor: (hashes: string[]) => string[][] = (h) => [h],
+    override: (url: URL) => Response | null = () => null,
+    crashUpload = 0;
   beforeEach(async () => {
     calls = [];
     publishFails = false;
     bucketsFor = (h) => [h];
+    override = () => null;
+    crashUpload = 0;
     await exec(env, "DELETE FROM secrets WHERE id LIKE 'system:release-%'");
     await exec(env, "DELETE FROM system_update_locks");
     await exec(env, "DROP TABLE IF EXISTS v2_probe");
@@ -318,6 +380,8 @@ describe("atualizador do formato 2", () => {
       const request = new Request(input, init),
         url = new URL(request.url);
       calls.push({ url: request.url, method: request.method, body: init.body });
+      const replaced = override(url);
+      if (replaced) return replaced;
       const served = serveRelease(url, release);
       if (served) return served;
       if (url.pathname.includes("/workers/services/"))
@@ -330,6 +394,8 @@ describe("atualizador do formato 2", () => {
       }
       if (url.pathname.endsWith("/assets/upload")) {
         const sent = calls.filter((c) => c.url.includes("/assets/upload"));
+        // Queda de rede no envio número `crashUpload`.
+        if (sent.length === crashUpload) throw new TypeError("network lost");
         const total = bucketsFor(
           release.manifest.assets.map((a) => a.sha256.slice(0, 32)),
         ).flat().length;
@@ -427,6 +493,8 @@ describe("atualizador do formato 2", () => {
       { name: "/index.html", body: "<html></html>" },
     ];
     release = await buildRelease(s);
+    // A Cloudflare monta lotes que cabem num envio: aqui, um por arquivo.
+    bucketsFor = (h) => h.map((x) => [x]);
     await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
     await processUpdate(e); // manifest
     const job = await state();
@@ -463,7 +531,8 @@ describe("atualizador do formato 2", () => {
     ).toHaveLength(1);
     await run(30);
     expect((await state()).status).toBe("requested");
-  });
+    // Confere ~40 MB por SHA-256 várias vezes: lento com a suíte inteira.
+  }, 60000);
 
   it("falha entre migrate e publish: banco migrado, nova tentativa não reaplica", async () => {
     publishFails = "hard";
@@ -553,6 +622,187 @@ describe("atualizador do formato 2", () => {
     expect(
       (await env.MEDIA.list({ prefix: workPrefix(job.id) })).objects,
     ).toHaveLength(0);
-    void now;
+  });
+
+  it("limpeza: concluída antes de limpar, limpeza repetida se o R2 falhar, e restos de trabalhos antigos apagados no início", async () => {
+    await env.MEDIA.put("system/releases/trabalho-antigo/b/x", "resto");
+    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    expect(
+      (await env.MEDIA.list({ prefix: "system/releases/trabalho-antigo/" }))
+        .objects,
+    ).toHaveLength(0);
+    await run(20);
+    const job = await state();
+    let broken = true;
+    const media = new Proxy(env.MEDIA, {
+      get(target: any, prop) {
+        if (prop === "list" && broken)
+          return async () => {
+            throw new Error("R2 indisponível");
+          };
+        const v = target[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    const flaky = { ...e, MEDIA: media } as Env;
+    await setSecret(e, "system:release-state", { ...job, target: buildInfo.commit });
+    expect((await updateStatus(flaky)).state?.status).toBe("completed");
+    expect(await state()).toMatchObject({ cleanup_pending: true });
+    expect(
+      (await env.MEDIA.list({ prefix: workPrefix(job.id) })).objects.length,
+    ).toBeGreaterThan(0);
+    broken = false;
+    await updateStatus(flaky);
+    expect(await state()).toMatchObject({
+      status: "completed",
+      cleanup_pending: false,
+    });
+    expect(
+      (await env.MEDIA.list({ prefix: workPrefix(job.id) })).objects,
+    ).toHaveLength(0);
+  });
+
+  it("sem assinatura, chave desconhecida ou índice vencido: nenhuma atualização começa", async () => {
+    for (const spec of [
+      { ...baseSpec(), signer: null },
+      { ...baseSpec(), signer: "unknown" as const },
+      {
+        ...baseSpec(),
+        issued_at: Date.now() - 100 * 86400000,
+        expires: Date.now() - 86400000,
+      },
+    ]) {
+      release = await buildRelease(spec);
+      await expect(checkUpdate(e, true)).rejects.toThrow(
+        /sem assinatura|chave desconhecida|venceu/,
+      );
+      await expect(
+        startUpdate(e, actor, { commit: target }),
+      ).rejects.toThrow();
+      expect(await state()).toEqual({});
+    }
+  });
+
+  it("reserva assina e a atualização vai até o fim", async () => {
+    release = await buildRelease({ ...baseSpec(), signer: "reserva" });
+    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await run(20);
+    expect((await state()).status).toBe("requested");
+  });
+
+  it("manifesto alterado em um byte: para na etapa manifest sem gravar nada", async () => {
+    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    const altered = Buffer.from(release.manifestBytes);
+    altered[5] ^= 1;
+    override = (url) =>
+      url.pathname.endsWith("/manifest.json")
+        ? new Response(altered, { headers: { "Content-Type": "application/json" } })
+        : null;
+    await run(3);
+    const job = await state();
+    expect(job).toMatchObject({ status: "failed", phase: "manifest" });
+    expect(job.error).toMatch(/assinatura/);
+    expect(
+      (await env.MEDIA.list({ prefix: workPrefix(job.id) })).objects,
+    ).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+
+  it.each(["trocado", "corrompido"])(
+    "blob %s: para na etapa blobs, sem migrar nem publicar",
+    async (kind) => {
+      const [first, second] = [...release.blobs.keys()];
+      const bytes =
+        kind === "trocado"
+          ? release.blobs.get(second)!
+          : (() => {
+              const copy = new Uint8Array(release.blobs.get(first)!);
+              copy[0] ^= 1;
+              return copy;
+            })();
+      override = (url) =>
+        url.pathname.endsWith("/blobs/" + first)
+          ? new Response(bytes, {
+              headers: { "Content-Type": "application/octet-stream" },
+            })
+          : null;
+      await startUpdate(e, actor, {
+        commit: (await checkUpdate(e, true)).commit,
+      });
+      await run(5);
+      const job = await state();
+      expect(job).toMatchObject({ status: "failed", phase: "blobs" });
+      expect(job.error).toMatch(/corrompido/);
+      expect(
+        await one(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'"),
+      ).toBeNull();
+      expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    },
+  );
+
+  it("segunda migração malformada: nenhuma é aplicada", async () => {
+    const s = baseSpec();
+    s.migrations.push({ name: "0002_quebrada.sql", statements: [] });
+    release = await buildRelease(s);
+    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await run(10);
+    const job = await state();
+    expect(job).toMatchObject({ status: "failed", phase: "prepare" });
+    expect(job.error).toMatch(/Migração inválida.*0002_quebrada/);
+    expect(
+      await one(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'"),
+    ).toBeNull();
+    expect(
+      await one(env, "SELECT name FROM sqlite_master WHERE name='d1_migrations'"),
+    ).toBeNull();
+    // Nem a sessão de envio de estáticos foi aberta.
+    expect(
+      calls.filter((c) => c.url.endsWith("/assets-upload-session")),
+    ).toHaveLength(0);
+  });
+
+  it("queda no meio de assets: a nova tentativa abre outra sessão e conclui", async () => {
+    const s = baseSpec();
+    s.assets = Array.from({ length: 3 }, (_, i) => ({
+      name: `/q/${i}.txt`,
+      type: "text/plain",
+      body: "arquivo " + i,
+    }));
+    release = await buildRelease(s);
+    bucketsFor = (h) => [h.slice(0, 1), h.slice(1)];
+    crashUpload = 1; // o segundo envio cai
+    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await run(10);
+    const failed = await state();
+    expect(failed).toMatchObject({ status: "failed", phase: "assets" });
+    expect(await all(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'")).toHaveLength(0);
+    // Mesma regra da nova tentativa automática: `assets` volta a `prepare`.
+    crashUpload = 0;
+    await setSecret(e, "system:release-state", {
+      ...failed,
+      status: "pending",
+      phase: "prepare",
+      error: null,
+    });
+    await run(10);
+    expect((await state()).status).toBe("requested");
+    expect(
+      calls.filter((c) => c.url.endsWith("/assets-upload-session")),
+    ).toHaveLength(2);
+    const put = calls.find((c) => c.method === "PUT")!;
+    const metadata = JSON.parse(
+      await ((put.body as FormData).get("metadata") as Blob).text(),
+    );
+    expect(metadata.assets.jwt).toBe("completion");
+  });
+
+  it("ordem das versões: nunca volta nem troca o código da versão instalada", async () => {
+    for (const version of ["0.0.1", buildInfo.version]) {
+      release = await buildRelease({ ...baseSpec(), version });
+      await expect(
+        startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit }),
+      ).rejects.toThrow(/não volta de versão/);
+      expect(await state()).toEqual({});
+    }
   });
 });
