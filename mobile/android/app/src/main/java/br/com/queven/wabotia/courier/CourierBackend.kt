@@ -68,7 +68,7 @@ class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : Courier
     @Serializable private data class ReasonBody(val reason: String)
 
     override suspend fun preview(link: CourierLink): CourierPreview =
-        call(link.server + "/c/" + link.code, null, "GET", null, idempotent = false, CourierPreview.serializer(), claim = true)
+        call(previewUrl(link), null, "GET", null, idempotent = false, CourierPreview.serializer(), claim = true)
 
     override suspend fun claim(link: CourierLink, name: String, device: String): Pair<CourierSession, CourierDelivery> {
         val body = json(ClaimBody.serializer(), ClaimBody(link.code, name, device))
@@ -136,8 +136,24 @@ class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : Courier
                 val (code, message) = error(text)
                 throw CourierFailure(friendly(it.code, code) ?: message ?: "A loja não respondeu (${it.code}).", it.code, code)
             }
-            WabotiaJson.decodeFromString(serializer, text.ifBlank { "{}" })
+            // HTML (painel no lugar da API) ou outro conteúdo: servidor desatualizado ou QR inválido, não "erro de leitura".
+            val type = it.header("Content-Type").orEmpty().lowercase()
+            if ((type.isNotEmpty() && "json" !in type) || text.trimStart().startsWith("<")) throw CourierFailure(NOT_JSON, it.code, "not_json")
+            try {
+                WabotiaJson.decodeFromString(serializer, text.ifBlank { "{}" })
+            } catch (e: kotlinx.serialization.SerializationException) {
+                throw CourierFailure(NOT_JSON, it.code, "not_json")
+            } catch (e: IllegalArgumentException) {
+                throw CourierFailure(NOT_JSON, it.code, "not_json")
+            }
         }
+    }
+
+    companion object {
+        const val NOT_JSON = "O servidor da loja respondeu de um jeito que o app não entende: ele pode estar desatualizado, ou o QR não é válido. Fale com a loja."
+
+        /** A leitura pública sempre em `/api/public/c/<código>`, montada do host e do código. */
+        fun previewUrl(link: CourierLink) = link.server + "/api/public/c/" + link.code
     }
 
     private fun error(text: String): Pair<String?, String?> = runCatching {
@@ -153,7 +169,7 @@ class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : Courier
         "delivery_closed" -> "Esta entrega já foi encerrada."
         "window_closed" -> "O cliente não falou com a loja nas últimas 24 horas, então a mensagem não pode ir pelo WhatsApp. Fale com a loja."
         "no_conversation" -> "Este pedido não tem conversa com o cliente. Fale com a loja."
-        "rate_limited" -> "Muitas tentativas. Espere um pouco e tente de novo."
-        else -> if (status == 429) "Muitas tentativas. Espere um pouco e tente de novo." else null
+        "rate_limited" -> "Muitas tentativas. Aguarde alguns minutos e tente de novo."
+        else -> if (status == 429) "Muitas tentativas. Aguarde alguns minutos e tente de novo." else null
     }
 }
