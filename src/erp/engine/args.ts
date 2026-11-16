@@ -193,6 +193,20 @@ export function arrayIn(text: string): ArrayValue {
   return value;
 }
 
+/**
+ * Argumento jsonb como o corpo o traz: valor JSON (objeto, lista, número…)
+ * ou texto JSON (como o harness e a erp-api mandam às vezes). Texto que não é
+ * JSON: 22P02 do Postgres.
+ */
+export function jsonbArg(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new ErpError("22P02", "invalid input syntax for type json");
+  }
+}
+
 const notFound = (name: string, keys: string[]): never => {
   throw new ErpError("42883", `function public.${name}(${keys.map((k) => `${k} => unknown`).join(", ")}) does not exist`);
 };

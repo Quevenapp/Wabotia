@@ -1153,7 +1153,7 @@
    },
    "erp_documents.transitions": {
     "name": "transitions",
-    "ported": false
+    "ported": true
    },
    "erp_documents.uuid_value": {
     "name": "uuidValue",
@@ -3419,7 +3419,7 @@
    },
    "erp_stock.count_physical": {
     "name": "countPhysical",
-    "ported": false
+    "ported": true
    },
    "erp_stock.default_supplier": {
     "name": "defaultSupplier",
@@ -3551,7 +3551,7 @@
    },
    "erp_stock.ignored_warehouse": {
     "name": "ignoredWarehouse",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_posted_for_document": {
     "name": "invoicePostedForDocument",
@@ -3607,7 +3607,7 @@
    },
    "erp_stock.lot_quantity": {
     "name": "lotQuantity",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_settings": {
     "name": "lotSettings",
@@ -3615,7 +3615,7 @@
    },
    "erp_stock.lots_expiring": {
     "name": "lotsExpiring",
-    "ported": false
+    "ported": true
    },
    "erp_stock.movement_dto": {
     "name": "movementDto",

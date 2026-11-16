@@ -81,6 +81,18 @@ export const covered = {
     "erp_catalog__record.protect_stock_default_warehouse": {
       "where": "src/erp/domains/stock/public.ts protectDefaultWarehouse, chamada por src/erp/domains/catalog/record.ts updateRecord (escrita P para o Catálogo; dono N)",
       "test": "tests/erp/stock/catalog-guards.test.mjs"
+    },
+    "erp_stock__warehouse_default.guard_stock_warehouse_default": {
+      "where": "src/erp/domains/stock/rpc/warehouses.ts erp_stock_warehouse_set_default: único escritor; só por comando 'default', versão +1, recibo gravado antes",
+      "test": "tests/erp/stock/warehouses.test.mjs"
+    },
+    "erp_stock__dashboard_preference.guard_stock_dashboard_preference": {
+      "where": "src/erp/domains/stock/rpc/dashboards.ts erp_stock_dashboard_preference_set: único escritor; inserção na versão 1 e atualização +1, só por comando gravado antes",
+      "test": "tests/erp/stock/dashboards.test.mjs"
+    },
+    "erp_stock__policy.guard_stock_policy": {
+      "where": "src/erp/domains/stock/rpc/policy.ts erp_stock_policy_set: único escritor; só por comando, versão +1, valor diferente, recibo gravado antes",
+      "test": "tests/erp/stock/policy.test.mjs"
     }
   }
 };
