@@ -52,6 +52,25 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(result.municipalities).toBe(5571);
   });
 
+  it("passo 5→6: instância com a semeadura antiga (label__fold NULL) fica preenchida", async () => {
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName("erp:schema-" + uid()));
+    const out = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => {
+      const sql = state.storage.sql;
+      migrate(state.storage);
+      const folds = () => sql.exec('SELECT slug, label__fold f FROM "erp_catalog__contact_type" ORDER BY slug').toArray();
+      const filled = folds();
+      // Como uma instância criada na versão 5: colunas normalizadas da semeadura NULL.
+      sql.exec('UPDATE "erp_catalog__contact_type" SET label__fold = NULL');
+      sql.exec("UPDATE erp_meta SET value='5' WHERE key='schema_version'");
+      const step = migrate(state.storage);
+      return { filled, step, after: folds(), again: migrate(state.storage) };
+    });
+    expect(out.filled.every((r: any) => r.f !== null)).toBe(true);
+    expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
+    expect(out.after).toEqual(out.filled);
+    expect(out.again).toMatchObject({ status: "current" });
+  });
+
   it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", async () => {
     const profile = uid();
     const t0 = Date.now();

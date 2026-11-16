@@ -220,7 +220,7 @@
    },
    "erp_catalog.category_lineage": {
     "name": "categoryLineage",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.compact": {
     "name": "compact",
@@ -332,11 +332,11 @@
    },
    "erp_catalog.custom_field_applies": {
     "name": "customFieldApplies",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.custom_value": {
     "name": "customValue",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.data": {
     "name": "data",
@@ -344,15 +344,15 @@
    },
    "erp_catalog.detail_date": {
     "name": "detailDate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_decimal": {
     "name": "detailDecimal",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_text": {
     "name": "detailText",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.detail_uuid": {
     "name": "detailUuid",
@@ -440,15 +440,15 @@
    },
    "erp_catalog.product_cost_capture": {
     "name": "productCostCapture",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_custom_resolve": {
     "name": "productCustomResolve",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_custom_values": {
     "name": "productCustomValues",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_data": {
     "name": "productDetailData",
@@ -456,19 +456,19 @@
    },
    "erp_catalog.product_detail_keys": {
     "name": "productDetailKeys",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_references": {
     "name": "productDetailReferences",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_validate": {
     "name": "productDetailValidate",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_detail_write": {
     "name": "productDetailWrite",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.product_full": {
     "name": "productFull",
@@ -520,19 +520,19 @@
    },
    "erp_pricing.list_price": {
     "name": "listPrice",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.require": {
     "name": "require",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.rule_text": {
     "name": "ruleText",
-    "ported": false
+    "ported": true
    },
    "erp_pricing.valid_now": {
     "name": "validNow",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_contact_save": {
     "name": "erpCatalogContactSave",
@@ -540,15 +540,15 @@
    },
    "public.erp_catalog_product_prices_update": {
     "name": "erpCatalogProductPricesUpdate",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_product_save": {
     "name": "erpCatalogProductSave",
-    "ported": false
+    "ported": true
    },
    "public.erp_pricing_product_lists": {
     "name": "erpPricingProductLists",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {
@@ -1448,7 +1448,7 @@
    },
    "erp_finance.assert_settlement_postings": {
     "name": "assertSettlementPostings",
-    "ported": false
+    "ported": true
    },
    "erp_finance.audit_permission": {
     "name": "auditPermission",
@@ -1496,11 +1496,11 @@
    },
    "erp_finance.category_depth": {
     "name": "categoryDepth",
-    "ported": false
+    "ported": true
    },
    "erp_finance.category_in_use": {
     "name": "categoryInUse",
-    "ported": false
+    "ported": true
    },
    "erp_finance.category_tree_guard": {
     "name": "categoryTreeGuard",
@@ -1508,7 +1508,7 @@
    },
    "erp_finance.cents": {
     "name": "cents",
-    "ported": false
+    "ported": true
    },
    "erp_finance.cents_of": {
     "name": "centsOf",
@@ -1524,7 +1524,7 @@
    },
    "erp_finance.cnab_plan_for_settlement": {
     "name": "cnabPlanForSettlement",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_amounts": {
     "name": "commissionAmounts",
@@ -1600,7 +1600,7 @@
    },
    "erp_finance.day": {
     "name": "day",
-    "ported": false
+    "ported": true
    },
    "erp_finance.document_command_finish": {
     "name": "documentCommandFinish",
@@ -1648,7 +1648,7 @@
    },
    "erp_finance.expected": {
     "name": "expected",
-    "ported": false
+    "ported": true
    },
    "erp_finance.find_or_create_category": {
     "name": "findOrCreateCategory",
@@ -1744,7 +1744,7 @@
    },
    "erp_finance.keys": {
     "name": "keys",
-    "ported": false
+    "ported": true
    },
    "erp_finance.movement_account_start": {
     "name": "movementAccountStart",
@@ -1772,7 +1772,7 @@
    },
    "erp_finance.permission_key": {
     "name": "permissionKey",
-    "ported": false
+    "ported": true
    },
    "erp_finance.post_settlement_movements": {
     "name": "postSettlementMovements",
@@ -1792,7 +1792,7 @@
    },
    "erp_finance.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_finance.require_permission": {
     "name": "requirePermission",
@@ -1864,7 +1864,7 @@
    },
    "erp_finance.txt": {
     "name": "txt",
-    "ported": false
+    "ported": true
    },
    "erp_finance.utf16_length": {
     "name": "utf16Length",
@@ -1872,7 +1872,7 @@
    },
    "erp_finance.uuid_value": {
     "name": "uuidValue",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_post": {
     "name": "erpDocumentFinancePost",

@@ -12,7 +12,7 @@ import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
 import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
 import { callRpc } from "../../../src/erp/engine/registry.ts";
-import { dualFixture } from "./dual-fixture.mjs";
+import { dualFixture, wireArgs } from "./dual-fixture.mjs";
 import { pgIdentity } from "./identity.mjs";
 import { freshLite } from "./node-driver.mjs";
 import { SEED_LEAVES_NORMALIZED_NULL, applyDeviationsBoth, seedDifferences, withoutTriggers } from "./seed-align.mjs";
@@ -373,11 +373,17 @@ test("item 4: semeadura com uuid aleatório alinha; desalinhada de propósito pa
     const moved = await check(`UPDATE erp_a1__installation SET vault_id='${U()}'`);
     assert.deepEqual(moved.diffs, []);
     assert.ok(moved.align.includes("erp_a1__installation"), "erp_a1__installation alinhada");
-    // A lacuna conhecida da semeadura (SEED_LEAVES_NORMALIZED_NULL): quando a
-    // semeadura passar a preencher __fold, este teste manda pôr false.
-    if (SEED_LEAVES_NORMALIZED_NULL)
-      assert.ok(fresh.gaps.includes("erp_catalog__contact_type.label__fold"), "a semeadura já preenche __fold: ponha SEED_LEAVES_NORMALIZED_NULL=false");
-    assert.notDeepEqual((await check(null, { allowNormalizedGap: false })).diffs, [], "sem a exceção, a lacuna é divergência");
+    // A semeadura preenche __fold desde a versão 6 do esquema
+    // (SEED_LEAVES_NORMALIZED_NULL=false): sem lacuna, e coluna normalizada
+    // apagada na semeadura do SQLite é divergência.
+    assert.equal(SEED_LEAVES_NORMALIZED_NULL, false);
+    assert.deepEqual(fresh.gaps, []);
+    assert.deepEqual((await check(null, { allowNormalizedGap: false })).diffs, []);
+    assert.notDeepEqual(
+      (await check(`UPDATE erp_catalog__contact_type SET label__fold=NULL WHERE slug='customer'`, { allowNormalizedGap: false })).diffs,
+      [],
+      "coluna normalizada NULL na semeadura é divergência",
+    );
 
     const tamper = async (sql) => (await check(sql)).diffs;
     assert.notDeepEqual(await tamper(`UPDATE erp_catalog__contact_type SET label='Freguês' WHERE slug='customer'`), []);
@@ -538,4 +544,12 @@ test("ponta a ponta: espelho, ids novos, __fold, ids existentes e resposta", asy
   } finally {
     await f.close();
   }
+});
+
+test("argumentos pelo fio: undefined some nos dois motores (achado da G)", () => {
+  const id = randomUUID();
+  assert.deepEqual(wireArgs({ p_user_id: id, p_extra: undefined, p_data: { campo: undefined, nome: "x", lista: [1, undefined] } }), {
+    p_user_id: id,
+    p_data: { nome: "x", lista: [1, null] },
+  });
 });

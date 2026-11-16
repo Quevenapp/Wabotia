@@ -32,7 +32,7 @@ const NORMALIZED = ["fold", "computed"];
  * confere que a lacuna ainda existe (quando a semeadura for corrigida, o
  * teste manda pôr false).
  */
-export const SEED_LEAVES_NORMALIZED_NULL = true;
+export const SEED_LEAVES_NORMALIZED_NULL = false;
 
 /**
  * Colunas que o Fagoo semeia com uuid aleatório (as únicas da semeadura com

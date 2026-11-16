@@ -18,6 +18,36 @@ export type MigrateResult =
 
 const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
 
+type Sql = DurableObjectStorage["sql"];
+
+/**
+ * Colunas normalizadas e calculadas das linhas semeadas (uma por id), com o
+ * valor da semeadura: preenche só o que está NULL. A semeadura até a versão 5
+ * as deixava NULL (label__fold dos tipos de contato do sistema).
+ */
+export function fillSeedNormalized(sql: Sql): number {
+  let written = 0;
+  for (const t of ERP_SEED) {
+    const id = t.columns.indexOf("id");
+    const normalized = t.columns.filter((c) => /__fold$|__k\d+$/.test(c));
+    if (!normalized.length) continue;
+    if (id < 0) throw new Error(`Semeadura de ${t.table} com coluna normalizada e sem id.`);
+    for (const row of t.rows)
+      for (const c of normalized)
+        written += sql.exec(
+          `UPDATE ${q(t.table)} SET ${q(c)} = ? WHERE "id" = ? AND ${q(c)} IS NULL`,
+          row[t.columns.indexOf(c)] as string | null,
+          row[id] as string,
+        ).rowsWritten;
+  }
+  return written;
+}
+
+/** Passos N→N+1 para instância que já tem o esquema (mesmo DDL, dados a ajustar). */
+const STEPS: Record<number, (sql: Sql) => number> = {
+  5: fillSeedNormalized,
+};
+
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */
 export function migrate(storage: DurableObjectStorage): MigrateResult {
   const sql = storage.sql;
@@ -30,10 +60,20 @@ export function migrate(storage: DurableObjectStorage): MigrateResult {
   const current = row ? Number(row.value) : 0;
   if (current > ERP_SCHEMA_VERSION) return { status: "newer", version: current };
   if (current === ERP_SCHEMA_VERSION) return { status: "current", version: current };
-  if (current !== 0)
-    throw new Error(
-      `Migração do esquema do ERP ${current}→${ERP_SCHEMA_VERSION} ainda não existe (fase 2).`,
-    );
+  if (current !== 0) {
+    for (let v = current; v < ERP_SCHEMA_VERSION; v++)
+      if (!STEPS[v]) throw new Error(`Migração do esquema do ERP ${v}→${v + 1} não existe.`);
+    let rowsWritten = 0;
+    storage.transactionSync(() => {
+      for (let v = current; v < ERP_SCHEMA_VERSION; v++) rowsWritten += STEPS[v](sql);
+      sql.exec(
+        "INSERT INTO erp_meta(key,value) VALUES('schema_version',?),('schema_hash',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        String(ERP_SCHEMA_VERSION),
+        ERP_DDL_HASH,
+      );
+    });
+    return { status: "applied", version: ERP_SCHEMA_VERSION, rowsWritten };
+  }
   let rowsWritten = 0,
     seedRows = 0;
   // Uma instrução por vez (limite de 100 KB por instrução); tudo numa

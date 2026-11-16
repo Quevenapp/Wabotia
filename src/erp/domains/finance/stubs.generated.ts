@@ -7,8 +7,6 @@ export const accountDefaults = (..._args: unknown[]): never => notPorted("erp_fi
 export const activeAccount = (..._args: unknown[]): never => notPorted("erp_finance.active_account");
 /** erp_finance.active_category(p_id uuid, p_kind text) → uuid */
 export const activeCategory = (..._args: unknown[]): never => notPorted("erp_finance.active_category");
-/** erp_finance.assert_settlement_postings(p_id uuid) → void */
-export const assertSettlementPostings = (..._args: unknown[]): never => notPorted("erp_finance.assert_settlement_postings");
 /** erp_finance.audit_permission() → trigger */
 export const auditPermission = (..._args: unknown[]): never => notPorted("erp_finance.audit_permission");
 /** erp_finance.bank_number(p_data jsonb) → text */
@@ -31,22 +29,14 @@ export const cashEntryView = (..._args: unknown[]): never => notPorted("erp_fina
 export const cashPost = (..._args: unknown[]): never => notPorted("erp_finance.cash_post");
 /** erp_finance.cash_text(p_data jsonb, p_key text, p_limit integer, p_required boolean) → text */
 export const cashText = (..._args: unknown[]): never => notPorted("erp_finance.cash_text");
-/** erp_finance.category_depth(p_id uuid) → integer */
-export const categoryDepth = (..._args: unknown[]): never => notPorted("erp_finance.category_depth");
-/** erp_finance.category_in_use(p_id uuid) → boolean */
-export const categoryInUse = (..._args: unknown[]): never => notPorted("erp_finance.category_in_use");
 /** erp_finance.category_tree_guard() → trigger */
 export const categoryTreeGuard = (..._args: unknown[]): never => notPorted("erp_finance.category_tree_guard");
-/** erp_finance.cents(p_value jsonb, p_zero boolean, p_signed boolean) → bigint */
-export const cents = (..._args: unknown[]): never => notPorted("erp_finance.cents");
 /** erp_finance.cents_of(p_value text) → bigint */
 export const centsOf = (..._args: unknown[]): never => notPorted("erp_finance.cents_of");
 /** erp_finance.cnab_cash_immutable() → trigger */
 export const cnabCashImmutable = (..._args: unknown[]): never => notPorted("erp_finance.cnab_cash_immutable");
 /** erp_finance.cnab_cash_plan_check() → trigger */
 export const cnabCashPlanCheck = (..._args: unknown[]): never => notPorted("erp_finance.cnab_cash_plan_check");
-/** erp_finance.cnab_plan_for_settlement(p_id uuid) → erp_finance.cnab_cash_plan */
-export const cnabPlanForSettlement = (..._args: unknown[]): never => notPorted("erp_finance.cnab_plan_for_settlement");
 /** erp_finance.commission_amounts(p_document uuid, p_policy jsonb, OUT items_cents bigint, OUT discount_cents bigint, OUT freight_cents bigint, OUT ipi_cents bigint, OUT icms_st_cents bigint, OUT fee_cents bigint, OUT base_cents bigint) → record */
 export const commissionAmounts = (..._args: unknown[]): never => notPorted("erp_finance.commission_amounts");
 /** erp_finance.commission_capture() → trigger */
@@ -83,8 +73,6 @@ export const commissionRows = (..._args: unknown[]): never => notPorted("erp_fin
 export const commissionSeller = (..._args: unknown[]): never => notPorted("erp_finance.commission_seller");
 /** erp_finance.commission_weighted(p_document uuid, p_seller uuid, OUT items_cents bigint, OUT weighted numeric) → record */
 export const commissionWeighted = (..._args: unknown[]): never => notPorted("erp_finance.commission_weighted");
-/** erp_finance.day(p_value jsonb, p_past boolean) → date */
-export const day = (..._args: unknown[]): never => notPorted("erp_finance.day");
 /** erp_finance.document_command_finish(p_actor uuid, p_id uuid, p_action text, p_data jsonb, p_result jsonb) → jsonb */
 export const documentCommandFinish = (..._args: unknown[]): never => notPorted("erp_finance.document_command_finish");
 /** erp_finance.document_command_start(p_actor uuid, p_id uuid, p_action text, p_data jsonb) → jsonb */
@@ -107,8 +95,6 @@ export const documentTitleRows = (..._args: unknown[]): never => notPorted("erp_
 export const dto = (..._args: unknown[]): never => notPorted("erp_finance.dto");
 /** erp_finance.entry_movement_immutable() → trigger */
 export const entryMovementImmutable = (..._args: unknown[]): never => notPorted("erp_finance.entry_movement_immutable");
-/** erp_finance.expected(p_value jsonb, p_create boolean) → integer */
-export const expected = (..._args: unknown[]): never => notPorted("erp_finance.expected");
 /** erp_finance.find_or_create_category(p_name text, p_kind text) → uuid */
 export const findOrCreateCategory = (..._args: unknown[]): never => notPorted("erp_finance.find_or_create_category");
 /** erp_finance.guard_document_title() → trigger */
@@ -155,8 +141,6 @@ export const invoicePreviewData = (..._args: unknown[]): never => notPorted("erp
 export const invoiceTitleRows = (..._args: unknown[]): never => notPorted("erp_finance.invoice_title_rows");
 /** erp_finance.invoice_total_cents(p_totals jsonb) → bigint */
 export const invoiceTotalCents = (..._args: unknown[]): never => notPorted("erp_finance.invoice_total_cents");
-/** erp_finance.keys(p_data jsonb, p_allowed text[]) → void */
-export const keys = (..._args: unknown[]): never => notPorted("erp_finance.keys");
 /** erp_finance.movement_account_start() → trigger */
 export const movementAccountStart = (..._args: unknown[]): never => notPorted("erp_finance.movement_account_start");
 /** erp_finance.notes_edit_allowed(o erp_documents.document, n erp_documents.document) → boolean */
@@ -169,8 +153,6 @@ export const ownedEntryGuard = (..._args: unknown[]): never => notPorted("erp_fi
 export const paymentMethodFee = (..._args: unknown[]): never => notPorted("erp_finance.payment_method_fee");
 /** erp_finance.payment_method_for(p_method uuid, p_kind text, p_current uuid) → uuid */
 export const paymentMethodFor = (..._args: unknown[]): never => notPorted("erp_finance.payment_method_for");
-/** erp_finance.permission_key(p_action text, p_after jsonb) → text */
-export const permissionKey = (..._args: unknown[]): never => notPorted("erp_finance.permission_key");
 /** erp_finance.post_settlement_movements(p_settlement uuid, p_delta bigint) → void */
 export const postSettlementMovements = (..._args: unknown[]): never => notPorted("erp_finance.post_settlement_movements");
 /** erp_finance.project_result_link(p_result jsonb) → jsonb */
@@ -179,8 +161,6 @@ export const projectResultLink = (..._args: unknown[]): never => notPorted("erp_
 export const reconciledEntryGuard = (..._args: unknown[]): never => notPorted("erp_finance.reconciled_entry_guard");
 /** erp_finance.reconciled_movement_guard() → trigger */
 export const reconciledMovementGuard = (..._args: unknown[]): never => notPorted("erp_finance.reconciled_movement_guard");
-/** erp_finance.require_access(p_actor uuid, p_write boolean) → text */
-export const requireAccess = (..._args: unknown[]): never => notPorted("erp_finance.require_access");
 /** erp_finance.require_permission(p_user uuid, p_key text) → void */
 export const requirePermission = (..._args: unknown[]): never => notPorted("erp_finance.require_permission");
 /** erp_finance.seller_for(p_seller uuid, p_kind text, p_current uuid) → uuid */
@@ -215,12 +195,8 @@ export const transferImmutable = (..._args: unknown[]): never => notPorted("erp_
 export const transferLegCheck = (..._args: unknown[]): never => notPorted("erp_finance.transfer_leg_check");
 /** erp_finance.transfer_pair_check() → trigger */
 export const transferPairCheck = (..._args: unknown[]): never => notPorted("erp_finance.transfer_pair_check");
-/** erp_finance.txt(p_data jsonb, p_key text, p_limit integer, p_required boolean) → text */
-export const txt = (..._args: unknown[]): never => notPorted("erp_finance.txt");
 /** erp_finance.utf16_length(p_text text) → integer */
 export const utf16Length = (..._args: unknown[]): never => notPorted("erp_finance.utf16_length");
-/** erp_finance.uuid_value(p_value jsonb, p_required boolean) → uuid */
-export const uuidValue = (..._args: unknown[]): never => notPorted("erp_finance.uuid_value");
 /** public.erp_document_finance_post(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_command_id uuid, p_preview_hash text, p_category_id uuid, p_plan jsonb) → jsonb */
 export const erpDocumentFinancePost = (..._args: unknown[]): never => notPorted("public.erp_document_finance_post");
 /** public.erp_document_finance_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_category_id uuid, p_plan jsonb) → jsonb */
