@@ -8,7 +8,7 @@ import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, exec, one } from "../src/db";
 import { now } from "../src/types";
-import { outbox, receive } from "./service-center-fixture";
+import { api, bearer, outbox, receive } from "./service-center-fixture";
 import {
   MENUS,
   codeIn,
@@ -191,6 +191,51 @@ const count = async (profile: string, kind: string) =>
       kind,
     )
   ).length;
+
+describe("segunda conferência N2-2: pago à mão e depois online", () => {
+  it("vira pendência de estorno, com evento e nota, em vez de repetição", async () => {
+    const { mp, f, account, c, order, ref } = await pixOrder("5511973500014");
+    // A cobrança venceu e a equipe recebeu por fora.
+    await exec(
+      env,
+      "UPDATE pedido_orders SET payment_status='expired' WHERE id=?",
+      order.id,
+    );
+    const manual = await api(
+      await bearer(f.admin),
+      `/profiles/${f.profile}/pedido/orders/${order.id}/paid`,
+      "POST",
+      { note: "Pago em dinheiro" },
+    );
+    expect(manual.status).toBe(200);
+    // O cliente paga o Pix antigo mesmo assim.
+    mp.remote.get(ref)!.status = "approved";
+    await webhook(account.id, ref);
+    expect(
+      (
+        await one(
+          env,
+          "SELECT needs_refund FROM pedido_orders WHERE id=?",
+          order.id,
+        )
+      ).needs_refund,
+    ).toBe(1);
+    const late = await all(
+      env,
+      "SELECT payload FROM events WHERE profile_id=? AND kind='pedido.payment_late'",
+      f.profile,
+    );
+    expect(late).toHaveLength(1);
+    expect(JSON.parse(late[0].payload).reason).toBe("paid_manually");
+    expect(
+      await all(
+        env,
+        "SELECT id FROM messages WHERE conversation_id=? AND external_id LIKE 'note:pedido:double:%'",
+        c.id,
+      ),
+    ).toHaveLength(1);
+  });
+});
 
 describe("gancho repetido refaz o que se perdeu depois da gravação (segunda conferência A3)", () => {
   it("Pedido: cobrança cancelada com falha no meio; a repetição cancela o pedido", async () => {

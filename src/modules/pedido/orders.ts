@@ -1155,6 +1155,46 @@ export async function paymentUpdated(
     // Repetição do gancho (conferência A3): já marcado pago por este
     // pagamento, refaz os passos seguintes (todos com chave) em vez de sair;
     // uma falha no meio da primeira vez não deixa o pedido parado.
+    // Pago à mão pela equipe e depois online (segunda conferência, N2-2): o
+    // cliente pagou duas vezes. Não é repetição: vira pendência de estorno.
+    if (
+      !claimed.meta.changes &&
+      order.payment_status === "paid" &&
+      order.paid_by !== "provider"
+    ) {
+      await exec(
+        ctx.env,
+        "UPDATE pedido_orders SET needs_refund=1,updated=? WHERE id=? AND profile_id=?",
+        at,
+        order.id,
+        ctx.profile,
+      );
+      await ctx.publish(
+        "pedido.payment_late",
+        order.id,
+        {
+          order_id: order.id,
+          number: order.number,
+          payment_id: payment.id,
+          amount_cents: payment.amount_cents,
+          needs_refund: true,
+          reason: "paid_manually",
+          conversation_id: order.conversation_id,
+        },
+        { key: `double:${payment.id}` },
+      );
+      if (order.conversation_id)
+        try {
+          await ctx.note(
+            await ctx.conversation(order.conversation_id),
+            `O pedido nº ${order.number} já tinha baixa manual e o cliente também pagou online (${money(payment.amount_cents)}). Confira e estorne um dos pagamentos pelo Mercado Pago.`,
+            { key: `double:${payment.id}` },
+          );
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+        }
+      return;
+    }
     const repeat =
       !claimed.meta.changes &&
       order.payment_status === "paid" &&
