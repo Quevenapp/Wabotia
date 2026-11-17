@@ -1,8 +1,9 @@
 // Sacola de vendas, origem da cópia e checkout de pedidos (sessão L, bloco
 // B0). Portado de public.erp_document_sales_bag, _sales_bag_change,
 // _copy_origin, _checkout_get e _checkout_lookup com os mesmos nomes.
-// erp_document_mirror.require_visible sai e o ramo do espelho de
-// erp_document_mirror.visible também (Origin fora: docs/ERP-FASE0.md).
+// erp_document_mirror.require_visible abre _copy_origin e _checkout_get, e o
+// _checkout_lookup filtra por erp_document_mirror.visible, como no oráculo
+// (mirrorRequireVisible e mirrorVisible, com o ramo do espelho).
 // O sales_bag_change é escritor (comando com recibo próprio,
 // erp_documents.sales_bag_command): o lock consultivo por usuário não tem
 // equivalente nem necessidade no objeto (uma transação por vez).
@@ -15,7 +16,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgLeft } from "../../../engine/text.ts";
 import { unitPriceNumeric } from "../../catalog/public.ts";
 import { decimalValue } from "../internal.ts";
-import { contactUsable, requireAccess } from "../public.ts";
+import { contactUsable, mirrorRequireVisible, mirrorVisible, requireAccess } from "../public.ts";
 import { checkoutView, copySourceDto } from "../views.ts";
 import { bool, cmpUuid } from "./reads-common.ts";
 
@@ -136,6 +137,7 @@ export function erpDocumentCopyOrigin(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   if (id === null || kind === null || !one(ctx.db, 'SELECT 1 x FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind))
     raise("P0002", "erp_document_not_found");
@@ -146,6 +148,7 @@ export function erpDocumentCopyOrigin(ctx: RpcContext, a: RpcArgs) {
 export function erpDocumentCheckoutGet(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     id = str(a.p_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, "sales_orders", true);
   const d = id === null ? null : one(ctx.db, `SELECT contact_id FROM "erp_documents__document" WHERE id=? AND kind='sales_orders'`, id);
   if (!d || !contactUsable(ctx.db, user, str(d.contact_id))) raise("P0002", "erp_document_not_found");
@@ -165,7 +168,7 @@ export function erpDocumentCheckoutLookup(ctx: RpcContext, a: RpcArgs) {
           AND NOT EXISTS(SELECT 1 FROM "erp_documents__origin_mirror" m WHERE m.document_id=d.id AND m.source_deleted=1)`,
       number,
     )
-    .rows.filter((d) => contactUsable(ctx.db, user, str(d.contact_id)))
+    .rows.filter((d) => mirrorVisible(ctx.db, user, String(d.id)))
     .map((d) => String(d.id))
     .sort(cmpUuid);
   if (ids.length === 0) raise("P0002", "erp_document_not_found");
