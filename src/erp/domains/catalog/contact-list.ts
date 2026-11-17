@@ -94,6 +94,11 @@ export interface ContactFilter {
   from: string | null;
   to: string | null;
   statuses: string[] | null;
+  /**
+   * Condição a mais no WHERE (aliases r, c, cp), com os parâmetros: o
+   * seller_page acrescenta "é vendedor", como o Fagoo faz sobre o contact_where.
+   */
+  extra?: { sql: string; params: unknown[] } | null;
 }
 
 /** erp_catalog.contact_situation em SQL (contact_source_situation é sempre null sem o Origin). */
@@ -146,6 +151,7 @@ export function contactPage(db: SqlDriver, f: ContactFilter, sort: string, offse
     where.push(`NOT ${c.sql}`);
     params.push(...c.params);
   }
+  if (f.extra) (where.push(`(${f.extra.sql})`), params.push(...f.extra.params));
   const from = `FROM "erp_catalog__record" r JOIN "erp_catalog__contact" c ON c.record_id=r.id
     LEFT JOIN "erp_catalog__contact_profile" cp ON cp.record_id=r.id WHERE ${where.join(" AND ")}`;
   const order = ORDER_SQL[sort];
