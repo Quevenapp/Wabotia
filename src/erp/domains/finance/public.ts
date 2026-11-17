@@ -66,3 +66,5 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
 //   erp_finance.statement_lines (sem ordem; quem lê ordena).
 export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
+export { dto } from "./titles.ts";
+export { requirePermission } from "./internal.ts";

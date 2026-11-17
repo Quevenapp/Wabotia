@@ -361,6 +361,11 @@ export function documentCommandFinish(ctx: RpcContext, actor: string, id: string
   return r;
 }
 
+/** erp_finance.require_permission: 42501 sem a chave de permissão. */
+export function requirePermission(db: SqlDriver, user: string, key: string) {
+  if (!permitted(db, user, key)) raise("42501", "erp_finance_permission_denied");
+}
+
 /** set_config(nome, valor, true) / current_setting(nome, true) */
 export const setFlag = (ctx: RpcContext, name: string, value: string) => ctx.settings.set(name, value);
 export const flag = (ctx: RpcContext, name: string) => ctx.settings.get(name) ?? null;
