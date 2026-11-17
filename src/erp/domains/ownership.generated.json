@@ -208,7 +208,7 @@
   "public_functions": {
    "erp_catalog.acknowledged_valid": {
     "name": "acknowledgedValid",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.allowed": {
     "name": "allowed",
@@ -240,15 +240,15 @@
    },
    "erp_catalog.contact_apply": {
     "name": "contactApply",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_check_full": {
     "name": "contactCheckFull",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_data": {
     "name": "contactData",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_date": {
     "name": "contactDate",
@@ -256,7 +256,7 @@
    },
    "erp_catalog.contact_dto": {
     "name": "contactDto",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_email_list": {
     "name": "contactEmailList",
@@ -264,15 +264,15 @@
    },
    "erp_catalog.contact_field_person_type": {
     "name": "contactFieldPersonType",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_input": {
     "name": "contactInput",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_merge": {
     "name": "contactMerge",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_require_visible": {
     "name": "contactRequireVisible",
@@ -280,11 +280,11 @@
    },
    "erp_catalog.contact_required_field": {
     "name": "contactRequiredField",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_required_missing": {
     "name": "contactRequiredMissing",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_scope": {
     "name": "contactScope",
@@ -304,7 +304,7 @@
    },
    "erp_catalog.contact_take_code": {
     "name": "contactTakeCode",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_text": {
     "name": "contactText",
@@ -312,7 +312,7 @@
    },
    "erp_catalog.contact_type_slugs": {
     "name": "contactTypeSlugs",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_uf": {
     "name": "contactUf",
@@ -324,11 +324,11 @@
    },
    "erp_catalog.contact_warnings": {
     "name": "contactWarnings",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.contact_write": {
     "name": "contactWrite",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.custom_field_applies": {
     "name": "customFieldApplies",
@@ -360,7 +360,7 @@
    },
    "erp_catalog.document_issue": {
     "name": "documentIssue",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.document_product": {
     "name": "documentProduct",
@@ -512,7 +512,7 @@
    },
    "erp_catalog.warnings": {
     "name": "warnings",
-    "ported": false
+    "ported": true
    },
    "erp_catalog.write_fields": {
     "name": "writeFields",
@@ -536,7 +536,7 @@
    },
    "public.erp_catalog_contact_save": {
     "name": "erpCatalogContactSave",
-    "ported": false
+    "ported": true
    },
    "public.erp_catalog_product_prices_update": {
     "name": "erpCatalogProductPricesUpdate",

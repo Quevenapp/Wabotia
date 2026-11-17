@@ -58,6 +58,25 @@ export {
 export { paymentConditionValid } from "./payment-method.ts";
 export { sellerAccessAllowed } from "./seller.ts";
 export { canReadStock, productCostAt } from "./cost.ts";
+export {
+  acknowledgedValid,
+  contactApply,
+  contactCheckFull,
+  contactData,
+  contactDto,
+  contactFieldPersonType,
+  contactInput,
+  contactMerge,
+  contactRequiredField,
+  contactRequiredMissing,
+  contactTakeCode,
+  contactTypeSlugs,
+  contactWarnings,
+  contactWrite,
+  documentIssue,
+  warnings,
+} from "./contact-core.ts";
+export { erpCatalogContactSave } from "./rpc/erp_catalog_contact_save.ts";
 export { compositionKits, compositionSync, compositionSyncOn } from "./composition.ts";
 export { compact, guardDeletedProduct, guardVariationParent, itemsPerBoxFollow, writeFields } from "./record.ts";
 
