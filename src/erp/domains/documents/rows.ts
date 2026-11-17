@@ -15,7 +15,7 @@
 //     guard_variation_item (INSERT/UPDATE), protect_document_item_finance, protect_document_item_stock,
 //     protect_purchase_receipt_item, protect_reserved_item.
 //   AFTER: forget_stock_item_components (DELETE, e UPDATE OF product_id), zz_origin_sync.
-// aa_mirror_authority sai pela linha de corte do Origin (documento nativo).
+// aa_mirror_authority: documents/mirror.ts (o documento espelhado do Origin).
 // O "UPDATE OF coluna" do Postgres dispara quando a coluna está na lista do SET, mudando ou não:
 // por isso as funções recebem o `set` com as colunas da instrução.
 import { one, type SqlDriver } from "../../engine/driver.ts";
@@ -27,6 +27,7 @@ import * as finance from "../finance/public.ts";
 import * as stock from "../stock/public.ts";
 import * as sync from "../sync/public.ts";
 import { costApplyCapture } from "./cost-apply.ts";
+import { guardDocument, guardItem } from "./mirror.ts";
 import { guardTrashChild } from "./public.ts";
 
 export type Row = Record<string, unknown>;
@@ -76,6 +77,7 @@ function guardTrash(o: Row, n: Row) {
 /** INSERT em document com os gatilhos. `row` traz todas as colunas (forma do SQLite). */
 export function insertDocument(ctx: RpcContext, row: Row) {
   const db = ctx.db;
+  guardDocument(ctx, "INSERT", null, row); // aa_mirror_authority
   write(db, DOC, row);
   advanceReceivedNumber(db, row); // document_number_continuity
   sync.captureDocument(ctx); // zz_origin_sync
@@ -89,6 +91,7 @@ export function updateDocument(ctx: RpcContext, id: string, set: Row) {
   if (!o) return;
   const n: Row = { ...o, ...set };
   // BEFORE, na ordem do nome.
+  guardDocument(ctx, "UPDATE", o, n); // aa_mirror_authority
   sync.guardOriginEffectsDocument(ctx, id); // ab_origin_effects
   guardTrash(o, n); // guard_trash
   finance.guardPostedDocument(db, "UPDATE", o, n); // protect_document_finance
@@ -108,6 +111,7 @@ export function updateDocument(ctx: RpcContext, id: string, set: Row) {
 function itemBefore(ctx: RpcContext, op: "INSERT" | "UPDATE" | "DELETE", o: Row | null, n: Row | null) {
   const db = ctx.db;
   const documentId = String(op === "INSERT" ? n!.document_id : o!.document_id);
+  guardItem(ctx, op, o, n); // aa_mirror_authority
   sync.guardOriginEffectsItem(ctx, documentId); // ab_origin_effects
   if (op !== "DELETE") {
     // document_native_item_required
