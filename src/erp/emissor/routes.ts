@@ -14,12 +14,39 @@ import { ApiError, type Actor, type Env } from "../../types";
 import { emissorView, removeEmissor, saveEmissor, testEmissor } from "./config.ts";
 import { fiscalProviderFor } from "./index.ts";
 import { FiscalError, type FiscalEnvironment } from "./provider.ts";
+import { erpIdentity, erpRoleOf } from "../../modules/erp/identity";
+import { IDENTITY_HEADER, encodeIdentity } from "../engine/identity.ts";
+import { erpFetch } from "../hub.ts";
 
 export const EMISSOR_MODULE = "erp-fiscal";
 
+/** Leitura: pessoa com papel erp:* (o administrador do Wabotia vale erp:admin). */
 function reader(actor: Actor, profile: string) {
   if (actor.kind !== "user") throw new ApiError(403, "erp_user_required", "O ERP atende só pessoas nesta fase.");
   access(actor, profile, "erp");
+  if (!erpRoleOf(actor))
+    throw new ApiError(403, "erp_role_required", "Seu acesso não inclui um papel no ERP. Peça ao administrador em Pessoas e acessos.");
+}
+
+/**
+ * Configuração (salvar, remover, testar): administrador e o portão do ERP na
+ * mesma ida ao objeto (erp_access_gate_v2): fora do horário de acesso, ou
+ * com a política de segundo fator ligada e a sessão sem aal2, recusa com os
+ * códigos da erp-api (ERP_ACCESS_OUTSIDE_SCHEDULE, ERP_MFA_REQUIRED).
+ */
+async function configurator(env: Env, actor: Actor, profile: string) {
+  admin(actor);
+  const identity = await erpIdentity(env, actor, profile, "POST");
+  const r = await erpFetch(env, profile, "/erp-rpc/erp_access_gate_v2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
+    body: JSON.stringify({ p_user_id: actor.id, p_session_id: actor.sessionId ?? null }),
+  });
+  if (!r.ok) throw new ApiError(503, "erp_unavailable", "O ERP não respondeu ao conferir o acesso. Tente de novo.");
+  const gate = (await r.json()) as { open?: boolean; mfa_required?: boolean; mfa_ok?: boolean };
+  if (gate.open !== true) throw new ApiError(403, "ERP_ACCESS_OUTSIDE_SCHEDULE", "Fora do horário de acesso ao ERP.");
+  if (gate.mfa_required && gate.mfa_ok !== true)
+    throw new ApiError(403, "ERP_MFA_REQUIRED", "Confirme o segundo fator para alterar o emissor fiscal.");
 }
 
 export async function erpEmissorRoute(
@@ -40,16 +67,21 @@ export async function erpEmissorRoute(
     if (sub === "") {
       if (method === "GET") return Response.json(await emissorView(env, profile));
       if (method === "PUT") {
-        admin(actor);
+        await configurator(env, actor, profile);
         const body = await request.json().catch(() => {
           throw new ApiError(400, "invalid_json", "Corpo JSON inválido.");
         });
         return Response.json(await saveEmissor(env, actor, profile, body));
       }
-      if (method === "DELETE") return Response.json(await removeEmissor(env, actor, profile));
+      if (method === "DELETE") {
+        await configurator(env, actor, profile);
+        return Response.json(await removeEmissor(env, actor, profile));
+      }
     }
-    if (sub === "/test" && method === "POST")
+    if (sub === "/test" && method === "POST") {
+      await configurator(env, actor, profile);
       return Response.json(await testEmissor(env, actor, profile, options));
+    }
     const ctx = { env, profile, fetch: options.fetch };
     if (sub === "/series" && method === "GET") {
       const provider = await fiscalProviderFor(ctx);
