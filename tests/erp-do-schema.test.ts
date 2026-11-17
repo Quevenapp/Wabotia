@@ -7,6 +7,8 @@ import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { migrate } from "../src/erp/schema/migrate";
 import { ERP_DDL_VERSION } from "../src/erp/schema/ddl";
+import { ERP_ENGINE_TABLES } from "../src/erp/schema/engine-tables";
+import { ERP_GUARDS } from "../src/erp/schema/guards.generated";
 
 describe("ERP fase 0: esquema gerado no objeto", () => {
   it("aplica DDL e semeadura numa instância nova; regras geradas valem", async () => {
@@ -45,9 +47,11 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 973, seedRows: 7586 });
+    // 984 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
+    // + 2 tabelas só do motor (engine-tables.ts, versão 7); 432 tabelas.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 984, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(430);
+    expect(result.tables).toBe(432);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });
@@ -61,6 +65,8 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       const filled = folds();
       // Como uma instância criada na versão 5: colunas normalizadas da semeadura NULL.
       sql.exec('UPDATE "erp_catalog__contact_type" SET label__fold = NULL');
+      // A versão 5 ainda não tinha as tabelas só do motor (o passo 6→7 as cria).
+      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='5' WHERE key='schema_version'");
       const step = migrate(state.storage);
       return { filled, step, after: folds(), again: migrate(state.storage) };
@@ -69,6 +75,53 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
     expect(out.after).toEqual(out.filled);
     expect(out.again).toMatchObject({ status: "current" });
+  });
+
+  it("passo 7→8: instância sem os gatilhos do override sqlTriggers os ganha", async () => {
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName("erp:schema-" + uid()));
+    const out = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => {
+      const sql = state.storage.sql;
+      migrate(state.storage);
+      // Os gatilhos do override (guards.generated, source "override"), pelo prefixo "<schema>__<gatilho>__".
+      const prefixes = ERP_GUARDS.filter((g: any) => g.source === "override").map((g) => `${g.table.split("__")[0]}__${g.trigger}__`);
+      const cnab = () =>
+        sql
+          .exec("SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")
+          .toArray()
+          .map((r: any) => r.name as string)
+          .filter((n) => prefixes.some((p) => n.startsWith(p)));
+      const created = cnab();
+      // Como uma instância criada na versão 7: sem esses gatilhos.
+      for (const name of created) sql.exec(`DROP TRIGGER "${name}"`);
+      sql.exec("UPDATE erp_meta SET value='7' WHERE key='schema_version'");
+      const step = migrate(state.storage);
+      return { created, step, after: cnab(), again: migrate(state.storage) };
+    });
+    // A recusa de cada um contra o oráculo: tests/erp/cnab-sql-triggers.test.mjs.
+    expect(out.created.length).toBe(9);
+    expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
+    expect(out.after).toEqual(out.created);
+    expect(out.again).toMatchObject({ status: "current" });
+  });
+
+  // Tempo da subida 6→atual no objeto (a primeira requisição depois da
+  // implantação). Os passos só mexem em DDL (2 tabelas, os gatilhos recriados),
+  // sem trabalho proporcional aos dados; a fidelidade da subida (esquema da v6
+  // de verdade, dados do motor) está em tests/erp/schema-upgrade.test.mjs.
+  it("passo 6→atual no objeto: tempo da subida", async () => {
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName("erp:schema-" + uid()));
+    const out = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => {
+      const sql = state.storage.sql;
+      migrate(state.storage);
+      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
+      sql.exec("UPDATE erp_meta SET value='6' WHERE key='schema_version'");
+      const t0 = performance.now();
+      const step = migrate(state.storage);
+      return { step, ms: performance.now() - t0 };
+    });
+    console.log("ERP_SCHEMA_UPGRADE " + JSON.stringify({ from: 6, to: ERP_DDL_VERSION, ms: Math.round(out.ms) }));
+    expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
+    expect(out.ms).toBeLessThan(5_000);
   });
 
   // Tempo-limite próprio: a primeira chamada aplica o DDL inteiro e a

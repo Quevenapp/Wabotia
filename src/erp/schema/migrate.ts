@@ -2,6 +2,7 @@
 // chamada (não passa pelas migrações do D1). PRAGMA user_version não é
 // autorizado no objeto (prova 1), então a versão fica em erp_meta.
 import { ERP_DDL, ERP_DDL_HASH, ERP_DDL_VERSION } from "./ddl.ts";
+import { createEngineTables } from "./engine-tables.ts";
 import { ERP_SEED } from "./seed.generated.ts";
 
 export const ERP_SCHEMA_VERSION = ERP_DDL_VERSION;
@@ -61,12 +62,31 @@ export function fillSeedNormalized(sql: Sql): number {
   return written;
 }
 
+/**
+ * Recria os gatilhos do DDL na ordem dele: apaga os que a instância tem e cria
+ * todos de novo. Traz os gerados depois que ela foi criada (o override
+ * sqlTriggers) e a ordem de criação, que no SQLite decide qual gatilho dispara
+ * primeiro (gen-sqlite.mjs cria em ordem inversa do nome, para valer a ordem do
+ * Postgres). Gatilho não muda dados; devolve 0 linhas.
+ */
+export function recreateTriggers(sql: Sql): number {
+  const triggers = ERP_DDL.flatMap((statement) => {
+    const m = /^CREATE TRIGGER "((?:[^"]|"")+)"/.exec(statement);
+    return m ? [{ name: m[1].replace(/""/g, '"'), statement }] : [];
+  });
+  for (const t of triggers) sql.exec(`DROP TRIGGER IF EXISTS ${q(t.name)}`);
+  for (const t of triggers) sql.exec(t.statement);
+  return 0;
+}
+
 /** Passos N→N+1 para instância que já tem o esquema (mesmo DDL, dados a ajustar). */
 // Tabela só do motor nova (engine-tables.ts, since: N+1): suba ERP_DDL_VERSION
 // e ponha N: (sql) => createEngineTables(sql, N + 1) (somado a outro passo da
-// mesma versão, se houver).
+// mesma versão, se houver). Gatilho novo ou reordenado no gerado: N: recreateTriggers.
 const STEPS: Record<number, (sql: Sql) => number> = {
   5: fillSeedNormalized,
+  6: (sql) => createEngineTables(sql, 7),
+  7: recreateTriggers,
 };
 
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */

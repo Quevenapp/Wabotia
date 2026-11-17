@@ -197,6 +197,11 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
    - O `test` precisa exercitar a recusa nos dois motores.
    - `tests/erp/schema-parity.test.mjs` recusa um item que não esteja pendente, sem `where` ou `test`, ou com arquivo de teste inexistente.
    - Os tetos (`LIMITS`, hoje CHECK 221 e gatilhos 237) contam só o que ninguém cobre: baixe-os no seu branch ao cobrir. Na junção eu concilio.
+   - Gatilho em PL/pgSQL que é só "se condição, recusa" sobre colunas da própria linha (imutabilidade, por exemplo, em tabela que o motor não muda) não precisa de TS: vira gatilho do SQLite por `sqlTriggers` no `scripts/erp/overrides/<domínio>.mjs` (chave `schema__tabela.gatilho`, `{ when, code, message, reason }`; o `when` é SQLite com `OLD.`/`NEW.`).
+     - O gerador confere `code` e `message` no corpo da função do oráculo.
+     - O DDL muda, então combine a versão comigo (passo `recreateTriggers` em `migrate.ts`).
+     - Teste no modelo `tests/erp/cnab-sql-triggers.test.mjs`: o mesmo UPDATE/DELETE direto nos dois motores.
+     - O SQLite dispara primeiro o gatilho criado por último; o gerador cria em ordem inversa do nome, para valer a ordem do Postgres.
 6. **Fechamento:** um domínio só fecha com o diferencial verde e os tetos baixados. Aviso curto à orquestração com as linhas de TS, os RPCs portados e os testes.
 
 ## Regras que valem para todos
@@ -214,6 +219,10 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - `LIKE` do usuário vira `instr()`.
   - `lower`/`NOCASE` só valem para ASCII: compare em TS ou use a coluna `__fold`.
   - A ordem das chaves do jsonb vem de `jsonbKeys`; o texto canônico, de `jsonbText`.
+  - **Ordem dos gatilhos** (achado de 17/11, `tests/erp/cnab-sql-triggers.test.mjs`): o Postgres dispara os gatilhos da mesma tabela e momento em ordem alfabética do nome; o SQLite dispara primeiro o criado por último.
+    - Com dois gatilhos que recusam a mesma linha, o erro muda de um motor para o outro.
+    - O gerador (`gen-sqlite.mjs`) cria os gatilhos de cada tabela em ordem inversa do nome, e o passo `recreateTriggers` (`migrate.ts`) refaz essa ordem nas instâncias que já existem.
+    - Guarda escrita em TS no ponto de um gatilho segue a ordem do nome, junto com as outras guardas da mesma tabela e do mesmo momento.
 - **Decimais:**
   - A escala de cada coluna está em `columns.generated.ts`.
   - `dec`/`dec_i64` são escalados (`toScaled`, `formatScaled`).

@@ -10,11 +10,10 @@
 // SQLite; o fold é calculado como no Fagoo, sem depender da coluna __fold
 // (que pode vir nula em linha semeada).
 //
-// Origin desligado (desvio origin-fora): erp_catalog.origin está vazia, então
-// "source" é null e os filtros de estoque origin_* ficam constantes:
-// origin_unlinked devolve todos os produtos; os outros, nenhum
-// (sessao-N-origin-poda.md, item erp_catalog.product_stock_filter).
-import { formatScaled, fromColumn } from "../../engine/dec.ts";
+// Os filtros de estoque origin_* leem o espelho do Origin (regra "Origin fora":
+// leitura de linha espelhada se porta como leitura): originStockStates porta
+// de erp_stock_mirror.product_summary só o estado e o físico que o filtro usa.
+import { compareDec, formatScaled, fromColumn } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { ErpError, raise } from "../../engine/errors.ts";
 import { arrow, jsonbKeys, jsonType } from "../../engine/json.ts";
@@ -231,9 +230,18 @@ export const quantityText = (q: bigint | null) => (q === null ? null : formatSca
 export function stockFilter(db: SqlDriver, stock: string | null, warehouse: string | null): string[] | null {
   if (stock === null) return null;
   if (ORIGIN_STOCK.includes(stock))
-    return stock === "origin_unlinked"
-      ? db.exec('SELECT record_id FROM "erp_catalog__product"').rows.map((r) => String(r.record_id))
-      : [];
+    return originStockStates(db, warehouse)
+      .filter((s) =>
+        stock === "origin_unlinked"
+          ? s.state === "unlinked"
+          : stock === "origin_not_observed"
+            ? s.state === "not_observed"
+            : s.state === "observed" &&
+              s.physical_state === "value" &&
+              s.physical !== null &&
+              (stock === "origin_zero" ? compareDec(s.physical, "0") === 0 : stock === "origin_positive" ? compareDec(s.physical, "0") > 0 : compareDec(s.physical, "0") < 0),
+      )
+      .map((s) => s.id);
   const ids: string[] = [];
   for (const [id, s] of stockSummary(db, null, warehouse)) {
     const state = warehouse === null ? s.state : s.warehouse_state;
@@ -543,6 +551,7 @@ export function listItem(db: SqlDriver, id: string): Record<string, unknown> {
     id,
   )!;
   const p = one(db, 'SELECT unit, price, kind, format, gtin, brand, ncm FROM "erp_catalog__product" WHERE record_id=?', id);
+  const origin = one(db, 'SELECT source_id, state FROM "erp_catalog__origin" WHERE record_id=?', id);
   return {
     id: r.id,
     entity: r.entity,
@@ -552,7 +561,8 @@ export function listItem(db: SqlDriver, id: string): Record<string, unknown> {
     code: r.code ?? null,
     created_at: jsonTimestamp(String(r.created_at)),
     updated_at: jsonTimestamp(String(r.updated_at)),
-    source: null,
+    // erp_catalog.origin do registro (leitura do espelho), como record-list.ts.
+    source: origin ? { system: "origin", source_id: origin.source_id, state: origin.state } : null,
     ...(p
       ? {
           unit: p.unit ?? null,
@@ -603,4 +613,52 @@ export function stockJson(s: StockSummary | undefined, visible: boolean, warehou
         ? null
         : { id: warehouse, state: s?.warehouse_state ?? null, quantity: s?.warehouse_state === "recorded" ? quantityText(s.warehouse_quantity) : null },
   };
+}
+
+/**
+ * erp_stock_mirror.product_summary(null, p_warehouse_id), só state, physical e
+ * physical_state (as colunas que product_stock_filter usa). current_position é
+ * position + observation; os LEFT JOIN da view são por chave única e não mudam
+ * as linhas.
+ */
+export function originStockStates(db: SqlDriver, warehouse: string | null) {
+  const wh =
+    warehouse === null
+      ? []
+      : db.exec('SELECT source_id FROM "erp_warehouse_import__binding" WHERE warehouse_id=?', warehouse).rows.map((r) => String(r.source_id));
+  const positions = db
+    .exec(
+      `SELECT p.product_source_id, o.warehouse_source_id, o.source_deleted, o.physical, o.physical_state
+       FROM "erp_stock_mirror__position" p JOIN "erp_stock_mirror__observation" o ON o.id=p.observation_id`,
+    )
+    .rows.filter((c) => warehouse === null || wh.includes(String(c.warehouse_source_id)));
+  const candidates = db.exec(
+    `SELECT p.record_id id, o.source_id FROM "erp_catalog__product" p
+     LEFT JOIN "erp_catalog__origin" o ON o.entity='products' AND o.record_id=p.record_id`,
+  ).rows;
+  return candidates.map((c) => {
+    const source = c.source_id === null ? null : String(c.source_id);
+    const mine = source === null ? [] : positions.filter((p) => String(p.product_source_id) === source);
+    const live = mine.filter((p) => !Number(p.source_deleted));
+    const removed = mine.length - live.length;
+    const state =
+      source === null
+        ? "unlinked"
+        : warehouse !== null && wh.length === 0
+          ? "warehouse_unlinked"
+          : live.length === 1
+            ? "observed"
+            : live.length > 1
+              ? "multiple_warehouses"
+              : removed > 0
+                ? "source_deleted"
+                : "not_observed";
+    const s = live.length === 1 && (warehouse === null || wh.length > 0) ? live[0] : null;
+    return {
+      id: String(c.id),
+      state,
+      physical: s?.physical == null ? null : String(s.physical),
+      physical_state: s ? String(s.physical_state) : null,
+    };
+  });
 }

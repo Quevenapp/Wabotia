@@ -1,6 +1,6 @@
 // public.erp_catalog_contact_set_situation: Ativo, Inativo, Sem movimento ou
-// Excluído (active é a projeção A/S). Fora (Origin desligado): o UPDATE de
-// erp_catalog.origin ('local_modified').
+// Excluído (active é a projeção A/S). O UPDATE de erp_catalog.origin
+// ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";

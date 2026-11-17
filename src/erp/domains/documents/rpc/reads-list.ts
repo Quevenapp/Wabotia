@@ -3,8 +3,10 @@
 // public.erp_document_export, com os mesmos nomes; erp_documents.list_row,
 // list_conditions, list_condition, list_condition_value,
 // list_conditions_match, list_totals_visible, address_text, warranty_until e
-// order_invoice. Os ramos do espelho do Origin (documento com authority
-// 'origin', origin_mirror) não existem no Wabotia: docs/ERP-FASE0.md.
+// order_invoice. O documento espelhado do Origin (authority 'origin') é lido
+// como no oráculo: a linha de erp_document_mirror.list_row, o total e o número
+// da fonte, a metadata do espelho na exportação (../mirror-reads.ts e o
+// mirrorMetadata da O em ../mirror.ts).
 // Semântica do Postgres mantida: ORDER BY … DESC põe NULL primeiro; p_kind
 // nulo deixa as comparações nulas (três valores) e a validação não recusa.
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -19,7 +21,8 @@ import { contactScope, contactVisibleTo, unitPriceNumeric } from "../../catalog/
 import { active as receiptActive } from "../../stock/public.ts";
 import { originEffects } from "../../sync/public.ts";
 import { dateValue, preference, situationAdopted, situationJson, situationKeyValid } from "../internal.ts";
-import { mirrorSource, mirrorSourceMatches } from "../mirror-reads.ts";
+import { mirrorListRow, mirrorSource, mirrorSourceMatches } from "../mirror-reads.ts";
+import { mirrorMetadata } from "../mirror.ts";
 import { mirrorVisible, requireAccess, transitions } from "../public.ts";
 import { pendencies } from "./reads-commerce.ts";
 import { jsonPathText } from "./reads-common.ts";
@@ -117,7 +120,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
     id,
   );
   if (!d) return null;
-  if (d.authority === "origin") raise("0A000", "rpc_not_ported:erp_document_mirror.list_row");
+  if (d.authority === "origin") return mirrorListRow(db, id);
   const body = JSON.parse(String(d.body)) as Obj;
   const snap = JSON.parse(String(d.contact_snapshot)) as Obj;
   const kind = String(d.kind);
@@ -746,16 +749,18 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
       pgCompareText(String(x.id), String(y.id)),
   );
   const items = docs.slice((page - 1) * size, page * size).map((p) => {
-    if (p.authority === "origin") raise("0A000", "rpc_not_ported:erp_document_mirror.metadata");
+    // Documento espelhado: só leitura, com a metadata do espelho, o número e o total da fonte e os itens como observados.
+    const mirrored = p.authority === "origin";
+    const source = mirrored ? mirrorSource(db, String(p.id)) : null;
     const notes = arrow(p.b, "internal_notes");
     const situation = situationJson(db, String(p.kind), str(p.status), str(p.situation_id));
     return {
       id: p.id,
       origin: p.origin,
       authority: p.authority,
-      readonly: false,
-      mirror: null,
-      number: p.number === null ? null : String(p.number),
+      readonly: mirrored,
+      mirror: mirrored ? mirrorMetadata(db, String(p.id)) : null,
+      number: mirrored ? (source?.source_number ?? null) : p.number === null ? null : String(p.number),
       date: arrow(p.b, "date"),
       expected_date: arrow(p.b, "expected_date"),
       status: p.status,
@@ -769,7 +774,7 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
       internal_notes: notes === null ? null : pgLeft(notes, 4000),
       freight: arrow(p.b, "freight"),
       discount: jsonPathText(p.b, ["totals", "discount"]),
-      total: p.total === null ? null : formatScaled(fromColumn(p.total), 2),
+      total: mirrored ? (source?.source_total ?? null) : p.total === null ? null : formatScaled(fromColumn(p.total), 2),
       items: db
         .exec(
           'SELECT position, data, CAST(quantity AS TEXT) quantity, unit_price, discount_percent, CAST(total AS TEXT) total FROM "erp_documents__item" WHERE document_id=?',
@@ -783,10 +788,14 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
             code: arrow(data, "code"),
             description: arrow(data, "description"),
             unit: arrow(data, "unit"),
-            quantity: i.quantity === null ? null : formatScaled(fromColumn(i.quantity), 6),
-            unit_price: unitPriceNumeric(i.unit_price, 10),
-            discount_percent: i.discount_percent === null ? null : formatScaled(fromColumn(i.discount_percent), 4),
-            total: i.total === null ? null : formatScaled(fromColumn(i.total), 2),
+            quantity: mirrored ? arrow(data, "quantity") : i.quantity === null ? null : formatScaled(fromColumn(i.quantity), 6),
+            unit_price: mirrored ? arrow(data, "unit_price") : unitPriceNumeric(i.unit_price, 10),
+            discount_percent: mirrored
+              ? arrow(data, "discount_percent")
+              : i.discount_percent === null
+                ? null
+                : formatScaled(fromColumn(i.discount_percent), 4),
+            total: mirrored ? arrow(data, "total") : i.total === null ? null : formatScaled(fromColumn(i.total), 2),
           };
         }),
     };

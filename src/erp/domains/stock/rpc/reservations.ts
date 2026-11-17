@@ -207,7 +207,8 @@ export function erpStockReservationApply(ctx: RpcContext, a: RpcArgs) {
     const ack = jsonbText([...(acknowledged as unknown[])].sort((x, y) => compareJsonb(x, y)));
     const wanted = jsonbText(((preview.ignored ?? []) as Record<string, unknown>[]).map((i) => i.id).sort((x, y) => compareJsonb(x, y)));
     if (ack !== wanted) raise("22023", "erp_stock_ignored_ack_required");
-    documents.guardTrashChild(db, String(d.id)); // guard_trash (aa_mirror_authority: sem documento do Origin)
+    documents.mirrorGuardEffect(db, d.id); // aa_mirror_authority (guard_effect)
+    documents.guardTrashChild(db, String(d.id)); // guard_trash
     rid = crypto.randomUUID();
     const { preview_hash: _h, ...snapshot } = preview;
     db.exec(
@@ -236,8 +237,10 @@ export function erpStockReservationApply(ctx: RpcContext, a: RpcArgs) {
     // A baixa aponta consumed_command_id para o movimento que o lançamento cria logo
     // depois (FK adiada no Postgres): FK adiada até o fim, conferida antes do COMMIT.
     if (action === "consume") deferForeignKeys(ctx, "erp_stock__reservation");
+    const old = one(db, 'SELECT state, document_id FROM "erp_stock__reservation" WHERE id=?', rid);
+    // aa_mirror_authority (guard_effect): OLD e NEW, o mesmo documento.
+    if (old) documents.mirrorGuardEffect(db, old.document_id);
     // immutable_reservation (guard_reservation): só active → released/consumed, versão 2.
-    const old = one(db, 'SELECT state FROM "erp_stock__reservation" WHERE id=?', rid);
     if (!old || old.state !== "active") raise("40001", "erp_stock_reservation_immutable");
     db.exec(
       `UPDATE "erp_stock__reservation" SET state=?, version=2, closed_by=?, closed_at=?, close_reason=?, close_command_id=?, consumed_command_id=? WHERE id=?`,
@@ -259,6 +262,8 @@ export function erpStockReservationApply(ctx: RpcContext, a: RpcArgs) {
     });
   } else bumpDocumentVersion(ctx, String(d.id), user);
   const receipt = { command_id: command, action, document_id: d.id, document_version: Number(d.version) + 1, reservation: reservationDto(db, rid) };
+  // aa_mirror_authority (guard_effect) no recibo e na auditoria do Documentos.
+  documents.mirrorGuardEffect(db, d.id);
   db.exec(
     'INSERT INTO "erp_stock__reservation_command"(id, actor, document_id, request_hash, result, created_at) VALUES(?,?,?,?,?,?)',
     command,
