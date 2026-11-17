@@ -302,7 +302,8 @@
   "web/erp/test/finance-title-list-ui.test.mjs": "alterado: financas-receber não é lida na abertura, só na impressão; teste novo: uma leitura das preferências de lista quando a porta liga e a baixa espera as preferências de finanças (latência, 9.6)",
   "web/erp/test/home-origin-ui.test.mjs": "alterado: teste novo: gráficos e novas NF-es no salto 1, perfil e armazenamento uma vez com a barra do topo (latência, 9.6)",
   "web/erp/test/session-cache.test.mjs": "adicionado: testes do cache de sessão do controlador (uma regra de invalidação por teste, lista estável, fora da lista, erros, TTL, pedido em voo e cópias)",
-  "web/erp/test/real-documents-model.test.mjs": "alterado: o limite de 8 MiB da porta documents é conferido em /v1/documentos/sales_orders, porque /v1/documentos (envelope de permissão) fica 30 s no cache de sessão"
+  "web/erp/test/real-documents-model.test.mjs": "alterado: o limite de 8 MiB da porta documents é conferido em /v1/documentos/sales_orders, porque /v1/documentos (envelope de permissão) fica 30 s no cache de sessão",
+  "packages/erp-domain/src/preferences/pages/empresa-geral.mjs": "alterado: padrão de 2 casas na quantidade e nos preços de entrada e saída, com 6 e 10 aceitos como padrão migrado, igual à cópia do motor (src/erp/fagoo/packages; desvio telas-2-casas, decisão do usuário de 16/11); sem isso o painel recusava a página Empresa › Geral de uma instalação nova"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
