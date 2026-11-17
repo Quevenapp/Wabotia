@@ -152,8 +152,11 @@ ${blocks.join("\n\n")}
 `;
 
 if (process.argv.includes("--check")) {
+  // Fim de linha não conta: num checkout Windows com core.autocrlf o arquivo
+  // sai com CRLF, e o texto gerado é LF.
+  const lf = (text) => text.replace(/\r\n/g, "\n");
   const current = readFileSync(out, "utf8");
-  if (current !== css) {
+  if (lf(current) !== lf(css)) {
     console.error(
       "web/erp/scope.css está desatualizado: rode node scripts/erp-scope-css.mjs",
     );
