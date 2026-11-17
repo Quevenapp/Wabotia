@@ -8,7 +8,7 @@ import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgLower } from "../../../engine/text.ts";
 import { commandHash, commandReplay, finishCommand, requireRead, requireWrite, uuidInput, versionInput, type Json } from "../core.ts";
-import { insertNature, natureDefaults, natureInput, natureRecord, natureReviewRecord, natureRow, replaceRules } from "../natures.ts";
+import { guardNature, insertNature, natureDefaults, natureIdentity, natureInput, natureRecord, natureReviewRecord, natureRow, replaceRules } from "../natures.ts";
 
 const ACTIONS = ["create", "update", "clone", "set_active", "set_default", "delete"];
 const DEFAULT_CODES = ["S", "E", "VF", "VJ", "CF", "CJ", "C", "DE", "DS"];
@@ -59,11 +59,17 @@ export function erpFiscalNatureExecute(ctx: RpcContext, a: RpcArgs) {
   if (action === "update" && input!.direction !== n!.direction) raise("22023", "erp_fiscal_nature_direction_immutable");
   let bumped = true;
   const now = () => ctx.clock.next().toString();
+  // Gatilho guard_nature antes de cada UPDATE da natureza (a versão sobe um).
+  const guard = () => {
+    const o = natureIdentity(db, id)!;
+    guardNature("UPDATE", o, { ...o, version: Number(o.version) + 1 });
+  };
   if (action === "create") {
     id = insertNature(ctx, input!, user!);
     replaceRules(db, id, input!.rules as Json[]);
   } else if (action === "update") {
     const i = input!;
+    guard();
     db.exec(
       `UPDATE "${NATURE}" SET description=?, series=?, crt=?, presence=?, invoiced=?, final_consumer=?, return_operation=?, update_last_purchase_price=?,
          include_freight_ipi_base=?, others=?, retentions=?, additional_info=?, fiscal_info=?, version=version+1, updated_by=?, updated_at=?, description__fold=? WHERE id=?`,
@@ -83,12 +89,14 @@ export function erpFiscalNatureExecute(ctx: RpcContext, a: RpcArgs) {
   } else if (action === "set_active") {
     const active = d.active as boolean;
     if (n!.active === active) raise("40001", "erp_fiscal_nature_state_conflict");
+    guard();
     db.exec(`UPDATE "${NATURE}" SET active=?, version=version+1, updated_by=?, updated_at=? WHERE id=?`, active ? 1 : 0, user, now(), id);
     if (!active) db.exec('DELETE FROM "erp_fiscal_invoices__nature_default" WHERE nature_id=?', id);
   } else if (action === "delete") {
     // Exclusão lógica: as notas guardam a descrição e as revisões, as regras.
     db.exec('DELETE FROM "erp_fiscal_invoices__nature_default" WHERE nature_id=?', id);
     const t = now();
+    guard();
     db.exec(`UPDATE "${NATURE}" SET active=0, deleted_at=?, deleted_by=?, version=version+1, updated_by=?, updated_at=? WHERE id=?`, t, user, user, t, id);
   } else {
     if (n!.active !== true) raise("40001", "erp_fiscal_nature_inactive");
