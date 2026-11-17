@@ -52,7 +52,7 @@ class CourierFailure(message: String, val status: Int = 0, val code: String? = n
  */
 class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : CourierBackend {
     @Serializable private data class ClaimBody(val code: String, val name: String, val device: String)
-    @Serializable private data class ClaimData(val delivery: CourierDelivery, val app: CourierPace? = null)
+    @Serializable private data class ClaimData(val delivery: CourierDelivery, val app: CourierPace? = null, val store: CourierShop? = null)
     @Serializable private data class ClaimReply(
         val token: String,
         @kotlinx.serialization.SerialName("expires_at") val expiresAt: Long? = null,
@@ -73,7 +73,8 @@ class HttpCourierBackend(private val http: OkHttpClient = queueHttp()) : Courier
     override suspend fun claim(link: CourierLink, name: String, device: String): Pair<CourierSession, CourierDelivery> {
         val body = json(ClaimBody.serializer(), ClaimBody(link.code, name, device))
         val reply = call(link.server + "/api/credentials/claim", null, "POST", body, idempotent = false, ClaimReply.serializer(), claim = true)
-        val delivery = reply.data.delivery.let { d -> if (d.app == null && reply.data.app != null) d.copy(app = reply.data.app) else d }
+        // O ritmo e a loja podem vir ao lado da entrega, e não dentro dela.
+        val delivery = reply.data.delivery.let { d -> d.copy(app = d.app ?: reply.data.app, shop = d.shop ?: reply.data.store) }
         // O servidor é sempre o do QR: as chamadas desta entrega vão só para ele.
         return CourierSession(link.server, reply.token, reply.profile, reply.subject, reply.expiresAt) to delivery
     }

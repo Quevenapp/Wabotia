@@ -94,6 +94,95 @@ data class CourierPreview(
 @Serializable
 data class LatLng(val lat: Double, val lng: Double)
 
+/** `address` da entrega: todos texto, vazios onde não há. Na conversa, rua e número chegam juntos em [street]. */
+@Serializable
+data class CourierAddress(
+    val street: String = "",
+    val number: String = "",
+    val complement: String = "",
+    val district: String = "",
+    val city: String = "",
+    /** UF. */
+    val state: String = "",
+    @SerialName("postal_code") val postalCode: String = "",
+    val reference: String = "",
+)
+
+/** `store` da entrega: a loja (Gestão → Estabelecimento); [position] vem do botão "Usar a localização deste aparelho". */
+@Serializable
+data class CourierShop(
+    val name: String = "",
+    val city: String = "",
+    val state: String = "",
+    val position: LatLng? = null,
+)
+
+/** Como o app acha o destino (docs/ENTREGA.md, "Endereço"). */
+sealed interface DestinationSearch {
+    /** O servidor já tem o destino: vai direto, sem geocodificar. */
+    data class Known(val point: LatLng) : DestinationSearch
+
+    /** Procurar [query] perto de [near] (a loja) ou, sem ela, na cidade e UF que já estão no texto. */
+    data class Search(val query: String, val near: LatLng?) : DestinationSearch
+
+    /** Sem cidade e sem destino: avisar o entregador. */
+    data object Incomplete : DestinationSearch
+
+    /** Sem endereço nenhum. */
+    data object Empty : DestinationSearch
+}
+
+object CourierDestination {
+    const val INCOMPLETE = "Endereço sem cidade: confirme com a loja ou peça a localização ao cliente."
+
+    /** Perto da loja: o resultado mais longe que isso é outra rua com o mesmo nome. */
+    const val RADIUS_KM = 60.0
+
+    fun plan(d: CourierDelivery): DestinationSearch {
+        d.destination?.let { return DestinationSearch.Known(it) }
+        if (d.addressIncomplete) return DestinationSearch.Incomplete
+        val parts = d.addressParts
+        val line = d.address.replace('\n', ' ').trim().ifBlank { parts?.let(::compose).orEmpty() }
+        if (line.isBlank()) return DestinationSearch.Empty
+        val near = d.shop?.position
+        // Sem a posição da loja, a cidade e a UF vão no texto (o servidor já as põe; servidor antigo pode não pôr).
+        val city = parts?.city?.ifBlank { null } ?: d.shop?.city?.ifBlank { null }
+        val state = parts?.state?.ifBlank { null } ?: d.shop?.state?.ifBlank { null }
+        val withCity = if (city != null && !line.contains(city, ignoreCase = true)) listOfNotNull(line, city, state).joinToString(", ") else line
+        return DestinationSearch.Search("$withCity, Brasil", near)
+    }
+
+    /** "Rua das Flores, 200 - Centro, Campinas - SP" a partir dos campos, quando falta a linha pronta. */
+    fun compose(a: CourierAddress): String {
+        val street = listOf(a.street, a.number).filter { it.isNotBlank() }.joinToString(", ")
+        val place = listOf(a.city, a.state).filter { it.isNotBlank() }.joinToString(" - ")
+        return listOf(listOf(street, a.district).filter { it.isNotBlank() }.joinToString(" - "), place).filter { it.isNotBlank() }.joinToString(", ")
+    }
+
+    /** O retângulo de busca em volta da loja: sudoeste e nordeste. */
+    fun bounds(near: LatLng): Pair<LatLng, LatLng> {
+        val dLat = RADIUS_KM / 111.0
+        val dLng = RADIUS_KM / (111.0 * kotlin.math.cos(Math.toRadians(near.lat)).coerceAtLeast(0.1))
+        return LatLng(near.lat - dLat, near.lng - dLng) to LatLng(near.lat + dLat, near.lng + dLng)
+    }
+
+    /** Um resultado do geocodificador vale: no Brasil e, com a loja, a até [RADIUS_KM] dela. */
+    fun accept(candidate: LatLng, countryCode: String?, search: DestinationSearch.Search): Boolean {
+        if (countryCode != null && !countryCode.equals("BR", ignoreCase = true)) return false
+        val near = search.near ?: return true
+        return distanceKm(near, candidate) <= RADIUS_KM
+    }
+
+    fun distanceKm(a: LatLng, b: LatLng): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(b.lat - a.lat)
+        val dLng = Math.toRadians(b.lng - a.lng)
+        val h = kotlin.math.sin(dLat / 2).let { it * it } +
+            kotlin.math.cos(Math.toRadians(a.lat)) * kotlin.math.cos(Math.toRadians(b.lat)) * kotlin.math.sin(dLng / 2).let { it * it }
+        return 2 * r * kotlin.math.asin(kotlin.math.sqrt(h))
+    }
+}
+
 @Serializable
 data class CourierEta(val minutes: Int? = null, val at: Long? = null, @SerialName("distance_m") val distanceM: Int? = null)
 
@@ -138,8 +227,16 @@ data class CourierDelivery(
     val label: String = "Entrega",
     /** Só o primeiro nome. */
     @SerialName("customer_name") val customerName: String = "",
+    /** O endereço numa linha, já com cidade e UF ("Rua das Flores, 200 - Centro, Campinas - SP"). */
     @SerialName("address_text") val address: String = "",
+    /** Os campos separados (fix/entrega-endereco); sem cidade no pedido, cidade e UF são as da loja. */
+    @SerialName("address") val addressParts: CourierAddress? = null,
+    /** Sem cidade em lugar nenhum e sem destino: o app avisa em vez de procurar às cegas. */
+    @SerialName("address_incomplete") val addressIncomplete: Boolean = false,
+    /** Onde entregar, quando o servidor já sabe (o cliente mandou a localização pelo WhatsApp): vai direto. */
     val destination: LatLng? = null,
+    /** A loja: nome, cidade, UF e a posição, que é a referência da busca do endereço. */
+    @SerialName("store") val shop: CourierShop? = null,
     /** `assigned` (falta Iniciar rota), `en_route`, `delivered`, `cancelled`. */
     val status: String = "assigned",
     @SerialName("status_label") val statusLabel: String? = null,
