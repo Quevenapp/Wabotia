@@ -247,6 +247,44 @@ test("Fiscal (G): contato espelhado no formulário da nota", async () => {
   await same("erp_fiscal_invoice_contact_source", { p_user_id: u.admin, p_contact_id: contact.id, p_direction: "1" });
 });
 
+// Auxiliares do Catálogo (B): etiquetas e vendedor sobre o contato espelhado.
+/** O vendedor do contato espelhado (criado pelo caso anterior, ou semeado aqui, para os casos não dependerem um do outro). */
+async function mirroredSeller() {
+  const found = (await f.db.query("select id from erp_catalog.seller where contact_id=$1", [contact.id])).rows[0];
+  if (found) return found.id;
+  const id = randomUUID();
+  await seed("insert into erp_catalog.seller(id,contact_id,created_by,updated_by) values($1,$2,$3,$3)", [id, contact.id, u.admin]);
+  return id;
+}
+test("Catálogo (B): etiquetas do contato espelhado (gravar e ler)", async () => {
+  const tag = (await same("erp_catalog_taxonomy_save", {
+    p_user_id: u.admin, p_kind: "tags", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "Espelho", tag_type: "contacts" },
+  })).item;
+  await same("erp_catalog_contact_tags_save", {
+    p_user_id: u.admin, p_id: contact.id, p_expected_version: 0, p_command_id: randomUUID(), p_tag_ids: [tag.id], p_mode: "replace",
+  });
+  await same("erp_catalog_contact_tags", { p_user_id: u.admin, p_ids: [contact.id] });
+});
+test("Catálogo (B): Tornar vendedor o contato espelhado marca a origem", async () => {
+  await same("erp_catalog_seller_from_contact", { p_user_id: u.admin, p_command_id: randomUUID(), p_contact_id: contact.id });
+  assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [contact.id])).rows[0].v, "local_modified");
+});
+test("Catálogo (B): leitura e página do vendedor do contato espelhado", async () => {
+  const seller = await mirroredSeller();
+  await same("erp_catalog_seller_get", { p_user_id: u.admin, p_id: seller });
+  await same("erp_catalog_seller_page", {
+    p_user_id: u.admin, p_page: 1, p_size: 25, p_sort: "name_asc", p_query: "espelhado", p_situation: "all", p_type: null,
+  });
+});
+test("Catálogo (B): Vincular a vendedor sobre o contato espelhado marca a origem", async () => {
+  const seller = await mirroredSeller();
+  // A origem volta a 'synced' para o caso conferir a marca desta escrita, não a do caso anterior.
+  await seed("update erp_catalog.origin set state='synced' where record_id=$1", [contact.id]);
+  const version = (await f.db.query("select version v from erp_catalog.record where id=$1", [contact.id])).rows[0].v;
+  await same("erp_catalog_contact_set_seller", { p_user_id: u.admin, p_id: contact.id, p_expected_version: version, p_command_id: randomUUID(), p_seller_id: seller });
+  assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [contact.id])).rows[0].v, "local_modified");
+});
+
 // ---------------------------------------------------------------------------
 // Leituras do Documentos e PDV (L). Um segundo pedido espelhado, este com a
 // linha de erp_documents.origin_mirror (número, situação e total da fonte),
