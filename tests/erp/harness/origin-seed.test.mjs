@@ -61,12 +61,12 @@ before(async () => {
 after(() => f?.close());
 
 const meta = { p_occurred_on: "2026-10-15", p_reason: "Lançamento sobre o espelho" };
-const MIRROR_VISIBLE = "pendente da O: erp_document_mirror.require_visible (documents/reads-g.ts) ainda é no-op; o oráculo recusa erp_document_mirror_readonly antes do Estoque";
+const L_ROW = "pendente da L: erp_document_mirror.list_row ainda sai 0A000; o mirrorMetadata (documents/mirror.ts) chegou com o B5 da O";
 
-test("Estoque (N): lançamento de pedido espelhado", { todo: MIRROR_VISIBLE }, async () => {
+test("Estoque (N): lançamento de pedido espelhado", async () => {
   await same("erp_document_stock_preview", { p_user_id: u.estoque, p_kind: "sales_orders", p_document_id: mirrored, p_expected_version: 1, ...meta });
 });
-test("Estoque (N): reserva de pedido espelhado (conferência)", { todo: MIRROR_VISIBLE }, async () => {
+test("Estoque (N): reserva de pedido espelhado (conferência)", async () => {
   await same("erp_stock_reservation_preview", { p_user_id: u.estoque, p_document_id: mirrored, p_expected_version: 1, p_action: "reserve", ...meta, p_reservation_id: null, p_reservation_version: null });
 });
 test("Estoque (N): leitura da reserva de pedido espelhado", async () => {
@@ -76,10 +76,10 @@ test("Estoque (N): lotes das linhas do pedido espelhado", async () => {
   await same("erp_stock_source_lots", { p_user_id: u.estoque, p_source: "document", p_source_id: mirrored, p_product_id: product.id });
 });
 
-test("Documentos (O): leitura do pedido espelhado", { todo: "pendente da O: erp_document_mirror.detail sai 0A000 no motor; o oráculo devolve o pedido" }, async () => {
+test("Documentos (O): leitura do pedido espelhado", async () => {
   await same("erp_document_get", { p_user_id: u.admin, p_kind: "sales_orders", p_id: mirrored });
 });
-test("Documentos (O): lista com o pedido espelhado", { todo: "pendente da O: erp_document_mirror.list_row sai 0A000 no motor; o oráculo lista (origin_totals com o espelho)" }, async () => {
+test("Documentos (O): lista com o pedido espelhado", { todo: L_ROW }, async () => {
   await same("erp_document_list", { p_user_id: u.admin, p_kind: "sales_orders", p_limit: 25, p_origin: "all" });
 });
 
@@ -125,9 +125,6 @@ async function seedSourced() {
   );
 }
 
-const L_GUARD = "pendente da O: mirrorRequireVisible (reads-g.ts) só vale com o documents/mirror.ts dela (sobe com o B5); até lá o motor não recusa o espelho";
-const L_ROW = "pendente da L: list_row e metadata do espelho esperam o mirrorMetadata do documents/mirror.ts da O (sobe com o B5)";
-
 test("Documentos (L): histórico do contato com as linhas espelhadas (origin, quantidade e preço observados)", async () => {
   await seedSourced();
   const history = await same("erp_document_history", { p_user_id: u.admin, p_kind: "sales_orders", p_contact_id: contact.id, p_product_id: null, p_query: null, p_limit: 50 });
@@ -151,7 +148,7 @@ test("Documentos (L): checkout pelo número do espelho (só o nativo é achado)"
   await seedSourced();
   for (const number of ["9001", "9002"]) await same("erp_document_checkout_lookup", { p_user_id: u.admin, p_number: number });
 });
-test("Documentos (L): leituras de um documento espelhado passam pela guarda do espelho", { todo: L_GUARD }, async () => {
+test("Documentos (L): leituras de um documento espelhado passam pela guarda do espelho", async () => {
   await seedSourced();
   for (const id of [mirrored, sourced]) {
     for (const name of ["erp_document_copy_origin", "erp_document_structures", "erp_document_supplier_descriptions", "erp_document_commission_operation", "erp_document_occurrence_list", "erp_document_freight_paid_get"])
