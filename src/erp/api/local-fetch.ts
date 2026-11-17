@@ -15,6 +15,14 @@ import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 
+/** Motivo de recusa do portão (x-erp-gate-denied) → código de erro da erp-api. */
+const GATE_CODES: Record<string, string> = {
+  outside_schedule: "ERP_ACCESS_OUTSIDE_SCHEDULE",
+  mfa_required: "ERP_MFA_REQUIRED",
+  // O código do Fagoo para o token de agente recusado (erp_access_agent_resolve 'denied').
+  agent_out_of_scope: "ERP_AGENT_ACCESS_DENIED",
+};
+
 let erpApiModule: Promise<any> | null = null;
 
 /** "Supabase" que só a costura enxerga; nunca recebe tráfego de rede. */
@@ -193,7 +201,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
     headers.delete("content-length");
     headers.delete("content-type");
     response = Response.json(
-      { error: { code: gate.denied === "mfa_required" ? "ERP_MFA_REQUIRED" : "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
+      { error: { code: GATE_CODES[gate.denied] ?? "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
       { status: 403, headers },
     );
   }
