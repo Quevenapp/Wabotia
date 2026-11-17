@@ -1,9 +1,9 @@
 {
   "name": "wabotia",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "dev": "wrangler dev",
     "web": "vite --host 127.0.0.1",
