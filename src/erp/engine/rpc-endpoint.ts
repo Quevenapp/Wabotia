@@ -52,6 +52,9 @@ export async function handleRpc(
       const page = await media.list({ prefix, cursor });
       for (const o of page.objects) {
         const [bucket, ...rest] = o.key.slice(prefix.length).split("/");
+        // Partes temporárias de um envio em andamento (src/erp-storage.ts,
+        // <bucket>/.upload/<id>/<n>): no Supabase não aparecem em storage.objects.
+        if (rest[0] === ".upload") continue;
         if (bucket && rest.length) listing.push({ bucket, name: rest.join("/"), size: o.size });
       }
       cursor = page.truncated ? page.cursor : undefined;
