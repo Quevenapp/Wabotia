@@ -147,8 +147,7 @@ export async function executePlatformRoute(route, { userId, rpc, sign, cep = loo
   if (route.action === 'export-link') {
     const v = await call('erp_platform_export_link', { p_export_id: route.id });
     if (!object(v) || v.export_id !== route.id || v.bucket !== EXPORT_BUCKET || !/^exports\/[a-f0-9-]{36}\/[a-f0-9]{64}\.zip$/.test(v.object_key || '') || !v.object_key.startsWith(`exports/${route.id}/`)
-      // Wabotia: desvio exportacao-wabotia (src/erp/schema/deviations.ts); o Fagoo confere ^brufap-exportacao-.
-      || v.expires_in !== 120 || !/^wabotia-exportacao-[0-9-]{15}\.zip$/.test(v.filename || '') || !Number.isSafeInteger(v.size_bytes) || !/^[a-f0-9]{64}$/.test(v.sha256 || '')) bad();
+      || v.expires_in !== 120 || !/^brufap-exportacao-[0-9-]{15}\.zip$/.test(v.filename || '') || !Number.isSafeInteger(v.size_bytes) || !/^[a-f0-9]{64}$/.test(v.sha256 || '')) bad();
     const url = await sign(v.object_key, 120, v.filename);
     return { scope: 'platform_export_link', url, expires_in: 120, filename: v.filename, size_bytes: v.size_bytes, sha256: v.sha256, data_mode: 'erp_native' };
   }

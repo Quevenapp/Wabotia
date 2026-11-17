@@ -1,4 +1,4 @@
-// Exportação da empresa (migração 331) na fixture dupla. Adaptado de
+﻿// Exportação da empresa (migração 331) na fixture dupla. Adaptado de
 // workers/erp-api/test/plataforma-h-sql.test.mjs, "PRF-029: the administrador asks for one export at a time…":
 // o pedido, a repetição, a recusa enquanto há outra, o plano (tabelas e arquivos do armazenamento, pela listagem),
 // a confirmação, a lista, o link curto e a limpeza depois da retenção, pelos RPCs que o runPlatformTasks chama.
@@ -76,8 +76,7 @@ test("PRF-029: one export at a time, the plan, the confirmation, the short link 
   await fails(() => f.rpc("erp_platform_exports", { p_user_id: f.users.consulta }), "42501");
   const link = await f.rpc("erp_platform_export_link", { p_user_id: f.users.admin, p_export_id: asked.export.id });
   assert.equal(link.expires_in, 120);
-  // Desvio exportacao-wabotia: o nome do arquivo baixado não leva o nome do Fagoo.
-  assert.match(link.filename, /^wabotia-exportacao-\d{4}-\d{2}-\d{2}-\d{4}\.zip$/);
+  assert.match(link.filename, /^brufap-exportacao-\d{4}-\d{2}-\d{2}-\d{4}\.zip$/);
   await fails(() => f.rpc("erp_platform_export_link", { p_user_id: f.users.vendas, p_export_id: asked.export.id }), "42501");
   await fails(() => f.rpc("erp_platform_export_link", { p_user_id: f.users.admin, p_export_id: randomUUID() }), "P0002");
   // Depois da retenção, a limpeza diária remove o objeto uma vez.
