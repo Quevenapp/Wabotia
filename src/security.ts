@@ -341,6 +341,8 @@ export async function authenticate(
           [bucket, at + 60000, hash, at],
         ],
       ],
+      // Aplicação no ERP: os membros do ERP da área no mesmo lote.
+      prefetch,
     );
     if (!row)
       throw new ApiError(401, "invalid_token", "Chave inválida ou expirada.");

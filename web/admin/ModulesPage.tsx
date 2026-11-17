@@ -93,8 +93,20 @@ function ModuleCard({
           {missing.length > 1 ? " deles" : " dele"}.
         </p>
       )}
-      {(places.length > 0 || menuTypes.length > 0 || requires.length > 0) && (
+      {(places.length > 0 ||
+        menuTypes.length > 0 ||
+        requires.length > 0 ||
+        !!module.erp_role) && (
         <dl className="module-facts">
+          {module.erp_role && (
+            <>
+              <dt>No ERP</dt>
+              <dd>
+                Lança como "Sistema · {module.name}", com o papel{" "}
+                {module.erp_role}
+              </dd>
+            </>
+          )}
           {requires.length > 0 && (
             <>
               <dt>Depende de</dt>
