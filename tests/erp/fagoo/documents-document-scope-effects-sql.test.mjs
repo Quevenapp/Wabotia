@@ -85,7 +85,7 @@ test('Contato acessível somente ao vendedor vinculado: reads by document, conve
   }
 });
 
-test('Automação lançamento de contas pagar ao criar novo pedido de compra: the save that creates the pedido posts its parcelas', { todo: 'pendente do harness (sessão N): o preview_hash cobre o document_id criado na mesma chamada; os uuids novos diferem nos motores e o hash não tem volta (registerOpaqueHash pedido)' }, async () => {
+test('Automação lançamento de contas pagar ao criar novo pedido de compra: the save that creates the pedido posts its parcelas', async () => {
   const create = (extra, user = f.users.admin) => f.call('/v1/documentos/purchase_orders', 'POST', { command_id: randomUUID(), data: f.data('purchase_orders', extra) }, user);
   const parcelas = { installments: [{ due_date: '2026-11-20', amount: '10.00', method: null }] };
   const postings = id => f.scalar("select count(*)::int v from erp_finance.document_posting where document_id=$1 and state='active'", [id]);
