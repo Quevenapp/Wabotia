@@ -1,16 +1,8 @@
 // Gerado por scripts/erp/gen-ownership.mjs. Não edite: porte a função no public.ts do domínio.
 import { notPorted } from "../../engine/errors.ts";
 
-/** erp_purchase_receipts.active(p_document uuid) → boolean */
-export const active = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.active");
-/** erp_purchase_receipts.guard_document() → trigger */
-export const guardDocument = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.guard_document");
-/** erp_purchase_receipts.guard_item() → trigger */
-export const guardItem = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.guard_item");
 /** erp_purchase_receipts.guard_legacy() → trigger */
 export const guardLegacy = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.guard_legacy");
-/** erp_stock.average_costs(p_products uuid[]) → TABLE(product_id uuid, average_cost numeric) */
-export const averageCosts = (..._args: unknown[]): never => notPorted("erp_stock.average_costs");
 /** erp_stock.balance_kept(p_movement uuid, p_product uuid, p_warehouse uuid) → boolean */
 export const balanceKept = (..._args: unknown[]): never => notPorted("erp_stock.balance_kept");
 /** erp_stock.command_taken(p_id uuid) → boolean */
@@ -57,16 +49,6 @@ export const documentPreviewData = (..._args: unknown[]): never => notPorted("er
 export const documentReversePreviewData = (..._args: unknown[]): never => notPorted("erp_stock.document_reverse_preview_data");
 /** erp_stock.document_summary(p_id uuid) → jsonb */
 export const documentSummary = (..._args: unknown[]): never => notPorted("erp_stock.document_summary");
-/** erp_stock.effect_document_allowed(o erp_documents.document, n erp_documents.document) → boolean */
-export const effectDocumentAllowed = (..._args: unknown[]): never => notPorted("erp_stock.effect_document_allowed");
-/** erp_stock.effect_edit_allowed(o erp_documents.document, n erp_documents.document) → boolean */
-export const effectEditAllowed = (..._args: unknown[]): never => notPorted("erp_stock.effect_edit_allowed");
-/** erp_stock.effect_item_allowed(p_op text, o erp_documents.item, n erp_documents.item) → boolean */
-export const effectItemAllowed = (..._args: unknown[]): never => notPorted("erp_stock.effect_item_allowed");
-/** erp_stock.effect_transition_allowed(p_kind text, p_from text, p_to text) → boolean */
-export const effectTransitionAllowed = (..._args: unknown[]): never => notPorted("erp_stock.effect_transition_allowed");
-/** erp_stock.forget_item_components() → trigger */
-export const forgetItemComponents = (..._args: unknown[]): never => notPorted("erp_stock.forget_item_components");
 /** erp_stock.guard_composition() → trigger */
 export const guardComposition = (..._args: unknown[]): never => notPorted("erp_stock.guard_composition");
 /** erp_stock.guard_composition_command() → trigger */
@@ -83,16 +65,8 @@ export const guardLot = (..._args: unknown[]): never => notPorted("erp_stock.gua
 export const guardLotEntry = (..._args: unknown[]): never => notPorted("erp_stock.guard_lot_entry");
 /** erp_stock.guard_negative_insert() → trigger */
 export const guardNegativeInsert = (..._args: unknown[]): never => notPorted("erp_stock.guard_negative_insert");
-/** erp_stock.guard_posted_document() → trigger */
-export const guardPostedDocument = (..._args: unknown[]): never => notPorted("erp_stock.guard_posted_document");
-/** erp_stock.guard_posted_item() → trigger */
-export const guardPostedItem = (..._args: unknown[]): never => notPorted("erp_stock.guard_posted_item");
 /** erp_stock.guard_reserved_balance() → trigger */
 export const guardReservedBalance = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_balance");
-/** erp_stock.guard_reserved_document() → trigger */
-export const guardReservedDocument = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_document");
-/** erp_stock.guard_reserved_item() → trigger */
-export const guardReservedItem = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_item");
 /** erp_stock.guard_reserved_posting() → trigger */
 export const guardReservedPosting = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_posting");
 /** erp_stock.invoice_posted_for_document(p_document uuid) → boolean */
@@ -129,14 +103,10 @@ export const postDocumentLots = (..._args: unknown[]): never => notPorted("erp_s
 export const postPhysical025 = (..._args: unknown[]): never => notPorted("erp_stock.post_physical_025");
 /** erp_stock.reservation_write_access(p_actor uuid) → void */
 export const reservationWriteAccess = (..._args: unknown[]): never => notPorted("erp_stock.reservation_write_access");
-/** erp_stock.reserve_statuses() → text[] */
-export const reserveStatuses = (..._args: unknown[]): never => notPorted("erp_stock.reserve_statuses");
 /** erp_stock.reverse_lot_entries() → trigger */
 export const reverseLotEntries = (..._args: unknown[]): never => notPorted("erp_stock.reverse_lot_entries");
 /** erp_stock.sales_negative_allowed() → boolean */
 export const salesNegativeAllowed = (..._args: unknown[]): never => notPorted("erp_stock.sales_negative_allowed");
-/** erp_stock.settings_dto() → jsonb */
-export const settingsDto = (..._args: unknown[]): never => notPorted("erp_stock.settings_dto");
 /** erp_stock.supply_part(p_command uuid, p_part text) → uuid */
 export const supplyPart = (..._args: unknown[]): never => notPorted("erp_stock.supply_part");
 /** public.erp_document_stock_post(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_command_id uuid, p_preview_hash text, p_occurred_on date, p_reason text, p_ignored_item_ids jsonb) → jsonb */

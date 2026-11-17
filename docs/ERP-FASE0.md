@@ -408,7 +408,8 @@ acesso à área) → `src/erp/api/local-fetch.ts` → `createHandler` da erp-api
 `scripts/erp/copy-fagoo.mjs` com as dependências que ela alcança: 229
 arquivos, 3,0 MB, mais `@xmldom/xmldom` 0.9.12) com `fetchImpl` local:
 `/rest/v1/rpc/<nome>` → objeto `/erp-rpc/<nome>`; `/auth/v1/user` → o ator do
-Wabotia; `/storage/v1` → 501 até o R2.
+Wabotia; `/storage/v1` → R2 (bucket MEDIA, `src/erp-storage.ts`; veja
+`docs/ERP-PORTE.md`, "Armazenamento").
 
 | Verificação | Resultado |
 |---|---|

@@ -4,7 +4,7 @@
 // apontando para o motor:
 //   /rest/v1/rpc/<nome>  → objeto erp:<área>, /erp-rpc/<nome>
 //   /auth/v1/user        → o ator do Wabotia (já autenticado pelo Worker)
-//   /storage/v1/…        → ainda não (R2 na fase 3): 501
+//   /storage/v1/…        → R2 (MEDIA), por área (src/erp-storage.ts)
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
@@ -12,6 +12,7 @@ import { requireModule } from "../../modules/registry";
 import { erpBlockOf } from "../blocks.ts";
 import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
+import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 
 let erpApiModule: Promise<any> | null = null;
@@ -98,8 +99,8 @@ export function localFetch(
         hops?.push({ rpc: rpc[1], ms: Date.now() - started });
       }
     }
-    if (url.pathname.startsWith("/storage/v1/"))
-      return Response.json({ code: "0A000", message: "erp_storage_not_ported" }, { status: 501 });
+    // Arquivos no R2 (MEDIA), por área: src/erp-storage.ts.
+    if (url.pathname.startsWith("/storage/v1/")) return erpStorage(env, profile, new Request(input, init));
     return Response.json({ message: "not found" }, { status: 404 });
   };
 }
@@ -195,6 +196,15 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
       { error: { code: gate.denied === "mfa_required" ? "ERP_MFA_REQUIRED" : "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
       { status: 403, headers },
     );
+  }
+  // URL assinada do Storage (exportação): o endereço local da costura vira a
+  // rota pública do Worker, na origem em que a pessoa chamou.
+  if (/^application\/json/i.test(response.headers.get("Content-Type") || "")) {
+    const text = await response.text();
+    const rewritten = publicSignedUrls(text, LOCAL, url.origin, profile);
+    const headers = new Headers(response.headers);
+    if (rewritten !== text) headers.delete("content-length");
+    response = new Response(rewritten, { status: response.status, headers });
   }
   // Idas ao objeto erp: nesta requisição, para medir no navegador e na
   // Observabilidade: Server-Timing: erp;desc="hops=N";dur=…, erp-rpc-1;desc="<rpc>";dur=…
