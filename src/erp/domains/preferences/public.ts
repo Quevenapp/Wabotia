@@ -3,6 +3,11 @@
 import { one, type SqlDriver } from "../../engine/driver.ts";
 
 export * from "./stubs.generated.ts";
+export { situationBaseColor, situationBaseLabel } from "./situation-labels.ts";
+// As leituras de situações, transições e Meu Negócio que outros domínios usam
+// estão em ./shared.ts: este arquivo fica leve (sem importar outros domínios),
+// porque Catálogo, Estoque, Financeiro e Documentos o importam para o get() e um
+// import pesado aqui muda a ordem de carga deles (ciclo com o Catálogo).
 
 /**
  * erp_attachments.storage_ready(): no Fagoo confere o bucket em

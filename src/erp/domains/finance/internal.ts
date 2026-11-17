@@ -338,6 +338,29 @@ export function flushDeferred(ctx: RpcContext) {
   for (const check of list.values()) check();
 }
 
+/**
+ * erp_finance.document_command_start: recibo dos lançamentos de documentos e notas
+ * (tabela document_command). Devolve o resultado gravado com replayed=true, ou null.
+ */
+export function documentCommandStart(db: SqlDriver, actor: string, id: string | null, action: string, data: unknown) {
+  requireAccess(db, actor, true);
+  if (id === null) raise("22023", "erp_document_finance_command_required");
+  const c = one(db, 'SELECT actor, request_hash, result FROM "erp_finance__document_command" WHERE id=?', id);
+  if (!c) return null;
+  if (c.actor !== actor || c.request_hash !== requestHash(actor, action, data)) raise("40001", "erp_document_finance_command_conflict");
+  return { ...JSON.parse(String(c.result)), replayed: true };
+}
+
+/** erp_finance.document_command_finish */
+export function documentCommandFinish(ctx: RpcContext, actor: string, id: string, action: string, data: unknown, result: Record<string, unknown>) {
+  const r = { ...result, action, data_mode: "erp_native", replayed: false, cash_movement_performed: false };
+  ctx.db.exec(
+    'INSERT INTO "erp_finance__document_command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
+    id, actor, requestHash(actor, action, data), JSON.stringify(r), ctx.clock.next().toString(),
+  );
+  return r;
+}
+
 /** set_config(nome, valor, true) / current_setting(nome, true) */
 export const setFlag = (ctx: RpcContext, name: string, value: string) => ctx.settings.set(name, value);
 export const flag = (ctx: RpcContext, name: string) => ctx.settings.get(name) ?? null;

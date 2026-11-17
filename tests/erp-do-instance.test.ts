@@ -26,9 +26,9 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     expect((await erpFetch(env, f.profile, "/erp-wake", { method: "POST" })).status).toBe(200);
 
     const stub = erpStub(env, f.profile);
-    // O /erp-wake agenda o alarme para 1 ms: o runtime o roda sozinho, e numa
-    // suíte lenta ele corria junto com a chamada manual abaixo (falha
-    // intermitente). O teste tira esse alarme e agenda o seu, longe.
+    // Sem alarme, o /erp-wake agenda para já (o mais cedo vence): o runtime o
+    // roda sozinho, e numa suíte lenta ele corria junto com a chamada manual
+    // abaixo (falha intermitente). O teste tira esse alarme e agenda o seu, longe.
     await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
     // O alarme roda com o D1 contado: nenhuma instrução.
     const counted = await runInDurableObject(stub, async (instance: any, state) => {
@@ -90,22 +90,35 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     // inteira (conferência da K, 16/11); o padrão de 5 s estourava.
   }, 60_000);
 
-  it("causa da falha intermitente: o alarme de 1 ms do /erp-wake roda sozinho; o agendado longe, não", async () => {
+  it("causa da falha intermitente: o /erp-wake sem alarme agenda para já e o runtime roda sozinho; o agendado longe, não", async () => {
     const f = await fixture();
     const stub = erpStub(env, f.profile);
     await erpFetch(env, f.profile, "/erp-ping");
-    const settle = () => new Promise((r) => setTimeout(r, 300));
-    // Padrão antigo: /erp-wake e depois runDurableObjectAlarm. Com a suíte
-    // lenta (aqui, 300 ms de espera) o runtime já rodou o alarme: false.
-    await erpFetch(env, f.profile, "/erp-wake", { method: "POST" });
-    await settle();
-    expect(await runDurableObjectAlarm(stub)).toBe(false);
+    await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
+    const lastAlarm = () =>
+      runInDurableObject(stub, (_i: any, state: DurableObjectState) =>
+        state.storage.sql.exec("SELECT value FROM erp_meta WHERE key='last_alarm'").toArray()[0]?.value,
+      );
+    // Sem alarme, o wake (o mais cedo vence, docs/ERP-AGENDADOR.md) agenda
+    // para agora: o runtime roda o alarme sozinho, sem o teste mandar. Era a
+    // disputa com o runDurableObjectAlarm manual dos testes antigos.
+    const before = Date.now();
+    const woke = await (await erpFetch(env, f.profile, "/erp-wake", { method: "POST" })).json<any>();
+    expect(woke.alarm).toBeLessThanOrEqual(Date.now() + 1);
+    for (let i = 0; i < 200 && !(Number(await lastAlarm()) >= before); i++)
+      await new Promise((r) => setTimeout(r, 50));
+    expect(Number(await lastAlarm())).toBeGreaterThanOrEqual(before);
+    // O alarme do agendador se reagenda (próxima rotina, no máximo 1 h).
+    const next = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.getAlarm());
+    expect(next).toBeGreaterThan(Date.now());
+    expect(next).toBeLessThanOrEqual(Date.now() + 3_600_000);
     // Padrão do teste: alarme agendado longe só roda quando o teste manda.
     await runInDurableObject(stub, (_i: any, state: DurableObjectState) =>
       state.storage.setAlarm(Date.now() + 60_000),
     );
-    await settle();
+    await new Promise((r) => setTimeout(r, 300));
     expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
   }, 60_000);
 
   it("recusa outra área, instância de área e rotas da área na instância do ERP", async () => {

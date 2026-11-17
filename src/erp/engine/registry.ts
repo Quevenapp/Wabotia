@@ -33,6 +33,17 @@ export interface RpcContext {
   identity: IdentityPort;
   /** Números de identity emitidos nesta chamada (engine/sequence.ts); gravados fora da transação. */
   sequences: Map<string, bigint>;
+  /**
+   * Gatilhos DEFERRABLE INITIALLY DEFERRED enfileirados (defer): rodam no fim
+   * da transação, antes do COMMIT, na ordem da fila; o que eles enfileiram
+   * também roda. Sem deduplicar, como o Postgres (um evento por linha escrita).
+   */
+  deferred: (() => void)[];
+}
+
+/** Enfileira um gatilho adiado (roda antes do COMMIT, dentro da transação). */
+export function defer(ctx: RpcContext, fn: () => void) {
+  ctx.deferred.push(fn);
 }
 
 /** Objeto do armazenamento numa listagem: bucket, nome e tamanho em bytes. */
@@ -151,9 +162,14 @@ export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, cloc
     listing: () => listing,
     identity: e.identity ?? NO_IDENTITY,
     sequences: new Map(),
+    deferred: [],
   };
   try {
-    return db.transaction(() => fn(ctx));
+    return db.transaction(() => {
+      const result = fn(ctx);
+      for (let i = 0; i < ctx.deferred.length; i++) ctx.deferred[i]();
+      return result;
+    });
   } catch (error) {
     throw fromSqlite(error);
   } finally {

@@ -104,6 +104,28 @@ export function transitionAllowed(kind: string, from: string, to: string) {
   return from === to || (transitions()[kind]?.[from] ?? []).includes(to);
 }
 
+/**
+ * erp_preferences.transition_rule(kind, from, to): a regra da transição entre
+ * duas situações (padrão, configurada, ativa e ações), ou null quando não há.
+ */
+export function transitionRule(db: SqlDriver, kind: string, from: string | null, to: string | null) {
+  const list = situationList(db, kind);
+  const a = list.find((s) => s.key === from);
+  const b = list.find((s) => s.key === to);
+  if (!a || !b || a.key === b.key || !transitionAllowed(kind, a.base_status, b.base_status)) return null;
+  const t = one(db, 'SELECT active, actions FROM "erp_preferences__transition" WHERE kind=? AND from_key=? AND to_key=?', kind, a.key, b.key);
+  const isDefault = a.is_default && b.is_default;
+  const configured = !!t || isDefault;
+  return {
+    default: isDefault,
+    configured,
+    active: configured && (t ? Number(t.active) === 1 : true) && a.active && b.active,
+    actions: t ? (JSON.parse(String(t.actions)) as string[]) : [],
+    from_base: a.base_status,
+    to_base: b.base_status,
+  };
+}
+
 const pad = (n: number | bigint, w: number) => String(n).padStart(w, "0");
 /** to_char(t at time zone 'UTC', 'YYYYMMDDHH24MISSUS') */
 export function utcStamp(micros: bigint) {
