@@ -273,7 +273,7 @@ export type AiRequest = {
   /** PDFs do cliente desta mensagem, como data URLs (`data:application/pdf;base64,...`). */
   documents?: string[];
   /** Quando o motor espera o JSON do Atendente. */
-  json?: "attendant" | "attendant-jev";
+  json?: "attendant" | "attendant-jev" | "specialist";
   /** Soma o uso (tokens) de cada chamada ao provedor. */
   usage?: AiUsage;
 };
@@ -372,6 +372,15 @@ const attendantJevSchema = attendantSchema.extend({
     missing_information: z.array(z.string()),
   }),
   clarification: z.string().nullable(),
+});
+// Especialista interno (fase specialist): o mesmo contrato das instruções
+// (src/engine.ts, runInstructions). O provedor direto não gera arquivos:
+// links e files vêm vazios ou são ignorados.
+const specialistSchema = z.object({
+  outcome: z.enum(["resolved", "unresolved", "needs_clarification"]),
+  text: z.string(),
+  links: z.array(z.string()),
+  files: z.array(z.string()),
 });
 
 async function connectionKey(env: Env, conn: any) {
@@ -554,12 +563,7 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
   };
   const client = anthropicClient(key, aiCallTimeout(cfg));
   try {
-    const schema =
-      request.json === "attendant-jev"
-        ? attendantJevSchema
-        : request.json
-          ? attendantSchema
-          : null;
+    const schema = schemaFor(request);
     // A saída estruturada vai no pedido; a validação fica aqui, depois de
     // conferir o motivo de parada (uma recusa não segue o formato).
     const effort = AI_EFFORTS.anthropic.includes(cfg.effort)
@@ -603,9 +607,11 @@ export type AiToolRequest = AiRequest & {
 function schemaFor(request: AiRequest) {
   return request.json === "attendant-jev"
     ? attendantJevSchema
-    : request.json
-      ? attendantSchema
-      : null;
+    : request.json === "specialist"
+      ? specialistSchema
+      : request.json
+        ? attendantSchema
+        : null;
 }
 
 /** O texto final como aiComplete devolveria (JSON validado, se pedido). */

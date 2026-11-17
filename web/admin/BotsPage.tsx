@@ -32,11 +32,11 @@ function CapabilityDialog({ onClose }: { onClose: () => void }) {
     >
       <Field label="Nome" value={form.name} onChange={change("name")} required />
       <Field
-        label="Especialista Hermes"
+        label="Especialista"
         value={form.bot_id}
         onChange={change("bot_id")}
-        options={app.bots.filter((bot) => bot.connection_kind !== "ai")}
-        help="Só bots do Hermes executam ações. Bots de provedor de IA só conversam."
+        options={app.bots}
+        help="Bot de provedor de IA como especialista: responde com as ferramentas do atendimento desta área (consultas e propostas que o cliente confirma)."
       />
       <Field
         label="Quando consultar este especialista"

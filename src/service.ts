@@ -34,6 +34,7 @@ import { probe, discover, telegramRemoved } from "./integrations";
 import { isLink, linkCode, linkRevoke } from "./hermes-link";
 import { aiConfig, aiKey } from "./ai-provider";
 import { secret } from "./security";
+import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
 import {
@@ -245,13 +246,9 @@ async function requireToolBot(
       ? "Bot do menu não pertence à área de atendimento."
       : "Especialista não pertence à área de atendimento.",
   );
-  // A menu item hands the conversation to an AI bot, which then talks as the
-  // attendant; only a specialist has to run tools, which needs the Hermes.
-  if (use === "specialist")
-    requireValue(
-      bot.kind !== "ai",
-      "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
-    );
+  // Especialista interno: um bot do provedor de IA direto responde na fase
+  // specialist com as ferramentas do cliente da conversa (src/engine.ts,
+  // aiRun) e o JSON do especialista; o JEV continua decidindo a rota.
 }
 export async function conversation(
   env: Env,
@@ -1900,6 +1897,7 @@ export async function perform(
         typeof next.surveys_enabled === "boolean",
       "JEV e avaliações devem estar ligados ou desligados.",
     );
+    validateJevSettings(next);
     requireValue(
       next.absence_return_to_bot === undefined ||
         typeof next.absence_return_to_bot === "boolean",

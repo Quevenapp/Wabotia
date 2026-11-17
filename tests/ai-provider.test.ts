@@ -514,30 +514,28 @@ describe("cadastro da conexão de provedor de IA", () => {
     ).toBe(f.bot);
   });
 
-  it("bot de IA não pode ser especialista", async () => {
+  it("bot de IA pode ser especialista interno (docs/JEV.md)", async () => {
     const f = await serviceFixture({ provider: "openai", model: "gpt-test" });
-    await expect(
-      perform(
-        env,
-        admin,
-        f.profile,
-        "settings",
-        {
-          capabilities: [
-            {
-              id: "c1",
-              name: "Boleto",
-              bot_id: f.bot,
-              condition: "x",
-              instructions: "y",
-              enabled: true,
-            },
-          ],
-        },
-        uid(),
-      ),
-    ).rejects.toThrow("Especialistas precisam de um bot Hermes");
-    // Como Atendente, o mesmo bot é aceito.
+    await perform(
+      env,
+      admin,
+      f.profile,
+      "settings",
+      {
+        capabilities: [
+          {
+            id: "c1",
+            name: "Boleto",
+            bot_id: f.bot,
+            condition: "x",
+            instructions: "y",
+            enabled: true,
+          },
+        ],
+      },
+      uid(),
+    );
+    // Como Atendente, o mesmo bot também é aceito.
     await perform(
       env,
       admin,
