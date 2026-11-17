@@ -13,4 +13,5 @@ import "./rpc/reservations.ts";
 import "./rpc/purchase-receipts.ts";
 import "./rpc/launch.ts";
 import "./rpc/counts.ts";
+import "./rpc/lots.ts";
 export {};
