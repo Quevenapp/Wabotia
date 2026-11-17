@@ -98,3 +98,77 @@ test(
     assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [product.id])).rows[0].v, "local_modified");
   },
 );
+
+// ---------------------------------------------------------------------------
+// Leituras do Documentos e PDV (L). Um segundo pedido espelhado, este com a
+// linha de erp_documents.origin_mirror (número, situação e total da fonte),
+// para o report_coverage, a busca pela fonte e o total da lista.
+
+let sourced;
+/** Semeado na primeira chamada (depois do before de cima, que cria o contato e o produto). */
+async function seedSourced() {
+  if (sourced) return;
+  sourced = randomUUID();
+  await seed(
+    `insert into erp_documents.document(id,kind,number,version,status,contact_id,contact_snapshot,body,total,created_by,updated_by,origin,authority)
+     values($1,'sales_orders',9002,1,'verified',$2,'{"name":"Contato espelhado"}',$3::jsonb,null,$4,$4,'origin','origin')`,
+    [sourced, contact.id, JSON.stringify({ date: "2026-10-16", contact_id: contact.id }), u.admin],
+  );
+  await seed(
+    `insert into erp_documents.item(id,document_id,position,product_id,quantity,unit_price,data) values($1,$2,1,$3,null,null,'{"unit":"UN","description":"Item da fonte","quantity":"1.5","unit_price":"14.333"}')`,
+    [randomUUID(), sourced, product.id],
+  );
+  await seed(
+    `insert into erp_documents.origin_mirror(entity,source_id,document_id,applied_version,applied_hash,state,source_number,source_status,source_status_label,observed_at,source_deleted,issues,reconciliation,effects,plan_hash)
+     values('sales_orders','9002',$1,1,$2,'synced','PV-9002','6','Em andamento',now(),false,'[]','{"source_total":"21.5"}','{}',$2)`,
+    [sourced, HASH],
+  );
+}
+
+const L_GUARD = "pendente da O: mirrorRequireVisible (reads-g.ts) só vale com o documents/mirror.ts dela (sobe com o B5); até lá o motor não recusa o espelho";
+const L_ROW = "pendente da L: list_row e metadata do espelho esperam o mirrorMetadata do documents/mirror.ts da O (sobe com o B5)";
+
+test("Documentos (L): histórico do contato com as linhas espelhadas (origin, quantidade e preço observados)", async () => {
+  await seedSourced();
+  const history = await same("erp_document_history", { p_user_id: u.admin, p_kind: "sales_orders", p_contact_id: contact.id, p_product_id: null, p_query: null, p_limit: 50 });
+  const line = history.items.find((i) => i.document_id === sourced);
+  assert.deepEqual([line?.origin, line?.quantity, line?.unit_price], ["origin", "1.5", "14.333"], JSON.stringify(history.items));
+  await same("erp_document_history", { p_user_id: u.admin, p_kind: "sales_orders", p_contact_id: contact.id, p_product_id: null, p_query: "fonte", p_limit: 50 });
+});
+test("Documentos (L): relatórios com o espelho fora da cobertura (report_coverage)", async () => {
+  await seedSourced();
+  for (const user of [u.admin, u.vendas, u.consulta]) {
+    await same("erp_document_sales_abc", { p_user_id: user, p_from: "2026-10-01", p_to: "2026-10-31" });
+    await same("erp_document_sales_romaneio", { p_user_id: user, p_filters: { from: "2026-10-01", to: "2026-10-31" } });
+    await same("erp_document_service_occurrence_report", { p_user_id: user, p_from: "2026-10-01", p_to: "2026-10-31", p_status: null });
+  }
+  // Só o pedido com linha em origin_mirror (9002, 16/10) conta como deixado de fora.
+  const abc = await same("erp_document_sales_abc", { p_user_id: u.admin, p_from: "2026-10-16", p_to: "2026-10-31" });
+  assert.deepEqual([abc.mirror_excluded_count, abc.coverage.partial], [1, true]);
+  await same("erp_document_sales_abc", { p_user_id: u.admin, p_from: "2026-11-01", p_to: "2026-11-30" });
+});
+test("Documentos (L): checkout pelo número do espelho (só o nativo é achado)", async () => {
+  await seedSourced();
+  for (const number of ["9001", "9002"]) await same("erp_document_checkout_lookup", { p_user_id: u.admin, p_number: number });
+});
+test("Documentos (L): leituras de um documento espelhado passam pela guarda do espelho", { todo: L_GUARD }, async () => {
+  await seedSourced();
+  for (const id of [mirrored, sourced]) {
+    for (const name of ["erp_document_copy_origin", "erp_document_structures", "erp_document_supplier_descriptions", "erp_document_commission_operation", "erp_document_occurrence_list", "erp_document_freight_paid_get"])
+      await same(name, { p_user_id: u.admin, p_kind: "sales_orders", p_document_id: id });
+    await same("erp_document_pendencies", { p_user_id: u.admin, p_kind: "sales_orders", p_id: id });
+    await same("erp_document_checkout_get", { p_user_id: u.admin, p_id: id });
+    await same("erp_document_conversion_preview", { p_user_id: u.admin, p_kind: "sales_orders", p_proposal_id: id });
+  }
+});
+test("Documentos (L): lista com busca e total da fonte, e exportação com o espelho", { todo: L_ROW }, async () => {
+  await seedSourced();
+  for (const q of [null, "pv-9002", "em andamento", "9002", "6"])
+    await same("erp_document_list", { p_user_id: u.admin, p_kind: "sales_orders", p_limit: 25, p_origin: "all", p_query: q });
+  await same("erp_document_export", { p_user_id: u.admin, p_kind: "sales_orders", p_date_from: "2026-10-01", p_date_to: "2026-10-31", p_page: 1 });
+});
+test("PDV (L): o pedido espelhado não é venda da frente de caixa", async () => {
+  await seedSourced();
+  for (const id of [mirrored, sourced]) await same("erp_pos_order", { p_user_id: u.admin, p_document_id: id });
+  for (const q of ["9001", "9002", "contato"]) await same("erp_pos_sales", { p_user_id: u.admin, p_query: q });
+});
