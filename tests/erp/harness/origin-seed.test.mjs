@@ -89,6 +89,40 @@ test("Catálogo (P): leitura do contato espelhado", async () => {
 test("Catálogo (P): leitura do produto espelhado", async () => {
   await same("erp_catalog_product_get", { p_user_id: u.admin, p_id: product.id });
 });
+// Preferências, Fiscal e CNAB (G). O título importado do Origin
+// (erp_finance.origin_import_origin) no CNAB já é semeado no oráculo e
+// comparado em tests/erp/cnab/returns.test.mjs ("título importado do Origin
+// pede vínculo próprio"): a montagem do perfil e da remessa não cabe aqui.
+test("Preferências (G): registros do Origin (origin_sync.raw_record) do contato espelhado", async () => {
+  await same("erp_read_records", { p_user_id: u.admin, p_entity: "contacts", p_limit: 25, p_offset: 0 });
+});
+test("Preferências (G): pedidos de venda no início, com o espelhado", async () => {
+  await same("erp_home_summary", { p_user_id: u.admin });
+});
+test("Preferências (G): relatório de pedidos com o espelhado", async () => {
+  await same("erp_preferences_report_run", { p_user_id: u.admin, p_base: "vendas", p_columns: ["numero", "total"], p_filters: [], p_view_limit: 2000, p_offset: 0, p_page: 20 });
+});
+test("Preferências (G): etiquetas de pedido com o espelhado (erp_document_mirror.visible)", async () => {
+  await same("erp_preferences_label_records", { p_user_id: u.admin, p_type: "pedidos", p_query: null });
+});
+test("Fiscal (G): erp_fiscal_mirror.visible da NF-e espelhada (raw_record) igual ao oráculo", async () => {
+  await seed(
+    `insert into origin_sync.raw_record(entity,last_resource,source_id,payload,version_hash) values('nfe','nfe','7001','{"id":7001,"contato":{"id":101}}'::jsonb,$1)`,
+    [HASH],
+  );
+  const { visible } = await import("../../../src/erp/domains/fiscal/public.ts");
+  for (const user of Object.values(u))
+    for (const [entity, source] of [["nfe", "7001"], ["nfe", "7002"], ["nfce", "7001"]])
+      assert.equal(
+        visible(f.driver, user, entity, source),
+        (await f.db.query("select erp_fiscal_mirror.visible($1,$2,$3) v", [user, entity, source])).rows[0].v,
+        `${user} ${entity} ${source}`,
+      );
+});
+test("Fiscal (G): contato espelhado no formulário da nota", async () => {
+  await same("erp_fiscal_invoice_contact_source", { p_user_id: u.admin, p_contact_id: contact.id, p_direction: "1" });
+});
+
 test(
   "Catálogo (P): mudança local no produto espelhado marca a origem",
   { todo: "pendente da P: o erp_catalog_product_save não grava erp_catalog.origin.state='local_modified' (o oráculo grava; o motor fica 'synced')" },
