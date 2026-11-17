@@ -12,28 +12,12 @@ import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
 import { Button, Field, Notice, Pill, SkeletonRows } from "../ui";
 import { useResource } from "./shared";
+import { establishmentForm, establishmentPayload } from "./establishment-form";
 
 const UFS = [
   "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
   "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
 ];
-
-const ADDRESS_KEYS = [
-  "street",
-  "number",
-  "complement",
-  "district",
-  "city",
-  "state",
-  "postal_code",
-  "municipality_code",
-] as const;
-
-/** "-22.9056" ou "-22,9056" → número; vazio → null; inválido → NaN. */
-const coordinate = (text: string) => {
-  const t = String(text || "").trim().replace(",", ".");
-  return t ? Number(t) : null;
-};
 
 export function EstablishmentPage() {
   const app = useApp();
@@ -44,30 +28,15 @@ export function EstablishmentPage() {
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState("");
   useEffect(() => {
-    if (data)
-      setForm({
-        name: data.name || "",
-        document: data.document_display || "",
-        // O texto livre gravado (o `address` da leitura pode vir montado).
-        address: data.address_free ?? data.address ?? "",
-        phone: data.phone || "",
-        footer: data.footer || "",
-        ...Object.fromEntries(ADDRESS_KEYS.map((k) => [k, data[k] || ""])),
-        latitude: data.latitude ?? "",
-        longitude: data.longitude ?? "",
-      });
+    if (data) setForm(establishmentForm(data));
   }, [data]);
   const set = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
   const save = () =>
     run(
       async () => {
-        const latitude = coordinate(form.latitude),
-          longitude = coordinate(form.longitude);
-        if (Number.isNaN(latitude) || Number.isNaN(longitude))
-          throw new Error("Posição da loja: use números, como -22.9056 e -47.0608.");
         await app.api(app.root + "/settings", "PUT", {
-          establishment: { ...form, latitude, longitude },
+          establishment: establishmentPayload(form),
         });
         await resource.reload();
       },
@@ -155,8 +124,10 @@ export function EstablishmentPage() {
         label="Endereço em texto (opcional)"
         value={form.address || ""}
         onChange={set("address")}
+        type="textarea"
+        rows={3}
         maxLength={300}
-        help="Vale enquanto rua e cidade abaixo estiverem vazias."
+        help="Pode ter várias linhas, como sai no cupom. Vale enquanto rua e cidade abaixo estiverem vazias."
       />
       <h3>Endereço da loja (opcional)</h3>
       <p className="workspace-help">
