@@ -3,7 +3,7 @@
 // editados em Gestão; módulos leem por ctx.establishment(), as páginas do
 // passo web mostram no cabeçalho e no rodapé, e os aplicativos leem em
 // GET /api/v1/profiles/:profile/establishment (cupom, comanda, recibo).
-import { cachedOne } from "./db";
+import { cachedOne, PROFILE_SETTINGS_SQL } from "./db";
 import { ApiError, json, requireValue, type Env } from "./types";
 
 export interface EstablishmentSettings {
@@ -135,11 +135,9 @@ export async function establishment(
   env: Env,
   profile: string,
 ): Promise<Establishment> {
-  const row = await cachedOne(
-    env,
-    "SELECT name,settings FROM profiles WHERE id=?",
-    profile,
-  );
+  // A mesma leitura das configurações (service.ts, settings): uma entrada só
+  // no cache da requisição.
+  const row = await cachedOne(env, PROFILE_SETTINGS_SQL, profile);
   if (!row)
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   const saved: Partial<EstablishmentSettings> =

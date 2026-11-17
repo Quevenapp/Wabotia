@@ -1,4 +1,11 @@
-import { batch, cachedAll, one } from "./db";
+import {
+  batch,
+  cached,
+  cachedAll,
+  one,
+  seedRead,
+  WEBHOOK_SUBS_SQL,
+} from "./db";
 import { type Env, type Actor, uid, now, json } from "./types";
 export async function event(
   env: Env,
@@ -8,6 +15,38 @@ export async function event(
   payload: any,
   uniqueKey?: string,
 ) {
+  const insert = eventStatement(profile, kind, id, payload, uniqueKey);
+  // O evento e as assinaturas de webhook numa ida só ao D1 (as assinaturas
+  // ficam no cache da requisição para os próximos eventos).
+  const subsRead = { sql: WEBHOOK_SUBS_SQL, args: [profile] };
+  let row: any, subs: any[];
+  if (cached(env, subsRead)) {
+    row = await one(env, insert[0], ...insert[1]);
+    subs = await cachedAll(env, WEBHOOK_SUBS_SQL, profile);
+  } else {
+    const [inserted, subsRows] = await batch(env, [
+      insert,
+      [WEBHOOK_SUBS_SQL, [profile]],
+    ]);
+    row = inserted.results[0];
+    subs = subsRows.results as any[];
+    seedRead(env, subsRead, subs);
+  }
+  await fanOut(env, profile, kind, row.id, subs);
+  return row.id;
+}
+
+/**
+ * A instrução que grava o evento (RETURNING id), para ir num lote com a
+ * escrita que o gera. Depois do lote, chame fanOut com o id.
+ */
+export function eventStatement(
+  profile: string,
+  kind: string,
+  id: string,
+  payload: any,
+  uniqueKey?: string,
+): [string, any[]] {
   const sourceKey =
     uniqueKey ||
     ([
@@ -20,21 +59,25 @@ export async function event(
     ].includes(kind)
       ? `${profile}:${kind}:${id}`
       : null);
-  const row = await one(
-    env,
+  return [
     "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) VALUES(?,?,?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET source_key=excluded.source_key RETURNING id",
-    profile,
-    kind,
-    id,
-    JSON.stringify(payload),
-    now(),
-    sourceKey,
-  );
-  const subs = await cachedAll(
-    env,
-    "SELECT s.*,a.scopes FROM webhook_subscriptions s JOIN applications a ON a.id=s.app_id WHERE s.profile_id=? AND s.enabled=1 AND a.disabled=0",
-    profile,
-  );
+    [profile, kind, id, JSON.stringify(payload), now(), sourceKey],
+  ];
+}
+
+/**
+ * Entregas de webhook de um evento já gravado (por quem gravou o evento no
+ * mesmo lote da própria escrita, como a emissão da senha). `subs`: as
+ * assinaturas, se já lidas; senão vêm do cache da requisição ou do banco.
+ */
+export async function fanOut(
+  env: Env,
+  profile: string,
+  kind: string,
+  eventId: number,
+  subs?: any[],
+) {
+  subs ??= await cachedAll(env, WEBHOOK_SUBS_SQL, profile);
   const scope = kind.startsWith("call.")
     ? "calls:read"
     : kind.startsWith("bot.")
@@ -53,20 +96,19 @@ export async function event(
       (s) =>
         [
           "INSERT OR IGNORE INTO webhook_deliveries(id,subscription_id,event_id,next_at,created) VALUES(?,?,?,?,?)",
-          [uid(), s.id, row.id, now(), now()],
+          [uid(), s.id, eventId, now(), now()],
         ] as [string, any[]],
     );
   if (deliveries.length) await batch(env, deliveries);
-  return row.id;
 }
-export async function audit(
-  env: Env,
+/** A instrução da auditoria, para ir num lote com outra escrita. */
+export function auditStatement(
   actor: Actor,
   profile: string,
   operation: string,
   id: string,
   requestId: string,
-) {
+): [string, any[]] {
   // `via`: a pessoa agiu pelo bot da conversa interna (src/bot-actions).
   const via = actor.via
     ? JSON.stringify({
@@ -76,10 +118,22 @@ export async function audit(
         proposal_id: actor.via.proposal_id ?? null,
       })
     : null;
-  await env.DB.prepare(
+  return [
     "INSERT INTO audit(profile_id,actor,operation,resource_id,request_id,via,created) VALUES(?,?,?,?,?,?,?)",
-  )
-    .bind(profile, actor.id, operation, id, requestId, via, now())
+    [profile, actor.id, operation, id, requestId, via, now()],
+  ];
+}
+export async function audit(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  operation: string,
+  id: string,
+  requestId: string,
+) {
+  const [sql, args] = auditStatement(actor, profile, operation, id, requestId);
+  await env.DB.prepare(sql)
+    .bind(...args)
     .run();
 }
 export async function wake(env: Env, profile: string) {
