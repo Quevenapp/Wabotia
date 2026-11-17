@@ -42,11 +42,10 @@ test("funcionários: administrador only, valid and unique CPF, PIS digits, Desli
   const command = randomUUID(),
     created = await save({ ...EMPLOYEE, pis: "120.50218.74-7" }, { command });
   assert.deepEqual(Object.keys(created.item).sort(), ["id", "version"]);
-  assert.equal(
-    JSON.stringify(await f.scalar("select result v from erp_catalog.command where command_id=$1", [command])).includes("529"),
-    false,
-    "no CPF in the stored command",
-  );
+  // O recibo tem UUIDs aleatórios: procurar um pedaço ("529") falha por acaso; procura o CPF e o PIS inteiros.
+  const stored = JSON.stringify(await f.scalar("select result v from erp_catalog.command where command_id=$1", [command]));
+  for (const secret of ["52998224725", "529.982.247-25", "12050218747", "120.50218.74-7"])
+    assert.equal(stored.includes(secret), false, "no CPF or PIS in the stored command");
   const item = (await f.rpc("erp_catalog_employee_get", { p_user_id: f.users.admin, p_id: created.item.id })).item;
   assert.deepEqual([item.cpf, item.pis, item.salary, item.situation], ["52998224725", "12050218747", "3500.50", "ativo"]);
   await fails(save({ ...EMPLOYEE, name: "Outra" }), "23505");
