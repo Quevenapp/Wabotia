@@ -5,16 +5,20 @@ relido e decodificado em toda etapa do atualizador, com no máximo 100
 estáticos. O ERP (Fagoo) não cabe nele. O formato 2 troca o formato, os
 limites e passa a exigir assinatura.
 
-**Sem ponte.** Nenhuma instalação baixou o formato 1 (decisão de 16/11/2026),
-então não há versão de transição: o leitor do formato 1, o `--bridge`, o
-degrau e o caminho antigo por GitHub/Deploy Hook saíram do código. O catálogo
-publicado do formato 1 **não muda**: `releases/latest.json` fica parado na
-0.20.0, com os 39 pacotes antigos, e nada no código o lê ou escreve.
+**Com ponte (desde 17/11/2026).** A 0.21.0 saiu ainda no formato 1 e a
+instalação do usuário foi atualizada para ela pelo painel: o atualizador
+dela só lê `releases/latest.json`. A **versão ponte 0.21.1** é a última com
+pacote de formato 1 e já traz o leitor do formato 2; a seção
+[Versão ponte](#versão-ponte-0211) explica o degrau, os tamanhos, a herança
+do formato 1 e a saída de emergência. O leitor do formato 1 não volta ao
+código (a ponte só escreve esse formato), nem o caminho antigo por
+GitHub/Deploy Hook.
 
 ## Formato 2
 
 ```
-/releases/latest.json              formato 1, parado na 0.20.0 (intocado)
+/releases/latest.json              formato 1, congelado na ponte (0.21.1)
+/releases/v2/bridge.json           {version, commit} da ponte
 /releases/v2/latest.json           índice: {format:2, version, commit,
                                    manifest_sha256, manifest_size,
                                    total_size, requires, issued_at, expires}
@@ -30,9 +34,9 @@ publicado do formato 1 **não muda**: `releases/latest.json` fica parado na
 - Sem base64. O mesmo conteúdo vira um blob só, compartilhado entre versões.
 - Migração: o blob é um JSON com a lista de instruções SQL.
 - `requires.min_version`: versão mínima instalada; o atualizador (manual e
-  automático) recusa começar abaixo dela. Padrão `0.0.0`; muda com
-  `npm run release -- --min-version x.y.z`. Mecanismo para o futuro: nenhuma
-  versão o usa hoje.
+  automático) recusa começar abaixo dela. A ponte sai com `0.0.0`; toda versão
+  depois dela exige a ponte (o padrão) ou o que `--min-version x.y.z` pedir,
+  nunca menos que a ponte.
 - `requires.workers_paid`: liga a sonda do plano pago antes de migrar
   (`--workers-paid`).
 - `issued_at` e `expires` (ms Unix): o prazo do índice, abaixo.
@@ -75,7 +79,8 @@ código do instalador pelo navegador juntos.
   atualização não volta de versão"). Um índice antigo ou adulterado não faz
   voltar código sobre um banco já migrado.
 - **Publicação:** `release.mjs` recusa versão que não seja maior que a do
-  índice v2 publicado e que a 0.20.0 (a última do formato 1). Republicar a
+  índice v2 publicado e que a de `releases/latest.json` (a 0.21.0 antes da
+  ponte; a própria ponte depois dela). Republicar a
   mesma versão só com o mesmo manifesto (é o que `--renew` faz).
 
 ## Assinatura (Ed25519)
@@ -262,6 +267,215 @@ atualização.
   mandam um lote por envio. O tamanho real de um lote só se confirma com o
   envio real (roteiro abaixo): um lote grande demais para a memória do
   Worker apareceria ali.
+
+## Versão ponte (0.21.1)
+
+### O degrau
+
+```
+0.21.0 (lê releases/latest.json, formato 1)
+   └─> 0.21.1 PONTE: pacote de formato 1 para a 0.21.0 ler; o código só lê
+       o formato 2 assinado (releases/v2/latest.json + .sig)
+          └─> 0.22.0 em diante: só formato 2, com requires.min_version 0.21.1
+```
+
+- `npm run release -- --bridge` grava o formato 2 **e** o pacote de formato
+  1 (`releases/0.21.1/package.json` + `release.json`), aponta
+  `releases/latest.json` para a ponte e registra `releases/v2/bridge.json`.
+- Sem `--bridge`, o script nunca escreve `releases/latest.json` e recusa
+  publicar antes de existir a ponte. Uma segunda ponte é recusada.
+- O leitor da 0.21.0 exige `format: 1` no índice: um engano no catálogo não
+  a leva a um pacote que ela não sabe ler.
+- A ponte é **a 0.21.0 sem mudança de comportamento** mais o atualizador e
+  os instaladores do formato 2: sem ERP novo e sem migração nova (as mesmas
+  62, até a 0089). A etapa `migrate` do atualizador antigo não aplica nada,
+  então não existe o caso "migrou e não publicou" neste salto.
+- **É o último salto sem assinatura:** a 0.21.0 confere só o SHA-256 que vem
+  no `releases/latest.json`, por HTTPS. A ponte traz as chaves públicas
+  (`src/release-keys.json`); daí em diante, toda versão é assinada.
+
+### Travas do leitor da 0.21.0
+
+O `release.mjs` (`legacyProblems`) para antes de gravar se o pacote de
+formato 1 sair destas travas do `src/release.ts` da 0.21.0:
+
+- até 24 MiB (25.165.824 bytes);
+- de 1 a 63 módulos e de 1 a 100 estáticos;
+- até 100 migrações, cada uma com até 100 instruções de menos de 100 mil
+  caracteres;
+- nomes e tipos válidos;
+- Durable Object `v1`/`Coordinator`, `run_worker_first` fixo e SPA.
+
+O `scripts/erp/check-candidate.mjs <pasta da versão>` faz a prova de
+verdade: compila o `src/release.ts` da 0.21.0 (`fca4bb2`) sem alteração e
+passa o pacote por `validateIndex` e `parsePackage`. Confere também:
+
+- o formato 2 pelo leitor atual (índice, manifesto, todos os blobs e
+  migrações). Sem os `.sig`, num candidato, ele assina em memória com uma
+  chave temporária, só para conferir o resto;
+- que o pacote de formato 1 tem o mesmo código do manifesto.
+
+### Completa ou enxuta (`--slim`)
+
+Medido em `b72afc7` (candidato; a 0.21.0 publicada tinha 23.655.027 bytes):
+
+| Variante | Pacote de formato 1 | Folga até 24 MiB |
+|---|---|---|
+| Completa (0.21.0 + atualizador novo) | **23.672.785 bytes** | 1.493.039 bytes |
+| Enxuta (`--bridge --slim`: sem os 24 `/assets/erp-*`) | **16.320.406 bytes** | 8.845.418 bytes |
+| Formato 2 da mesma versão (os dois casos) | 17.766.774 bytes em 125 blobs, manifesto 20 KB | — |
+
+**A enxuta:**
+
+- Só o pacote de formato 1 perde as telas do ERP do painel: 24 chunks
+  carregados sob demanda, que o `index.html` não cita. O manifesto do
+  formato 2 da mesma versão continua completo.
+- Instalada pela 0.21.0, ela abre tudo, menos a tela do ERP (o pedido do
+  chunk recebe a página da SPA). O ERP no servidor segue igual.
+- Por isso a enxuta só sai **junto** com a versão seguinte de formato 2,
+  que traz as telas de volta em minutos.
+- Ela também cabe nos 20 MB das instalações até a 0.17.0.
+
+**O que dá para tirar da completa sem tirar telas.** O Worker
+(9.720.627 bytes, 12,96 MB em base64) é 55% do pacote:
+
+- o motor do ERP, espalhado (cerca de 4,4 MB);
+- `unpdf` (2,27 MB);
+- `zod` e o SDK da Anthropic (0,87 MB);
+- os módulos.
+
+O único corte sem tela seria trocar por um vazio os decodificadores de
+imagem do pdf.js:
+
+- `pdfjs-openjpeg_nowasm_fallback.mjs`, 431 KB;
+- `pdfjs-jbig2_nowasm_fallback.mjs`, 147 KB.
+
+Isso economiza cerca de 0,77 MB no pacote (3%), mas muda comportamento da
+leitura de PDF no Conhecimento. **Recusado:** a ponte é a 0.21.0 sem
+mudança. Os estáticos fora do ERP somam 2,44 MB e são todos do painel. Não
+há mapa de código nem PDF no pacote.
+
+**Memória.** É o risco do salto 0.21.0 → ponte. O atualizador da 0.21.0
+(que não muda mais) relê o pacote inteiro em toda rodada:
+
+- `arrayBuffer`, SHA-256, `Buffer.from` + `toString`, `JSON.parse`;
+- para cada arquivo, a decodificação do base64, a recodificação e o
+  SHA-256.
+
+Com 23,7 MB, isso dá cerca de 70 a 95 MB vivos acima da base, na rodada mais
+pesada. A base é o isolate do `_admin` com o Worker de 9,7 MB e
+possivelmente outros objetos `Coordinator`; o teto do isolate é 128 MB.
+
+- A enxuta reduz o pico em cerca de 30%.
+- O salto 0.20.0 → 0.21.0 já leu um pacote de 23,66 MB na instalação do
+  usuário, mas com o código da 0.20.0, que é mais leve.
+- O ensaio decide entre as duas.
+
+### Herança do formato 1
+
+Quando a ponte começa a rodar, encontra o que o atualizador da 0.21.0
+guardou.
+
+- **O trabalho em `system:release-state`.** `settleFormat1Job` fecha uma
+  vez, na consulta, no início e em cada rodada:
+  - o que publicou o código em execução fica concluído;
+  - outro ainda ativo vira falho, sem nova tentativa automática;
+  - o pacote antigo (`system/releases/<id>.json`, fora do prefixo do
+    trabalho) sai do R2.
+- **O índice do formato 1 em cache** (`system:release-latest`) não vale
+  como cache nem aparece como versão disponível.
+
+Testes em `tests/release-v2.test.ts`.
+
+### Saída de emergência: trabalho preso em "atualizando"
+
+**Quando:** a 0.21.0 estoura a memória ao ler o pacote da ponte.
+
+- A rodada morre sem registrar erro: o estado fica `pending` na mesma
+  etapa.
+- A trava (`system_update_locks`) vence em 3 minutos, e o alarme do `_admin`
+  tenta de novo: **para sempre, a cada ~3 min**.
+- A 0.21.0 não oferece "Liberar nova tentativa" para um trabalho `pending`.
+- O atendimento segue normal; só a atualização fica parada.
+
+**O que o usuário vê antes:**
+
+- em **Sistema e atualizações**, "Atualizando para 0.21.1" com a mesma
+  etapa ("verificando instalação", "enviando arquivos", "preparando banco"
+  ou "publicando") por mais de 15 minutos;
+- nenhum botão de nova tentativa;
+- `/api/health` ainda com `"version": "0.21.0"`.
+
+Se houver acesso ao `wrangler tail` do Worker, as execuções do alarme
+aparecem com `exceededMemory`.
+
+**Saída:** publicar à mão, com o Wrangler, **exatamente o commit da ponte**.
+A ponte, ao rodar, vê que o trabalho buscava o código em execução e o fecha
+como concluído. Quem roda é o usuário, na instalação dele.
+
+1. Na pasta do repositório, numa cópia limpa do commit da ponte (o
+   `commit` de `releases/0.21.1/release.json`):
+   `git worktree add <pasta> <commit>`, depois `npm ci` nessa pasta. Não
+   use outra versão: o `buildInfo.commit` precisa ser igual ao do trabalho.
+2. Confira a configuração da instalação (`wrangler.operational.local.json`):
+   - o mesmo `name`, D1, R2 e `migrations` (`v1`/`Coordinator`);
+   - as `compatibility_flags` da ponte, incluindo
+     `global_fetch_strictly_public`.
+3. Faça um marcador do Time Travel do D1 (nada é migrado, mas é o ponto de
+   volta).
+4. Na pasta da ponte:
+   - `npm run build`;
+   - `$env:CLOUDFLARE_ACCOUNT_ID="<conta>"; npx wrangler deploy --minify --keep-vars --config <caminho da configuração>`.
+
+   O `--keep-vars` mantém `WABOTIA_INSTALLATION_ID`, `WABOTIA_ACCOUNT_ID` e
+   `WABOTIA_WORKER_NAME`, que o instalador gravou e que o atualizador
+   confere. Os segredos (`MASTER_KEY`, `WABOTIA_UPDATE_TOKEN`) não mudam com
+   o deploy.
+
+**Depois:**
+
+- `/api/health` mostra a versão 0.21.1 e o commit da ponte;
+- no painel, **Reabrir painel atualizado**: em **Sistema e atualizações**,
+  a atualização aparece "concluída", instalada 0.21.1, e o alarme para de
+  tentar;
+- o pacote antigo sai do R2 na mesma consulta;
+- a próxima versão (formato 2) segue pelo painel, normalmente.
+
+### Ensaio da ponte (antes de publicar)
+
+A staging dos aparelhos não serve, por três motivos:
+
+- a 0.21.0 tem o `RELEASE_ORIGIN` fixo no código;
+- a staging foi implantada pelo Wrangler, não pelo instalador;
+- está em uso nos aparelhos.
+
+O ensaio usa uma instalação descartável, que nasce como a do usuário. Os
+recursos são criados e apagados com o OK do usuário, e o token Cloudflare
+quem digita é ele.
+
+1. **Catálogo de teste:** um Worker só de estáticos
+   (`wabotia-catalogo-ensaio`) servindo a árvore `releases/` sob
+   `/api/test-catalog/`.
+2. **0.21.0 de teste:**
+   - cópia local do `fca4bb2`, sem commit, com o `RELEASE_ORIGIN` de
+     `src/release.ts` trocado por
+     `https://wabotia-catalogo-ensaio.<subdomínio>.workers.dev/api/test-catalog`;
+   - versão `0.21.80` e `npm run release` (formato 1) dessa cópia;
+   - instalar com o `public/install-wabotia.mjs` dela
+     (`--name wabotia-ensaio-ponte`);
+   - ligar o ERP numa área e criar alguns dados.
+3. **Ponte de teste:** neste branch, versão `0.21.81`:
+   - `npm run release -- --bridge --test-origin https://wabotia-catalogo-ensaio.<subdomínio>.workers.dev`;
+   - depois `--bridge --slim` numa pasta à parte;
+   - subir no catálogo de teste.
+4. **0.21.80 → 0.21.81 pelo painel,** com `wrangler tail` aberto:
+   - anotar a saída de cada alarme (`exceededMemory`), as rodadas por etapa
+     e o tempo;
+   - primeiro a completa e, se estourar ou passar perto, a enxuta.
+5. **Se a completa estourar:** ensaiar a saída de emergência acima.
+6. **Ponte → formato 2:** uma `0.21.82` grande (o roteiro abaixo, passos 3
+   a 8), com uma migração.
+7. **Fim:** apagar os dois Workers, o D1 e o R2 do ensaio, e a cópia local.
 
 ## Tamanhos medidos (0.20.0, `4ea7864`)
 

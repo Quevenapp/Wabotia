@@ -61,10 +61,12 @@ Toda versão sai no **formato 2, assinada** (Ed25519). O formato, a assinatura, 
 3. Execute `npm run release`. O script:
    - produz o instalador, o Worker minificado e os arquivos web;
    - grava `releases/<versão>/manifest.json` e `manifest.sig`, os arquivos em `releases/blobs/`, e o índice `releases/v2/latest.json` com `latest.sig`, válido por 90 dias;
-   - para se faltar a chave, se a chave não estiver em `src/release-keys.json`, se a versão não for maior que a publicada e que a 0.20.0, ou se a mesma versão já tiver sido publicada com outro conteúdo.
+   - para se faltar a chave, se a chave não estiver em `src/release-keys.json`, se a versão não for maior que a publicada e que a de `releases/latest.json`, ou se a mesma versão já tiver sido publicada com outro conteúdo.
 
-   Uma versão que exige o plano Workers Paid sai com `--workers-paid`, e uma que exige outra instalada antes, com `--min-version x.y.z`.
-4. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas, `releases/blobs/` e `releases/latest.json`. Esse último é o índice do formato antigo, parado na 0.20.0 com os 39 pacotes antigos; o script nunca o altera e ele não deve ser apagado.
+   Toda versão depois da ponte exige a ponte instalada (`requires.min_version`); outra exigência sai com `--min-version x.y.z`, e o plano Workers Paid com `--workers-paid`.
+
+   **Só uma vez, na versão ponte (0.21.1):** `npm run release -- --bridge` (ou `--bridge --slim`). Grava também o pacote de formato 1 que a 0.21.0 lê, aponta `releases/latest.json` para a ponte e registra `releases/v2/bridge.json`. Antes de publicar, rode `node scripts/erp/check-candidate.mjs public/releases/0.21.1`, que passa o pacote pelo leitor da própria 0.21.0. Detalhes, tamanhos e a saída de emergência em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
+4. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas, `releases/blobs/`, `releases/v2/` e `releases/latest.json`. Esse último é o índice do formato antigo: congelado na ponte, o script só o escreve com `--bridge`, e ele não deve ser apagado (as instalações 0.21.0 e anteriores o leem).
 5. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
 6. **Sem versão nova em 90 dias:** antes do vencimento, rode `npm run release -- --renew` e publique o site. A partir de 60 dias, o próprio `npm run release` avisa, e a tela Sistema do site oficial também. Com o índice vencido, as instalações recusam atualizar ("o mantenedor precisa renová-lo"), mas o atendimento continua normal.
 
