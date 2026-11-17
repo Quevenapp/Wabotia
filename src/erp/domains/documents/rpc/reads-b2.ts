@@ -16,7 +16,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength } from "../../../engine/text.ts";
 import { bizCostVisible, bizFreight, bizRole, situationList, transitionList } from "../../preferences/shared.ts";
 import { documentSituationJson, documentView, preference, situationAdopted } from "../internal.ts";
-import { allowed, contactUsable, requireAccess } from "../public.ts";
+import { allowed, contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 import { occurrenceJson } from "../views.ts";
 
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
@@ -27,6 +27,7 @@ export function erpDocumentGet(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   const d = id === null || kind === null ? null : one(ctx.db, 'SELECT contact_id FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind);
   if (!d || !contactUsable(ctx.db, user, str(d.contact_id))) raise("P0002", "erp_document_not_found");
