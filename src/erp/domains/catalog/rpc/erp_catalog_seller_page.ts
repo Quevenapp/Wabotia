@@ -3,9 +3,10 @@
 // carteira do vendedor quando a preferência está ligada.
 // Porte da sessão B (auxiliares do Catálogo); dona do domínio: sessão P.
 //
-// O Fagoo acrescenta "exists(seller)" ao contact_where e pagina no page_sql.
-// Aqui o contactPage da P devolve a lista inteira já filtrada e ordenada, e o
-// recorte de vendedor e a página acontecem em TS: o mesmo total e os mesmos ids.
+// O Fagoo acrescenta "exists(seller)" ao contact_where e pagina no page_sql;
+// aqui a mesma condição entra no WHERE do contactPage da P (extra), e a
+// contagem, a ordem e a página ficam no SQL.
+import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { contactScope } from "../contact.ts";
@@ -13,7 +14,7 @@ import { contactFilterValid, contactListItem, contactPage, pageValid } from "../
 import { searchTerms } from "../fields.ts";
 import { sellerAccess } from "../seller.ts";
 
-const ALL = 2 ** 31;
+const IS_SELLER = { sql: 'EXISTS(SELECT 1 FROM "erp_catalog__seller" s WHERE s.contact_id=r.id)', params: [] };
 
 export function erpCatalogSellerPage(ctx: RpcContext, a: RpcArgs) {
   const arg = <T>(name: string) => (a[name] ?? null) as T | null;
@@ -34,29 +35,25 @@ export function erpCatalogSellerPage(ctx: RpcContext, a: RpcArgs) {
   )
     raise("22023", "erp_catalog_invalid_query");
   const scope = contactScope(db, user);
-  const all = contactPage(
+  const { total, ids } = contactPage(
     db,
     {
       situation: situation!, terms: searchTerms(query), type, personType: null, state: null, city: null, phone: null, email: null,
-      seller: null, scope, period: null, from: null, to: null, statuses: null,
+      seller: null, scope, period: null, from: null, to: null, statuses: null, extra: IS_SELLER,
     },
     sort!,
-    0,
-    ALL,
-  ).ids;
-  const sellers = new Map(
-    db.exec('SELECT id, contact_id, CAST(version AS TEXT) version FROM "erp_catalog__seller"').rows.map((s) => [String(s.contact_id), s]),
+    (page! - 1) * size!,
+    size!,
   );
-  const ids = all.filter((id) => sellers.has(id));
-  const items = ids.slice((page! - 1) * size!, (page! - 1) * size! + size!).map((id) => {
-    const s = sellers.get(id)!;
+  const items = ids.map((id) => {
+    const s = one(db, 'SELECT id, CAST(version AS TEXT) version FROM "erp_catalog__seller" WHERE contact_id=?', id)!;
     return { ...contactListItem(db, id), seller_id: s.id, seller_version: Number(s.version) };
   });
   return {
     entity: "sellers",
     page,
     size,
-    total: ids.length,
+    total,
     sort,
     situation,
     can_write: role === "admin",
