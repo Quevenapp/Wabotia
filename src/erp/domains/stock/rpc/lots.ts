@@ -44,7 +44,7 @@ export function lotExpiryState(active: boolean, expires: string | null, quantity
 const inRange = (d: string | null) => d === null || (d >= "1900-01-01" && d <= "2100-12-31");
 
 /** erp_stock.lot_check(p_code, p_manufactured, p_expires, p_note) */
-function lotCheck(db: SqlDriver, code: string | null, manufactured: string | null, expires: string | null, note: string | null) {
+export function lotCheck(db: SqlDriver, code: string | null, manufactured: string | null, expires: string | null, note: string | null) {
   const s = lotSettings(db);
   if (
     code === null || pgLength(pgBtrim(code)) < 1 || pgLength(pgBtrim(code)) > 60 || pgHasCntrl.test(code) ||
