@@ -787,6 +787,7 @@ O que não sai do ERP sem reescrita:
 | `FiscalOriginInvoiceView` | `erp_fiscal_invoice_origin_get`, `erp_synced_xml_list`, `_object`, `erp_history_xml`, `_xml_object` |
 
    - **Os outros RPCs que saem** batem com as telas que a M já removeu: `erp_cutover_*`, `erp_origin_*` (importação financeira, prontidão de vendas e compras, histórico de vendas, depósitos, observações de estoque, progresso), `erp_sync_*`, `erp_read_records`, `erp_history_backups` e `erp_itau_legacy_readiness`. São 62 RPCs ao todo.
+     - `erp_itau_legacy_readiness` (CNAB, decidido em 17/11/2026) mede a prontidão para deixar a cobrança Itaú do sistema anterior. Lê o Origin (`erp_cutover`, `origin_sync`, `origin_finance_refresh`), e as instalações começam vazias. A rota `/v1/cobrancas-legadas-itau` é externa (404), conferida em `tests/erp/cnab/gate.test.mjs` e `tests/erp-do-cnab-gate.test.ts`. O painel já não tem a tela.
    - **Campos que ficam como constante**, para não mudar a forma das respostas:
      - `origin_stock` na lista de produtos: `null`;
      - a cobertura dos relatórios: a constante `native_effects_only`;

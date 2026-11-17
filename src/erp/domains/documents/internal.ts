@@ -3,13 +3,16 @@
 // catálogo (outro domínio) com o comando do documento.
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { intIn } from "../../engine/args.ts";
-import { pgBtrim, pgHasCntrl, pgLength } from "../../engine/text.ts";
-import { validDate } from "../../engine/time.ts";
-import { raise } from "../../engine/errors.ts";
+import { pgBtrim, pgHasCntrl, pgLeft, pgLength } from "../../engine/text.ts";
+import { jsonTimestamp, validDate } from "../../engine/time.ts";
+import { notPorted, raise } from "../../engine/errors.ts";
 import { arrow, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { autoProductKey, documentProduct } from "../catalog/public.ts";
 import * as preferences from "../preferences/public.ts";
+import { active as receiptsActive } from "../stock/public.ts";
+import { transitions } from "./preferences.ts";
+import { originEffects } from "../sync/public.ts";
 
 /** erp_documents.auto_products(p_user_id, p_kind, p_command, p_items) */
 export function autoProducts(ctx: RpcContext, user: string, kind: string | null, command: string | null, items: unknown) {
@@ -114,4 +117,154 @@ export function approvalSituations(db: SqlDriver): string[] {
   return (JSON.parse(String(a.situation_ids)) as string[]).filter(
     (id) => !!one(db, `SELECT 1 x FROM "erp_preferences__situation" WHERE id=? AND kind='sales_orders' AND base_status='draft'`, id),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Núcleo da leitura do documento (B3): document_view, dto, effect_flags,
+// proposal_version_json, situation_json, situation_adopted e
+// document_situation_json. Documento do Origin (authority 'origin') sai pela
+// linha de corte do Origin: erp_document_mirror.detail não é portado.
+
+const parse = (v: unknown) => (v === null || v === undefined ? null : typeof v === "string" ? JSON.parse(v) : v);
+/** ->> de um campo de objeto jsonb (texto; null quando falta ou não é objeto) */
+const fieldText = (o: unknown, k: string): string | null => {
+  if (o === null || typeof o !== "object" || Array.isArray(o)) return null;
+  const v = (o as Record<string, unknown>)[k];
+  return v === undefined || v === null ? null : typeof v === "string" ? v : JSON.stringify(v);
+};
+
+/** erp_documents.situation_adopted(kind) */
+export const situationAdopted = (db: SqlDriver, kind: string | null) =>
+  kind !== null && ["sales_orders", "purchase_orders", "service_orders"].includes(kind) && !!one(db, 'SELECT 1 x FROM "erp_preferences__situation_adoption" WHERE kind=? LIMIT 1', kind);
+
+/** erp_documents.situation_json(kind, status, situação) */
+export function situationJson(db: SqlDriver, kind: string | null, status: string | null, situation: string | null) {
+  if (!situationAdopted(db, kind)) return null;
+  if (situation === null)
+    return {
+      key: status, base_status: status, name: status === null ? null : preferences.situationBaseLabel(kind!, status),
+      color: status === null ? "#607d8b" : preferences.situationBaseColor(status), default: true,
+    };
+  const s = one(db, 'SELECT id, base_status, name, color FROM "erp_preferences__situation" WHERE id=? AND kind=?', situation, kind);
+  return s ? { key: s.id, base_status: s.base_status, name: s.name, color: s.color, default: false } : null;
+}
+
+/** erp_documents.document_situation_json(id) */
+export function documentSituationJson(db: SqlDriver, id: string) {
+  const d = one(db, 'SELECT kind, status FROM "erp_documents__document" WHERE id=?', id);
+  if (!d) return null;
+  const s = one(db, 'SELECT situation_id FROM "erp_documents__document_situation" WHERE document_id=?', id);
+  return situationJson(db, d.kind as string | null, d.status as string | null, (s?.situation_id as string | null | undefined) ?? null);
+}
+
+/** erp_documents.effect_flags(id) */
+export function effectFlags(ctx: RpcContext, id: string) {
+  const e = originEffects(ctx, id);
+  const db = ctx.db;
+  return {
+    finance_active: !!one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id),
+    stock_active: !!one(db, `SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id) || receiptsActive(db, id),
+    origin_finance: e.finance,
+    origin_invoice: e.invoice,
+  };
+}
+
+/** erp_documents.proposal_version_json(id): as versões da proposta (269); null com uma versão só. */
+export function proposalVersionJson(db: SqlDriver, id: string) {
+  const d = one(db, `SELECT id FROM "erp_documents__document" WHERE id=? AND kind='sales_proposals'`, id);
+  if (!d) return null;
+  const v = one(db, 'SELECT base_id, version_seq FROM "erp_documents__proposal_version" WHERE document_id=?', id);
+  const base = (v?.base_id as string | undefined) ?? id;
+  const seq = Number(v?.version_seq ?? 1);
+  const family = db
+    .exec('SELECT document_id, version_seq FROM "erp_documents__proposal_version" WHERE base_id=?', base)
+    .rows.map((r) => ({ id: String(r.document_id), seq: Number(r.version_seq) }));
+  family.push({ id: base, seq: 1 });
+  if (family.length < 2) return null;
+  const b = one(db, 'SELECT number FROM "erp_documents__document" WHERE id=?', base);
+  if (!b) return null;
+  const latest = family.reduce((x, y) => (y.seq > x.seq ? y : x));
+  const number = b.number === null ? null : String(b.number);
+  const label = (n: number) => (number === null ? null : n === 1 ? number : `${number}-${n}`);
+  return {
+    base_id: base, base_number: number, seq, label: label(seq), versions: family.length, superseded: seq < latest.seq,
+    latest: { id: latest.id, label: label(latest.seq) },
+  };
+}
+
+/** erp_documents.dto(id) */
+export function documentDto(ctx: RpcContext, id: string): Record<string, unknown> | null {
+  const db = ctx.db;
+  const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
+  if (!d) return null;
+  if (d.authority === "origin") notPorted("erp_document_mirror.detail");
+  const body = parse(d.body);
+  if (body === null) return null;
+  const items = db
+    .exec('SELECT data, product_snapshot FROM "erp_documents__item" WHERE document_id=? ORDER BY position', id)
+    .rows.map((i) => {
+      const data = parse(i.data);
+      return data === null ? null : { ...data, product_snapshot: parse(i.product_snapshot) };
+    });
+  return Object.assign({}, body, {
+    id: d.id, kind: d.kind, number: d.number === null ? null : String(d.number), status: d.status, version: d.version,
+    effect_flags: effectFlags(ctx, id), contact_snapshot: parse(d.contact_snapshot), source_proposal_id: d.source_proposal_id,
+    created_at: d.created_at === null ? null : jsonTimestamp(d.created_at as bigint), updated_at: d.updated_at === null ? null : jsonTimestamp(d.updated_at as bigint),
+    items, origin: d.origin, authority: d.authority, readonly: false,
+  });
+}
+
+/** erp_documents.document_view(id): o dto com situação, nomes e versões da proposta. */
+export function documentView(ctx: RpcContext, id: string): Record<string, unknown> | null {
+  const db = ctx.db;
+  const d = one(db, 'SELECT kind, body, origin, authority FROM "erp_documents__document" WHERE id=?', id);
+  if (!d) return null;
+  if (d.authority === "origin") notPorted("erp_document_mirror.detail");
+  const dto = documentDto(ctx, id);
+  if (dto === null) return null;
+  const body = parse(d.body);
+  const name = (sql: string, key: string, max: number) => {
+    const ref = fieldText(body, key);
+    if (ref === null) return null;
+    const r = one(db, sql, ref);
+    return r ? pgLeft(String(r.name), max) : null;
+  };
+  const installments = () => {
+    const list = body.installments ?? [];
+    if (jsonType(list) !== "array") raise("22023", `cannot extract elements from ${jsonType(list) === "object" ? "an object" : "a scalar"}`);
+    return list as unknown[];
+  };
+  const methods: Record<string, string> = {};
+  const wantedMethods = new Set(installments().map((p) => fieldText(p, "payment_method_id")).filter((x) => x !== null));
+  for (const f of db.exec('SELECT id, description FROM "erp_catalog__payment_method"').rows)
+    if (wantedMethods.has(String(f.id))) methods[String(f.id)] = pgLeft(String(f.description), 100);
+  const accounts: Record<string, string> = {};
+  // p#>>'{details,account_id}'
+  const details = (p: unknown) => (p !== null && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>).details : null);
+  const wantedAccounts = new Set(installments().map((p) => fieldText(details(p), "account_id")).filter((x) => x !== null));
+  for (const a of db.exec('SELECT id, name FROM "erp_finance__account"').rows)
+    if (wantedAccounts.has(String(a.id))) accounts[String(a.id)] = pgLeft(String(a.name), 200);
+  return Object.assign(
+    dto,
+    {
+      situation: documentSituationJson(db, id),
+      seller_name: name('SELECT r.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" r ON r.id=s.contact_id WHERE s.id=?', "seller_id", 200),
+      category_name: name('SELECT name FROM "erp_finance__category" WHERE id=?', "category_id", 200),
+      carrier_name: name('SELECT name FROM "erp_catalog__record" WHERE id=?', "carrier_id", 200),
+      price_list_name: name('SELECT name FROM "erp_pricing__price_list" WHERE id=?', "price_list_id", 120),
+      payment_account_name: name('SELECT name FROM "erp_finance__account" WHERE id=?', "payment_account_id", 200),
+      payment_method_names: methods,
+      payment_account_names: accounts,
+    },
+    d.kind === "sales_proposals" ? { proposal_version: proposalVersionJson(db, id) } : {},
+    { origin: d.origin, authority: d.authority, readonly: false },
+  );
+}
+
+/** erp_documents.situation_key_valid(kind, chave): status do tipo ou situação própria do tipo. */
+export function situationKeyValid(db: SqlDriver, kind: string | null, key: string | null): boolean {
+  if (kind === null || key === null) return false;
+  const map = transitions()[kind];
+  if (map && Object.prototype.hasOwnProperty.call(map, key)) return true;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(key) && !!one(db, 'SELECT 1 x FROM "erp_preferences__situation" WHERE id=? AND kind=? LIMIT 1', key, kind);
 }

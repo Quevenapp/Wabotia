@@ -66,7 +66,7 @@ export function statementLines(db: SqlDriver, account: string | null, from: stri
              JOIN "erp_finance__cnab_cash_plan" p ON p.command_id=CASE WHEN s.kind='payment' THEN s.command_id ELSE original.command_id END WHERE s.id=?`,
           r.s_id,
         );
-        category = ((plan?.category_id as string | null) ?? null) ?? category;
+        category = (plan?.category_id as string | null) ?? category;
       }
       const { m_kind, s_id, base_category, ...rest } = r;
       void m_kind;

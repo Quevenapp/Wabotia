@@ -201,9 +201,10 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   // rota pública do Worker, na origem em que a pessoa chamou.
   if (/^application\/json/i.test(response.headers.get("Content-Type") || "")) {
     const text = await response.text();
+    const rewritten = publicSignedUrls(text, LOCAL, url.origin, profile);
     const headers = new Headers(response.headers);
-    headers.delete("content-length");
-    response = new Response(publicSignedUrls(text, LOCAL, url.origin, profile), { status: response.status, headers });
+    if (rewritten !== text) headers.delete("content-length");
+    response = new Response(rewritten, { status: response.status, headers });
   }
   // Idas ao objeto erp: nesta requisição, para medir no navegador e na
   // Observabilidade: Server-Timing: erp;desc="hops=N";dur=…, erp-rpc-1;desc="<rpc>";dur=…

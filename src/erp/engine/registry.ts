@@ -85,8 +85,14 @@ export function registerGate(fn: (ctx: RpcContext) => GateDenial | null) {
 export type RpcArgs = Record<string, unknown>;
 export type RpcFn = (ctx: RpcContext, args: RpcArgs) => unknown;
 export interface RpcOptions {
-  /** Chaves de armazenamento ("bucket/nome") que o RPC consulta, a partir dos argumentos. */
-  objects?: (args: RpcArgs) => string[];
+  /**
+   * Chaves de armazenamento ("bucket/nome") que o RPC consulta, a partir dos
+   * argumentos e, quando o caminho está gravado no banco, de uma leitura
+   * antes da transação (`db`; só leitura). Se o caminho mudar entre essa
+   * leitura e a transação, o objeto não está no mapa e a checagem recusa:
+   * falha segura, nunca um objeto errado.
+   */
+  objects?: (args: RpcArgs, db?: SqlDriver) => string[];
   /** O RPC soma ou lista todos os objetos da área (storage.objects inteiro). */
   listing?: boolean;
 }
@@ -111,9 +117,9 @@ export function registerRpc(name: string, fn: RpcFn, opts: RpcOptions = {}) {
 }
 
 /** Chaves de armazenamento que o RPC vai consultar (lidas antes da transação). */
-export function rpcObjectKeys(name: string, args: RpcArgs): string[] {
+export function rpcObjectKeys(name: string, args: RpcArgs, db?: SqlDriver): string[] {
   try {
-    return options.get(name)?.objects?.(args) ?? [];
+    return options.get(name)?.objects?.(args, db) ?? [];
   } catch {
     return [];
   }

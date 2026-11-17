@@ -69,7 +69,7 @@ function settlementParts(db: SqlDriver, accounts: Set<string>, from: string, to:
     if (value("discount_cents") > 0) out.push({ category_id: (c?.discount_category_id as string | null) ?? principalCategory, amount: sign * (receivable ? -value("discount_cents") : value("discount_cents")) });
     if (value("fee_cents") > 0) {
       const plan = cnabPlanForSettlement(db, baseId) as Row | null;
-      out.push({ category_id: (c?.fee_category_id as string | null) ?? ((plan?.category_id as string | null) ?? null) ?? principalCategory, amount: -sign * value("fee_cents") });
+      out.push({ category_id: (c?.fee_category_id as string | null) ?? (plan?.category_id as string | null) ?? principalCategory, amount: -sign * value("fee_cents") });
     }
   }
   return out;
