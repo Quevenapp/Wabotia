@@ -258,6 +258,41 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   differs(data("before_data"), KNOWN);
 });
 
+test("item 1: array declarado com id antigo e id novo misturados (category_ids do campo personalizado)", () => {
+  // Categoria antiga (OLD, igual nos dois) e uma criada no comando: cada lado
+  // ordena pelo texto dos próprios ids, então o novo cai antes ou depois do
+  // antigo conforme o uuid de cada motor. Gera até as posições trocarem.
+  const OLD = U();
+  const known = [...KNOWN, OLD];
+  const tax = (id) => row("erp_catalog__taxonomy", { id, kind: "category", name: "Bebidas", version: "1", created_by: ACTOR, updated_by: ACTOR, created_at: "1", updated_at: "1", name__fold: "bebidas" });
+  const audit = (category_ids) =>
+    row("erp_catalog__custom_field_audit", { id: "1", actor: ACTOR, command_id: CMD, field_id: A, action: "update", after_data: JSON.stringify({ category_ids }), created_at: "1" });
+  const sorted = (a) => [...a].sort();
+  let p, l;
+  do {
+    p = U();
+    l = U();
+  } while (p < OLD === l < OLD);
+  const data = (lite) => ({ erp_catalog__taxonomy: { pg: [tax(p)], lite: [tax(l)] }, erp_catalog__custom_field_audit: { pg: [audit(sorted([OLD, p]))], lite: [audit(lite)] } });
+  // Na tabela: cada lado na própria ordem passa; fora da ordem, ou sem o antigo, é acusado.
+  equal(data(sorted([OLD, l])), known);
+  differs(data(sorted([OLD, l]).reverse()), known);
+  differs(data([l]), known);
+  differs(data(sorted([A2, l])), known);
+  // Na resposta do RPC declarado: o mesmo.
+  const cIds = () => Object.assign(new IdMap(new Set(known)), { rpc: "erp_catalog_taxonomy_save" });
+  assert.deepEqual(diffValues({ category_ids: sorted([OLD, p]) }, { category_ids: sorted([OLD, l]) }, cIds()), []);
+  // Fora da ordem: com 2 elementos a troca coincide com a posição do Postgres
+  // e passa (o limite da resposta, como nos borderôs); com 3 antigos e um fora
+  // do lugar, que não coincide, é acusado.
+  const three = sorted([OLD, A, A2]);
+  assert.notDeepEqual(diffValues({ category_ids: three }, { category_ids: [three[1], three[0], three[2]] }, cIds()), []);
+  assert.notDeepEqual(diffValues({ category_ids: sorted([OLD, p]) }, { category_ids: sorted([A2, l]) }, cIds()), []);
+  // Só ids antigos: ordenados e iguais, ou é divergência.
+  assert.deepEqual(diffValues({ category_ids: sorted([OLD, A]) }, { category_ids: sorted([OLD, A]) }, cIds()), []);
+  assert.notDeepEqual(diffValues({ category_ids: sorted([OLD, A]) }, { category_ids: sorted([OLD, A]).reverse() }, cIds()), []);
+});
+
 test("item 6: uuid embutido em texto (source_key = 'cash_session:<movimento>')", () => {
   const key = (id) => `cash_session:${id}`;
   const pair = () => [U(), U()];
