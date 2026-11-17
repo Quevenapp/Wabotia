@@ -9,7 +9,7 @@ import { ledgerDocumentPrice } from "../stock/public.ts";
 export * from "./stubs.generated.ts";
 export { costApply, costApplyCapture } from "./cost-apply.ts";
 // Para a ponte com o Financeiro (B5: erp_document_finance_*).
-export { decimalValue, documentDto, textValue } from "./internal.ts";
+export { decimalValue, documentDto, effectFlags, textValue } from "./internal.ts";
 export { updateDocument } from "./rows.ts";
 export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
 // O documento espelhado do Origin: guard_effect das tabelas que apontam para documento.
@@ -68,6 +68,9 @@ export { transitions } from "./preferences.ts";
 export { contactUsable, mirrorRequireVisible, mirrorVisible, osPermitted, reportCoverage, requireAccess, requireRole } from "./reads-g.ts";
 // Escrito pela N (recebimentos de compra do Estoque); dono: Documentos.
 export { stockLaunchDate } from "./stock-n.ts";
+// erp_document_mirror.report_coverage(usuário, tipo, de, até, contato), escrito pela L. O
+// reportCoverage() sem argumentos acima é a constante antiga, que sai quando os chamadores da G passarem para este.
+export { reportCoverage as mirrorReportCoverage } from "./mirror-reads.ts";
 export { preference } from "./internal.ts";
 
 const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
@@ -87,3 +90,5 @@ export function allowed(role: string | null, kind: string | null, write: boolean
 }
 // Escrito pela P para o Catálogo (contact_page/contact_export); dona: O.
 export { salesInPeriodCondition } from "./catalog-p.ts";
+// Para a G (F7 do Fiscal): pedidos de compra do fornecedor que ainda podem receber.
+export { openPurchaseOrders, type OpenPurchaseOrder } from "./purchase-orders-g.ts";
