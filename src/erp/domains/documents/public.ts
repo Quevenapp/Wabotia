@@ -8,6 +8,10 @@ import { ledgerDocumentPrice } from "../stock/public.ts";
 
 export * from "./stubs.generated.ts";
 export { costApply, costApplyCapture } from "./cost-apply.ts";
+// Para a ponte com o Financeiro (B5: erp_document_finance_*).
+export { decimalValue, documentDto, textValue } from "./internal.ts";
+export { updateDocument } from "./rows.ts";
+export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
 
 /**
  * erp_documents.report_last_purchase_until(produto, até, saldos): o preço da
