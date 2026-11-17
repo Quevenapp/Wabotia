@@ -203,12 +203,15 @@ export async function dualFixture({
   async function dual(name, pgFn, liteFn) {
     stats.ported++;
     lite.exec("DELETE FROM erp_changed");
+    const from = Date.now();
     const a = await outcome(pgFn);
     const b = await outcome(liteFn);
     stats.pg_ms += a.ms;
     stats.lite_ms += b.ms;
     const ids = new IdMap(known);
     ids.rpc = name;
+    // Janela da chamada: do início do oráculo ao fim do motor (o ctx.clock só anda para a frente).
+    ids.window = { from, to: Math.max(Date.now(), Number(clock.latest / 1000n)) };
     const problems = [];
     if (a.ok !== b.ok) problems.push({ what: "resultado", pg: a.ok ? a.value : a.error, lite: b.ok ? b.value : b.error });
     else if (!a.ok) {
