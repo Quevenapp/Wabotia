@@ -38,6 +38,7 @@ import {
   writeRow,
 } from "../internal.ts";
 import { cashCategory, cashText } from "../cash.ts";
+import { invoiceContact, invoiceEffectActive, invoiceOrdersPosted, invoiceTotalCents } from "../invoices.ts";
 import { insertTitle, left, updateTitle } from "../titles.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -56,38 +57,7 @@ function access(db: SqlDriver, user: string, write: boolean) {
 /** (d.total*100)::bigint: total é numeric com 2 casas, guardado escalado. */
 const docCents = (d: Row) => (d.total === null || d.total === undefined ? null : Number(fromColumn(d.total)));
 
-/** erp_finance.invoice_contact(recipient) */
-function invoiceContact(recipient: unknown): string | null {
-  const r = typeof recipient === "string" ? JSON.parse(recipient) : recipient;
-  const v = r && typeof r === "object" && !Array.isArray(r) ? (r as Record<string, unknown>).contact_id : undefined;
-  const text = v === undefined || v === null ? null : typeof v === "string" ? v : jsonbText(v);
-  return text !== null && UUID.test(text) ? text.toLowerCase() : null;
-}
 
-/** erp_finance.invoice_total_cents(totals) */
-function invoiceTotalCents(totals: unknown): number | null {
-  const t = typeof totals === "string" ? JSON.parse(totals) : totals;
-  const v = t && typeof t === "object" && !Array.isArray(t) ? (t as Record<string, unknown>).total : undefined;
-  const text = v === undefined || v === null ? null : typeof v === "string" ? v : jsonbText(v);
-  if (text === null || !/^[0-9]{1,13}(\.[0-9]{1,2})?$/.test(text)) return null;
-  const [i, f = ""] = text.split(".");
-  return Number(i) * 100 + Number(f.padEnd(2, "0"));
-}
-
-/** erp_finance.invoice_effect_active */
-const invoiceEffectActive = (db: SqlDriver, invoice: string) =>
-  !!one(db, `SELECT 1 x FROM "erp_finance__invoice_posting" WHERE invoice_id=? AND state='active' LIMIT 1`, invoice) ||
-  !!one(db, 'SELECT 1 x FROM "erp_finance__grouped_billing_invoice" WHERE invoice_id=? AND active=1 LIMIT 1', invoice);
-
-/** erp_finance.invoice_orders_posted(invoice) não vazio */
-const invoiceOrdersPosted = (db: SqlDriver, invoice: string) =>
-  !!one(
-    db,
-    `SELECT 1 x FROM "erp_fiscal_invoices__invoice_order" o JOIN "erp_documents__document" d ON d.id=o.document_id WHERE o.invoice_id=?
-       AND (EXISTS(SELECT 1 FROM "erp_finance__document_posting" p WHERE p.document_id=d.id AND p.state='active')
-         OR EXISTS(SELECT 1 FROM "erp_finance__grouped_billing_document" g WHERE g.document_id=d.id AND g.active=1)) LIMIT 1`,
-    invoice,
-  );
 
 /** erp_finance.grouped_billing_eligible(document) */
 function documentEligible(db: SqlDriver, d: Row) {
@@ -107,7 +77,7 @@ function invoiceEligible(db: SqlDriver, v: Row) {
   return (
     v.model === "55" && v.direction === "1" && v.deleted_at === null && ![3, 10].includes(Number(v.status)) &&
     (invoiceTotalCents(v.totals) ?? 0) > 0 && invoiceContact(v.recipient) !== null && !invoiceEffectActive(db, String(v.id)) &&
-    !invoiceOrdersPosted(db, String(v.id))
+    invoiceOrdersPosted(db, String(v.id)).length === 0
   );
 }
 
