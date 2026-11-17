@@ -26,7 +26,7 @@ export function taxSettingsInput(settings: unknown, states: unknown): { settings
   if (states === null || states === undefined || jsonType(states) !== "object") raise("22023", "erp_fiscal_value_invalid");
   const out: Json = {};
   for (const key of jsonbKeys(states as object)) {
-    const value = (states as Json)[key];
+    const value: unknown = (states as Json)[key];
     const v = typeof value === "string" ? value : null;
     if (
       !UFS.includes(key) || v === null || !(v === "default" || Object.prototype.hasOwnProperty.call(ALLOWED, v)) ||
