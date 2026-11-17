@@ -53,7 +53,7 @@ final class HTTPCourierAPI: CourierAPI {
     init(session: URLSession = QueueHTTP.shared) { self.session = session }
 
     private struct ClaimReply: Decodable {
-        struct Payload: Decodable { var delivery: CourierDelivery?; var app: CourierRhythm? }
+        struct Payload: Decodable { var delivery: CourierDelivery?; var store: CourierStore?; var app: CourierRhythm? }
         var token: String
         var expiresAt: Int64?
         var profile: String
@@ -79,6 +79,8 @@ final class HTTPCourierAPI: CourierAPI {
         if let module = reply.module, module != "entrega" { throw CourierError.invalidCode("Este QR não é de uma entrega.") }
         var delivery = reply.data?.delivery
         if delivery?.app == nil { delivery?.app = reply.data?.app }
+        // Na troca, a loja vem ao lado da entrega (em `…/courier`, dentro dela).
+        if delivery?.store == nil { delivery?.store = reply.data?.store }
         let grant = CourierGrant(deliveryId: reply.subject, server: scan.server.absoluteString, token: reply.token, profileId: reply.profile,
                                  label: delivery?.label ?? "Entrega", expiresAt: reply.expiresAt)
         return CourierClaim(grant: grant, delivery: delivery)

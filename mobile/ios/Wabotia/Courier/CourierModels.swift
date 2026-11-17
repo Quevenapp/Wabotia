@@ -193,6 +193,66 @@ struct CourierChatState: Codable, Equatable {
     var customerOpen: Bool?
 }
 
+/// O endereço da entrega em campos (mesmos nomes do pedido e da Empresa do ERP). Na conversa, rua e número vêm juntos
+/// em `street`.
+struct CourierAddress: Codable, Equatable {
+    var street: String?
+    var number: String?
+    var complement: String?
+    var district: String?
+    var city: String?
+    /// UF.
+    var state: String?
+    var postalCode: String?
+    var reference: String?
+}
+
+/// A loja da entrega (Gestão → Estabelecimento): o app procura o destino perto de `position`.
+struct CourierStore: Codable, Equatable {
+    var name: String?
+    var city: String?
+    var state: String?
+    var position: CourierCoordinate?
+}
+
+/// Como achar o destino (docs/ENTREGA.md, "Endereço").
+enum CourierDestinationPlan: Equatable {
+    /// O servidor já tem as coordenadas (o cliente mandou a localização, ou a loja marcou): vai direto.
+    case known(CourierCoordinate)
+    /// Procura o endereço perto da loja.
+    case nearStore(String, CourierCoordinate)
+    /// Sem a posição da loja: procura com a cidade e a UF no texto.
+    case inCity(String)
+    /// Sem cidade em lugar nenhum: avisa o entregador, sem procurar às cegas.
+    case incomplete
+    /// Servidor sem os campos novos: procura perto do entregador (com o filtro de distância).
+    case nearCourier(String)
+    /// Nada a procurar.
+    case nothing
+
+    /// Raio da busca em volta da loja.
+    static let storeRadius: Double = 30_000
+
+    static func of(_ d: CourierDelivery) -> CourierDestinationPlan {
+        if let known = d.destination { return .known(known) }
+        let text = (d.addressText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if d.addressIncomplete == true { return .incomplete }
+        guard !text.isEmpty else { return .nothing }
+        // Servidor antigo: nem endereço em campos, nem loja, nem o sinal de incompleto.
+        if d.address == nil, d.store == nil, d.addressIncomplete == nil { return .nearCourier(text) }
+        if let position = d.store?.position { return .nearStore(text, position) }
+        return .inCity(withCity(text, d.address ?? CourierAddress(city: d.store?.city, state: d.store?.state)))
+    }
+
+    /// O texto com "Cidade - UF" no fim, se ainda não as tiver (o `address_text` do servidor novo já tem).
+    static func withCity(_ text: String, _ address: CourierAddress) -> String {
+        let city = (address.city ?? "").trimmingCharacters(in: .whitespaces)
+        guard !city.isEmpty, !text.localizedCaseInsensitiveContains(city) else { return text }
+        let state = (address.state ?? "").trimmingCharacters(in: .whitespaces)
+        return "\(text), \(state.isEmpty ? city : "\(city) - \(state)")"
+    }
+}
+
 /// A entrega como o entregador a vê (`GET …/entrega/deliveries/{id}/courier`): sem telefone nem notas internas.
 struct CourierDelivery: Codable, Equatable, Identifiable {
     var id: String
@@ -202,7 +262,14 @@ struct CourierDelivery: Codable, Equatable, Identifiable {
     var statusLabel: String?
     /// Só o primeiro nome.
     var customerName: String?
+    /// A linha inteira, já com cidade e UF (as da loja quando o pedido não as tinha).
     var addressText: String?
+    /// Os campos separados (docs/ENTREGA.md, "Endereço"); servidor antigo: nulo.
+    var address: CourierAddress?
+    /// Sem cidade em lugar nenhum e sem destino: o app avisa em vez de procurar às cegas.
+    var addressIncomplete: Bool?
+    /// A loja, referência para procurar o destino.
+    var store: CourierStore?
     var destination: CourierCoordinate?
     var eta: CourierEta?
     var arriving: Bool?
@@ -211,6 +278,9 @@ struct CourierDelivery: Codable, Equatable, Identifiable {
     var app: CourierRhythm?
 
     var displayLabel: String { label?.isEmpty == false ? label! : "Entrega" }
+
+    /// O aviso do endereço sem cidade, enquanto não houver destino.
+    var needsAddressCheck: Bool { addressIncomplete == true && destination == nil }
     var enRoute: Bool { status == "en_route" }
     var open: Bool { status == nil || status == "assigned" || status == "en_route" || status == "pending" }
 
