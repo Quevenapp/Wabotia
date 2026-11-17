@@ -17,8 +17,9 @@ import { requirePermission } from "../../access/public.ts";
 import { fold, productCostAt } from "../../catalog/public.ts";
 import { allowed as documentsAllowed, reportCoverage, reportLastPurchaseUntil } from "../../documents/public.ts";
 import * as preferences from "../public.ts";
-import { countPhysical, ignoredWarehouse, virtualQuantity } from "../../stock/public.ts";
+import { countPhysical, ignoredWarehouse, priceText, virtualQuantity } from "../../stock/public.ts";
 import { json, text, uuid } from "../args.ts";
+import { bizCostVisible, bizFreight, bizRole } from "../business-rules.ts";
 import { compareText } from "../order.ts";
 
 void saoPauloMidnight;
@@ -125,12 +126,7 @@ function intOf(args: Json, key: string): number | null {
 }
 
 // ---------- regras ----------
-/** erp_home.biz_role */
-function bizRole(db: SqlDriver, user: string | null): string {
-  const r = user === null ? undefined : one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
-  if (!r || !documentsAllowed(String(r.role), "sales_orders", false)) denied();
-  return String(r!.role);
-}
+
 const STATUS_ORDER = ["draft", "open", "verified", "in_progress", "partially_fulfilled", "fulfilled", "cancelled"];
 /** erp_home.biz_statuses */
 function bizStatuses(list: (string | null)[] | null): string[] {
@@ -156,7 +152,7 @@ function bizPeriod(from: string | null, to: string | null, max = 732) {
   if (from === null || to === null || /infinity/.test(from) || /infinity/.test(to) || from > to || diff(from, to) >= max || from < "2000-01-01" || to > "2100-12-31")
     invalid();
 }
-const costVisible = (role: string) => documentsAllowed(role, "purchase_orders", false);
+const costVisible = (role: string) => bizCostVisible(role);
 const stockVisible = (role: string) => ["admin", "consulta", "estoque", "vendas", "fiscal"].includes(role);
 /** erp_home.biz_tax_rate (escala 2) */
 function taxRate(db: SqlDriver): bigint {
@@ -220,7 +216,6 @@ class Panel {
       const date = jp(body, "date");
       if (date === null || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < from || date > to) continue;
       const snap = parse(d.contact_snapshot);
-      const freightText = jp(body, "freight");
       const st = pgBtrim(((jp(body, "delivery_address", "state") || null) ?? jp(snap, "state") ?? "").toUpperCase());
       out.push({
         id: String(d.id),
@@ -235,7 +230,7 @@ class Panel {
         seller: bizSeller(body),
         state: UF.test(st) ? st : null,
         total: fromColumn(d.total),
-        freight: freightText !== null && /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/.test(freightText) ? toScaled(freightText, 2) : 0n,
+        freight: bizFreight(body),
         units: fromColumn(d.units),
         warehouse_id: (d.warehouse_id as string | null) ?? null,
       });
@@ -264,8 +259,9 @@ class Panel {
         if (product !== null)
           cost =
             ((i.applied as string | null) ?? null) ??
-            (productCostAt(this.db, product, o.day) as unknown as string | null) ??
-            (reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as string | null);
+            productCostAt(this.db, product, o.day) ??
+            // reportLastPurchaseUntil devolve bigint na escala 10 (Documentos); o texto sai pelo priceText do Estoque.
+            priceText((reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as bigint | null) ?? null);
         out.push({
           document_id: o.id,
           day: o.day,
@@ -757,7 +753,7 @@ function forecast(pn: Panel, user: string | null, from: string | null, to: strin
     // A composição Virtual não tem estoque próprio: o estoque é o das composições que os componentes permitem (222).
     const stock =
       composition === "virtual"
-        ? (fromColumn((virtualQuantity(pn.db, e.product_id, warehouse) as unknown as bigint | null) ?? 0n) as bigint)
+        ? (virtualQuantity(pn.db, e.product_id, warehouse) ?? 0n) * 1_000_000n // kits inteiros → escala 6
         : fromColumn(countPhysical(pn.db, e.product_id, warehouse)) - reserved(e.product_id);
     const coverage = e.sold <= 0n ? null : (((stock > 0n ? stock : 0n) * span) / e.sold > 2147483647n ? 2147483647 : Number(((stock > 0n ? stock : 0n) * span) / e.sold));
     return {
