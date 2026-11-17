@@ -9,7 +9,7 @@ import { ledgerDocumentPrice } from "../stock/public.ts";
 export * from "./stubs.generated.ts";
 export { costApply, costApplyCapture } from "./cost-apply.ts";
 // Para a ponte com o Financeiro (B5: erp_document_finance_*).
-export { decimalValue, documentDto, textValue } from "./internal.ts";
+export { decimalValue, documentDto, effectFlags, textValue } from "./internal.ts";
 export { updateDocument } from "./rows.ts";
 export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
 // O documento espelhado do Origin: guard_effect das tabelas que apontam para documento.
