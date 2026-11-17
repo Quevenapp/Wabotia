@@ -11,6 +11,7 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { rowJson } from "../../engine/row-json.ts";
+import { guardEffect as mirrorGuardEffect } from "../documents/mirror.ts";
 
 export type Row = Record<string, unknown>;
 type Op = "INSERT" | "UPDATE" | "DELETE";
@@ -128,5 +129,8 @@ export function guardItem(db: SqlDriver, op: Op, o: Row | null, n: Row | null) {
 
 /** erp_stock.forget_item_components (AFTER DELETE/UPDATE de item): troca de produto esquece os componentes editados. */
 export function forgetItemComponents(db: SqlDriver, op: "UPDATE" | "DELETE", o: Row, n: Row | null) {
-  if (op === "DELETE" || (n!.product_id ?? null) !== (o.product_id ?? null)) db.exec('DELETE FROM "erp_stock__item_component" WHERE item_id=?', o.id);
+  if (op !== "DELETE" && (n!.product_id ?? null) === (o.product_id ?? null)) return;
+  // aa_mirror_authority (guard_effect, OLD de cada linha apagada).
+  mirrorGuardEffect(db, ...db.exec('SELECT DISTINCT document_id FROM "erp_stock__item_component" WHERE item_id=?', o.id).rows.map((r) => r.document_id));
+  db.exec('DELETE FROM "erp_stock__item_component" WHERE item_id=?', o.id);
 }

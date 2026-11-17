@@ -1,21 +1,21 @@
 // public.erp_document_save: criar e editar documento (proposta, pedido de venda e de compra, OS),
 // passo a passo como o original. As escritas passam pela camada de linha (documents/rows.ts),
 // com os gatilhos e os adiados (commission_operation_capture e cost_apply_capture).
-// Linha de corte do Origin: erp_document_mirror.require_visible não tem efeito.
-// Pendente (B5): o auto_finance, quando a preferência vendas.contas_automaticas_pedido (venda)
-// ou compras.automacao_contas_pagar (compra) está ligada e o documento cabe no lançamento
-// automático, chama o erp_document_finance_post, ainda não portado: o save responde 0A000.
+// erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
+// O auto_finance (lançamento automático das contas pelas Preferências) usa a ponte do B5.
 import { createHash } from "node:crypto";
 import { decText, toScaled } from "../../../engine/dec.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { one } from "../../../engine/driver.ts";
-import { notPorted, raise } from "../../../engine/errors.ts";
+import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { dto as catalogDto } from "../../catalog/public.ts";
+import * as finance from "../../finance/public.ts";
 import { approvalSituations, autoProducts, documentDto, documentSituationJson, documentView, preference, uuidValue } from "../internal.ts";
 import { checkCustomFields, extensionKeys, hasCommercialData, normalize } from "../normalize.ts";
+import { requireVisible } from "../mirror.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { insertDocument, updateDocument, upsertItem, deleteItem } from "../rows.ts";
 import {
@@ -25,6 +25,7 @@ import {
   checkPreferenceRules,
   commandReplay,
   currentVersion,
+  documentFinanceCategory,
   editable,
   elements,
   fieldText,
@@ -126,7 +127,7 @@ function audit(ctx: RpcContext, a: { actor: string; command: string; document: s
 }
 
 /** erp_documents.auto_finance(usuário, documento, comando): o lançamento automático das contas. */
-function autoFinance(ctx: RpcContext, user: string, id: string, command: string): Data | null {
+export function autoFinance(ctx: RpcContext, user: string, id: string, command: string): Data | null {
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
@@ -152,9 +153,36 @@ function autoFinance(ctx: RpcContext, user: string, id: string, command: string)
   const body = JSON.parse(String(d.body));
   const parts = body?.installments ?? [];
   if (jsonType(parts) !== "array") raise("22023", `cannot get array length of ${jsonType(parts) === "object" ? "a non-array" : "a scalar"}`);
-  if ((parts as unknown[]).length === 0 && d.kind === "purchase_orders") return { outcome: "skipped", reason: "erp_document_finance_no_installments" };
-  // O resto (document_finance_category, erp_document_finance_preview e _post) é o B5.
-  return notPorted(`erp_document_finance_post (auto_finance; preferência ${d.kind === "purchase_orders" ? "compras.automacao_contas_pagar" : "vendas.contas_automaticas_pedido"} ligada)`);
+  let plan: unknown = null;
+  if ((parts as unknown[]).length === 0) {
+    // O pedido de compra lança as parcelas dele (Origin); o de venda sem parcelas lança uma à vista na data.
+    if (d.kind === "purchase_orders") return { outcome: "skipped", reason: "erp_document_finance_no_installments" };
+    plan = [{ amount_cents: d.total === null ? null : String(d.total), due_on: fieldText(body, "date"), method: null }];
+  }
+  const category = documentFinanceCategory(db, d, null);
+  // begin ... exception when 22023, 40001, 42501, P0002: a subtransação desfaz a tentativa.
+  try {
+    return db.transaction(() => {
+      const preview = (finance.erpDocumentFinancePreview(ctx, {
+        p_user_id: user, p_kind: d.kind, p_document_id: id, p_expected_version: d.version, p_category_id: category, p_plan: plan,
+      }) as Data).preview as Data;
+      const post = finance.erpDocumentFinancePost(ctx, {
+        p_user_id: user, p_kind: d.kind, p_document_id: id, p_expected_version: d.version, p_command_id: transitionCommand(command, "auto_finance"),
+        p_preview_hash: preview.preview_hash, p_category_id: category, p_plan: plan,
+      }) as Data;
+      return { outcome: "done", posting_id: pathText(post, ["posting", "id"]) };
+    });
+  } catch (e) {
+    const err = fromSqlite(e);
+    if (!["22023", "40001", "42501", "P0002"].includes(err.code)) throw err;
+    return { outcome: "skipped", reason: /^erp_[a-z0-9_]{1,80}$/.test(err.message) ? err.message : "erp_document_finance_refused" };
+  }
+}
+
+/** erp_documents.transition_command(comando, ação): md5(...)::uuid */
+export function transitionCommand(command: string, action: string) {
+  const h = createHash("md5").update(`situation-transition:${action}:${command}`, "utf8").digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
@@ -165,6 +193,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
   const expected = (a.p_expected_version as number | null) ?? null;
   const command = (a.p_command_id as string | null) ?? null;
   const body0 = a.p_body === undefined ? null : jsonbArg(a.p_body);
+  requireVisible(db, user, id, true);
   requireAccess(db, user, kind, true);
   if (expected === null || (id === null && expected !== 0) || (id !== null && expected < 1)) raise("22023", "erp_document_version_invalid");
   const hash = sha256(jsonbText({ op: "save", actor: user, kind, id, version: expected, body: body0 }));

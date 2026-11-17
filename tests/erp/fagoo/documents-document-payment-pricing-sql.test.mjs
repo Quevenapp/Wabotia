@@ -167,7 +167,7 @@ test('Lançar contas takes the Forma and the conta of the Destino; the contas st
   assert.deepEqual(titles, [{ payment_method_id: card, account_id: cash, settled_cents: 0 }, { payment_method_id: null, account_id: bank, settled_cents: 0 }]);
 });
 
-test('Lançamento automático de contas em Pedidos de Venda: on a change of situação and on the save, with the profile of the user', { todo: 'pendente do B5 (sessão O): com a preferência vendas.contas_automaticas_pedido ligada, o auto_finance do erp_document_save chama o erp_document_finance_post, ainda não portado, e o motor responde 0A000' }, async () => {
+test('Lançamento automático de contas em Pedidos de Venda: on a change of situação and on the save, with the profile of the user', async () => {
   const fresh = async () => (await save('sales_orders', { installments: [{ due_date: '2026-10-25', amount: '10.00', method: null }] })).value.document;
   let doc = await fresh();
   let moved = await status('sales_orders', doc, 'fulfilled');

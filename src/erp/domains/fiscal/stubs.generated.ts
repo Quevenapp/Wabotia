@@ -9,20 +9,10 @@ export const allocate = (..._args: unknown[]): never => notPorted("erp_fiscal_in
 export const arrayInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.array_input");
 /** erp_fiscal_invoices.authorized_input(p_value jsonb) → jsonb */
 export const authorizedInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.authorized_input");
-/** erp_fiscal_invoices.bool_input(p_value jsonb, p_default boolean) → boolean */
-export const boolInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.bool_input");
 /** erp_fiscal_invoices.check_sales_item_links() → trigger */
 export const checkSalesItemLinks = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.check_sales_item_links");
-/** erp_fiscal_invoices.check_value(p_value jsonb, p_desc text) → jsonb */
-export const checkValue = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.check_value");
-/** erp_fiscal_invoices.command_hash(p_actor uuid, p_scope text, p_action text, p_data jsonb) → text */
-export const commandHash = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.command_hash");
-/** erp_fiscal_invoices.command_replay(p_command_id uuid, p_actor uuid, p_scope text, p_hash text) → jsonb */
-export const commandReplay = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.command_replay");
 /** erp_fiscal_invoices.counts_for_balance(p_invoice uuid) → boolean */
 export const countsForBalance = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.counts_for_balance");
-/** erp_fiscal_invoices.digits(p_value text) → text */
-export const digits = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.digits");
 /** erp_fiscal_invoices.edit_locks(p_id uuid) → jsonb */
 export const editLocks = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.edit_locks");
 /** erp_fiscal_invoices.guard_invoice() → trigger */
@@ -39,8 +29,6 @@ export const invoiceInput = (..._args: unknown[]): never => notPorted("erp_fisca
 export const invoiceRecord = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.invoice_record");
 /** erp_fiscal_invoices.invoice_specs() → jsonb */
 export const invoiceSpecs = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.invoice_specs");
-/** erp_fiscal_invoices.ipi_situation_allowed(p_direction text, p_situation text) → boolean */
-export const ipiSituationAllowed = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.ipi_situation_allowed");
 /** erp_fiscal_invoices.item_input(p_item jsonb, p_crt text, p_direction text) → jsonb */
 export const itemInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.item_input");
 /** erp_fiscal_invoices.items_signature(p_items jsonb) → jsonb */
@@ -51,8 +39,6 @@ export const listQuery = (..._args: unknown[]): never => notPorted("erp_fiscal_i
 export const listRows = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.list_rows");
 /** erp_fiscal_invoices.money_input(p_value jsonb) → numeric */
 export const moneyInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.money_input");
-/** erp_fiscal_invoices.money_text(p_value numeric) → text */
-export const moneyText = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.money_text");
 /** erp_fiscal_invoices.order_effects(p_id uuid) → jsonb */
 export const orderEffects = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.order_effects");
 /** erp_fiscal_invoices.orders_finance_locked(p_orders jsonb) → boolean */
@@ -63,8 +49,6 @@ export const originSellerIds = (..._args: unknown[]): never => notPorted("erp_fi
 export const originStatus = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.origin_status");
 /** erp_fiscal_invoices.payment_input(p_value jsonb) → jsonb */
 export const paymentInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.payment_input");
-/** erp_fiscal_invoices.preference(p_key text, p_type text, p_default jsonb) → jsonb */
-export const preference = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.preference");
 /** erp_fiscal_invoices.quantity_text(p numeric) → text */
 export const quantityText = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.quantity_text");
 /** erp_fiscal_invoices.recipient_input(p_value jsonb, p_model text) → jsonb */
@@ -73,45 +57,23 @@ export const recipientInput = (..._args: unknown[]): never => notPorted("erp_fis
 export const referencesInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.references_input");
 /** erp_fiscal_invoices.require_orders_readable(p_role text, p_id uuid, p_orders jsonb) → void */
 export const requireOrdersReadable = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_orders_readable");
-/** erp_fiscal_invoices.require_read(p_user_id uuid) → text */
-export const requireRead = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_read");
 /** erp_fiscal_invoices.require_single_invoice(p_id uuid, p_direction text, p_orders jsonb) → void */
 export const requireSingleInvoice = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_single_invoice");
-/** erp_fiscal_invoices.require_write(p_user_id uuid) → text */
-export const requireWrite = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_write");
-/** erp_fiscal_invoices.role_of(p_user_id uuid) → text */
-export const roleOf = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.role_of");
 /** erp_fiscal_invoices.sales_balance(p_document uuid) → jsonb */
 export const salesBalance = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_balance");
 /** erp_fiscal_invoices.sales_full_invoice(p_document uuid) → uuid */
 export const salesFullInvoice = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_full_invoice");
 /** erp_fiscal_invoices.sales_item_invoiced(p_document uuid) → TABLE(document_item_id uuid, quantity numeric) */
 export const salesItemInvoiced = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_item_invoiced");
-/** erp_fiscal_invoices.scalar(p_value jsonb, p_max integer) → text */
-export const scalar = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.scalar");
-/** erp_fiscal_invoices.spec_object(p_value jsonb, p_spec jsonb) → jsonb */
-export const specObject = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.spec_object");
 /** erp_fiscal_invoices.status_group(p_group text) → smallint[] */
 export const statusGroup = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.status_group");
 /** erp_fiscal_invoices.store_items(p_id uuid, p_items jsonb) → void */
 export const storeItems = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.store_items");
 /** erp_fiscal_invoices.store_orders(p_id uuid, p_direction text, p_orders jsonb) → void */
 export const storeOrders = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.store_orders");
-/** erp_fiscal_invoices.text_input(p_value jsonb, p_max integer, p_required boolean, p_multiline boolean) → text */
-export const textInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.text_input");
 /** erp_fiscal_invoices.transport_input(p_value jsonb) → jsonb */
 export const transportInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.transport_input");
-/** erp_fiscal_invoices.ufs() → text[] */
-export const ufs = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.ufs");
-/** erp_fiscal_invoices.uuid_input(p_value jsonb, p_required boolean) → uuid */
-export const uuidInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.uuid_input");
-/** erp_fiscal_invoices.version_input(p_value jsonb) → integer */
-export const versionInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.version_input");
 /** erp_fiscal_mirror.coverage(p_user_id uuid, p_model text, p_direction text) → jsonb */
 export const coverage = (..._args: unknown[]): never => notPorted("erp_fiscal_mirror.coverage");
-/** erp_fiscal_mirror.native_visible(p_user_id uuid, p_id uuid) → boolean */
-export const nativeVisible = (..._args: unknown[]): never => notPorted("erp_fiscal_mirror.native_visible");
-/** erp_fiscal_mirror.visible(p_user_id uuid, p_entity text, p_source_id text) → boolean */
-export const visible = (..._args: unknown[]): never => notPorted("erp_fiscal_mirror.visible");
 /** public.erp_fiscal_invoice_execute(p_user_id uuid, p_command_id uuid, p_action text, p_data jsonb) → jsonb */
 export const erpFiscalInvoiceExecute = (..._args: unknown[]): never => notPorted("public.erp_fiscal_invoice_execute");

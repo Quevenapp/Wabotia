@@ -6,4 +6,17 @@
 // as suas, com o arquivo do RPC no comentário.
 import type { ArgSpec } from "./signatures.generated.ts";
 
-export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {};
+export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
+  // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
+  erp_fiscal_reform_nature_class_get: [
+    ["p_user_id", "u"],
+    ["p_nature_id", "u"],
+  ],
+  erp_fiscal_reform_nature_class_save: [
+    ["p_user_id", "u"],
+    ["p_command_id", "u"],
+    ["p_nature_id", "u"],
+    ["p_expected_hash", "t"],
+    ["p_rules", "j"],
+  ],
+};
