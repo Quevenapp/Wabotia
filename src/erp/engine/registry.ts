@@ -124,6 +124,16 @@ export function rpcObjectKeys(name: string, args: RpcArgs, db?: SqlDriver): stri
     return [];
   }
 }
+/**
+ * Um RPC público chamado de dentro de outro, na mesma transação (o PL/pgSQL
+ * chamando public.erp_*): argumentos preparados como no callRpc, sem o
+ * portão e sem os passos de antes do RPC. Não portado: 0A000.
+ */
+export function invokeRpc(ctx: RpcContext, name: string, args: RpcArgs): unknown {
+  const fn = registry.get(name);
+  if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
+  return fn(ctx, prepareArgs(name, args));
+}
 export const portedRpcs = () => [...registry.keys()].sort();
 export const isPorted = (name: string) => registry.has(name);
 
