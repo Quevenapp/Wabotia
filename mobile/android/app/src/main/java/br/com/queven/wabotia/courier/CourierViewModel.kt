@@ -172,17 +172,18 @@ class CourierViewModel(
     fun consumeNotice() = mutable.update { it.copy(notice = null) }
 
     /**
-     * Iniciar rota: o destino vem do aparelho ([geocode], gratuito e local) quando o servidor ainda não tem. A partir
-     * daqui a posição passa a ser enviada.
+     * Iniciar rota: o destino vem do aparelho ([geocode], gratuito e local) quando o servidor ainda não tem, procurado
+     * perto da loja ([CourierDestination]); endereço sem cidade não é procurado. A partir daqui a posição passa a ser
+     * enviada.
      */
-    fun start(id: String, geocode: suspend (String) -> LatLng?) {
+    fun start(id: String, geocode: suspend (DestinationSearch.Search) -> LatLng?) {
         val session = sessions[id] ?: return
         if (mutable.value.busy != null) return
         mutable.update { it.copy(busy = id) }
         viewModelScope.launch {
             act(id) {
-                val current = delivery(id)
-                val destination = if (current?.destination == null && !current?.address.isNullOrBlank()) geocode(current!!.address) else null
+                val plan = delivery(id)?.let(CourierDestination::plan)
+                val destination = (plan as? DestinationSearch.Search)?.let { geocode(it) }
                 backend.start(session, destination)?.let { pace = it }
                 replace(local(session, backend.delivery(session)))
             }

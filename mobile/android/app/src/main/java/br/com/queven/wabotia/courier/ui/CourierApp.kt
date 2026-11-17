@@ -77,6 +77,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import br.com.queven.wabotia.courier.CourierConfirm
 import br.com.queven.wabotia.courier.CourierDelivery
+import br.com.queven.wabotia.courier.CourierDestination
+import br.com.queven.wabotia.courier.DestinationSearch
 import br.com.queven.wabotia.courier.CourierLinks
 import br.com.queven.wabotia.courier.CourierMessage
 import br.com.queven.wabotia.courier.CourierParty
@@ -375,7 +377,7 @@ private fun DeliveryScreen(
     var confirmDone by remember { mutableStateOf(false) }
     var cancelling by remember { mutableStateOf(false) }
     // Na demonstração o endereço é fictício: não geocodifica (o servidor de exemplo põe o destino perto de você).
-    val geocode: suspend (String) -> LatLng? = { address -> if (demo) null else geocode(context, address) }
+    val geocode: suspend (DestinationSearch.Search) -> LatLng? = { search -> if (demo) null else geocode(context, search) }
     val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         onLocationGranted()
         if (startAfterConsent) {
@@ -426,6 +428,13 @@ private fun DeliveryScreen(
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(delivery.address, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
+                        delivery.addressParts?.reference?.takeIf { it.isNotBlank() }?.let {
+                            Text("Referência: $it", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                        }
+                        if (CourierDestination.plan(delivery) == DestinationSearch.Incomplete) {
+                            Spacer(Modifier.height(8.dp))
+                            InlineNotice(CourierDestination.INCOMPLETE, color = c.warn)
+                        }
                         delivery.order?.customerNote?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = c.warn) }
                         Spacer(Modifier.height(12.dp))
                         SecondaryButton("Abrir a rota no mapa", onClick = { openRoute(context, delivery) }, icon = Icons.Filled.Directions)
@@ -635,13 +644,24 @@ private fun CourierUploadEffect(vm: CourierViewModel, active: Boolean) {
     }
 }
 
-/** O destino pelo endereço, no próprio aparelho (gratuito). Sem Geocoder (aparelho sem serviços do Google): null. */
+/**
+ * O destino pelo endereço, no próprio aparelho (gratuito): dentro do retângulo em volta da loja quando ela tem posição
+ * (não perto do entregador), e só resultado no Brasil e a até [CourierDestination.RADIUS_KM] da loja. Nada que sirva,
+ * ou sem Geocoder (aparelho sem serviços do Google): null, e o servidor fica sem destino em vez de um errado.
+ */
 @Suppress("DEPRECATION")
-private suspend fun geocode(context: Context, address: String): LatLng? = withContext(Dispatchers.IO) {
+private suspend fun geocode(context: Context, search: DestinationSearch.Search): LatLng? = withContext(Dispatchers.IO) {
     if (!Geocoder.isPresent()) return@withContext null
     runCatching {
-        Geocoder(context, java.util.Locale.forLanguageTag("pt-BR")).getFromLocationName(address.replace('\n', ' '), 1)
-            ?.firstOrNull()?.let { LatLng(it.latitude, it.longitude) }
+        val geocoder = Geocoder(context, java.util.Locale.forLanguageTag("pt-BR"))
+        val found = search.near?.let { near ->
+            val (sw, ne) = CourierDestination.bounds(near)
+            geocoder.getFromLocationName(search.query, 5, sw.lat, sw.lng, ne.lat, ne.lng)
+        } ?: geocoder.getFromLocationName(search.query, 5)
+        found.orEmpty()
+            .map { LatLng(it.latitude, it.longitude) to it.countryCode }
+            .firstOrNull { (point, country) -> CourierDestination.accept(point, country, search) }
+            ?.first
     }.getOrNull()
 }
 
@@ -656,9 +676,15 @@ private val HOUR = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Amer
 
 private fun clock(at: Long) = HOUR.format(Instant.ofEpochMilli(at))
 
-/** A rota no app de mapas do aparelho: com coordenadas, navegação; sem elas, a busca pelo endereço. */
+/**
+ * A rota no app de mapas do aparelho: com coordenadas, navegação; sem elas, a busca pelo endereço, centrada na loja
+ * quando ela tem posição (o app de mapas procura em volta do ponto dado).
+ */
 private fun openRoute(context: Context, d: CourierDelivery) {
-    val byAddress = Uri.parse("geo:0,0?q=" + Uri.encode(d.address.replace('\n', ' ')))
+    val search = CourierDestination.plan(d) as? DestinationSearch.Search
+    val query = Uri.encode(search?.query ?: d.address.replace('\n', ' '))
+    val center = search?.near?.let { "${it.lat},${it.lng}" } ?: "0,0"
+    val byAddress = Uri.parse("geo:$center?q=$query")
     val uri = d.destination?.let { Uri.parse("google.navigation:q=${it.lat},${it.lng}") } ?: byAddress
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
