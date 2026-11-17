@@ -31,6 +31,7 @@ import {captureReconciliationRequest} from './fiscal-reconciliation-model.ts';
 import type {UpdateAction,UpdateOptions} from './system-updates.ts';
 // Wabotia: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
 import {createSessionCache,cachePolicy} from '../../session-cache.ts';
+import {readPendingInMotor} from '../../motor.ts';
 
 export const RESOURCE_LABELS = {
   contacts: 'Clientes e fornecedores', products: 'Produtos', sales_orders: 'Pedidos de venda',
@@ -296,6 +297,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if (path.includes('#') || pathname.includes('\\') || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split('/').some(part => part === '.' || part === '..')) throw new AccessError(400);
     // Wabotia: GET da lista estável passa pelo cache de sessão (o pedido compartilhado volta aqui com shared=true);
     // escrita invalida antes de sair e de novo ao terminar (com ou sem sucesso), para nenhum GET em voo guardar o estado anterior.
+    // Wabotia: leitura auxiliar ainda sem motor (web/erp/motor.ts): responde aqui, sem ir à rede, como o motor responderia.
+    if((options.method??'GET')==='GET'&&readPendingInMotor(path))throw new AccessError(501,'ERP_NOT_PORTED');
     const write=(options.method??'GET')!=='GET',policy=write||shared||beforeDispatch||options.body!==undefined?null:cachePolicy(path);
     if(policy&&cacheReady())return sessionCache.read(cacheKey(path),path,policy,signal=>nativeRequest(prefix,path,{method:'GET',signal},responseLimit,timeoutMs,undefined,true),options.signal);
     if(write)sessionCache.invalidateWrite(path);

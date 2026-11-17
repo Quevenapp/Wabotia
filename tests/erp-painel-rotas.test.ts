@@ -17,7 +17,12 @@ import worker from "../src/index";
 import { exec } from "../src/db";
 import { bearer, fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
-import { pendingInMotor, setMotorReal } from "../web/erp/motor";
+import {
+  MOTOR_PENDING_READS,
+  pendingInMotor,
+  readPendingInMotor,
+  setMotorReal,
+} from "../web/erp/motor";
 import { erpPeople } from "../web/erp/people";
 import { createAccessController } from "../web/erp/app/lib/real-access";
 
@@ -79,9 +84,19 @@ const SCREENS: [string, string][] = [
     "/financeiro-empresa?area=faturamento-agrupado",
     "/v1/financeiro/faturamento-agrupado?from=2026-11-01&to=2026-11-30",
   ],
-  ["/financeiro-empresa?area=remessas", "/v1/financeiro/remessa-candidatos"],
+  [
+    "/financeiro-empresa?area=remessas",
+    "/v1/financeiro/remessas?page=1&limit=50",
+  ],
+  [
+    "/financeiro-empresa?area=retornos",
+    "/v1/financeiro/retornos?page=1&limit=50",
+  ],
   ["/relatorio-vencimentos", "/v1/relatorios/vencimentos"],
   ["/cobranca-empresa", "/v1/cnab"],
+  ["/cobranca-operacional", "/v1/cobranca-operacional"],
+  ["/retornos-operacionais", "/v1/retornos-operacionais"],
+  ["/preferencias/backup/exportacao", "/v1/plataforma/exportacoes"],
   ["/empresa-configuracoes", "/v1/empresa"],
   [
     "/preferencias/sistema/registro-atividades",
@@ -99,6 +114,38 @@ const SCREENS: [string, string][] = [
   ],
 ];
 
+/**
+ * Todas as leituras que as telas levantadas (sessao-M-erp-latencia.md) fazem
+ * ao abrir: barra do topo, Início, Produtos e Contas a receber. Cada uma
+ * responde 2xx ou está em MOTOR_PENDING_READS (web/erp/motor.ts).
+ */
+const OPEN_READS: [string, string][] = [
+  ["barra", "/v1/sistema/perfil"],
+  ["barra", "/v1/sistema/armazenamento"],
+  ["barra", "/v1/sistema/notificacoes?aba=nao_lidas"],
+  ["barra", "/v1/preferencias/sistema-interface"],
+  ["Início", "/v1/inicio"],
+  ["Início", "/v1/sistema/validade"],
+  ["Início", "/v1/inicio/atalhos"],
+  ["Início", "/v1/sistema/graficos-inicio"],
+  ["Produtos", "/v1/cadastros"],
+  ["Produtos", "/v1/cadastros/taxonomias/categorias-produtos"],
+  ["Produtos", "/v1/cadastros/taxonomias/grupos-tags"],
+  ["Produtos", "/v1/cadastros/taxonomias/tags"],
+  ["Produtos", "/v1/preferencias/cadastros-produtos"],
+  ["Produtos", "/v1/preferencias-listas/cadastros.produtos"],
+  ["Produtos", "/v1/documentos/sacola-vendas"],
+  ["Produtos", "/v1/cadastros/products?page=1&size=100&situation=latest"],
+  ["Produtos (filtro de estoque)", "/v1/posicoes-estoque/depositos?limit=100"],
+  ["Contas a receber", "/v1/financeiro"],
+  [
+    "Contas a receber",
+    "/v1/financeiro/titles?page=1&limit=100&kind=receivable&option=open",
+  ],
+  ["Contas a receber", "/v1/financeiro/accounts?limit=100"],
+  ["Contas a receber", "/v1/preferencias/financas-receber"],
+  ["Contas a receber", "/v1/preferencias-listas/financeiro.contas_receber"],
+];
 async function setup() {
   const f = await fixture();
   await setModule(f.profile, "erp", true, f.admin.id);
@@ -194,6 +241,38 @@ describe("painel do ERP contra a rota real", () => {
               `${screen} → ${path}: ${response.status} ${body?.error?.code ?? ""} (${ok ? "responde: tire de web/erp/motor.ts" : "sem motor: ponha em web/erp/motor.ts"})`,
             );
         }
+      } finally {
+        setMotorReal(false);
+      }
+      expect(wrong, wrong.join("\n")).toEqual([]);
+    },
+  );
+
+  it(
+    "as leituras de abertura respondem ou estão na lista de leituras sem motor",
+    { timeout: 300_000 },
+    async () => {
+      const { f, get } = await setup();
+      const token = await bearer(f.admin);
+      setMotorReal(true);
+      const wrong: string[] = [];
+      const failing: string[] = [];
+      try {
+        for (const [screen, path] of OPEN_READS) {
+          const response = await get(token, `/erp${path}`);
+          const body = await response.json<any>().catch(() => null);
+          const ok = response.status < 300;
+          if (!ok) failing.push(path);
+          if (ok === readPendingInMotor(path))
+            wrong.push(
+              `${screen}: ${path} → ${response.status} ${body?.error?.code ?? ""} (${ok ? "responde: tire de MOTOR_PENDING_READS" : "sem motor: ponha em MOTOR_PENDING_READS ou trate na tela"})`,
+            );
+        }
+        for (const pattern of MOTOR_PENDING_READS)
+          if (!failing.some((path) => pattern.test(path)))
+            wrong.push(
+              `${pattern}: nenhuma leitura sem motor confere; tire de MOTOR_PENDING_READS`,
+            );
       } finally {
         setMotorReal(false);
       }

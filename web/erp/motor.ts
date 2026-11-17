@@ -40,13 +40,10 @@ export const MOTOR_PENDING: readonly Pending[] = [
   { path: "/preferencias/importacoes/notas-fiscais" },
   // Frente de caixa.
   { path: "/frente-caixa-empresa" },
-  // Cobrança bancária e remessas.
-  { path: "/cobranca-empresa" },
+  // Cobrança operacional e retornos operacionais (a cobrança bancária, as
+  // remessas e os retornos do financeiro já respondem).
   { path: "/cobranca-operacional" },
   { path: "/retornos-operacionais" },
-  // Financeiro: remessas e retornos (comissões, faturamento agrupado e o
-  // relatório de vencimentos já respondem).
-  { path: "/financeiro-empresa", query: ["area", ["remessas", "retornos"]] },
   // Estoque: conferência.
   { path: "/conferencia-estoque-empresa" },
   // Sistema: registro de atividades e consulta de exclusões (mesmo RPC).
@@ -65,11 +62,27 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Preferências", to: "/preferencias" },
 ];
 
+/**
+ * Leituras auxiliares sem motor ainda, em telas que já funcionam (a sonda
+ * confere cada uma). Contra o motor, o controlador responde por elas sem ir à
+ * rede (501 ERP_NOT_PORTED), e a tela segue com a ausência como já trata hoje:
+ * os filtros de Produtos ficam sem as opções de categoria e tags. (A sacola de
+ * vendas já responde, mas fica escondida enquanto os documentos estiverem em
+ * implantação: o uso dela é gerar o pedido.)
+ */
+export const MOTOR_PENDING_READS: readonly RegExp[] = [
+  /^\/v1\/cadastros\/taxonomias\/(categorias-produtos|grupos-produtos|tags|grupos-tags)(\?|$)/,
+];
+
 let real = false;
 /** mount.tsx: true contra o motor; false na demonstração e com a API simulada. */
 export function setMotorReal(next: boolean) {
   real = next;
 }
+
+/** A leitura (caminho da API do ERP, como /v1/…) ainda não tem motor? */
+export const readPendingInMotor = (path: string) =>
+  real && MOTOR_PENDING_READS.some((pattern) => pattern.test(path));
 
 /** A tela (caminho sem /app/erp, com ou sem consulta) ainda não tem motor? */
 export function pendingInMotor(target: string): boolean {

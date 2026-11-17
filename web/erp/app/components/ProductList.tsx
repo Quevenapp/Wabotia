@@ -34,6 +34,7 @@ import { customFilterApi, customFilterDraft, customRowLabel } from '../lib/produ
 import './product-registry.css';
 // Documentos lane (202610200197): Sacola de vendas of the user (toolbar, Marcadores and the drawer).
 import { SalesBagButton, SalesBagDrawer, SalesBagRowAdd, useSalesBag } from './SalesBag';
+import { pendingInMotor } from '../../motor';
 // Wave E (migration 234): "Componente" of the Tipo "Produtos com composição", searched with the Estrutura autocomplete of the estoque lane.
 import { componentOptionsPath, parseComponentOptions, type ComponentOption } from '../lib/stock-composition-model';
 
@@ -75,7 +76,8 @@ export function useProductList(list: CatalogList) {
   // Wabotia: o contador da sacola sai depois da primeira página (ou da falha dela), sem disputar o primeiro salto da lista.
   const [bagReady, setBagReady] = useState(false);
   if (!bagReady && list.entity === 'products' && !list.loading) setBagReady(true);
-  const salesBag = useSalesBag(controller, list.entity === 'products' && bagReady), navigateTo = useNavigate();
+  // Wabotia: sem os documentos no motor (web/erp/motor.ts), a sacola de vendas não é lida e não aparece.
+  const salesBag = useSalesBag(controller, list.entity === 'products' && bagReady && !pendingInMotor('/documentos-empresa')), navigateTo = useNavigate();
   const generateFromBag = () => { salesBag.setOpen(false); navigateTo('/documentos-empresa?tipo=sales_orders&acao=sacola'); };
   const [priceEdit, setPriceEdit] = useState<PriceEdit | null>(null);
   const [stockView, setStockView] = useState<{ item: CatalogListItem; balances: StockBalance[] | null; error: string } | null>(null);
