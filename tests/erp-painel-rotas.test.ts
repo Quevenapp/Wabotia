@@ -7,6 +7,8 @@
 //    administrador (erp:admin) e, sem papel erp:*, fica em "aguardando
 //    liberação" (403 erp_role_required).
 // 3. As pessoas com papel no ERP vêm de /people (web/erp/people.ts).
+// 4. Uma ação de tela que o motor ainda não faz (0A000) aciona o aviso de
+//    implantação da casca (web/erp/motor.ts, setActionPendingNotice).
 import {
   createExecutionContext,
   env,
@@ -21,6 +23,7 @@ import {
   MOTOR_PENDING_READS,
   pendingInMotor,
   readPendingInMotor,
+  setActionPendingNotice,
   setMotorReal,
 } from "../web/erp/motor";
 import { erpPeople } from "../web/erp/people";
@@ -29,7 +32,10 @@ import {
   preferencePageHref,
 } from "../packages/erp-domain/src/preferences/catalog.mjs";
 import { parsePreferencesPage } from "../packages/erp-domain/src/preferences/dto.mjs";
-import { createAccessController } from "../web/erp/app/lib/real-access";
+import {
+  AccessError,
+  createAccessController,
+} from "../web/erp/app/lib/real-access";
 
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
 const SCREENS: [string, string][] = [
@@ -58,6 +64,14 @@ const SCREENS: [string, string][] = [
   [
     "/documentos-empresa?tipo=purchase_orders",
     "/v1/documentos/purchase_orders",
+  ],
+  [
+    "/documentos-empresa?tipo=sales_proposals",
+    "/v1/documentos/sales_proposals?page=1&limit=100",
+  ],
+  [
+    "/documentos-empresa?tipo=service_orders",
+    "/v1/documentos/service_orders?page=1&limit=100",
   ],
   ["/historico-fiscal?modelo=55", "/v1/notas-fiscais?model=55&origin=brufap"],
   ["/naturezas-operacao", "/v1/notas-fiscais/naturezas"],
@@ -142,6 +156,11 @@ const OPEN_READS: [string, string][] = [
   ["Produtos", "/v1/documentos/sacola-vendas"],
   ["Produtos", "/v1/cadastros/products?page=1&size=100&situation=latest"],
   ["Produtos (filtro de estoque)", "/v1/posicoes-estoque/depositos?limit=100"],
+  ["Pedidos de venda", "/v1/documentos"],
+  ["Pedidos de venda", "/v1/documentos/sales_orders/situacoes"],
+  ["Pedidos de venda", "/v1/documentos/sales_orders/preferencias-listagem"],
+  ["Pedidos de venda", "/v1/preferencias/vendas-vendas"],
+  ["Pedidos de venda", "/v1/documentos/sales_orders/categorias"],
   ["Contas a receber", "/v1/financeiro"],
   [
     "Contas a receber",
@@ -178,6 +197,7 @@ async function panel(
   profile: string,
   token: string,
   actor: string,
+  use?: (controller: ReturnType<typeof createAccessController>) => Promise<void>,
 ) {
   const auth = {
     getSession: async () => ({
@@ -223,7 +243,11 @@ async function panel(
   )
     await new Promise((resolve) => setTimeout(resolve, 20));
   const snapshot = controller.getSnapshot();
-  stop();
+  try {
+    await use?.(controller);
+  } finally {
+    stop();
+  }
   return snapshot;
 }
 
@@ -350,6 +374,55 @@ describe("painel do ERP contra a rota real", () => {
       );
       expect(none.phase, JSON.stringify(none)).toBe("pending");
       expect(none.message).toBeNull();
+    },
+  );
+
+  it(
+    "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
+    { timeout: 120_000 },
+    async () => {
+      // Mudar a situação do pedido (erp_document_transition) ainda não tem
+      // motor: a tela recebe a recusa e a casca mostra o aviso de implantação.
+      const { f, send } = await setup();
+      const seen: string[] = [];
+      setMotorReal(true);
+      setActionPendingNotice(() => seen.push("aviso"));
+      try {
+        await panel(
+          send,
+          f.profile,
+          await bearer(f.admin),
+          f.admin.id,
+          async (controller) => {
+            const failure = await controller
+              .documents(
+                `/v1/documentos/sales_orders/${crypto.randomUUID()}/status`,
+                {
+                  method: "POST",
+                  body: {
+                    command_id: crypto.randomUUID(),
+                    expected_version: 1,
+                    status: "verified",
+                    reason: null,
+                  },
+                },
+              )
+              .then(
+                () => null,
+                (error) => error,
+              );
+            expect(failure).toBeInstanceOf(AccessError);
+            expect([failure.status, failure.code]).toEqual([
+              502,
+              "ERP_UPSTREAM_UNAVAILABLE",
+            ]);
+          },
+        );
+      } finally {
+        setActionPendingNotice(null);
+        setMotorReal(false);
+      }
+      expect(seen).toEqual(["aviso"]);
     },
   );
 

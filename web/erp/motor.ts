@@ -24,8 +24,6 @@ export const MOTOR_PENDING: readonly Pending[] = [
   { path: "/grupos-tags" },
   { path: "/importar-contatos" },
   { path: "/numeracao-contatos" },
-  // Documentos: pedidos, propostas, OS, compras, checkout e relatórios.
-  { path: "/documentos-empresa" },
   // Fiscal: notas, eventos, naturezas, rascunhos, numeração e o certificado
   // (as preferências de NF-e e NFC-e já respondem).
   { path: "/historico-fiscal" },
@@ -44,8 +42,6 @@ export const MOTOR_PENDING: readonly Pending[] = [
   // remessas e os retornos do financeiro já respondem).
   { path: "/cobranca-operacional" },
   { path: "/retornos-operacionais" },
-  // Estoque: conferência.
-  { path: "/conferencia-estoque-empresa" },
   // Sistema: registro de atividades e consulta de exclusões (mesmo RPC).
   { path: "/preferencias/sistema/registro-atividades" },
   { path: "/preferencias/sistema/consulta-exclusoes" },
@@ -58,7 +54,12 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Contas a receber", to: "/financeiro-empresa?area=receivable" },
   { label: "Contas a pagar", to: "/financeiro-empresa?area=payable" },
   { label: "Caixas e bancos", to: "/financeiro-empresa?area=accounts" },
+  { label: "Pedidos de venda", to: "/documentos-empresa?tipo=sales_orders" },
+  { label: "Propostas comerciais", to: "/documentos-empresa?tipo=sales_proposals" },
+  { label: "Ordens de serviço", to: "/documentos-empresa?tipo=service_orders" },
+  { label: "Pedidos de compra", to: "/documentos-empresa?tipo=purchase_orders" },
   { label: "Lançamentos de estoque", to: "/estoque-empresa" },
+  { label: "Conferência de estoque", to: "/conferencia-estoque-empresa" },
   { label: "Preferências", to: "/preferencias" },
 ];
 
@@ -66,9 +67,7 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
  * Leituras auxiliares sem motor ainda, em telas que já funcionam (a sonda
  * confere cada uma). Contra o motor, o controlador responde por elas sem ir à
  * rede (501 ERP_NOT_PORTED), e a tela segue com a ausência como já trata hoje:
- * os filtros de Produtos ficam sem as opções de categoria e tags. (A sacola de
- * vendas já responde, mas fica escondida enquanto os documentos estiverem em
- * implantação: o uso dela é gerar o pedido.)
+ * os filtros de Produtos ficam sem as opções de categoria e tags.
  */
 export const MOTOR_PENDING_READS: readonly RegExp[] = [
   /^\/v1\/cadastros\/taxonomias\/(categorias-produtos|grupos-produtos|tags|grupos-tags)(\?|$)/,
@@ -83,6 +82,23 @@ export function setMotorReal(next: boolean) {
 /** A leitura (caminho da API do ERP, como /v1/…) ainda não tem motor? */
 export const readPendingInMotor = (path: string) =>
   real && MOTOR_PENDING_READS.some((pattern) => pattern.test(path));
+
+/**
+ * Ação de uma tela que já funciona, mas cujo RPC o motor ainda não tem (0A000:
+ * mudar a situação de um pedido, lançar as contas do pedido). A erp-api do
+ * Fagoo devolve 502 ERP_UPSTREAM_UNAVAILABLE e a tela mostraria só "não foi
+ * possível, tente de novo". O controlador (web/erp/app/lib/real-access.ts)
+ * avisa aqui a cada escrita recusada assim, e a casca (web/erp/mount.tsx) diz
+ * com clareza que a ação está em implantação.
+ */
+let onActionPending: (() => void) | null = null;
+export function setActionPendingNotice(next: (() => void) | null) {
+  onActionPending = next;
+}
+export function writeRefused(status: number, code?: string) {
+  if (real && status === 502 && code === "ERP_UPSTREAM_UNAVAILABLE")
+    onActionPending?.();
+}
 
 /** A tela (caminho sem /app/erp, com ou sem consulta) ainda não tem motor? */
 export function pendingInMotor(target: string): boolean {

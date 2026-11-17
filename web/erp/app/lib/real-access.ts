@@ -31,7 +31,7 @@ import {captureReconciliationRequest} from './fiscal-reconciliation-model.ts';
 import type {UpdateAction,UpdateOptions} from './system-updates.ts';
 // Wabotia: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
 import {createSessionCache,cachePolicy} from '../../session-cache.ts';
-import {readPendingInMotor} from '../../motor.ts';
+import {readPendingInMotor,writeRefused} from '../../motor.ts';
 
 export const RESOURCE_LABELS = {
   contacts: 'Clientes e fornecedores', products: 'Produtos', sales_orders: 'Pedidos de venda',
@@ -313,7 +313,10 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       return result;
     } catch (error) {
       if (stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
-      throw handleAccessFailure(error,bearer,credential);
+      const failure=handleAccessFailure(error,bearer,credential);
+      // Wabotia: escrita sem motor ainda (502 ERP_UPSTREAM_UNAVAILABLE): a casca avisa que a ação está em implantação (web/erp/motor.ts).
+      if(write&&failure instanceof AccessError)writeRefused(failure.status,failure.code);
+      throw failure;
     } finally { requests.delete(controller);options.signal?.removeEventListener('abort', abort);if(write)sessionCache.invalidateWrite(path); }
   };
   const a1Request = async (path: string, options: A1RequestOptions = {}): Promise<unknown> => {

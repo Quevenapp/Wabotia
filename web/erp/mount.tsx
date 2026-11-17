@@ -11,7 +11,8 @@ import {
 import { setNavigationGuard } from "../lib/routes";
 import { setErpPorts, type ErpPorts } from "./ports";
 import { setErpBlocks, targetEnabled, type ErpBlock } from "./blocks";
-import { setMotorReal } from "./motor";
+import { setActionPendingNotice, setMotorReal } from "./motor";
+import { toast } from "../ui";
 import { createFetchPort, erpApiUrl, erpSimulated } from "./fetch-port";
 import { preloadScreen } from "./app/components/native-modules";
 import {
@@ -86,6 +87,19 @@ export default function ErpMount({
   setErpBlocks(blocks);
   // Contra o motor, as telas ainda sem porte ficam "em implantação" (web/erp/motor.ts).
   setMotorReal(!simulated(demo));
+  // Ação de tela que o motor ainda não faz: aviso claro, um por vez.
+  useEffect(() => {
+    let last = 0;
+    setActionPendingNotice(() => {
+      if (Date.now() - last < 5000) return;
+      last = Date.now();
+      toast(
+        "Esta ação ainda está em implantação no ERP do Wabotia e não foi feita. O restante da tela funciona normalmente.",
+        { tone: "info", ms: 10000 },
+      );
+    });
+    return () => setActionPendingNotice(null);
+  }, []);
   // Primeira visita: o arquivo da tela do endereço baixa junto com o /v1/me
   // (antecipado em ErpArea), e não depois dele. Bloco desligado: nada.
   useEffect(() => {
