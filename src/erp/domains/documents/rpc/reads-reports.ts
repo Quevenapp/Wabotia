@@ -2,7 +2,8 @@
 // romaneio de entrega, relatório de ordens de serviço e de ocorrências da
 // OS. Portado de public.erp_document_sales_abc, _sales_romaneio,
 // _service_report e _service_occurrence_report com os mesmos nomes.
-// erp_document_mirror.report_coverage é a constante sem espelho (Origin fora).
+// erp_document_mirror.report_coverage é lido como no oráculo: quantos
+// documentos espelhados o relatório deixou de fora (../mirror-reads.ts).
 // A ordem segue o Postgres: DESC põe NULL primeiro, ASC por último.
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { decText, formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
@@ -12,7 +13,8 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgLower } from "../../../engine/text.ts";
 import { contactScope, contactVisibleTo } from "../../catalog/public.ts";
 import { dateValue, uuidValue } from "../internal.ts";
-import { reportCoverage, requireAccess, transitions } from "../public.ts";
+import { reportCoverage } from "../mirror-reads.ts";
+import { requireAccess, transitions } from "../public.ts";
 import { jsonPathText } from "./reads-common.ts";
 
 type Row = Record<string, unknown>;
@@ -115,7 +117,7 @@ export function erpDocumentSalesAbc(ctx: RpcContext, a: RpcArgs) {
     truncated: items.length > 5000,
     total: formatScaled(total ?? 0n, 2),
     ...NATIVE,
-    ...reportCoverage(),
+    ...reportCoverage(db, user, "sales_orders", p.from, p.to),
   };
 }
 
@@ -260,7 +262,7 @@ export function erpDocumentSalesRomaneio(ctx: RpcContext, a: RpcArgs) {
     truncated: orders.length > 100,
     totals: { orders: orders.length, volumes: sum("volume_count"), gross_weight: sum("gross_weight") },
     ...NATIVE,
-    ...reportCoverage(),
+    ...reportCoverage(db, user, "sales_orders", from, to),
   };
 }
 
@@ -366,7 +368,7 @@ export function erpDocumentServiceReport(ctx: RpcContext, a: RpcArgs) {
     row_count: rows.length,
     truncated: rows.length > 5000,
     ...NATIVE,
-    ...reportCoverage(),
+    ...reportCoverage(db, user, "service_orders"),
   };
 }
 
@@ -419,7 +421,7 @@ export function erpDocumentServiceOccurrenceReport(ctx: RpcContext, a: RpcArgs) 
     row_count: rows.length,
     truncated: rows.length > 5000,
     ...NATIVE,
-    ...reportCoverage(),
+    ...reportCoverage(db, user, "service_orders", p.from, p.to),
   };
 }
 

@@ -4,8 +4,8 @@
 // _freight_paid_get e _freight_paid_save com os mesmos nomes. O núcleo
 // (documentView, situações) é da O em ../internal.ts; situações, transições e
 // "Meu Negócio" vêm do domínio 11 (preferences/shared.ts).
-// erp_document_mirror.require_visible sai (Origin fora: docs/ERP-FASE0.md);
-// documento do espelho dá 0A000 no documentView.
+// erp_document_mirror.require_visible abre cada leitura, como no oráculo
+// (mirrorRequireVisible; ERP-PORTE.md, "Origin fora não é sem efeito").
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { formatScaled, fromColumn, toParam, toScaled } from "../../../engine/dec.ts";
@@ -72,6 +72,7 @@ export function erpDocumentOccurrenceList(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(db, user, id, false);
   requireAccess(db, user, kind, false);
   const m = user === null ? null : one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
   const d = id === null || kind === null ? null : one(db, 'SELECT id, kind, number, status, version, contact_id FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind);
@@ -134,6 +135,7 @@ export function erpDocumentFreightPaidGet(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   if (kind !== "sales_orders" || id === null) raise("22023", "erp_document_query_invalid");
   requireAccess(ctx.db, user, kind, false);
   if (!bizCostVisible(bizRole(ctx.db, user))) raise("42501", "erp_document_access_denied");
@@ -152,6 +154,7 @@ export function erpDocumentFreightPaidSave(ctx: RpcContext, a: RpcArgs) {
     expected = a.p_expected_version === null || a.p_expected_version === undefined ? null : Number(a.p_expected_version),
     command = str(a.p_command_id),
     data = a.p_data as Record<string, unknown> | null | undefined;
+  mirrorRequireVisible(db, user, id, true);
   const isObj = data !== null && data !== undefined && jsonType(data) === "object";
   const typeOk = (v: unknown) => v === null || typeof v === "string";
   if (

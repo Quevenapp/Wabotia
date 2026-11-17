@@ -1,9 +1,10 @@
 // Diário da ordem de serviço (sessão L, bloco B0): erp_service_journal_get,
 // _list e _append (escritor, com recibo próprio em
 // erp_documents.service_journal_command). Portado com os mesmos nomes.
-// erp_document_mirror.require_visible sai (Origin fora: docs/ERP-FASE0.md);
-// o lock consultivo por comando não tem equivalente no objeto (uma transação
-// por vez).
+// erp_document_mirror.require_visible abre o service_journal_context, como no
+// oráculo (lá ele também abre cada RPC, com o mesmo p_write ou mais fraco: a
+// segunda chamada não muda nada). O lock consultivo por comando não tem
+// equivalente no objeto (uma transação por vez).
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
@@ -12,7 +13,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { valueJson } from "../../../engine/row-json.ts";
 import { pgBtrim, pgHasCntrl, pgLength } from "../../../engine/text.ts";
 import { ERP_TABLES } from "../../../schema/columns.generated.ts";
-import { allowed, contactUsable, requireAccess } from "../public.ts";
+import { allowed, contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
@@ -20,6 +21,7 @@ const RECORDED = ERP_TABLES.erp_documents__service_journal_entry.columns.recorde
 
 /** erp_documents.service_journal_context(p_user_id, p_document_id, p_write): a OS visível e se o usuário pode escrever. */
 export function serviceJournalContext(db: SqlDriver, user: string | null, document: string | null, write = false) {
+  mirrorRequireVisible(db, user, document, write);
   requireAccess(db, user, "service_orders", write);
   const d = document === null ? null : one(db, `SELECT id, version, contact_id, authority FROM "erp_documents__document" WHERE id=? AND kind='service_orders'`, document);
   if (!d || !contactUsable(db, user, str(d.contact_id))) raise("P0002", "erp_journal_not_found");
