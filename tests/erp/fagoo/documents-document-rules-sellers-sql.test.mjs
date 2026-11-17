@@ -30,10 +30,11 @@
 // Descartado, declarado: o teste "164 grants and private helpers" (só
 // has_function_privilege e prosecdef: papéis do Postgres, sem equivalente
 // no motor).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 import { ERP_DEVIATIONS } from '../../../src/erp/schema/deviations.ts';
 
 // 202610200164 (vendedor nativo, regras das Preferências e dos vendedores, conversões, numeração, cadastro automático de
@@ -41,7 +42,7 @@ import { ERP_DEVIATIONS } from '../../../src/erp/schema/deviations.ts';
 let f;
 // O desvio telas-2-casas volta ao valor do Fagoo (oracle) nos dois motores: o original conta com o padrão de 10 casas no preço.
 const deviations = ERP_DEVIATIONS.filter(d => d.applied).map(d => (d.id === 'telas-2-casas' ? { ...d, value: d.oracle } : d));
-before(async () => { f = await documentsFixture({ lane: 'C', deviations }); });
+before(async () => { f = await documentsLaneFixture('C', { deviations }); });
 after(() => f?.close());
 const ok = async (path, method = 'GET', body, user) => { const r = await f.call(path, method, body, user); assert.equal(r.status, 200, `${method} ${path} ${JSON.stringify(r.value)}`); return r.value; };
 const save = (kind, data, user, id = null, version = null) => f.call(`/v1/documentos/${kind}${id ? `/${id}` : ''}`, id ? 'PATCH' : 'POST', { command_id: randomUUID(), data, ...(id ? { expected_version: version } : {}) }, user);

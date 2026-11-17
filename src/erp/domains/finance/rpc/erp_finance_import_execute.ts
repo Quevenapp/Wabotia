@@ -14,7 +14,6 @@ import {
   CNTRL,
   day,
   field,
-  flushDeferred,
   hasKey,
   insertAudit,
   insertCommand,
@@ -221,7 +220,6 @@ export function erpFinanceImportExecute(ctx: RpcContext, a: RpcArgs) {
   const result = { entity: "financial_import", kind, created, skipped, action: "records_import", data_mode: "erp_native", replayed: false };
   insertCommand(ctx, command, user, hash, result);
   insertAudit(ctx, user, command, "records_import", null, result);
-  flushDeferred(ctx);
   return result;
 }
 

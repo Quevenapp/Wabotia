@@ -6,10 +6,11 @@
 // que abre uma segunda fixture também usa a dupla.
 // Descartado, declarado: o teste "168 grants" (has_function_privilege e
 // prosecdef: papéis do Postgres, sem equivalente no motor).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 // 202610200168 (Categoria e Transportador do cadastro nos documentos) on PGlite through the real Worker. Synthetic data only.
 let f, sale, saleChild, purchase, carrier;
@@ -17,7 +18,7 @@ const finance = (action, data) => f.rpc('erp_finance_category_execute', { p_user
 const category = async (kind, name, parent = null) => (await finance('category_create', { kind, name, ...(parent ? { parent_id: parent } : {}) })).record.id;
 const setActive = async (id, active) => finance('category_set_active', { id, active, expected_version: await f.scalar('select version v from erp_finance.category where id=$1', [id]) });
 before(async () => {
-  f = await documentsFixture({ lane: 'C' });
+  f = await documentsLaneFixture('C');
   sale = await category('receivable', 'Vendas sintéticas');
   saleChild = await category('receivable', 'Balcão', sale);
   purchase = await category('payable', 'Compras sintéticas');
@@ -100,7 +101,7 @@ test('Lançar contas uses the categoria of the pedido before the padrão; a chos
 });
 
 test('a transition with Lançar contas uses the categoria of the pedido when there is no padrão', async () => {
-  const fresh = await documentsFixture({ lane: 'C' });
+  const fresh = await documentsLaneFixture('C');
   try {
     const own = (await fresh.rpc('erp_finance_category_execute', { p_user_id: fresh.users.financeiro, p_command_id: randomUUID(), p_action: 'category_create', p_data: { kind: 'payable', name: 'Compras do pedido' } })).record.id;
     const doc = await fresh.create('purchase_orders', { category_id: own, installments: [{ due_date: '2026-11-20', amount: '10.00', method: null }] });

@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { pgSelect, pgToLite } from "../../../scripts/erp/gen-sqlite-lib.mjs";
 import { derivedIds, derivedUuid, orderFor } from "./derived-ids.mjs";
+import { volatileHash } from "./volatile-hashes.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+00:00$/;
@@ -143,6 +144,8 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
         }
       }
     if (ISO_TIME.test(pg) && ISO_TIME.test(lite)) return out;
+    // Hash declarado sobre ids novos (volatile-hashes.mjs).
+    if (volatileHash(ids.rpc, key, pg, lite)) return out;
     if (pg !== lite && EMBEDDED.test(pg) && EMBEDDED.test(lite)) {
       const parts = (s) => s.split(EMBEDDED_ALL);
       const ids_ = (s) => [...s.matchAll(EMBEDDED_ALL)].map((m) => m[0]);

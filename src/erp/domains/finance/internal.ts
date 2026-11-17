@@ -15,7 +15,7 @@ import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import { pgHasCntrl, pgLower as enginePgLower } from "../../engine/text.ts";
-import type { RpcContext } from "../../engine/registry.ts";
+import { defer, type RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
 import * as sync from "../sync/public.ts";
@@ -201,6 +201,8 @@ export function replayed(db: SqlDriver, command: string, actor: string, hash: st
 }
 
 const reservedCommands = new WeakMap<RpcContext, Set<string>>();
+/** Recibo reservado nesta transação e ainda sem resultado: no Postgres ele ainda não existe (FK adiada). */
+export const isReserved = (ctx: RpcContext, id: string) => !!reservedCommands.get(ctx)?.has(id);
 /**
  * Reserva o recibo antes do fim do RPC, para as tabelas cuja FK para
  * erp_finance.command é DEFERRABLE INITIALLY DEFERRED no Postgres (transfer,
@@ -212,6 +214,8 @@ export function reserveCommand(ctx: RpcContext, id: string, actor: string, hash:
   let set = reservedCommands.get(ctx);
   if (!set) reservedCommands.set(ctx, (set = new Set()));
   if (set.has(id)) return;
+  // Um recibo de outra transação já satisfaz a FK: nada a reservar.
+  if (one(ctx.db, 'SELECT 1 x FROM "erp_finance__command" WHERE id=?', id)) return;
   set.add(id);
   ctx.db.exec(
     'INSERT INTO "erp_finance__command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
@@ -224,8 +228,11 @@ export function reserveCommand(ctx: RpcContext, id: string, actor: string, hash:
 }
 
 export function insertCommand(ctx: RpcContext, id: string, actor: string, hash: string, result: unknown) {
-  if (reservedCommands.get(ctx)?.has(id)) {
-    ctx.db.exec('UPDATE "erp_finance__command" SET result=? WHERE id=?', JSON.stringify(result), id);
+  const set = reservedCommands.get(ctx);
+  if (set?.has(id)) {
+    // A reserva pode ter vindo de outra escrita (cnab_cash_plan): o recibo final é deste comando.
+    ctx.db.exec('UPDATE "erp_finance__command" SET actor=?, request_hash=?, result=? WHERE id=?', actor, hash, JSON.stringify(result), id);
+    set.delete(id);
     return;
   }
   ctx.db.exec(
@@ -322,21 +329,10 @@ export function permissionKey(action: string, after: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Verificações adiadas (gatilhos DEFERRABLE INITIALLY DEFERRED do Postgres):
-// rodam no fim do RPC, antes do commit, na ordem em que foram marcadas.
-
-const deferredChecks = new WeakMap<RpcContext, Map<string, () => void>>();
-export function defer(ctx: RpcContext, key: string, check: () => void) {
-  let list = deferredChecks.get(ctx);
-  if (!list) deferredChecks.set(ctx, (list = new Map()));
-  if (!list.has(key)) list.set(key, check);
-}
-export function flushDeferred(ctx: RpcContext) {
-  const list = deferredChecks.get(ctx);
-  if (!list) return;
-  deferredChecks.delete(ctx);
-  for (const check of list.values()) check();
-}
+// Verificações adiadas (gatilhos DEFERRABLE INITIALLY DEFERRED do Postgres): a fila do
+// motor (engine/registry.ts, defer), que roda no fim da transação, antes do COMMIT,
+// também quando outro domínio chama o Financeiro.
+export { defer };
 
 /**
  * erp_finance.document_command_start: recibo dos lançamentos de documentos e notas
@@ -541,7 +537,7 @@ export function insertMovement(ctx: RpcContext, m: MovementInput) {
   // settlement_movement_check (adiado)
   if (m.settlement_id) {
     const sid = m.settlement_id;
-    defer(ctx, `settlement:${sid}`, () => assertSettlementPostings(db, sid));
+    defer(ctx, () => assertSettlementPostings(db, sid));
   }
   return id;
 }

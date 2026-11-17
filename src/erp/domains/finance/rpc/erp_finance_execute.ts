@@ -13,7 +13,6 @@ import {
   day,
   expected,
   field,
-  flushDeferred,
   hasKey,
   insertAccount,
   insertAudit,
@@ -30,6 +29,7 @@ import {
   updateCategory,
   uuidArg,
   uuidValue,
+  isReserved,
 } from "../internal.ts";
 import { insertSettlement, postSettlementMovements } from "../settlements.ts";
 import { activeContact, dto, insertTitle, projectResultLink, updateTitle } from "../titles.ts";
@@ -50,7 +50,7 @@ export function erpFinanceExecute(ctx: RpcContext, a: RpcArgs) {
   const hash = requestHash(user, action, data);
   requireAccess(db, user, true);
   const receipt = one(db, 'SELECT actor, request_hash, result FROM "erp_finance__command" WHERE id=?', command);
-  if (receipt) {
+  if (receipt && !isReserved(ctx, command)) {
     if (receipt.actor !== user || receipt.request_hash !== hash) raise("40001", "erp_finance_command_conflict");
     return { ...projectResultLink(db, JSON.parse(String(receipt.result))), replayed: true };
   }
@@ -293,7 +293,6 @@ export function erpFinanceExecute(ctx: RpcContext, a: RpcArgs) {
   result = { ...result, action, data_mode: "erp_native", replayed: false };
   insertCommand(ctx, command, user, hash, result);
   insertAudit(ctx, user, command, action, before, result);
-  flushDeferred(ctx);
   return result;
 }
 

@@ -10,13 +10,14 @@
 // Synthetic data only. 202610200288: campos customizados of the OS (definitions), the lots offered by Informar lotes, the commission
 // rule of the vendedor (aba Comissões) and the search of the Descrição of a line without the item types that are not sold. PGlite with
 // every migration and the real Worker.
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f;
-before(async () => { f = await documentsFixture({ lane: 'E' }); });
+before(async () => { f = await documentsLaneFixture('E'); });
 after(async () => f?.close());
 const BASE = '/v1/documentos/service_orders/campos-customizados';
 const field = (extra = {}) => ({ field_type: 'text', name: 'Placa do veículo', hint: 'Ex: ABC1D23', info: null, required: false, min_length: null, max_length: 10, width: 'medium', options: [], active: true, ...extra });

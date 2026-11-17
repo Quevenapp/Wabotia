@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { setSecret } from "../../../src/security";
-import { type Actor, uid } from "../../../src/types";
+import { exec } from "../../../src/db";
+import { type Actor, now, uid } from "../../../src/types";
 import type { FiscalContext } from "../../../src/erp/emissor/provider.ts";
 import { createFakeVault, type FakeVaultOptions } from "./fake-vault";
 
@@ -8,6 +9,28 @@ export const VAULT_URL = "https://nfapi-cofre.exemplo.workers.dev";
 
 export function actor(role: Actor["role"] = "admin", profiles: string[] = []): Actor {
   return { id: uid(), kind: "user", name: "Pessoa", role, profiles, scopes: [], bots: [], rate: 300, runLimit: 10 };
+}
+
+/**
+ * Ator gravado em users (D1), para as rotas que passam pelo ERP: o envelope
+ * de identidade lê as pessoas da área de lá. `access`: lista de acessos
+ * (ex.: ["erp:consulta"]); o administrador já vale erp:admin.
+ */
+export async function member(role: Actor["role"], profile: string, access: string[] | null = null): Promise<Actor> {
+  const a = actor(role, [profile]);
+  await exec(
+    env,
+    "INSERT INTO users(id,email,name,password,role,profiles,access,created) VALUES(?,?,?,?,?,?,?,?)",
+    a.id,
+    `${a.id}@example.test`,
+    a.name,
+    "test",
+    role,
+    JSON.stringify([profile]),
+    access === null ? null : JSON.stringify(access),
+    now(),
+  );
+  return { ...a, access };
 }
 
 /** Área nova com o emissor apontando para um cofre simulado. */

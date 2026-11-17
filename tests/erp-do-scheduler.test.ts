@@ -1,15 +1,41 @@
 // Agendador do ERP no workerd (docs/ERP-AGENDADOR.md): o encaixe no objeto
 // erp:<área>. O despachante em si é testado com relógio controlado no Node
 // (tests/erp/scheduler/dispatch.test.mjs).
-import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+//
+// Relógio injetado: o objeto roda no mesmo isolado dos testes, então
+// `at(ms)` fixa o Date dos dois (vi.useFakeTimers só com Date; o setTimeout
+// das cessões de vez continua real). O tempo fica parado até o próximo
+// `at`: cada acordada esperada cai num ms exato, e nenhum teste depende da
+// hora em que a suíte roda. Os instantes ficam nas próximas 24 h do relógio
+// real: alarme agendado nunca fica no passado (o runtime o rodaria sozinho)
+// e o erp_platform_schedule aceita o p_now.
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { storageDriver } from "../src/erp/engine/driver";
+import "../src/erp/domains/index";
+import { callRpc } from "../src/erp/engine/registry";
+import { saoPauloParts } from "../src/erp/engine/time";
 import { runRound } from "../src/erp/scheduler/dispatch";
 import { erpAreas, isErpCronSlot, wakeErpAreas } from "../src/erp/scheduler/cron";
-import { nextHour } from "../src/erp/scheduler/routines";
+import { DAY_MS, nextHour, nextLocalTime } from "../src/erp/scheduler/routines";
 import { exec } from "../src/db";
-import { fixture } from "./service-center-fixture";
+import { bearer, fixture } from "./service-center-fixture";
+import { setModule } from "./erp-module-helper";
+
+/** O Date.now nativo, guardado antes de qualquer relógio fixo. */
+const realNow = Date.now.bind(Date);
+afterEach(() => vi.useRealTimers());
+/** Fixa o relógio do teste e do objeto em `ms` (parado até o próximo `at`). */
+const at = (ms: number) => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(ms);
+  return ms;
+};
+/** O próximo "HH:MM" de São Paulo nas próximas 24 h, mais `extra` ms. */
+const upcoming = (hm: string, extra = 0) => nextLocalTime(realNow() + 60_000, hm) + extra;
+/** Data de São Paulo de um instante (AAAA-MM-DD). */
+const spDate = (ms: number) => saoPauloParts(BigInt(ms) * 1000n).date;
 
 const far = () => Date.now() + 10 * 60_000;
 const alarmOf = (profile: string) =>
@@ -102,30 +128,229 @@ describe("agendador do ERP no objeto", () => {
   }, 60_000);
 
   it("o alarme roda a rodada (rotinas e fila) e se reagenda para a hora cheia", async () => {
+    // 03:20 em São Paulo: longe da virada de hora e das 03:10.
+    const t = at(upcoming("03:20"));
     const f = await fixture();
     await erpFetch(env, f.profile, "/erp-ping");
     await clearAlarm(f.profile);
     await setAlarm(f.profile, far());
-    const before = Date.now();
     expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
     const state = await runInDurableObject(erpStub(env, f.profile), async (_i: any, s: DurableObjectState) => ({
       alarm: await s.storage.getAlarm(),
       routines: s.storage.sql.exec("SELECT id, last_status FROM wb_routine ORDER BY id").toArray(),
-      tasks: s.storage.sql.exec('SELECT purpose, status FROM "erp_platform__task" ORDER BY purpose').toArray(),
+      tasks: s.storage.sql.exec('SELECT purpose, operation_id, status FROM "erp_platform__task" ORDER BY purpose').toArray(),
       lastAlarm: s.storage.sql.exec("SELECT value FROM erp_meta WHERE key='last_alarm'").toArray()[0]?.value,
     }));
     expect(state.routines).toEqual([
       { id: "platform.schedule", last_status: "ok" },
       { id: "retention", last_status: "ok" },
     ]);
+    // A limpeza do dia (com arquivo) não vai na mesma acordada das rotinas:
+    // fica para a seguinte, 1 s depois.
     expect(state.tasks).toEqual([
-      { purpose: "export_cleanup", status: "queued" },
-      { purpose: "notifications_generate", status: "done" },
+      { purpose: "export_cleanup", operation_id: `limpeza-exportacoes:${spDate(t)}`, status: "queued" },
+      { purpose: "notifications_generate", operation_id: `notificacoes:${spDate(t)}T03`, status: "done" },
     ]);
-    expect(Number(state.lastAlarm)).toBeGreaterThanOrEqual(before);
-    expect(state.alarm).toBe(nextHour(Number(state.lastAlarm)));
+    expect(Number(state.lastAlarm)).toBe(t);
+    expect(state.alarm).toBe(t + 1_000);
+    // Acordada seguinte, só da limpeza; depois, a hora cheia (04:00).
+    at(t + 1_000);
+    expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+    const after = await runInDurableObject(erpStub(env, f.profile), async (_i: any, s: DurableObjectState) => ({
+      alarm: await s.storage.getAlarm(),
+      cleanup: s.storage.sql
+        .exec(`SELECT status, result FROM "erp_platform__task" WHERE purpose='export_cleanup'`)
+        .toArray()[0],
+    }));
+    expect(after.cleanup.status).toBe("done");
+    expect(JSON.parse(String(after.cleanup.result))).toEqual({ removed: 0 });
+    expect(after.alarm).toBe(t + 2_000);
+    at(t + 2_000);
+    expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+    expect(await alarmOf(f.profile)).toBe(nextHour(t));
     await clearAlarm(f.profile);
   }, 60_000);
+
+  /**
+   * Janela de tempo: a primeira acordada um segundo antes de `edge` e a
+   * seguinte exatamente nela (o alarme agendado para 1 s depois, por causa da
+   * limpeza do dia). Devolve as tarefas e as rotinas depois das duas.
+   */
+  async function window(edge: number) {
+    const t = at(edge - 1_000);
+    const f = await fixture();
+    await erpFetch(env, f.profile, "/erp-ping");
+    await clearAlarm(f.profile);
+    await setAlarm(f.profile, far());
+    expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+    const first = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
+      s.storage.sql.exec("SELECT id, CAST(next_run_us AS TEXT) next, runs FROM wb_routine ORDER BY id").toArray() as any[],
+    );
+    expect(await alarmOf(f.profile)).toBe(edge);
+    at(edge);
+    expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+    const state = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => ({
+      routines: s.storage.sql.exec("SELECT id, CAST(next_run_us AS TEXT) next, runs FROM wb_routine ORDER BY id").toArray() as any[],
+      ops: s.storage.sql.exec('SELECT operation_id FROM "erp_platform__task" ORDER BY operation_id').toArray().map((r: any) => r.operation_id),
+    }));
+    await clearAlarm(f.profile);
+    const next = (rows: any[], id: string) => Number(BigInt(rows.find((r) => r.id === id).next) / 1000n);
+    const runs = (rows: any[], id: string) => Number(rows.find((r) => r.id === id).runs);
+    return { t, first, state, next, runs };
+  }
+
+  it("virada de hora: 05:59:59 gera a tarefa das 05; 06:00:00 gera a das 06", async () => {
+    const edge = upcoming("06:00");
+    const { t, first, state, next, runs } = await window(edge);
+    expect(next(first, "platform.schedule")).toBe(edge);
+    expect(runs(state.routines, "platform.schedule")).toBe(2);
+    expect(state.ops).toEqual([
+      `limpeza-exportacoes:${spDate(t)}`,
+      `notificacoes:${spDate(t)}T05`,
+      `notificacoes:${spDate(t)}T06`,
+    ]);
+    expect(next(state.routines, "platform.schedule")).toBe(edge + 3_600_000);
+  }, 60_000);
+
+  it("03:10: a retenção vista pela primeira vez às 03:09:59 roda de novo às 03:10 e depois só no dia seguinte", async () => {
+    const edge = upcoming("03:10");
+    const { first, state, next, runs } = await window(edge);
+    // Primeira vez que a instância vê a rotina: roda na hora, e o próximo
+    // horário é o das 03:10 do mesmo dia (docs/ERP-AGENDADOR.md).
+    expect(next(first, "retention")).toBe(edge);
+    expect(runs(state.routines, "retention")).toBe(2);
+    expect(next(state.routines, "retention")).toBe(edge + DAY_MS);
+  }, 60_000);
+
+  it("virada do dia em São Paulo: 23:59:59 é um dia, 00:00:00 é outro (notificações e limpeza)", async () => {
+    const edge = upcoming("00:00");
+    const { t, state } = await window(edge);
+    const [d1, d2] = [spDate(t), spDate(edge)];
+    expect(d1).not.toBe(d2);
+    expect(state.ops).toEqual([
+      `limpeza-exportacoes:${d1}`,
+      `limpeza-exportacoes:${d2}`,
+      `notificacoes:${d1}T23`,
+      `notificacoes:${d2}T00`,
+    ]);
+  }, 60_000);
+
+  it("exportação da empresa pelo alarme: sozinha numa acordada, em fatias no R2 da área, e a exportação fica pronta", async () => {
+    const t = at(upcoming("03:20"));
+    const f = await fixture();
+    await erpFetch(env, f.profile, "/erp-ping");
+    await clearAlarm(f.profile);
+    const admin = crypto.randomUUID();
+    const requested = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => {
+      const t = String(BigInt(Date.now()) * 1000n);
+      s.storage.sql.exec(
+        `INSERT INTO "erp_access__membership"(user_id, role, active, created_at, updated_at) VALUES(?, 'admin', 1, ?, ?)`,
+        admin,
+        t,
+        t,
+      );
+      return callRpc(storageDriver(s.storage), "erp_platform_export_request", {
+        p_user_id: admin,
+        p_command_id: crypto.randomUUID(),
+      }) as any;
+    });
+    const exportId = requested.export.id;
+    // Acordadas até não sobrar tarefa com arquivo: a primeira roda as
+    // rotinas; as seguintes, uma tarefa com arquivo cada.
+    const files: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      // Cada acordada 1 s depois da anterior (o próximo alarme que o objeto agenda).
+      at(t + i * 1_000);
+      expect(await alarmOf(f.profile)).toBe(i ? t + i * 1_000 : null);
+      await setAlarm(f.profile, far());
+      expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+      const done = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
+        s.storage.sql
+          .exec(`SELECT purpose FROM "erp_platform__task" WHERE purpose IN ('company_export','export_cleanup') AND status='done' ORDER BY finished_at`)
+          .toArray()
+          .map((r: any) => r.purpose),
+      );
+      files.push(String(done.length));
+      if (done.length === 2) break;
+    }
+    // Uma tarefa com arquivo por acordada (0 na das rotinas, depois 1, depois 2).
+    expect(files.slice(0, 3)).toEqual(["0", "1", "2"]);
+    const row = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
+      s.storage.sql
+        .exec(`SELECT object_key, CAST(size_bytes AS TEXT) size, sha256, ready_at FROM "erp_platform__export" WHERE id=?`, exportId)
+        .toArray()[0] as any,
+    );
+    expect(row.object_key).toMatch(new RegExp(`^exports/${exportId}/[a-f0-9]{64}\\.zip$`));
+    expect(row.ready_at).not.toBeNull();
+    const object = await env.MEDIA.get(`erp-storage/${f.profile}/brufap-exports/${row.object_key}`);
+    expect(object).not.toBeNull();
+    const bytes = new Uint8Array(await object!.arrayBuffer());
+    expect(bytes.length).toBe(Number(row.size));
+    expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]); // "PK": ZIP
+    // Nenhuma parte temporária sobrou.
+    const temp = await env.MEDIA.list({ prefix: `erp-storage/${f.profile}/brufap-exports/.upload/` });
+    expect(temp.objects).toEqual([]);
+    await clearAlarm(f.profile);
+  }, 120_000);
+
+  it("exportação pelo caminho do painel: o pedido acorda o agendador, o alarme roda sozinho e o link baixa o ZIP", async () => {
+    const t = at(upcoming("03:20"));
+    const f = await fixture();
+    const token = await bearer(f.admin);
+    await setModule(f.profile, "erp", true, f.admin.id);
+    await erpFetch(env, f.profile, "/erp-ping");
+    await clearAlarm(f.profile);
+    // Vínculo do administrador no ERP (como em tests/erp-do-api.test.ts).
+    await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => {
+      const now = String(BigInt(Date.now()) * 1000n);
+      s.storage.sql.exec(
+        `INSERT INTO "erp_access__membership"(user_id, role, active, created_at, updated_at) VALUES(?, 'admin', 1, ?, ?)`,
+        f.admin.id,
+        now,
+        now,
+      );
+    });
+    const route = (path: string, body: unknown) =>
+      SELF.fetch(`https://test/api/v1/profiles/${f.profile}/erp/v1/plataforma${path}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    // 1. O pedido pela rota da erp-api (Backup e Exportação › Backup).
+    const requested = await route("/exportacoes", { command_id: crypto.randomUUID() });
+    expect(requested.status).toBe(200);
+    const exportId = (await requested.json<any>()).export.id as string;
+    // O pedido acordou o agendador: alarme em 1 s, sem esperar a próxima acordada.
+    expect(await alarmOf(f.profile)).toBe(t + 1_000);
+    // 2. Só os alarmes que o próprio objeto agenda, sem setAlarm do teste: a
+    // primeira acordada roda as rotinas (vistas pela primeira vez); a
+    // seguinte, a exportação, sozinha.
+    let ready = false;
+    for (let i = 0; i < 4 && !ready; i++) {
+      const next = await alarmOf(f.profile);
+      expect(next).not.toBeNull();
+      at(next!);
+      expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+      ready = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
+        Boolean(s.storage.sql.exec(`SELECT ready_at FROM "erp_platform__export" WHERE id=?`, exportId).toArray()[0]?.ready_at),
+      );
+    }
+    expect(ready).toBe(true);
+    // 3. O link pela rota: endereço público da instalação.
+    const linked = await route(`/exportacoes/${exportId}/link`, {});
+    expect(linked.status).toBe(200);
+    const link = await linked.json<any>();
+    expect(link.filename).toMatch(/^wabotia-exportacao-.+\.zip$/);
+    expect(link.url.startsWith(`https://test/api/public/erp-storage/${f.profile}/exportacoes/exports/${exportId}/`)).toBe(true);
+    // 4. O GET do link baixa o ZIP com o nome da exportação.
+    const download = await SELF.fetch(link.url);
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Disposition")).toBe(`attachment; filename="${link.filename}"`);
+    const bytes = new Uint8Array(await download.arrayBuffer());
+    expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]); // "PK": ZIP
+    expect(bytes.length).toBe(link.size_bytes);
+    await clearAlarm(f.profile);
+  }, 120_000);
 
   it("uma leitura do ERP no meio de uma rodada longa responde sem esperar o fim da rodada", async () => {
     const log = await roundWithReads();
@@ -146,6 +371,8 @@ describe("agendador do ERP no objeto", () => {
   }, 60_000);
 
   it("backup e restauração: a wb_routine não vai no backup; na instância restaurada as rotinas rodam uma vez, sem duplicar tarefas", async () => {
+    // A mesma hora nas duas instâncias (03:20 em São Paulo).
+    at(upcoming("03:20"));
     const source = await fixture();
     await erpFetch(env, source.profile, "/erp-ping");
     await clearAlarm(source.profile);

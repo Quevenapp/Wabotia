@@ -67,6 +67,22 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
       "storage_ready não lança; ctx.objects (registerRpc(…, { objects })) e ctx.listing (registerRpc(…, { listing: true })) lidos do R2 antes da transação, em erp-storage/<área>/<bucket>/<nome>.",
   },
   {
+    id: "certificado-a1",
+    oracle: "bucket brufap-a1-vault (202610160041_a1_custody): custódia do certificado A1 no Storage",
+    reason: "Decisão do usuário: o certificado A1 nunca fica no Wabotia, que tem bots e integrações; ele mora no cofre da NFapi, separado.",
+    replaced_by:
+      "O bucket fica fora do mapa do armazenamento (src/erp-storage.ts, ERP_BUCKETS): gravar, ler, apagar e assinar dão 404 mesmo com erp-fiscal ligado (tests/erp-storage.test.ts). A emissão usa o cofre (src/erp/emissor).",
+  },
+  {
+    id: "tarefas-plataforma-laco",
+    oracle:
+      "runPlatformTasks e o company_export (runExport) de src/erp/fagoo/workers/erp-api/src/platform.mjs: o laço chama TASK_HANDLERS por dentro, e o runExport monta o pacote inteiro na memória (createZip) e o copia de novo no finish",
+    reason:
+      "Até 50 MiB por pacote: mais de 100 MB num isolado de 128 MB. O laço do Fagoo não aceita outro manipulador (TASK_HANDLERS congelado), então foi copiado.",
+    replaced_by:
+      "src/erp-export.ts: runErpPlatformTasks (cópia do laço, mesmas RPCs e o mesmo tratamento de erro) com runExportStreamed (createZipStream + createErpUpload, em fatias no R2); as outras tarefas são as do Fagoo. A paridade é segurada por tests/erp-export.test.ts: os dois laços sobre a mesma fila (tarefa comum, exportação, falha, posse perdida) gravam e respondem igual, salvo o manipulador da exportação.",
+  },
+  {
     id: "sessao-token",
     oracle: "session_id e aal lidos das claims do token do Supabase pela erp-api (tokenSession) e enviados ao erp_access_gate_v2",
     reason: "O token é o da sessão do Wabotia.",

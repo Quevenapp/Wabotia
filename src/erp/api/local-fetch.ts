@@ -15,6 +15,14 @@ import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 
+/** Motivo de recusa do portão (x-erp-gate-denied) → código de erro da erp-api. */
+const GATE_CODES: Record<string, string> = {
+  outside_schedule: "ERP_ACCESS_OUTSIDE_SCHEDULE",
+  mfa_required: "ERP_MFA_REQUIRED",
+  // O código do Fagoo para o token de agente recusado (erp_access_agent_resolve 'denied').
+  agent_out_of_scope: "ERP_AGENT_ACCESS_DENIED",
+};
+
 let erpApiModule: Promise<any> | null = null;
 
 /** "Supabase" que só a costura enxerga; nunca recebe tráfego de rede. */
@@ -69,8 +77,9 @@ export function localFetch(
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== LOCAL) throw new Error("A erp-api tentou sair da costura local.");
+    // O id de quem chama no ERP é o do envelope (aplicação: o uuid, sem "app:").
     if (url.pathname === "/auth/v1/user")
-      return Response.json({ id: actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
+      return Response.json({ id: identity.actor?.user_id ?? actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
     const rpc = /^\/rest\/v1\/rpc\/([a-z0-9_]+)$/.exec(url.pathname);
     if (rpc) {
       // Corpo em texto: a nova tentativa manda o mesmo de novo.
@@ -149,8 +158,10 @@ export async function erpProbe(env: Env, request: Request, profile: string, acto
  * fator, agente, pessoas da área). Sem ele, o envelope mínimo do identityFor.
  */
 export async function erpApi(env: Env, request: Request, profile: string, actor: Actor, identity: IdentityPort = identityFor(actor)) {
-  if (actor.kind !== "user")
-    throw new ApiError(403, "erp_user_required", "O ERP atende só pessoas nesta fase.");
+  // Pessoa, ou aplicação com erp:read/erp:write (o núcleo já conferiu o
+  // escopo e o papel no envelope; src/modules/erp/identity.ts).
+  if (actor.kind !== "user" && !(actor.kind === "app" && identity.actor?.is_agent && `app:${identity.actor.user_id}` === actor.id))
+    throw new ApiError(403, "erp_user_required", "O ERP atende pessoas e aplicações com escopo do ERP.");
   const url = new URL(request.url);
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
   const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
@@ -193,7 +204,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
     headers.delete("content-length");
     headers.delete("content-type");
     response = Response.json(
-      { error: { code: gate.denied === "mfa_required" ? "ERP_MFA_REQUIRED" : "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
+      { error: { code: GATE_CODES[gate.denied] ?? "ERP_ACCESS_OUTSIDE_SCHEDULE", ...(requestId ? { request_id: requestId } : {}) } },
       { status: 403, headers },
     );
   }

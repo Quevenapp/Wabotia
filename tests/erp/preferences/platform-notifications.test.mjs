@@ -1,4 +1,4 @@
-﻿// Notificações agendadas (migrações 151, 283 e 330) na fixture dupla.
+// Notificações agendadas (migrações 151, 283 e 330) na fixture dupla.
 // Adaptado de workers/erp-api/test/plataforma-h-sql.test.mjs, "PRF-280, PRF-283: the scheduled run creates each
 // notification once per user, type and day, whatever the repetition": o runPlatformTasks da erp-api vira
 // claim → notifications_run → finish pelos RPCs (é o que ele chama); o insert direto de tarefa passa pela cópia.

@@ -1,4 +1,4 @@
-﻿// Preferências de lista (migração 116): workers/erp-api/test/list-preferences-sql.test.mjs do Fagoo na
+// Preferências de lista (migração 116): workers/erp-api/test/list-preferences-sql.test.mjs do Fagoo na
 // fixture dupla. Adaptações: o usuário "other" do original (outro membro ativo) é o consulta da fixture;
 // o "contrato compartilhado" (packages/erp-domain list-preferences.mjs) é comparado com o porte em TS
 // (listPreferenceValid) pelo f.dual, caso a caso.

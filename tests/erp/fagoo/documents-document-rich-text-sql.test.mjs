@@ -8,13 +8,14 @@
 // equivalente no motor).
 // Synthetic data only. 202610200270: texto rico seguro (Outros itens ou serviços and Condições comerciais › Texto of the proposta) and
 // the Cabeçalho personalizado of the prints. PGlite with every migration and the real Worker.
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f;
-before(async () => { f = await documentsFixture({ lane: 'E' }); });
+before(async () => { f = await documentsLaneFixture('E'); });
 after(async () => f?.close());
 const run = (text, extra = {}) => ({ text, bold: false, italic: false, underline: false, color: null, background: null, size: null, ...extra });
 const rich = (...blocks) => ({ version: 1, blocks: blocks.map(runs => ({ align: 'left', indent: 0, code: false, runs })) });

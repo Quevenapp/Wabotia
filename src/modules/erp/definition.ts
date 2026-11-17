@@ -38,7 +38,9 @@ export const erpModule: ModuleDefinition = {
   menu_item_types: [],
   events: [],
   settings: [],
-  routes: ["erp"],
+  // erp-emissor: a configuração do emissor fiscal (src/erp/emissor/routes.ts),
+  // fora de /erp/* porque /erp/* é a erp-api inteira; o papel erp:* dá a rota.
+  routes: ["erp", "erp-emissor"],
   operations: [],
   scopes: [],
   // Papéis do ERP (os seis do Fagoo) no acesso por pessoa: no máximo um por

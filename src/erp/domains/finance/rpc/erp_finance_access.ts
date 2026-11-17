@@ -1,4 +1,4 @@
-﻿// public.erp_finance_access: o que a pessoa pode no Financeiro (leitura,
+// public.erp_finance_access: o que a pessoa pode no Financeiro (leitura,
 // escrita e as permissões finas de finanças, comissões, controle de caixa e
 // "lançar contas" dos documentos).
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";

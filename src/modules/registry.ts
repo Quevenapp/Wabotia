@@ -198,6 +198,8 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     settings: m.settings,
     scopes: m.scopes,
     requires: m.requires || [],
+    // Papel com que o módulo lança no ERP (identidade de sistema), ou null.
+    erp_role: m.erp_role ?? null,
   };
 }
 

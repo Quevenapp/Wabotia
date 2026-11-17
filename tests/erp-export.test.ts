@@ -6,8 +6,12 @@ import { describe, expect, it } from "vitest";
 import { runErpPlatformTasks, runExportStreamed } from "../src/erp-export";
 import { erpStorageKey } from "../src/erp-storage";
 import { crc32 } from "../src/erp-zip";
-// @ts-ignore módulo JavaScript do Fagoo, sem tipos
-import { TASK_HANDLERS } from "../src/erp/fagoo/workers/erp-api/src/platform.mjs";
+import {
+  TASK_HANDLERS,
+  runPlatformTasks,
+  PlatformError,
+  // @ts-ignore módulo JavaScript do Fagoo, sem tipos
+} from "../src/erp/fagoo/workers/erp-api/src/platform.mjs";
 
 const hex = async (bytes: Uint8Array) =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
@@ -272,5 +276,140 @@ describe("exportação da empresa em fatias", () => {
         })
       ).objects,
     ).toEqual([]);
+  });
+});
+
+describe("laço das tarefas: a cópia (runErpPlatformTasks) e o do Fagoo", () => {
+  it("mesma fila, mesma ordem de claim/finish, mesmos status e gravações; só a exportação muda", async () => {
+    const ids = newIds();
+    const tasks = [
+      {
+        id: crypto.randomUUID(),
+        purpose: "notifications_generate",
+        payload: {},
+      },
+      {
+        id: ids.taskId,
+        purpose: "company_export",
+        payload: { export_id: ids.exportId },
+      },
+      // Falha: a lista de vencidas vem inválida.
+      { id: crypto.randomUUID(), purpose: "export_cleanup", payload: {} },
+      // Posse perdida (40001): outra rodada pegou; nada é registrado.
+      {
+        id: crypto.randomUUID(),
+        purpose: "notifications_generate",
+        payload: { lost: true },
+      },
+    ];
+    /** Uma fila de tarefas de mentira, igual para os dois laços. */
+    const queue = () => {
+      const c = company(ids);
+      const pending = [...tasks];
+      const rpc = async (name: string, args: any) => {
+        if (name === "erp_platform_schedule") {
+          c.calls.push({ name, args });
+          return { scheduled: 0 };
+        }
+        if (name === "erp_platform_task_claim") {
+          c.calls.push({ name, args });
+          return { scope: "platform_task", task: pending.shift() ?? null };
+        }
+        if (name === "erp_platform_notifications_run") {
+          c.calls.push({ name, args });
+          if (args.p_task === tasks[3].id)
+            throw new PlatformError(409, "PG_40001");
+          return {
+            scope: "platform_notifications",
+            day: "2026-11-17",
+            created: 2,
+            members: 3,
+          };
+        }
+        if (name === "erp_platform_export_expired") {
+          c.calls.push({ name, args });
+          return { items: [{ id: "não é uuid" }] };
+        }
+        if (name === "erp_platform_task_finish") {
+          c.calls.push({ name, args });
+          return { ok: true };
+        }
+        return c.rpc(name, args);
+      };
+      let n = 0;
+      const lease = () =>
+        `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+      return { c, rpc, lease };
+    };
+    const options = {
+      schedule: true,
+      budgetMs: 60_000,
+      maxTasks: 10,
+      now: () => 1_794_880_000_000,
+    };
+
+    const a = queue();
+    const exportStorage = { put: async () => {}, remove: async () => {} };
+    const fagooRan = await runPlatformTasks({
+      ...options,
+      rpc: a.rpc,
+      lease: a.lease,
+      exportStorage,
+      attachments: a.c.attachments,
+    });
+    const b = queue();
+    const oursRan = await runErpPlatformTasks({
+      ...options,
+      env,
+      profile: crypto.randomUUID(),
+      rpc: b.rpc,
+      lease: b.lease,
+      exportStorage,
+      attachments: b.c.attachments,
+    });
+
+    expect(oursRan).toEqual(fagooRan);
+    expect(oursRan.map((r: any) => [r.purpose, r.ok, r.code ?? null])).toEqual([
+      ["notifications_generate", true, null],
+      ["company_export", true, null],
+      ["export_cleanup", false, expect.any(String)],
+      ["notifications_generate", false, "PG_40001"],
+    ]);
+    // Mesmas chamadas, na mesma ordem e com os mesmos argumentos; na
+    // exportação, só a chave, o tamanho e o SHA-256 do pacote mudam (e o
+    // resultado gravado no task_finish, que os leva).
+    const mask = (calls: { name: string; args: any }[]) =>
+      calls.map(({ name, args }) => {
+        if (name === "erp_platform_export_complete")
+          return {
+            name,
+            args: {
+              ...args,
+              p_object_key: "*",
+              p_size_bytes: "*",
+              p_sha256: "*",
+              p_manifest: {
+                ...args.p_manifest,
+                summary: { ...args.p_manifest.summary, bytes: "*" },
+              },
+            },
+          };
+        if (name === "erp_platform_task_finish" && args.p_result?.sha256)
+          return {
+            name,
+            args: {
+              ...args,
+              p_result: { ...args.p_result, sha256: "*", size_bytes: "*" },
+            },
+          };
+        return { name, args };
+      });
+    expect(mask(b.c.calls)).toEqual(mask(a.c.calls));
+    // Nenhum task_finish para a posse perdida.
+    expect(
+      b.c.calls
+        .filter((x) => x.name === "erp_platform_task_finish")
+        .map((x) => x.args.p_task),
+    ).toEqual([tasks[0].id, tasks[1].id, tasks[2].id]);
   });
 });

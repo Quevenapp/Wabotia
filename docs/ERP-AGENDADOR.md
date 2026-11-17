@@ -35,6 +35,17 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 4. No fim da rodada, o alarme também respeita um wake que chegou durante ela:
    fica o mais cedo entre o que já está agendado e a próxima acordada.
 
+**Acordar no pedido.** RPC registrado com `registerRpc(…, { wake: true })`
+cria trabalho para o agendador. Depois que ele dá certo, a rota `/erp-rpc`
+antecipa o alarme para daqui a 1 s (`wakeSoon`, e ganha o mais cedo). Hoje só
+o `erp_platform_export_request` tem isso: a exportação pedida no painel
+começava só na próxima acordada, até 1 h depois (achado da K: "Na fila" por
+uma hora). É o único pedido do painel que cria tarefa da plataforma.
+Teste de ponta a ponta: `tests/erp-do-scheduler.test.ts`, "caminho do
+painel". Ele faz o pedido pela rota da erp-api, roda só os alarmes que o
+objeto agendou, pede o link pela rota e baixa o
+`wabotia-exportacao-….zip` pela URL pública.
+
 ## O alarme não segura quem usa o ERP
 
 - **Uma transação por unidade.** Uma unidade é um passo de rotina, um claim,
@@ -61,7 +72,14 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 - **Primeira rodada** de uma instância (ou depois de uma restauração): toda
   rotina está vencida e roda uma vez. Sem efeito repetido: as tarefas têm chave
   `(purpose, operation_id)`, e as notificações usam `ON CONFLICT DO NOTHING`
-  por `(user, type, day)`.
+  por `(user, type, day)`. O próximo horário parte de agora. Por isso uma
+  rotina diária vista pela primeira vez pouco antes do horário roda de novo
+  nele (a retenção às 03:05 e às 03:10). A segunda passada não acha nada novo,
+  e daí em diante é uma vez por dia.
+- **Vencida no milissegundo:** o relógio do motor é monotônico em µs, e o
+  `Date` do workerd fica parado durante o código síncrono. Uma tarefa criada
+  na rodada nasce alguns µs depois do "agora" e conta como vencida no mesmo
+  milissegundo, que é a resolução do alarme.
 - **Dias parado:** cada rotina roda uma vez e vai para o próximo horário depois
   de agora. Horas perdidas não são recuperadas (o digest das notificações é
   acumulativo, como no Fagoo).
@@ -85,12 +103,43 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 
 | Finalidade | Executor | Situação |
 |---|---|---|
-| `notifications_generate` | `erp_platform_notifications_run`, depois `task_finish` na mesma transação | Ligada. |
-| `export_cleanup` | Apagar o pacote vencido do R2 (`export_expired`/`export_removed`) | **Stub.** Depende do `/storage/v1` (A). Sem executor, a tarefa espera na fila e não acorda o alarme. |
-| `company_export` | ZIP da empresa em fatias | **Stub**, pela mesma razão. Regra para quando entrar: nunca montar o ZIP inteiro na memória do objeto (limite de 128 MB). Usar fatias com `task_progress` (o estado sobrevive a uma nova tentativa) e envio multiparte para o R2. |
+| `notifications_generate` | `erp_platform_notifications_run`, depois `task_finish` na mesma transação | Ligada, na rodada síncrona. |
+| `export_cleanup` | `exportStorage.remove` de cada pacote vencido (`export_expired`/`export_removed`) | Ligada, pelo executor de arquivos. |
+| `company_export` | ZIP da empresa em fatias no R2 da área (`runExportStreamed`, A) | Ligada, pelo executor de arquivos. |
 
-Para ligar uma finalidade, basta acrescentar o executor em `TASK_HANDLERS`
-(`scheduler/dispatch.ts`). O claim só toma as finalidades que têm executor.
+**Rodada síncrona** (`TASK_HANDLERS`, `scheduler/dispatch.ts`): a unidade é
+uma transação, com `await` entre as unidades.
+
+**Executor de arquivos** (`scheduler/files.ts`), para `company_export` e
+`export_cleanup`:
+
+- Chama o `runErpPlatformTasks` da A (`src/erp-export.ts`, o laço do Fagoo
+  com a exportação em fatias), com três adaptadores locais. Não há ida ao
+  Worker nem volta ao objeto, e não é preciso ator.
+  - `rpc`: o `callRpc` no SQLite do objeto, com os objetos e a listagem do
+    R2 lidos antes (`rpcStorage`, a mesma leitura da rota `/erp-rpc`) e os
+    erros do `createServiceRpc` do Fagoo (`PG_<código>`).
+  - `exportStorage` e `attachments`: os do Fagoo, com um fetch que responde o
+    `/storage/v1` pelo `erpStorage` direto no R2. Os dois buckets são do bloco
+    `erp`, então o objeto continua sem ler o D1.
+- A rodada só sinaliza (`fileDue`) e conta essas finalidades para a próxima
+  acordada. O alarme roda uma tarefa com arquivo (`maxTasks 1`) só numa
+  acordada em que a rodada não fez rotina nem tarefa. Se a rodada fez, a
+  acordada seguinte, 1 s depois, é dela.
+
+**Limitação conhecida: a exportação não cabe nos 2 s por acordada.**
+
+- Ela não retoma em outra acordada: o estado do ZIP (diretório central,
+  CRCs, a parte em enchimento) fica na memória.
+- Por isso roda até o fim numa acordada só, sozinha. Cede a vez a cada
+  compressão e a cada ida ao R2: uma gravação por parte de 5 MiB, e no fim
+  as partes do envio multiparte.
+- O pior caso, 50 MiB, dá umas 10 partes, cerca de 30 operações no R2 e um
+  a dois segundos de CPU de compressão. Cabe nos 30 s de CPU do objeto.
+- Exportação interrompida: as partes temporárias (`.upload/`) são apagadas
+  pela exportação seguinte da área depois de um dia. A tarefa recomeça do
+  `export_plan` na próxima posse (regra do Fagoo: nova tentativa com
+  backoff).
 
 ## Retenção (rotina `retention`, diária, 03:10 de São Paulo)
 
@@ -105,8 +154,8 @@ Para ligar uma finalidade, basta acrescentar o executor em `TASK_HANDLERS`
   Fagoo, `task_guard` e `attempt_guard` recusam DELETE e nada limpa. No motor
   os gatilhos são cumpridos em código (`domains/preferences/platform.ts`), e o
   SQLite não tem gatilho contra o DELETE (há um teste para isso).
-- **Pacotes de exportação vencidos:** são a tarefa diária `export_cleanup`, que
-  espera o executor (stub acima).
+- **Pacotes de exportação vencidos:** são a tarefa diária `export_cleanup`,
+  rodada pelo executor de arquivos.
 
 ## Certificado A1
 
@@ -145,6 +194,23 @@ ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
 - Área com o ERP desligado não acorda.
 
 Teste: `tests/erp-do-scheduler.test.ts`, "cron".
+
+## Testes: relógio injetado
+
+Teste que depende da hora em que a suíte roda é defeito do teste.
+
+- **Node** (`tests/erp/scheduler/dispatch.test.mjs`): `runRound` recebe `now`,
+  `elapsed` e `yieldTurn`, e o `Date.now` é trocado pelo relógio do teste.
+- **Workerd** (`tests/erp-do-scheduler.test.ts`):
+  - `at(ms)` fixa o `Date` com `vi.useFakeTimers({ toFake: ["Date"] })`. O
+    objeto roda no mesmo isolado, então o relógio vale para o alarme, as
+    funções da plataforma e o `Clock` do motor. O `setTimeout` das cessões de
+    vez continua real.
+  - Os instantes são o próximo "HH:MM" de São Paulo nas próximas 24 h do
+    relógio real. Assim nenhum alarme agendado fica no passado, e o
+    `erp_platform_schedule` aceita o `p_now`.
+  - Janelas cobertas: virada de hora (05:59:59 → 06:00:00), a retenção das
+    03:10 e a virada do dia em São Paulo (23:59:59 → 00:00:00).
 
 ## Fora deste corte
 

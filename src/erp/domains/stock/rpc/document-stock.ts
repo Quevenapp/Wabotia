@@ -11,17 +11,16 @@
 import { formatScaled, fromColumn, rescale, toScaled } from "../../../engine/dec.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
-import { ErpError, raise } from "../../../engine/errors.ts";
+import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
-import { defer, registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
-import * as finance from "../../finance/public.ts";
+import { updateDocument } from "../../documents/rows.ts";
 import * as preferences from "../../preferences/public.ts";
-import * as sync from "../../sync/public.ts";
-import { guardDocument, guardPostedDocument, guardReservedDocument, type Row } from "../document-guards.ts";
+import type { Row } from "../document-guards.ts";
 import { QTY, QTY_MAX, balanceKept as balanceKeptAt, lotApply, negativeAllowed, requireAccess, sha256 } from "../internal.ts";
 import { COMPOSITION_CURRENT, EXACT, invoicePostedForDocument, itemComponentRows, q6to30 } from "../read.ts";
 import { post } from "./erp_stock_post.ts";
@@ -47,7 +46,7 @@ function documentAccess(db: SqlDriver, user: string, kind: string | null) {
 }
 
 /** erp_stock.document_meta(p_day, p_reason) */
-function documentMeta(day: string | null, reason: string | null) {
+export function documentMeta(day: string | null, reason: string | null) {
   if (
     day === null || !validDate(day) || day < "1900-01-01" || day > todaySaoPaulo() ||
     reason === null || pgLength(pgBtrim(reason)) < 3 || pgLength(pgBtrim(reason)) > 500 || pgHasCntrl.test(reason)
@@ -132,7 +131,7 @@ function documentCommandFinish(ctx: RpcContext, actor: string, id: string, actio
 }
 
 /** erp_stock.document_lock: o documento na versão esperada. */
-function documentLock(db: SqlDriver, actor: string, kind: string | null, id: string | null, version: number | null): Row {
+export function documentLock(db: SqlDriver, actor: string, kind: string | null, id: string | null, version: number | null): Row {
   documentAccess(db, actor, kind);
   if (id === null || version === null || version < 1) raise("22023", "erp_document_stock_invalid_version");
   const d = one(db, `SELECT * FROM "${DOC}" WHERE id=? AND kind=?`, id, kind);
@@ -532,7 +531,7 @@ export function documentReversePreviewData(ctx: RpcContext, d: Row, postingId: s
 // Camada de linha (gatilhos das tabelas tocadas)
 
 /** INSERT em erp_stock.document_posting com os gatilhos BEFORE (ordem do nome) e o AFTER dos lotes. */
-function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
+export function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
   const db = ctx.db;
   // aa_mirror_authority (erp_document_mirror.guard_effect): sem documento do Origin, nada.
   documents.guardTrashChild(db, row.document_id); // guard_trash
@@ -580,38 +579,17 @@ function reversePosting(ctx: RpcContext, id: string, movement: string, user: str
   );
 }
 
-/** Os adiados capturam só data_exception (22…) e check_violation (23514), como o bloco do gatilho. */
-function swallow(fn: () => void) {
-  try {
-    fn();
-  } catch (e) {
-    if (e instanceof ErpError && (e.code.startsWith("22") || e.code === "23514")) return;
-    throw e;
-  }
-}
+
 
 /**
- * UPDATE erp_documents.document SET version=version+1, updated_by, updated_at
- * com os gatilhos do documento. Local até a camada de linha do Documentos
- * (updateDocument, sessão O) chegar ao tronco.
+ * UPDATE erp_documents.document SET version=version+1, updated_by, updated_at,
+ * pela camada de linha do Documentos (documents/rows.ts, updateDocument): os
+ * gatilhos BEFORE na ordem do nome, o capture e os adiados (comissão e custo,
+ * em savepoint).
  */
-function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
-  const db = ctx.db;
-  const o = one(db, `SELECT * FROM "${DOC}" WHERE id=?`, id)!;
-  const n: Row = { ...o, version: Number(o.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() };
-  // BEFORE, na ordem do nome. aa_mirror_authority: documento nativo, a versão passa.
-  sync.guardOriginEffectsDocument(ctx, id); // ab_origin_effects
-  if (o.deleted_at !== null && o.deleted_at !== undefined) raise("40001", "erp_document_deleted"); // guard_trash
-  // protect_document_finance (erp_finance.guard_posted_document): com a mesma
-  // situação e só versão, autor e data mudando, a guarda passa sempre.
-  guardPostedDocument(db, "UPDATE", o, n); // protect_document_stock
-  guardDocument(db, "UPDATE", o, n); // protect_purchase_receipt_document
-  guardReservedDocument(db, "UPDATE", o, n); // protect_reserved_document
-  db.exec(`UPDATE "${DOC}" SET version=?, updated_by=?, updated_at=? WHERE id=?`, n.version, user, n.updated_at, id);
-  sync.captureDocument(ctx); // zz_origin_sync
-  // DEFERRABLE INITIALLY DEFERRED, na ordem do nome.
-  if (o.kind === "sales_orders" || o.kind === "service_orders") defer(ctx, () => swallow(() => finance.commissionOperationSync(ctx, id)));
-  if (o.kind === "sales_orders") defer(ctx, () => swallow(() => documents.costApply(ctx, id)));
+export function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
+  const o = one(ctx.db, `SELECT version FROM "${DOC}" WHERE id=?`, id)!;
+  updateDocument(ctx, id, { version: Number(o.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() });
 }
 
 /** INSERT nas auditorias do Estoque e do Documentos. */

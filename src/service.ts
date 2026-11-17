@@ -28,6 +28,7 @@ import {
   passwordHash,
 } from "./security";
 import { event, audit } from "./events";
+import { appErpRoleInput } from "./modules/erp/identity";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, discover, telegramRemoved } from "./integrations";
 import { isLink, linkCode, linkRevoke } from "./hermes-link";
@@ -154,6 +155,10 @@ export const scopes = [
   "queue:read",
   "queue:issue",
   "queue:operate",
+  // ERP da área (src/modules/erp/identity.ts): leitura (GET da erp-api,
+  // papel consulta) e escrita.
+  "erp:read",
+  "erp:write",
 ];
 export const eventTypes = [
   "conversation.created",
@@ -1752,10 +1757,11 @@ export async function perform(
       Array.isArray(data.profiles) && data.profiles.length > 0,
       "Informe a área de atendimento.",
     );
+    const erpRole = appErpRoleInput(data.erp_role);
     const id = uid();
     await exec(
       env,
-      "INSERT INTO applications(id,name,profiles,scopes,bots,rate,run_limit,created) VALUES(?,?,?,?,?,?,?,?)",
+      "INSERT INTO applications(id,name,profiles,scopes,bots,rate,run_limit,erp_role,created) VALUES(?,?,?,?,?,?,?,?,?)",
       id,
       text(data.name, 100),
       JSON.stringify(data.profiles),
@@ -1763,8 +1769,18 @@ export async function perform(
       JSON.stringify(data.bots || []),
       Math.min(600, Math.max(1, Number(data.rate) || 60)),
       Math.min(10, Math.max(1, Number(data.run_limit) || 3)),
+      erpRole ?? null,
       now(),
     );
+    if (erpRole)
+      await audit(
+        env,
+        actor,
+        profile,
+        `application.erp_role:${erpRole}`,
+        id,
+        requestId,
+      );
     return { id };
   }
   if (op === "application.update") {
@@ -1795,15 +1811,31 @@ export async function perform(
         "scope_not_allowed",
         "billing:write não pode ser concedida a aparelhos pareados do Vinki ou do Fagoo.",
       );
+    // Papel do ERP: só muda se veio no pedido (null tira o papel).
+    const erpRole =
+      data.erp_role === undefined
+        ? (old.erp_role ?? null)
+        : (appErpRoleInput(data.erp_role) ?? null);
     await exec(
       env,
-      "UPDATE applications SET disabled=?,profiles=?,scopes=?,bots=? WHERE id=?",
+      "UPDATE applications SET disabled=?,profiles=?,scopes=?,bots=?,erp_role=? WHERE id=?",
       data.disabled === undefined ? old.disabled : Number(!!data.disabled),
       JSON.stringify(data.profiles ?? json(old.profiles, [])),
       JSON.stringify(data.scopes ?? json(old.scopes, [])),
       JSON.stringify(data.bots ?? json(old.bots, [])),
+      erpRole,
       data.id,
     );
+    // Troca de papel do ERP na auditoria do núcleo, com o papel novo.
+    if (erpRole !== (old.erp_role ?? null))
+      await audit(
+        env,
+        actor,
+        profile,
+        `application.erp_role:${erpRole ?? "nenhum"}`,
+        data.id,
+        requestId,
+      );
     return { id: data.id };
   }
   if (op === "key.create") {

@@ -16,7 +16,7 @@ import { erpEmissorRoute } from "../../../src/erp/emissor/routes.ts";
 import { uid } from "../../../src/types";
 import { setModule } from "../../erp-module-helper";
 import { createFakeVault } from "./fake-vault";
-import { actor, VAULT_URL } from "./helpers";
+import { actor, member, VAULT_URL } from "./helpers";
 
 const KEY = "nfapi_teste_0123456789";
 
@@ -176,12 +176,17 @@ describe("rotas /erp-emissor", () => {
     expect(error).toMatchObject({ status: 409, code: "module_disabled" });
   });
 
-  it("configura, testa, lê estado, séries e SEFAZ; erro fiscal com detalhes no corpo", async () => {
+  // Tempo-limite próprio: salvar, testar e remover passam pelo portão do ERP
+  // (uma ida ao objeto erp: cada) e o teste grava as pessoas no D1; sozinho
+  // fica perto de 5 s (o padrão).
+  it("configura, testa, lê estado, séries e SEFAZ; erro fiscal com detalhes no corpo", { timeout: 20_000 }, async () => {
     const profile = uid();
     await setModule(profile, "erp", true, "teste");
     await setModule(profile, "erp-fiscal", true, "teste");
     const vault = createFakeVault({ apiKey: KEY, openapi: contract });
-    const admin = actor();
+    // Pessoas gravadas no D1: a configuração passa pelo portão do ERP, que só
+    // conhece quem está no envelope (src/modules/erp/identity.ts).
+    const admin = await member("admin", profile);
     const call = (method: string, sub = "", body?: unknown, who = admin) =>
       erpEmissorRoute(
         env,
@@ -200,7 +205,9 @@ describe("rotas /erp-emissor", () => {
     expect(await saved.text()).not.toContain(KEY);
     expect((await (await call("POST", "/test")).json<any>()).checked.ok).toBe(true);
 
-    const operator = actor("operator", [profile]);
+    // Leitura pede papel do ERP (erp:*); configurar continua só do administrador.
+    expect(await call("GET", "", undefined, actor("operator", [profile])).catch((e) => e)).toMatchObject({ status: 403, code: "erp_role_required" });
+    const operator = await member("operator", profile, ["erp:consulta"]);
     const state = await (await call("GET", "", undefined, operator)).json<any>();
     expect(state).toMatchObject({ configured: true, contract_version: "0.3.2", checked: { ok: true } });
     expect(await call("PUT", "", { url: VAULT_URL }, operator).catch((e) => e)).toMatchObject({ status: 403 });

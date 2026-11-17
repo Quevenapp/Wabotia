@@ -56,6 +56,12 @@ export interface RoundOptions {
   blocks?: Readonly<Record<string, boolean>>;
   routines?: readonly Routine[];
   handlers?: Readonly<Record<string, TaskHandler>>;
+  /**
+   * Finalidades que rodam fora da rodada síncrona (com arquivo:
+   * scheduler/files.ts). A rodada não as toma; elas contam para a próxima
+   * acordada e para `fileDue`.
+   */
+  filePurposes?: readonly string[];
   clock?: Clock;
   budgetMs?: number;
   maxUnits?: number;
@@ -69,6 +75,8 @@ export interface RoundReport {
   nextWake: number | null;
   routines: { id: string; status: "ok" | "partial" | "error" | "skipped"; error?: string }[];
   tasks: { id: string; purpose: string; outcome: "done" | "retry" | "lost" }[];
+  /** Há tarefa com arquivo vencida (ou posse dela vencida) para o executor de arquivos. */
+  fileDue: boolean;
 }
 
 const realYield = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -104,7 +112,8 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
   const budget = options.budgetMs ?? WAKE_BUDGET_MS;
   const maxUnits = options.maxUnits ?? MAX_UNITS;
   const started = elapsed();
-  const report: RoundReport = { units: 0, more: false, nextWake: null, routines: [], tasks: [] };
+  const filePurposes = [...(options.filePurposes ?? [])];
+  const report: RoundReport = { units: 0, more: false, nextWake: null, routines: [], tasks: [], fileDue: false };
   const spent = () => elapsed() - started >= budget || report.units >= maxUnits;
 
   ensureRoutines(db, routines, now());
@@ -216,17 +225,25 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
     await yieldTurn();
   }
 
-  report.nextWake = report.more ? now() + CONTINUE_AFTER_MS : nextWake(db, routines, blocks, purposes, now());
+  report.fileDue = filePurposes.length > 0 && Boolean(dueTask(db, filePurposes, now()));
+  report.nextWake = report.more
+    ? now() + CONTINUE_AFTER_MS
+    : nextWake(db, routines, blocks, [...purposes, ...filePurposes], now());
   return report;
 }
 
-/** Há tarefa vencida de uma finalidade com executor? */
+/**
+ * Há tarefa vencida de uma finalidade com executor? Vencida no milissegundo
+ * (a resolução do alarme): o relógio do motor é monotônico em µs e o Date do
+ * workerd fica parado durante o código síncrono, então a tarefa criada nesta
+ * rodada nasce alguns µs depois de `at` e já conta.
+ */
 function dueTask(db: SqlDriver, purposes: string[], at: number) {
   return db.exec(
     `SELECT 1 x FROM "erp_platform__task" WHERE purpose IN (SELECT value FROM json_each(?))
-     AND ((status='queued' AND attempts<max_attempts AND next_attempt_at<=?) OR (status='running' AND lease_until<?)) LIMIT 1`,
+     AND ((status='queued' AND attempts<max_attempts AND next_attempt_at<?) OR (status='running' AND lease_until<?)) LIMIT 1`,
     JSON.stringify(purposes),
-    us(at),
+    us(at + 1),
     us(at),
   ).rows[0];
 }

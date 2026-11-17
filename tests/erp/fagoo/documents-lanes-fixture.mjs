@@ -13,6 +13,9 @@
 //   contato, permissões, formas de pagamento do PDV) é seguida de f.sync();
 // - divergência entre os motores dentro de uma chamada ao Worker não vira 400:
 //   é guardada e relançada por `call`, para nunca passar despercebida.
+// A documents-fixture.mjs (a outra versão destes auxiliares) foi juntada aqui:
+// dela vieram `write` (SQL direto + f.sync()), `rule` em todas as ondas e o
+// f.close() quando a montagem falha.
 import { randomUUID } from "node:crypto";
 import { dualFixture } from "../harness/dual-fixture.mjs";
 import { createHandler } from "../../../src/erp/fagoo/workers/erp-api/src/index.mjs";
@@ -69,10 +72,25 @@ function wire(f, message, extra = null) {
  */
 export async function documentsLaneFixture(lane = "E", options) {
   const f = await dualFixture(options);
+  try {
+    return await laneHelpers(f, lane);
+  } catch (e) {
+    await f.close();
+    throw e;
+  }
+}
+
+async function laneHelpers(f, lane) {
   const users = { ...f.users, vendas2: f.users.vendedor };
   const rpc = f.rpc;
   const scalar = async (text, args = []) => (await f.db.query(text, args)).rows[0]?.v;
   const rows = async (text, args = []) => (await f.db.query(text, args)).rows;
+  /** Escrita direta no Postgres seguida da cópia para o SQLite. */
+  const write = async (text, args = []) => {
+    const r = await f.db.query(text, args);
+    await f.sync();
+    return r;
+  };
   // B e C escondem toda mensagem SQL; D e E deixam passar as `erp_*`.
   const message =
     lane === "B" || lane === "C"
@@ -161,8 +179,8 @@ export async function documentsLaneFixture(lane = "E", options) {
     });
     return created;
   };
-  const common = { ...f, users, scalar, rows, rpc, call, calls, hooks, auth, catalog, contact, product, recordVersion, setPreference, line, data, create, situation, seller, assign, permissions, kit };
-  if (lane === "E") return { ...common, transition: move, rule };
+  const common = { ...f, users, scalar, rows, write, rpc, call, calls, hooks, auth, catalog, contact, product, recordVersion, setPreference, line, data, create, situation, rule, seller, assign, permissions, kit };
+  if (lane === "E") return { ...common, transition: move };
   return { ...common, other, transition: rule };
 }
 

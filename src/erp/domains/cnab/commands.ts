@@ -83,9 +83,11 @@ export const cnabObjectKey = (path: string) => `${CNAB_BUCKET}/${path}`;
 
 /** erp_cnab.storage_check(profile, kind, hash, size, path) */
 export function storageCheck(ctx: RpcContext, profile: string, kind: string, hash: string | null, size: number | null, path: string | null) {
-  if (!["remittances", "returns"].includes(kind) || hash === null || !/^[a-f0-9]{64}$/.test(hash) || size === null || size < 1 || size > 4020000)
+  // Hash ou tamanho nulos dão nulo nesta conferência (não recusa aqui); o caminho esperado também
+  // fica nulo, e a recusa vem do objeto ausente (40001), como no Postgres.
+  if (!["remittances", "returns"].includes(kind) || (hash !== null && !/^[a-f0-9]{64}$/.test(hash)) || (size !== null && (size < 1 || size > 4020000)))
     raise("22023", "erp_cnab_invalid_file");
-  const expected = `profiles/${profile}/${kind}/${hash}${kind === "returns" ? ".ret" : ".rem"}`;
-  const stored = path === expected ? ctx.objects(cnabObjectKey(expected)) : null;
+  const expected = hash === null ? null : `profiles/${profile}/${kind}/${hash}${kind === "returns" ? ".ret" : ".rem"}`;
+  const stored = expected !== null && size !== null && path === expected ? ctx.objects(cnabObjectKey(expected)) : null;
   if (!stored || stored.size !== size || stored.mimetype !== "application/octet-stream") raise("40001", "erp_cnab_private_object_required");
 }

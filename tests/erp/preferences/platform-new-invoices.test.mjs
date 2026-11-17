@@ -1,4 +1,4 @@
-﻿// Cartão "Novas NF-es" (migração 334) na fixture dupla: o subteste "PRF-252: Novas NF-es counts real synced
+// Cartão "Novas NF-es" (migração 334) na fixture dupla: o subteste "PRF-252: Novas NF-es counts real synced
 // and received notes since the last view, never drafts or homologation" de
 // workers/erp-api/test/plataforma-h-sql.test.mjs, pelos RPCs (o original passa pela rota da erp-api, que só
 // repassa). As linhas do Origin entram por SQL direto no Postgres e são copiadas (f.write).

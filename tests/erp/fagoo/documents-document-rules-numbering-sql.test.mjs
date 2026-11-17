@@ -20,14 +20,15 @@
 // proconfig, relrowsecurity, has_table_privilege) e a última linha de
 // "Exibir totais em listas" (has_function_privilege de
 // erp_documents.list_totals_visible).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 // 202610200129 on PGlite (every published migration, then this lane), through the real Worker. Synthetic data only.
 let f;
-before(async () => { f = await documentsFixture({ lane: 'B' }); });
+before(async () => { f = await documentsLaneFixture('B'); });
 after(() => f?.close());
 const ok = async (path, method = 'GET', body, user) => { const r = await f.call(path, method, body, user); assert.equal(r.status, 200, `${method} ${path} ${JSON.stringify(r.value)}`); return r.value; };
 const create = (kind, extra = {}, user) => f.call(`/v1/documentos/${kind}`, 'POST', { command_id: randomUUID(), data: f.data(kind, extra) }, user);

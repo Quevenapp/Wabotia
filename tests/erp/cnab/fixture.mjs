@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { dualFixture } from "../harness/dual-fixture.mjs";
 import { executeCnabRoute, parseCnabRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab.mjs";
 import { executeCnabOperationalRoute, parseCnabOperationalRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab-operational.mjs";
+import { executeCnabReturnsRoute, parseCnabReturnsRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab-returns.mjs";
+import { executeCnabReviewRoute, parseCnabReviewRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab-review.mjs";
 import { PROFILES, returnFile } from "./cnab-core-fixtures.mjs";
 import { registerDerivedId } from "../harness/derived-ids.mjs";
 
@@ -198,6 +200,15 @@ export async function cnabFixture() {
     const request = new Request("https://test.invalid/v1/cobranca-operacional" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
     return executeCnabOperationalRoute(await parseCnabOperationalRoute(request), ports(user, extra));
   }
+  /** Rotas dos retornos operacionais (cnab-returns.mjs) e da conferência humana (cnab-review.mjs). */
+  async function ret(path, body, user = f.users.financeiro, extra = {}) {
+    const request = new Request("https://test.invalid/v1/retornos-operacionais" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+    return executeCnabReturnsRoute(await parseCnabReturnsRoute(request), ports(user, extra));
+  }
+  async function review(path, body, user = f.users.financeiro, extra = {}) {
+    const request = new Request("https://test.invalid/v1/conferencia-retornos" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+    return executeCnabReviewRoute(await parseCnabReviewRoute(request), ports(user, extra));
+  }
   /** Remessa de homologação gerada e finalizada pelo app (estado ready). */
   async function homologationRemittance(p, titles) {
     const current = (await f.rpc("erp_cnab_profiles", { p_user_id: f.users.admin })).items.find((x) => x.id === p.id);
@@ -226,7 +237,7 @@ export async function cnabFixture() {
     });
   }
   return {
-    ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, op, homologationRemittance, homologationReturn,
+    ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, op, ret, review, homologationRemittance, homologationReturn,
     files, storeFile, getFile,
   };
 }

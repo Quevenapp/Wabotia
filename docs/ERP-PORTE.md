@@ -36,6 +36,35 @@ O Dell tem 6 núcleos (12 threads), e várias sessões rodam suítes ao mesmo te
    - Teste que depende de tempo real ganha tempo-limite próprio no teste.
    - Nunca aumente o tempo-limite global.
 4. **Não deixe processos órfãos** (`wrangler tail`, `workerd`, suítes abandonadas). Confira e encerre os seus ao fim de cada bloco.
+5. **Teste que depende da hora em que a suíte roda é defeito do teste** (orquestração, 17/11/2026). Use relógio injetado (o `clock`/`now` do motor, `vi.useFakeTimers` só com `Date`), nunca `Date.now()` do momento.
+
+### Suíte do tronco (`npm run test:trunk`)
+
+Antes de cada push no tronco a N roda `npm run test:trunk` (orquestração, 17/11/2026). Uma rodada com o núcleo dentro levou ~35 min (test:erp 15,5 min, vitest 18,6 min), por isso o vitest é separado:
+- **Sempre:** `npm run check` (marcas de conflito, codificação e tsc 5.9), o tsc 7 (o do worktree do painel, ou `ERP_TSC7`) e `npm run test:erp`.
+- **Vitest só do motor**, quando a junção (diff contra `origin/feat/erp-motor`) fica dentro de `src/erp`, `tests/erp`, `tests/erp-*.test.ts`, `scripts/erp` e `docs`: roda `tests/erp-*.test.ts`, `tests/erp/**/*.test.ts` e o que importa `../src/erp`.
+- **Vitest inteiro**, quando:
+  - a rodada vai à instalação de teste sem a junção da M (`--full`);
+  - traz migração do D1 (`migrations/`);
+  - toca arquivo fora do motor, ou a costura e a montagem (`src/erp/api`, `src/index.ts`);
+  - guarda: o último vitest inteiro foi há mais de 24 h ou há 2 rodadas (estado em `output/test-trunk-state.json`).
+- No fim, o script imprime qual vitest rodou e por quê, as contagens e os tempos. O relato da rodada copia esse bloco. `--plan` só mostra a decisão.
+
+### Codificação
+
+Todo arquivo de texto versionado é UTF-8 sem BOM (orquestração, 17/11/2026). O `npm run check` roda `scripts/check-encoding.mjs` e falha com:
+- bytes inválidos em UTF-8;
+- BOM no início;
+- U+FFFD;
+- sequências de UTF-8 lido como Latin-1 ou Windows-1252 (`Ã£`, `Ã§`, `Ã©`, `Ã‡`, `â€`).
+
+Arquivo que cita essas sequências de propósito entra na lista `ALLOWED` do script, com o motivo.
+
+No PowerShell 5.1:
+- `Get-Content` e `Set-Content` sem `-Encoding` leem e gravam em ANSI, e `Out-File` grava com BOM;
+- `[IO.File]::ReadAllText(caminho)` lê UTF-8, mas `WriteAllText` com texto vindo de `Get-Content` grava o estrago.
+
+Prefira a ferramenta de edição. Em script, use `[IO.File]::ReadAllText` e `WriteAllText` com `New-Object Text.UTF8Encoding($false)`.
 
 ## Quem é dono de quê
 
@@ -144,6 +173,8 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
      - Da sexta em diante, o plano é genérico e segue a ordem das colunas.
      - O motor segue a ordem das colunas. Nos geradores do diferencial, estrague **um campo por linha**; teste de dois campos inválidos na mesma linha não é estável no oráculo.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
+   - **Tabela só do motor (dado que o Fagoo não tem): `src/erp/schema/engine-tables.ts`**, combinada com a N antes. DDL do SQLite à mão, com `since` (a versão em que nasce) e o id da entrada em `structural.ts`. Ela vai no fim do `ERP_DDL` e muda o `ERP_DDL_HASH`, entra no backup e é criada nos objetos já migrados pelo passo `createEngineTables` em `migrate.ts` (suba `ERP_DDL_VERSION`). Fica fora do diferencial (o oráculo não a tem): o RPC que só o motor tem é testado no SQLite, com o teste do workerd para a migração e o backup.
+   - **FK `DEFERRABLE` (a linha aponta para outra que nasce depois na mesma transação): `deferForeignKeys(ctx, "<schema>__<tabela>")`** (`engine/fk.ts`). Liga o `PRAGMA defer_foreign_keys` e confere as tabelas com `foreign_key_check` antes do COMMIT, pela fila de adiados: violação vira 23503 e desfaz. Nunca ligue o PRAGMA sem a conferência: violação adiada que chega ao COMMIT reinicia o objeto (`schema/migrate.ts`, prova 1). Exemplo: a baixa da reserva (`consumed_command_id` → o movimento do lançamento).
    - **Gatilho `DEFERRABLE INITIALLY DEFERRED`: `defer(ctx, fn)`** (`engine/registry.ts`). Roda no fim da transação, antes do COMMIT, na ordem em que foi enfileirado (os da mesma linha, na ordem do nome do gatilho), incluindo o que a própria fila enfileira. Não deduplique: o Postgres enfileira um evento por linha escrita. Um erro no adiado desfaz a transação inteira.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:

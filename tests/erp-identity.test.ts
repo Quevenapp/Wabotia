@@ -244,7 +244,8 @@ describe("uma ida ao D1 e uma ao objeto por requisição do ERP", () => {
         const r = await call(member, path);
         expect(r.status, JSON.stringify(r.body)).toBeLessThan(300);
         expect(r.d1, r.sql.join("\n")).toBe(1);
-        expect(r.sql[0]).toMatch(/^batch\(3\)/);
+        // Sessão, estado dos módulos, pessoas e aplicações do ERP.
+        expect(r.sql[0]).toMatch(/^batch\(4\)/);
         expect(r.hops).toBe(1);
       }
     },

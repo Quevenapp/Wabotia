@@ -16,7 +16,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { overrides } from "./overrides.mjs";
 import { decText, pgSelect, pgToLite, scaled } from "./gen-sqlite-lib.mjs";
-import { ERP_DEVIATIONS, applyDeviations, checkDeviations } from "../../src/erp/schema/deviations.ts";
+import {
+  ERP_DEVIATIONS,
+  FUNCTION_DEFINITION_SQL,
+  applyDeviations,
+  checkDeviations,
+  checkFunctionDeviation,
+  isFunctionDeviation,
+} from "../../src/erp/schema/deviations.ts";
 
 const catalog = JSON.parse(readFileSync("src/erp/schema/catalog.json", "utf8"));
 const MAX_SAFE = "9007199254740991";
@@ -518,7 +525,16 @@ for (const [name, info] of Object.entries(columnsOut)) {
     rows: rows.map((r) => names.map((c) => pgToLite(r[c], info.columns[c]))),
   });
 }
+// Desvios de função: o trecho do Fagoo ainda aparece exatamente uma vez no corpo.
+const functionProblems = [];
+for (const d of ERP_DEVIATIONS.filter(isFunctionDeviation)) {
+  const [schema, name] = d.fn.split(".");
+  const rows = (await db.query(FUNCTION_DEFINITION_SQL, [schema, name])).rows;
+  const problem = rows.length > 1 ? `${d.id} ${d.fn}: ${rows.length} sobrecargas` : checkFunctionDeviation(rows[0]?.def ?? null, d);
+  if (problem) functionProblems.push(problem);
+}
 await db.close();
+if (functionProblems.length) throw Error("Desvios de função desatualizados:\n" + functionProblems.join("\n"));
 
 // Desvios deliberados (src/erp/schema/deviations.ts): conferidos contra o
 // oráculo; os aplicados trocam o valor na semeadura.

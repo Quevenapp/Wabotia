@@ -67,8 +67,8 @@ export interface RpcEnvironment {
 }
 
 /** Motivo de recusa do portão. */
-export type GateDenial = "outside_schedule" | "mfa_required";
-/** Recusa do portão: a costura a devolve como 403 ERP_ACCESS_OUTSIDE_SCHEDULE / ERP_MFA_REQUIRED. */
+export type GateDenial = "outside_schedule" | "mfa_required" | "agent_out_of_scope";
+/** Recusa do portão: a costura a devolve como 403 ERP_ACCESS_OUTSIDE_SCHEDULE / ERP_MFA_REQUIRED / ERP_AGENT_ACCESS_DENIED. */
 export class ErpGateDenied extends ErpError {
   readonly reason: GateDenial;
   constructor(reason: GateDenial) {
@@ -95,6 +95,12 @@ export interface RpcOptions {
   objects?: (args: RpcArgs, db?: SqlDriver) => string[];
   /** O RPC soma ou lista todos os objetos da área (storage.objects inteiro). */
   listing?: boolean;
+  /**
+   * O RPC cria trabalho para o agendador (tarefa da plataforma): depois de
+   * dar certo, a rota /erp-rpc antecipa o alarme do objeto para daqui a 1 s
+   * (o mais cedo vence, como o /erp-wake; docs/ERP-AGENDADOR.md).
+   */
+  wake?: boolean;
 }
 
 const registry = new Map<string, RpcFn>();
@@ -108,6 +114,8 @@ export function registerBeforeRpc(fn: (ctx: RpcContext) => void) {
 
 /** O RPC pede a listagem de todos os objetos da área? */
 export const rpcWantsListing = (name: string) => options.get(name)?.listing === true;
+/** O RPC acorda o agendador quando dá certo? */
+export const rpcWakes = (name: string) => options.get(name)?.wake === true;
 
 /** Domínios registram as funções públicas (o nome do Postgres, sem schema). */
 export function registerRpc(name: string, fn: RpcFn, opts: RpcOptions = {}) {
@@ -123,6 +131,16 @@ export function rpcObjectKeys(name: string, args: RpcArgs, db?: SqlDriver): stri
   } catch {
     return [];
   }
+}
+/**
+ * Um RPC público chamado de dentro de outro, na mesma transação (o PL/pgSQL
+ * chamando public.erp_*): argumentos preparados como no callRpc, sem o
+ * portão e sem os passos de antes do RPC. Não portado: 0A000.
+ */
+export function invokeRpc(ctx: RpcContext, name: string, args: RpcArgs): unknown {
+  const fn = registry.get(name);
+  if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
+  return fn(ctx, prepareArgs(name, args));
 }
 export const portedRpcs = () => [...registry.keys()].sort();
 export const isPorted = (name: string) => registry.has(name);

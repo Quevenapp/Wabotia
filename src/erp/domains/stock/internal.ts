@@ -263,10 +263,40 @@ export function balanceKept(db: SqlDriver, movement: string, product: string, wa
   );
 }
 
-/** erp_stock.derived_command(p_command, p_part): id determinístico dos ajustes de compensação do estorno. */
-export function derivedCommand(command: string, part: string): string {
-  const h = createHash("md5").update(`stock-reverse-balance-145:${part}:${command}`, "utf8").digest("hex");
+/** md5 → uuid no formato das derivações do Estoque (versão 4, variante 8). */
+function md5Uuid(text: string): string {
+  const h = createHash("md5").update(text, "utf8").digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+/** erp_stock.derived_command(p_command, p_part): id determinístico dos ajustes de compensação do estorno. */
+export const derivedCommand = (command: string, part: string) => md5Uuid(`stock-reverse-balance-145:${part}:${command}`);
+/** erp_stock.supply_part(p_command, p_part): id determinístico dos comandos derivados de suprimentos (183). */
+export const supplyPart = (command: string, part: string) => md5Uuid(`stock-supply-183:${part}:${command}`);
+
+/**
+ * INSERT em erp_stock.balance_count com a guarda guard_balance_count: o
+ * movimento é um ajuste de um só lançamento, com a diferença contada.
+ */
+export function insertBalanceCount(
+  ctx: RpcContext,
+  movement: string,
+  product: string,
+  warehouse: string,
+  counted: bigint,
+  previous: bigint,
+  source: "launch" | "count",
+) {
+  const db = ctx.db;
+  const e = db.exec('SELECT product_id, warehouse_id, CAST(quantity AS TEXT) q, CAST(balance_after AS TEXT) after FROM "erp_stock__entry" WHERE movement_id=?', movement).rows;
+  if (
+    !one(db, `SELECT 1 x FROM "erp_stock__movement" WHERE id=? AND kind='adjustment'`, movement) || e.length !== 1 ||
+    e[0].product_id !== product || e[0].warehouse_id !== warehouse || fromColumn(e[0].q) !== counted - previous || fromColumn(e[0].after) !== counted
+  )
+    raise("22023", "erp_stock_balance_count_invalid");
+  db.exec(
+    'INSERT INTO "erp_stock__balance_count"(movement_id, product_id, warehouse_id, counted, previous, source, created_at) VALUES(?,?,?,?,?,?,?)',
+    movement, product, warehouse, toParam(counted), toParam(previous), source, ctx.clock.next().toString(),
+  );
 }
 
 /** erp_stock.reservation_write_access: a linha do usuário (for share, sem efeito no SQLite) e o acesso de escrita. */

@@ -163,8 +163,13 @@ import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
 import { wakeErpAreas } from "./erp/scheduler/cron";
-import { ERP_PEOPLE_SQL, erpIdentity, isErpPath } from "./modules/erp/identity";
 import { erpSignedDownload } from "./erp-storage";
+import {
+  ERP_APPS_SQL,
+  ERP_PEOPLE_SQL,
+  erpIdentity,
+  isErpPath,
+} from "./modules/erp/identity";
 import {
   appProfiles,
   closeSockets,
@@ -997,9 +1002,15 @@ app.use("/api/v1/*", async (c, next) => {
       pre,
       c.req.raw,
       area,
-      // ERP: as pessoas da área com papel erp:* vão no mesmo lote, para o
-      // envelope de identidade (src/modules/erp/identity.ts).
-      area && isErpPath(c.req.path) ? [[ERP_PEOPLE_SQL, [area]]] : [],
+      // ERP: as pessoas da área com papel erp:* e as aplicações com escopo
+      // do ERP vão no mesmo lote, para o envelope de identidade
+      // (src/modules/erp/identity.ts).
+      area && isErpPath(c.req.path)
+        ? [
+            [ERP_PEOPLE_SQL, [area]],
+            [ERP_APPS_SQL, [area]],
+          ]
+        : [],
     ));
   c.set("actor", actor);
   // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
@@ -1157,6 +1168,7 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
     c.get("pre") ?? c.env,
     c.get("actor"),
     profile,
+    c.req.method,
   );
   return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });

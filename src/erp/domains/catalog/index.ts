@@ -38,3 +38,7 @@ import "./rpc/erp_catalog_product_save.ts";
 import "./rpc/erp_catalog_product_variation_add.ts";
 import "./rpc/erp_catalog_product_prices.ts";
 import "./pricing/index.ts";
+import "./rpc/erp_catalog_contact_save.ts";
+import "./rpc/erp_catalog_contact_get.ts";
+import "./rpc/erp_catalog_contact_check.ts";
+import "./rpc/erp_catalog_contact_set_situation.ts";

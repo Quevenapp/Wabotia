@@ -26,8 +26,62 @@ const defaultScopes = [
   "webhooks:manage",
 ];
 
+/**
+ * Papéis do ERP que uma aplicação pode ter (src/modules/erp/identity.ts):
+ * como o agente do Fagoo, quem movimenta dinheiro ou administra a empresa
+ * fica só com pessoas, que confirmam o segundo fator.
+ */
+const ERP_APP_ROLES: [string, string][] = [
+  ["consulta", "Consulta: só lê cadastros, documentos, estoque e relatórios"],
+  ["vendas", "Vendas: clientes, produtos, propostas e pedidos de venda"],
+  ["estoque", "Estoque: entradas, saídas, inventário e pedidos de compra"],
+  ["fiscal", "Fiscal: notas, documentos fiscais e tributação"],
+];
+
+/** Papel do ERP de uma aplicação, como a tela mostra. */
+function erpRoleLabel(row: Row) {
+  const scopes: string[] = JSON.parse(row.scopes || "[]");
+  if (scopes.includes("erp:write"))
+    return row.erp_role ? `${row.erp_role} (lê e altera)` : "sem papel";
+  return scopes.includes("erp:read") ? "consulta (só lê)" : "—";
+}
+
+/** Escolha do papel do ERP para quem tem erp:write. */
+function ErpRoleField({
+  value,
+  onChange,
+}: {
+  value: string | null | undefined;
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <label className="field">
+      <span>Papel no ERP</span>
+      <select
+        value={value || ""}
+        onChange={(event) => onChange(event.target.value || null)}
+        required
+      >
+        <option value="">Escolha o papel</option>
+        {ERP_APP_ROLES.map(([id, label]) => (
+          <option key={id} value={id}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <small className="muted">
+        A aplicação entra no ERP como um usuário técnico com este papel, e o que
+        ela fizer aparece na atividade do ERP com o nome dela. Administrador e
+        financeiro não são oferecidos a aplicações: ficam com pessoas, que
+        confirmam o segundo fator.
+      </small>
+    </label>
+  );
+}
+
 type Open =
   | { kind: "application" }
+  | { kind: "erp-role"; app: Row }
   | { kind: "key"; app_id: string }
   | { kind: "webhook"; app_id: string }
   | { kind: "secret"; token: string }
@@ -98,6 +152,13 @@ function ApplicationDialog({
           </label>
         ))}
       </fieldset>
+      {(form.scopes || []).includes("erp:write") ? (
+        <ErpRoleField value={form.erp_role} onChange={change("erp_role")} />
+      ) : (form.scopes || []).includes("erp:read") ? (
+        <p className="muted">
+          Com erp:read, a aplicação lê o ERP com o papel de consulta.
+        </p>
+      ) : null}
       <fieldset>
         <legend>Bots que esta aplicação pode executar</legend>
         {app.bots.map((bot) => (
@@ -116,6 +177,35 @@ function ApplicationDialog({
         ))}
         {!app.bots.length && <p className="muted">Nenhum bot cadastrado.</p>}
       </fieldset>
+    </FormDialog>
+  );
+}
+
+/** Troca do papel do ERP de uma aplicação (entra na auditoria do núcleo). */
+function ErpRoleDialog({
+  app: row,
+  onClose,
+  onSaved,
+}: {
+  app: Row;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { api } = useApp();
+  const [role, setRole] = useState<string | null>(row.erp_role || null);
+  return (
+    <FormDialog
+      title={`Papel no ERP · ${row.name}`}
+      size="sm"
+      onClose={onClose}
+      onSubmit={async () => {
+        await api("v1/applications/" + row.id, "PATCH", { erp_role: role });
+        toast("Papel do ERP salvo.");
+        await onSaved();
+        onClose();
+      }}
+    >
+      <ErpRoleField value={role} onChange={setRole} />
     </FormDialog>
   );
 }
@@ -251,6 +341,7 @@ export function ApplicationsPage() {
               ["name", "Aplicação"],
               ["rate", "Requisições/min"],
               ["run_limit", "Execuções simultâneas"],
+              ["erp_role", "ERP", (row) => erpRoleLabel(row)],
               [
                 "disabled",
                 "Estado",
@@ -297,6 +388,15 @@ export function ApplicationsPage() {
                 >
                   Webhook
                 </Button>
+                {JSON.parse(row.scopes || "[]").includes("erp:write") && (
+                  <Button
+                    secondary
+                    size="sm"
+                    onClick={() => setOpen({ kind: "erp-role", app: row })}
+                  >
+                    Papel no ERP
+                  </Button>
+                )}
               </div>
             )}
             empty={
@@ -345,6 +445,13 @@ export function ApplicationsPage() {
       {open?.kind === "application" && (
         <ApplicationDialog
           scopes={rows.scopes || []}
+          onClose={() => setOpen(null)}
+          onSaved={resource.reload}
+        />
+      )}
+      {open?.kind === "erp-role" && (
+        <ErpRoleDialog
+          app={open.app}
           onClose={() => setOpen(null)}
           onSaved={resource.reload}
         />
