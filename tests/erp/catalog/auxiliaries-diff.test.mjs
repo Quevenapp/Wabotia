@@ -35,6 +35,21 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
   const productTag = (await f.taxonomySave("tags", { name: "Produto", tag_type: "products" })).item.id;
   const contacts = [];
   for (let i = 0; i < 6; i++) contacts.push((await f.contact({ name: `${pick(names)} contato ${i}` })).id);
+  const SETTINGS = {
+    user_id: null, allow_unregistered_products: false, view_stock: false, access_hours_enabled: false, access_windows: [], modules: {},
+    commission_rule: "parcial", commission_mode: "fixa", commission_rate: null, commission_bands: [], discount_limit: "0", notes: null,
+  };
+  const sellers = [];
+  for (let i = 0; i < 5; i++)
+    sellers.push(
+      (
+        await f.rpc("erp_catalog_seller_save", {
+          p_user_id: f.users.admin, p_command_id: randomUUID(), p_acknowledged: null, p_id: null, p_expected_version: 0, p_contact_expected_version: 0,
+          p_contact: { name: `${pick(names)} vendedor ${i}`, ...(i % 2 ? { types: ["customer"] } : {}) },
+          p_settings: { ...SETTINGS, commission_rate: i % 2 ? "2.5" : null, discount_limit: String(i), user_id: i === 0 ? f.users.vendas : null },
+        })
+      ).seller.id,
+    );
   const categories = [];
   for (let i = 0; i < 4; i++) categories.push((await f.taxonomySave("categories", { name: `Categoria ${i}` })).item.id);
   const deleted = contacts[5];
@@ -104,8 +119,17 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
         });
       } else if (op < 0.93) {
         await f.rpc(pick(["erp_catalog_custom_fields", "erp_catalog_custom_fields_screen"]), { p_user_id: user, p_module: pick(["products", "products", "contacts"]) });
-      } else {
+      } else if (op < 0.96) {
         await f.rpc("erp_catalog_seller_options", { p_user_id: user, p_query: pick([null, "", "ana", "a\u0001", "x".repeat(121), "contato 1"]) });
+      } else if (r() < 0.5) {
+        await f.rpc("erp_catalog_seller_get", { p_user_id: user, p_id: r() < 0.85 ? pick(sellers) : pick([randomUUID(), null]) });
+      } else {
+        await f.rpc("erp_catalog_seller_page", {
+          p_user_id: user, p_page: pick([1, 1, 2, 0]), p_size: pick([2, 10, 100, 101]),
+          p_sort: pick(["created_desc", "name_asc", "name_desc", "code_asc", "code_desc", "x"]),
+          p_query: pick([null, "vendedor", "ana", "a\u0001"]), p_situation: pick(["latest", "all", "A", "E", "x"]),
+          p_type: pick([null, null, "customer", "seller", "none", "nada"]),
+        });
       }
       ok++;
     } catch (e) {
@@ -113,10 +137,30 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
     }
   }
   assert.ok(ok > 40 && calls - ok > 40, `sucessos ${ok} e recusas ${calls - ok} suficientes`);
+  // Vendedores: leitura e página, antes e depois de ligar a carteira do vendedor.
+  for (let round = 0; round < 2; round++) {
+    if (round === 1) await f.preference("cadastros-contatos", "contatos.acesso_vendedor", true);
+    for (let i = 0; i < 30; i++) {
+      const user = pick(users);
+      try {
+        if (r() < 0.4) await f.rpc("erp_catalog_seller_get", { p_user_id: user, p_id: r() < 0.9 ? pick(sellers) : randomUUID() });
+        else
+          await f.rpc("erp_catalog_seller_page", {
+            p_user_id: user, p_page: pick([1, 1, 2]), p_size: pick([2, 3, 100]),
+            p_sort: pick(["created_desc", "name_asc", "name_desc", "code_asc", "code_desc"]),
+            p_query: pick([null, null, "vendedor", "ana 1"]), p_situation: pick(["latest", "all", "A"]),
+            p_type: pick([null, null, "customer", "seller"]),
+          });
+      } catch (e) {
+        domainError(e);
+      }
+    }
+  }
   // Os RPCs do lote rodaram nos dois motores (não só no Postgres).
   for (const name of [
     "erp_catalog_contact_tags", "erp_catalog_contact_tags_save", "erp_catalog_custom_fields", "erp_catalog_custom_fields_screen",
-    "erp_catalog_custom_field_delete", "erp_catalog_custom_field_save", "erp_catalog_seller_options",
+    "erp_catalog_custom_field_delete", "erp_catalog_custom_field_save", "erp_catalog_seller_options", "erp_catalog_seller_get",
+    "erp_catalog_seller_page",
   ])
     assert.equal(isPorted(name), true, name);
   assert.ok(f.stats.ported > 150, `chamadas comparadas: ${f.stats.ported}`);
