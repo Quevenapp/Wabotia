@@ -157,7 +157,8 @@ export function createZipStream(sink: ZipSink, date = new Date()) {
           ]);
         },
         async close() {
-          await writer.close();
+          // Como no write: um erro do sink não deixa o close preso.
+          await Promise.race([writer.close(), pump.then(() => {})]);
           await pump;
           await emit(
             fields(16, [

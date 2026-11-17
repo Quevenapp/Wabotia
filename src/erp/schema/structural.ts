@@ -80,7 +80,7 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason:
       "Até 50 MiB por pacote: mais de 100 MB num isolado de 128 MB. O laço do Fagoo não aceita outro manipulador (TASK_HANDLERS congelado), então foi copiado.",
     replaced_by:
-      "src/erp-export.ts: runErpPlatformTasks (cópia do laço, mesmas RPCs e o mesmo tratamento de erro) com runExportStreamed (createZipStream + createErpUpload, em fatias no R2); as outras tarefas são as do Fagoo. A paridade é segurada por tests/erp-export.test.ts: os dois laços sobre a mesma fila (tarefa comum, exportação, falha, posse perdida) gravam e respondem igual, salvo o manipulador da exportação.",
+      "src/erp-export.ts: runErpPlatformTasks (cópia do laço, mesmas RPCs e o mesmo tratamento de erro) com runExportStreamed (createZipStream + createErpUpload, em fatias no R2); as outras tarefas são as do Fagoo. A paridade é segurada por tests/erp-export.test.ts: os dois laços sobre a mesma fila (tarefa comum, exportação, falha, posse perdida) gravam e respondem igual, salvo o manipulador da exportação. Diferença que sobra (revisão da G): cada conjunto de dados leva um descritor de 16 bytes no ZIP (bit 3), que entra no zip.size; os limites EXPORT_MAX_BYTES − 1 MiB e EXPORT_FILES_BUDGET podem disparar até 16 × (número de conjuntos) bytes antes do Fagoo, só bem na beira. O SHA-256 do pacote muda com isso; nenhuma RPC lê o ZIP (o export_complete confere só o formato).",
   },
   {
     id: "sessao-token",
