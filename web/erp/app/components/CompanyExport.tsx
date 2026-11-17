@@ -20,8 +20,8 @@ export default function CompanyExport({ controller }: { controller: Controller }
       .catch(e => { if (!request.signal.aborted && !aborted(e)) setError(statusOf(e) === 403 ? 'Somente o administrador exporta os dados da empresa.' : 'Não foi possível carregar as exportações.'); });
     return () => request.abort();
   }, [controller, admin, reload]);
-  // While a package is being built, look again every 15 seconds.
-  useEffect(() => { if (!items?.some(e => e.status === 'queued' || e.status === 'running')) return; const t = setTimeout(() => setReload(n => n + 1), 15000); return () => clearTimeout(t); }, [items]);
+  // While a package is being built, look again every 5 seconds (Wabotia: the scheduler starts it within a second).
+  useEffect(() => { if (!items?.some(e => e.status === 'queued' || e.status === 'running')) return; const t = setTimeout(() => setReload(n => n + 1), 5000); return () => clearTimeout(t); }, [items]);
   if (!admin) return <section className="real-state-panel"><h1>Backup não liberado</h1><p>Somente o administrador exporta os dados da empresa.</p></section>;
   const ask = async () => {
     if (busy) return; setBusy(true); setError(''); setNotice('');
@@ -44,6 +44,7 @@ export default function CompanyExport({ controller }: { controller: Controller }
       <button type="button" className="primary-button" onClick={() => void ask()} disabled={busy || running}>Gerar exportação</button></header>
     {notice && <p className="real-notice" role="status">{notice} Acompanhe em <Link to="/preferencias/sistema/gestao-acoes">Consultar gestão de ações</Link>.</p>}
     {error && <p className="real-alert" role="alert">{error}</p>}
+    {running && !notice && <p className="real-notice" role="status">Uma exportação está sendo gerada. Quando ela terminar, a lista se atualiza sozinha e você pode pedir outra.</p>}
     <p className="real-help">Ficam de fora credenciais, tokens, o cofre do certificado A1 e os usuários do login. O manifesto.json do pacote lista o escopo e a data. O backup da plataforma (banco e Storage) é feito à parte pela equipe. <Link to="/ajuda/exportacao">Saiba mais</Link></p>
     {!items && !error && <p role="status">Carregando…</p>}
     {items && (items.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th scope="col">Pedida em</th><th scope="col">Situação</th><th scope="col">Conteúdo</th><th scope="col">Tamanho</th><th scope="col">Disponível até</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead>

@@ -9,12 +9,16 @@
 // 3. As pessoas com papel no ERP vêm de /people (web/erp/people.ts).
 // 4. Uma ação de tela que o motor ainda não faz (0A000) aciona o aviso de
 //    implantação da casca (web/erp/motor.ts, setActionPendingNotice).
+// 5. A exportação da empresa percorre o caminho do botão "Baixar" (pedir,
+//    concluir, link, download) com o validador do próprio painel.
 import {
   createExecutionContext,
   env,
+  runDurableObjectAlarm,
+  runInDurableObject,
   waitOnExecutionContext,
 } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { exec } from "../src/db";
 import { bearer, fixture } from "./service-center-fixture";
@@ -36,6 +40,14 @@ import {
   AccessError,
   createAccessController,
 } from "../web/erp/app/lib/real-access";
+import {
+  EXPORTS_PATH,
+  exportLinkPath,
+  parseExportLink,
+  parseExports,
+  type CompanyExport,
+} from "../web/erp/app/lib/platform-model";
+import { erpStub } from "../src/erp/hub";
 
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
 const SCREENS: [string, string][] = [
@@ -432,6 +444,72 @@ describe("painel do ERP contra a rota real", () => {
         setMotorReal(false);
       }
       expect(seen).toEqual(["aviso"]);
+    },
+  );
+
+  it(
+    "exportação da empresa pelo painel: pedir, concluir, link e download",
+    { timeout: 180_000 },
+    async () => {
+      // O caminho do botão "Baixar" (CompanyExport.tsx): o painel lê cada
+      // resposta da rota real com o próprio validador. Um nome ou endereço que
+      // o motor mude e o painel não aceite aparece aqui.
+      const { f, send, get } = await setup();
+      await get(await bearer(f.admin), "/erp/v1/inicio");
+      setMotorReal(true);
+      try {
+        await panel(
+          send,
+          f.profile,
+          await bearer(f.admin),
+          f.admin.id,
+          async (controller) => {
+            const asked = (await controller.platform!(EXPORTS_PATH, {
+              method: "POST",
+              body: { command_id: crypto.randomUUID() },
+            })) as { export: { id: string }; view: unknown };
+            const id = asked.export.id;
+            parseExports(asked.view);
+            // O pedido acorda o agendador; o teste roda os alarmes que o
+            // objeto agenda, no horário de cada um (relógio do objeto adiantado
+            // só durante a rodada, como em tests/erp-do-scheduler.test.ts).
+            const stub = () => erpStub(env, f.profile);
+            let item: CompanyExport | undefined;
+            for (let i = 0; i < 6 && item?.status !== "ready"; i++) {
+              const next = await runInDurableObject(
+                stub(),
+                (_i: unknown, s: DurableObjectState) => s.storage.getAlarm(),
+              );
+              if (next === null) break;
+              vi.useFakeTimers({ toFake: ["Date"] });
+              vi.setSystemTime(Math.max(next, Date.now()));
+              try {
+                await runDurableObjectAlarm(stub());
+              } finally {
+                vi.useRealTimers();
+              }
+              item = parseExports(
+                await controller.platform!(EXPORTS_PATH, { method: "GET" }),
+              ).items.find((e) => e.id === id);
+            }
+            expect(item?.status, JSON.stringify(item)).toBe("ready");
+            const link = parseExportLink(
+              await controller.platform!(exportLinkPath(id), {
+                method: "POST",
+                body: {},
+              }),
+              "https://test",
+            );
+            expect(link.filename).toMatch(/^wabotia-exportacao-.+\.zip$/);
+            const download = await send(new Request(link.url));
+            expect(download.status).toBe(200);
+            const bytes = new Uint8Array(await download.arrayBuffer());
+            expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]); // ZIP
+          },
+        );
+      } finally {
+        setMotorReal(false);
+      }
     },
   );
 
