@@ -3375,7 +3375,7 @@
    },
    "erp_stock.balance_kept": {
     "name": "balanceKept",
-    "ported": false
+    "ported": true
    },
    "erp_stock.command_taken": {
     "name": "commandTaken",
@@ -3383,11 +3383,11 @@
    },
    "erp_stock.component_problem": {
     "name": "componentProblem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.component_quantity": {
     "name": "componentQuantity",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_apply_values": {
     "name": "compositionApplyValues",
@@ -3399,7 +3399,7 @@
    },
    "erp_stock.composition_lines": {
     "name": "compositionLines",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_own_stock": {
     "name": "compositionOwnStock",
@@ -3427,7 +3427,7 @@
    },
    "erp_stock.derived_command": {
     "name": "derivedCommand",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_access": {
     "name": "documentAccess",
@@ -3443,11 +3443,11 @@
    },
    "erp_stock.document_eligible": {
     "name": "documentEligible",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_item_lots": {
     "name": "documentItemLots",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_lock": {
     "name": "documentLock",
@@ -3459,7 +3459,7 @@
    },
    "erp_stock.document_posting_summary": {
     "name": "documentPostingSummary",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_preview_data": {
     "name": "documentPreviewData",
@@ -3471,7 +3471,7 @@
    },
    "erp_stock.document_summary": {
     "name": "documentSummary",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_document_allowed": {
     "name": "effectDocumentAllowed",
@@ -3555,7 +3555,7 @@
    },
    "erp_stock.invoice_posted_for_document": {
     "name": "invoicePostedForDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_screen": {
     "name": "invoiceScreen",
@@ -3567,11 +3567,11 @@
    },
    "erp_stock.item_component_rows": {
     "name": "itemComponentRows",
-    "ported": false
+    "ported": true
    },
    "erp_stock.item_composition_lines": {
     "name": "itemCompositionLines",
-    "ported": false
+    "ported": true
    },
    "erp_stock.last_purchase": {
     "name": "lastPurchase",
@@ -3587,7 +3587,7 @@
    },
    "erp_stock.lot_apply": {
     "name": "lotApply",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_check": {
     "name": "lotCheck",
@@ -3603,7 +3603,7 @@
    },
    "erp_stock.lot_product_problem": {
     "name": "lotProductProblem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_quantity": {
     "name": "lotQuantity",
@@ -3627,7 +3627,7 @@
    },
    "erp_stock.post": {
     "name": "post",
-    "ported": false
+    "ported": true
    },
    "erp_stock.post_document_lots": {
     "name": "postDocumentLots",
@@ -3651,7 +3651,7 @@
    },
    "erp_stock.reservation_write_access": {
     "name": "reservationWriteAccess",
-    "ported": false
+    "ported": true
    },
    "erp_stock.reserve_statuses": {
     "name": "reserveStatuses",
@@ -3687,19 +3687,19 @@
    },
    "public.erp_document_stock_post": {
     "name": "erpDocumentStockPost",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_preview": {
     "name": "erpDocumentStockPreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_reverse": {
     "name": "erpDocumentStockReverse",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_reverse_preview": {
     "name": "erpDocumentStockReversePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_stock_post": {
     "name": "erpStockPost",
