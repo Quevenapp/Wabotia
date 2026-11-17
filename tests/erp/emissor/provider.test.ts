@@ -217,16 +217,20 @@ describe("emissão", () => {
     expect(r).toMatchObject({ status: "denied", messages: [{ code: "302" }] });
   });
 
-  it("contingência ainda não existe na NFapi: recusada antes de chamar o cofre", async () => {
+  it("contingência só na NFC-e; sem pedir, a nota vem sem contingência", async () => {
     const { ctx, vault } = await vaultArea();
-    expect(provider.contingency).toEqual([]);
-    expect(provider.transmitContingency).toBeUndefined();
-    const error = await provider
-      .emit(ctx, "nfce", nfce(), doc(), { contingency: { mode: "offline", reason: "SEFAZ fora do ar há 20 minutos" } })
-      .catch((e) => e);
+    expect(provider.contingency).toEqual(["automatic", "forced"]);
+    expect("transmitContingency" in provider).toBe(false);
+    const error = await provider.emit(ctx, "nfe", nfe(), doc(), { contingency: "automatic" }).catch((e) => e);
     expect(error).toMatchObject({ status: 422, code: "fiscal_contingency_not_supported" });
+    const invalid = await provider.emit(ctx, "nfce", nfce(), doc(), { contingency: "offline" as never }).catch((e) => e);
+    expect(invalid).toMatchObject({ status: 400, code: "fiscal_invalid_request", details: { field: "contingency" } });
     expect(vault.calls).toHaveLength(0);
-    expect((await provider.emit(ctx, "nfce", nfce(), doc())).contingency).toBeNull();
+    const plain = await provider.emit(ctx, "nfce", nfce(), doc());
+    expect(plain.contingency).toBeNull();
+    expect(vault.calls.at(-1)!.body).not.toHaveProperty("contingencia");
+    await provider.emit(ctx, "nfce", nfce(), doc(), { contingency: "never" });
+    expect(vault.calls.at(-1)!.body.contingencia).toBe("nunca");
   });
 
   it("dataEmissao sai do pedido por padrão; keep_issue_date a mantém", async () => {

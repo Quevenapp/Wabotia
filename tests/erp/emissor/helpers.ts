@@ -5,7 +5,12 @@ import { type Actor, now, uid } from "../../../src/types";
 import type { FiscalContext } from "../../../src/erp/emissor/provider.ts";
 import { createFakeVault, type FakeVaultOptions } from "./fake-vault";
 
-export const VAULT_URL = "https://nfapi-cofre.exemplo.workers.dev";
+/**
+ * Endereço do cofre simulado. Host .test (reservado, RFC 6761): em processo de
+ * teste, o cliente só manda POST (emissão, eventos, manifestação) para .test
+ * ou .invalid (nfapi.ts, TEST_PROCESS).
+ */
+export const VAULT_URL = "https://nfapi-cofre.fake-vault.test";
 
 export function actor(role: Actor["role"] = "admin", profiles: string[] = []): Actor {
   return { id: uid(), kind: "user", name: "Pessoa", role, profiles, scopes: [], bots: [], rate: 300, runLimit: 10 };

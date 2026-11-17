@@ -1,9 +1,9 @@
 // GERADO por src/erp/emissor/contract/sync.mjs a partir de contract/openapi.json.
 // Não edite à mão: copie o contrato novo e rode o sync (README.md desta pasta).
-// Cofre NFapi 0.3.2 (OpenAPI 3.1.0).
+// Cofre NFapi 0.9.0 (OpenAPI 3.1.0).
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.3.2";
+export const CONTRACT_VERSION = "0.9.0";
 
 export type Erro = {
   erro: {
@@ -134,6 +134,59 @@ export type PedidoNfe = Cabecalho & {
     outrasDespesas?: number;
     /** default: true */
     compoeTotal?: boolean;
+    /** maxItems: 100 */
+    importacao?: {
+      /** minLength: 1; maxLength: 15 */
+      numero: string;
+      /** pattern: ^\d{4}-\d{2}-\d{2}$ */
+      data: string;
+      /** minLength: 1; maxLength: 60 */
+      localDesembaraco: string;
+      ufDesembaraco: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      /** pattern: ^\d{4}-\d{2}-\d{2}$ */
+      dataDesembaraco: string;
+      /** minimum: 1; maximum: 13 */
+      viaTransporte: number;
+      /** minimum: 0; maximum: 9999999999999.99 */
+      afrmm?: number;
+      /** default: conta_propria */
+      intermediacao?: "conta_propria" | "conta_e_ordem" | "encomenda";
+      adquirente?: {
+        /** pattern: ^[0-9A-Z]{12}\d{2}$ */
+        cnpj?: string;
+        /** pattern: ^\d{11}$ */
+        cpf?: string;
+        uf?: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      };
+      /** minLength: 1; maxLength: 60 */
+      codigoExportador: string;
+      /** minItems: 1; maxItems: 999 */
+      adicoes: {
+        /** minimum: 1; maximum: 999 */
+        numero?: number;
+        /** minimum: 1; maximum: 99999 */
+        sequencia: number;
+        /** minLength: 1; maxLength: 60 */
+        codigoFabricante: string;
+        /** maximum: 9999999999999.99; exclusiveMinimum: 0 */
+        desconto?: number;
+        /** minLength: 1; maxLength: 20 */
+        drawback?: string;
+      }[];
+    }[];
+    /** maxItems: 500 */
+    exportacao?: {
+      /** minLength: 1; maxLength: 20 */
+      drawback?: string;
+      indireta?: {
+        /** pattern: ^\d{0,12}$ */
+        registroExportacao: string;
+        /** pattern: ^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$ */
+        chaveNfe: string;
+        /** minimum: 0; maximum: 99999999999.9999 */
+        quantidade: number;
+      };
+    }[];
     /** minLength: 1; maxLength: 15 */
     numeroPedido?: string;
     /** minimum: 0; maximum: 999999 */
@@ -240,6 +293,16 @@ export type PedidoNfe = Cabecalho & {
         /** minimum: 0; maximum: 9999999999999.99 */
         valor?: number;
       };
+      ii?: {
+        /** minimum: 0; maximum: 9999999999999.99 */
+        baseCalculo: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        despesasAduaneiras: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        valor: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        iof: number;
+      };
       pis?: {
         /** pattern: ^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$ */
         cst: string;
@@ -260,11 +323,13 @@ export type PedidoNfe = Cabecalho & {
         /** minimum: 0; maximum: 9999999999999.99 */
         valor?: number;
       };
+      /** IBS e CBS do item, como calculados pelo sistema emissor. Sem baseCalculo, vão só o CST e a classificação. Não há suporte ao regime monofásico (combustíveis), à transferência de crédito, ao ajuste de competência nem ao crédito presumido da Zona Franca de Manaus. */
       ibsCbs?: {
         /** pattern: ^\d{3}$ */
         cst: string;
         /** pattern: ^\d{6}$ */
         classificacao: string;
+        doacao?: boolean;
         /** minimum: 0; maximum: 9999999999999.99 */
         baseCalculo?: number;
         ibsUf?: {
@@ -272,19 +337,177 @@ export type PedidoNfe = Cabecalho & {
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
         ibsMunicipio?: {
           /** minimum: 0; maximum: 999.9999 */
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
         cbs?: {
           /** minimum: 0; maximum: 999.9999 */
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
+        tributacaoRegular?: {
+          /** pattern: ^\d{3}$ */
+          cst: string;
+          /** pattern: ^\d{6}$ */
+          classificacao: string;
+          ibsUf: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          ibsMunicipio: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        compraGovernamental?: {
+          ibsUf: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          ibsMunicipio: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        simplesNacional?: {
+          ibs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        estornoCredito?: {
+          /** minimum: 0; maximum: 9999999999999.99 */
+          ibs: number;
+          /** minimum: 0; maximum: 9999999999999.99 */
+          cbs: number;
+        };
+        creditoPresumido?: {
+          /** minimum: 0; maximum: 9999999999999.99 */
+          baseCalculo: number;
+          /** pattern: ^\d{2}$ */
+          codigo: string;
+          ibs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+            /** default: false */
+            condicaoSuspensiva?: boolean;
+          };
+          cbs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+            /** default: false */
+            condicaoSuspensiva?: boolean;
+          };
+        };
+      };
+      impostoSeletivo?: {
+        /** pattern: ^\d{3}$ */
+        cst: string;
+        /** pattern: ^\d{6}$ */
+        classificacao: string;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        baseCalculo?: number;
+        /** minimum: 0; maximum: 999.9999 */
+        aliquota?: number;
+        /** minimum: 0; maximum: 999.9999 */
+        aliquotaEspecifica?: number;
+        /** minLength: 1; maxLength: 6 */
+        unidade?: string;
+        /** minimum: 0; maximum: 99999999999.9999 */
+        quantidade?: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        valor?: number;
       };
       difal?: {
         /** minimum: 0; maximum: 9999999999999.99 */
@@ -355,7 +578,10 @@ export type PedidoNfe = Cabecalho & {
     cnpj?: string;
     /** pattern: ^\d{11}$ */
     cpf?: string;
-    /** pattern: ^[A-Za-z0-9]{0,20}$ */
+    /**
+     * Passaporte ou outro documento do estrangeiro. Use "" quando não houver documento.
+     * pattern: ^([A-Za-z0-9]{5,20})?$
+     */
     idEstrangeiro?: string;
     /** minLength: 2; maxLength: 60 */
     nome?: string;
@@ -378,12 +604,30 @@ export type PedidoNfe = Cabecalho & {
       codigoMunicipio: string;
       /** minLength: 2; maxLength: 60 */
       municipio: string;
-      uf: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      /** UF do destinatário. No exterior: "EX", com codigoMunicipio "9999999" e municipio "EXTERIOR". */
+      uf: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO" | "EX";
       /** pattern: ^\d{8}$ */
       cep?: string;
       /** pattern: ^\d{6,14}$ */
       telefone?: string;
+      /**
+       * Código do país na tabela do Banco Central (padrão: 1058, Brasil).
+       * pattern: ^\d{1,4}$
+       */
+      codigoPais?: string;
+      /**
+       * Nome do país (padrão: Brasil).
+       * minLength: 1; maxLength: 60
+       */
+      pais?: string;
     };
+  };
+  exportacao?: {
+    ufEmbarque: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+    /** minLength: 1; maxLength: 60 */
+    localEmbarque: string;
+    /** minLength: 1; maxLength: 60 */
+    localDespacho?: string;
   };
   /** default: {"modalidade":9} */
   transporte?: {
@@ -450,7 +694,15 @@ export type PedidoNfe = Cabecalho & {
   };
 };
 
-export type PedidoNfce = Cabecalho & {
+export type OpcoesNfce = {
+  /**
+   * O que fazer quando a SEFAZ não responde. `automatica`: o cofre espera até 20 segundos e, sem resposta conclusiva, emite a nota em contingência offline (tipo de emissão 9), com número novo, e a devolve com `situacao: "contingencia"` para o caixa imprimir; enquanto a SEFAZ segue fora, as vendas seguintes saem direto em contingência. `forcada`: emite direto em contingência. `nunca`: devolve 502. O cofre transmite as notas pendentes sozinho quando a SEFAZ volta. Não entra na comparação de conteúdo da referência. O DANFCE da nota em contingência tem textos e vias próprios, e o prazo legal de transmissão é o fim do primeiro dia útil seguinte.
+   * default: nunca
+   */
+  contingencia?: "nunca" | "automatica" | "forcada";
+};
+
+export type PedidoNfce = Cabecalho & OpcoesNfce & {
   /**
    * Série cadastrada no cofre. Pode ser omitida quando só há uma para o modelo e o ambiente.
    * minimum: 0; maximum: 889
@@ -551,6 +803,59 @@ export type PedidoNfce = Cabecalho & {
     outrasDespesas?: number;
     /** default: true */
     compoeTotal?: boolean;
+    /** maxItems: 100 */
+    importacao?: {
+      /** minLength: 1; maxLength: 15 */
+      numero: string;
+      /** pattern: ^\d{4}-\d{2}-\d{2}$ */
+      data: string;
+      /** minLength: 1; maxLength: 60 */
+      localDesembaraco: string;
+      ufDesembaraco: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      /** pattern: ^\d{4}-\d{2}-\d{2}$ */
+      dataDesembaraco: string;
+      /** minimum: 1; maximum: 13 */
+      viaTransporte: number;
+      /** minimum: 0; maximum: 9999999999999.99 */
+      afrmm?: number;
+      /** default: conta_propria */
+      intermediacao?: "conta_propria" | "conta_e_ordem" | "encomenda";
+      adquirente?: {
+        /** pattern: ^[0-9A-Z]{12}\d{2}$ */
+        cnpj?: string;
+        /** pattern: ^\d{11}$ */
+        cpf?: string;
+        uf?: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      };
+      /** minLength: 1; maxLength: 60 */
+      codigoExportador: string;
+      /** minItems: 1; maxItems: 999 */
+      adicoes: {
+        /** minimum: 1; maximum: 999 */
+        numero?: number;
+        /** minimum: 1; maximum: 99999 */
+        sequencia: number;
+        /** minLength: 1; maxLength: 60 */
+        codigoFabricante: string;
+        /** maximum: 9999999999999.99; exclusiveMinimum: 0 */
+        desconto?: number;
+        /** minLength: 1; maxLength: 20 */
+        drawback?: string;
+      }[];
+    }[];
+    /** maxItems: 500 */
+    exportacao?: {
+      /** minLength: 1; maxLength: 20 */
+      drawback?: string;
+      indireta?: {
+        /** pattern: ^\d{0,12}$ */
+        registroExportacao: string;
+        /** pattern: ^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$ */
+        chaveNfe: string;
+        /** minimum: 0; maximum: 99999999999.9999 */
+        quantidade: number;
+      };
+    }[];
     /** minLength: 1; maxLength: 15 */
     numeroPedido?: string;
     /** minimum: 0; maximum: 999999 */
@@ -657,6 +962,16 @@ export type PedidoNfce = Cabecalho & {
         /** minimum: 0; maximum: 9999999999999.99 */
         valor?: number;
       };
+      ii?: {
+        /** minimum: 0; maximum: 9999999999999.99 */
+        baseCalculo: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        despesasAduaneiras: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        valor: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        iof: number;
+      };
       pis?: {
         /** pattern: ^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$ */
         cst: string;
@@ -677,11 +992,13 @@ export type PedidoNfce = Cabecalho & {
         /** minimum: 0; maximum: 9999999999999.99 */
         valor?: number;
       };
+      /** IBS e CBS do item, como calculados pelo sistema emissor. Sem baseCalculo, vão só o CST e a classificação. Não há suporte ao regime monofásico (combustíveis), à transferência de crédito, ao ajuste de competência nem ao crédito presumido da Zona Franca de Manaus. */
       ibsCbs?: {
         /** pattern: ^\d{3}$ */
         cst: string;
         /** pattern: ^\d{6}$ */
         classificacao: string;
+        doacao?: boolean;
         /** minimum: 0; maximum: 9999999999999.99 */
         baseCalculo?: number;
         ibsUf?: {
@@ -689,19 +1006,177 @@ export type PedidoNfce = Cabecalho & {
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
         ibsMunicipio?: {
           /** minimum: 0; maximum: 999.9999 */
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
         cbs?: {
           /** minimum: 0; maximum: 999.9999 */
           aliquota: number;
           /** minimum: 0; maximum: 9999999999999.99 */
           valor: number;
+          diferimento?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          devolucao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual?: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          reducao?: {
+            /** minimum: 0; maximum: 999.9999 */
+            percentual: number;
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+          };
         };
+        tributacaoRegular?: {
+          /** pattern: ^\d{3}$ */
+          cst: string;
+          /** pattern: ^\d{6}$ */
+          classificacao: string;
+          ibsUf: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          ibsMunicipio: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquotaEfetiva: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        compraGovernamental?: {
+          ibsUf: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          ibsMunicipio: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        simplesNacional?: {
+          ibs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+          cbs: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+          };
+        };
+        estornoCredito?: {
+          /** minimum: 0; maximum: 9999999999999.99 */
+          ibs: number;
+          /** minimum: 0; maximum: 9999999999999.99 */
+          cbs: number;
+        };
+        creditoPresumido?: {
+          /** minimum: 0; maximum: 9999999999999.99 */
+          baseCalculo: number;
+          /** pattern: ^\d{2}$ */
+          codigo: string;
+          ibs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+            /** default: false */
+            condicaoSuspensiva?: boolean;
+          };
+          cbs?: {
+            /** minimum: 0; maximum: 999.9999 */
+            aliquota: number;
+            /** minimum: 0; maximum: 9999999999999.99 */
+            valor: number;
+            /** default: false */
+            condicaoSuspensiva?: boolean;
+          };
+        };
+      };
+      impostoSeletivo?: {
+        /** pattern: ^\d{3}$ */
+        cst: string;
+        /** pattern: ^\d{6}$ */
+        classificacao: string;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        baseCalculo?: number;
+        /** minimum: 0; maximum: 999.9999 */
+        aliquota?: number;
+        /** minimum: 0; maximum: 999.9999 */
+        aliquotaEspecifica?: number;
+        /** minLength: 1; maxLength: 6 */
+        unidade?: string;
+        /** minimum: 0; maximum: 99999999999.9999 */
+        quantidade?: number;
+        /** minimum: 0; maximum: 9999999999999.99 */
+        valor?: number;
       };
       difal?: {
         /** minimum: 0; maximum: 9999999999999.99 */
@@ -766,7 +1241,10 @@ export type PedidoNfce = Cabecalho & {
     cnpj?: string;
     /** pattern: ^\d{11}$ */
     cpf?: string;
-    /** pattern: ^[A-Za-z0-9]{0,20}$ */
+    /**
+     * Passaporte ou outro documento do estrangeiro. Use "" quando não houver documento.
+     * pattern: ^([A-Za-z0-9]{5,20})?$
+     */
     idEstrangeiro?: string;
     /** minLength: 2; maxLength: 60 */
     nome?: string;
@@ -789,11 +1267,22 @@ export type PedidoNfce = Cabecalho & {
       codigoMunicipio: string;
       /** minLength: 2; maxLength: 60 */
       municipio: string;
-      uf: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO";
+      /** UF do destinatário. No exterior: "EX", com codigoMunicipio "9999999" e municipio "EXTERIOR". */
+      uf: "AC" | "AL" | "AM" | "AP" | "BA" | "CE" | "DF" | "ES" | "GO" | "MA" | "MG" | "MS" | "MT" | "PA" | "PB" | "PE" | "PI" | "PR" | "RJ" | "RN" | "RO" | "RR" | "RS" | "SC" | "SE" | "SP" | "TO" | "EX";
       /** pattern: ^\d{8}$ */
       cep?: string;
       /** pattern: ^\d{6,14}$ */
       telefone?: string;
+      /**
+       * Código do país na tabela do Banco Central (padrão: 1058, Brasil).
+       * pattern: ^\d{1,4}$
+       */
+      codigoPais?: string;
+      /**
+       * Nome do país (padrão: Brasil).
+       * minLength: 1; maxLength: 60
+       */
+      pais?: string;
     };
   };
   /** default: {"modalidade":9} */
@@ -1019,8 +1508,8 @@ export type EmissaoNfe = {
   referencia?: string | null;
   serie: number;
   numero: number;
-  /** `indefinida`: a resposta do governo se perdeu; use POST .../consultar ou repita o pedido com a mesma referência. `erro`: barrada pelo cofre antes de transmitir. */
-  situacao: "processando" | "autorizada" | "rejeitada" | "denegada" | "erro" | "indefinida" | "cancelada";
+  /** `indefinida`: a resposta do governo se perdeu; use POST .../consultar ou repita o pedido com a mesma referência. `erro`: barrada pelo cofre antes de transmitir. `contingencia`: NFC-e emitida offline; vale para o consumidor, ainda sem protocolo, e o cofre a transmite quando a SEFAZ voltar. */
+  situacao: "processando" | "autorizada" | "contingencia" | "rejeitada" | "denegada" | "erro" | "indefinida" | "cancelada";
   chaveAcesso?: string | null;
   protocolo?: string | null;
   /** Data e hora de emissão que estão no XML (dhEmi), com o fuso da UF. */
@@ -1034,11 +1523,28 @@ export type EmissaoNfe = {
   /** Só na NFC-e: endereço de consulta pela chave. */
   urlConsulta?: string | null;
   cartasCorrecao?: number;
+  /** Só na NFC-e emitida em contingência offline; null nas demais. */
+  contingencia?: {
+    /** A nota ainda aguarda a transmissão à SEFAZ. */
+    pendente?: boolean;
+    /** Quando o emitente entrou em contingência (dhCont). */
+    desde?: string | null;
+    motivo?: string | null;
+    tentativasDeTransmissao?: number;
+    ultimaTentativa?: string | null;
+    /** Chave da NFC-e normal da mesma venda que ficou sem resposta: o cofre ainda vai conferi-la na SEFAZ. */
+    notaNormalEmConferencia?: string | null;
+    /** A SEFAZ rejeitou o cancelamento da nota normal: precisa de ação do emitente. */
+    falhaNaConferencia?: string | null;
+    /** Chave da NFC-e normal que acabou autorizada e foi cancelada por substituição (evento 110112). */
+    notaNormalCancelada?: string | null;
+  } | null;
   /** Código e descrição devolvidos pelo governo (na NF-e e NFC-e, cStat e xMotivo) ou pelo cofre. */
   mensagens: {
     codigo: string;
     descricao: string;
   }[];
+  /** Na contingência pendente, o XML é a nota assinada sem protocolo; depois de autorizada, o nfeProc. */
   xmlDisponivel: boolean;
   /** format: date-time */
   criadaEm?: string;
@@ -1069,6 +1575,200 @@ export type EmissaoNfse = {
   atualizadaEm?: string;
 };
 
+/** Conteúdo do DANFE NFC-e, na ordem e com os dizeres do manual oficial (versão 6.0), para o caixa imprimir na bobina. Imprima as seções na ordem em que vêm e as linhas na ordem em que vêm. Não há largura, corte nem avanço de papel: isso é do caixa. Os textos fixos usam só caracteres das páginas de código comuns de impressora; os que vêm da nota (nomes, descrições, informações adicionais) saem como estão no XML. */
+export type Cupom = {
+  id: string;
+  /** Situação da emissão no cofre. Uma nota `cancelada` ainda devolve o cupom: não o entregue ao consumidor. */
+  situacao: string;
+  modelo: "nfce";
+  chaveAcesso: string;
+  ambiente: "homologacao" | "producao";
+  /** Nota emitida em contingência offline. Imprima também a via do estabelecimento (`?via=estabelecimento`). */
+  contingencia: boolean;
+  /** A nota em contingência ainda não foi autorizada: o cupom sai com os dizeres de contingência e sem protocolo. */
+  pendenteDeAutorizacao: boolean;
+  via: "consumidor" | "estabelecimento";
+  numero: number;
+  serie: number;
+  emitidaEm: string;
+  protocolo?: string | null;
+  autorizadaEm?: string | null;
+  valorAPagar: number;
+  /** O mesmo texto da linha `qrcode`, para quem monta o cupom por conta própria. */
+  qrCode: string;
+  /** Endereço de consulta pela chave de acesso. */
+  urlConsulta: string;
+  /** Divisões do DANFE NFC-e que têm conteúdo, na ordem de impressão. */
+  secoes: {
+    divisao: "cabecalho" | "itens" | "totais" | "consulta" | "consumidor" | "identificacao" | "qrcode" | "mensagem_fiscal" | "mensagem_contribuinte";
+    linhas: LinhaDoCupom[];
+  }[];
+};
+
+/** Uma linha do cupom. O campo `tipo` diz o formato. */
+export type LinhaDoCupom = {
+  tipo: "texto";
+  texto: string;
+  alinhamento: "esquerda" | "centro" | "direita";
+  negrito: boolean;
+  /** `dobrado`: altura e largura dobradas, quando a impressora tiver. */
+  tamanho: "normal" | "dobrado";
+} | {
+  tipo: "separador";
+} | {
+  tipo: "item";
+  numero: number;
+  codigo: string;
+  descricao: string;
+  quantidade: number;
+  unidade: string;
+  valorUnitario: number;
+  valorTotal: number;
+  /** A quantidade já no formato de impressão (vírgula decimal). */
+  quantidadeTexto: string;
+  valorUnitarioTexto: string;
+  valorTotalTexto: string;
+} | {
+  tipo: "par";
+  rotulo: string;
+  valor: string;
+  negrito: boolean;
+} | {
+  tipo: "chave";
+  chave: string;
+} | {
+  tipo: "qrcode";
+  texto: string;
+  /** Lado mínimo da imagem impressa, em milímetros. */
+  tamanhoMinimoMm: number;
+};
+
+/** NF-e que outra empresa emitiu e que interessa ao titular do cofre. Nasce do resumo entregue pelo Ambiente Nacional e ganha o XML completo depois da manifestação do destinatário. */
+export type NotaRecebida = {
+  id: string;
+  ambiente: "homologacao" | "producao";
+  /** CNPJ do titular (ou da filial) a quem a nota interessa. */
+  cnpj: string;
+  chaveAcesso: string;
+  /** Cresce a cada mudança da nota (XML que chegou, cancelamento, manifestação). É o cursor de leitura: guarde a maior que já viu e passe em `?depois=`. */
+  sequencia: number;
+  /** `terceiro`: o titular é transportador ou autorizado a baixar o XML, não o destinatário. Só confronte com pedido de compra as notas de papel `destinatario`. */
+  papel: "destinatario" | "terceiro";
+  emitente?: {
+    documento?: string;
+    nome?: string | null;
+    ie?: string | null;
+  };
+  serie?: number;
+  numero?: number;
+  emitidaEm?: string | null;
+  autorizadaEm?: string | null;
+  protocolo?: string | null;
+  /** Do ponto de vista do emitente da nota. */
+  tipoOperacao?: "entrada" | "saida" | null;
+  /** Valor total da nota (vNF). */
+  valor?: number | null;
+  /** Nulo enquanto o cofre só conhece a chave (manifestação feita antes de o resumo chegar). */
+  situacao?: "autorizada" | "cancelada" | "denegada" | null;
+  /** O cofre já tem o XML completo (nfeProc)? Antes da manifestação só há o resumo. */
+  xmlDisponivel: boolean;
+  /** A última manifestação: é a que vale. */
+  manifestacao?: ManifestacaoRegistrada | null;
+  manifestacoes: ManifestacaoRegistrada[];
+  /** Motivo da recusa quando a ciência automática foi tentada e o Ambiente Nacional não aceitou. */
+  cienciaAutomaticaRecusada?: {
+    codigo?: string;
+    descricao?: string;
+  } | null;
+  /** Só na consulta de uma nota: os eventos recebidos (cancelamento, carta de correção...). */
+  eventos?: DocumentoDistribuido[];
+  /** format: date-time */
+  recebidaEm?: string;
+  /** format: date-time */
+  atualizadaEm?: string;
+  /** Só na resposta da manifestação: ela já estava registrada e nada novo foi enviado. */
+  repetido?: boolean;
+};
+
+export type ManifestacaoRegistrada = {
+  tipo?: "ciencia" | "confirmacao" | "desconhecimento" | "nao_realizada";
+  /** 1, ou 2 na retificação de uma manifestação conclusiva. */
+  sequencia?: number;
+  /** Nulo quando o evento já estava no Ambiente Nacional, registrado fora do cofre. */
+  protocolo?: string | null;
+  /** format: date-time */
+  registradaEm?: string;
+  justificativa?: string | null;
+  /** `agendador` na ciência automática; senão, a chave de API (`chave:...`) ou o painel (`admin`). */
+  origem?: string;
+  xmlDisponivel?: boolean;
+};
+
+/** Um documento entregue pelo Ambiente Nacional, como chegou. */
+export type DocumentoDistribuido = {
+  /** Ordem de chegada no cofre; cursor de leitura de GET /v1/distribuicao/documentos. */
+  sequencia?: number;
+  ambiente?: "homologacao" | "producao";
+  cnpj?: string;
+  /** NSU do documento no Ambiente Nacional; nulo no que veio da consulta por chave. */
+  nsu?: number | null;
+  tipo?: "resumo_nfe" | "nfe" | "resumo_evento" | "evento" | "outro";
+  /** Schema informado pelo Ambiente Nacional, como `resNFe_v1.01.xsd`. */
+  schema?: string;
+  chaveAcesso?: string | null;
+  evento?: {
+    /** tpEvento: 110111 cancelamento, 110110 carta de correção, 2102xx manifestação do destinatário... */
+    codigo?: string;
+    sequencia?: number;
+    descricao?: string | null;
+    registradoEm?: string | null;
+    protocolo?: string | null;
+    autor?: string | null;
+  } | null;
+  /** format: date-time */
+  recebidoEm?: string;
+};
+
+/** Estado da consulta das notas recebidas de um CNPJ em um ambiente. O último NSU e a espera entre consultas são controlados só pelo cofre. */
+export type Distribuicao = {
+  cnpj?: string;
+  ambiente?: "homologacao" | "producao";
+  uf?: string;
+  /** O cofre consulta sozinho (ligado pelo emitente na tela do cofre). */
+  consultaAutomatica?: boolean;
+  /** O cofre registra sozinho a ciência da operação das notas novas (ligado pelo emitente). */
+  cienciaAutomatica?: boolean;
+  ultimoNsu?: number;
+  maiorNsu?: number;
+  /** format: date-time */
+  ultimaConsulta?: string | null;
+  /**
+   * Antes deste instante o cofre não consulta: depois de "nenhum documento" o Ambiente Nacional exige uma hora de espera. Nulo quando já pode consultar.
+   * format: date-time
+   */
+  proximaConsulta?: string | null;
+  /** O Ambiente Nacional bloqueou as consultas do CNPJ (consumo indevido) até `proximaConsulta`. */
+  bloqueada?: boolean;
+  /** Última resposta: 138 documentos localizados, 137 nenhum documento, 656 consumo indevido. */
+  mensagem?: {
+    codigo?: string;
+    descricao?: string;
+  } | null;
+  consultasPorChave?: {
+    naUltimaHora?: number;
+    limite?: number;
+  };
+};
+
+export type Sincronizacao = {
+  /** false: a espera ainda não venceu (ou outra consulta está em andamento) e nada foi enviado ao Ambiente Nacional. */
+  consultou?: boolean;
+  lotes?: number;
+  documentos?: number;
+  notasNovas?: number;
+  distribuicao?: Distribuicao;
+};
+
 export type InutilizacaoRegistrada = {
   id?: string;
   modelo?: string;
@@ -1076,9 +1776,14 @@ export type InutilizacaoRegistrada = {
   serie?: number;
   numeroInicial?: number;
   numeroFinal?: number;
+  /** Nulo quando a SEFAZ só confirmou que a faixa já estava inutilizada. */
   protocolo?: string | null;
+  justificativa?: string;
+  xmlDisponivel?: boolean;
   /** format: date-time */
   criadaEm?: string;
+  /** Só na resposta do POST: a faixa já estava inutilizada. */
+  repetido?: boolean;
 };
 
 export type Serie = {
@@ -1108,6 +1813,12 @@ export type Cofre = {
     diasRestantes?: number;
   } | null;
   producaoLiberada?: boolean;
+  contingencia?: {
+    /** NFC-e emitidas em contingência que ainda aguardam a transmissão à SEFAZ. */
+    notasPendentes?: number;
+  };
+  /** Há logotipo cadastrado no cofre. A imagem sai em GET /v1/cofre/logotipo. */
+  logotipo?: boolean;
   chave?: {
     escopo?: "completo" | "homologacao";
     ambientes?: ("homologacao" | "producao")[];
@@ -1167,6 +1878,17 @@ export const CONTRACT_ERROR_CODES = {
   inutilizacao_extinta: 422,
   host_nao_permitido: 422,
   certificado_do_cliente_invalido: 422,
+  distribuicao_nao_configurada: 409,
+  xml_indisponivel: 409,
+  manifestacao_ja_registrada: 409,
+  chave_de_acesso_invalida: 422,
+  justificativa_obrigatoria: 422,
+  limite_de_manifestacoes: 422,
+  manifestacao_rejeitada: 422,
+  nota_nao_localizada: 422,
+  consulta_rejeitada: 422,
+  consumo_indevido: 429,
+  limite_de_consultas: 429,
   sem_resposta_conclusiva: 502,
   sem_conexao: 200,
   erro_interno: 500,
@@ -1182,6 +1904,9 @@ export const CONTRACT_OPERATIONS = [
   "POST /v1/nfe/{id}/consultar",
   "GET /v1/nfe/{id}/xml",
   "POST /v1/nfe/{id}/cancelar",
+  "GET /v1/nfe/{id}/cancelamento/xml",
+  "GET /v1/nfe/{id}/danfe",
+  "GET /v1/nfe/{id}/carta-correcao/{sequencia}/xml",
   "POST /v1/nfe/{id}/carta-correcao",
   "GET /v1/nfce",
   "POST /v1/nfce",
@@ -1189,14 +1914,34 @@ export const CONTRACT_OPERATIONS = [
   "POST /v1/nfce/{id}/consultar",
   "GET /v1/nfce/{id}/xml",
   "POST /v1/nfce/{id}/cancelar",
+  "GET /v1/nfce/{id}/cancelamento/xml",
+  "GET /v1/nfce/{id}/cupom",
+  "GET /v1/nfce/{id}/danfce",
+  "GET /v1/nfe-recebidas",
+  "POST /v1/nfe-recebidas/manifestar",
+  "GET /v1/nfe-recebidas/{id}",
+  "GET /v1/nfe-recebidas/{id}/xml",
+  "GET /v1/nfe-recebidas/{id}/danfe",
+  "POST /v1/nfe-recebidas/{id}/manifestar",
+  "GET /v1/nfe-recebidas/{id}/manifestacoes/{tipo}/{sequencia}/xml",
+  "GET /v1/distribuicao",
+  "POST /v1/distribuicao/sincronizar",
+  "POST /v1/distribuicao/consultar-chave",
+  "GET /v1/distribuicao/documentos",
+  "GET /v1/distribuicao/documentos/{sequencia}/xml",
   "GET /v1/nfse",
   "POST /v1/nfse",
   "GET /v1/nfse/{id}",
   "GET /v1/nfse/{id}/xml",
+  "GET /v1/nfse/{id}/cancelamento/xml",
   "POST /v1/nfse/{id}/cancelar",
+  "GET /v1/inutilizacoes",
   "POST /v1/inutilizacoes",
+  "GET /v1/inutilizacoes/{id}",
+  "GET /v1/inutilizacoes/{id}/xml",
   "GET /v1/series",
   "GET /v1/cofre",
+  "GET /v1/cofre/logotipo",
   "GET /v1/sefaz/status",
   "GET /v1/openapi.json",
 ] as const;

@@ -2,7 +2,7 @@
 	"openapi": "3.1.0",
 	"info": {
 		"title": "Cofre NFapi",
-		"version": "0.3.2",
+		"version": "0.9.0",
 		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
 		"license": {
 			"name": "MIT"
@@ -33,6 +33,9 @@
 		},
 		{
 			"name": "NFS-e"
+		},
+		{
+			"name": "NF-e recebidas"
 		},
 		{
 			"name": "Numeração"
@@ -245,8 +248,28 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -321,6 +344,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -372,6 +415,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -382,7 +445,7 @@
 					"NF-e"
 				],
 				"summary": "Consulta a SEFAZ e fecha uma emissão sem resposta conclusiva",
-				"description": "Para emissões em situação `indefinida`. Nas demais situações devolve o registro como está.",
+				"description": "Para emissões em situação `indefinida`. Numa NFC-e em `contingencia`, tenta transmiti-la agora, sem esperar o agendador do cofre. Nas demais situações devolve o registro como está.",
 				"parameters": [
 					{
 						"name": "id",
@@ -434,6 +497,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -478,6 +561,26 @@
 					},
 					"404": {
 						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -607,8 +710,264 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/cancelamento/xml": {
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Baixa o XML do evento de cancelamento (procEventoNFe)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/danfe": {
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "DANFE em PDF (A4)",
+				"description": "Montado a partir do XML arquivado, com os quadros do DANFE: canhoto, emitente, chave de acesso com código de barras, destinatário, fatura e duplicatas, cálculo do imposto, transportador, itens e dados adicionais. Os itens que não cabem na primeira folha continuam nas seguintes. A nota cancelada sai com a marca CANCELADA, e a de homologação, com SEM VALOR FISCAL. Os totais de IBS, CBS e Imposto Seletivo saem nas informações complementares, porque o leiaute do DANFE ainda não tem campos para eles. Leva o logotipo cadastrado no cofre, quando há. O PDF é gerado a cada pedido.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O DANFE.",
+						"content": {
+							"application/pdf": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe/{id}/carta-correcao/{sequencia}/xml": {
+			"get": {
+				"tags": [
+					"NF-e"
+				],
+				"summary": "Baixa o XML de uma carta de correção (procEventoNFe)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					},
+					{
+						"name": "sequencia",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 20
+						},
+						"description": "Número da carta, de 1 até `cartasCorrecao`."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -738,8 +1097,28 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -829,7 +1208,7 @@
 						}
 					},
 					"201": {
-						"description": "Autorizada.",
+						"description": "Autorizada, ou emitida em contingência (`situacao`).",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -888,8 +1267,28 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -964,6 +1363,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1015,6 +1434,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1025,7 +1464,7 @@
 					"NFC-e"
 				],
 				"summary": "Consulta a SEFAZ e fecha uma emissão sem resposta conclusiva",
-				"description": "Para emissões em situação `indefinida`. Nas demais situações devolve o registro como está.",
+				"description": "Para emissões em situação `indefinida`. Numa NFC-e em `contingencia`, tenta transmiti-la agora, sem esperar o agendador do cofre. Nas demais situações devolve o registro como está.",
 				"parameters": [
 					{
 						"name": "id",
@@ -1077,6 +1516,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1121,6 +1580,26 @@
 					},
 					"404": {
 						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1250,8 +1729,1587 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/cancelamento/xml": {
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Baixa o XML do evento de cancelamento (procEventoNFe)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/cupom": {
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "Conteúdo do DANFE NFC-e (cupom) em JSON, para imprimir na bobina",
+				"description": "Montado a partir do XML arquivado, com as divisões e os dizeres obrigatórios do manual do DANFE NFC-e. Serve para a nota autorizada e para a nota em contingência; nas demais situações (rejeitada sem XML, em processamento) responde 409 nfe_nao_autorizada.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					},
+					{
+						"name": "via",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"consumidor",
+								"estabelecimento"
+							],
+							"default": "consumidor"
+						},
+						"description": "A via do estabelecimento só existe na nota em contingência; nas demais o cupom sai sempre como via do consumidor."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O cupom.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Cupom"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfce/{id}/danfce": {
+			"get": {
+				"tags": [
+					"NFC-e"
+				],
+				"summary": "DANFE NFC-e em PDF, na largura da bobina",
+				"description": "O mesmo conteúdo do cupom em JSON, já diagramado, para o caixa que não monta a impressão por conta própria. A página tem um ponto do PDF por ponto da impressora térmica (8 por milímetro): 576 de largura na bobina de 80 mm e 384 na de 58 mm, com a altura que o conteúdo pedir. Convertido em imagem nessa mesma largura, o QR Code sai com módulos inteiros, em preto puro. Para imprimir pelo driver da impressora, ajuste à largura do papel. Leva o logotipo cadastrado no cofre, quando há. O PDF é gerado a cada pedido.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					},
+					{
+						"name": "largura",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"80",
+								"58"
+							],
+							"default": "80"
+						},
+						"description": "Largura da bobina, em milímetros."
+					},
+					{
+						"name": "via",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"consumidor",
+								"estabelecimento"
+							],
+							"default": "consumidor"
+						},
+						"description": "A via do estabelecimento só existe na nota em contingência."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O DANFE NFC-e.",
+						"content": {
+							"application/pdf": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Lista as NF-e recebidas, na ordem da sequência de leitura",
+				"description": "Notas que outras empresas emitiram contra o CNPJ do titular, baixadas pelo cofre do Ambiente Nacional. Para acompanhar, guarde `ultimaSequencia` e passe em `?depois=`: a mesma nota volta a aparecer quando muda (o XML completo chegou, foi cancelada, foi manifestada). Ler esta lista não consulta o governo; quem consulta é o cofre, no ritmo que o Ambiente Nacional permite.",
+				"parameters": [
+					{
+						"name": "depois",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 0
+						},
+						"description": "Só o que tem `sequencia` maior que esta. Passe a `ultimaSequencia` da leitura anterior."
+					},
+					{
+						"name": "limite",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						}
+					},
+					{
+						"name": "chaveAcesso",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Notas.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"recebidas": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/NotaRecebida"
+											}
+										},
+										"ultimaSequencia": {
+											"type": "integer",
+											"description": "Maior sequência desta página; sem itens, repete o `depois` do pedido."
+										},
+										"haMais": {
+											"type": "boolean"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/manifestar": {
+			"post": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Registra a manifestação do destinatário pela chave de acesso",
+				"description": "Serve também para nota que o cofre ainda não recebeu (a chave veio do DANFE em papel, por exemplo). Ciência, confirmação e operação não realizada liberam o XML completo; o cofre tenta baixá-lo na mesma chamada. A manifestação conclusiva pode ser trocada: vale a última, com até dois registros de cada tipo. Há prazo contado da autorização da nota (10 dias para a ciência; o das conclusivas é o da NT 2020.001 vigente): fora dele o Ambiente Nacional rejeita (cStat 596). Em produção é um evento fiscal em nome do destinatário.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"tipo": {
+										"type": "string",
+										"enum": [
+											"ciencia",
+											"confirmacao",
+											"desconhecimento",
+											"nao_realizada"
+										],
+										"description": "ciencia: sabe da nota e ainda não tem a palavra final (libera o XML completo). confirmacao: a operação aconteceu. desconhecimento: não reconhece a operação. nao_realizada: a operação não se concretizou (recusa da mercadoria, por exemplo)."
+									},
+									"justificativa": {
+										"description": "Obrigatória na operação não realizada (15 a 255 caracteres); ignorada nas demais.",
+										"type": "string",
+										"minLength": 15,
+										"maxLength": 255
+									},
+									"ambiente": {
+										"default": "homologacao",
+										"type": "string",
+										"enum": [
+											"homologacao",
+											"producao"
+										]
+									},
+									"chaveAcesso": {
+										"type": "string",
+										"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+									},
+									"cnpj": {
+										"description": "CNPJ do destinatário, quando é uma filial do titular do certificado.",
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									}
+								},
+								"required": [
+									"tipo",
+									"chaveAcesso"
+								]
+							},
+							"example": {
+								"ambiente": "homologacao",
+								"chaveAcesso": "35261144555666000181550010000001011876543213",
+								"tipo": "ciencia"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A nota, com a manifestação registrada agora ou antes (`repetido`).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/NotaRecebida"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/{id}": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Consulta uma nota recebida, com os eventos",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da nota recebida no cofre (`rcb_...`)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A nota.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/NotaRecebida"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/{id}/xml": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Baixa o XML completo da nota recebida (nfeProc)",
+				"description": "Antes da manifestação do destinatário o cofre só tem o resumo e responde 409 xml_indisponivel.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da nota recebida no cofre (`rcb_...`)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML autorizado.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/{id}/danfe": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "DANFE da nota recebida, em PDF",
+				"description": "Gerado a partir do XML completo, sem logotipo (o do cofre é o do titular, não o do emitente da nota). Nota cancelada sai com a marca de cancelada.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da nota recebida no cofre (`rcb_...`)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O DANFE, em A4.",
+						"content": {
+							"application/pdf": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/{id}/manifestar": {
+			"post": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Registra a manifestação do destinatário de uma nota recebida",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da nota recebida no cofre (`rcb_...`)."
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"tipo": {
+										"type": "string",
+										"enum": [
+											"ciencia",
+											"confirmacao",
+											"desconhecimento",
+											"nao_realizada"
+										],
+										"description": "ciencia: sabe da nota e ainda não tem a palavra final (libera o XML completo). confirmacao: a operação aconteceu. desconhecimento: não reconhece a operação. nao_realizada: a operação não se concretizou (recusa da mercadoria, por exemplo)."
+									},
+									"justificativa": {
+										"description": "Obrigatória na operação não realizada (15 a 255 caracteres); ignorada nas demais.",
+										"type": "string",
+										"minLength": 15,
+										"maxLength": 255
+									}
+								},
+								"required": [
+									"tipo"
+								]
+							},
+							"example": {
+								"tipo": "confirmacao"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A nota, com a manifestação registrada agora ou antes (`repetido`).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/NotaRecebida"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfe-recebidas/{id}/manifestacoes/{tipo}/{sequencia}/xml": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Baixa o XML de uma manifestação registrada pelo cofre (procEventoNFe)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da nota recebida no cofre (`rcb_...`)."
+					},
+					{
+						"name": "tipo",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": [
+								"ciencia",
+								"confirmacao",
+								"desconhecimento",
+								"nao_realizada"
+							]
+						}
+					},
+					{
+						"name": "sequencia",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 2
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/distribuicao": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Estado da consulta das notas recebidas",
+				"description": "Uma entrada por CNPJ e ambiente configurados pelo emitente. Lista vazia: as notas recebidas não foram configuradas na tela do cofre.",
+				"responses": {
+					"200": {
+						"description": "Estado.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"distribuicoes": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Distribuicao"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/distribuicao/sincronizar": {
+			"post": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Consulta o Ambiente Nacional agora, se a espera já venceu",
+				"description": "Não é preciso chamar quando a consulta automática está ligada. Dentro da espera exigida pelo Ambiente Nacional a resposta é 200 com `consultou: false`: nada é enviado, e chamar de novo não adianta antes de `proximaConsulta`.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"ambiente": {
+										"default": "homologacao",
+										"type": "string",
+										"enum": [
+											"homologacao",
+											"producao"
+										]
+									},
+									"cnpj": {
+										"description": "Filial a consultar; padrão: o titular do certificado.",
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									}
+								}
+							},
+							"example": {
+								"ambiente": "homologacao"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "O que a consulta trouxe.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Sincronizacao"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/distribuicao/consultar-chave": {
+			"post": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Busca uma NF-e pela chave de acesso",
+				"description": "Traz a nota (não os eventos) recebida pelo Ambiente Nacional nos últimos 90 dias em que o CNPJ é destinatário, transportador ou autorizado. O destinatário que ainda não se manifestou recebe só o resumo. Limite de 18 consultas por hora.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"ambiente": {
+										"default": "homologacao",
+										"type": "string",
+										"enum": [
+											"homologacao",
+											"producao"
+										]
+									},
+									"cnpj": {
+										"description": "Filial a consultar; padrão: o titular do certificado.",
+										"type": "string",
+										"pattern": "^[0-9A-Z]{12}\\d{2}$"
+									},
+									"chaveAcesso": {
+										"type": "string",
+										"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+									}
+								},
+								"required": [
+									"chaveAcesso"
+								]
+							},
+							"example": {
+								"ambiente": "homologacao",
+								"chaveAcesso": "35261144555666000181550010000001011876543213"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "A nota.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/NotaRecebida"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"422": {
+						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "Notas recebidas: o Ambiente Nacional bloqueou as consultas do CNPJ por uma hora, ou o limite de consultas por chave foi atingido. `erro.mensagem` diz a partir de quando tentar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/distribuicao/documentos": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Tudo o que o Ambiente Nacional entregou, na ordem de chegada",
+				"description": "Inclui o que não é nota recebida: eventos das notas que o próprio titular emitiu (a manifestação de um cliente, por exemplo) e documentos que o cofre guarda sem interpretar.",
+				"parameters": [
+					{
+						"name": "depois",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 0
+						},
+						"description": "Só o que tem `sequencia` maior que esta. Passe a `ultimaSequencia` da leitura anterior."
+					},
+					{
+						"name": "limite",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						}
+					},
+					{
+						"name": "chaveAcesso",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Documentos.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"documentos": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/DocumentoDistribuido"
+											}
+										},
+										"ultimaSequencia": {
+											"type": "integer",
+											"description": "Maior sequência desta página; sem itens, repete o `depois` do pedido."
+										},
+										"haMais": {
+											"type": "boolean"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/distribuicao/documentos/{sequencia}/xml": {
+			"get": {
+				"tags": [
+					"NF-e recebidas"
+				],
+				"summary": "Baixa o XML de um documento distribuído",
+				"parameters": [
+					{
+						"name": "sequencia",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "integer"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O XML, como o Ambiente Nacional entregou.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1382,8 +3440,28 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1458,6 +3536,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1509,6 +3607,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1553,6 +3671,97 @@
 					},
 					"404": {
 						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse/{id}/cancelamento/xml": {
+			"get": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Baixa o XML do evento de cancelamento",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1682,8 +3891,28 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1722,6 +3951,16 @@
 					}
 				},
 				"responses": {
+					"200": {
+						"description": "A faixa já estava inutilizada (`repetido`): repetir o pedido é seguro.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/InutilizacaoRegistrada"
+								}
+							}
+						}
+					},
 					"201": {
 						"description": "Homologada pela SEFAZ.",
 						"content": {
@@ -1782,8 +4021,268 @@
 							}
 						}
 					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
 					"502": {
 						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"tags": [
+					"Numeração"
+				],
+				"summary": "Lista as inutilizações registradas por este cofre",
+				"description": "Serve para conferir uma inutilização cuja resposta se perdeu. Se a faixa não estiver na lista, repita o POST: o cofre e a SEFAZ reconhecem a faixa já inutilizada.",
+				"parameters": [
+					{
+						"name": "modelo",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"nfe",
+								"nfce"
+							]
+						}
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						}
+					},
+					{
+						"name": "serie",
+						"in": "query",
+						"schema": {
+							"type": "integer"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Inutilizações, da mais nova para a mais antiga.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"inutilizacoes": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/InutilizacaoRegistrada"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/inutilizacoes/{id}": {
+			"get": {
+				"tags": [
+					"Numeração"
+				],
+				"summary": "Consulta uma inutilização",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da inutilização no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A inutilização.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/InutilizacaoRegistrada"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/inutilizacoes/{id}/xml": {
+			"get": {
+				"tags": [
+					"Numeração"
+				],
+				"summary": "Baixa o XML da inutilização (ProcInutNFe)",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da inutilização no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "XML do evento com o retorno do governo, como deve ser guardado e entregue.",
+						"content": {
+							"application/xml": {
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1830,6 +4329,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1854,6 +4373,94 @@
 					},
 					"401": {
 						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/cofre/logotipo": {
+			"get": {
+				"tags": [
+					"Cofre"
+				],
+				"summary": "Logotipo do emitente",
+				"description": "A imagem que o emitente cadastrou na tela do cofre, para o sistema do caixa imprimir no cupom. Os PDFs do cofre já a incluem.",
+				"responses": {
+					"200": {
+						"description": "A imagem, em PNG ou JPEG.",
+						"content": {
+							"image/png": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							},
+							"image/jpeg": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
 						"content": {
 							"application/json": {
 								"schema": {
@@ -1967,6 +4574,26 @@
 								}
 							}
 						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
 					}
 				}
 			}
@@ -2043,7 +4670,7 @@
 									},
 									"nfe_nao_autorizada": {
 										"status": 409,
-										"quando": "Cancelamento ou carta de correção de NF-e/NFC-e que não está autorizada."
+										"quando": "Cancelamento ou carta de correção de NF-e/NFC-e que não está autorizada, ou pedido de cupom, DANFE ou DANFE NFC-e de nota sem XML arquivado."
 									},
 									"nfse_nao_autorizada": {
 										"status": 409,
@@ -2117,9 +4744,53 @@
 										"status": 422,
 										"quando": "O governo recusou o certificado na conexão."
 									},
+									"distribuicao_nao_configurada": {
+										"status": 409,
+										"quando": "Notas recebidas: o emitente ainda não informou a UF do estabelecimento na tela do cofre."
+									},
+									"xml_indisponivel": {
+										"status": 409,
+										"quando": "Nota recebida de que o cofre só tem o resumo: o XML completo (e o DANFE) só existe depois da manifestação do destinatário."
+									},
+									"manifestacao_ja_registrada": {
+										"status": 409,
+										"quando": "Ciência da operação pedida depois de outra manifestação da mesma nota."
+									},
+									"chave_de_acesso_invalida": {
+										"status": 422,
+										"quando": "Notas recebidas: a chave de acesso não é de uma NF-e (modelo 55) ou o dígito verificador não confere."
+									},
+									"justificativa_obrigatoria": {
+										"status": 422,
+										"quando": "Operação não realizada sem a justificativa de 15 a 255 caracteres."
+									},
+									"limite_de_manifestacoes": {
+										"status": 422,
+										"quando": "A nota já tem duas manifestações conclusivas do mesmo tipo (o máximo, contando a retificação)."
+									},
+									"manifestacao_rejeitada": {
+										"status": 422,
+										"quando": "O Ambiente Nacional rejeitou a manifestação (fora do prazo, nota cancelada...); `mensagens` traz cStat e xMotivo."
+									},
+									"nota_nao_localizada": {
+										"status": 422,
+										"quando": "Consulta por chave: o Ambiente Nacional não tem a nota disponível para o CNPJ (mais de 90 dias, chave de outra empresa ou nota ainda não recebida por ele)."
+									},
+									"consulta_rejeitada": {
+										"status": 422,
+										"quando": "O Ambiente Nacional rejeitou a consulta por chave; `mensagens` traz cStat e xMotivo."
+									},
+									"consumo_indevido": {
+										"status": 429,
+										"quando": "O Ambiente Nacional bloqueou as consultas do CNPJ por uma hora (cStat 656). Nada sai do cofre até o horário em `mensagem`."
+									},
+									"limite_de_consultas": {
+										"status": 429,
+										"quando": "Consulta por chave: o cofre atingiu 18 consultas em uma hora (o Ambiente Nacional bloqueia a partir de 20)."
+									},
 									"sem_resposta_conclusiva": {
 										"status": 502,
-										"quando": "A resposta do governo se perdeu ou não foi conclusiva. Na NF-e e NFC-e, chame /consultar; em qualquer documento, repetir com a mesma referência consulta antes de reenviar."
+										"quando": "A resposta do governo se perdeu ou não foi conclusiva. Na NF-e e NFC-e, chame /consultar; em qualquer documento, repetir com a mesma referência consulta antes de reenviar. Na NFC-e, `contingencia: \"automatica\"` troca este erro por uma nota em contingência."
 									},
 									"sem_conexao": {
 										"status": 200,
@@ -2502,6 +5173,220 @@
 											"default": true,
 											"type": "boolean"
 										},
+										"importacao": {
+											"maxItems": 100,
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"numero": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 15
+													},
+													"data": {
+														"type": "string",
+														"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+													},
+													"localDesembaraco": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 60
+													},
+													"ufDesembaraco": {
+														"type": "string",
+														"enum": [
+															"AC",
+															"AL",
+															"AM",
+															"AP",
+															"BA",
+															"CE",
+															"DF",
+															"ES",
+															"GO",
+															"MA",
+															"MG",
+															"MS",
+															"MT",
+															"PA",
+															"PB",
+															"PE",
+															"PI",
+															"PR",
+															"RJ",
+															"RN",
+															"RO",
+															"RR",
+															"RS",
+															"SC",
+															"SE",
+															"SP",
+															"TO"
+														]
+													},
+													"dataDesembaraco": {
+														"type": "string",
+														"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+													},
+													"viaTransporte": {
+														"type": "integer",
+														"minimum": 1,
+														"maximum": 13
+													},
+													"afrmm": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 9999999999999.99
+													},
+													"intermediacao": {
+														"default": "conta_propria",
+														"type": "string",
+														"enum": [
+															"conta_propria",
+															"conta_e_ordem",
+															"encomenda"
+														]
+													},
+													"adquirente": {
+														"type": "object",
+														"properties": {
+															"cnpj": {
+																"type": "string",
+																"pattern": "^[0-9A-Z]{12}\\d{2}$"
+															},
+															"cpf": {
+																"type": "string",
+																"pattern": "^\\d{11}$"
+															},
+															"uf": {
+																"type": "string",
+																"enum": [
+																	"AC",
+																	"AL",
+																	"AM",
+																	"AP",
+																	"BA",
+																	"CE",
+																	"DF",
+																	"ES",
+																	"GO",
+																	"MA",
+																	"MG",
+																	"MS",
+																	"MT",
+																	"PA",
+																	"PB",
+																	"PE",
+																	"PI",
+																	"PR",
+																	"RJ",
+																	"RN",
+																	"RO",
+																	"RR",
+																	"RS",
+																	"SC",
+																	"SE",
+																	"SP",
+																	"TO"
+																]
+															}
+														}
+													},
+													"codigoExportador": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 60
+													},
+													"adicoes": {
+														"minItems": 1,
+														"maxItems": 999,
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"numero": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 999
+																},
+																"sequencia": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 99999
+																},
+																"codigoFabricante": {
+																	"type": "string",
+																	"minLength": 1,
+																	"maxLength": 60
+																},
+																"desconto": {
+																	"type": "number",
+																	"exclusiveMinimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"drawback": {
+																	"type": "string",
+																	"minLength": 1,
+																	"maxLength": 20
+																}
+															},
+															"required": [
+																"sequencia",
+																"codigoFabricante"
+															]
+														}
+													}
+												},
+												"required": [
+													"numero",
+													"data",
+													"localDesembaraco",
+													"ufDesembaraco",
+													"dataDesembaraco",
+													"viaTransporte",
+													"codigoExportador",
+													"adicoes"
+												]
+											}
+										},
+										"exportacao": {
+											"maxItems": 500,
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"drawback": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 20
+													},
+													"indireta": {
+														"type": "object",
+														"properties": {
+															"registroExportacao": {
+																"type": "string",
+																"pattern": "^\\d{0,12}$"
+															},
+															"chaveNfe": {
+																"type": "string",
+																"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+															},
+															"quantidade": {
+																"type": "number",
+																"minimum": 0,
+																"maximum": 99999999999.9999
+															}
+														},
+														"required": [
+															"registroExportacao",
+															"chaveNfe",
+															"quantidade"
+														]
+													}
+												}
+											}
+										},
 										"numeroPedido": {
 											"type": "string",
 											"minLength": 1,
@@ -2850,6 +5735,37 @@
 														"cst"
 													]
 												},
+												"ii": {
+													"type": "object",
+													"properties": {
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"despesasAduaneiras": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"iof": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"baseCalculo",
+														"despesasAduaneiras",
+														"valor",
+														"iof"
+													]
+												},
 												"pis": {
 													"type": "object",
 													"properties": {
@@ -2905,6 +5821,7 @@
 													]
 												},
 												"ibsCbs": {
+													"description": "IBS e CBS do item, como calculados pelo sistema emissor. Sem baseCalculo, vão só o CST e a classificação. Não há suporte ao regime monofásico (combustíveis), à transferência de crédito, ao ajuste de competência nem ao crédito presumido da Zona Franca de Manaus.",
 													"type": "object",
 													"properties": {
 														"cst": {
@@ -2914,6 +5831,9 @@
 														"classificacao": {
 															"type": "string",
 															"pattern": "^\\d{6}$"
+														},
+														"doacao": {
+															"type": "boolean"
 														},
 														"baseCalculo": {
 															"type": "number",
@@ -2932,6 +5852,62 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
@@ -2951,6 +5927,62 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
@@ -2970,12 +6002,388 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
 																"aliquota",
 																"valor"
 															]
+														},
+														"tributacaoRegular": {
+															"type": "object",
+															"properties": {
+																"cst": {
+																	"type": "string",
+																	"pattern": "^\\d{3}$"
+																},
+																"classificacao": {
+																	"type": "string",
+																	"pattern": "^\\d{6}$"
+																},
+																"ibsUf": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																},
+																"ibsMunicipio": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"cst",
+																"classificacao",
+																"ibsUf",
+																"ibsMunicipio",
+																"cbs"
+															]
+														},
+														"compraGovernamental": {
+															"type": "object",
+															"properties": {
+																"ibsUf": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"ibsMunicipio": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"ibsUf",
+																"ibsMunicipio",
+																"cbs"
+															]
+														},
+														"simplesNacional": {
+															"type": "object",
+															"properties": {
+																"ibs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"cbs"
+															]
+														},
+														"estornoCredito": {
+															"type": "object",
+															"properties": {
+																"ibs": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"cbs": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"ibs",
+																"cbs"
+															]
+														},
+														"creditoPresumido": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"codigo": {
+																	"type": "string",
+																	"pattern": "^\\d{2}$"
+																},
+																"ibs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"condicaoSuspensiva": {
+																			"default": false,
+																			"type": "boolean"
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"condicaoSuspensiva": {
+																			"default": false,
+																			"type": "boolean"
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"baseCalculo",
+																"codigo"
+															]
+														}
+													},
+													"required": [
+														"cst",
+														"classificacao"
+													]
+												},
+												"impostoSeletivo": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^\\d{3}$"
+														},
+														"classificacao": {
+															"type": "string",
+															"pattern": "^\\d{6}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"aliquotaEspecifica": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"unidade": {
+															"type": "string",
+															"minLength": 1,
+															"maxLength": 6
+														},
+														"quantidade": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 99999999999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
 														}
 													},
 													"required": [
@@ -3211,8 +6619,9 @@
 										"pattern": "^\\d{11}$"
 									},
 									"idEstrangeiro": {
+										"description": "Passaporte ou outro documento do estrangeiro. Use \"\" quando não houver documento.",
 										"type": "string",
-										"pattern": "^[A-Za-z0-9]{0,20}$"
+										"pattern": "^([A-Za-z0-9]{5,20})?$"
 									},
 									"nome": {
 										"type": "string",
@@ -3299,8 +6708,10 @@
 													"SC",
 													"SE",
 													"SP",
-													"TO"
-												]
+													"TO",
+													"EX"
+												],
+												"description": "UF do destinatário. No exterior: \"EX\", com codigoMunicipio \"9999999\" e municipio \"EXTERIOR\"."
 											},
 											"cep": {
 												"type": "string",
@@ -3309,6 +6720,17 @@
 											"telefone": {
 												"type": "string",
 												"pattern": "^\\d{6,14}$"
+											},
+											"codigoPais": {
+												"description": "Código do país na tabela do Banco Central (padrão: 1058, Brasil).",
+												"type": "string",
+												"pattern": "^\\d{1,4}$"
+											},
+											"pais": {
+												"description": "Nome do país (padrão: Brasil).",
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
 											}
 										},
 										"required": [
@@ -3321,6 +6743,57 @@
 										]
 									}
 								}
+							},
+							"exportacao": {
+								"type": "object",
+								"properties": {
+									"ufEmbarque": {
+										"type": "string",
+										"enum": [
+											"AC",
+											"AL",
+											"AM",
+											"AP",
+											"BA",
+											"CE",
+											"DF",
+											"ES",
+											"GO",
+											"MA",
+											"MG",
+											"MS",
+											"MT",
+											"PA",
+											"PB",
+											"PE",
+											"PI",
+											"PR",
+											"RJ",
+											"RN",
+											"RO",
+											"RR",
+											"RS",
+											"SC",
+											"SE",
+											"SP",
+											"TO"
+										]
+									},
+									"localEmbarque": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 60
+									},
+									"localDespacho": {
+										"type": "string",
+										"minLength": 1,
+										"maxLength": 60
+									}
+								},
+								"required": [
+									"ufEmbarque",
+									"localEmbarque"
+								]
 							},
 							"transporte": {
 								"default": {
@@ -3584,10 +7057,28 @@
 					}
 				]
 			},
+			"OpcoesNfce": {
+				"type": "object",
+				"properties": {
+					"contingencia": {
+						"type": "string",
+						"enum": [
+							"nunca",
+							"automatica",
+							"forcada"
+						],
+						"default": "nunca",
+						"description": "O que fazer quando a SEFAZ não responde. `automatica`: o cofre espera até 20 segundos e, sem resposta conclusiva, emite a nota em contingência offline (tipo de emissão 9), com número novo, e a devolve com `situacao: \"contingencia\"` para o caixa imprimir; enquanto a SEFAZ segue fora, as vendas seguintes saem direto em contingência. `forcada`: emite direto em contingência. `nunca`: devolve 502. O cofre transmite as notas pendentes sozinho quando a SEFAZ volta. Não entra na comparação de conteúdo da referência. O DANFCE da nota em contingência tem textos e vias próprios, e o prazo legal de transmissão é o fim do primeiro dia útil seguinte."
+					}
+				}
+			},
 			"PedidoNfce": {
 				"allOf": [
 					{
 						"$ref": "#/components/schemas/Cabecalho"
+					},
+					{
+						"$ref": "#/components/schemas/OpcoesNfce"
 					},
 					{
 						"type": "object",
@@ -3884,6 +7375,220 @@
 											"default": true,
 											"type": "boolean"
 										},
+										"importacao": {
+											"maxItems": 100,
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"numero": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 15
+													},
+													"data": {
+														"type": "string",
+														"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+													},
+													"localDesembaraco": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 60
+													},
+													"ufDesembaraco": {
+														"type": "string",
+														"enum": [
+															"AC",
+															"AL",
+															"AM",
+															"AP",
+															"BA",
+															"CE",
+															"DF",
+															"ES",
+															"GO",
+															"MA",
+															"MG",
+															"MS",
+															"MT",
+															"PA",
+															"PB",
+															"PE",
+															"PI",
+															"PR",
+															"RJ",
+															"RN",
+															"RO",
+															"RR",
+															"RS",
+															"SC",
+															"SE",
+															"SP",
+															"TO"
+														]
+													},
+													"dataDesembaraco": {
+														"type": "string",
+														"pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+													},
+													"viaTransporte": {
+														"type": "integer",
+														"minimum": 1,
+														"maximum": 13
+													},
+													"afrmm": {
+														"type": "number",
+														"minimum": 0,
+														"maximum": 9999999999999.99
+													},
+													"intermediacao": {
+														"default": "conta_propria",
+														"type": "string",
+														"enum": [
+															"conta_propria",
+															"conta_e_ordem",
+															"encomenda"
+														]
+													},
+													"adquirente": {
+														"type": "object",
+														"properties": {
+															"cnpj": {
+																"type": "string",
+																"pattern": "^[0-9A-Z]{12}\\d{2}$"
+															},
+															"cpf": {
+																"type": "string",
+																"pattern": "^\\d{11}$"
+															},
+															"uf": {
+																"type": "string",
+																"enum": [
+																	"AC",
+																	"AL",
+																	"AM",
+																	"AP",
+																	"BA",
+																	"CE",
+																	"DF",
+																	"ES",
+																	"GO",
+																	"MA",
+																	"MG",
+																	"MS",
+																	"MT",
+																	"PA",
+																	"PB",
+																	"PE",
+																	"PI",
+																	"PR",
+																	"RJ",
+																	"RN",
+																	"RO",
+																	"RR",
+																	"RS",
+																	"SC",
+																	"SE",
+																	"SP",
+																	"TO"
+																]
+															}
+														}
+													},
+													"codigoExportador": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 60
+													},
+													"adicoes": {
+														"minItems": 1,
+														"maxItems": 999,
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"numero": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 999
+																},
+																"sequencia": {
+																	"type": "integer",
+																	"minimum": 1,
+																	"maximum": 99999
+																},
+																"codigoFabricante": {
+																	"type": "string",
+																	"minLength": 1,
+																	"maxLength": 60
+																},
+																"desconto": {
+																	"type": "number",
+																	"exclusiveMinimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"drawback": {
+																	"type": "string",
+																	"minLength": 1,
+																	"maxLength": 20
+																}
+															},
+															"required": [
+																"sequencia",
+																"codigoFabricante"
+															]
+														}
+													}
+												},
+												"required": [
+													"numero",
+													"data",
+													"localDesembaraco",
+													"ufDesembaraco",
+													"dataDesembaraco",
+													"viaTransporte",
+													"codigoExportador",
+													"adicoes"
+												]
+											}
+										},
+										"exportacao": {
+											"maxItems": 500,
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"drawback": {
+														"type": "string",
+														"minLength": 1,
+														"maxLength": 20
+													},
+													"indireta": {
+														"type": "object",
+														"properties": {
+															"registroExportacao": {
+																"type": "string",
+																"pattern": "^\\d{0,12}$"
+															},
+															"chaveNfe": {
+																"type": "string",
+																"pattern": "^[0-9]{6}[0-9A-Z]{12}[0-9]{26}$"
+															},
+															"quantidade": {
+																"type": "number",
+																"minimum": 0,
+																"maximum": 99999999999.9999
+															}
+														},
+														"required": [
+															"registroExportacao",
+															"chaveNfe",
+															"quantidade"
+														]
+													}
+												}
+											}
+										},
 										"numeroPedido": {
 											"type": "string",
 											"minLength": 1,
@@ -4232,6 +7937,37 @@
 														"cst"
 													]
 												},
+												"ii": {
+													"type": "object",
+													"properties": {
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"despesasAduaneiras": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"iof": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														}
+													},
+													"required": [
+														"baseCalculo",
+														"despesasAduaneiras",
+														"valor",
+														"iof"
+													]
+												},
 												"pis": {
 													"type": "object",
 													"properties": {
@@ -4287,6 +8023,7 @@
 													]
 												},
 												"ibsCbs": {
+													"description": "IBS e CBS do item, como calculados pelo sistema emissor. Sem baseCalculo, vão só o CST e a classificação. Não há suporte ao regime monofásico (combustíveis), à transferência de crédito, ao ajuste de competência nem ao crédito presumido da Zona Franca de Manaus.",
 													"type": "object",
 													"properties": {
 														"cst": {
@@ -4296,6 +8033,9 @@
 														"classificacao": {
 															"type": "string",
 															"pattern": "^\\d{6}$"
+														},
+														"doacao": {
+															"type": "boolean"
 														},
 														"baseCalculo": {
 															"type": "number",
@@ -4314,6 +8054,62 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
@@ -4333,6 +8129,62 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
@@ -4352,12 +8204,388 @@
 																	"type": "number",
 																	"minimum": 0,
 																	"maximum": 9999999999999.99
+																},
+																"diferimento": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"valor"
+																	]
+																},
+																"devolucao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"valor"
+																	]
+																},
+																"reducao": {
+																	"type": "object",
+																	"properties": {
+																		"percentual": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		}
+																	},
+																	"required": [
+																		"percentual",
+																		"aliquotaEfetiva"
+																	]
 																}
 															},
 															"required": [
 																"aliquota",
 																"valor"
 															]
+														},
+														"tributacaoRegular": {
+															"type": "object",
+															"properties": {
+																"cst": {
+																	"type": "string",
+																	"pattern": "^\\d{3}$"
+																},
+																"classificacao": {
+																	"type": "string",
+																	"pattern": "^\\d{6}$"
+																},
+																"ibsUf": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																},
+																"ibsMunicipio": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquotaEfetiva": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquotaEfetiva",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"cst",
+																"classificacao",
+																"ibsUf",
+																"ibsMunicipio",
+																"cbs"
+															]
+														},
+														"compraGovernamental": {
+															"type": "object",
+															"properties": {
+																"ibsUf": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"ibsMunicipio": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"ibsUf",
+																"ibsMunicipio",
+																"cbs"
+															]
+														},
+														"simplesNacional": {
+															"type": "object",
+															"properties": {
+																"ibs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"cbs"
+															]
+														},
+														"estornoCredito": {
+															"type": "object",
+															"properties": {
+																"ibs": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"cbs": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																}
+															},
+															"required": [
+																"ibs",
+																"cbs"
+															]
+														},
+														"creditoPresumido": {
+															"type": "object",
+															"properties": {
+																"baseCalculo": {
+																	"type": "number",
+																	"minimum": 0,
+																	"maximum": 9999999999999.99
+																},
+																"codigo": {
+																	"type": "string",
+																	"pattern": "^\\d{2}$"
+																},
+																"ibs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"condicaoSuspensiva": {
+																			"default": false,
+																			"type": "boolean"
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																},
+																"cbs": {
+																	"type": "object",
+																	"properties": {
+																		"aliquota": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 999.9999
+																		},
+																		"valor": {
+																			"type": "number",
+																			"minimum": 0,
+																			"maximum": 9999999999999.99
+																		},
+																		"condicaoSuspensiva": {
+																			"default": false,
+																			"type": "boolean"
+																		}
+																	},
+																	"required": [
+																		"aliquota",
+																		"valor"
+																	]
+																}
+															},
+															"required": [
+																"baseCalculo",
+																"codigo"
+															]
+														}
+													},
+													"required": [
+														"cst",
+														"classificacao"
+													]
+												},
+												"impostoSeletivo": {
+													"type": "object",
+													"properties": {
+														"cst": {
+															"type": "string",
+															"pattern": "^\\d{3}$"
+														},
+														"classificacao": {
+															"type": "string",
+															"pattern": "^\\d{6}$"
+														},
+														"baseCalculo": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
+														},
+														"aliquota": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"aliquotaEspecifica": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 999.9999
+														},
+														"unidade": {
+															"type": "string",
+															"minLength": 1,
+															"maxLength": 6
+														},
+														"quantidade": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 99999999999.9999
+														},
+														"valor": {
+															"type": "number",
+															"minimum": 0,
+															"maximum": 9999999999999.99
 														}
 													},
 													"required": [
@@ -4565,8 +8793,9 @@
 										"pattern": "^\\d{11}$"
 									},
 									"idEstrangeiro": {
+										"description": "Passaporte ou outro documento do estrangeiro. Use \"\" quando não houver documento.",
 										"type": "string",
-										"pattern": "^[A-Za-z0-9]{0,20}$"
+										"pattern": "^([A-Za-z0-9]{5,20})?$"
 									},
 									"nome": {
 										"type": "string",
@@ -4653,8 +8882,10 @@
 													"SC",
 													"SE",
 													"SP",
-													"TO"
-												]
+													"TO",
+													"EX"
+												],
+												"description": "UF do destinatário. No exterior: \"EX\", com codigoMunicipio \"9999999\" e municipio \"EXTERIOR\"."
 											},
 											"cep": {
 												"type": "string",
@@ -4663,6 +8894,17 @@
 											"telefone": {
 												"type": "string",
 												"pattern": "^\\d{6,14}$"
+											},
+											"codigoPais": {
+												"description": "Código do país na tabela do Banco Central (padrão: 1058, Brasil).",
+												"type": "string",
+												"pattern": "^\\d{1,4}$"
+											},
+											"pais": {
+												"description": "Nome do país (padrão: Brasil).",
+												"type": "string",
+												"minLength": 1,
+												"maxLength": 60
 											}
 										},
 										"required": [
@@ -5517,13 +9759,14 @@
 						"enum": [
 							"processando",
 							"autorizada",
+							"contingencia",
 							"rejeitada",
 							"denegada",
 							"erro",
 							"indefinida",
 							"cancelada"
 						],
-						"description": "`indefinida`: a resposta do governo se perdeu; use POST .../consultar ou repita o pedido com a mesma referência. `erro`: barrada pelo cofre antes de transmitir."
+						"description": "`indefinida`: a resposta do governo se perdeu; use POST .../consultar ou repita o pedido com a mesma referência. `erro`: barrada pelo cofre antes de transmitir. `contingencia`: NFC-e emitida offline; vale para o consumidor, ainda sem protocolo, e o cofre a transmite quando a SEFAZ voltar."
 					},
 					"chaveAcesso": {
 						"type": [
@@ -5575,6 +9818,62 @@
 					"cartasCorrecao": {
 						"type": "integer"
 					},
+					"contingencia": {
+						"type": [
+							"object",
+							"null"
+						],
+						"description": "Só na NFC-e emitida em contingência offline; null nas demais.",
+						"properties": {
+							"pendente": {
+								"type": "boolean",
+								"description": "A nota ainda aguarda a transmissão à SEFAZ."
+							},
+							"desde": {
+								"type": [
+									"string",
+									"null"
+								],
+								"description": "Quando o emitente entrou em contingência (dhCont)."
+							},
+							"motivo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"tentativasDeTransmissao": {
+								"type": "integer"
+							},
+							"ultimaTentativa": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"notaNormalEmConferencia": {
+								"type": [
+									"string",
+									"null"
+								],
+								"description": "Chave da NFC-e normal da mesma venda que ficou sem resposta: o cofre ainda vai conferi-la na SEFAZ."
+							},
+							"falhaNaConferencia": {
+								"type": [
+									"string",
+									"null"
+								],
+								"description": "A SEFAZ rejeitou o cancelamento da nota normal: precisa de ação do emitente."
+							},
+							"notaNormalCancelada": {
+								"type": [
+									"string",
+									"null"
+								],
+								"description": "Chave da NFC-e normal que acabou autorizada e foi cancelada por substituição (evento 110112)."
+							}
+						}
+					},
 					"mensagens": {
 						"type": "array",
 						"description": "Código e descrição devolvidos pelo governo (na NF-e e NFC-e, cStat e xMotivo) ou pelo cofre.",
@@ -5595,7 +9894,8 @@
 						}
 					},
 					"xmlDisponivel": {
-						"type": "boolean"
+						"type": "boolean",
+						"description": "Na contingência pendente, o XML é a nota assinada sem protocolo; depois de autorizada, o nfeProc."
 					},
 					"criadaEm": {
 						"type": "string",
@@ -5710,6 +10010,705 @@
 					"xmlDisponivel"
 				]
 			},
+			"Cupom": {
+				"type": "object",
+				"description": "Conteúdo do DANFE NFC-e, na ordem e com os dizeres do manual oficial (versão 6.0), para o caixa imprimir na bobina. Imprima as seções na ordem em que vêm e as linhas na ordem em que vêm. Não há largura, corte nem avanço de papel: isso é do caixa. Os textos fixos usam só caracteres das páginas de código comuns de impressora; os que vêm da nota (nomes, descrições, informações adicionais) saem como estão no XML.",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"situacao": {
+						"type": "string",
+						"description": "Situação da emissão no cofre. Uma nota `cancelada` ainda devolve o cupom: não o entregue ao consumidor."
+					},
+					"modelo": {
+						"const": "nfce"
+					},
+					"chaveAcesso": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"contingencia": {
+						"type": "boolean",
+						"description": "Nota emitida em contingência offline. Imprima também a via do estabelecimento (`?via=estabelecimento`)."
+					},
+					"pendenteDeAutorizacao": {
+						"type": "boolean",
+						"description": "A nota em contingência ainda não foi autorizada: o cupom sai com os dizeres de contingência e sem protocolo."
+					},
+					"via": {
+						"type": "string",
+						"enum": [
+							"consumidor",
+							"estabelecimento"
+						]
+					},
+					"numero": {
+						"type": "integer"
+					},
+					"serie": {
+						"type": "integer"
+					},
+					"emitidaEm": {
+						"type": "string"
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"autorizadaEm": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"valorAPagar": {
+						"type": "number"
+					},
+					"qrCode": {
+						"type": "string",
+						"description": "O mesmo texto da linha `qrcode`, para quem monta o cupom por conta própria."
+					},
+					"urlConsulta": {
+						"type": "string",
+						"description": "Endereço de consulta pela chave de acesso."
+					},
+					"secoes": {
+						"type": "array",
+						"description": "Divisões do DANFE NFC-e que têm conteúdo, na ordem de impressão.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"divisao": {
+									"type": "string",
+									"enum": [
+										"cabecalho",
+										"itens",
+										"totais",
+										"consulta",
+										"consumidor",
+										"identificacao",
+										"qrcode",
+										"mensagem_fiscal",
+										"mensagem_contribuinte"
+									]
+								},
+								"linhas": {
+									"type": "array",
+									"items": {
+										"$ref": "#/components/schemas/LinhaDoCupom"
+									}
+								}
+							},
+							"required": [
+								"divisao",
+								"linhas"
+							]
+						}
+					}
+				},
+				"required": [
+					"id",
+					"situacao",
+					"modelo",
+					"chaveAcesso",
+					"ambiente",
+					"contingencia",
+					"pendenteDeAutorizacao",
+					"via",
+					"numero",
+					"serie",
+					"emitidaEm",
+					"valorAPagar",
+					"qrCode",
+					"urlConsulta",
+					"secoes"
+				]
+			},
+			"LinhaDoCupom": {
+				"description": "Uma linha do cupom. O campo `tipo` diz o formato.",
+				"oneOf": [
+					{
+						"type": "object",
+						"description": "Texto livre: razão social, dizeres obrigatórios, informações adicionais.",
+						"properties": {
+							"tipo": {
+								"const": "texto"
+							},
+							"texto": {
+								"type": "string"
+							},
+							"alinhamento": {
+								"type": "string",
+								"enum": [
+									"esquerda",
+									"centro",
+									"direita"
+								]
+							},
+							"negrito": {
+								"type": "boolean"
+							},
+							"tamanho": {
+								"type": "string",
+								"enum": [
+									"normal",
+									"dobrado"
+								],
+								"description": "`dobrado`: altura e largura dobradas, quando a impressora tiver."
+							}
+						},
+						"required": [
+							"tipo",
+							"texto",
+							"alinhamento",
+							"negrito",
+							"tamanho"
+						]
+					},
+					{
+						"type": "object",
+						"description": "Linha separadora, do jeito que o caixa costuma imprimir.",
+						"properties": {
+							"tipo": {
+								"const": "separador"
+							}
+						},
+						"required": [
+							"tipo"
+						]
+					},
+					{
+						"type": "object",
+						"description": "Item da venda, em campos: o caixa monta as colunas conforme a largura da bobina.",
+						"properties": {
+							"tipo": {
+								"const": "item"
+							},
+							"numero": {
+								"type": "integer"
+							},
+							"codigo": {
+								"type": "string"
+							},
+							"descricao": {
+								"type": "string"
+							},
+							"quantidade": {
+								"type": "number"
+							},
+							"unidade": {
+								"type": "string"
+							},
+							"valorUnitario": {
+								"type": "number"
+							},
+							"valorTotal": {
+								"type": "number"
+							},
+							"quantidadeTexto": {
+								"type": "string",
+								"description": "A quantidade já no formato de impressão (vírgula decimal)."
+							},
+							"valorUnitarioTexto": {
+								"type": "string"
+							},
+							"valorTotalTexto": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"tipo",
+							"numero",
+							"codigo",
+							"descricao",
+							"quantidade",
+							"unidade",
+							"valorUnitario",
+							"valorTotal",
+							"quantidadeTexto",
+							"valorUnitarioTexto",
+							"valorTotalTexto"
+						]
+					},
+					{
+						"type": "object",
+						"description": "Rótulo à esquerda e valor à direita: totais, formas de pagamento, troco, tributos.",
+						"properties": {
+							"tipo": {
+								"const": "par"
+							},
+							"rotulo": {
+								"type": "string"
+							},
+							"valor": {
+								"type": "string"
+							},
+							"negrito": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"tipo",
+							"rotulo",
+							"valor",
+							"negrito"
+						]
+					},
+					{
+						"type": "object",
+						"description": "Chave de acesso: só os 44 caracteres. Imprima em 11 blocos de 4, separados por espaço.",
+						"properties": {
+							"tipo": {
+								"const": "chave"
+							},
+							"chave": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"tipo",
+							"chave"
+						]
+					},
+					{
+						"type": "object",
+						"description": "QR Code: gere a imagem a partir do texto, sem alterar nem truncar, em preto e branco puro.",
+						"properties": {
+							"tipo": {
+								"const": "qrcode"
+							},
+							"texto": {
+								"type": "string"
+							},
+							"tamanhoMinimoMm": {
+								"type": "number",
+								"description": "Lado mínimo da imagem impressa, em milímetros."
+							}
+						},
+						"required": [
+							"tipo",
+							"texto",
+							"tamanhoMinimoMm"
+						]
+					}
+				]
+			},
+			"NotaRecebida": {
+				"type": "object",
+				"description": "NF-e que outra empresa emitiu e que interessa ao titular do cofre. Nasce do resumo entregue pelo Ambiente Nacional e ganha o XML completo depois da manifestação do destinatário.",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"cnpj": {
+						"type": "string",
+						"description": "CNPJ do titular (ou da filial) a quem a nota interessa."
+					},
+					"chaveAcesso": {
+						"type": "string"
+					},
+					"sequencia": {
+						"type": "integer",
+						"description": "Cresce a cada mudança da nota (XML que chegou, cancelamento, manifestação). É o cursor de leitura: guarde a maior que já viu e passe em `?depois=`."
+					},
+					"papel": {
+						"type": "string",
+						"enum": [
+							"destinatario",
+							"terceiro"
+						],
+						"description": "`terceiro`: o titular é transportador ou autorizado a baixar o XML, não o destinatário. Só confronte com pedido de compra as notas de papel `destinatario`."
+					},
+					"emitente": {
+						"type": "object",
+						"properties": {
+							"documento": {
+								"type": "string"
+							},
+							"nome": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"ie": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						}
+					},
+					"serie": {
+						"type": "integer"
+					},
+					"numero": {
+						"type": "integer"
+					},
+					"emitidaEm": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"autorizadaEm": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"tipoOperacao": {
+						"type": [
+							"string",
+							"null"
+						],
+						"enum": [
+							"entrada",
+							"saida",
+							null
+						],
+						"description": "Do ponto de vista do emitente da nota."
+					},
+					"valor": {
+						"type": [
+							"number",
+							"null"
+						],
+						"description": "Valor total da nota (vNF)."
+					},
+					"situacao": {
+						"type": [
+							"string",
+							"null"
+						],
+						"enum": [
+							"autorizada",
+							"cancelada",
+							"denegada",
+							null
+						],
+						"description": "Nulo enquanto o cofre só conhece a chave (manifestação feita antes de o resumo chegar)."
+					},
+					"xmlDisponivel": {
+						"type": "boolean",
+						"description": "O cofre já tem o XML completo (nfeProc)? Antes da manifestação só há o resumo."
+					},
+					"manifestacao": {
+						"oneOf": [
+							{
+								"$ref": "#/components/schemas/ManifestacaoRegistrada"
+							},
+							{
+								"type": "null"
+							}
+						],
+						"description": "A última manifestação: é a que vale."
+					},
+					"manifestacoes": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ManifestacaoRegistrada"
+						}
+					},
+					"cienciaAutomaticaRecusada": {
+						"type": [
+							"object",
+							"null"
+						],
+						"properties": {
+							"codigo": {
+								"type": "string"
+							},
+							"descricao": {
+								"type": "string"
+							}
+						},
+						"description": "Motivo da recusa quando a ciência automática foi tentada e o Ambiente Nacional não aceitou."
+					},
+					"eventos": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/DocumentoDistribuido"
+						},
+						"description": "Só na consulta de uma nota: os eventos recebidos (cancelamento, carta de correção...)."
+					},
+					"recebidaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"atualizadaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"repetido": {
+						"type": "boolean",
+						"description": "Só na resposta da manifestação: ela já estava registrada e nada novo foi enviado."
+					}
+				},
+				"required": [
+					"id",
+					"ambiente",
+					"cnpj",
+					"chaveAcesso",
+					"sequencia",
+					"papel",
+					"xmlDisponivel",
+					"manifestacoes"
+				]
+			},
+			"ManifestacaoRegistrada": {
+				"type": "object",
+				"properties": {
+					"tipo": {
+						"type": "string",
+						"enum": [
+							"ciencia",
+							"confirmacao",
+							"desconhecimento",
+							"nao_realizada"
+						]
+					},
+					"sequencia": {
+						"type": "integer",
+						"description": "1, ou 2 na retificação de uma manifestação conclusiva."
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Nulo quando o evento já estava no Ambiente Nacional, registrado fora do cofre."
+					},
+					"registradaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"justificativa": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"origem": {
+						"type": "string",
+						"description": "`agendador` na ciência automática; senão, a chave de API (`chave:...`) ou o painel (`admin`)."
+					},
+					"xmlDisponivel": {
+						"type": "boolean"
+					}
+				}
+			},
+			"DocumentoDistribuido": {
+				"type": "object",
+				"description": "Um documento entregue pelo Ambiente Nacional, como chegou.",
+				"properties": {
+					"sequencia": {
+						"type": "integer",
+						"description": "Ordem de chegada no cofre; cursor de leitura de GET /v1/distribuicao/documentos."
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"cnpj": {
+						"type": "string"
+					},
+					"nsu": {
+						"type": [
+							"integer",
+							"null"
+						],
+						"description": "NSU do documento no Ambiente Nacional; nulo no que veio da consulta por chave."
+					},
+					"tipo": {
+						"type": "string",
+						"enum": [
+							"resumo_nfe",
+							"nfe",
+							"resumo_evento",
+							"evento",
+							"outro"
+						]
+					},
+					"schema": {
+						"type": "string",
+						"description": "Schema informado pelo Ambiente Nacional, como `resNFe_v1.01.xsd`."
+					},
+					"chaveAcesso": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"evento": {
+						"type": [
+							"object",
+							"null"
+						],
+						"properties": {
+							"codigo": {
+								"type": "string",
+								"description": "tpEvento: 110111 cancelamento, 110110 carta de correção, 2102xx manifestação do destinatário..."
+							},
+							"sequencia": {
+								"type": "integer"
+							},
+							"descricao": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"registradoEm": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"protocolo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"autor": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						}
+					},
+					"recebidoEm": {
+						"type": "string",
+						"format": "date-time"
+					}
+				}
+			},
+			"Distribuicao": {
+				"type": "object",
+				"description": "Estado da consulta das notas recebidas de um CNPJ em um ambiente. O último NSU e a espera entre consultas são controlados só pelo cofre.",
+				"properties": {
+					"cnpj": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"uf": {
+						"type": "string"
+					},
+					"consultaAutomatica": {
+						"type": "boolean",
+						"description": "O cofre consulta sozinho (ligado pelo emitente na tela do cofre)."
+					},
+					"cienciaAutomatica": {
+						"type": "boolean",
+						"description": "O cofre registra sozinho a ciência da operação das notas novas (ligado pelo emitente)."
+					},
+					"ultimoNsu": {
+						"type": "integer"
+					},
+					"maiorNsu": {
+						"type": "integer"
+					},
+					"ultimaConsulta": {
+						"type": [
+							"string",
+							"null"
+						],
+						"format": "date-time"
+					},
+					"proximaConsulta": {
+						"type": [
+							"string",
+							"null"
+						],
+						"format": "date-time",
+						"description": "Antes deste instante o cofre não consulta: depois de \"nenhum documento\" o Ambiente Nacional exige uma hora de espera. Nulo quando já pode consultar."
+					},
+					"bloqueada": {
+						"type": "boolean",
+						"description": "O Ambiente Nacional bloqueou as consultas do CNPJ (consumo indevido) até `proximaConsulta`."
+					},
+					"mensagem": {
+						"type": [
+							"object",
+							"null"
+						],
+						"properties": {
+							"codigo": {
+								"type": "string"
+							},
+							"descricao": {
+								"type": "string"
+							}
+						},
+						"description": "Última resposta: 138 documentos localizados, 137 nenhum documento, 656 consumo indevido."
+					},
+					"consultasPorChave": {
+						"type": "object",
+						"properties": {
+							"naUltimaHora": {
+								"type": "integer"
+							},
+							"limite": {
+								"type": "integer"
+							}
+						}
+					}
+				}
+			},
+			"Sincronizacao": {
+				"type": "object",
+				"properties": {
+					"consultou": {
+						"type": "boolean",
+						"description": "false: a espera ainda não venceu (ou outra consulta está em andamento) e nada foi enviado ao Ambiente Nacional."
+					},
+					"lotes": {
+						"type": "integer"
+					},
+					"documentos": {
+						"type": "integer"
+					},
+					"notasNovas": {
+						"type": "integer"
+					},
+					"distribuicao": {
+						"$ref": "#/components/schemas/Distribuicao"
+					}
+				}
+			},
 			"InutilizacaoRegistrada": {
 				"type": "object",
 				"properties": {
@@ -5739,11 +10738,22 @@
 						"type": [
 							"string",
 							"null"
-						]
+						],
+						"description": "Nulo quando a SEFAZ só confirmou que a faixa já estava inutilizada."
+					},
+					"justificativa": {
+						"type": "string"
+					},
+					"xmlDisponivel": {
+						"type": "boolean"
 					},
 					"criadaEm": {
 						"type": "string",
 						"format": "date-time"
+					},
+					"repetido": {
+						"type": "boolean",
+						"description": "Só na resposta do POST: a faixa já estava inutilizada."
 					}
 				}
 			},
@@ -5837,6 +10847,19 @@
 					},
 					"producaoLiberada": {
 						"type": "boolean"
+					},
+					"contingencia": {
+						"type": "object",
+						"properties": {
+							"notasPendentes": {
+								"type": "integer",
+								"description": "NFC-e emitidas em contingência que ainda aguardam a transmissão à SEFAZ."
+							}
+						}
+					},
+					"logotipo": {
+						"type": "boolean",
+						"description": "Há logotipo cadastrado no cofre. A imagem sai em GET /v1/cofre/logotipo."
 					},
 					"chave": {
 						"type": "object",
