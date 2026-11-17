@@ -81,3 +81,21 @@ export function protectDefaultWarehouse(
   )
     raise("22023", "erp_stock_default_warehouse_inactive");
 }
+
+/**
+ * erp_stock.guard_invoice_stock_delete, gatilho protect_invoice_stock_posting
+ * (BEFORE UPDATE OF deleted_at de erp_fiscal_invoices.invoice, WHEN old.deleted_at
+ * IS NULL AND new.deleted_at IS NOT NULL): nota com lançamento de estoque ativo
+ * não vai para a lixeira. Para o Fiscal (sessão G, invoice_execute): chame no
+ * ponto do gatilho com as linhas OLD e NEW (só deleted_at e id são lidos); a
+ * condição WHEN é conferida aqui.
+ */
+export function guardInvoiceStockDelete(
+  db: SqlDriver,
+  old: { deleted_at?: unknown },
+  next: { id: unknown; deleted_at?: unknown },
+) {
+  if ((old.deleted_at ?? null) !== null || (next.deleted_at ?? null) === null) return;
+  if (one(db, `SELECT 1 x FROM "erp_stock__invoice_posting" WHERE invoice_id=? AND state='active'`, next.id))
+    raise("40001", "erp_invoice_stock_posted_delete");
+}
