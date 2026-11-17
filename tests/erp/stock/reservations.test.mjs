@@ -96,7 +96,7 @@ test("conferência de reservar, reserva aplicada, leitura e conferência de libe
   await assert.rejects(preview(d, "reserve", ref), message("erp_stock_reservation_invalid_action"));
 });
 
-test("aplicação nos dois motores: reservar, liberar e baixar", { todo: "pendente da O: erp_finance.commission_operation_sync e erp_documents.cost_apply (gatilhos adiados do pedido de venda) são stub; a aplicação sai 0A000 no motor" }, async () => {
+test("aplicação nos dois motores: reservar, liberar e baixar", async () => {
   const d = await order("2");
   await f.rpc("erp_stock_reservation_apply", await applyArgs(d, "reserve", {}));
   const r = (await f.db.query("select id::text, version from erp_stock.reservation where document_id=$1 and state='active'", [d.id])).rows[0];

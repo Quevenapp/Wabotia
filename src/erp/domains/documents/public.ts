@@ -7,6 +7,7 @@ import { toScaled } from "../../engine/dec.ts";
 import { ledgerDocumentPrice } from "../stock/public.ts";
 
 export * from "./stubs.generated.ts";
+export { costApply, costApplyCapture } from "./cost-apply.ts";
 
 /**
  * erp_documents.report_last_purchase_until(produto, até, saldos): o preço da
@@ -59,6 +60,9 @@ export function guardTrashChild(db: SqlDriver, documentId: string | null) {
 export { autoProducts } from "./internal.ts";
 export { transitions } from "./preferences.ts";
 export { contactUsable, mirrorRequireVisible, mirrorVisible, osPermitted, reportCoverage, requireAccess, requireRole } from "./reads-g.ts";
+// Escrito pela N (recebimentos de compra do Estoque); dono: Documentos.
+export { stockLaunchDate } from "./stock-n.ts";
+export { preference } from "./internal.ts";
 
 const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 

@@ -67,5 +67,14 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
 export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
 export { dto } from "./titles.ts";
+export {
+  commissionConfirmed,
+  commissionOperationCapture,
+  commissionOperationSync,
+  guardPostedDocument,
+  guardPostedItem,
+  notesEditAllowed,
+  notesItemAllowed,
+} from "./document-effects.ts";
 export { categoryForFee, commandExists, execute, insertCnabCashPlan, settlementMovements, type CnabCashPlan } from "./cnab-plan.ts";
 export { requirePermission } from "./internal.ts";

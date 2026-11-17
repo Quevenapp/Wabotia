@@ -11,17 +11,16 @@
 import { formatScaled, fromColumn, rescale, toScaled } from "../../../engine/dec.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
-import { ErpError, raise } from "../../../engine/errors.ts";
+import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
-import { defer, registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
-import * as finance from "../../finance/public.ts";
+import { updateDocument } from "../../documents/rows.ts";
 import * as preferences from "../../preferences/public.ts";
-import * as sync from "../../sync/public.ts";
-import { guardDocument, guardPostedDocument, guardReservedDocument, type Row } from "../document-guards.ts";
+import type { Row } from "../document-guards.ts";
 import { QTY, QTY_MAX, balanceKept as balanceKeptAt, lotApply, negativeAllowed, requireAccess, sha256 } from "../internal.ts";
 import { COMPOSITION_CURRENT, EXACT, invoicePostedForDocument, itemComponentRows, q6to30 } from "../read.ts";
 import { post } from "./erp_stock_post.ts";
@@ -580,38 +579,17 @@ function reversePosting(ctx: RpcContext, id: string, movement: string, user: str
   );
 }
 
-/** Os adiados capturam só data_exception (22…) e check_violation (23514), como o bloco do gatilho. */
-function swallow(fn: () => void) {
-  try {
-    fn();
-  } catch (e) {
-    if (e instanceof ErpError && (e.code.startsWith("22") || e.code === "23514")) return;
-    throw e;
-  }
-}
+
 
 /**
- * UPDATE erp_documents.document SET version=version+1, updated_by, updated_at
- * com os gatilhos do documento. Local até a camada de linha do Documentos
- * (updateDocument, sessão O) chegar ao tronco.
+ * UPDATE erp_documents.document SET version=version+1, updated_by, updated_at,
+ * pela camada de linha do Documentos (documents/rows.ts, updateDocument): os
+ * gatilhos BEFORE na ordem do nome, o capture e os adiados (comissão e custo,
+ * em savepoint).
  */
 export function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
-  const db = ctx.db;
-  const o = one(db, `SELECT * FROM "${DOC}" WHERE id=?`, id)!;
-  const n: Row = { ...o, version: Number(o.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() };
-  // BEFORE, na ordem do nome. aa_mirror_authority: documento nativo, a versão passa.
-  sync.guardOriginEffectsDocument(ctx, id); // ab_origin_effects
-  if (o.deleted_at !== null && o.deleted_at !== undefined) raise("40001", "erp_document_deleted"); // guard_trash
-  // protect_document_finance (erp_finance.guard_posted_document): com a mesma
-  // situação e só versão, autor e data mudando, a guarda passa sempre.
-  guardPostedDocument(db, "UPDATE", o, n); // protect_document_stock
-  guardDocument(db, "UPDATE", o, n); // protect_purchase_receipt_document
-  guardReservedDocument(db, "UPDATE", o, n); // protect_reserved_document
-  db.exec(`UPDATE "${DOC}" SET version=?, updated_by=?, updated_at=? WHERE id=?`, n.version, user, n.updated_at, id);
-  sync.captureDocument(ctx); // zz_origin_sync
-  // DEFERRABLE INITIALLY DEFERRED, na ordem do nome.
-  if (o.kind === "sales_orders" || o.kind === "service_orders") defer(ctx, () => swallow(() => finance.commissionOperationSync(ctx, id)));
-  if (o.kind === "sales_orders") defer(ctx, () => swallow(() => documents.costApply(ctx, id)));
+  const o = one(ctx.db, `SELECT version FROM "${DOC}" WHERE id=?`, id)!;
+  updateDocument(ctx, id, { version: Number(o.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() });
 }
 
 /** INSERT nas auditorias do Estoque e do Documentos. */
