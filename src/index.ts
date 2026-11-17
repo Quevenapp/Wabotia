@@ -99,7 +99,13 @@ import {
   contactNamespace,
   previewContactCsv,
 } from "./contacts";
-import { checkUpdate, updatePlan, updateStatus } from "./updates";
+import { checkUpdate, updateStatus } from "./updates";
+import {
+  OFFICIAL_RELEASE_ORIGIN,
+  RELEASE_ORIGIN,
+  TEST_CATALOG_PATH,
+  TEST_CATALOG_PREFIX,
+} from "./release";
 import {
   pairingStart,
   pairingToken,
@@ -284,11 +290,29 @@ app.get("/api/health", (c) =>
     runtime: "cloudflare-workers",
     // Código-fonte do commit em execução (AGPL-3.0, §13).
     source: sourceInfo(c.env),
+    // Build de teste do atualizador: mostra o catálogo de onde ele lê.
+    ...(RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN
+      ? { test_build: true, release_origin: RELEASE_ORIGIN }
+      : {}),
   }),
 );
-app.get("/api/system/update-plan", async (c) =>
-  c.json(await updatePlan(c.env)),
-);
+// Só no build de teste do atualizador: o catálogo de teste vem do próprio R2
+// (scripts/release-test-upload.mjs). No build oficial a rota não existe.
+if (RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN)
+  app.get(TEST_CATALOG_PATH + "/releases/*", async (c) => {
+    const path = c.req.path.slice(TEST_CATALOG_PATH.length + 1);
+    if (!/^releases\/[a-zA-Z0-9._/-]+$/.test(path) || path.includes(".."))
+      return c.notFound();
+    const object = await c.env.MEDIA.get(`${TEST_CATALOG_PREFIX}/${path}`);
+    if (!object) return c.notFound();
+    return new Response(object.body, {
+      headers: {
+        "Content-Type":
+          object.httpMetadata?.contentType || "application/octet-stream",
+        "Cache-Control": "no-store",
+      },
+    });
+  });
 app.get("/api/openapi.json", (c) => c.json(openapi(new URL(c.req.url).origin)));
 app.use("/api/pairing/*", bodyLimit({ maxSize: 4096 }));
 app.post("/api/pairing/start", async (c) =>

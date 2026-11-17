@@ -457,12 +457,14 @@ npm ci
 npm run check
 npm test
 node tests/installer.test.mjs
-node tests/updater-build.test.mjs
 node tests/qr-features.test.mjs
+node tests/router-examples.test.mjs
 npm run build
 python3 -m pip install httpx
 python3 tests/hermes_transport_test.py
 ```
+
+`tests/router-examples.test.mjs` executa também o exemplo Python do roteador: precisa de Python 3 no `PATH` (no Windows, o atalho da Microsoft Store não serve). Sem Python, esse teste falha com "Python was not found", sem relação com o código.
 
 Os scripts remotos `smoke.mjs` e `validate-examples.mjs` são exclusivos para staging e criam dados sintéticos. `validate-restore.mjs` cria e remove recursos descartáveis novos; use somente a configuração staging e um backup controlado. Os exemplos de execução de bot são opcionais e exigem `WABOTIA_BOT` autorizado.
 
@@ -484,6 +486,6 @@ O instalador independente foi executado em Linux contra a Cloudflare real, em um
 
 Cinco testes adicionais em workerd cobrem o pacote oficial, preservação de bindings, identidade da instalação, autorização administrativa, início deduplicado, confirmação pelo código ativo, timeout sem nova publicação, integridade/caminhos, incompatibilidade de Durable Objects e rollback de migração. O tag de migração é lido nos metadados do serviço, porque o endpoint de settings não o retorna.
 
-Os pacotes oficiais usam HTTPS e SHA-256; não têm assinatura assimétrica. Um commit só aparece como atualização depois de publicado no catálogo oficial. O fluxo anterior de Builds continua disponível para instalações que já têm hook configurado.
+Os pacotes oficiais usavam HTTPS e SHA-256, sem assinatura assimétrica. Desde o formato 2, o índice e o manifesto são assinados com Ed25519 e o índice tem prazo ([formato e assinatura](ATUALIZACOES-FORMATO.md)). Um commit só aparece como atualização depois de publicado no catálogo oficial. O fluxo anterior de Builds saiu do código.
 
 A atualização direta real foi concluída em 05/11/2026 no Worker isolado `wabotia-release-staging`, do candidato para o commit oficial `72916d2` (0.3.0). O painel/API registrou `completed` somente após o novo código responder. Repetir o início com a mesma Idempotency-Key retornou o mesmo trabalho; login e conversa sintética foram preservados. [Evidência sanitizada](reference/direct-release-validation.json). Nenhum canal externo foi conectado nesse teste.

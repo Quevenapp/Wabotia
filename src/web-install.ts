@@ -8,15 +8,26 @@
 import { Buffer } from "node:buffer";
 import { ApiError, type Env } from "./types";
 import {
-  assetManifest,
-  assetUpload,
+  assetManifestV2,
+  assetsForHashes,
+  assetUploadV2,
+  blobPath,
+  checkBlob,
   limitedBody,
-  parsePackage,
-  validateIndex,
-  MAX_PACKAGE,
+  INDEX_PATH,
+  INDEX_SIGNATURE_PATH,
+  manifestPath,
+  manifestSignaturePath,
+  migrationStatements,
+  parseIndex,
+  parseManifest,
+  validateIndexV2,
+  MAX_BLOB,
+  MAX_MANIFEST,
   RELEASE_ORIGIN,
-  type ReleaseIndex,
-  type ReleasePackage,
+  type BlobRef,
+  type ReleaseIndexV2,
+  type ReleaseManifest,
 } from "./release";
 
 export const webInstallerEnabled = (env: Env) =>
@@ -116,9 +127,16 @@ async function releaseFile(env: Env, path: string, limit: number) {
   let response: Response | null = null;
   try {
     const local = await env.ASSETS.fetch(new Request("https://assets" + path));
+    // JSON do catálogo, assinatura (.sig) ou arquivo do formato 2 (bytes
+    // crus, sem extensão). Um caminho ausente volta como a página do painel
+    // (text/html), que nunca vale como arquivo do catálogo.
+    const type = local.headers.get("Content-Type") || "";
     if (
       local.ok &&
-      (local.headers.get("Content-Type") || "").includes("application/json")
+      (type.includes("application/json") ||
+        (path.endsWith(".sig") && !type.includes("text/html")) ||
+        (path.startsWith("/releases/blobs/") &&
+          type.includes("application/octet-stream")))
     )
       response = local;
   } catch {
@@ -130,29 +148,45 @@ async function releaseFile(env: Env, path: string, limit: number) {
   });
   return limitedBody(response, limit);
 }
-async function releasePackage(env: Env, index: ReleaseIndex) {
+const unavailable = (error: unknown) =>
+  new ApiError(
+    502,
+    "release_unavailable",
+    error instanceof Error
+      ? error.message
+      : "Não foi possível obter a versão oficial.",
+  );
+/** Manifesto da versão (formato 2): até 2 MiB, assinado e conferido contra o índice. */
+async function releaseManifest(env: Env, index: ReleaseIndexV2) {
   try {
-    return await parsePackage(
+    return await parseManifest(
       index,
-      await releaseFile(
-        env,
-        `/releases/${index.version}/package.json`,
-        MAX_PACKAGE,
+      await releaseFile(env, manifestPath(index.version), MAX_MANIFEST),
+      await releaseFile(env, manifestSignaturePath(index.version), 4096).catch(
+        () => null,
       ),
     );
   } catch (error) {
-    throw new ApiError(
-      502,
-      "release_unavailable",
-      error instanceof Error
-        ? error.message
-        : "Não foi possível obter a versão oficial.",
-    );
+    throw unavailable(error);
   }
 }
+/** Um arquivo da versão, lido só quando o passo precisa, SHA conferido. */
+function blobReader(env: Env) {
+  return async (ref: BlobRef) => {
+    try {
+      return await checkBlob(
+        ref,
+        await releaseFile(env, blobPath(ref.sha256), MAX_BLOB),
+      );
+    } catch (error) {
+      throw unavailable(error);
+    }
+  };
+}
 
-function publishBody(
-  pkg: ReleasePackage,
+async function publishBody(
+  pkg: ReleaseManifest,
+  read: (ref: BlobRef) => Promise<Uint8Array>,
   input: {
     account: string;
     name: string;
@@ -215,7 +249,7 @@ function publishBody(
   for (const file of pkg.modules)
     body.set(
       file.name,
-      new Blob([Buffer.from(file.data, "base64")], { type: file.type }),
+      new Blob([Buffer.from(await read(file))], { type: file.type }),
       file.name,
     );
   return body;
@@ -282,15 +316,11 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
         );
       if (databases.length < 100) break;
     }
-    let index: ReleaseIndex;
+    let index: ReleaseIndexV2;
+    let bytes: Uint8Array;
+    let signature: Uint8Array | null;
     try {
-      index = validateIndex(
-        JSON.parse(
-          (await releaseFile(env, "/releases/latest.json", 8192)).toString(
-            "utf8",
-          ),
-        ),
-      );
+      bytes = await releaseFile(env, INDEX_PATH, 8192);
     } catch {
       throw new ApiError(
         502,
@@ -298,18 +328,53 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
         "Não foi possível consultar a versão oficial. Tente de novo em instantes.",
       );
     }
+    // Assinatura e validade conferidas antes de criar qualquer recurso. Sem
+    // assinatura válida a instalação não começa.
+    try {
+      signature = await releaseFile(env, INDEX_SIGNATURE_PATH, 4096).catch(
+        () => null,
+      );
+      index = await parseIndex(bytes, signature);
+    } catch (error) {
+      throw unavailable(error);
+    }
     return {
       next: "database",
-      cursor: { index, installation_id: crypto.randomUUID() },
+      cursor: {
+        index,
+        // Os bytes exatos e a assinatura vão no andamento: cada passo
+        // seguinte confere de novo e usa só o que foi assinado.
+        signed_index: {
+          data: Buffer.from(bytes).toString("base64"),
+          signature: Buffer.from(signature!).toString("base64"),
+        },
+        installation_id: crypto.randomUUID(),
+      },
       message: `Conta e nomes conferidos. Versão oficial ${index.version}.`,
     };
   }
 
-  let index: ReleaseIndex;
-  try {
-    index = validateIndex(cursor.index);
-  } catch {
+  // O andamento volta do navegador: o índice nunca é aceito como veio. Vale
+  // só o que a assinatura confere de novo aqui, a cada passo.
+  const signed = cursor.signed_index;
+  if (
+    typeof signed?.data !== "string" ||
+    typeof signed?.signature !== "string" ||
+    signed.data.length > 12000 ||
+    signed.signature.length > 6000
+  )
     throw invalid("Andamento inválido. Recomece a instalação.");
+  let index: ReleaseIndexV2;
+  try {
+    index = await parseIndex(
+      Buffer.from(signed.data, "base64"),
+      Buffer.from(signed.signature, "base64"),
+    );
+  } catch (error) {
+    throw invalid(
+      (error instanceof Error ? error.message : "Andamento inválido.") +
+        " Recomece a instalação.",
+    );
   }
   if (!shapes.uuid.test(cursor.installation_id || ""))
     throw invalid("Andamento inválido. Recomece a instalação.");
@@ -386,7 +451,8 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     };
   }
 
-  const pkg = await releasePackage(env, index);
+  const pkg = await releaseManifest(env, index);
+  const read = blobReader(env);
 
   if (step === "migrate") {
     const position = Number(cursor.migration) || 0;
@@ -404,7 +470,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
         (position === 0
           ? "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);\n"
           : "") +
-        migration.statements.join(";\n") +
+        migrationStatements(migration, await read(migration)).join(";\n") +
         `;\nINSERT INTO d1_migrations(name) VALUES('${migration.name}');`,
     });
     const done = position + 1;
@@ -420,7 +486,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       const session = await call(
         `/workers/scripts/${name}/assets-upload-session`,
         "POST",
-        { manifest: assetManifest(pkg) },
+        { manifest: assetManifestV2(pkg) },
       );
       if (typeof session?.jwt !== "string" || !Array.isArray(session.buckets))
         throw new ApiError(
@@ -443,20 +509,28 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
       !Array.isArray(upload.buckets[bucket])
     )
       throw invalid("Andamento inválido. Recomece a instalação.");
+    // A Cloudflare pede que cada lote vá inteiro num só envio; só a resposta
+    // do último lote da sessão traz o token de conclusão.
+    let part;
+    try {
+      part = assetsForHashes(pkg, upload.buckets[bucket]);
+    } catch {
+      throw invalid("Andamento inválido. Recomece a instalação.");
+    }
     // This call is authorised by the upload session itself, not by the token.
     const result = await cloudflare(
       upload.jwt,
       account,
       "/workers/assets/upload?base64=true",
       "POST",
-      assetUpload(pkg, upload.buckets[bucket]),
+      await assetUploadV2(part, read),
     );
     const sent = bucket + 1;
     if (sent < upload.buckets.length)
       return {
         next: "assets",
         cursor: { ...cursor, bucket: sent },
-        message: `Enviando os arquivos do painel: ${sent} de ${upload.buckets.length}.`,
+        message: `Enviando os arquivos do painel: lote ${sent + 1} de ${upload.buckets.length}.`,
       };
     if (typeof result?.jwt !== "string")
       throw new ApiError(
@@ -489,7 +563,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
   const published = await call(
     `/workers/scripts/${name}`,
     "PUT",
-    publishBody(pkg, {
+    await publishBody(pkg, read, {
       account,
       name,
       token,

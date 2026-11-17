@@ -187,3 +187,183 @@ test("instalação nova recusa recursos existentes, inclusive D1 paginado", asyn
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test("instalador no formato 2: catálogo local assinado, arquivos conferidos um a um", async () => {
+  const { createHash, generateKeyPairSync } = await import("node:crypto");
+  const { mkdir, writeFile, readFile, unlink } = await import("node:fs/promises");
+  const { signatureFile, signerFor, withValidity, SIGNATURE_DOMAIN } =
+    await import("../scripts/release-sign.mjs");
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  // Par gerado na hora; as chaves reais nunca entram nos testes.
+  const pair = () => generateKeyPairSync("ed25519");
+  const principal = pair(),
+    reserva = pair(),
+    stranger = pair();
+  const publicKeys = [
+    { id: "principal", ed25519: principal.publicKey.export({ format: "jwk" }).x },
+    { id: "reserva", ed25519: reserva.publicKey.export({ format: "jwk" }).x },
+  ];
+  // A chave de fora da lista não assina uma publicação.
+  assert.throws(() => signerFor(stranger.privateKey, publicKeys), /nenhuma chave pública/);
+  assert.throws(
+    () => signatureFile("index", Buffer.from("x"), { id: "principal", key: stranger.privateKey }, publicKeys),
+    /não confere/,
+  );
+  assert.deepEqual(SIGNATURE_DOMAIN, {
+    index: "wabotia-release-index-v2\n",
+    manifest: "wabotia-release-manifest-v2\n",
+  });
+  const valid = withValidity({ format: 2 }, 1000);
+  assert.equal(valid.expires - valid.issued_at, 90 * 86400000);
+
+  const root = await mkdtemp(join(tmpdir(), "wabotia-release-v2-"));
+  try {
+    const blobs = join(root, "blobs"),
+      version = join(root, "9.9.9");
+    await mkdir(blobs, { recursive: true });
+    await mkdir(version, { recursive: true });
+    const ref = async (name, type, body) => {
+      const raw = Buffer.from(body);
+      await writeFile(join(blobs, sha(raw)), raw);
+      return { name, type, size: raw.length, sha256: sha(raw) };
+    };
+    const manifest = {
+      format: 2,
+      version: "9.9.9",
+      commit: "a".repeat(40),
+      main_module: "index.js",
+      compatibility_date: "2026-11-04",
+      compatibility_flags: [],
+      assets_config: {
+        not_found_handling: "single-page-application",
+        run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
+      },
+      durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
+      modules: [await ref("index.js", "application/javascript+module", "export default {}")],
+      assets: [await ref("/app/index.html", "text/html", "<html></html>")],
+      migrations: [
+        await ref("0001_core.sql", "application/json", JSON.stringify(["CREATE TABLE t(id)", "INSERT INTO t VALUES(1)"])),
+      ],
+    };
+    const text = JSON.stringify(manifest);
+    const total = [...manifest.modules, ...manifest.assets, ...manifest.migrations].reduce((a, f) => a + f.size, 0);
+    const indexOf = (extra = {}) =>
+      JSON.stringify(
+        withValidity({
+          format: 2,
+          version: "9.9.9",
+          commit: "a".repeat(40),
+          manifest_sha256: sha(text),
+          manifest_size: Buffer.byteLength(text),
+          total_size: total,
+          requires: { min_version: "0.0.1", workers_paid: false },
+          ...extra,
+        }),
+        null,
+        2,
+      );
+    /** Grava o catálogo assinado por `key` (ou sem assinatura). */
+    const publish = async (key, index = indexOf(), manifestText = text) => {
+      await writeFile(join(version, "manifest.json"), manifestText);
+      await writeFile(join(version, "release-v2.json"), index);
+      for (const file of ["manifest.sig", "release-v2.sig"])
+        await unlink(join(version, file)).catch(() => {});
+      if (!key) return;
+      const signer = signerFor(key, publicKeys);
+      await writeFile(join(version, "manifest.sig"), signatureFile("manifest", Buffer.from(text), signer, publicKeys));
+      await writeFile(join(version, "release-v2.sig"), signatureFile("index", Buffer.from(index), signer, publicKeys));
+    };
+    await bundledInstaller(async ({ localRelease, materializeRelease, trustReleaseKeysForTests }) => {
+      trustReleaseKeysForTests(publicKeys);
+      // Assinado pela principal: instala.
+      await publish(principal.privateKey);
+      const source = await localRelease(version);
+      const out = join(root, "instalacao");
+      await materializeRelease(out, source.manifest, source.read);
+      assert.equal(await readFile(join(out, "worker", "index.js"), "utf8"), "export default {}");
+      assert.equal(await readFile(join(out, "web", "app", "index.html"), "utf8"), "<html></html>");
+      assert.equal(
+        await readFile(join(out, "migrations", "0001_core.sql"), "utf8"),
+        "CREATE TABLE t(id);\nINSERT INTO t VALUES(1);\n",
+      );
+      // Pela reserva: também.
+      await publish(reserva.privateKey);
+      assert.equal((await localRelease(version)).index.version, "9.9.9");
+      // Chave fora da lista: recusa.
+      await publish(principal.privateKey);
+      const foreign = JSON.parse(await readFile(join(version, "manifest.sig"), "utf8"));
+      await writeFile(join(version, "manifest.sig"), JSON.stringify({ ...foreign, key_id: "outra" }));
+      await assert.rejects(localRelease(version), /chave desconhecida/);
+      // Sem assinatura: recusa.
+      await publish(null);
+      await assert.rejects(localRelease(version), /sem assinatura/);
+      // Manifesto alterado em um byte depois de assinado.
+      await publish(principal.privateKey);
+      const altered = Buffer.from(text);
+      altered[altered.length - 3] ^= 1;
+      await writeFile(join(version, "manifest.json"), altered);
+      await assert.rejects(localRelease(version), /conteúdo alterado/);
+      // Índice alterado depois de assinado (outra versão mínima).
+      await publish(principal.privateKey);
+      const index = await readFile(join(version, "release-v2.json"), "utf8");
+      await writeFile(join(version, "release-v2.json"), index.replace("0.0.1", "0.0.2"));
+      await assert.rejects(localRelease(version), /conteúdo alterado/);
+      // Pacote de teste não vale no instalador oficial.
+      await publish(principal.privateKey, indexOf({ test_origin: "https://teste.example/api/test-catalog" }));
+      await assert.rejects(localRelease(version), /pacote de teste/);
+      // Arquivo trocado por outro do catálogo e arquivo corrompido: recusa antes de gravar.
+      await publish(principal.privateKey);
+      const good = await localRelease(version);
+      const html = join(blobs, manifest.assets[0].sha256);
+      const original = await readFile(html);
+      await writeFile(html, await readFile(join(blobs, manifest.modules[0].sha256)));
+      await assert.rejects(materializeRelease(join(root, "outra"), good.manifest, good.read), /corrompido/);
+      const corrupt = Buffer.from(original);
+      corrupt[0] ^= 1;
+      await writeFile(html, corrupt);
+      await assert.rejects(materializeRelease(join(root, "outra2"), good.manifest, good.read), /corrompido/);
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("instalador pela rede: índice assinado e no prazo, senão nada começa", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { signatureFile, signerFor, withValidity } = await import("../scripts/release-sign.mjs");
+  const key = generateKeyPairSync("ed25519");
+  const publicKeys = [{ id: "principal", ed25519: key.publicKey.export({ format: "jwk" }).x }];
+  const signer = signerFor(key.privateKey, publicKeys);
+  const originalFetch = globalThis.fetch;
+  try {
+    await bundledInstaller(async ({ latestReleaseV2, trustReleaseKeysForTests }) => {
+      trustReleaseKeysForTests(publicKeys);
+      const serve = (index, signed = true) => {
+        const bytes = Buffer.from(JSON.stringify(index));
+        globalThis.fetch = async (url) =>
+          String(url).endsWith("/releases/v2/latest.json")
+            ? new Response(bytes)
+            : String(url).endsWith("/releases/v2/latest.sig") && signed
+              ? new Response(signatureFile("index", bytes, signer, publicKeys))
+              : new Response("", { status: 404 });
+      };
+      const base = {
+        format: 2,
+        version: "9.9.9",
+        commit: "a".repeat(40),
+        manifest_sha256: "b".repeat(64),
+        manifest_size: 10,
+        total_size: 10,
+        requires: { min_version: "0.0.1", workers_paid: false },
+      };
+      serve(withValidity(base));
+      assert.equal((await latestReleaseV2()).version, "9.9.9");
+      serve(withValidity(base), false);
+      await assert.rejects(latestReleaseV2(), /sem assinatura/);
+      serve(withValidity(base, Date.now() - 100 * 86400000));
+      await assert.rejects(latestReleaseV2(), /venceu/);
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

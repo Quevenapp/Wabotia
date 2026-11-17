@@ -8,20 +8,32 @@ import {
   uid,
 } from "./types";
 import { buildInfo } from "./build-info.generated";
+import { webInstallerEnabled } from "./web-install";
 import { all, exec } from "./db";
-import * as legacy from "./legacy-updates";
 import {
-  assetManifest,
-  assetUpload,
+  assetManifestV2,
+  assetsForHashes,
+  assetUploadV2,
+  checkBlob,
   CloudflareCallError,
-  fetchPackage,
+  fetchBlob,
+  fetchManifest,
   installedSettings,
-  latestRelease,
-  parsePackage,
+  latestReleaseV2,
+  MAX_UPLOAD_BATCH,
+  migrationStatements,
+  nextRound,
+  parseManifest,
   releaseCloudflare,
   scriptPath,
+  uniqueBlobs,
+  validateIndexV2,
   validateInstalledSettings,
-  workerUpload,
+  versionAtLeast,
+  versionGreater,
+  workerUploadV2,
+  type BlobRef,
+  type ReleaseManifest,
 } from "./release";
 
 const configId = "system:release-config",
@@ -95,14 +107,6 @@ export function automaticWindow(at: number, hour: number, windowHours: number) {
   };
 }
 
-function newerVersion(candidate: string, installed: string) {
-  if (!/^\d+\.\d+\.\d+$/.test(candidate) || !/^\d+\.\d+\.\d+$/.test(installed))
-    return false;
-  const a = candidate.split(".").map(Number),
-    b = installed.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
-}
 
 export async function automaticUpdateStatus(env: Env) {
   const config = {
@@ -173,8 +177,6 @@ export async function configureAutomaticUpdates(
     return automaticUpdateStatus(env);
   });
 }
-export const deployHookUrl = legacy.deployHookUrl;
-export const updatePlan = legacy.updatePlan;
 const isDirect = (env: Env) =>
   !!(
     env.WABOTIA_INSTALLATION_ID &&
@@ -184,9 +186,7 @@ const isDirect = (env: Env) =>
 async function tokenFor(env: Env) {
   return (await secret(env, configId)).token || env.WABOTIA_UPDATE_TOKEN || "";
 }
-async function legacyMode(env: Env) {
-  return !isDirect(env) && !!(await secret(env, "system:update-config")).hook;
-}
+
 function failure(error: unknown): never {
   if (error instanceof ApiError) throw error;
   throw new ApiError(
@@ -198,11 +198,11 @@ function failure(error: unknown): never {
   );
 }
 export async function checkUpdate(env: Env, force = false) {
-  if (await legacyMode(env)) return legacy.checkUpdate(env, force);
   const cached = await secret(env, latestId);
   if (!force && cached.checked_at > now() - 300000) return cached;
   try {
-    const index = await latestRelease();
+    // Índice do formato 2 com a assinatura e a validade conferidas.
+    const index = await latestReleaseV2();
     const latest = {
       ...index,
       checked_at: now(),
@@ -237,20 +237,24 @@ function publicState(state: any) {
   );
 }
 export async function updateStatus(env: Env) {
-  if (await legacyMode(env))
-    return {
-      ...(await legacy.updateStatus(env)),
-      method: "legacy",
-      installation_ready: false,
-      automatic: await automaticUpdateStatus(env),
-    };
   const state = await secret(env, stateId),
     latest = await secret(env, latestId);
   if (state.target === buildInfo.commit && state.status !== "completed") {
+    // Concluída primeiro; a limpeza do R2 vem depois e, se falhar, é
+    // repetida na próxima consulta (cleanup_pending).
     state.status = "completed";
     state.completed_at = now();
+    state.cleanup_pending = true;
     await setSecret(env, stateId, state);
-    if (state.package_key) await env.MEDIA.delete(state.package_key);
+  }
+  if (state.cleanup_pending) {
+    try {
+      await dropTemporary(env, state);
+      state.cleanup_pending = false;
+      await setSecret(env, stateId, state);
+    } catch {
+      // Fica pendente para a próxima consulta.
+    }
   }
   return {
     installed: buildInfo,
@@ -266,15 +270,16 @@ export async function updateStatus(env: Env) {
       ["requested", "unknown", "sending"].includes(state.status) &&
       state.created < now() - 900000,
     automatic: await automaticUpdateStatus(env),
+    // Site oficial (que também serve o catálogo): o painel lembra de renovar
+    // o índice assinado (docs/ATUALIZACOES-FORMATO.md, "Prazo do índice").
+    distribution: webInstallerEnabled(env),
   };
 }
 export async function configureUpdates(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (!isDirect(env) && data.hook_url)
-    return legacy.configureUpdates(env, actor, data);
   requireValue(
     isDirect(env),
-    "Esta instalação usa o fluxo antigo. Siga o guia de reinstalação sem repositório.",
+    "Esta instalação não tem a identificação para atualizar pelo painel. Reinstale com o instalador (docs/INSTALACAO.md).",
   );
   requireValue(
     typeof data.token === "string" &&
@@ -306,7 +311,6 @@ export async function configureUpdates(env: Env, actor: Actor, data: any) {
 }
 export async function startUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (await legacyMode(env)) return legacy.startUpdate(env, actor, data);
   return updateLock(env, () => startDirectUpdate(env, data));
 }
 async function startDirectUpdate(env: Env, data: any, source = "manual") {
@@ -321,6 +325,20 @@ async function startDirectUpdate(env: Env, data: any, source = "manual") {
     data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
   );
+  // Sem retrocesso: nunca uma versão menor que a instalada, nem a mesma
+  // versão com outro código (um índice antigo ou adulterado não faz voltar
+  // código sobre um banco já migrado).
+  requireValue(
+    versionGreater(index.version, buildInfo.version),
+    `A versão oficial (${index.version}) não é maior que a instalada (${buildInfo.version}). A atualização não volta de versão.`,
+  );
+  requireValue(
+    versionAtLeast(buildInfo.version, index.requires?.min_version),
+    `Esta versão exige a ${index.requires?.min_version} instalada antes. Atualize em etapas.`,
+  );
+  // Temporários de trabalhos anteriores (falhos ou cancelados) saem antes de
+  // começar: um trabalho novo não deixa até 160 MiB para trás.
+  await sweepTemporary(env);
   const state = {
     id: uid(),
     index,
@@ -328,7 +346,7 @@ async function startDirectUpdate(env: Env, data: any, source = "manual") {
     version: index.version,
     previous: buildInfo.commit,
     status: "pending",
-    phase: "download",
+    phase: "manifest",
     created: now(),
     updated: now(),
     source,
@@ -409,10 +427,13 @@ export async function automaticUpdateTick(env: Env) {
           retry_at: job.retry_at,
         });
         if (!window.open || at < job.retry_at) return;
+        // Recomeça na etapa que falhou: o que já foi baixado continua no R2.
         const retry = {
           ...job,
           status: "pending",
-          phase: "download",
+          // A sessão de envio de estáticos vence: abre outra (a Cloudflare só
+          // pede de novo o que faltou).
+          phase: job.phase === "assets" ? "prepare" : job.phase,
           attempt: (job.attempt || 1) + 1,
           error: null,
           retry_at: null,
@@ -459,7 +480,18 @@ export async function automaticUpdateTick(env: Env) {
             error: null,
             target: index.commit,
           });
-        } else if (!newerVersion(index.version, buildInfo.version)) {
+        } else if (
+          !versionAtLeast(buildInfo.version, index.requires?.min_version)
+        ) {
+          // Uma versão que exige outra instalada antes (`requires.min_version`)
+          // nunca é pulada pelo automático (docs/ATUALIZACOES-FORMATO.md).
+          await save({
+            ...checkState,
+            status: "release_requires_review",
+            error: `A versão ${index.version} exige a ${index.requires?.min_version} instalada antes. Atualize em etapas.`,
+            target: index.commit,
+          });
+        } else if (!versionGreater(index.version, buildInfo.version)) {
           await save({
             ...checkState,
             status: "release_requires_review",
@@ -521,90 +553,7 @@ async function processDirectUpdate(env: Env) {
   try {
     const token = await tokenFor(env),
       base = scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!);
-    if (state.phase === "download") {
-      const { bytes } = await fetchPackage(state.index);
-      state.package_key = `system/releases/${state.id}.json`;
-      await env.MEDIA.put(state.package_key, bytes, {
-        httpMetadata: { contentType: "application/json" },
-      });
-      state.phase = "prepare";
-    } else {
-      const stored = await env.MEDIA.get(state.package_key);
-      requireValue(
-        stored,
-        "O pacote temporário não está disponível. Libere uma nova tentativa.",
-      );
-      const pkg = await parsePackage(
-        state.index,
-        new Uint8Array(await stored!.arrayBuffer()),
-      );
-      if (state.phase === "prepare") {
-        const settings = await installedSettings(token, base);
-        validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
-        const upload = await releaseCloudflare(
-          token,
-          base + "/assets-upload-session",
-          "POST",
-          { manifest: assetManifest(pkg) },
-        );
-        requireValue(
-          typeof upload?.jwt === "string" && Array.isArray(upload.buckets),
-          "Sessão de arquivos inválida.",
-        );
-        state.upload = upload;
-        state.bucket = 0;
-        state.phase = upload.buckets.length ? "assets" : "migrate";
-      } else if (state.phase === "assets") {
-        const result = await releaseCloudflare(
-          state.upload.jwt,
-          `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
-          "POST",
-          assetUpload(pkg, state.upload.buckets[state.bucket]),
-        );
-        state.bucket++;
-        if (state.bucket === state.upload.buckets.length) {
-          requireValue(
-            typeof result?.jwt === "string",
-            "A Cloudflare não confirmou todos os arquivos. Libere uma nova tentativa.",
-          );
-          state.upload.jwt = result.jwt;
-          state.phase = "migrate";
-        }
-      } else if (state.phase === "migrate") {
-        await env.DB.prepare(
-          "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)",
-        ).run();
-        const applied = await all(env, "SELECT name FROM d1_migrations");
-        const migration = pkg.migrations.find(
-          (m) => !applied.some((row) => row.name === m.name),
-        );
-        if (migration) {
-          await env.DB.batch([
-            ...migration.statements.map((sql) => env.DB.prepare(sql)),
-            env.DB.prepare("INSERT INTO d1_migrations(name) VALUES(?)").bind(
-              migration.name,
-            ),
-          ]);
-        } else state.phase = "publish";
-      } else if (state.phase === "publish") {
-        const settings = await installedSettings(token, base);
-        validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
-        state.status = "sending";
-        state.updated = now();
-        await setSecret(env, stateId, state);
-        const result = await releaseCloudflare(
-          token,
-          base,
-          "PUT",
-          workerUpload(pkg, settings, state.upload.jwt),
-        );
-        requireValue(
-          result?.id || result?.etag,
-          "A Cloudflare não confirmou a publicação. Confira a versão antes de repetir.",
-        );
-        state.status = "requested";
-      } else throw new Error("Etapa de atualização desconhecida.");
-    }
+    await processPhase(env, state, token, base);
     state.updated = now();
     if ((await secret(env, stateId)).status !== "completed")
       await setSecret(env, stateId, state);
@@ -619,7 +568,7 @@ async function processDirectUpdate(env: Env) {
     state.updated = now();
     state.retryable =
       state.source === "automatic" &&
-      ["download", "prepare", "assets"].includes(state.phase) &&
+      ["manifest", "blobs", "prepare", "assets"].includes(state.phase) &&
       (e instanceof TypeError ||
         (e instanceof Error &&
           ["AbortError", "TimeoutError"].includes(e.name)) ||
@@ -635,7 +584,6 @@ async function processDirectUpdate(env: Env) {
 }
 export async function resetUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  if (await legacyMode(env)) return legacy.resetUpdate(env, actor, data);
   return updateLock(env, () => resetDirectUpdate(env, data));
 }
 async function resetDirectUpdate(env: Env, data: any) {
@@ -653,6 +601,245 @@ async function resetDirectUpdate(env: Env, data: any) {
   );
   state.status = "cancelled";
   await setSecret(env, stateId, state);
-  if (state.package_key) await env.MEDIA.delete(state.package_key);
+  await dropTemporary(env, state);
   return publicState(state);
 }
+
+// ---------------------------------------------------------------------------
+// Etapas do formato 2 (docs/ATUALIZACOES-FORMATO.md). Cada chamada faz uma
+// rodada curta de uma etapa e grava o andamento; o alarme do _admin chama de
+// novo em seguida. Nenhuma rodada lê o pacote inteiro: o manifesto (até
+// 2 MiB) e só os arquivos daquela rodada.
+//
+//   manifest  baixa o manifesto, confere assinatura e SHA; guarda no R2
+//   blobs     baixa até 20 arquivos ou 16 MiB por rodada, SHA conferido
+//   prepare   confere todas as migrações (20 por rodada), a instalação, e
+//             abre a sessão de envio de estáticos
+//   assets    envia um lote inteiro da sessão por rodada
+//   migrate   sonda o plano pago (uma vez) e aplica uma migração por rodada
+//   publish   publica o Worker com os módulos guardados
+
+/** Prefixo dos arquivos temporários de um trabalho no R2. */
+export const workPrefix = (id: string) => `system/releases/${id}/`;
+const manifestKey = (id: string) => workPrefix(id) + "manifest.json";
+const manifestSigKey = (id: string) => workPrefix(id) + "manifest.sig";
+const blobKey = (id: string, sha: string) => workPrefix(id) + "b/" + sha;
+
+async function deletePrefix(env: Env, prefix: string, keep?: string) {
+  let cursor: string | undefined;
+  do {
+    const page = await env.MEDIA.list({ prefix, cursor, limit: 1000 });
+    const keys = page.objects
+      .map((o) => o.key)
+      .filter((key) => !keep || !key.startsWith(keep));
+    if (keys.length) await env.MEDIA.delete(keys);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+}
+
+/** Apaga tudo o que o trabalho guardou no R2. */
+export async function dropTemporary(env: Env, state: any) {
+  if (state.id) await deletePrefix(env, workPrefix(state.id));
+}
+
+/**
+ * Antes de um trabalho novo, apaga o que sobrou de trabalhos anteriores
+ * (falhas, cancelamentos ou limpeza interrompida). Só arquivos temporários
+ * de atualização: `system/releases/`.
+ */
+export async function sweepTemporary(env: Env, keepId?: string) {
+  await deletePrefix(
+    env,
+    "system/releases/",
+    keepId ? workPrefix(keepId) : undefined,
+  );
+}
+
+async function storedManifest(env: Env, state: any) {
+  const [stored, signature] = await Promise.all([
+    env.MEDIA.get(manifestKey(state.id)),
+    env.MEDIA.get(manifestSigKey(state.id)),
+  ]);
+  requireValue(
+    stored && signature,
+    "O manifesto temporário não está disponível. Libere uma nova tentativa.",
+  );
+  // Reconfere a assinatura e o SHA a cada rodada: o R2 não é confiável.
+  return parseManifest(
+    validateIndexV2(state.index),
+    new Uint8Array(await stored!.arrayBuffer()),
+    new Uint8Array(await signature!.arrayBuffer()),
+  );
+}
+
+/** Lê um arquivo já baixado e conferido nesta atualização. */
+function blobReader(env: Env, state: any) {
+  return async (ref: BlobRef) => {
+    const stored = await env.MEDIA.get(blobKey(state.id, ref.sha256));
+    requireValue(
+      stored,
+      "Um arquivo temporário da atualização sumiu. Libere uma nova tentativa.",
+    );
+    return checkBlob(ref, new Uint8Array(await stored!.arrayBuffer()));
+  };
+}
+
+/**
+ * Sonda do plano Workers Paid: no gratuito, uma invocação faz no máximo 50
+ * consultas ao D1 e a 51ª falha. Sessenta `SELECT 1` seguidos só passam no
+ * pago. Roda uma vez, antes da primeira migração, e falha sem mexer no banco.
+ */
+export async function paidPlanProbe(env: Env, queries = 60) {
+  try {
+    for (let i = 0; i < queries; i++)
+      await env.DB.prepare("SELECT 1").first();
+  } catch {
+    throw new ApiError(
+      409,
+      "workers_paid_required",
+      "Esta versão exige o plano Workers Paid da Cloudflare. Assine o plano pago e libere uma nova tentativa. Nada foi alterado no banco.",
+    );
+  }
+}
+
+async function processPhase(env: Env, state: any, token: string, base: string) {
+  if (state.phase === "manifest") {
+    const { manifest, bytes, signature } = await fetchManifest(
+      validateIndexV2(state.index),
+    );
+    await env.MEDIA.put(manifestKey(state.id), bytes, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    await env.MEDIA.put(manifestSigKey(state.id), signature, {
+      httpMetadata: { contentType: "application/json" },
+    });
+    state.blob = 0;
+    state.blob_count = uniqueBlobs(manifest).length;
+    state.phase = "blobs";
+    return;
+  }
+  const manifest = await storedManifest(env, state);
+  if (state.phase === "blobs") {
+    const refs = uniqueBlobs(manifest);
+    const round = nextRound(refs, state.blob || 0);
+    for (const ref of round) {
+      // Retomada: o que já está guardado com o tamanho certo não baixa de novo
+      // (o SHA é conferido de novo na leitura).
+      const head = await env.MEDIA.head(blobKey(state.id, ref.sha256));
+      if (head && head.size === ref.size) continue;
+      await env.MEDIA.put(blobKey(state.id, ref.sha256), await fetchBlob(ref), {
+        httpMetadata: { contentType: "application/octet-stream" },
+      });
+    }
+    state.blob = (state.blob || 0) + round.length;
+    if (state.blob >= refs.length) state.phase = "prepare";
+    return;
+  }
+  if (state.phase === "prepare") {
+    // Todas as migrações são conferidas antes de qualquer uma ser aplicada:
+    // uma segunda migração malformada não deixa o banco pela metade.
+    // Em rodadas de até 20, para caber nos limites de uma invocação.
+    const checked = state.migrations_checked || 0;
+    if (checked < manifest.migrations.length) {
+      const read = blobReader(env, state);
+      const round = nextRound(manifest.migrations, checked);
+      for (const migration of round)
+        migrationStatements(migration, await read(migration));
+      state.migrations_checked = checked + round.length;
+      return;
+    }
+    const settings = await installedSettings(token, base);
+    validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
+    const upload = await releaseCloudflare(
+      token,
+      base + "/assets-upload-session",
+      "POST",
+      { manifest: assetManifestV2(manifest) },
+    );
+    requireValue(
+      typeof upload?.jwt === "string" &&
+        Array.isArray(upload.buckets) &&
+        upload.buckets.every(
+          (b: unknown) => Array.isArray(b) && b.length <= MAX_UPLOAD_BATCH,
+        ),
+      "Sessão de arquivos inválida.",
+    );
+    state.upload = upload;
+    state.bucket = 0;
+    state.phase = upload.buckets.length ? "assets" : "migrate";
+    return;
+  }
+  if (state.phase === "assets") {
+    // A Cloudflare pede que cada lote vá inteiro num só envio. Só a
+    // resposta do último lote da sessão traz o token de conclusão.
+    const bucket = assetsForHashes(manifest, state.upload.buckets[state.bucket]);
+    const result = await releaseCloudflare(
+      state.upload.jwt,
+      `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
+      "POST",
+      await assetUploadV2(bucket, blobReader(env, state)),
+    );
+    state.bucket++;
+    if (state.bucket === state.upload.buckets.length) {
+      requireValue(
+        typeof result?.jwt === "string",
+        "A Cloudflare não confirmou todos os arquivos. Libere uma nova tentativa.",
+      );
+      state.upload.jwt = result.jwt;
+      state.phase = "migrate";
+    }
+    return;
+  }
+  if (state.phase === "migrate") {
+    if (state.index.requires?.workers_paid && !state.paid_checked) {
+      await paidPlanProbe(env);
+      state.paid_checked = true;
+      return;
+    }
+    await env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)",
+    ).run();
+    const applied = new Set(
+      (await all(env, "SELECT name FROM d1_migrations")).map((r) => r.name),
+    );
+    const migration = manifest.migrations.find((m) => !applied.has(m.name));
+    if (!migration) {
+      state.phase = "publish";
+      return;
+    }
+    const statements = migrationStatements(
+      migration,
+      await blobReader(env, state)(migration),
+    );
+    await env.DB.batch([
+      ...statements.map((sql) => env.DB.prepare(sql)),
+      env.DB.prepare("INSERT INTO d1_migrations(name) VALUES(?)").bind(
+        migration.name,
+      ),
+    ]);
+    return;
+  }
+  if (state.phase === "publish") {
+    const settings = await installedSettings(token, base);
+    validateInstalledSettings(settings, env.WABOTIA_INSTALLATION_ID!);
+    const body = await workerUploadV2(
+      manifest,
+      settings,
+      state.upload.jwt,
+      blobReader(env, state),
+    );
+    state.status = "sending";
+    state.updated = now();
+    await setSecret(env, stateId, state);
+    const result = await releaseCloudflare(token, base, "PUT", body);
+    requireValue(
+      result?.id || result?.etag,
+      "A Cloudflare não confirmou a publicação. Confira a versão antes de repetir.",
+    );
+    state.status = "requested";
+    return;
+  }
+  throw new Error("Etapa de atualização desconhecida.");
+}
+
+export type { ReleaseManifest };

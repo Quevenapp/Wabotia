@@ -25,8 +25,12 @@ connectors/qr/data/
 backup-seguro/
 output/
 src/build-info.generated.ts
-.wabotia-source-commit
 public/releases/
+# Assinatura das versões: a chave privada nunca entra no repositório
+# (docs/ATUALIZACOES-FORMATO.md, "Assinatura").
+release-signing.local.json
+*.pem
+*.key
 public/install-wabotia.mjs
 # Bibliotecas que os testes do ERP leem (scripts/erp-import.mjs): o dist/ delas entra.
 !web/erp/test/upstream/vendor/*/dist/
