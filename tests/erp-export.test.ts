@@ -109,10 +109,22 @@ function company({ exportId, taskId, present, missing } = newIds()) {
   return { exportId, rpc, calls, attachments, task };
 }
 
+/**
+ * O manifesto sem o que difere de propósito do Fagoo: a hora (gerado_em) e
+ * o nome do sistema (formato e empresa: Wabotia no lugar de Brufap).
+ */
 const withoutTime = (manifest: Uint8Array) => {
-  const { gerado_em, ...rest } = JSON.parse(new TextDecoder().decode(manifest));
+  const { gerado_em, formato, empresa, ...rest } = JSON.parse(
+    new TextDecoder().decode(manifest),
+  );
   expect(typeof gerado_em).toBe("string");
+  expect([formato, empresa]).toHaveLength(2);
   return rest;
+};
+/** Os dois campos do nome do sistema no manifesto. */
+const systemName = (manifest: Uint8Array) => {
+  const { formato, empresa } = JSON.parse(new TextDecoder().decode(manifest));
+  return { formato, empresa };
 };
 
 describe("exportação da empresa em fatias", () => {
@@ -160,6 +172,14 @@ describe("exportação da empresa em fatias", () => {
       if (name === "manifesto.json")
         expect(withoutTime(b.get(name)!)).toEqual(withoutTime(data));
       else expect(b.get(name), name).toEqual(data);
+    // O nome do sistema no manifesto: o do Wabotia (o Fagoo diz Brufap).
+    expect(systemName(b.get("manifesto.json")!)).toEqual({
+      formato: "wabotia-exportacao-v1",
+      empresa: "dados desta instalação do Wabotia",
+    });
+    expect(systemName(a.get("manifesto.json")!).formato).toBe(
+      "brufap-exportacao-v1",
+    );
     expect(
       JSON.parse(
         new TextDecoder().decode(b.get("dados/erp_finance.title.json")!),

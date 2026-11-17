@@ -153,10 +153,11 @@ export async function runExportStreamed(
       files,
       files_skipped: skipped.length,
     };
-    // O manifesto do Fagoo, campo a campo.
+    // O manifesto do Fagoo, campo a campo, com o nome do Wabotia no formato
+    // e na empresa (quem abre o pacote lê isso; nada lê o ZIP de volta).
     const manifest = {
-      formato: "brufap-exportacao-v1",
-      empresa: "dados desta instalação do Brufap",
+      formato: "wabotia-exportacao-v1",
+      empresa: "dados desta instalação do Wabotia",
       gerado_em: new Date().toISOString(),
       dados_ate: plan.as_of,
       escopo:
