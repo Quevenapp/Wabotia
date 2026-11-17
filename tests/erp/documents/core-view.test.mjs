@@ -16,6 +16,7 @@ import {
   proposalVersionJson,
   situationAdopted,
   situationJson,
+  situationKeyValid,
 } from "../../../src/erp/domains/documents/internal.ts";
 
 let f;
@@ -97,6 +98,9 @@ test("núcleo da leitura do documento: mesmo JSON que o Postgres", async () => {
         assert.deepEqual(lite((ctx) => situationJson(ctx.db, kind, st, sit)), await pg("select erp_documents.situation_json($1,$2,$3) v", [kind, st, sit]), `situation_json ${kind} ${st} ${sit}`);
         assert.deepEqual(lite((ctx) => situationAdopted(ctx.db, kind)), await pg("select erp_documents.situation_adopted($1) v", [kind]), `situation_adopted ${kind}`);
       }
+  for (const kind of ["sales_orders", "purchase_orders", "service_orders", "sales_proposals", "x", null])
+    for (const key of ["open", "draft", "checkout_partial", "completed", "nao_existe", situation, situation.toUpperCase(), randomUUID(), "", null])
+      assert.deepEqual(lite((ctx) => situationKeyValid(ctx.db, kind, key)), await pg("select erp_documents.situation_key_valid($1,$2) v", [kind, key]), `situation_key_valid ${kind} ${key}`);
   // Sem adoção, nenhuma situação.
   await sql("delete from erp_preferences.situation_adoption where kind='purchase_orders'");
   for (const id of ids) assert.deepEqual(lite((ctx) => documentView(ctx, id)), await pg("select erp_documents.document_view($1) v", [id]), `document_view sem adoção ${id}`);

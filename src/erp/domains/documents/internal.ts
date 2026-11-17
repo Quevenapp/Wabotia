@@ -11,6 +11,7 @@ import type { RpcContext } from "../../engine/registry.ts";
 import { autoProductKey, documentProduct } from "../catalog/public.ts";
 import * as preferences from "../preferences/public.ts";
 import { active as receiptsActive } from "../stock/public.ts";
+import { transitions } from "./preferences.ts";
 import { originEffects } from "../sync/public.ts";
 
 /** erp_documents.auto_products(p_user_id, p_kind, p_command, p_items) */
@@ -258,4 +259,12 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
     d.kind === "sales_proposals" ? { proposal_version: proposalVersionJson(db, id) } : {},
     { origin: d.origin, authority: d.authority, readonly: false },
   );
+}
+
+/** erp_documents.situation_key_valid(kind, chave): status do tipo ou situação própria do tipo. */
+export function situationKeyValid(db: SqlDriver, kind: string | null, key: string | null): boolean {
+  if (kind === null || key === null) return false;
+  const map = transitions()[kind];
+  if (map && Object.prototype.hasOwnProperty.call(map, key)) return true;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(key) && !!one(db, 'SELECT 1 x FROM "erp_preferences__situation" WHERE id=? AND kind=? LIMIT 1', key, kind);
 }
