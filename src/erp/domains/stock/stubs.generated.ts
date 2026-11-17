@@ -99,16 +99,12 @@ export const guardReservedPosting = (..._args: unknown[]): never => notPorted("e
 export const invoicePostedForDocument = (..._args: unknown[]): never => notPorted("erp_stock.invoice_posted_for_document");
 /** erp_stock.invoice_screen(p_model text, p_direction text) → text */
 export const invoiceScreen = (..._args: unknown[]): never => notPorted("erp_stock.invoice_screen");
-/** erp_stock.invoice_unit_price(p_price numeric, p_snapshot jsonb, p_position integer, p_product uuid) → numeric */
-export const invoiceUnitPrice = (..._args: unknown[]): never => notPorted("erp_stock.invoice_unit_price");
 /** erp_stock.item_component_rows(p_item uuid, p_product uuid) → TABLE(component_id uuid, quantity numeric, post_mode text, ordinal integer) */
 export const itemComponentRows = (..._args: unknown[]): never => notPorted("erp_stock.item_component_rows");
 /** erp_stock.item_composition_lines(p_item uuid, p_product uuid, p_quantity numeric) → TABLE(product_id uuid, quantity numeric, per_kit numeric, role text) */
 export const itemCompositionLines = (..._args: unknown[]): never => notPorted("erp_stock.item_composition_lines");
 /** erp_stock.last_purchase(p_product uuid, p_balances boolean) → TABLE(unit_price numeric, unit_cost numeric, occurred_on date, movement_id uuid, source text) */
 export const lastPurchase = (..._args: unknown[]): never => notPorted("erp_stock.last_purchase");
-/** erp_stock.ledger_document_price(p_movement uuid, p_product uuid) → numeric */
-export const ledgerDocumentPrice = (..._args: unknown[]): never => notPorted("erp_stock.ledger_document_price");
 /** erp_stock.ledger_origin(p_movement_id uuid) → jsonb */
 export const ledgerOrigin = (..._args: unknown[]): never => notPorted("erp_stock.ledger_origin");
 /** erp_stock.lot_apply(p_movement uuid, p_product uuid, p_warehouse uuid, p_lot uuid, p_quantity numeric) → jsonb */
@@ -143,10 +139,6 @@ export const salesNegativeAllowed = (..._args: unknown[]): never => notPorted("e
 export const settingsDto = (..._args: unknown[]): never => notPorted("erp_stock.settings_dto");
 /** erp_stock.supply_part(p_command uuid, p_part text) → uuid */
 export const supplyPart = (..._args: unknown[]): never => notPorted("erp_stock.supply_part");
-/** erp_stock.virtual_positions(p_product uuid) → TABLE(warehouse_id uuid, quantity numeric) */
-export const virtualPositions = (..._args: unknown[]): never => notPorted("erp_stock.virtual_positions");
-/** erp_stock.virtual_quantity(p_product uuid, p_warehouse uuid) → numeric */
-export const virtualQuantity = (..._args: unknown[]): never => notPorted("erp_stock.virtual_quantity");
 /** public.erp_document_stock_post(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_command_id uuid, p_preview_hash text, p_occurred_on date, p_reason text, p_ignored_item_ids jsonb) → jsonb */
 export const erpDocumentStockPost = (..._args: unknown[]): never => notPorted("public.erp_document_stock_post");
 /** public.erp_document_stock_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_occurred_on date, p_reason text) → jsonb */

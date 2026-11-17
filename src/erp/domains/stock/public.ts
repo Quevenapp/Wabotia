@@ -9,6 +9,11 @@ export * from "./stubs.generated.ts";
 export { movementDto, requireAccess, reservedQuantity } from "./internal.ts";
 export { erpStockPost } from "./rpc/erp_stock_post.ts";
 export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./home.ts";
+// Para o domínio 11 (painel Meu Negócio, sessão G) e Documentos: escalas em
+// read.ts (quantidade de kits inteira), ledger.ts e costs.ts (preço escala 10).
+export { virtualPositions, virtualQuantity } from "./read.ts";
+export { ledgerDocumentPrice, priceText } from "./ledger.ts";
+export { invoiceUnitPrice } from "./costs.ts";
 
 // ---------------------------------------------------------------------------
 // compositionSettings, protectProductUnit e protectDefaultWarehouse: escritas
