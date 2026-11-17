@@ -136,6 +136,36 @@ test("exportação, aniversariantes e lista com etiqueta", async () => {
     await same("erp_catalog_contact_page_tagged", { p_user_id: f.users.admin, p_size: 100, ...args });
 });
 
+test("importação: simulação, recusas por linha, duplicidade e lote tudo ou nada", async () => {
+  const imp = (rows, args = {}) => same("erp_catalog_contact_import", { p_user_id: f.users.admin, p_command_id: randomUUID(), p_rows: rows, p_dry_run: true, ...args });
+  const rows = [
+    { row: 3, data: { name: "Importado três", person_type: "J", document: "11.222.333/0001-81" } },
+    { row: 1, data: { name: "Importado um", email: "um@exemplo.com.br" } },
+    { row: 2, data: { name: "", person_type: "F" } },
+    { row: 4, data: { name: "Excluído", situation: "E" } },
+    { row: 5, data: { name: "Mesmo documento", person_type: "J", document: "11222333000181" } },
+    { row: 6, data: { name: "Campo estranho", nope: 1 } },
+    { row: 7, data: { name: "E-mail ruim", email: "sem arroba" } },
+  ];
+  await imp(rows);
+  await f.preference("contatos.permite_documento_duplicado", false);
+  try {
+    await imp(rows);
+  } finally {
+    await f.preference("contatos.permite_documento_duplicado", true);
+  }
+  for (const bad of [[], {}, null, [{ row: 1 }], [{ row: 0, data: {} }], [{ row: 1, data: {} }, { row: 1, data: {} }], [{ row: "1", data: {} }], Array.from({ length: 51 }, (_, i) => ({ row: i + 1, data: { name: "x" } }))])
+    await imp(bad);
+  assert.match((await imp(rows, { p_dry_run: false })).error, /erp_catalog_import_invalid_rows/);
+  assert.match((await imp(rows.slice(0, 2), { p_dry_run: false, p_command_id: null })).error, /22023/);
+  const command = randomUUID();
+  const done = await imp(rows.slice(0, 2), { p_dry_run: false, p_command_id: command });
+  assert.deepEqual(done.items.map((i) => i.status), ["created", "created"]);
+  assert.equal((await imp(rows.slice(0, 2), { p_dry_run: false, p_command_id: command })).replayed, true);
+  assert.match((await imp(rows.slice(0, 1), { p_dry_run: false, p_command_id: command })).error, /40001/);
+  await imp([{ row: 9, data: { name: "Depois", person_type: "J", document: "11222333000181" } }]);
+});
+
 test("cobrança: leitura, gravação, versão, repetição e recusas", async () => {
   const contact = (await f.save({ name: "Contato da cobrança", email: "geral@exemplo.com.br", street: "Rua A", number: "10", city: "Piracicaba", state: "SP" })).record;
   const get = (user = f.users.admin) => same("erp_contact_billing_get", { p_user_id: user, p_contact_id: contact.id });
