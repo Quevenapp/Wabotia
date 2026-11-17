@@ -15,7 +15,7 @@ const has=(v,label)=>v.nodes().some(n=>n.type==='button'&&!n.props.hidden&&v.nod
 test('115 Empresa › Geral loads once, marks every stored option honestly and saves only the changed key',async()=>{const f=createPreferencesFixture(),v=await mount(f,'empresa-geral');try{
  assert.deepEqual(f.calls.map(c=>[c.method,c.path]),[['GET','/v1/preferencias/empresa-geral']]);
  const text=v.text();for(const label of['Número de casas decimais na quantidade','Número de casas decimais no preço nas entradas','Número de casas decimais no preço nas saídas','Número de casas decimais no peso do produto','Não enviar link no envio de documentos','Permite a edição da data e hora das ocorrências','Ainda não aplicada','O FAGOO guarda até 6 casas decimais'])assert.ok(text.includes(label),label);
- assert.equal(v.input('pref-empresa-decimais_quantidade').props.value,'6');assert.equal(v.button('Salvar').disabled,true);
+ /* Wabotia: padrão de 2 casas (desvio telas-2-casas, decisão do usuário de 16/11). */assert.equal(v.input('pref-empresa-decimais_quantidade').props.value,'2');assert.equal(v.button('Salvar').disabled,true);
  await v.change('pref-empresa-decimais_quantidade','4');assert.equal(v.guard().changed,true);assert.equal(v.button('Salvar').disabled,false);
  await v.click('Salvar');assert.equal(posts(f).length,1);const body=posts(f)[0].body;
  assert.deepEqual(Object.keys(body).sort(),['changes','command_id']);assert.deepEqual(body.changes,[{key:'empresa.decimais_quantidade',expected_version:0,value:4}]);
@@ -44,8 +44,8 @@ test('115 only an authoritative 404 on the command enables resending the very sa
 }finally{v.unmount();}});
 
 test('115 a definite refusal releases the command and keeps the edits in the form',async()=>{const f=createPreferencesFixture({before(c){if(c.method==='POST')throw new AccessError(409);}}),v=await mount(f,'empresa-geral');try{
- await v.change('pref-empresa-decimais_preco_saida','2');await v.click('Salvar');assert.match(v.text(),/As preferências mudaram desde a consulta. Nada foi salvo/);
- assert.equal(v.nodes().some(n=>n.type==='button'&&n.props.children==='Conferir resultado'),false);assert.equal(v.input('pref-empresa-decimais_preco_saida').props.value,'2');assert.equal(v.guard().busy,false);assert.equal(v.guard().changed,true);
+ /* Wabotia: 2 já é o padrão; 3 é uma alteração. */await v.change('pref-empresa-decimais_preco_saida','3');await v.click('Salvar');assert.match(v.text(),/As preferências mudaram desde a consulta. Nada foi salvo/);
+ assert.equal(v.nodes().some(n=>n.type==='button'&&n.props.children==='Conferir resultado'),false);assert.equal(v.input('pref-empresa-decimais_preco_saida').props.value,'3');assert.equal(v.guard().busy,false);assert.equal(v.guard().changed,true);
 }finally{v.unmount();}});
 
 test('115 invalid typed values block Salvar with the reason; text is sent trimmed and canonical',async()=>{const f=createPreferencesFixture(),v=await mount(f,'suprimentos-estoque');try{

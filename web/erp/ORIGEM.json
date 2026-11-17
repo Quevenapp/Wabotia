@@ -54,7 +54,7 @@
   "web/erp/test/fiscal-subset-review-access.test.mjs": "removido: monta a rota /emissor-fiscal, que saiu com o gateway A1",
   "web/erp/test/origin-warehouse-import-access.test.mjs": "removido: testa tela ou modelo do Origin, que saiu (PLANO-FAGOO.md, item 17)",
   "web/erp/test/cnab-operational-v2-session.test.mjs": "alterado: o stub do supabase-js e do access-config vira o das portas do Wabotia (web/erp/ports.ts), que RealAccess usa",
-  "web/erp/test/preferences-ui.test.mjs": "alterado: o tema segue o painel; salvar \"tema escuro\" no ERP não troca o tema do navegador (2 asserções); Sistema › Usuários passa a se chamar 'Permissões no ERP' no hub de preferências",
+  "web/erp/test/preferences-ui.test.mjs": "alterado: o tema segue o painel; salvar \"tema escuro\" no ERP não troca o tema do navegador (2 asserções); Sistema › Usuários passa a se chamar 'Permissões no ERP' no hub de preferências; Empresa › Geral abre com o padrão de 2 casas (desvio telas-2-casas) e a alteração de preço nas saídas passa a ser para 3",
   "web/erp/test/stock-opening-access.test.mjs": "alterado: sai o caso da adoção do saldo do Origin (item 17); a rota passa a ler só a política e se chama 'Estoque negativo', também na recusa",
   "web/erp/test/stock-origin-mirror-roundtrip.test.mjs": "removido: roda SQL real no PGlite com as migrações do Postgres do Fagoo; é teste do motor (diferencial da sessão Q), não da casca",
   "web/erp/test/system-profile-ui.test.mjs": "alterado: o tema salvo no ERP não é aplicado ao entrar (1 asserção); sai o teste 151 de Usuários ⋮ (Dispositivos e Segurança do usuário), rotas 501 no motor",
