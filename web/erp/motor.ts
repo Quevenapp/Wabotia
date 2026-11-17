@@ -12,8 +12,7 @@ type Pending = { path: string; under?: boolean; query?: [string, string[]] };
 
 /** Telas sem motor ainda, por domínio. */
 export const MOTOR_PENDING: readonly Pending[] = [
-  // Início e Meu Negócio: o resumo (/v1/inicio) e os painéis de vendas.
-  { path: "/acesso" },
+  // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
   { path: "/meu-negocio" },
   // Cadastros: contatos, depósitos, vendedores, campos customizados e taxonomias.
   { path: "/cadastros-reais", query: ["cadastro", ["contacts", "warehouses"]] },
@@ -45,26 +44,19 @@ export const MOTOR_PENDING: readonly Pending[] = [
   { path: "/cobranca-empresa" },
   { path: "/cobranca-operacional" },
   { path: "/retornos-operacionais" },
-  // Financeiro: remessas e retornos, comissões, faturamento agrupado e o relatório de vencimentos.
-  {
-    path: "/financeiro-empresa",
-    query: [
-      "area",
-      ["remessas", "retornos", "comissoes", "faturamento-agrupado"],
-    ],
-  },
-  { path: "/relatorio-vencimentos" },
+  // Financeiro: remessas e retornos (comissões, faturamento agrupado e o
+  // relatório de vencimentos já respondem).
+  { path: "/financeiro-empresa", query: ["area", ["remessas", "retornos"]] },
   // Estoque: conferência.
   { path: "/conferencia-estoque-empresa" },
   // Sistema: registro de atividades e consulta de exclusões (mesmo RPC).
   { path: "/preferencias/sistema/registro-atividades" },
   { path: "/preferencias/sistema/consulta-exclusoes" },
-  // Empresa › Geral: o motor responde 502 ERP_UPSTREAM_INVALID_RESPONSE (padrão de 2 casas na versão 0).
-  { path: "/preferencias/empresa/geral" },
 ];
 
 /** Telas que já funcionam contra o motor, para a tela de "em implantação". */
 export const MOTOR_READY: readonly { label: string; to: string }[] = [
+  { label: "Início", to: "/acesso" },
   { label: "Produtos", to: "/cadastros-reais?cadastro=products" },
   { label: "Contas a receber", to: "/financeiro-empresa?area=receivable" },
   { label: "Contas a pagar", to: "/financeiro-empresa?area=payable" },
