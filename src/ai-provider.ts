@@ -15,19 +15,92 @@ import type { BotTool } from "./bot-actions/actions";
 
 export type AiProvider = "openai" | "deepseek" | "compatible" | "anthropic";
 
+/**
+ * `pdf`: o provedor aceita PDF de forma documentada e a opção "O modelo
+ * entende PDF" aparece na conexão; `pdfDefault`, ligada de fábrica.
+ * Anthropic: bloco `document` (base64, antes do texto). OpenAI: parte
+ * `{type:"file", file:{filename, file_data}}` do Chat Completions, só em
+ * modelos com visão (desligada de fábrica: a conta escolhe). DeepSeek e API
+ * compatível: sem formato documentado, sem PDF.
+ */
 export const AI_PROVIDERS: Record<
   AiProvider,
-  { label: string; base?: string; vision: boolean }
+  { label: string; base?: string; vision: boolean; pdf: boolean; pdfDefault: boolean }
 > = {
-  openai: { label: "OpenAI", base: "https://api.openai.com/v1", vision: true },
+  openai: { label: "OpenAI", base: "https://api.openai.com/v1", vision: true, pdf: true, pdfDefault: false },
   deepseek: {
     label: "DeepSeek",
     base: "https://api.deepseek.com",
     vision: false,
+    pdf: false,
+    pdfDefault: false,
   },
-  compatible: { label: "Compatível com OpenAI", vision: false },
-  anthropic: { label: "Anthropic", vision: true },
+  compatible: { label: "Compatível com OpenAI", vision: false, pdf: false, pdfDefault: false },
+  anthropic: { label: "Anthropic", vision: true, pdf: true, pdfDefault: true },
 };
+
+/**
+ * Teto do PDF do cliente no Wabotia (o provedor aceita bem mais: 600
+ * páginas na Anthropic). Cada página custa de 1.500 a 3.000 tokens de texto
+ * mais a página como imagem (docs da Anthropic, "PDF support", "Estimate
+ * your costs"): com 10 páginas e o prompt de uma área cheia o pedido fica
+ * abaixo de 100 mil tokens, acima dos quais o Haiku 5.5 cobra o pedido
+ * inteiro mais caro. Nota fiscal e comprovante têm de 1 a 3 páginas. Um PDF
+ * por mensagem, até 4 MB. Acima disso, a conversa vai para a equipe.
+ */
+export const PDF_LIMITS = { files: 1, bytes: 4 * 1024 * 1024, pages: 10 } as const;
+/** Teto de tokens por página usado na estimativa (3.000 de texto + ~1.600 da imagem, arredondado). */
+export const PDF_TOKENS_PER_PAGE = 5_000;
+
+/**
+ * Páginas de um PDF pelos objetos /Type /Page do arquivo. null quando não
+ * dá para contar (objetos comprimidos em object streams): vale só o tamanho.
+ */
+export function pdfPages(bytes: Uint8Array): number | null {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const pages = text.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
+  return pages || null;
+}
+
+/** Uso de uma execução, igual para todos os provedores (tokens). */
+export interface AiUsage {
+  input: number;
+  cache_read: number;
+  cache_write: number;
+  output: number;
+}
+export const emptyUsage = (): AiUsage => ({ input: 0, cache_read: 0, cache_write: 0, output: 0 });
+const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+
+/**
+ * Soma o `usage` de uma resposta em `target`, pelo formato de cada provedor:
+ * - Anthropic: input_tokens (sem cache), cache_creation_input_tokens,
+ *   cache_read_input_tokens, output_tokens;
+ * - OpenAI: prompt_tokens (inclui o cache), prompt_tokens_details.cached_tokens,
+ *   completion_tokens (cache automático, sem gravação cobrada à parte);
+ * - DeepSeek: prompt_cache_hit_tokens, prompt_cache_miss_tokens, completion_tokens;
+ * - API compatível: prompt_tokens e completion_tokens, quando vierem.
+ */
+export function addUsage(target: AiUsage | undefined, provider: string, raw: any) {
+  if (!target || !raw || typeof raw !== "object") return;
+  if (provider === "anthropic") {
+    target.input += n(raw.input_tokens);
+    target.cache_write += n(raw.cache_creation_input_tokens);
+    target.cache_read += n(raw.cache_read_input_tokens);
+    target.output += n(raw.output_tokens);
+  } else if (provider === "deepseek" && ("prompt_cache_hit_tokens" in raw || "prompt_cache_miss_tokens" in raw)) {
+    target.input += n(raw.prompt_cache_miss_tokens);
+    target.cache_read += n(raw.prompt_cache_hit_tokens);
+    target.output += n(raw.completion_tokens);
+  } else {
+    const cached = n(raw.prompt_tokens_details?.cached_tokens);
+    target.input += Math.max(0, n(raw.prompt_tokens) - cached);
+    target.cache_read += cached;
+    target.output += n(raw.completion_tokens);
+  }
+}
 
 // Somente modelos atuais da Anthropic; o primeiro é o padrão.
 export const ANTHROPIC_MODELS = [
@@ -99,6 +172,12 @@ export function aiConfig(input: any) {
     cfg.base_url = publicUrl(String(input.base_url));
     cfg.vision = input.vision === true;
   } else cfg.vision = AI_PROVIDERS[provider].vision;
+  // "O modelo entende PDF": só onde o provedor documenta o formato.
+  cfg.pdf = AI_PROVIDERS[provider].pdf
+    ? AI_PROVIDERS[provider].pdfDefault
+      ? input.pdf !== false
+      : input.pdf === true
+    : false;
   const effort = input.effort || DEFAULT_EFFORT[provider] || "";
   if (effort) {
     requireValue(
@@ -175,13 +254,96 @@ export function aiKey(value: unknown) {
 }
 
 export type AiRequest = {
+  /**
+   * Instruções estáveis da área e da fase: o mesmo texto em toda execução
+   * do mesmo tipo (sem carimbo de tempo nem dado da conversa). Na Anthropic
+   * é o bloco do sistema com o ponto de cache.
+   */
   instructions: string;
+  /** Acréscimos desta execução (situação da conversa), depois do ponto de cache. */
+  situation?: string;
+  /**
+   * Dados estáveis da área (menus, ações, categorias) que vão no bloco
+   * estável do sistema, depois das instruções, em vez de na mensagem.
+   */
+  area?: Record<string, unknown> | null;
   input: string;
   /** data URLs (`data:image/png;base64,...`) já lidas do R2. */
   images?: string[];
+  /** PDFs do cliente desta mensagem, como data URLs (`data:application/pdf;base64,...`). */
+  documents?: string[];
   /** Quando o motor espera o JSON do Atendente. */
   json?: "attendant" | "attendant-jev";
+  /** Soma o uso (tokens) de cada chamada ao provedor. */
+  usage?: AiUsage;
 };
+
+/** Texto dos dados da área no bloco estável (o mesmo conteúdo que ia na mensagem). */
+export const AREA_LABEL = "\n\nDados desta área de atendimento (menus, actions e categories): ";
+
+/** Bloco estável do sistema: instruções e dados da área, em ordem fixa. */
+export function stableSystem(request: Pick<AiRequest, "instructions" | "area">) {
+  return request.area ? request.instructions + AREA_LABEL + JSON.stringify(request.area) : request.instructions;
+}
+
+/** O sistema inteiro num texto (OpenAI e compatíveis): o estável primeiro. */
+export const systemText = (request: AiRequest) => stableSystem(request) + (request.situation || "");
+
+/**
+ * Sistema da Anthropic: o bloco estável com o ponto de cache (5 min) e os
+ * acréscimos da execução depois dele. O ponto vai sempre: abaixo do mínimo
+ * de cada modelo não há cache, sem erro.
+ */
+export function anthropicSystem(request: AiRequest): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [
+    { type: "text", text: stableSystem(request), cache_control: { type: "ephemeral" } },
+  ];
+  if (request.situation) blocks.push({ type: "text", text: request.situation });
+  return blocks;
+}
+
+/** Conteúdo do usuário na Anthropic: PDFs, imagens e o texto, nessa ordem. */
+function anthropicContent(cfg: any, request: AiRequest): Anthropic.ContentBlockParam[] {
+  const content: Anthropic.ContentBlockParam[] = [];
+  if (cfg.pdf)
+    for (const url of request.documents || []) {
+      const match = /^data:application\/pdf;base64,(.+)$/.exec(url);
+      if (match)
+        content.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: match[1] },
+        });
+    }
+  for (const url of request.images || []) {
+    const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(url);
+    if (match)
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: match[1] as Anthropic.Base64ImageSource["media_type"],
+          data: match[2],
+        },
+      });
+  }
+  content.push({ type: "text", text: request.input });
+  return content;
+}
+
+/** Conteúdo do usuário na OpenAI e compatíveis: texto, imagens e PDFs (se a conexão aceita). */
+function openaiContent(cfg: any, request: AiRequest) {
+  const images = cfg.vision ? request.images || [] : [];
+  const documents = cfg.pdf ? request.documents || [] : [];
+  if (!images.length && !documents.length) return request.input;
+  return [
+    { type: "text", text: request.input },
+    ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+    ...documents.map((url, i) => ({
+      type: "file",
+      file: { filename: `documento-${i + 1}.pdf`, file_data: url },
+    })),
+  ];
+}
 
 // Mesmo contrato descrito nas instruções do Atendente (src/engine.ts). Todos os
 // campos são obrigatórios e anuláveis, como pedem as saídas estruturadas.
@@ -292,23 +454,12 @@ async function openaiComplete(
 ) {
   const base = openaiBase(cfg);
   if (!base) throw new AiError("Provedor de IA inválido.", false);
-  const images = cfg.vision ? request.images || [] : [];
+  // Estável primeiro: OpenAI e DeepSeek fazem cache automático por prefixo.
   const body: Record<string, any> = {
     model: cfg.model,
     messages: [
-      { role: "system", content: request.instructions },
-      {
-        role: "user",
-        content: images.length
-          ? [
-              { type: "text", text: request.input },
-              ...images.map((url) => ({
-                type: "image_url",
-                image_url: { url },
-              })),
-            ]
-          : request.input,
-      },
+      { role: "system", content: systemText(request) },
+      { role: "user", content: openaiContent(cfg, request) },
     ],
   };
   // A OpenAI recusa max_tokens nos modelos com raciocínio.
@@ -337,6 +488,7 @@ async function openaiComplete(
   }
   if (!response.ok) throw httpError(response.status);
   const data = await response.json<any>().catch(() => null);
+  addUsage(request.usage, cfg.provider, data?.usage);
   const choice = data?.choices?.[0];
   if (probe) {
     if (!choice)
@@ -391,26 +543,13 @@ function anthropicError(error: unknown) {
 }
 
 async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
-  const content: Anthropic.ContentBlockParam[] = [];
-  for (const url of request.images || []) {
-    const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(url);
-    if (match)
-      content.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: match[1] as Anthropic.Base64ImageSource["media_type"],
-          data: match[2],
-        },
-      });
-  }
-  content.push({ type: "text", text: request.input });
+  const content = anthropicContent(cfg, request);
   const deep = ["xhigh", "max"].includes(cfg.effort);
   const params = {
     model: cfg.model,
     // The highest levels think longer before the short JSON answer.
     max_tokens: deep ? 32000 : 16000,
-    system: request.instructions,
+    system: anthropicSystem(request),
     messages: [{ role: "user" as const, content }],
   };
   const client = anthropicClient(key, aiCallTimeout(cfg));
@@ -432,6 +571,7 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
         ? { effort, format: zodOutputFormat(schema) }
         : { effort },
     });
+    addUsage(request.usage, "anthropic", response.usage);
     checkStop(response.stop_reason);
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -496,21 +636,7 @@ export async function aiCompleteWithTools(
   let complete: (messages: any[], tools: any[], final: boolean) => Promise<any>;
   let messages: any[];
   if (family === "anthropic") {
-    const content: Anthropic.ContentBlockParam[] = [];
-    for (const url of request.images || []) {
-      const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(url);
-      if (match)
-        content.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: match[1] as Anthropic.Base64ImageSource["media_type"],
-            data: match[2],
-          },
-        });
-    }
-    content.push({ type: "text", text: request.input });
-    messages = [{ role: "user", content }];
+    messages = [{ role: "user", content: anthropicContent(cfg, request) }];
     const client = anthropicClient(key, aiCallTimeout(cfg));
     const effort = AI_EFFORTS.anthropic.includes(cfg.effort) ? cfg.effort : "low";
     const deep = ["xhigh", "max"].includes(cfg.effort);
@@ -519,8 +645,10 @@ export async function aiCompleteWithTools(
         const response = await client.messages.create({
           model: cfg.model,
           max_tokens: deep ? 32000 : 16000,
-          system: request.instructions,
-          messages: history,
+          system: anthropicSystem(request),
+          // Segundo ponto de cache, móvel: o fim da rodada atual, que a
+          // próxima rodada do laço lê do cache.
+          messages: withCachePoint(history),
           tools,
           // Os modelos 5.5 não aceitam tool_choice forçado; "none" fecha.
           tool_choice: { type: final ? "none" : "auto" },
@@ -528,6 +656,7 @@ export async function aiCompleteWithTools(
             ? { effort, format: zodOutputFormat(schema) }
             : { effort },
         } as any);
+        addUsage(request.usage, "anthropic", response.usage);
         checkStop(response.stop_reason);
         return response;
       } catch (error) {
@@ -537,18 +666,9 @@ export async function aiCompleteWithTools(
   } else {
     const base = openaiBase(cfg);
     if (!base) throw new AiError("Provedor de IA inválido.", false);
-    const images = cfg.vision ? request.images || [] : [];
     messages = [
-      { role: "system", content: request.instructions },
-      {
-        role: "user",
-        content: images.length
-          ? [
-              { type: "text", text: request.input },
-              ...images.map((url) => ({ type: "image_url", image_url: { url } })),
-            ]
-          : request.input,
-      },
+      { role: "system", content: systemText(request) },
+      { role: "user", content: openaiContent(cfg, request) },
     ];
     complete = async (history, tools, final) => {
       const body: Record<string, any> = {
@@ -577,6 +697,7 @@ export async function aiCompleteWithTools(
       }
       if (!response.ok) throw httpError(response.status);
       const data = await response.json<any>().catch(() => null);
+      addUsage(request.usage, cfg.provider, data?.usage);
       const choice = data?.choices?.[0];
       if (!choice)
         throw new AiError("O provedor de IA respondeu fora do formato.", false);
@@ -601,6 +722,20 @@ export async function aiCompleteWithTools(
     conn.id,
   );
   return finalText(request, result.text);
+}
+
+/**
+ * Cópia do histórico com o ponto de cache no último bloco da última
+ * mensagem (o histórico do laço não muda). Com o do sistema, dois pontos.
+ */
+export function withCachePoint(history: any[]): any[] {
+  if (!history.length) return history;
+  const last = history[history.length - 1];
+  const blocks: any[] =
+    typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content || [])];
+  if (!blocks.length) return history;
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  return [...history.slice(0, -1), { ...last, content: blocks }];
 }
 
 function checkStop(reason: string | null) {

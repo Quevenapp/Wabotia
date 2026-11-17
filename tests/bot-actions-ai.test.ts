@@ -88,8 +88,16 @@ describe("laço de ferramentas: modo equipe (Anthropic)", () => {
     expect(calls[0].url).toBe("https://api.anthropic.com/v1/messages");
     expect(calls[0].body.tools.map((t: any) => t.name)).toEqual(["buscar_operacoes", "consultar", "propor_acao"]);
     expect(calls[0].body.tool_choice).toEqual({ type: "auto" });
-    expect(calls[0].body.system).toContain("propor_acao");
-    expect(calls[0].body.system).not.toContain("Você não tem ferramentas");
+    const system = calls[0].body.system.map((b: any) => b.text).join("");
+    expect(system).toContain("propor_acao");
+    expect(system).not.toContain("Você não tem ferramentas");
+    // Dois pontos de cache no máximo: o sistema estável e o fim da rodada.
+    const points = (body: any) =>
+      [...body.system, ...body.messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))].filter(
+        (b: any) => b.cache_control,
+      ).length;
+    expect(calls.map((c: any) => points(c.body))).toEqual([2, 2, 2]);
+    expect(calls[1].body.messages.at(-1).content.at(-1).cache_control).toEqual({ type: "ephemeral" });
     const results = calls[1].body.messages.at(-1).content;
     expect(results[0]).toMatchObject({ type: "tool_result", tool_use_id: "t1" });
     expect(results[0].content).toContain("os.create");
