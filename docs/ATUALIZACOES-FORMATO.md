@@ -493,6 +493,11 @@ quem digita é ele.
 5. **Se a completa estourar:** ensaiar a saída de emergência acima.
 6. **Ponte → formato 2:** uma `0.21.82` grande (o roteiro abaixo, passos 3
    a 8), com uma migração.
+   - Ela precisa de **commit próprio**: o atualizador decide pelo commit,
+     não pela versão, e um build sem commit grava o mesmo commit da ponte e
+     aparece como "nada disponível".
+   - Faça um commit local num worktree descartável, em HEAD destacado, sem
+     branch e sem push; ele fica órfão quando o worktree for apagado.
 7. **Fim:** apagar os dois Workers, o D1 e o R2 do ensaio, e a cópia local.
 
 ## Tamanhos medidos (0.20.0, `4ea7864`)

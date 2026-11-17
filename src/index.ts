@@ -299,7 +299,7 @@ app.get("/api/health", (c) =>
 // Só no build de teste do atualizador: o catálogo de teste vem do próprio R2
 // (scripts/release-test-upload.mjs). No build oficial a rota não existe.
 if (RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN)
-  app.get(TEST_CATALOG_PATH + "/releases/*", async (c) => {
+  app.get(`${TEST_CATALOG_PATH}/releases/*`, async (c) => {
     const path = c.req.path.slice(TEST_CATALOG_PATH.length + 1);
     if (!/^releases\/[a-zA-Z0-9._/-]+$/.test(path) || path.includes(".."))
       return c.notFound();
