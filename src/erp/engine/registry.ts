@@ -67,8 +67,8 @@ export interface RpcEnvironment {
 }
 
 /** Motivo de recusa do portão. */
-export type GateDenial = "outside_schedule" | "mfa_required";
-/** Recusa do portão: a costura a devolve como 403 ERP_ACCESS_OUTSIDE_SCHEDULE / ERP_MFA_REQUIRED. */
+export type GateDenial = "outside_schedule" | "mfa_required" | "agent_out_of_scope";
+/** Recusa do portão: a costura a devolve como 403 ERP_ACCESS_OUTSIDE_SCHEDULE / ERP_MFA_REQUIRED / ERP_AGENT_ACCESS_DENIED. */
 export class ErpGateDenied extends ErpError {
   readonly reason: GateDenial;
   constructor(reason: GateDenial) {

@@ -47,6 +47,12 @@ registerRpc("erp_access_gate_v2", (ctx: RpcContext, a: RpcArgs) => {
 registerGate((ctx) => {
   const user = ctx.identity.actor?.user_id ?? null;
   if (!user || !one(ctx.db, 'SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1', user)) return null;
+  // erp_access.agent_allowed: agente (aplicação) com papel admin/financeiro ou
+  // permissão fina sensível (mfa_in_scope) é recusado a cada chamada, com a
+  // política de MFA ligada ou não. No Fagoo a recusa vem na resolução do
+  // token do agente; aqui, no portão. Identidade de sistema não passa pelo
+  // portão (chama o objeto sem GATE_HEADER).
+  if (ctx.identity.actor?.is_agent && mfaInScope(ctx.db, user)) return "agent_out_of_scope";
   if (!gateRequired(ctx.db, user)) return null;
   const now = ctx.clock.next();
   if (!scheduleAllows(ctx.db, user, now)) return "outside_schedule";
