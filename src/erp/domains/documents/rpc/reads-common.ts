@@ -1,6 +1,7 @@
 // Utilitários das leituras do Documentos (sessão L): o que o SQL das leituras
 // faz com ordem, texto e jsonb, com a semântica do oráculo.
 import { one, type SqlDriver } from "../../../engine/driver.ts";
+import { jsonbText } from "../../../engine/json.ts";
 import { pgCompareText } from "../../../engine/text.ts";
 
 /** ORDER BY de uuid no Postgres: os 16 bytes, a mesma ordem do texto em minúsculas. */
@@ -44,3 +45,36 @@ export const validIdList = (ids: unknown, max = 250): ids is string[] =>
 
 /** Booleano lido do SQLite (0/1). */
 export const bool = (v: unknown) => v === 1 || v === "1" || v === true;
+
+/** v #>> '{a,b,…}': o texto no caminho (objetos; índice inteiro em array), ou null. */
+export function jsonPathText(v: unknown, path: string[]): string | null {
+  let cur: unknown = v;
+  for (const k of path) {
+    if (cur === null || typeof cur !== "object") return null;
+    if (Array.isArray(cur)) {
+      if (!/^-?[0-9]+$/.test(k)) return null;
+      const i = Number(k);
+      cur = cur[i < 0 ? cur.length + i : i];
+    } else cur = (cur as Record<string, unknown>)[k];
+    if (cur === undefined) return null;
+  }
+  if (cur === null) return null;
+  return typeof cur === "string" ? cur : jsonbText(cur);
+}
+
+/** erp_documents.rich_text_plain(p_value): o texto dos blocos (runs juntos, blocos por quebra de linha); null sem blocos. */
+export function richTextPlain(value: unknown): string | null {
+  const blocks = value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).blocks : undefined;
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  return blocks
+    .map((b) => {
+      const runs = b !== null && typeof b === "object" && !Array.isArray(b) ? (b as Record<string, unknown>).runs : undefined;
+      if (!Array.isArray(runs)) return "";
+      return runs
+        .map((r) => (r !== null && typeof r === "object" && !Array.isArray(r) ? (r as Record<string, unknown>).text : undefined))
+        .filter((t) => t !== undefined && t !== null)
+        .map((t) => (typeof t === "string" ? t : jsonbText(t)))
+        .join("");
+    })
+    .join("\n");
+}

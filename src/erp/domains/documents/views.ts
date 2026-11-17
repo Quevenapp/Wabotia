@@ -9,7 +9,7 @@ import { rowJson, valueJson } from "../../engine/row-json.ts";
 import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { dto as catalogDto } from "../catalog/public.ts";
 import { preference } from "./internal.ts";
-import { bool, isAdmin, jsonbHas } from "./rpc/reads-common.ts";
+import { bool, isAdmin, jsonbHas, jsonPathText } from "./rpc/reads-common.ts";
 
 const col = (table: string, column: string) => ERP_TABLES[table].columns[column];
 const ts = (table: string, column: string, v: unknown) => valueJson(col(table, column), v);
@@ -223,4 +223,29 @@ export function checkoutView(db: SqlDriver, id: string) {
     data_mode: "erp_native",
     operational_effects: false,
   };
+}
+
+/** (p_body->>'date')::date + n dias, como texto AAAA-MM-DD. */
+const addDays = (date: string, days: number) => {
+  const t = Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) + days * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+};
+
+/** erp_documents.sale_body_from_proposal(p_body): o corpo do pedido a partir da proposta (data prevista pelo prazo de entrega). */
+export function saleBodyFromProposal(db: SqlDriver, body: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...body };
+  delete out.other_items;
+  delete out.commercial_conditions;
+  out.template = false;
+  if (preference(db, "propostas.data_prevista_prazo") === true) {
+    const days = jsonPathText(body, ["commercial", "transport", "delivery_days"]);
+    if (days !== null && /^(0|[1-9][0-9]{0,3})$/.test(days)) {
+      const cross = preference(db, "estoque.cross_docking_dias");
+      const extra = cross === null || cross === undefined ? 0 : Number(typeof cross === "string" ? cross : JSON.stringify(cross));
+      const date = String(body.date);
+      const expected = addDays(date, Number(days) + extra);
+      if (expected <= "2099-12-31") out.expected_date = expected;
+    }
+  }
+  return out;
 }

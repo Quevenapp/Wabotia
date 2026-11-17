@@ -7,5 +7,8 @@ import "./rpc/reads-lookup.ts";
 import "./rpc/reads-sales.ts";
 import "./rpc/reads-journal.ts";
 import "./rpc/reads-commerce.ts";
+import "./rpc/reads-proposal.ts";
+import "./rpc/reads-history.ts";
+import "./rpc/reads-reports.ts";
 
 export {};
