@@ -15,11 +15,28 @@ export function registerVolatileHash({ rpc, key, reason }) {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
-/** As duas pontas são sha256 numa chave declarada para este RPC. */
+/** Data e hora local sem fuso (to_char 'YYYY-MM-DD"T"HH24:MI:SS'): o relógio de cada motor. */
+const LOCAL_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+const stamps = new Map();
+
+/** Declara a chave `key` da resposta de `rpc` como data e hora local de uma linha criada na chamada. */
+export function registerVolatileStamp({ rpc, key, reason }) {
+  if (!rpc || !key || !reason) throw new Error("Data volátil: diga rpc, key e o motivo.");
+  const k = `${rpc}\u0000${key}`;
+  if (stamps.has(k)) throw new Error(`Data volátil ${rpc}.${key} já registrada.`);
+  stamps.set(k, Object.freeze({ rpc, key, reason }));
+}
+
+/** As duas pontas são sha256 (ou data local) numa chave declarada para este RPC. */
 export const volatileHash = (rpc, key, pg, lite) =>
-  rpc !== undefined && rpc !== null && key !== undefined && registry.has(`${rpc}\u0000${key}`) && HEX64.test(pg) && HEX64.test(lite);
+  rpc !== undefined && rpc !== null && key !== undefined &&
+  ((registry.has(`${rpc}\u0000${key}`) && HEX64.test(pg) && HEX64.test(lite)) ||
+    (stamps.has(`${rpc}\u0000${key}`) && LOCAL_STAMP.test(pg) && LOCAL_STAMP.test(lite)));
 
 // Estoque (N): a cadeia de recebimentos do pedido de compra inclui o id do
 // recebimento ou do estorno que o próprio RPC grava.
 for (const rpc of ["erp_purchase_receipts_receive", "erp_purchase_receipts_reverse"])
   registerVolatileHash({ rpc, key: "chain_hash", reason: "erp_purchase_receipts.chain_hash inclui o id novo do recebimento/estorno" });
+// Estoque (N): o registro de leituras da conferência mostra a hora local da leitura criada na própria chamada.
+for (const rpc of ["erp_stock_count_read", "erp_stock_count_delete", "erp_stock_count_warehouse", "erp_stock_count_restart"])
+  registerVolatileStamp({ rpc, key: "recorded_at_local", reason: "to_char(created_at, hora de São Paulo) da leitura gravada agora, relógio de cada motor" });
