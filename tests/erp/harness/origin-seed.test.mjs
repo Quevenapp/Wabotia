@@ -173,6 +173,45 @@ test("Catálogo (P): exportação e filtros origin_* dos produtos", async () => 
   const positive = await same("erp_catalog_product_page_v2", { p_user_id: u.admin, p_page: 1, p_size: 100, p_stock: "origin_positive" });
   assert.deepEqual(positive.items.map((i) => i.id), [product.id]);
 });
+test("Catálogo (P): espelho do contato e do produto (origin_mirror_get) e categorias da fonte", async () => {
+  for (const [entity, id] of [["contacts", contact.id], ["products", product.id]])
+    await same("erp_catalog_origin_mirror_get", { p_user_id: u.admin, p_entity: entity, p_id: id });
+  await seed(
+    `insert into erp_catalog.origin_mirror(entity,source_id,record_id,applied_hash,latest_hash,fields,source_updated_at) values('contacts','101',$1,$2,$2,$3::jsonb,now())`,
+    [contact.id, HASH, JSON.stringify({ nome: "Contato espelhado", source_roles: ["customer", "carrier"] })],
+  );
+  await seed("insert into erp_catalog.contact_role_complement(record_id,role,created_by) values($1,'carrier',$2)", [contact.id, u.admin]);
+  for (const [entity, id] of [["contacts", contact.id], ["products", product.id], ["contacts", product.id], ["x", contact.id]])
+    await same("erp_catalog_origin_mirror_get", { p_user_id: u.admin, p_entity: entity, p_id: id });
+  await same("erp_catalog_origin_mirror_get", { p_user_id: u.consulta, p_entity: "contacts", p_id: contact.id });
+  await same("erp_catalog_origin_categories", { p_user_id: u.admin });
+  await seed(
+    `insert into origin_sync.raw_record(entity,last_resource,source_id,payload,version_hash) values('product_categories','categorias/produtos','55','{"id":55,"descricao":"Ferramentas"}'::jsonb,$1),
+       ('product_categories','categorias/produtos','6','{"id":6,"descricao":"Peças"}'::jsonb,$1)`,
+    [HASH],
+  );
+  const category = (await f.rpc("erp_catalog_taxonomy_save", { p_user_id: u.admin, p_kind: "categories", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "Ferramentas" } })).item;
+  await seed(
+    `insert into erp_catalog.taxonomy_source(kind,system,source_id,taxonomy_id,source_parent_id,source_hash,source_name,inactive,issue)
+     values('categories','origin','55',$1,null,$2,'Ferramentas',false,null),('categories','origin','6',null,'55',$3,'Peças',true,'parent_missing')`,
+    [category.id, HASH, "d".repeat(64)],
+  );
+  await same("erp_catalog_origin_categories", { p_user_id: u.admin });
+});
+test("Catálogo (P): produtos apagados na fonte (origin_deletions)", async () => {
+  const deletions = (args = {}) => same("erp_catalog_origin_deletions", { p_user_id: u.admin, p_limit: 50, p_after: null, ...args });
+  await deletions();
+  // O produto espelhado (202) apagado na fonte: entra como "delete".
+  await seed(`update origin_sync.raw_record set payload=payload||'{"situacao":"E"}'::jsonb where entity='products' and source_id='202'`);
+  const listed = await deletions();
+  assert.deepEqual(listed.items.map((i) => [i.id, i.action]), [[product.id, "delete"]]);
+  for (const args of [{ p_limit: 0 }, { p_limit: 101 }, { p_after: product.id }, { p_after: "00000000-0000-0000-0000-000000000000" }]) await deletions(args);
+  await same("erp_catalog_origin_deletions", { p_user_id: u.consulta, p_limit: 10, p_after: null });
+  await seed(`update origin_sync.raw_record set payload=payload||'{"_brufap_source":{"deleted":true},"situacao":"A"}'::jsonb where entity='products' and source_id='202'`);
+  await deletions();
+  await seed(`update origin_sync.raw_record set payload=payload-'_brufap_source'-'situacao' where entity='products' and source_id='202'`);
+  await deletions();
+});
 
 // Preferências, Fiscal e CNAB (G). O título importado do Origin
 // (erp_finance.origin_import_origin) no CNAB já é semeado no oráculo e
