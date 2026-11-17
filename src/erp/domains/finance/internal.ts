@@ -201,6 +201,8 @@ export function replayed(db: SqlDriver, command: string, actor: string, hash: st
 }
 
 const reservedCommands = new WeakMap<RpcContext, Set<string>>();
+/** Recibo reservado nesta transação e ainda sem resultado: no Postgres ele ainda não existe (FK adiada). */
+export const isReserved = (ctx: RpcContext, id: string) => !!reservedCommands.get(ctx)?.has(id);
 /**
  * Reserva o recibo antes do fim do RPC, para as tabelas cuja FK para
  * erp_finance.command é DEFERRABLE INITIALLY DEFERRED no Postgres (transfer,
@@ -212,6 +214,8 @@ export function reserveCommand(ctx: RpcContext, id: string, actor: string, hash:
   let set = reservedCommands.get(ctx);
   if (!set) reservedCommands.set(ctx, (set = new Set()));
   if (set.has(id)) return;
+  // Um recibo de outra transação já satisfaz a FK: nada a reservar.
+  if (one(ctx.db, 'SELECT 1 x FROM "erp_finance__command" WHERE id=?', id)) return;
   set.add(id);
   ctx.db.exec(
     'INSERT INTO "erp_finance__command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
@@ -224,8 +228,11 @@ export function reserveCommand(ctx: RpcContext, id: string, actor: string, hash:
 }
 
 export function insertCommand(ctx: RpcContext, id: string, actor: string, hash: string, result: unknown) {
-  if (reservedCommands.get(ctx)?.has(id)) {
-    ctx.db.exec('UPDATE "erp_finance__command" SET result=? WHERE id=?', JSON.stringify(result), id);
+  const set = reservedCommands.get(ctx);
+  if (set?.has(id)) {
+    // A reserva pode ter vindo de outra escrita (cnab_cash_plan): o recibo final é deste comando.
+    ctx.db.exec('UPDATE "erp_finance__command" SET actor=?, request_hash=?, result=? WHERE id=?', actor, hash, JSON.stringify(result), id);
+    set.delete(id);
     return;
   }
   ctx.db.exec(
