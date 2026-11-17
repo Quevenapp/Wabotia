@@ -95,6 +95,12 @@ export interface RpcOptions {
   objects?: (args: RpcArgs, db?: SqlDriver) => string[];
   /** O RPC soma ou lista todos os objetos da área (storage.objects inteiro). */
   listing?: boolean;
+  /**
+   * O RPC cria trabalho para o agendador (tarefa da plataforma): depois de
+   * dar certo, a rota /erp-rpc antecipa o alarme do objeto para daqui a 1 s
+   * (o mais cedo vence, como o /erp-wake; docs/ERP-AGENDADOR.md).
+   */
+  wake?: boolean;
 }
 
 const registry = new Map<string, RpcFn>();
@@ -108,6 +114,8 @@ export function registerBeforeRpc(fn: (ctx: RpcContext) => void) {
 
 /** O RPC pede a listagem de todos os objetos da área? */
 export const rpcWantsListing = (name: string) => options.get(name)?.listing === true;
+/** O RPC acorda o agendador quando dá certo? */
+export const rpcWakes = (name: string) => options.get(name)?.wake === true;
 
 /** Domínios registram as funções públicas (o nome do Postgres, sem schema). */
 export function registerRpc(name: string, fn: RpcFn, opts: RpcOptions = {}) {
