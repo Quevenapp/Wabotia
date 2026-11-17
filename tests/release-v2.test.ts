@@ -42,7 +42,11 @@ import {
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
+  LEGACY_MAX_PACKAGE,
+  legacyProblems,
+  releaseOutputs,
   renewalNotice,
+  slimAsset,
 } from "../scripts/release-plan.mjs";
 import {
   buildRelease,
@@ -135,9 +139,7 @@ describe("formato 2: índice e manifesto", () => {
     ).toThrow();
     const at = index.issued_at;
     expect(() => validateIndexV2(index, index.expires + 1)).toThrow(/venceu/);
-    expect(() => validateIndexV2(index, at - 2 * 86400000)).toThrow(
-      /futuro/,
-    );
+    expect(() => validateIndexV2(index, at - 2 * 86400000)).toThrow(/futuro/);
     // Pacote de teste não vale no build oficial.
     expect(() =>
       validateIndexV2({ ...index, test_origin: "https://teste.example" }),
@@ -241,20 +243,48 @@ describe("formato 2: índice e manifesto", () => {
     expect(excludedAsset("releases/blobs/x")).toBe(true);
     expect(excludedAsset("assets/app.js")).toBe(false);
     const frozen = { version: LAST_FORMAT1 };
-    expect(LAST_FORMAT1).toBe("0.20.0");
-    // A primeira de formato 2 passa da última do formato 1.
+    // A 0.21.0 é a última publicada só no formato 1; a ponte vem depois dela.
+    expect(LAST_FORMAT1).toBe("0.21.0");
     expect(() =>
-      checkVersionOrder({ version: "0.20.0", current: null, frozen, manifestSha: "a" }),
-    ).toThrow(/maior que a 0\.20\.0/);
-    checkVersionOrder({ version: "0.21.0", current: null, frozen, manifestSha: "a" });
-    const current = { version: "0.21.0", manifest_sha256: "a" };
+      checkVersionOrder({
+        version: "0.21.0",
+        current: null,
+        frozen,
+        manifestSha: "a",
+      }),
+    ).toThrow(/maior que a 0\.21\.0/);
+    checkVersionOrder({
+      version: "0.21.1",
+      current: null,
+      frozen,
+      manifestSha: "a",
+    });
+    const current = { version: "0.21.1", manifest_sha256: "a" };
     expect(() =>
-      checkVersionOrder({ version: "0.20.5", current, frozen, manifestSha: "b" }),
+      checkVersionOrder({
+        version: "0.21.0",
+        current,
+        frozen,
+        manifestSha: "b",
+      }),
+    ).toThrow(/maior que a 0\.21\.0/);
+    expect(() =>
+      checkVersionOrder({
+        version: "0.21.1",
+        current: { version: "0.22.0", manifest_sha256: "a" },
+        frozen,
+        manifestSha: "b",
+      }),
     ).toThrow(/menor que a publicada/);
     // Mesma versão: só com o mesmo manifesto (renovação).
-    checkVersionOrder({ version: "0.21.0", current, frozen, manifestSha: "a" });
+    checkVersionOrder({ version: "0.21.1", current, frozen, manifestSha: "a" });
     expect(() =>
-      checkVersionOrder({ version: "0.21.0", current, frozen, manifestSha: "b" }),
+      checkVersionOrder({
+        version: "0.21.1",
+        current,
+        frozen,
+        manifestSha: "b",
+      }),
     ).toThrow(/versão nova/);
     checkVersionOrder({ version: "0.22.0", current, frozen, manifestSha: "b" });
     expect(insideRepository("/repo/chaves/x.pem", "/repo")).toBe(true);
@@ -269,6 +299,95 @@ describe("formato 2: índice e manifesto", () => {
     expect(renewalNotice(issued, 60 * day)).toMatch(/vence em 30 dia/);
     expect(renewalNotice(issued, 91 * day)).toMatch(/VENCEU/);
   });
+
+  it("ponte: só uma, sem versão mínima; as seguintes exigem a ponte e nunca escrevem o formato 1", () => {
+    // A primeira ponte.
+    expect(
+      releaseOutputs({ bridge: true, version: "0.21.1", bridgeRecord: null }),
+    ).toEqual({ legacy: true, min_version: "0.0.0" });
+    // Refazer a mesma ponte (mesma versão) ainda vale; outra ponte, não.
+    const bridgeRecord = { version: "0.21.1", commit: "a".repeat(40) };
+    releaseOutputs({ bridge: true, version: "0.21.1", bridgeRecord });
+    expect(() =>
+      releaseOutputs({ bridge: true, version: "0.22.0", bridgeRecord }),
+    ).toThrow(/ponte já foi publicada \(0\.21\.1\)/);
+    expect(() =>
+      releaseOutputs({
+        bridge: true,
+        version: "0.21.1",
+        bridgeRecord: null,
+        minVersion: "0.21.0",
+      }),
+    ).toThrow(/não exige versão mínima/);
+    // Sem ponte publicada, nenhuma versão só de formato 2.
+    expect(() =>
+      releaseOutputs({ bridge: false, version: "0.22.0", bridgeRecord: null }),
+    ).toThrow(/Publique antes a versão ponte/);
+    // Depois dela: formato 2 só, exigindo a ponte (ou mais) instalada.
+    expect(
+      releaseOutputs({ bridge: false, version: "0.22.0", bridgeRecord }),
+    ).toEqual({ legacy: false, min_version: "0.21.1" });
+    expect(
+      releaseOutputs({
+        bridge: false,
+        version: "0.23.0",
+        bridgeRecord,
+        minVersion: "0.22.0",
+      }).min_version,
+    ).toBe("0.22.0");
+    expect(() =>
+      releaseOutputs({
+        bridge: false,
+        version: "0.22.0",
+        bridgeRecord,
+        minVersion: "0.21.0",
+      }),
+    ).toThrow(/menor que a ponte/);
+  });
+
+  it("ponte: o pacote de formato 1 respeita as travas do leitor da 0.21.0; a enxuta só tira as telas do ERP", () => {
+    const file = (name: string) => ({
+      name,
+      type: "text/plain",
+      data: "",
+      sha256: "",
+    });
+    const good = () => ({
+      main_module: "index.js",
+      modules: [{ ...file("index.js"), type: "application/javascript+module" }],
+      assets: [file("/index.html"), file("/assets/erp-fiscal-telas-x.js")],
+      migrations: [{ name: "0001_core.sql", statements: ["SELECT 1"] }],
+      durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
+      assets_config: {
+        not_found_handling: "single-page-application",
+        run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
+      },
+    });
+    expect(legacyProblems(good(), 1000)).toEqual([]);
+    expect(LEGACY_MAX_PACKAGE).toBe(24 * 1024 * 1024);
+    expect(legacyProblems(good(), LEGACY_MAX_PACKAGE + 1).join()).toMatch(
+      /acima de/,
+    );
+    const many = good();
+    many.assets = Array.from({ length: 101 }, (_, i) => file(`/a${i}.js`));
+    expect(legacyProblems(many, 1000).join()).toMatch(/101 estáticos/);
+    const migration = good();
+    migration.migrations = [
+      { name: "0002_x.sql", statements: Array(101).fill("SELECT 1") },
+    ];
+    expect(legacyProblems(migration, 1000).join()).toMatch(/migração fora/);
+    const durable = good();
+    durable.durable_migrations = [
+      { tag: "v2", new_sqlite_classes: ["Coordinator", "Outro"] },
+    ];
+    expect(legacyProblems(durable, 1000).join()).toMatch(/durable_migrations/);
+    // Enxuta: só os chunks do ERP do painel; o resto do painel fica.
+    expect(slimAsset("/assets/erp-fiscal-telas-BFmA_FTA.js")).toBe(true);
+    expect(slimAsset("/assets/erp-estilos-CBGO-jh0.css")).toBe(true);
+    expect(slimAsset("/assets/painel-DNr8UNmD.js")).toBe(false);
+    expect(slimAsset("/index.html")).toBe(false);
+    expect(slimAsset("/assets/sub/erp-x.js")).toBe(false);
+  });
 });
 
 describe("assinatura do índice e do manifesto", () => {
@@ -280,7 +399,11 @@ describe("assinatura do índice e do manifesto", () => {
     );
     const reserva = await buildRelease({ ...baseSpec(), signer: "reserva" });
     expect(
-      await verifySignature("index", reserva.indexBytes, reserva.indexSignature),
+      await verifySignature(
+        "index",
+        reserva.indexBytes,
+        reserva.indexSignature,
+      ),
     ).toBe("reserva");
     expect(
       (
@@ -316,9 +439,9 @@ describe("assinatura do índice e do manifesto", () => {
     await expect(parseIndex(r.indexBytes, null)).rejects.toThrow(
       /sem assinatura/,
     );
-    await expect(
-      parseManifest(r.index, r.manifestBytes, null),
-    ).rejects.toThrow(/sem assinatura/);
+    await expect(parseManifest(r.index, r.manifestBytes, null)).rejects.toThrow(
+      /sem assinatura/,
+    );
     await expect(
       parseIndex(r.indexBytes, Buffer.from("<html>")),
     ).rejects.toThrow(/arquivo de assinatura inválido/);
@@ -378,7 +501,9 @@ describe("assinatura do índice e do manifesto", () => {
     const large = [{ size: 20e6 }, { size: 20e6 }, { size: 1 }];
     expect(nextRound(large, 0)).toHaveLength(1);
     expect(nextRound(large, 1)).toHaveLength(1);
-    expect(nextRound([{ size: 10e6 }, { size: 6e6 }, { size: 2e6 }], 0)).toHaveLength(2);
+    expect(
+      nextRound([{ size: 10e6 }, { size: 6e6 }, { size: 2e6 }], 0),
+    ).toHaveLength(2);
   });
 
   it("lote de envio de estáticos aceita 250 e até 2.000 hashes", async () => {
@@ -466,7 +591,9 @@ describe("atualizador do formato 2", () => {
   const state = () => secret(e, "system:release-state");
 
   it("passa pelas etapas na ordem e lê só o que cada rodada usa", async () => {
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     const phases: string[] = [];
     for (let i = 0; i < 10; i++) {
       const before = (await state()).phase;
@@ -487,7 +614,9 @@ describe("atualizador do formato 2", () => {
     // Cada blob foi baixado uma vez; o manifesto, uma vez.
     const fetched = calls.filter((c) => c.url.includes("/releases/blobs/"));
     expect(fetched).toHaveLength(release.blobs.size);
-    expect(calls.filter((c) => c.url.endsWith("manifest.json"))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.endsWith("manifest.json"))).toHaveLength(
+      1,
+    );
   });
 
   it("exige a versão mínima instalada", async () => {
@@ -508,7 +637,9 @@ describe("atualizador do formato 2", () => {
     }));
     release = await buildRelease(s);
     bucketsFor = (h) => [h.slice(0, 250), h.slice(250)];
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(40);
     expect((await state()).status).toBe("requested");
     const uploads = calls.filter((c) => c.url.includes("/assets/upload"));
@@ -526,7 +657,8 @@ describe("atualizador do formato 2", () => {
     const s = baseSpec();
     const big = (seed: number) => {
       const bytes = new Uint8Array(20 * 1000 * 1000);
-      for (let i = 0; i < bytes.length; i += 4096) bytes[i] = (i / 4096 + seed) & 255;
+      for (let i = 0; i < bytes.length; i += 4096)
+        bytes[i] = (i / 4096 + seed) & 255;
       return bytes;
     };
     s.assets = [
@@ -537,7 +669,9 @@ describe("atualizador do formato 2", () => {
     release = await buildRelease(s);
     // A Cloudflare monta lotes que cabem num envio: aqui, um por arquivo.
     bucketsFor = (h) => h.map((x) => [x]);
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await processUpdate(e); // manifest
     const job = await state();
     expect(job.phase).toBe("blobs");
@@ -578,7 +712,9 @@ describe("atualizador do formato 2", () => {
 
   it("falha entre migrate e publish: banco migrado, nova tentativa não reaplica", async () => {
     publishFails = "hard";
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(20);
     const failed = await state();
     expect(failed).toMatchObject({ status: "failed", phase: "publish" });
@@ -616,7 +752,9 @@ describe("atualizador do formato 2", () => {
                 if (p === "first" && /^SELECT 1$/.test(sql))
                   return (...a: any[]) => {
                     if (++queries > 50)
-                      throw new Error("Too many API requests by single worker invocation.");
+                      throw new Error(
+                        "Too many API requests by single worker invocation.",
+                      );
                     return s.first(...a);
                   };
                 const v = s[p];
@@ -650,7 +788,9 @@ describe("atualizador do formato 2", () => {
   });
 
   it("concluída, os temporários do R2 são apagados", async () => {
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(20);
     const job = await state();
     expect(
@@ -668,7 +808,9 @@ describe("atualizador do formato 2", () => {
 
   it("limpeza: concluída antes de limpar, limpeza repetida se o R2 falhar, e restos de trabalhos antigos apagados no início", async () => {
     await env.MEDIA.put("system/releases/trabalho-antigo/b/x", "resto");
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     expect(
       (await env.MEDIA.list({ prefix: "system/releases/trabalho-antigo/" }))
         .objects,
@@ -687,7 +829,10 @@ describe("atualizador do formato 2", () => {
       },
     });
     const flaky = { ...e, MEDIA: media } as Env;
-    await setSecret(e, "system:release-state", { ...job, target: buildInfo.commit });
+    await setSecret(e, "system:release-state", {
+      ...job,
+      target: buildInfo.commit,
+    });
     expect((await updateStatus(flaky)).state?.status).toBe("completed");
     expect(await state()).toMatchObject({ cleanup_pending: true });
     expect(
@@ -704,6 +849,119 @@ describe("atualizador do formato 2", () => {
     ).toHaveLength(0);
   });
 
+  // Herança do formato 1: o que o atualizador da 0.21.0 deixou guardado
+  // quando a ponte começa a rodar.
+  const format1Job = (patch: Record<string, unknown>) => ({
+    id: "trabalho-formato-1",
+    index: {
+      format: 1,
+      version: "0.21.1",
+      commit: buildInfo.commit,
+      package_sha256: "a".repeat(64),
+      package_size: 23_670_000,
+    },
+    target: buildInfo.commit,
+    version: "0.21.1",
+    previous: "b".repeat(40),
+    status: "requested",
+    phase: "publish",
+    created: Date.now() - 60000,
+    updated: Date.now() - 30000,
+    source: "manual",
+    attempt: 1,
+    package_key: "system/releases/trabalho-formato-1.json",
+    ...patch,
+  });
+
+  it("herança do formato 1: o trabalho que publicou a ponte fecha e o pacote antigo sai do R2", async () => {
+    await env.MEDIA.put("system/releases/trabalho-formato-1.json", "{}");
+    await setSecret(e, "system:release-state", format1Job({}));
+    const status = await updateStatus(e);
+    expect(status.state).toMatchObject({
+      id: "trabalho-formato-1",
+      status: "completed",
+    });
+    expect(await state()).toMatchObject({
+      format1_settled: true,
+      cleanup_pending: false,
+      retryable: false,
+    });
+    // Fora do prefixo system/releases/<id>/: antes ficava esquecido.
+    expect(
+      await env.MEDIA.get("system/releases/trabalho-formato-1.json"),
+    ).toBeNull();
+    // Uma vez só: a próxima consulta não regrava o estado.
+    const settled = await state();
+    await updateStatus(e);
+    expect((await state()).updated).toBe(settled.updated);
+  });
+
+  it("herança do formato 1: o índice antigo em cache é ignorado e consultado de novo", async () => {
+    await setSecret(e, "system:release-latest", {
+      format: 1,
+      version: "0.21.1",
+      commit: "d".repeat(40),
+      package_sha256: "a".repeat(64),
+      package_size: 23_670_000,
+      checked_at: Date.now(),
+    });
+    // O painel não oferece o que este atualizador não instala.
+    const status = await updateStatus(e);
+    expect(status.latest).toBeNull();
+    expect(status.available).toBe(false);
+    // Sem força, o cache do formato 1 não vale: lê o índice v2.
+    const fetched = calls.length;
+    const index = await checkUpdate(e);
+    expect(index).toMatchObject({ format: 2, commit: target });
+    expect(
+      calls.slice(fetched).some((c) => c.url.endsWith("/v2/latest.json")),
+    ).toBe(true);
+    // E o do formato 2 vale como cache, como antes.
+    const again = calls.length;
+    await checkUpdate(e);
+    expect(calls.length).toBe(again);
+  });
+
+  it("herança do formato 1: um trabalho antigo ainda ativo para, sem nova tentativa, e a atualização recomeça no formato 2", async () => {
+    await env.MEDIA.put("system/releases/trabalho-formato-1.json", "{}");
+    await setSecret(
+      e,
+      "system:release-state",
+      format1Job({
+        target: "d".repeat(40),
+        status: "pending",
+        phase: "download",
+        source: "automatic",
+        retryable: true,
+      }),
+    );
+    const fetched = calls.length;
+    await processUpdate(e);
+    // Nada baixado do catálogo: o formato 2 não continua o trabalho antigo.
+    expect(calls.length).toBe(fetched);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      retryable: false,
+      retry_at: null,
+      format1_settled: true,
+      error: expect.stringMatching(/formato antigo/),
+    });
+    // Liberar e atualizar de novo: o pacote antigo sai e o formato 2 vai até o fim.
+    await resetUpdate(e, actor, { confirmed_build_stopped: true });
+    expect(
+      await env.MEDIA.get("system/releases/trabalho-formato-1.json"),
+    ).toBeNull();
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    expect(await state()).toMatchObject({
+      status: "pending",
+      phase: "manifest",
+    });
+    await run(20);
+    expect((await state()).status).toBe("requested");
+  });
+
   it("sem assinatura, chave desconhecida ou índice vencido: nenhuma atualização começa", async () => {
     for (const spec of [
       { ...baseSpec(), signer: null },
@@ -718,27 +976,31 @@ describe("atualizador do formato 2", () => {
       await expect(checkUpdate(e, true)).rejects.toThrow(
         /sem assinatura|chave desconhecida|venceu/,
       );
-      await expect(
-        startUpdate(e, actor, { commit: target }),
-      ).rejects.toThrow();
+      await expect(startUpdate(e, actor, { commit: target })).rejects.toThrow();
       expect(await state()).toEqual({});
     }
   });
 
   it("reserva assina e a atualização vai até o fim", async () => {
     release = await buildRelease({ ...baseSpec(), signer: "reserva" });
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(20);
     expect((await state()).status).toBe("requested");
   });
 
   it("manifesto alterado em um byte: para na etapa manifest sem gravar nada", async () => {
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     const altered = Buffer.from(release.manifestBytes);
     altered[5] ^= 1;
     override = (url) =>
       url.pathname.endsWith("/manifest.json")
-        ? new Response(altered, { headers: { "Content-Type": "application/json" } })
+        ? new Response(altered, {
+            headers: { "Content-Type": "application/json" },
+          })
         : null;
     await run(3);
     const job = await state();
@@ -786,7 +1048,9 @@ describe("atualizador do formato 2", () => {
     const s = baseSpec();
     s.migrations.push({ name: "0002_quebrada.sql", statements: [] });
     release = await buildRelease(s);
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(10);
     const job = await state();
     expect(job).toMatchObject({ status: "failed", phase: "prepare" });
@@ -795,7 +1059,10 @@ describe("atualizador do formato 2", () => {
       await one(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'"),
     ).toBeNull();
     expect(
-      await one(env, "SELECT name FROM sqlite_master WHERE name='d1_migrations'"),
+      await one(
+        env,
+        "SELECT name FROM sqlite_master WHERE name='d1_migrations'",
+      ),
     ).toBeNull();
     // Nem a sessão de envio de estáticos foi aberta.
     expect(
@@ -813,11 +1080,15 @@ describe("atualizador do formato 2", () => {
     release = await buildRelease(s);
     bucketsFor = (h) => [h.slice(0, 1), h.slice(1)];
     crashUpload = 1; // o segundo envio cai
-    await startUpdate(e, actor, { commit: (await checkUpdate(e, true)).commit });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
     await run(10);
     const failed = await state();
     expect(failed).toMatchObject({ status: "failed", phase: "assets" });
-    expect(await all(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'")).toHaveLength(0);
+    expect(
+      await all(env, "SELECT name FROM sqlite_master WHERE name='v2_probe'"),
+    ).toHaveLength(0);
     // Mesma regra da nova tentativa automática: `assets` volta a `prepare`.
     crashUpload = 0;
     await setSecret(e, "system:release-state", {

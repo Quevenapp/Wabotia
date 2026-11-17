@@ -107,7 +107,6 @@ export function automaticWindow(at: number, hour: number, windowHours: number) {
   };
 }
 
-
 export async function automaticUpdateStatus(env: Env) {
   const config = {
     ...automaticDefaults,
@@ -199,7 +198,10 @@ function failure(error: unknown): never {
 }
 export async function checkUpdate(env: Env, force = false) {
   const cached = await secret(env, latestId);
-  if (!force && cached.checked_at > now() - 300000) return cached;
+  // Só o índice do formato 2 vale como cache: o que a 0.21.0 guardou (formato
+  // 1) é consultado de novo.
+  if (!force && cached.format === 2 && cached.checked_at > now() - 300000)
+    return cached;
   try {
     // Índice do formato 2 com a assinatura e a validade conferidas.
     const index = await latestReleaseV2();
@@ -236,9 +238,47 @@ function publicState(state: any) {
     ].map((key) => [key, state[key]]),
   );
 }
+/**
+ * Herança do formato 1. O trabalho em `system:release-state` pode ter sido
+ * criado pelo atualizador da 0.21.0 (ou anterior): índice de formato 1, o
+ * pacote inteiro em `package_key` (system/releases/<id>.json, fora do prefixo
+ * do trabalho) e etapas que o formato 2 não tem (`download`). Na primeira
+ * leitura depois da ponte ele é fechado uma vez:
+ * - o que publicou o código em execução (a própria ponte) fica concluído;
+ * - qualquer outro ainda ativo vira falho, sem nova tentativa automática: o
+ *   formato 2 não continua um trabalho do formato 1 ("Liberar nova
+ *   tentativa" e atualizar de novo);
+ * - o pacote antigo sai do R2 (cleanup_pending, como na conclusão).
+ */
+export async function settleFormat1Job(env: Env) {
+  const state = await secret(env, stateId);
+  if (!state.id || state.format1_settled || state.index?.format === 2)
+    return state;
+  const at = now();
+  if (state.target === buildInfo.commit) {
+    if (state.status !== "completed") {
+      state.status = "completed";
+      state.completed_at = at;
+    }
+  } else if (activeStatuses.includes(state.status)) {
+    state.status = "failed";
+    state.error =
+      "Esta atualização começou na versão anterior, no formato antigo, e não continua nesta. Libere uma nova tentativa e atualize de novo.";
+  }
+  state.retryable = false;
+  state.retry_at = null;
+  state.format1_settled = true;
+  if (state.package_key) state.cleanup_pending = true;
+  state.updated = at;
+  await setSecret(env, stateId, state);
+  return state;
+}
 export async function updateStatus(env: Env) {
-  const state = await secret(env, stateId),
-    latest = await secret(env, latestId);
+  const state = await settleFormat1Job(env),
+    stored = await secret(env, latestId),
+    // O índice guardado pela 0.21.0 (formato 1) não descreve uma versão que
+    // este atualizador instale.
+    latest: any = stored.format === 2 ? stored : {};
   if (state.target === buildInfo.commit && state.status !== "completed") {
     // Concluída primeiro; a limpeza do R2 vem depois e, se falhar, é
     // repetida na próxima consulta (cleanup_pending).
@@ -318,7 +358,7 @@ async function startDirectUpdate(env: Env, data: any, source = "manual") {
     isDirect(env) && (await tokenFor(env)),
     "Configure a autorização Cloudflare para atualizar esta instalação.",
   );
-  const old = await secret(env, stateId);
+  const old = await settleFormat1Job(env);
   if (activeStatuses.includes(old.status)) return publicState(old);
   const index = await checkUpdate(env);
   requireValue(
@@ -535,7 +575,7 @@ export async function processUpdate(env: Env) {
   return updateLock(env, () => processDirectUpdate(env), true);
 }
 async function processDirectUpdate(env: Env) {
-  const state = await secret(env, stateId);
+  const state = await settleFormat1Job(env);
   if (state.status !== "pending") return;
   if (
     state.source === "automatic" &&
@@ -640,6 +680,13 @@ async function deletePrefix(env: Env, prefix: string, keep?: string) {
 /** Apaga tudo o que o trabalho guardou no R2. */
 export async function dropTemporary(env: Env, state: any) {
   if (state.id) await deletePrefix(env, workPrefix(state.id));
+  // Trabalho do formato 1 (settleFormat1Job): o pacote inteiro ficava fora do
+  // prefixo, em system/releases/<id>.json.
+  if (
+    typeof state.package_key === "string" &&
+    state.package_key.startsWith("system/releases/")
+  )
+    await env.MEDIA.delete(state.package_key);
 }
 
 /**
@@ -691,8 +738,7 @@ function blobReader(env: Env, state: any) {
  */
 export async function paidPlanProbe(env: Env, queries = 60) {
   try {
-    for (let i = 0; i < queries; i++)
-      await env.DB.prepare("SELECT 1").first();
+    for (let i = 0; i < queries; i++) await env.DB.prepare("SELECT 1").first();
   } catch {
     throw new ApiError(
       409,
@@ -772,7 +818,10 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
   if (state.phase === "assets") {
     // A Cloudflare pede que cada lote vá inteiro num só envio. Só a
     // resposta do último lote da sessão traz o token de conclusão.
-    const bucket = assetsForHashes(manifest, state.upload.buckets[state.bucket]);
+    const bucket = assetsForHashes(
+      manifest,
+      state.upload.buckets[state.bucket],
+    );
     const result = await releaseCloudflare(
       state.upload.jwt,
       `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,

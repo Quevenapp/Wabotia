@@ -534,6 +534,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   Etapa:{" "}
                   {(
                     {
+                      download: "baixando a versão",
                       manifest: "conferindo a versão",
                       blobs: "baixando arquivos",
                       prepare: "verificando instalação",
