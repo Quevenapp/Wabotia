@@ -11,7 +11,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgBtrim, pgHasCntrl, pgLength } from "../../../engine/text.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import * as preferences from "../../preferences/public.ts";
-import { QTY, QTY_MAX, commandTaken, derivedCommand, requireAccess, reservationWriteAccess, sha256 } from "../internal.ts";
+import { QTY, QTY_MAX, commandTaken, derivedCommand, insertBalanceCount, requireAccess, reservationWriteAccess, sha256 } from "../internal.ts";
 import { entryDecimals, priceText } from "../ledger.ts";
 import { post } from "./erp_stock_post.ts";
 
@@ -138,15 +138,7 @@ export function erpStockLaunch(ctx: RpcContext, a: RpcArgs) {
     'INSERT INTO "erp_stock__movement_detail"(movement_id, product_id, revision, unit_price, unit_cost, note, actor, command_id, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     movement, product!.toLowerCase(), 1, unitPrice, unitCost, finalNote, user, command, ctx.clock.next().toString(),
   );
-  if (kind === "balance") {
-    // guard_balance_count: ajuste de um só lançamento, com a diferença contada.
-    const e = db.exec('SELECT product_id, warehouse_id, CAST(quantity AS TEXT) q, CAST(balance_after AS TEXT) after FROM "erp_stock__entry" WHERE movement_id=?', movement).rows;
-    if (e.length !== 1 || fromColumn(e[0].q) !== qty - current || fromColumn(e[0].after) !== qty) raise("22023", "erp_stock_balance_count_invalid");
-    db.exec(
-      'INSERT INTO "erp_stock__balance_count"(movement_id, product_id, warehouse_id, counted, previous, source, created_at) VALUES(?,?,?,?,?,?,?)',
-      movement, product!.toLowerCase(), warehouse!.toLowerCase(), qty.toString(), current.toString(), "launch", ctx.clock.next().toString(),
-    );
-  }
+  if (kind === "balance") insertBalanceCount(ctx, movement, product!.toLowerCase(), warehouse!.toLowerCase(), qty, current, "launch");
   reservationWriteAccess(db, user);
   return { ...result, replayed: false };
 }
