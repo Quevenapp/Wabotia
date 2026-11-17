@@ -20,6 +20,16 @@ export {
   guardDocument, guardItem, guardPostedDocument, guardPostedItem, guardReservedDocument, guardReservedItem,
 } from "./document-guards.ts";
 export { averageCosts } from "./costs.ts";
+// Bloco 2 (efeito de documento): o transition_action do Documentos chama os
+// públicos; as internas ficam visíveis para quem precisar delas.
+export {
+  componentProblem, componentQuantity, compositionLines, documentEligible, documentItemLots, documentPostingSummary, documentSummary,
+  erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse, erpDocumentStockReversePreview, itemCompositionLines,
+  lotProductProblem,
+} from "./rpc/document-stock.ts";
+export { post } from "./rpc/erp_stock_post.ts";
+export { balanceKept, derivedCommand, lotApply, reservationWriteAccess } from "./internal.ts";
+export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
 export { reserveStatuses, settingsDto } from "./read.ts";
 
 // ---------------------------------------------------------------------------

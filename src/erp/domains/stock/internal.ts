@@ -9,6 +9,7 @@ import { raise } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
+import * as preferences from "../preferences/public.ts";
 import * as sync from "../sync/public.ts";
 
 export const QTY = 6;
@@ -141,13 +142,21 @@ export function insertEntry(
     toParam(e.balanceAfter),
     e.balanceVersion,
   );
-  // reverse_stock_lot_entries: só para estornos (o erp_stock_post recusa).
+  // reverse_stock_lot_entries: o estorno devolve as linhas de lote do lançamento.
   const reversal = one(
     ctx.db,
     `SELECT reverses_id FROM "erp_stock__movement" WHERE id=? AND kind='reversal'`,
     e.movement,
   );
-  if (reversal?.reverses_id) raise("0A000", "rpc_not_ported:erp_stock.reverse_lot_entries");
+  if (reversal?.reverses_id) {
+    const lots = ctx.db.exec(
+      'SELECT lot_id, CAST(quantity AS TEXT) q FROM "erp_stock__lot_entry" WHERE movement_id=? AND product_id=? AND warehouse_id=? ORDER BY lot_id',
+      reversal.reverses_id,
+      e.product,
+      e.warehouse,
+    ).rows;
+    for (const l of lots) lotApply(ctx, e.movement, e.product, e.warehouse, String(l.lot_id), -fromColumn(l.q));
+  }
   // zz_origin_sync: erp_sync.capture_stock
   sync.enqueue(ctx, "stock", e.movement, "stock", e.ordinal, {
     product_id: e.product,
@@ -188,6 +197,81 @@ export function movementDto(db: SqlDriver, id: string) {
         }))
       : null,
   };
+}
+
+/**
+ * erp_stock.lot_apply: soma a quantidade ao saldo do lote no depósito e grava
+ * a linha do lote (com a guarda guard_lot_entry). O lote nunca fica negativo.
+ */
+export function lotApply(ctx: RpcContext, movement: string, product: string, warehouse: string, lot: string, quantity: bigint) {
+  const db = ctx.db;
+  if (!one(db, 'SELECT 1 x FROM "erp_stock__lot_balance" WHERE lot_id=? AND warehouse_id=?', lot, warehouse))
+    db.exec('INSERT INTO "erp_stock__lot_balance"(lot_id, warehouse_id, updated_at) VALUES(?,?,?)', lot, warehouse, ctx.clock.next().toString());
+  const b = one(db, 'SELECT CAST(quantity AS TEXT) q, version FROM "erp_stock__lot_balance" WHERE lot_id=? AND warehouse_id=?', lot, warehouse)!;
+  const after = fromColumn(b.q) + quantity;
+  if (after < 0n) raise("22023", "erp_stock_lot_insufficient");
+  if (after > MAX || b.version === 2147483647) raise("22023", "erp_stock_insufficient_or_excess_quantity");
+  db.exec(
+    'UPDATE "erp_stock__lot_balance" SET quantity=quantity+?, version=version+1, updated_at=? WHERE lot_id=? AND warehouse_id=?',
+    toParam(quantity),
+    ctx.clock.next().toString(),
+    lot,
+    warehouse,
+  );
+  guardLotEntry(db, movement, product, warehouse, lot, quantity);
+  db.exec(
+    'INSERT INTO "erp_stock__lot_entry"(movement_id, product_id, warehouse_id, lot_id, quantity, balance_after, created_at) VALUES(?,?,?,?,?,?,?)',
+    movement,
+    product,
+    warehouse,
+    lot,
+    toParam(quantity),
+    toParam(after),
+    ctx.clock.next().toString(),
+  );
+  return { warehouse_id: warehouse, quantity: formatScaled(quantity, QTY), balance_after: formatScaled(after, QTY) };
+}
+
+/** erp_stock.guard_lot_entry (BEFORE INSERT de lot_entry; UPDATE/DELETE: gatilho gerado). */
+function guardLotEntry(db: SqlDriver, movement: string, product: string, warehouse: string, lot: string, quantity: bigint) {
+  const line = one(db, 'SELECT CAST(quantity AS TEXT) q FROM "erp_stock__entry" WHERE movement_id=? AND product_id=? AND warehouse_id=?', movement, product, warehouse);
+  const split =
+    fromColumn(
+      one(db, 'SELECT CAST(coalesce(sum(quantity),0) AS TEXT) q FROM "erp_stock__lot_entry" WHERE movement_id=? AND product_id=? AND warehouse_id=?', movement, product, warehouse)!.q,
+    ) + quantity;
+  const sign = (v: bigint) => (v > 0n ? 1 : v < 0n ? -1 : 0);
+  const abs = (v: bigint) => (v < 0n ? -v : v);
+  const v = line ? fromColumn(line.q) : null;
+  if (v === null || sign(v) !== sign(quantity) || abs(split) > abs(v) || !one(db, 'SELECT 1 x FROM "erp_stock__lot" WHERE id=? AND product_id=?', lot, product))
+    raise("22023", "erp_stock_lot_entry_invalid");
+}
+
+/**
+ * erp_stock.balance_kept: com "estorno de lançamento anterior ao balanço"
+ * desligado, a posição contada depois do lançamento mantém o saldo no estorno.
+ */
+export function balanceKept(db: SqlDriver, movement: string, product: string, warehouse: string): boolean {
+  if (preferences.get(db, "estoque.estorno_balanco") !== false) return false;
+  if (one(db, `SELECT 1 x FROM "erp_stock__movement" WHERE id=? AND kind='reversal'`, movement)) return false;
+  return !!one(
+    db,
+    `SELECT 1 x FROM "erp_stock__balance_count" c JOIN "erp_stock__movement" b ON b.id=c.movement_id JOIN "erp_stock__movement" o ON o.id=?
+      WHERE c.product_id=? AND c.warehouse_id=? AND b.created_at>o.created_at AND NOT EXISTS(SELECT 1 FROM "erp_stock__movement" x WHERE x.reverses_id=b.id)`,
+    movement,
+    product,
+    warehouse,
+  );
+}
+
+/** erp_stock.derived_command(p_command, p_part): id determinístico dos ajustes de compensação do estorno. */
+export function derivedCommand(command: string, part: string): string {
+  const h = createHash("md5").update(`stock-reverse-balance-145:${part}:${command}`, "utf8").digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** erp_stock.reservation_write_access: a linha do usuário (for share, sem efeito no SQLite) e o acesso de escrita. */
+export function reservationWriteAccess(db: SqlDriver, user: string) {
+  requireAccess(db, user, true);
 }
 
 export const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
