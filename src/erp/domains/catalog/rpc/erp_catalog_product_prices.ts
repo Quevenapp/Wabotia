@@ -3,7 +3,7 @@
 // da lista) e public.erp_catalog_product_prices_update (Atualizar preços:
 // venda e custo do fornecedor, tudo ou nada). Com a preferência de composição
 // ligada, as composições que usam os produtos são recalculadas.
-// Fora (Origin desligado): o UPDATE de erp_catalog.origin (tabela vazia).
+// O UPDATE de erp_catalog.origin ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";

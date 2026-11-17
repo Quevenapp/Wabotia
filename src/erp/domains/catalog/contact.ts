@@ -1,9 +1,8 @@
 // Contatos: escopo do vendedor e situação (erp_catalog.contact_scope,
 // contact_situation, contact_source_situation, contact_situation_of).
-// contact_source_situation lia a situação do contato espelhado do Origin
-// (erp_catalog.origin + source_snapshot.payload->>'situacao'). Com o Origin
-// desligado (desvio origin-fora) não há contato espelhado: devolve sempre
-// null, e a situação vem só do perfil nativo (contact_profile.situation).
+// contact_source_situation lê a situação do contato espelhado do Origin
+// (erp_catalog.origin + source_snapshot.payload->>'situacao'): regra "Origin
+// fora", leitura de linha espelhada se porta como leitura.
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import * as preferences from "../preferences/public.ts";
@@ -41,8 +40,19 @@ export function contactSituation(active: boolean | null, detail: string | null):
   return detail === "E" ? "E" : "I";
 }
 
-/** erp_catalog.contact_source_situation(p_id): só do Origin; desligado, sempre null. */
-export const contactSourceSituation = (_db: SqlDriver, _id: string | null): string | null => null;
+/** SQL de erp_catalog.contact_source_situation para a expressão de id `record` (a situação no payload do snapshot aplicado). */
+export const SOURCE_SITUATION_SQL = (record: string) =>
+  `(SELECT json_extract(s.payload,'$.situacao') FROM "erp_catalog__origin" o JOIN "erp_catalog__source_snapshot" s
+    ON s.entity=o.entity AND s.source_id=o.source_id AND s.source_hash=o.applied_hash
+    WHERE o.record_id=${record} AND o.entity='contacts')`;
+
+/** erp_catalog.contact_source_situation(p_id): a situação do contato espelhado (payload->>'situacao'), ou null. */
+export function contactSourceSituation(db: SqlDriver, id: string | null): string | null {
+  if (id === null) return null;
+  const r = one(db, `SELECT ${SOURCE_SITUATION_SQL("?")} v`, id);
+  const v = r?.v;
+  return v === null || v === undefined ? null : typeof v === "string" ? v : JSON.stringify(v);
+}
 
 /** erp_catalog.contact_situation_of(p_id): situação do contato (null se não é contato). */
 export function contactSituationOf(db: SqlDriver, id: string | null): string | null {
