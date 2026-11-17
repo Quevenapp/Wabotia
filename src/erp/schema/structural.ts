@@ -119,15 +119,6 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
       "Rotina retention (diária, 03:10 de São Paulo, src/erp/scheduler/routines.ts): apaga tarefa done/failed terminada há mais de 90 dias, com as tentativas, em lotes de 100. Fica a tarefa ligada a uma exportação (linha imutável com FK). Os gatilhos do Fagoo são cumpridos em código no motor (domains/preferences/platform.ts), e o SQLite não tem gatilho contra o DELETE. Os recibos de comando (tabelas *command) ficam de fora.",
   },
   {
-    id: "reforma-classificacao",
-    oracle:
-      "Nada: o Fagoo não tem campo de IBS, CBS nem IS (o motor de impostos os deixa \"como digitados\" e o complemento os exclui, not_included_in_profile); as regras da natureza só aceitam icms, ipi, pis, cofins e ii (nature_rule_tax_check).",
-    reason:
-      "Reforma tributária do consumo: a nota leva o grupo IBS/CBS (CST e cClassTrib) e o cofre da NFapi o aceita. Decisão da orquestração (17/11/2026, plano do Fiscal): classificar no cadastro sem mudar os checks nem as colunas do Fagoo; quem calcula os valores (cofre ou ERP) ainda é decisão do usuário, então o motor guarda a classificação e o resultado, não a regra.",
-    replaced_by:
-      "Tabelas só do motor (schema/engine-tables.ts, versão 7): erp_fiscal_reform__nature_class (padrão e exceções por NCM, produto ou grupo de cada natureza; RPCs erp_fiscal_reform_nature_class_get e _save, só do motor) e erp_fiscal_reform__product_class (do produto, com NBS do serviço; a escrita é combinada com o Catálogo). Resolução: produto > exceção da natureza > padrão da natureza (domains/fiscal/reform.ts).",
-  },
-  {
     id: "certificado-a1-cofre",
     oracle:
       "erp_pos.certificate_state() lê erp_a1.head e erp_a1.credential (o A1 guardado no banco do Fagoo) e devolve missing, unknown, expired ou valid no contexto da frente de caixa (erp_pos_context.certificate)",
@@ -136,5 +127,14 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by:
       "erp_pos_context devolve certificate='missing' (src/erp/domains/pos/internal.ts, certificateState). Quando o Fiscal chegar ao bloco de emissão, o Worker leva o estado do cofre (GET /v1/cofre, certificado.validoAte) num envelope, como a identidade, e o motor troca o missing por ele. O aviso principal do certificado fica na tela do emissor fiscal.",
     routes: ["GET /v1/frente-caixa"],
+  },
+  {
+    id: "reforma-classificacao",
+    oracle:
+      "Nada: o Fagoo não tem campo de IBS, CBS nem IS (o motor de impostos os deixa \"como digitados\" e o complemento os exclui, not_included_in_profile); as regras da natureza só aceitam icms, ipi, pis, cofins e ii (nature_rule_tax_check).",
+    reason:
+      "Reforma tributária do consumo: a nota leva o grupo IBS/CBS (CST e cClassTrib) e o cofre da NFapi o aceita. Decisão da orquestração (17/11/2026, plano do Fiscal): classificar no cadastro sem mudar os checks nem as colunas do Fagoo; quem calcula os valores (cofre ou ERP) ainda é decisão do usuário, então o motor guarda a classificação e o resultado, não a regra.",
+    replaced_by:
+      "Tabelas só do motor (schema/engine-tables.ts, versão 7): erp_fiscal_reform__nature_class (padrão e exceções por NCM, produto ou grupo de cada natureza; RPCs erp_fiscal_reform_nature_class_get e _save, só do motor) e erp_fiscal_reform__product_class (do produto, com NBS do serviço; a escrita é combinada com o Catálogo). Resolução: produto > exceção da natureza > padrão da natureza (domains/fiscal/reform.ts).",
   },
 ];
