@@ -120,6 +120,16 @@ test("orçamento estourado: para entre unidades, grava partial e continua 1 s de
   assert.equal(nextRun("teste.lento"), nextHour(now));
 });
 
+test("tarefa com arquivo criada na mesma rodada já conta como vencida (no milissegundo), sem ser tomada pela rodada", async () => {
+  // O relógio do motor é monotônico em µs: a limpeza do dia nasce alguns µs
+  // depois de `now`. Vencida no ms, ela vai para a acordada seguinte (1 s).
+  const r = await round({ filePurposes: ["company_export", "export_cleanup"] });
+  assert.equal(r.fileDue, true);
+  assert.equal(tasks().find((t) => t.purpose === "export_cleanup").status, "queued", "a rodada não toma tarefa com arquivo");
+  const none = await round({ filePurposes: [] });
+  assert.equal(none.fileDue, false);
+});
+
 test("cede a vez entre as unidades (await de verdade entre transações)", async () => {
   const marks = [];
   let n = 0;
