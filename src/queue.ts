@@ -28,6 +28,7 @@ import {
 } from "./types";
 import { admin, canProfile, random, sha } from "./security";
 import { event, eventStatement, fanOut } from "./events";
+import { commandClosing, type CommandClosing } from "./command-context";
 import { BRASILIA_OFFSET_MS } from "./business-time";
 import { conversation, enqueue, settings } from "./service";
 import { establishment } from "./establishment";
@@ -1100,6 +1101,11 @@ export interface IssueInput {
    * Vem em `view` só quando a senha foi criada agora.
    */
   view?: Omit<ViewOptions, "queue">;
+  /**
+   * /command: a auditoria e a marca do recibo vão no lote da gravação da
+   * senha (src/command-context.ts).
+   */
+  closing?: CommandClosing | null;
 }
 
 /**
@@ -1300,10 +1306,13 @@ export async function issueTicket(
       "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
       [profile, at, id],
     ],
+    // /command: a auditoria e a marca do recibo no mesmo lote (atômico).
+    ...(input.closing?.statements(id) ?? []),
     ...(view?.items ?? []).map((r) => [r.sql, r.args] as [string, any[]]),
   ]);
   const [inserted, issued] = results;
   const ticket = inserted.results[0] as any;
+  input.closing?.committed(id);
   await fanOut(env, profile, "queue.issued", (issued.results[0] as any).id);
   return {
     ticket,
@@ -1513,6 +1522,32 @@ export function queuePrefetch(
   return [];
 }
 
+/** Operações da fila que fecham o recibo no lote da escrita (src/command-context.ts). */
+export const QUEUE_CLOSING_OPS = new Set(["queue.issue", "queue.call_next"]);
+
+/**
+ * Resposta de uma emissão ou chamada reconstruída pelo recurso, para a
+ * repetição com a mesma chave quando o recibo só tem a marca
+ * ("ref:<operação>:<id>"): o objeto reiniciou ou a gravação da resposta
+ * falhou depois de responder. A senha é a mesma; o que pode diferir da
+ * resposta original é o que mudou desde então: quantos estão na frente e a
+ * espera estimada (outras senhas foram chamadas) e, na chamada, o estado e o
+ * número de chamadas se a senha já andou (atendida, rechamada).
+ */
+export async function queueReplay(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  ref: string,
+) {
+  const match = /^ref:(queue\.issue|queue\.call_next):([^:]+)$/.exec(ref);
+  if (!match) throw new Error("queue_replay_ref_invalid");
+  const row = await ticketRow(env, profile, match[2]);
+  return ticketView(env, row, {
+    staff: match[1] === "queue.call_next" || actor.kind === "user",
+  });
+}
+
 async function callNext(
   env: Env,
   actor: Actor,
@@ -1579,6 +1614,16 @@ async function callNext(
         at,
       ],
     ]);
+    // /command: a auditoria e a marca do recibo no mesmo lote, só se a
+    // chamada pegou (a mesma condição do evento e do ciclo).
+    const closing = commandClosing(env, "queue.call_next");
+    if (closing)
+      statements.push(
+        ...closing.statements(next.id, [
+          "EXISTS(SELECT 1 FROM queue_tickets WHERE id=? AND status='called' AND counter_id=? AND called_at=?)",
+          [next.id, counter.id, at],
+        ]),
+      );
     // Depois da chamada, no mesmo lote: quem está na frente já conta com ela.
     const tail: Read[] = cfg.notify_ahead ? [aheadRead(profile, q.id)] : [];
     const view = viewReads(
@@ -1602,6 +1647,7 @@ async function callNext(
     ]);
     const ticket = results[callAt].results[0] as any;
     if (!ticket) continue;
+    closing?.committed(next.id);
     const got = readValues(tail, results);
     await notify(env, ticket, "called", { counter: counter.name });
     if (cfg.notify_ahead) await notifyAheadOf(env, got[0], cfg.notify_ahead);
@@ -2259,6 +2305,7 @@ export async function queueCommand(
       sourceKey: issueSourceKey(actor, requestId),
       kioskRate,
       view: { staff },
+      closing: commandClosing(env, "queue.issue"),
     });
     return view ?? ticketView(env, ticket, { staff, queue });
   }

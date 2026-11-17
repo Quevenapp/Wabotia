@@ -36,7 +36,10 @@ import {
   overviewData,
   overviewOf,
   queuePrefetch,
+  queueReplay,
+  QUEUE_CLOSING_OPS,
 } from "./queue";
+import { withCommandClosing } from "./command-context";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import {
   expirePayments,
@@ -58,10 +61,11 @@ export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
   /**
-   * Fechamentos de recibo em andamento (/command), por "escopo\nchave": a
-   * repetição com a mesma Idempotency-Key espera e devolve a mesma resposta.
+   * Gravações da resposta exata no recibo em andamento (/command), por
+   * "escopo\nchave": a repetição com a mesma Idempotency-Key espera antes do
+   * bloqueio e, depois, lê a resposta gravada.
    */
-  private closing = new Map<string, Promise<{ value: any; status: number }>>();
+  private closing = new Map<string, Promise<void>>();
   private link = new HermesLinkHub(this.env, this.ctx);
   private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
@@ -170,6 +174,10 @@ export class Coordinator extends DurableObject<Env> {
         warmReads.forEach((r, i) => seedRead(env, r, opening[i + 2].results));
         seedPrefetch(env, prefetch, opening.slice(2 + warmReads.length));
         const old: any = opening[0].results[0];
+        // A emissão e a chamada da fila fecham o recibo no lote da própria
+        // escrita (src/command-context.ts): a auditoria e a marca
+        // "ref:<operação>:<id>" gravam junto com a senha, ou nada grava.
+        const closingOp = QUEUE_CLOSING_OPS.has(body.operation);
         if (old) {
           if (old.fingerprint !== fingerprint)
             return Response.json(
@@ -181,14 +189,45 @@ export class Coordinator extends DurableObject<Env> {
               },
               { status: 409 },
             );
-          if (!old.response) {
-            // Recibo sem resposta: o fechamento ainda grava (a repetição
-            // entrou na fila antes de a primeira sair do bloqueio; esperar
-            // aqui dentro travaria o objeto, porque o bloqueio segura a
-            // resposta do D1 que o fechamento espera) ou o objeto reiniciou
-            // no meio. Nos dois casos, o código de sempre, que os apps já
-            // repetem com a mesma chave depois de 1,5 s (Senhapp, Android e
-            // iOS: operation_unknown); na repetição, o fechamento já acabou.
+          if (old.response?.startsWith("ref:")) {
+            // A escrita gravou, mas a resposta exata não (o objeto reiniciou
+            // depois de responder, ou a gravação dela falhou): reconstrói
+            // pelo recurso e fecha o recibo aqui.
+            try {
+              const value = await queueReplay(
+                env,
+                actor,
+                this.profile,
+                old.response,
+              );
+              await batch(env, [
+                [
+                  "UPDATE receipts SET response=? WHERE scope=? AND key=? AND response=?",
+                  [
+                    "sealed:" + (await seal(this.env, value)),
+                    scope,
+                    body.key,
+                    old.response,
+                  ],
+                ],
+              ]);
+              return Response.json(value, {
+                status: old.status ?? 200,
+                headers: { "Idempotency-Replayed": "true" },
+              });
+            } catch (error) {
+              if (!(error instanceof ApiError)) throw error;
+              // O recurso sumiu: não há como reconstruir.
+            }
+          }
+          if (!old.response && closingOp) {
+            // Sem a marca, a escrita não gravou (o lote é atômico): a
+            // operação roda de novo, abaixo. Na emissão, a chave de origem
+            // ainda devolve a senha de antes, se houver.
+          } else if (!old.response || old.response.startsWith("ref:")) {
+            // Recibo sem resposta de outra operação (o objeto caiu no meio
+            // do comando): o código de sempre, que os apps repetem com a
+            // mesma chave (Senhapp, Android e iOS: operation_unknown).
             return Response.json(
               {
                 error: {
@@ -199,23 +238,63 @@ export class Coordinator extends DurableObject<Env> {
               },
               { status: 409, headers: { "Retry-After": "1" } },
             );
-          }
-          return new Response(
-            old.response.startsWith("sealed:")
-              ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
-              : old.response,
-            {
-              status: old.status,
-              headers: {
-                "Content-Type": "application/json",
-                "Idempotency-Replayed": "true",
+          } else
+            return new Response(
+              old.response.startsWith("sealed:")
+                ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
+                : old.response,
+              {
+                status: old.status,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Idempotency-Replayed": "true",
+                },
               },
-            },
-          );
+            );
         }
         let status = 200,
           value: any,
           audited: [string, any[]] | null = null;
+        // Fechamento no lote da escrita (emissão e chamada da fila).
+        const closingRef = { ref: null as string | null };
+        if (closingOp)
+          withCommandClosing(env, {
+            operation: body.operation,
+            get ref() {
+              return closingRef.ref;
+            },
+            statements: (id, guard) => {
+              const [sql, args] = auditStatement(
+                actor,
+                this.profile,
+                body.operation,
+                id,
+                body.requestId,
+              );
+              const where = guard ? guard[0] : "1";
+              const guardArgs = guard ? guard[1] : [];
+              return [
+                // INSERT … VALUES(…) vira INSERT … SELECT … WHERE <condição>.
+                [
+                  sql.replace(" VALUES(", " SELECT ").replace(/\)$/, "") +
+                    ` WHERE ${where}`,
+                  [...args, ...guardArgs],
+                ],
+                [
+                  `UPDATE receipts SET response=?,status=200 WHERE scope=? AND key=? AND ${where}`,
+                  [
+                    `ref:${body.operation}:${id}`,
+                    scope,
+                    body.key,
+                    ...guardArgs,
+                  ],
+                ],
+              ];
+            },
+            committed: (id) => {
+              closingRef.ref = `ref:${body.operation}:${id}`;
+            },
+          });
         try {
           value = await perform(
             env,
@@ -246,34 +325,37 @@ export class Coordinator extends DurableObject<Env> {
             },
           };
         }
-        // Fechamento numa ida, fora do caminho da resposta: a auditoria e o
-        // recibo com a resposta. Enquanto grava, uma repetição com a mesma
-        // chave espera por ele (acima) e recebe a mesma resposta. Se falhar,
-        // o recibo fica sem resposta e a repetição recebe operation_unknown,
-        // como quando o objeto cai no meio de um comando.
-        const closingKey = `${scope}\n${body.key}`;
-        const response = { value, status };
         const sealed = "sealed:" + (await seal(this.env, value));
-        const closing = batch(env, [
-          ...(audited ? [audited] : []),
-          [
-            "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
-            [sealed, status, scope, body.key],
-          ],
-        ])
-          .then(() => response)
-          .catch((error) => {
-            console.error(
-              JSON.stringify({
-                component: "receipt",
-                error: String(error?.message ?? error).slice(0, 200),
-              }),
-            );
-            return response;
-          })
-          .finally(() => this.closing.delete(closingKey));
-        this.closing.set(closingKey, closing);
-        this.ctx.waitUntil(closing);
+        const closeReceipt: [string, any[]] = [
+          "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
+          [sealed, status, scope, body.key],
+        ];
+        if (closingRef.ref) {
+          // A auditoria e a marca do recibo já gravaram no lote da escrita.
+          // A resposta exata vai depois da resposta ao cliente: enquanto
+          // grava, uma repetição com a mesma chave espera por ela (antes do
+          // bloqueio, acima); se ela se perder (reinício), a repetição
+          // reconstrói pela marca.
+          const closingKey = `${scope}\n${body.key}`;
+          const closing = batch(env, [closeReceipt])
+            .then(() => undefined)
+            .catch((error) => {
+              console.error(
+                JSON.stringify({
+                  component: "receipt",
+                  error: String(error?.message ?? error).slice(0, 200),
+                }),
+              );
+            })
+            .finally(() => this.closing.delete(closingKey));
+          this.closing.set(closingKey, closing);
+          this.ctx.waitUntil(closing);
+        } else {
+          // As outras operações (e a emissão que devolveu a senha de antes,
+          // ou um erro): fechamento numa ida, antes da resposta, com a
+          // auditoria se a operação deu certo.
+          await batch(env, [...(audited ? [audited] : []), closeReceipt]);
+        }
         await this.schedule();
         // "settings": o cupom da senha vai no snapshot dos aparelhos. Fora do
         // caminho da resposta: o totem e o painel não esperam o snapshot.
