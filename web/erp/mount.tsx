@@ -11,6 +11,7 @@ import {
 import { setNavigationGuard } from "../lib/routes";
 import { setErpPorts, type ErpPorts } from "./ports";
 import { setErpBlocks, targetEnabled, type ErpBlock } from "./blocks";
+import { setMotorReal } from "./motor";
 import { createFetchPort, erpApiUrl, erpSimulated } from "./fetch-port";
 import { preloadScreen } from "./app/components/native-modules";
 import {
@@ -49,6 +50,10 @@ type Props = {
   onModules: () => void;
   /** Gestão → Pessoas e acessos (administrador do Wabotia). */
   onPeople: () => void;
+  /** "Confirme que é você" da casca (web/app/Account.tsx); resolve ao fechar. */
+  onConfirmIdentity?: () => Promise<void>;
+  /** Minha conta da casca (senha e aplicativo autenticador). */
+  onAccount?: () => void;
   onLeave: () => void;
   onExpired: () => void;
 };
@@ -70,6 +75,8 @@ export default function ErpMount({
   admin,
   onModules,
   onPeople,
+  onConfirmIdentity,
+  onAccount,
   onLeave,
   onExpired,
 }: Props) {
@@ -77,6 +84,8 @@ export default function ErpMount({
   // Lido pelo menu e pelas rotas do ERP ao renderizar (web/erp/blocks.ts); a
   // casca remonta o ERP quando a chave de um opcional muda.
   setErpBlocks(blocks);
+  // Contra o motor, as telas ainda sem porte ficam "em implantação" (web/erp/motor.ts).
+  setMotorReal(!simulated(demo));
   // Primeira visita: o arquivo da tela do endereço baixa junto com o /v1/me
   // (antecipado em ErpArea), e não depois dele. Bloco desligado: nada.
   useEffect(() => {
@@ -137,6 +146,8 @@ export default function ErpMount({
       admin,
       openModules: onModules,
       openPeople: admin ? onPeople : undefined,
+      confirmIdentity: demo ? undefined : onConfirmIdentity,
+      openAccount: demo ? undefined : onAccount,
     };
     // onLeave/onExpired mudam a cada render da casca; a sessão não.
     // eslint-disable-next-line react-hooks/exhaustive-deps

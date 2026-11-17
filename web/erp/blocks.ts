@@ -3,6 +3,8 @@
 // pertence a um bloco; menu, rotas e divisão em arquivos seguem esta regra.
 // Mapa comentado: sessao-M-erp-painel.md (notas da orquestração).
 
+import { pendingInMotor } from "./motor.ts";
+
 export type ErpBlock = "erp" | "erp-fiscal" | "erp-cobranca" | "erp-pdv";
 
 export const ERP_BLOCK_LABELS: Record<ErpBlock, string> = {
@@ -87,4 +89,6 @@ export function setErpBlocks(next: Partial<Record<ErpBlock, boolean>> | null) {
 export const blockEnabled = (block: ErpBlock) =>
   !enabled || enabled[block] !== false;
 export const targetEnabled = (target: string) =>
-  !hiddenInWabotia(target) && blockEnabled(blockOf(target));
+  !hiddenInWabotia(target) &&
+  blockEnabled(blockOf(target)) &&
+  !pendingInMotor(target);

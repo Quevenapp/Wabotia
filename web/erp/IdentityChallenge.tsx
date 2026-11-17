@@ -32,6 +32,31 @@ export function IdentityChallenge({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [failure, setFailure] = useState<ChallengeFailure | null>(null);
+  // Com a casca disponível, o pedido de código é o do painel (o mesmo de
+  // qualquer 403 mfa_required, /api/v1/account/mfa/challenge); ao fechar, o
+  // ERP confere de novo.
+  const confirm = ports?.confirmIdentity;
+  if (confirm)
+    return (
+      <div className="identity-challenge">
+        <p>{intro}</p>
+        <div className="real-editor-actions">
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void confirm()
+                .then(onConfirmed)
+                .finally(() => setBusy(false));
+            }}
+          >
+            Confirmar que é você
+          </button>
+        </div>
+      </div>
+    );
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !ports) return;

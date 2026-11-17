@@ -61,18 +61,20 @@ test("o pacote inicial do painel não leva o ERP, a demonstração nem o react-r
 });
 
 test("o pacote inicial do painel cabe no orçamento", () => {
-  // Medido em 16/11/2026: 1.120 kB (327 kB gz), contra 1.099 kB (326 kB gz)
-  // do painel antes do ERP. Do ERP entram só ErpArea e modules.ts (~3,4 kB);
-  // o resto da diferença é a ordem estrita de execução (vite.config.ts).
+  // Medido em 16/11/2026 no integra/erp-painel (Vite 8): 1.227 kB (357 kB gz),
+  // contra 1.190 kB (341 kB gz) do tronco integra/erp sem o ERP no mesmo Vite.
+  // Do ERP entram ErpArea, modules.ts e o /v1/me antecipado de fetch-port.ts
+  // (7,6 kB); o resto da diferença (~29 kB) é a ordem estrita de execução
+  // (vite.config.ts), que vale para o pacote todo. Aqui, em KiB de caracteres.
   const initial = initialChunks();
   const raw = initial.reduce((sum, c) => sum + c.code.length, 0);
   const gz = initial.reduce((sum, c) => sum + gzipSync(c.code).length, 0);
   assert.ok(
-    raw <= 1160 * 1024,
+    raw <= 1200 * 1024,
     `pacote inicial com ${(raw / 1024).toFixed(1)} kB`,
   );
   assert.ok(
-    gz <= 340 * 1024,
+    gz <= 352 * 1024,
     `pacote inicial com ${(gz / 1024).toFixed(1)} kB gz`,
   );
   const erp = initial

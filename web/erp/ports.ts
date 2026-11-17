@@ -27,6 +27,12 @@ export type ErpPorts = {
    * fica, sem botão.
    */
   openAccount?: () => void;
+  /**
+   * Abre o "Confirme que é você" da casca (o mesmo de qualquer 403
+   * mfa_required) e resolve quando a pessoa fecha. Ausente na demonstração: o
+   * ERP usa o próprio formulário (web/erp/IdentityChallenge.tsx).
+   */
+  confirmIdentity?: () => Promise<void>;
   /** Base da API do ERP desta área: /api/v1/profiles/<área>/erp. */
   apiUrl: string;
   /** fetch com cookie, sem Authorization, só para apiUrl (fetch-port.ts). */

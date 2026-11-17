@@ -1,12 +1,13 @@
 // Área ERP do painel (/app/erp/…): limite do carregamento sob demanda. Nada do
 // Fagoo (web/erp/app) entra no pacote inicial do painel; o import() abaixo é a
 // única porta (tests/erp-painel-build.test.ts confere no build).
-import React, { lazy, Suspense, useEffect } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { useApp } from "../app/AppContext";
 import { navigate } from "../lib/routes";
 import { erpModuleOn } from "./modules";
 import { erpApiUrl, erpSimulated, prefetchErpMe } from "./fetch-port";
 import { Empty, Spinner, Button } from "../ui";
+import { AccountDialog, MfaPrompt } from "../app/Account";
 
 const ErpMount = lazy(() => import("./mount"));
 
@@ -46,6 +47,15 @@ export function ErpArea() {
     if (erpOn && actor && !erpSimulated(app.demo))
       prefetchErpMe(erpApiUrl(app.profile), actor);
   }, [erpOn, actor, app.demo, app.profile]);
+  // Diálogos da casca que o ERP abre: o "Confirme que é você" (o mesmo de
+  // qualquer 403 mfa_required; ERP_MFA_REQUIRED do portão do ERP) e Minha conta.
+  const [dialog, setDialog] = useState<
+    null | { kind: "mfa"; done: () => void } | { kind: "account" }
+  >(null);
+  const closeDialog = () => {
+    if (dialog?.kind === "mfa") dialog.done();
+    setDialog(null);
+  };
   // As chaves vêm de GET /status; até lá não se sabe se o ERP está ligado.
   if (!app.statusLoaded)
     return (
@@ -97,11 +107,19 @@ export function ErpArea() {
             admin={app.isAdmin}
             onModules={() => navigate({ area: "admin", page: "modules" })}
             onPeople={() => navigate({ area: "admin", page: "users" })}
+            onConfirmIdentity={() =>
+              new Promise<void>((done) => setDialog({ kind: "mfa", done }))
+            }
+            onAccount={() => setDialog({ kind: "account" })}
             onLeave={() => navigate({ area: "conversations" })}
             onExpired={() => void app.reloadSession()}
           />
         </Suspense>
       </LoadBoundary>
+      {dialog?.kind === "mfa" && (
+        <MfaPrompt factor={Boolean(app.me.mfa?.factor)} onClose={closeDialog} />
+      )}
+      {dialog?.kind === "account" && <AccountDialog onClose={closeDialog} />}
     </div>
   );
 }

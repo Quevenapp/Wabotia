@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } fr
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { erpPorts } from '../../ports';
 import { blockOf, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks';
+import { MOTOR_READY, pendingInMotor } from '../../motor';
 import { createAccessController, decimalMoney, RESOURCE_LABELS, ROLE_LABELS, type AccessController, type AccessState, type Entity, type ListQuery, type Summary } from '../lib/real-access';
 import './real-access.css';
 import { ProductTaxonomy, ProductExport, PriceLists, CustomFields } from './native-modules';
@@ -36,6 +37,8 @@ function Login({ state }: { controller: AccessController; state: AccessState }) 
 const FISCAL_GATEWAY_PATHS = ['/certificado-a1', '/conexao-sefaz', '/emissor-fiscal'];
 /** Wabotia: rota de um bloco do ERP desligado nesta área (Fiscal, Cobrança, PDV, Origin; web/erp/blocks.ts). */
 function BlockOff({ target }: { target: string }) {
+  // Wabotia: tela sem motor ainda (web/erp/motor.ts): em implantação, com os atalhos do que já funciona.
+  if (pendingInMotor(target)) return <section className="real-state-panel" aria-labelledby="erp-pending-title"><h1 id="erp-pending-title">Em implantação</h1><p>Esta parte do ERP ainda está sendo instalada no Wabotia e aparece aqui assim que ficar pronta. Nada foi perdido: os dados continuam no mesmo lugar.</p><p>Já funcionam:</p><ul>{MOTOR_READY.map(item => <li key={item.to}><Link to={item.to}>{item.label}</Link></li>)}</ul></section>;
   if (hiddenInWabotia(target)) return <section className="real-state-panel"><h1>Página indisponível</h1><p>Esta página não faz parte do ERP no Wabotia. As atualizações e as conexões ficam no painel, em Gestão.</p><Link to="/acesso">Voltar ao início</Link></section>;
   const ports = erpPorts(), label = ERP_BLOCK_LABELS[blockOf(target)];
   return <section className="real-state-panel"><h1>Recurso desligado</h1><p>{label} está desligado nesta área de atendimento. {ports?.admin ? 'Ligue-o em Gestão › Módulos para usar esta tela.' : 'Peça ao administrador para ligá-lo em Gestão › Módulos.'}</p>
