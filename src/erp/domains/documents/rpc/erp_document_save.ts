@@ -126,7 +126,7 @@ function audit(ctx: RpcContext, a: { actor: string; command: string; document: s
 }
 
 /** erp_documents.auto_finance(usuário, documento, comando): o lançamento automático das contas. */
-function autoFinance(ctx: RpcContext, user: string, id: string, command: string): Data | null {
+export function autoFinance(ctx: RpcContext, user: string, id: string, command: string): Data | null {
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;

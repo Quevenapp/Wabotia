@@ -157,8 +157,6 @@ export const titleLongHistory = (..._args: unknown[]): never => notPorted("erp_f
 export const titleSeller = (..._args: unknown[]): never => notPorted("erp_finance.title_seller");
 /** erp_finance.title_text(p_data jsonb, OUT description text, OUT history text) → record */
 export const titleText = (..._args: unknown[]): never => notPorted("erp_finance.title_text");
-/** erp_finance.titles_mark_returned(p_actor uuid, p_command_id uuid, p_titles uuid[], p_source jsonb) → jsonb */
-export const titlesMarkReturned = (..._args: unknown[]): never => notPorted("erp_finance.titles_mark_returned");
 /** erp_finance.transfer_account(p_id uuid) → jsonb */
 export const transferAccount = (..._args: unknown[]): never => notPorted("erp_finance.transfer_account");
 /** erp_finance.transfer_immutable() → trigger */
