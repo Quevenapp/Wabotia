@@ -1,0 +1,156 @@
+# Agendador do ERP
+
+O que roda por tempo na instância `erp:<área>` (classe `Coordinator`, sem
+classe nova de Durable Object). Plano aprovado em 16/11/2026, com os ajustes
+da orquestração. O código fica em `src/erp/scheduler/`.
+
+## Por que existe
+
+No Fagoo o único agendamento é um Cron Trigger `*/2` do Worker `erp-api`, e
+ele só roda o Origin. As tarefas da plataforma (`erp_platform_schedule`, com as
+notificações de hora em hora e a limpeza diária das exportações) **nunca
+disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
+
+## Peças
+
+| Peça | Onde | O que faz |
+|---|---|---|
+| Rotinas | `scheduler/routines.ts` | Lista em código: `platform.schedule` (hora cheia), `retention` (03:10 de São Paulo). Cada rotina tem bloco, próximo horário e passo (uma unidade). |
+| `wb_routine` | `scheduler/routines.ts`, declarada em `schema/structural.ts` ("agendador") | Estado de cada rotina: `next_run_us`, `last_run_us`, `last_status` (`ok`, `partial`, `error`, `skipped`), `last_error`, `last_ms`, `runs`, `failures`. Fica fora do DDL gerado e do backup, como a `erp_meta`. |
+| Despachante | `scheduler/dispatch.ts`, `runRound(db, opções)` | Roda as rotinas vencidas e depois drena a fila `erp_platform__task` com as funções da plataforma (domínio Preferências). Devolve a próxima acordada. |
+| Alarme | `src/erp/hub.ts`, `alarm()` | `migrate`, depois `runRound` com os blocos guardados, `last_alarm` e `setAlarm(próxima)`. |
+| Wake | `src/erp/hub.ts`, `/erp-wake` | Ganha o mais cedo e guarda os blocos (contrato abaixo). |
+| Cron | `scheduler/cron.ts`, `wakeErpAreas(env, scheduledTime)` | Rede de segurança de hora em hora. A A o liga no `scheduled`. |
+
+## Contrato do `/erp-wake`
+
+1. `POST /erp-wake`, com corpo opcional
+   `{ blocks?: {"erp-fiscal"?, "erp-cobranca"?, "erp-pdv"?: boolean}, at?: ms }`.
+   Sem corpo vale como antes; corpo inválido dá 400 `erp_wake_invalid`.
+2. Quando `blocks` vem, vai para o KV do objeto em `erp_blocks = {blocks, at}`.
+   O objeto nunca lê o D1.
+3. Ganha o mais cedo: `target = max(now+1, at ?? now+1)`. Só agenda se não
+   houver alarme ou se o atual for mais tarde: o wake nunca adia. A resposta é
+   `{ok: true, alarm}`.
+4. No fim da rodada, o alarme também respeita um wake que chegou durante ela:
+   fica o mais cedo entre o que já está agendado e a próxima acordada.
+
+## O alarme não segura quem usa o ERP
+
+- **Uma transação por unidade.** Uma unidade é um passo de rotina, um claim,
+  ou a execução de uma tarefa somada à conclusão dela. Falha no meio não
+  desfaz o que já foi feito.
+- **Cede a vez entre as unidades** com um `await` de verdade (`setTimeout 0`,
+  não microtarefa). Uma chamada ao objeto que chega no meio da rodada é
+  atendida entre duas unidades.
+  - Prova: `tests/erp-do-scheduler.test.ts`. Uma rodada de 40 unidades, com
+    `/erp-ping` e um RPC chegando no meio, responde antes do fim.
+  - Controle: com só microtarefa, as duas chamadas esperam as 40 unidades.
+- **Orçamento por acordada:** 2 s de relógio e 200 unidades. A sobra fica
+  `partial` (a rotina continua vencida) e o alarme volta 1 s depois.
+- **Meta de 50 ms por unidade.** A retenção usa lotes de 100 tarefas. A
+  `notifications_run` é uma unidade só (todas as pessoas e tipos numa
+  transação, como no Fagoo). Medir na instalação de teste. Se passar de
+  50 ms, a G a divide por tipo.
+- O relógio de parede (`performance.now`) no workerd só anda com E/S. Com
+  `await` entre as unidades ele anda, mas a medida de uma unidade é grosseira.
+  O teto de unidades protege quando o relógio não anda.
+
+## Quando roda
+
+- **Primeira rodada** de uma instância (ou depois de uma restauração): toda
+  rotina está vencida e roda uma vez. Sem efeito repetido: as tarefas têm chave
+  `(purpose, operation_id)`, e as notificações usam `ON CONFLICT DO NOTHING`
+  por `(user, type, day)`.
+- **Dias parado:** cada rotina roda uma vez e vai para o próximo horário depois
+  de agora. Horas perdidas não são recuperadas (o digest das notificações é
+  acumulativo, como no Fagoo).
+- **Fila:** cada tarefa guarda o próprio `next_attempt_at`. A regra é do Fagoo:
+  - posse de 5 min;
+  - backoff de `min(60, 2^tentativas)` min;
+  - posse vencida conta tentativa.
+- **Rotina que falha:** grava `error`, e a nova tentativa sai em
+  `min(1 h, 1 min·2^falhas)`, sem passar do próximo horário. As outras rotinas
+  e a fila seguem.
+- **Bloco desligado:** a rotina do bloco fica `skipped` e vai para o próximo
+  horário. Todas as rotinas do primeiro corte são do bloco `erp`.
+- **Próxima acordada** é o menor de:
+  - a próxima rotina;
+  - a próxima tentativa de tarefa com executor;
+  - a posse que vence.
+
+  Teto de 1 h, arredondado para cima em ms (o relógio do motor é em µs).
+
+## Finalidades da fila
+
+| Finalidade | Executor | Situação |
+|---|---|---|
+| `notifications_generate` | `erp_platform_notifications_run`, depois `task_finish` na mesma transação | Ligada. |
+| `export_cleanup` | Apagar o pacote vencido do R2 (`export_expired`/`export_removed`) | **Stub.** Depende do `/storage/v1` (A). Sem executor, a tarefa espera na fila e não acorda o alarme. |
+| `company_export` | ZIP da empresa em fatias | **Stub**, pela mesma razão. Regra para quando entrar: nunca montar o ZIP inteiro na memória do objeto (limite de 128 MB). Usar fatias com `task_progress` (o estado sobrevive a uma nova tentativa) e envio multiparte para o R2. |
+
+Para ligar uma finalidade, basta acrescentar o executor em `TASK_HANDLERS`
+(`scheduler/dispatch.ts`). O claim só toma as finalidades que têm executor.
+
+## Retenção (rotina `retention`, diária, 03:10 de São Paulo)
+
+- **Apaga:** tarefa `done` ou `failed` terminada há mais de 90 dias, com as
+  tentativas, em lotes de 100.
+- **Fica:**
+  - tarefa na fila ou em execução;
+  - tarefa ligada a uma exportação (a linha de `erp_platform__export` é
+    imutável e tem FK para a tarefa);
+  - recibos de comando (as tabelas `*command` de cada domínio).
+- **Desvio declarado** em `schema/structural.ts` ("retencao-tarefas"). No
+  Fagoo, `task_guard` e `attempt_guard` recusam DELETE e nada limpa. No motor
+  os gatilhos são cumpridos em código (`domains/preferences/platform.ts`), e o
+  SQLite não tem gatilho contra o DELETE (há um teste para isso).
+- **Pacotes de exportação vencidos:** são a tarefa diária `export_cleanup`, que
+  espera o executor (stub acima).
+
+## Certificado A1
+
+A notificação `certificado_a1` (vencimento em 30 dias) fica desligada até o
+porte do Fiscal. Ela lê `erp_a1__head` e `erp_a1__credential`, que existem no
+DDL gerado e ficam vazias, então o digest dá zero sem erro (há um teste). A G
+foi avisada: manter as tabelas, ou proteger a consulta, quando o Fiscal entrar.
+
+## Limitação conhecida: fuso de São Paulo
+
+As chaves das tarefas (`notificacoes:AAAA-MM-DDTHH`,
+`limpeza-exportacoes:AAAA-MM-DD`), o "hoje" das notificações e o horário da
+retenção (03:10) são de `America/Sao_Paulo`, como no Fagoo. Assim o
+diferencial da G fecha. Consequências:
+
+- Uma área em outro fuso recebe as notificações do "dia" de São Paulo.
+- Em datas com horário de verão (até 2019), no dia do início a hora 00 não
+  existe: não há tarefa com essa chave. No dia do fim, a hora 23 se repete e as
+  duas viram a mesma tarefa. O Fagoo tem o mesmo comportamento.
+- O fuso por área entra quando o núcleo tiver o fuso da área. Mudar as chaves
+  quebra a idempotência com as tarefas já gravadas, então é preciso migrar.
+
+## Cron (para a A)
+
+No `scheduled` de `src/index.ts`:
+
+```ts
+import { wakeErpAreas } from "./erp/scheduler/cron";
+// ...
+ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
+```
+
+- Só age no primeiro disparo da hora (minuto 0 a 4 com o cron de 5 min).
+- Consulta as áreas pelos estados resolvidos dos módulos `erp` e opcionais.
+- Faz um `/erp-wake` por área com os blocos.
+- Área com o ERP desligado não acorda.
+
+Teste: `tests/erp-do-scheduler.test.ts`, "cron".
+
+## Fora deste corte
+
+- **Fila de saída dos módulos** (Pedido, OS, Mensalidade e Mesas para o ERP):
+  fica no D1, do lado da área, drenada pelo alarme da área. Ver o plano em
+  `side-session-notes`, seção 5.
+- **Fila do ERP para os módulos** (`outbox` com `claim`/`ack`): vem depois. O
+  agendador só cuidará dos claims vencidos e da retenção.
+- **Medição de CPU real** na instalação de teste: roteiro para a K.
