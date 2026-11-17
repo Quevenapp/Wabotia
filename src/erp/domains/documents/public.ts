@@ -87,3 +87,5 @@ export function allowed(role: string | null, kind: string | null, write: boolean
 }
 // Escrito pela P para o Catálogo (contact_page/contact_export); dona: O.
 export { salesInPeriodCondition } from "./catalog-p.ts";
+// Para a G (F7 do Fiscal): pedidos de compra do fornecedor que ainda podem receber.
+export { openPurchaseOrders, type OpenPurchaseOrder } from "./purchase-orders-g.ts";
