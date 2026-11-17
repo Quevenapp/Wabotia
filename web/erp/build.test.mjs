@@ -66,11 +66,13 @@ test("o pacote inicial do painel cabe no orçamento", () => {
   // Do ERP entram ErpArea, modules.ts e o /v1/me antecipado de fetch-port.ts
   // (7,6 kB); o resto da diferença (~29 kB) é a ordem estrita de execução
   // (vite.config.ts), que vale para o pacote todo. Aqui, em KiB de caracteres.
+  // 17/11: a main da 0.21.0 (licença e link do código-fonte no menu da conta)
+  // levou a 1.200,9 KiB, com o ERP nos mesmos 7,6 kB: teto de 1.208 KiB.
   const initial = initialChunks();
   const raw = initial.reduce((sum, c) => sum + c.code.length, 0);
   const gz = initial.reduce((sum, c) => sum + gzipSync(c.code).length, 0);
   assert.ok(
-    raw <= 1200 * 1024,
+    raw <= 1208 * 1024,
     `pacote inicial com ${(raw / 1024).toFixed(1)} kB`,
   );
   assert.ok(
