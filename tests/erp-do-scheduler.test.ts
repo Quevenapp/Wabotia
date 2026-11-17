@@ -9,7 +9,7 @@ import "../src/erp/domains/index";
 import { callRpc } from "../src/erp/engine/registry";
 import { runRound } from "../src/erp/scheduler/dispatch";
 import { erpAreas, isErpCronSlot, wakeErpAreas } from "../src/erp/scheduler/cron";
-import { nextHour } from "../src/erp/scheduler/routines";
+import { ROUTINES, nextHour } from "../src/erp/scheduler/routines";
 import { exec } from "../src/db";
 import { fixture } from "./service-center-fixture";
 
@@ -144,7 +144,9 @@ describe("agendador do ERP no objeto", () => {
       alarm: await s.storage.getAlarm(),
       lastAlarm: s.storage.sql.exec("SELECT value FROM erp_meta WHERE key='last_alarm'").toArray()[0]?.value,
     }));
-    expect(last.alarm).toBe(nextHour(Number(last.lastAlarm)));
+    // A rotina mais próxima: a hora cheia, ou a retenção das 03:10 (São Paulo)
+    // quando a suíte roda entre 02:10 e 03:10.
+    expect(last.alarm).toBe(Math.min(...ROUTINES.map((r) => r.next(Number(last.lastAlarm)))));
     await clearAlarm(f.profile);
   }, 60_000);
 
