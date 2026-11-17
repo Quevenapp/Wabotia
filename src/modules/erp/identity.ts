@@ -9,6 +9,7 @@
 // A lista de pessoas sai no mesmo lote do D1 antes da rota (src/security.ts,
 // authenticate com `prefetch`): não custa ida a mais ao banco.
 import { cachedAll } from "../../db";
+import { modules, moduleStates } from "../registry";
 import { ApiError, type Actor, type Env } from "../../types";
 import { rolesOf } from "../../access";
 import { storedAccess } from "../../security";
@@ -26,6 +27,135 @@ import {
  */
 export const ERP_PEOPLE_SQL =
   "SELECT u.id,u.name,u.email,u.role,u.access,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor FROM users u WHERE u.disabled=0 AND (u.role='admin' OR (u.access LIKE '%\"erp:%' AND EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?)))";
+
+/**
+ * Identidades de sistema: o núcleo ou um módulo agindo no ERP sem pessoa
+ * nem chave (a fila de saída, as projeções do núcleo no ERP). Cada uma vira
+ * um membro técnico do ERP, como o agente do Fagoo: o motor aplica o papel,
+ * as permissões e a auditoria de sempre. O id é fixo (derivado do nome) e
+ * elas vão em `people` em toda requisição, para o motor não desativá-las
+ * quando a chamada é de uma pessoa.
+ */
+export const ERP_SYSTEM_ACTORS: Record<
+  string,
+  { name: string; role: ErpRole }
+> = {
+  // Fila de saída do núcleo: Empresa × Estabelecimento e o que mais o
+  // núcleo projetar no ERP (dados da empresa: papel admin).
+  nucleo: { name: "Sistema · Wabotia", role: "admin" },
+};
+
+/**
+ * Identidades de sistema ativas na área: a do núcleo e a de cada módulo
+ * ligado que declara `erp_role` (src/modules/types.ts).
+ */
+async function systemActors(env: Env, profile: string) {
+  const states = await moduleStates(env, profile);
+  const fromModules = modules
+    .filter((m) => m.erp_role && states[m.id])
+    .map(
+      (m) =>
+        [m.id, { name: `Sistema · ${m.name}`, role: m.erp_role! }] as const,
+    );
+  return [...Object.entries(ERP_SYSTEM_ACTORS), ...fromModules];
+}
+
+/** UUID fixo de uma identidade de sistema (SHA-256 do nome, formato v5). */
+export async function systemUserId(id: string) {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`wabotia-erp-system:${id}`),
+    ),
+  ).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** As identidades de sistema como pessoas do envelope. */
+async function systemPeople(env: Env, profile: string): Promise<ErpPerson[]> {
+  return Promise.all(
+    (await systemActors(env, profile)).map(async ([id, s]) => ({
+      user_id: await systemUserId(id),
+      name: s.name,
+      email: null,
+      erp_role: s.role,
+      verified_factor: false,
+    })),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aplicações (chaves de API) no ERP: escopos erp:read e erp:write.
+// A aplicação é um membro técnico do ERP com identidade própria, como o
+// agente do Fagoo (202611130001_access_agents): o motor aplica o papel, as
+// permissões e a auditoria, e a atividade mostra o nome da aplicação. Nunca
+// herda o papel, a sessão ou o aal2 de uma pessoa.
+// - erp:read: papel consulta, só GET/HEAD.
+// - erp:write: o papel que o administrador escolheu (applications.erp_role,
+//   migração 0089); sem papel, 403 erp_role_required.
+// - Regra do Fagoo para agente: só consulta, vendas, estoque ou fiscal. Quem
+//   movimenta dinheiro ou administra a empresa (admin, financeiro, o escopo
+//   do segundo fator) não é oferecido a agente: um token não tem sessão aal2.
+
+export const ERP_READ = "erp:read";
+export const ERP_WRITE = "erp:write";
+/** Papéis que uma aplicação pode ter (erp_access.agent_register do Fagoo). */
+export const ERP_AGENT_ROLES: readonly ErpRole[] = [
+  "consulta",
+  "vendas",
+  "estoque",
+  "fiscal",
+];
+
+/** Papel do ERP enviado ao criar ou alterar uma aplicação (null: sem papel). */
+export function appErpRoleInput(value: unknown): ErpRole | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (!ERP_AGENT_ROLES.includes(value as ErpRole))
+    throw new ApiError(
+      400,
+      "validation_error",
+      "Papel do ERP inválido para aplicação: use consulta, vendas, estoque ou fiscal. Administrador e financeiro ficam só com pessoas (segundo fator).",
+    );
+  return value as ErpRole;
+}
+
+/** Aplicações ativas da área com escopo do ERP (vão em `people`). */
+export const ERP_APPS_SQL =
+  "SELECT a.id,a.name,a.scopes,a.erp_role FROM applications a WHERE a.disabled=0 AND a.scopes LIKE '%\"erp:%' AND EXISTS(SELECT 1 FROM json_each(a.profiles) WHERE value=?)";
+
+/** Papel do ERP de uma aplicação pelos escopos e pelo papel escolhido. */
+export function appErpRole(
+  scopes: string[],
+  chosen: string | null | undefined,
+): ErpRole | null {
+  if (scopes.includes(ERP_WRITE))
+    return ERP_AGENT_ROLES.includes(chosen as ErpRole)
+      ? (chosen as ErpRole)
+      : null;
+  return scopes.includes(ERP_READ) ? "consulta" : null;
+}
+
+function appPersonOf(row: any): ErpPerson | null {
+  const scopes: string[] = (() => {
+    try {
+      return JSON.parse(row.scopes);
+    } catch {
+      return [];
+    }
+  })();
+  const erp_role = appErpRole(scopes, row.erp_role);
+  if (!erp_role) return null;
+  return {
+    user_id: row.id,
+    name: row.name ?? null,
+    email: null,
+    erp_role,
+    verified_factor: false,
+  };
+}
 
 /** Caminho de uma rota do ERP (/api/v1/profiles/:area/erp/…). */
 export const isErpPath = (path: string) =>
@@ -59,14 +189,41 @@ function personOf(row: any): ErpPerson | null {
 }
 
 /**
+ * Todos os membros do ERP da área para o envelope: pessoas com papel,
+ * aplicações com escopo do ERP e as identidades de sistema. Vão juntos em
+ * toda requisição, porque o motor desativa quem não está na lista
+ * (src/erp/domains/access/identity.ts): tirar o escopo ou desligar a
+ * aplicação a desativa na requisição seguinte.
+ */
+export async function erpPeople(env: Env, profile: string) {
+  const [people, apps, system] = await Promise.all([
+    cachedAll(env, ERP_PEOPLE_SQL, profile),
+    cachedAll(env, ERP_APPS_SQL, profile),
+    systemPeople(env, profile),
+  ]);
+  return [...people.map(personOf), ...apps.map(appPersonOf), ...system].filter(
+    (p): p is ErpPerson => p !== null,
+  );
+}
+
+/** Id da aplicação no ERP: o uuid, sem o "app:" do ator da chave. */
+export const appUserId = (actor: Actor) => actor.id.replace(/^app:/, "");
+
+/** Leitura da erp-api (GET/HEAD): basta erp:read. */
+const isRead = (method: string) => method === "GET" || method === "HEAD";
+
+/**
  * Envelope de identidade da requisição. Sem papel do ERP, 403 antes de ir ao
  * objeto (a pessoa alcança o módulo pelo "*", mas não tem papel no ERP).
+ * Aplicação: escopo erp:read (leitura) ou erp:write (o papel escolhido).
  */
 export async function erpIdentity(
   env: Env,
   actor: Actor,
   profile: string,
+  method = "GET",
 ): Promise<IdentityPort> {
+  if (actor.kind === "app") return appIdentity(env, actor, profile, method);
   const erp_role = erpRoleOf(actor);
   if (!erp_role)
     throw new ApiError(
@@ -74,9 +231,7 @@ export async function erpIdentity(
       "erp_role_required",
       "Seu acesso não inclui um papel no ERP. Peça ao administrador em Pessoas e acessos.",
     );
-  const people = (await cachedAll(env, ERP_PEOPLE_SQL, profile))
-    .map(personOf)
-    .filter((p): p is ErpPerson => p !== null);
+  const people = await erpPeople(env, profile);
   const self = people.find((p) => p.user_id === actor.id);
   return {
     actor: {
@@ -87,8 +242,85 @@ export async function erpIdentity(
       verified_factor: !!actor.mfa?.factor,
       session_id: actor.sessionId ?? null,
       aal: actor.aal === 2 ? "aal2" : "aal1",
-      // Bot agindo pela pessoa (via) ou aplicação: agente.
-      is_agent: actor.kind !== "user" || !!actor.via,
+      // Bot agindo pela pessoa (via): agente, com o papel da pessoa.
+      is_agent: !!actor.via,
+    },
+    people,
+  };
+}
+
+async function appIdentity(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  method: string,
+): Promise<IdentityPort> {
+  const write = !isRead(method.toUpperCase());
+  if (
+    !actor.scopes.includes(ERP_WRITE) &&
+    !(actor.scopes.includes(ERP_READ) && !write)
+  )
+    throw new ApiError(
+      403,
+      "insufficient_scope",
+      write
+        ? "Esta chave precisa do escopo erp:write para alterar o ERP."
+        : "Esta chave precisa do escopo erp:read ou erp:write para ler o ERP.",
+    );
+  const people = await erpPeople(env, profile);
+  // O papel vem da linha da aplicação, lida no mesmo lote (ERP_APPS_SQL). O
+  // ator da chave tem id "app:<uuid>"; no ERP vale o uuid da aplicação.
+  const appId = appUserId(actor);
+  const self = people.find((p) => p.user_id === appId);
+  if (!self?.erp_role)
+    throw new ApiError(
+      403,
+      "erp_role_required",
+      "Esta aplicação tem erp:write, mas nenhum papel do ERP. Escolha o papel em API e integrações.",
+    );
+  return {
+    actor: {
+      user_id: appId,
+      name: self.name ?? actor.name ?? null,
+      email: null,
+      erp_role: self.erp_role,
+      verified_factor: false,
+      // Sem sessão: nunca aal2, nunca a de uma pessoa.
+      session_id: null,
+      aal: "aal1",
+      is_agent: true,
+    },
+    people,
+  };
+}
+
+/**
+ * Envelope de uma identidade de sistema (ERP_SYSTEM_ACTORS): o núcleo ou um
+ * módulo chamando o objeto erp: sem pessoa nem chave (fila de saída). Uma
+ * ida ao D1 para as pessoas da área.
+ */
+export async function erpSystemIdentity(
+  env: Env,
+  profile: string,
+  id: string,
+): Promise<IdentityPort> {
+  const system = (await systemActors(env, profile)).find(
+    ([k]) => k === id,
+  )?.[1];
+  // Desconhecida, ou módulo desligado na área: não age no ERP.
+  if (!system) throw new Error(`erp_system_actor_unknown:${id}`);
+  const people = await erpPeople(env, profile);
+  const user_id = await systemUserId(id);
+  return {
+    actor: {
+      user_id,
+      name: system.name,
+      email: null,
+      erp_role: system.role,
+      verified_factor: false,
+      session_id: null,
+      aal: "aal1",
+      is_agent: true,
     },
     people,
   };
