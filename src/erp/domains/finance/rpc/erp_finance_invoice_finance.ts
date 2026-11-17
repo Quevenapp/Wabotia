@@ -16,7 +16,6 @@ import {
   documentCommandStart,
   expected,
   field,
-  flushDeferred,
   insertAudit,
   jsonArg,
   keys,
@@ -264,7 +263,6 @@ function post(ctx: RpcContext, a: RpcArgs) {
   requireAccess(ctx.db, user, true);
   const data = a.p_data === undefined || a.p_data === null ? null : jsonArg(a.p_data);
   const r = invoicePost(ctx, user, uuidArg(a.p_command_id), data, "manual");
-  flushDeferred(ctx);
   return r;
 }
 
@@ -316,7 +314,6 @@ function reverse(ctx: RpcContext, a: RpcArgs) {
   const result = { invoice_id: v.id, invoice_version: v.version, posting: invoicePostingSummary(db, String(p.id)), titles: invoiceTitleRows(db, String(p.id)) };
   insertAudit(ctx, user, command!, "invoice_reverse", before, result);
   const r = documentCommandFinish(ctx, user, command!, "invoice_reverse", data, result);
-  flushDeferred(ctx);
   return r;
 }
 

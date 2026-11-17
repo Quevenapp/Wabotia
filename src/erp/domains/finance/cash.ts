@@ -216,7 +216,7 @@ export function insertTransfer(ctx: RpcContext, t: Record<string, unknown>) {
     t.in_posted_on ?? null,
     t.float_days ?? 0,
   );
-  defer(ctx, `transfer:${id}`, () => {
+  defer(ctx, () => {
     if (Number(one(ctx.db, 'SELECT count(*) n FROM "erp_finance__movement" WHERE transfer_id=?', id)!.n) !== 2)
       raise("22023", "erp_finance_transfer_incomplete");
   });

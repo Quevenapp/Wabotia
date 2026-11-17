@@ -15,7 +15,7 @@ import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import { pgHasCntrl, pgLower as enginePgLower } from "../../engine/text.ts";
-import type { RpcContext } from "../../engine/registry.ts";
+import { defer, type RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
 import * as sync from "../sync/public.ts";
@@ -322,21 +322,10 @@ export function permissionKey(action: string, after: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Verificações adiadas (gatilhos DEFERRABLE INITIALLY DEFERRED do Postgres):
-// rodam no fim do RPC, antes do commit, na ordem em que foram marcadas.
-
-const deferredChecks = new WeakMap<RpcContext, Map<string, () => void>>();
-export function defer(ctx: RpcContext, key: string, check: () => void) {
-  let list = deferredChecks.get(ctx);
-  if (!list) deferredChecks.set(ctx, (list = new Map()));
-  if (!list.has(key)) list.set(key, check);
-}
-export function flushDeferred(ctx: RpcContext) {
-  const list = deferredChecks.get(ctx);
-  if (!list) return;
-  deferredChecks.delete(ctx);
-  for (const check of list.values()) check();
-}
+// Verificações adiadas (gatilhos DEFERRABLE INITIALLY DEFERRED do Postgres): a fila do
+// motor (engine/registry.ts, defer), que roda no fim da transação, antes do COMMIT,
+// também quando outro domínio chama o Financeiro.
+export { defer };
 
 /**
  * erp_finance.document_command_start: recibo dos lançamentos de documentos e notas
@@ -541,7 +530,7 @@ export function insertMovement(ctx: RpcContext, m: MovementInput) {
   // settlement_movement_check (adiado)
   if (m.settlement_id) {
     const sid = m.settlement_id;
-    defer(ctx, `settlement:${sid}`, () => assertSettlementPostings(db, sid));
+    defer(ctx, () => assertSettlementPostings(db, sid));
   }
   return id;
 }

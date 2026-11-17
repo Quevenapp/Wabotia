@@ -21,7 +21,6 @@ import {
   day,
   expected,
   field,
-  flushDeferred,
   hasKey,
   insertAudit,
   insertCommand,
@@ -215,7 +214,6 @@ export function erpFinanceCommissionExecute(ctx: RpcContext, a: RpcArgs) {
   result = { ...result, action, data_mode: "erp_native", replayed: false };
   insertCommand(ctx, command, user, hash, result);
   insertAudit(ctx, user, command, action, before, result);
-  flushDeferred(ctx);
   return result;
 }
 

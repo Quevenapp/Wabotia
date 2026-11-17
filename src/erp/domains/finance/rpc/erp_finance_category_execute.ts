@@ -19,7 +19,6 @@ import {
   cmpText,
   expected,
   field,
-  flushDeferred,
   hasKey,
   insertAudit,
   insertCategory,
@@ -245,7 +244,6 @@ export function erpFinanceCategoryExecute(ctx: RpcContext, a: RpcArgs) {
   result = { ...result, entity: "categories_tree", action, data_mode: "erp_native", replayed: false };
   insertCommand(ctx, command, user, hash, result);
   insertAudit(ctx, user, command, action, before, result);
-  flushDeferred(ctx);
   return result;
 }
 

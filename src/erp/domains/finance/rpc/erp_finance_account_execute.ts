@@ -17,7 +17,6 @@ import {
   day,
   expected,
   field,
-  flushDeferred,
   hasKey,
   insertAccount,
   insertAudit,
@@ -240,7 +239,6 @@ export function erpFinanceAccountExecute(ctx: RpcContext, a: RpcArgs) {
   };
   insertCommand(ctx, command, user, hash, result);
   insertAudit(ctx, user, command, action, before, result);
-  flushDeferred(ctx);
   return result;
 }
 
