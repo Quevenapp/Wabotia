@@ -236,10 +236,12 @@ async function panel(
     fetcher,
   );
   const stop = controller.start();
+  // Até 15 s para o /v1/me: com a máquina carregada, o workerd demora a responder.
   for (
-    let i = 0;
-    i < 200 && ["loading", "checking"].includes(controller.getSnapshot().phase);
-    i++
+    const until = Date.now() + 15_000;
+    Date.now() < until &&
+    ["loading", "checking"].includes(controller.getSnapshot().phase);
+
   )
     await new Promise((resolve) => setTimeout(resolve, 20));
   const snapshot = controller.getSnapshot();
@@ -381,9 +383,11 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Mudar a situação do pedido (erp_document_transition) ainda não tem
-      // motor: a tela recebe a recusa e a casca mostra o aviso de implantação.
-      const { f, send } = await setup();
+      // Registrar ocorrência no pedido (erp_document_occurrence_add) ainda não
+      // tem motor: a tela recebe a recusa e a casca mostra o aviso de implantação.
+      const { f, send, get } = await setup();
+      // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
+      await get(await bearer(f.admin), "/erp/v1/inicio");
       const seen: string[] = [];
       setMotorReal(true);
       setActionPendingNotice(() => seen.push("aviso"));
@@ -396,14 +400,16 @@ describe("painel do ERP contra a rota real", () => {
           async (controller) => {
             const failure = await controller
               .documents(
-                `/v1/documentos/sales_orders/${crypto.randomUUID()}/status`,
+                `/v1/documentos/sales_orders/${crypto.randomUUID()}/ocorrencias`,
                 {
                   method: "POST",
                   body: {
                     command_id: crypto.randomUUID(),
                     expected_version: 1,
+                    occurred_on: "2026-11-17",
+                    occurred_time: "10:00",
+                    text: "Cliente pediu a entrega para amanhã.",
                     status: "verified",
-                    reason: null,
                   },
                 },
               )
@@ -412,7 +418,10 @@ describe("painel do ERP contra a rota real", () => {
                 (error) => error,
               );
             expect(failure).toBeInstanceOf(AccessError);
-            expect([failure.status, failure.code]).toEqual([
+            expect(
+              [failure.status, failure.code],
+              trace.slice(-3).join("\n"),
+            ).toEqual([
               502,
               "ERP_UPSTREAM_UNAVAILABLE",
             ]);

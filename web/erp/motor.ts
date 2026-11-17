@@ -14,30 +14,25 @@ type Pending = { path: string; under?: boolean; query?: [string, string[]] };
 export const MOTOR_PENDING: readonly Pending[] = [
   // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
   { path: "/meu-negocio" },
-  // Cadastros: contatos, depósitos, vendedores, campos customizados e taxonomias.
-  { path: "/cadastros-reais", query: ["cadastro", ["contacts", "warehouses"]] },
-  { path: "/vendedores-empresa" },
-  { path: "/campos-customizados" },
+  // Cadastros: depósitos, taxonomias, importação e numeração de contatos.
+  { path: "/cadastros-reais", query: ["cadastro", ["warehouses"]] },
   { path: "/categorias-produtos" },
   { path: "/grupos-produtos" },
   { path: "/tags" },
   { path: "/grupos-tags" },
   { path: "/importar-contatos" },
   { path: "/numeracao-contatos" },
-  // Fiscal: notas, eventos, naturezas, rascunhos, numeração e o certificado
-  // (as preferências de NF-e e NFC-e já respondem).
+  // Fiscal: notas, eventos, rascunhos, numeração e o certificado (as
+  // naturezas de operação e as preferências de NF-e e NFC-e já respondem).
   { path: "/historico-fiscal" },
   { path: "/notas-entrada" },
   { path: "/notas-recebidas" },
-  { path: "/naturezas-operacao" },
   { path: "/inutilizacoes-nfe" },
   { path: "/cartas-correcao" },
   { path: "/numeracao-fiscal" },
   { path: "/emissor-fiscal" },
   { path: "/preferencias/certificado", under: true },
   { path: "/preferencias/importacoes/notas-fiscais" },
-  // Frente de caixa.
-  { path: "/frente-caixa-empresa" },
   // Cobrança operacional e retornos operacionais (a cobrança bancária, as
   // remessas e os retornos do financeiro já respondem).
   { path: "/cobranca-operacional" },
@@ -51,6 +46,11 @@ export const MOTOR_PENDING: readonly Pending[] = [
 export const MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Início", to: "/acesso" },
   { label: "Produtos", to: "/cadastros-reais?cadastro=products" },
+  { label: "Clientes e fornecedores", to: "/cadastros-reais?cadastro=contacts" },
+  { label: "Vendedores", to: "/vendedores-empresa" },
+  { label: "Campos customizados", to: "/campos-customizados" },
+  { label: "Naturezas de operação", to: "/naturezas-operacao" },
+  { label: "Frente de caixa", to: "/frente-caixa-empresa" },
   { label: "Contas a receber", to: "/financeiro-empresa?area=receivable" },
   { label: "Contas a pagar", to: "/financeiro-empresa?area=payable" },
   { label: "Caixas e bancos", to: "/financeiro-empresa?area=accounts" },
@@ -85,7 +85,7 @@ export const readPendingInMotor = (path: string) =>
 
 /**
  * Ação de uma tela que já funciona, mas cujo RPC o motor ainda não tem (0A000:
- * mudar a situação de um pedido, lançar as contas do pedido). A erp-api do
+ * registrar ocorrência no pedido, copiar, lixeira). A erp-api do
  * Fagoo devolve 502 ERP_UPSTREAM_UNAVAILABLE e a tela mostraria só "não foi
  * possível, tente de novo". O controlador (web/erp/app/lib/real-access.ts)
  * avisa aqui a cada escrita recusada assim, e a casca (web/erp/mount.tsx) diz
