@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import {
   BookOpen,
+  Building2,
   CircleHelp,
   Code2,
   Contact,
@@ -40,6 +41,7 @@ import {
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { AccountDialog } from "./Account";
+import { erpModuleOn } from "../erp/modules";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -100,10 +102,14 @@ function useItems(): Item[] {
         icon: item.icon,
       })),
     { area: "contacts", label: "Contatos", icon: Contact },
+    { area: "erp", label: "ERP", icon: Building2 },
     { area: "admin", label: "Gestão", icon: Settings },
   ].filter(
     (item) =>
-      moduleAllows(item.area, app.modules) &&
+      // ERP: desligado de fábrica, até o servidor declarar o módulo (web/erp/modules.ts).
+      (item.area === "erp"
+        ? erpModuleOn(app.modules, "erp")
+        : moduleAllows(item.area, app.modules)) &&
       // Acesso por pessoa: some o que ela não acessa (Gestão fica, com o
       // Início e as páginas de módulo que ela tem).
       (item.area === "admin" ||
@@ -387,7 +393,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ))}
         <NavLink
           item={{ area: "more", label: "Mais", icon: Ellipsis }}
-          active={["more", "queue", "contacts", "admin"].includes(route.area)}
+          active={["more", "queue", "contacts", "erp", "admin"].includes(
+            route.area,
+          )}
           className="tab-item"
         />
       </nav>
