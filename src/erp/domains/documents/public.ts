@@ -7,6 +7,7 @@ import { toScaled } from "../../engine/dec.ts";
 import { ledgerDocumentPrice } from "../stock/public.ts";
 
 export * from "./stubs.generated.ts";
+export { costApply, costApplyCapture } from "./cost-apply.ts";
 
 /**
  * erp_documents.report_last_purchase_until(produto, até, saldos): o preço da
