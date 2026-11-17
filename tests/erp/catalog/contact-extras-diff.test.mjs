@@ -108,6 +108,34 @@ test("transportadora: complemento, espelho do Origin e opções dos seletores", 
   await options({ p_role: "carrier" }, f.users.consulta);
 });
 
+test("exportação, aniversariantes e lista com etiqueta", async () => {
+  const births = ["1980-01-05", "1976-02-29", "1990-06-15", "2001-12-20", "1968-12-31", null];
+  const ids = [];
+  for (const [i, birth_date] of births.entries())
+    ids.push((await f.save({ name: `Aniversariante ${i}`, person_type: "F", ...(birth_date ? { birth_date } : {}) })).record);
+  const tags = (await f.rpc("erp_catalog_taxonomy_save", { p_user_id: f.users.admin, p_kind: "tag_groups", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "Grupo exp", tag_type: "contacts" } })).item;
+  const tag = (await f.rpc("erp_catalog_taxonomy_save", { p_user_id: f.users.admin, p_kind: "tags", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "VIP", parent_id: tags.id, tag_type: "contacts" } })).item;
+  await f.rpc("erp_catalog_contact_tags_save", { p_user_id: f.users.admin, p_id: ids[0].id, p_expected_version: 0, p_command_id: randomUUID(), p_tag_ids: [tag.id], p_mode: "replace" });
+  const exp = (args, tagged = false) => same(tagged ? "erp_catalog_contact_export_tagged" : "erp_catalog_contact_export", { p_user_id: f.users.admin, ...args });
+  for (const tagged of [false, true]) {
+    for (const args of [
+      {}, { p_offset: 1, p_limit: 2 }, { p_sort: "name_desc" }, { p_query: "aniversariante 3" },
+      { p_kind: "birthdays", p_birth_from: "2026-01-01", p_birth_to: "2026-03-01" },
+      { p_kind: "birthdays", p_birth_from: "2026-12-15", p_birth_to: "2027-01-10" },
+      { p_kind: "birthdays", p_birth_from: "2026-01-01", p_birth_to: "2026-12-31" },
+      { p_kind: "birthdays", p_birth_from: "2026-01-01", p_birth_to: "2027-01-02" },
+      { p_kind: "birthdays", p_birth_from: "2026-01-01", p_birth_to: "2027-01-03" },
+      { p_kind: "birthdays", p_birth_from: "2026-02-01", p_birth_to: "2026-01-01" },
+      { p_kind: "birthdays" }, { p_birth_from: "2026-01-01", p_birth_to: "2026-02-01" }, { p_kind: "x" }, { p_offset: 10000 }, { p_limit: 101 },
+    ])
+      await exp(args, tagged);
+  }
+  for (const args of [{ p_tag: tag.id }, { p_tag: "none" }, { p_tag: "VIP" }, { p_price_list_id: randomUUID() }, { p_tag: tag.id, p_kind: "birthdays", p_birth_from: "2026-01-01", p_birth_to: "2026-01-31" }])
+    await exp(args, true);
+  for (const args of [{}, { p_tag: tag.id }, { p_tag: "none", p_sort: "name_asc" }, { p_tag: "x" }, { p_price_list_id: randomUUID() }, { p_query: "aniversariante", p_tag: tag.id }])
+    await same("erp_catalog_contact_page_tagged", { p_user_id: f.users.admin, p_size: 100, ...args });
+});
+
 test("cobrança: leitura, gravação, versão, repetição e recusas", async () => {
   const contact = (await f.save({ name: "Contato da cobrança", email: "geral@exemplo.com.br", street: "Rua A", number: "10", city: "Piracicaba", state: "SP" })).record;
   const get = (user = f.users.admin) => same("erp_contact_billing_get", { p_user_id: user, p_contact_id: contact.id });
