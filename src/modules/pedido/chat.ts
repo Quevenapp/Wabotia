@@ -37,10 +37,13 @@ import {
   startPayment,
   storeName,
   trackLines,
+  type OrderAddress,
   type OrderLine,
 } from "./orders";
 import { all, exec, one } from "../../db";
 import { answerDraft } from "./bot";
+import { storePlace, validLat, validLng, withStorePlace } from "./address";
+import { deliveryInfo } from "./listeners";
 
 const plain = (value: string) =>
   value
@@ -138,6 +141,7 @@ export async function sendCart(
   }
   const title = await storeName(ctx, cfg);
   const pickup = await pickupAddress(ctx, cfg);
+  const place = await storePlace(ctx);
   const methods = await offeredMethods(ctx, cfg);
   const intro = [
     store.closes_at ? `Aberto até ${clockOf(store.closes_at)}.` : "",
@@ -174,6 +178,10 @@ export async function sendCart(
           ...(etaText(cfg) ? { eta: etaText(cfg) } : {}),
           ...(cfg.pickup && pickup
             ? { pickup_address: pickup.slice(0, 200) }
+            : {}),
+          // Cidade e UF da loja já preenchidas no formulário de entrega.
+          ...(cfg.delivery && place.city
+            ? { default_city: place.city, ...(place.state ? { default_state: place.state } : {}) }
             : {}),
         },
         allow_note: true,
@@ -324,7 +332,10 @@ export async function cartCompleted(
     delivery_fee_cents: cart.delivery_fee_cents,
     total_cents: cart.total_cents,
     fulfillment: cart.fulfillment,
-    address: cart.address,
+    // Sem cidade no formulário, a da loja (o app do entregador procura nela).
+    address: cart.address
+      ? withStorePlace({ ...cart.address }, await storePlace(ctx))
+      : null,
     note: cart.note,
     actor: "customer",
   });
@@ -540,17 +551,27 @@ async function askAddress(
   await say(
     ctx,
     c,
-    "Envie o endereço da entrega: rua, número e bairro (e um complemento, se houver).",
+    "Envie o endereço da entrega: rua, número e bairro (e um complemento, se houver). Se preferir, mande a sua localização pelo WhatsApp.",
     `address:${key}`,
   );
 }
+
+/** Endereço digitado na conversa (rua, número e bairro num texto só). */
+const typedAddress = (text: string): OrderAddress => ({
+  street: text,
+  district: "",
+  complement: "",
+  reference: "",
+});
 
 async function finishCatalog(
   ctx: ModuleContext,
   c: Conversation,
   draft: CatalogDraft,
-  address: string | null,
+  typed: OrderAddress | null,
 ) {
+  // Sem cidade (texto da conversa), a da loja: o app procura na cidade certa.
+  const address = typed ? withStorePlace(typed, await storePlace(ctx)) : null;
   const cfg = await config(ctx);
   await clearChat(ctx, c.id);
   const fee = draft.fulfillment === "delivery" ? cfg.delivery_fee_cents : 0;
@@ -566,9 +587,7 @@ async function finishCatalog(
     delivery_fee_cents: fee,
     total_cents: draft.subtotal_cents + fee,
     fulfillment: draft.fulfillment || "pickup",
-    address: address
-      ? { street: address, district: "", complement: "", reference: "" }
-      : null,
+    address,
     note: draft.note,
     actor: "customer",
   });
@@ -731,11 +750,67 @@ export async function pedidoTurn(
         );
         return true;
       }
-      await finishCatalog(ctx, c, chat.data.draft, address);
+      await finishCatalog(ctx, c, chat.data.draft, typedAddress(address));
       return true;
     }
   }
   return false;
+}
+
+/**
+ * Localização mandada pelo cliente (onInboundContent "location"):
+ * - com a pergunta do endereço aberta, é o endereço do pedido (com as
+ *   coordenadas: o app do entregador vai direto, sem procurar);
+ * - senão, vira as coordenadas do pedido de entrega aberto mais recente da
+ *   conversa que ainda não as tem e ainda não tem entrega aberta. Com entrega
+ *   aberta, quem trata é o módulo Entrega (devolve false).
+ */
+export async function customerLocation(
+  ctx: ModuleContext,
+  c: Conversation,
+  content: any,
+  rowId: string,
+): Promise<boolean> {
+  const loc = content?.location;
+  if (c.chat_type === "group" || !loc || !validLat(loc.latitude) || !validLng(loc.longitude)) return false;
+  const key = `location:${rowId}`;
+  const label = (v: unknown) => (typeof v === "string" ? Array.from(v.trim()).slice(0, 120).join("") : "");
+  const chat = await loadChat(ctx, c.id);
+  if (chat?.step === "address" && chat.expires_at > now()) {
+    const place = label(loc.address),
+      name = label(loc.name);
+    await finishCatalog(ctx, c, chat.data.draft, {
+      street: place || name || "Localização enviada pelo WhatsApp",
+      district: "",
+      complement: "",
+      reference: place && name ? name : "",
+      lat: loc.latitude,
+      lng: loc.longitude,
+    });
+    return true;
+  }
+  const order = await one(
+    ctx.env,
+    "SELECT id,address FROM pedido_orders WHERE profile_id=? AND conversation_id=? AND fulfillment='delivery' AND status IN ('awaiting_payment','received','preparing','ready') ORDER BY created DESC LIMIT 1",
+    ctx.profile,
+    c.id,
+  );
+  if (!order) return false;
+  const address = json(order.address, null);
+  if (!address || (typeof address.lat === "number" && typeof address.lng === "number")) return false;
+  if ((await deliveryInfo(ctx.env, ctx.profile, [order.id])).has(order.id)) return false;
+  const changed = await exec(
+    ctx.env,
+    "UPDATE pedido_orders SET address=?,updated=? WHERE id=? AND profile_id=? AND address=?",
+    JSON.stringify({ ...address, lat: loc.latitude, lng: loc.longitude }),
+    now(),
+    order.id,
+    ctx.profile,
+    order.address,
+  );
+  if (!changed.meta?.changes) return false;
+  await say(ctx, c, "Obrigado! Vamos usar a sua localização para a entrega.", key);
+  return true;
 }
 
 async function loadChat(ctx: ModuleContext, conversationId: string) {

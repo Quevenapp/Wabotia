@@ -55,6 +55,7 @@ import {
 
 // Ganchos do Pedido: estado, aviso de saída com o link e entregador no quadro.
 import "./pedido-hooks";
+import { storeRef } from "./address";
 
 const MODULE = "entrega";
 // Toda resposta passa por `visible`: aplicação sem contacts:read não vê
@@ -72,6 +73,8 @@ onRead(MODULE, "entrega", async (ctx, actor) => {
     courier: await isCourier(ctx, actor),
     // Pessoas com o papel entrega:courier (entregadores com login).
     couriers: await ctx.grantees("courier"),
+    // A loja como referência para o app procurar os destinos.
+    store: await storeRef(ctx),
     app: appParams(cfg, {}),
     updates: cfg.updates,
     tracking_link: cfg.tracking_link,
@@ -104,6 +107,7 @@ onRead(MODULE, "entrega/mine", async (ctx, actor) => {
   return {
     courier: await isCourier(ctx, actor),
     data: rows.map((r) => deliveryView(r, cfg, at)),
+    store: await storeRef(ctx),
     app: appParams(cfg, rows.find((r) => r.status === "en_route") || {}),
   };
 });

@@ -415,7 +415,40 @@ export const moduleSchemas = {
         type: "string",
         description: "Documento com pontuação, pronto para imprimir.",
       },
-      address: { type: "string", maxLength: 300 },
+      address: {
+        type: "string",
+        description:
+          "Endereço para imprimir e mostrar: montado dos campos (\"Rua X, 200 - Bairro, Cidade/UF, CEP 00000-000\") quando rua e cidade estão preenchidas; senão, o texto livre.",
+      },
+      address_free: {
+        type: "string",
+        maxLength: 300,
+        description: "O texto livre gravado, como está (o que Gestão edita em `address` no PUT /settings).",
+      },
+      street: { type: "string", maxLength: 200 },
+      number: { type: "string", maxLength: 30 },
+      complement: { type: "string", maxLength: 200 },
+      district: { type: "string", maxLength: 100, description: "Bairro." },
+      city: { type: "string", maxLength: 100 },
+      state: { type: "string", description: "UF, duas letras." },
+      postal_code: { type: "string", description: "CEP, 8 dígitos." },
+      municipality_code: {
+        type: "string",
+        description: "Código IBGE do município (7 dígitos), opcional.",
+      },
+      latitude: { type: ["number", "null"] },
+      longitude: { type: ["number", "null"] },
+      position: {
+        description:
+          "Posição da loja (Gestão → Estabelecimento, \"Usar a localização deste aparelho\"): referência para os apps acharem endereços perto da loja.",
+        oneOf: [
+          {
+            type: "object",
+            properties: { lat: { type: "number" }, lng: { type: "number" } },
+          },
+          { type: "null" },
+        ],
+      },
       phone: { type: "string", maxLength: 40 },
       footer: {
         type: "string",

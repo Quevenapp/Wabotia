@@ -26,6 +26,7 @@ import {
 } from "./model";
 import { cartCategories, loadMenu } from "./menu";
 import { deliveryInfo } from "./listeners";
+import { addressExtras, storePlace, withStorePlace } from "./address";
 import { config, storeSituation } from "./store";
 import {
   applyMethod,
@@ -508,6 +509,12 @@ export async function createFromApi(
       "invalid_request",
       Object.values(checked.errors).join(" "),
     );
+  // Número, cidade, UF, CEP e localização (o carrinho só valida rua, bairro,
+  // complemento e referência); sem cidade, as da loja.
+  const extras = addressExtras(address);
+  const deliveryAddress = checked.order.address
+    ? withStorePlace({ ...checked.order.address, ...extras }, await storePlace(ctx))
+    : null;
   let c =
     data.conversation_id !== undefined && data.conversation_id !== null
       ? await ctx.conversation(String(data.conversation_id), actor)
@@ -575,7 +582,7 @@ export async function createFromApi(
     delivery_fee_cents: order.delivery_fee_cents,
     total_cents: order.total_cents,
     fulfillment: order.fulfillment,
-    address: order.address,
+    address: deliveryAddress,
     note: order.note,
     notes: clipText(data.notes, 2000, "Observações internas"),
     actor: actor.id,
