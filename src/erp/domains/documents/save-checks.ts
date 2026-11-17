@@ -324,20 +324,23 @@ export type OccurrenceOverrides = { on?: string | null; time?: string | null; te
 export function recordOccurrence(
   ctx: RpcContext,
   a: { document: string; actor: string; command: string; version: number | null; before: unknown; after: unknown; text: string | null; situationBefore?: unknown; situationAfter?: unknown },
-  overrides: OccurrenceOverrides = {},
+  given?: OccurrenceOverrides,
 ) {
+  // set_config('erp_documents.occurrence_*'): a ocorrência manual (erp_document_occurrence_add) passa data, hora, texto e próximo contato.
+  const setting = (k: string) => { const v = ctx.settings.get(`erp_documents.occurrence_${k}`); return v === undefined || v === "" ? null : v; };
+  const overrides: OccurrenceOverrides = given ?? { on: setting("on"), time: setting("time"), text: setting("text"), next_contact: setting("next_contact") };
   const db = ctx.db;
   const role = (one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', a.actor)?.role as string | undefined) ?? "desconhecido";
   const seq = Number(one(db, 'SELECT coalesce(max(sequence),0)+1 n FROM "erp_documents__occurrence" WHERE document_id=?', a.document)!.n);
   const now = ctx.clock.next();
   const sp = saoPauloParts(now);
-  const situation = "situationBefore" in a || "situationAfter" in a;
+  const snap = (s: unknown) => { const v = situationSnapshot(s); return v === null ? null : JSON.stringify(v); };
   db.exec(
     `INSERT INTO "erp_documents__occurrence"(id, document_id, sequence, occurred_on, occurred_time, text, status_before, status_after, next_contact, actor_id, actor_role,
        command_id, document_version, recorded_at, situation_before, situation_after) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     crypto.randomUUID(), a.document, seq, overrides.on || sp.date || todaySaoPaulo(), overrides.time || sp.hm, overrides.text || a.text, a.before ?? null, a.after ?? null,
     overrides.next_contact || null, a.actor, role, a.command, a.version, now.toString(),
-    situation ? JSON.stringify(situationSnapshot(a.situationBefore)) : null, situation ? JSON.stringify(situationSnapshot(a.situationAfter)) : null,
+    snap(a.situationBefore), snap(a.situationAfter),
   );
 }
 
