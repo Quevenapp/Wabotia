@@ -5,5 +5,6 @@
 import "./rpc/reads-config.ts";
 import "./rpc/reads-lookup.ts";
 import "./rpc/reads-sales.ts";
+import "./rpc/reads-journal.ts";
 
 export {};
