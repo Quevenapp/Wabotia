@@ -204,3 +204,20 @@ registerOpaqueHash({
     "erp_document_finance_post pelo auto_finance do erp_document_save: preview_hash = sha256 da prévia com o document_id criado na " +
     "chamada (gen_random_uuid); o request_hash do erp_finance.document_command cobre o mesmo id.",
 });
+
+// Catálogo (P/B): erp_catalog.custom_field_item, migração
+// 202610200156_product_custom_fields.sql: 'category_ids' =
+// jsonb_agg(c.category_id::text order by c.category_id::text). Categoria
+// criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda
+// de posição entre os motores; as antigas são iguais nos dois lados.
+registerNewIdOrder({
+  id: "catalog.custom_field_category_ids",
+  keys: ["category_ids"],
+  by: null,
+  dir: "asc",
+  columns: ["erp_catalog__custom_field_audit.before_data", "erp_catalog__custom_field_audit.after_data", "erp_catalog__command.result"],
+  rpcs: ["erp_catalog_custom_fields", "erp_catalog_custom_field_save", "erp_catalog_taxonomy_save"],
+  reason:
+    "erp_catalog.custom_field_item (202610200156_product_custom_fields.sql): 'category_ids' = jsonb_agg(c.category_id::text order by " +
+    "c.category_id::text); uma categoria criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda de posição entre os motores.",
+});

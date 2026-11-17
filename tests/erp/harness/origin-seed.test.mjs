@@ -61,12 +61,11 @@ before(async () => {
 after(() => f?.close());
 
 const meta = { p_occurred_on: "2026-10-15", p_reason: "Lançamento sobre o espelho" };
-const MIRROR_VISIBLE = "pendente da O: erp_document_mirror.require_visible (documents/reads-g.ts) ainda é no-op; o oráculo recusa erp_document_mirror_readonly antes do Estoque";
 
-test("Estoque (N): lançamento de pedido espelhado", { todo: MIRROR_VISIBLE }, async () => {
+test("Estoque (N): lançamento de pedido espelhado", async () => {
   await same("erp_document_stock_preview", { p_user_id: u.estoque, p_kind: "sales_orders", p_document_id: mirrored, p_expected_version: 1, ...meta });
 });
-test("Estoque (N): reserva de pedido espelhado (conferência)", { todo: MIRROR_VISIBLE }, async () => {
+test("Estoque (N): reserva de pedido espelhado (conferência)", async () => {
   await same("erp_stock_reservation_preview", { p_user_id: u.estoque, p_document_id: mirrored, p_expected_version: 1, p_action: "reserve", ...meta, p_reservation_id: null, p_reservation_version: null });
 });
 test("Estoque (N): leitura da reserva de pedido espelhado", async () => {
@@ -76,7 +75,7 @@ test("Estoque (N): lotes das linhas do pedido espelhado", async () => {
   await same("erp_stock_source_lots", { p_user_id: u.estoque, p_source: "document", p_source_id: mirrored, p_product_id: product.id });
 });
 
-test("Documentos (O): leitura do pedido espelhado", { todo: "pendente da O: erp_document_mirror.detail sai 0A000 no motor; o oráculo devolve o pedido" }, async () => {
+test("Documentos (O): leitura do pedido espelhado", async () => {
   await same("erp_document_get", { p_user_id: u.admin, p_kind: "sales_orders", p_id: mirrored });
 });
 test("Documentos (O): lista com o pedido espelhado", async () => {

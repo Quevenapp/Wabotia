@@ -533,7 +533,7 @@ export function documentReversePreviewData(ctx: RpcContext, d: Row, postingId: s
 /** INSERT em erp_stock.document_posting com os gatilhos BEFORE (ordem do nome) e o AFTER dos lotes. */
 export function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
   const db = ctx.db;
-  // aa_mirror_authority (erp_document_mirror.guard_effect): sem documento do Origin, nada.
+  documents.mirrorGuardEffect(db, row.document_id); // aa_mirror_authority (erp_document_mirror.guard_effect)
   documents.guardTrashChild(db, row.document_id); // guard_trash
   // protect_purchase_receipt_legacy (erp_purchase_receipts.guard_legacy)
   if (one(db, 'SELECT 1 x FROM "erp_purchase_receipts__receipt" WHERE document_id=?', row.document_id)) raise("40001", "purchase_receipt_legacy_mixing");
@@ -565,7 +565,9 @@ export function insertPosting(ctx: RpcContext, row: { document_id: string; docum
 /** UPDATE de estorno em erp_stock.document_posting (guard_document_posting). */
 function reversePosting(ctx: RpcContext, id: string, movement: string, user: string, reason: string) {
   const db = ctx.db;
-  const o = one(db, 'SELECT state, movement_id FROM "erp_stock__document_posting" WHERE id=?', id)!;
+  const o = one(db, 'SELECT state, movement_id, document_id FROM "erp_stock__document_posting" WHERE id=?', id)!;
+  // aa_mirror_authority (guard_effect): OLD e NEW, o mesmo documento.
+  documents.mirrorGuardEffect(db, o.document_id);
   // immutable_document_stock_posting: só active → reversed, versão +1, pelo movimento que estorna o lançamento.
   if (o.state !== "active" || !one(db, 'SELECT 1 x FROM "erp_stock__movement" WHERE id=? AND reverses_id=?', movement, o.movement_id))
     raise("40001", "erp_document_stock_immutable");
@@ -595,6 +597,8 @@ export function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
 /** INSERT nas auditorias do Estoque e do Documentos. */
 function audit(ctx: RpcContext, a: { actor: string; command: string; document: string; posting: string; action: "post" | "reverse"; result: unknown; reason: string | null }) {
   const db = ctx.db;
+  // aa_mirror_authority (guard_effect) nas duas auditorias.
+  documents.mirrorGuardEffect(db, a.document);
   db.exec(
     'INSERT INTO "erp_stock__document_audit"(id, actor, command_id, document_id, posting_id, action, result, created_at) VALUES(?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_stock__document_audit", "id"),
