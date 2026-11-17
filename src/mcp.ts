@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { type Actor, type Bindings, type Env, ApiError } from "./types";
 import { all } from "./db";
 import { resolveStates } from "./modules/registry";
-import { authenticate, canProfile } from "./security";
+import { authenticate, canProfile, refuseEngineActor } from "./security";
 import { isBound } from "./visibility";
 import { buildInfo } from "./build-info.generated";
 import { ticketStatuses } from "./protocols";
@@ -1018,6 +1018,8 @@ export async function internalCall(
   call: Call,
   key?: string,
 ) {
+  // O ator do motor de atendimento nunca chama a API (src/security.ts).
+  refuseEngineActor(actor);
   // A entrada do Worker monta o app (mountMcp) ao carregar; fora dela
   // (Coordinator, testes que importam o motor), carregar a entrada basta.
   if (!appRef) await import("./index");

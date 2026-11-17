@@ -21,7 +21,9 @@ import {
 import {
   access,
   admin,
+  isEngineActor,
   random,
+  refuseEngineActor,
   sha,
   setSecret,
   publicUrl,
@@ -1445,7 +1447,15 @@ export async function createRun(
   extra: any = {},
 ) {
   if (extra.conversation_id) {
-    const c = await conversation(env, extra.conversation_id, profile, actor);
+    // O motor processa a caixa de entrada da própria área: toda conversa
+    // dela, inclusive as abertas por aplicação (namespace app:), que a
+    // visibilidade de aplicação esconderia.
+    const c = await conversation(
+      env,
+      extra.conversation_id,
+      profile,
+      isEngineActor(actor) ? undefined : actor,
+    );
     if (!(await getNumberPolicy(env, c.connection_id)).bots)
       throw numberPolicyError("bots");
     requireValue(
@@ -1518,6 +1528,7 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  refuseEngineActor(actor);
   env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);

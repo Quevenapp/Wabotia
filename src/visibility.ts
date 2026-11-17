@@ -39,6 +39,20 @@ export async function boundAllows(env: Env, actor: Actor, c: any) {
   if (!isBound(actor)) return true;
   if (c.external_namespace === `app:${actor.id}`) return true;
   if (!actor.bots.length) return false;
+  // Proposta do cliente confirmada (src/bot-actions/customer.ts): vale a
+  // conversa da proposta enquanto ela roda, mesmo depois da janela da
+  // execução (a proposta vale 10 min; a janela, 2).
+  if (
+    actor.via?.proposal_id &&
+    (await one(
+      env,
+      "SELECT 1 FROM bot_proposals WHERE id=? AND conversation_id=? AND mode='customer' AND status='running' AND bot_id IN (SELECT value FROM json_each(?))",
+      actor.via.proposal_id,
+      c.id,
+      JSON.stringify(actor.bots),
+    ))
+  )
+    return true;
   return !!(await one(
     env,
     "SELECT 1 FROM bot_runs WHERE conversation_id=? AND bot_id IN (SELECT value FROM json_each(?)) AND (status IN ('queued','starting','running') OR updated>?) LIMIT 1",
