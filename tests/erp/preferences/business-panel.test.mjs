@@ -1,7 +1,7 @@
 // Meu Negócio (erp_home_business_panel) na fixture dupla, pela rota do Worker (p_panel + p_args de businessArgs).
 // Adaptados de business-dashboards-sql.test.mjs do Fagoo (chamando o painel em vez das funções internas).
-// Os casos com produto (custo da linha) ficam todo até as funções de custo dos donos: productCostAt (Catálogo, P),
-// reportLastPurchaseUntil (Documentos, O) e ledgerDocumentPrice/invoiceUnitPrice/virtualQuantity (Estoque, N).
+// O custo da linha usa o productCostAt (Catálogo) e, sem histórico, o reportLastPurchaseUntil (Documentos, O), ainda stub:
+// o caso do Fagoo com o custo pela última compra fica todo; o histórico do cadastro já roda nos dois motores.
 // O caso "itens sem produto" cobre agora o resto: períodos, situações, canais, vendedores, estados, carteira, ABC e metas.
 // Fora, declarados: GRANT/has_function_privilege, gatilhos de imutabilidade por SQL direto e o bloco gerado de 150.
 import test from "node:test";
@@ -19,7 +19,7 @@ import {
 } from "../../../src/erp/fagoo/packages/erp-domain/src/business-dashboards.mjs";
 
 const fails = (fn, code) => assert.rejects(fn, (e) => e.code === code);
-const PENDING = "pendente: custo da linha (productCostAt da P, reportLastPurchaseUntil da O, funções de estoque da N)";
+const PENDING = "pendente de Documentos (O): erp_documents.report_last_purchase_until, o custo pela última compra";
 const S = "verified,in_progress,fulfilled";
 
 async function documentOf(f, kind, { contact, date, items, statuses = [], body = {} }) {
@@ -167,6 +167,37 @@ test("150 Metas: administrador creates and edits with CAS, the same command repl
       await fails(() => save({ ...args, p_command_id: randomUUID(), p_data: data }), "22023");
     const seller = await save({ ...args, p_command_id: randomUUID(), p_data: { ...sent.data, name: "Meta do vendedor", segment: "vendedor", seller: "Vendedor X" } });
     assert.equal(seller.goal.achieved, "0.00");
+  } finally {
+    await f.close();
+  }
+});
+
+test("produtos com custo no histórico do cadastro: margens, ABC, previsão e o estoque do produto nos dois motores", async () => {
+  const { f, pen, pencil } = await company(true);
+  try {
+    // Custo do cadastro antes das vendas (product_cost_at): a última compra (pendente na O) não é consultada.
+    await f.db.query(
+      "insert into erp_catalog.product_cost_history(product_id,cost_price,purchase_price,valid_from,source) values($1,1.25,1.25,'2026-01-01T03:00:00Z','cadastro'),($2,0.4,null,'2026-01-01T03:00:00Z','cadastro'),($1,1.3333333333,null,'2026-10-11T03:00:00Z','cadastro')",
+      [pen.id, pencil.id],
+    );
+    await f.sync();
+    const S2 = { situacoes: S, de: "2026-10-01", ate: "2026-10-31" };
+    const v = await panel(f, "mensal", { ...S2, comparar_de: "2026-09-01", comparar_ate: "2026-09-30" });
+    assert.equal(v.indicators.lines_without_cost, 0);
+    assert.equal(v.indicators.cost, "9.50", "caneta: custo congelado na confirmação (1.25, item_cost_applied) vence o histórico; lápis: 5×0.40");
+    for (const user of [f.users.admin, f.users.vendas, f.users.financeiro, f.users.estoque]) await panel(f, "mensal", S2, user);
+    const o = await panel(f, "pedidos-venda", S2);
+    assert.deepEqual(o.by_product.map((p) => [p.code, p.cost]), [["CAN-1", "7.50"], ["LAP-1", "2.00"]]);
+    for (const name of ["vendas-vendedor", "novos-recorrentes", "curva-abc"]) await panel(f, name, S2);
+    const m = await panel(f, "margem-pedido", S2);
+    assert.equal(m.indicators.orders_without_cost, 0);
+    for (const aba of ["lucro", "prejuizo"]) await panel(f, "margem-pedido", { ...S2, aba });
+    assert.equal((await panel(f, "curva-abc", { ...S2, marca: "marca x" })).products.length, 1);
+    for (const [reserva, modo] of [["sim", "itens"], ["nao", "desmembrados"]]) {
+      const fc = await panel(f, "previsao-estoque", { de: "2026-10-01", ate: "2026-10-31", reserva, modo });
+      assert.deepEqual(fc.turnover.map((x) => [x.code, x.sold, x.coverage_days]), [["CAN-1", "6.000000", 0], ["LAP-1", "5.000000", 0]]);
+    }
+    await panel(f, "diario", { situacoes: S, dia: "2026-10-12" });
   } finally {
     await f.close();
   }

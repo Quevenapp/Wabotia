@@ -264,7 +264,7 @@ class Panel {
         if (product !== null)
           cost =
             ((i.applied as string | null) ?? null) ??
-            (productCostAt(this.db, product, o.day) as unknown as string | null) ??
+            productCostAt(this.db, product, o.day) ??
             (reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as string | null);
         out.push({
           document_id: o.id,
@@ -757,7 +757,7 @@ function forecast(pn: Panel, user: string | null, from: string | null, to: strin
     // A composição Virtual não tem estoque próprio: o estoque é o das composições que os componentes permitem (222).
     const stock =
       composition === "virtual"
-        ? (fromColumn((virtualQuantity(pn.db, e.product_id, warehouse) as unknown as bigint | null) ?? 0n) as bigint)
+        ? (virtualQuantity(pn.db, e.product_id, warehouse) ?? 0n) * 1_000_000n // kits inteiros → escala 6
         : fromColumn(countPhysical(pn.db, e.product_id, warehouse)) - reserved(e.product_id);
     const coverage = e.sold <= 0n ? null : (((stock > 0n ? stock : 0n) * span) / e.sold > 2147483647n ? 2147483647 : Number(((stock > 0n ? stock : 0n) * span) / e.sold));
     return {
