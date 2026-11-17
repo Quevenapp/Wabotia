@@ -9,11 +9,12 @@ import React, {
 } from "react";
 import { Maximize, Volume2 } from "lucide-react";
 import {
-  createAnnouncer,
+  announceCall,
   unlockAudio,
   useQueueSocket,
   type CallFrame,
 } from "./live";
+import { createCallQueue } from "./call-queue";
 import "../styles/tokens.css";
 import "../styles/base.css";
 import "../styles/queue.css";
@@ -40,10 +41,15 @@ export function QueueDisplay() {
     [error, setError] = useState(""),
     [sound, setSound] = useState(false),
     [flash, setFlash] = useState<CallFrame | null>(null);
-  const announce = useRef(createAnnouncer());
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  // A senha em destaque é a que está sendo anunciada (call-queue.ts): numa
+  // rajada, a tela não passa na frente da fala.
+  const soundOn = useRef(sound);
+  soundOn.current = sound;
+  const calls = useRef<ReturnType<typeof createCallQueue> | null>(null);
+  calls.current ??= createCallQueue({
+    announce: announceCall(() => soundOn.current),
+    show: setFlash,
+  });
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -66,12 +72,7 @@ export function QueueDisplay() {
     (frame) => {
       if (frame.type === "snapshot")
         setState((old: any) => ({ ...old, ...frame.data }));
-      if (frame.type === "call") {
-        setFlash(frame.data);
-        clearTimeout(flashTimer.current);
-        flashTimer.current = setTimeout(() => setFlash(null), 12000);
-        if (sound) announce.current(frame.data);
-      }
+      if (frame.type === "call") calls.current!.push(frame.data);
     },
     token ? ["wabotia-display", token] : undefined,
   );

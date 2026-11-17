@@ -652,9 +652,15 @@ export type OverviewData = Awaited<ReturnType<typeof overviewData>>;
 /**
  * Tudo o que o panorama da fila lê, numa ida só ao D1 (docs/LIMITES.md), da
  * área inteira: o envio aos painéis monta o panorama de cada filtro com uma
- * leitura só (overviewOf).
+ * leitura só (overviewOf). `extra`: leituras que precisam ser do mesmo
+ * instante do panorama, no mesmo lote (os eventos do envio aos painéis);
+ * os resultados voltam em `extra`, na ordem.
  */
-export async function overviewData(env: Env, profile: string) {
+export async function overviewData(
+  env: Env,
+  profile: string,
+  extra: Read[] = [],
+) {
   env = withReadCache(env);
   const day = serviceDay();
   const settingsRead: Read = {
@@ -673,8 +679,13 @@ export async function overviewData(env: Env, profile: string) {
     { sql: OVERVIEW_SQL.lines, args: [profile] },
   ];
   const withSettings = !cached(env, settingsRead);
-  const got = await reads(env, withSettings ? [...items, settingsRead] : items);
+  const got = await reads(env, [
+    ...items,
+    ...(withSettings ? [settingsRead] : []),
+    ...extra,
+  ]);
   if (withSettings) seedRead(env, settingsRead, [got[items.length]]);
+  const extraResults = got.slice(got.length - extra.length);
   const [queues, waiting, open, service, counters, current, recent, lines] =
     got as any[][];
   const byQueueId = (rows: any[]) => new Map(rows.map((r) => [r.queue_id, r]));
@@ -692,6 +703,7 @@ export async function overviewData(env: Env, profile: string) {
     counters,
     current: new Map(current.map((t) => [t.counter_id, t])),
     recent,
+    extra: extraResults,
   };
 }
 

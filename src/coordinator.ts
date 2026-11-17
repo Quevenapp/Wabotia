@@ -413,20 +413,33 @@ export class Coordinator extends DurableObject<Env> {
     const sockets = this.closeExpiredSockets();
     if (!sockets.length || !this.profile) return;
     const cursor = (await this.ctx.storage.get<number>("queue_cursor")) || 0;
-    const rows = await all(
+    // Há evento novo? (Leitura barata: o alarme também chama o envio.)
+    const fresh = await one(
       this.env,
-      "SELECT id,kind,payload FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' ORDER BY id LIMIT 200",
+      "SELECT id FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' LIMIT 1",
       this.profile,
       cursor,
     );
+    if (!fresh) return;
+    // Os eventos e o panorama no mesmo lote, do mesmo instante: o envio roda
+    // fora do comando (ctx.waitUntil), e outro comando pode terminar no
+    // meio. Lidos em separado, o painel recebia a chamada da senha A e um
+    // panorama em que a atual já era a B, antes da chamada da B
+    // (tests/queue-panel-race.test.ts). Uma leitura só do panorama para
+    // todos os filtros (overviewData).
+    const data = await overviewData(this.env, this.profile, [
+      {
+        sql: "SELECT id,kind,payload FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' ORDER BY id LIMIT 200",
+        args: [this.profile, cursor],
+      },
+    ]);
+    const rows: any[] = data.extra[0];
     if (!rows.length) return;
     await this.ctx.storage.put("queue_cursor", rows.at(-1)!.id);
     const calls = rows
       .filter((r) => ["queue.called", "queue.recalled"].includes(r.kind))
       .map((r) => json(r.payload));
     const snapshots = new Map<string, string>();
-    // Uma leitura só do panorama para todos os filtros (overviewData).
-    const data = await overviewData(this.env, this.profile);
     for (const ws of sockets) {
       const filter: string[] = ws.deserializeAttachment()?.filter || [];
       const key = JSON.stringify(filter);

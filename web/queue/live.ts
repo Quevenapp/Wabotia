@@ -1,6 +1,7 @@
 // Tempo real da fila (docs/FILA-SENHAS.md, "Tempo real"): WebSocket com
 // reconexão e anúncio por voz das chamadas para os painéis.
 import { useEffect, useRef, useState } from "react";
+import { SILENT_MS } from "./call-queue";
 
 export type QueueFrame =
   | { type: "snapshot"; data: any }
@@ -139,21 +140,17 @@ function say(text: string) {
   });
 }
 
-/** Fila de anúncios: uma chamada por vez; rajadas grandes só tocam o sinal. */
-export function createAnnouncer() {
-  let chain = Promise.resolve();
-  let pending = 0;
-  return (call: CallFrame, voice = true) => {
-    pending++;
-    chain = chain.then(async () => {
-      const burst = pending > 4;
-      await chime();
-      if (voice && !burst) {
-        await say(call.speech);
-        await new Promise((r) => setTimeout(r, 400));
-        await say(call.speech);
-      }
-      pending--;
-    });
+/**
+ * Anúncio de uma chamada para a fila do painel (call-queue.ts): sinal e a
+ * fala duas vezes, ou uma se outras esperam; sem som, só o tempo de tela.
+ */
+export function announceCall(sound: () => boolean) {
+  return async (call: CallFrame, hurry: () => boolean) => {
+    if (!sound()) return new Promise<void>((r) => setTimeout(r, SILENT_MS));
+    await chime();
+    await say(call.speech);
+    if (hurry()) return;
+    await new Promise((r) => setTimeout(r, 400));
+    await say(call.speech);
   };
 }
