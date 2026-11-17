@@ -51,6 +51,15 @@ import "./rpc/erp_catalog_save_checked.ts";
 import "./rpc/erp_catalog_taxonomy_list.ts";
 import "./rpc/erp_catalog_taxonomy_save.ts";
 import "./rpc/erp_catalog_taxonomy_delete.ts";
+import "./rpc/erp_catalog_contact_comments.ts";
+import "./rpc/erp_catalog_contact_summary.ts";
+import "./rpc/erp_catalog_contact_carrier_complement.ts";
+import "./rpc/erp_catalog_contact_options.ts";
+import "./rpc/erp_contact_billing.ts";
+import "./rpc/erp_catalog_contact_export.ts";
+import "./rpc/erp_catalog_contact_page_tagged.ts";
+import "./rpc/erp_catalog_contact_import.ts";
+import "./rpc/erp_catalog_origin_reads.ts";
 // Auxiliares (sessão B): campos customizados, etiquetas, vendedores.
 import "./rpc/erp_catalog_custom_fields.ts";
 import "./rpc/erp_catalog_custom_fields_screen.ts";
