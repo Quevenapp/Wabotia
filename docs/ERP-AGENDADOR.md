@@ -35,6 +35,17 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 4. No fim da rodada, o alarme também respeita um wake que chegou durante ela:
    fica o mais cedo entre o que já está agendado e a próxima acordada.
 
+**Acordar no pedido.** RPC registrado com `registerRpc(…, { wake: true })`
+cria trabalho para o agendador. Depois que ele dá certo, a rota `/erp-rpc`
+antecipa o alarme para daqui a 1 s (`wakeSoon`, e ganha o mais cedo). Hoje só
+o `erp_platform_export_request` tem isso: a exportação pedida no painel
+começava só na próxima acordada, até 1 h depois (achado da K: "Na fila" por
+uma hora). É o único pedido do painel que cria tarefa da plataforma.
+Teste de ponta a ponta: `tests/erp-do-scheduler.test.ts`, "caminho do
+painel". Ele faz o pedido pela rota da erp-api, roda só os alarmes que o
+objeto agendou, pede o link pela rota e baixa o
+`wabotia-exportacao-….zip` pela URL pública.
+
 ## O alarme não segura quem usa o ERP
 
 - **Uma transação por unidade.** Uma unidade é um passo de rotina, um claim,

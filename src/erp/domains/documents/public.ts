@@ -60,6 +60,9 @@ export function guardTrashChild(db: SqlDriver, documentId: string | null) {
 export { autoProducts } from "./internal.ts";
 export { transitions } from "./preferences.ts";
 export { contactUsable, mirrorRequireVisible, mirrorVisible, osPermitted, reportCoverage, requireAccess, requireRole } from "./reads-g.ts";
+// Escrito pela N (recebimentos de compra do Estoque); dono: Documentos.
+export { stockLaunchDate } from "./stock-n.ts";
+export { preference } from "./internal.ts";
 
 const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 
@@ -76,3 +79,5 @@ export function allowed(role: string | null, kind: string | null, write: boolean
   if (["estoque", "fiscal"].includes(role)) return ["sales_orders", "purchase_orders"].includes(kind);
   return false;
 }
+// Escrito pela P para o Catálogo (contact_page/contact_export); dona: O.
+export { salesInPeriodCondition } from "./catalog-p.ts";
