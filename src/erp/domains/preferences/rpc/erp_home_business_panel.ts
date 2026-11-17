@@ -258,7 +258,7 @@ class Panel {
         let cost: string | null = null;
         if (product !== null)
           cost =
-            ((i.applied as string | null) ?? null) ??
+            (i.applied as string | null) ??
             productCostAt(this.db, product, o.day) ??
             // reportLastPurchaseUntil devolve bigint na escala 10 (Documentos); o texto sai pelo priceText do Estoque.
             priceText((reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as bigint | null) ?? null);

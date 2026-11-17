@@ -11,6 +11,13 @@ import { Clock } from "./time.ts";
 
 const clocks = new WeakMap<DurableObjectState, Clock>();
 
+/** O relógio monotônico do objeto, o mesmo para os RPCs e o agendador (src/erp/scheduler/). */
+export function engineClock(ctx: DurableObjectState): Clock {
+  let clock = clocks.get(ctx);
+  if (!clock) clocks.set(ctx, (clock = new Clock()));
+  return clock;
+}
+
 /** Chave no R2 de um objeto do ERP ("bucket/nome" do Supabase), por área. */
 export const erpObjectKey = (profile: string, key: string) => `erp-storage/${profile}/${key}`;
 
@@ -29,8 +36,7 @@ export async function handleRpc(
   }
   if (!args || typeof args !== "object" || Array.isArray(args))
     return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
-  let clock = clocks.get(ctx);
-  if (!clock) clocks.set(ctx, (clock = new Clock()));
+  const clock = engineClock(ctx);
   // Objetos do armazenamento que o RPC consulta: lidos do R2 antes da transação.
   const found = new Map<string, StoredObject>();
   for (const key of rpcObjectKeys(name, args as Record<string, unknown>)) {
@@ -46,6 +52,9 @@ export async function handleRpc(
       const page = await media.list({ prefix, cursor });
       for (const o of page.objects) {
         const [bucket, ...rest] = o.key.slice(prefix.length).split("/");
+        // Partes temporárias de um envio em andamento (src/erp-storage.ts,
+        // <bucket>/.upload/<id>/<n>): no Supabase não aparecem em storage.objects.
+        if (rest[0] === ".upload") continue;
         if (bucket && rest.length) listing.push({ bucket, name: rest.join("/"), size: o.size });
       }
       cursor = page.truncated ? page.cursor : undefined;

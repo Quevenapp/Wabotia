@@ -2806,11 +2806,11 @@
    },
    "erp_preferences.situation_base_color": {
     "name": "situationBaseColor",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_base_label": {
     "name": "situationBaseLabel",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_bases": {
     "name": "situationBases",

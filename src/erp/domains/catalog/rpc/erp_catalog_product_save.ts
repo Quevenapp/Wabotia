@@ -135,7 +135,8 @@ export function erpCatalogProductSave(ctx: RpcContext, a: RpcArgs) {
     productDetailReferences(db, detail);
     const product = one(db, 'SELECT format FROM "erp_catalog__product" WHERE record_id=?', id);
     const lot = one(db, 'SELECT lot_control FROM "erp_catalog__product_detail" WHERE record_id=?', id);
-    const format = (!isEmpty(v) ? ((v.format as string | null) ?? null) : null) ?? ((product?.format as string | null) ?? null);
+    // coalesce(case when v_data<>'{}' then v_data->>'format' end, product.format)
+    const format = (isEmpty(v) ? null : (v.format as string | null | undefined)) ?? (product?.format as string | null | undefined) ?? null;
     const lotControl = asBool(detail.lot_control) ?? (lot && lot.lot_control !== null ? Number(lot.lot_control) === 1 : null) ?? false;
     if (format === "V" && lotControl) raise("22023", "erp_catalog_lot_control_variations");
     detail = productCustomResolve(db, id, detail);
