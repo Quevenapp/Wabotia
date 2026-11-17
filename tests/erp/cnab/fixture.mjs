@@ -1,11 +1,37 @@
-﻿// Fixture do CNAB na fixture dupla. As escritas do CNAB ainda nÃ£o portadas
-// (perfil, aprovaÃ§Ã£o, reserva) rodam no Postgres e sÃ£o espelhadas no SQLite
-// (f.rpc com RPC nÃ£o portado); as leituras portadas rodam nos dois motores.
-// Dados sintÃ©ticos, como os do Fagoo (packages/cnab-core/test/fixtures.mjs).
+// Fixture do CNAB na fixture dupla. As escritas do CNAB ainda não portadas
+// (perfil, aprovação, reserva) rodam no Postgres e são espelhadas no SQLite
+// (f.rpc com RPC não portado); as leituras portadas rodam nos dois motores.
+// Dados sintéticos, como os do Fagoo (packages/cnab-core/test/fixtures.mjs).
 import { randomUUID } from "node:crypto";
 import { dualFixture } from "../harness/dual-fixture.mjs";
 import { executeCnabRoute, parseCnabRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab.mjs";
+import { executeCnabOperationalRoute, parseCnabOperationalRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab-operational.mjs";
 import { PROFILES, returnFile } from "./cnab-core-fixtures.mjs";
+import { registerDerivedId } from "../harness/derived-ids.mjs";
+
+// O controle do título na remessa vem de um uuid aleatório próprio
+// (upper(substr(replace(gen_random_uuid()::text,'-',''),1,25)), em
+// erp_cnab.reserve_for_purpose): difere nos dois motores. Os 25 hexas vão e
+// voltam de um uuid com prefixo fixo de 7 hexas (o do exemplo da ida e volta
+// de registerDerivedId), e a comparação os casa como casa os ids novos.
+const CONTROL_PREFIX = "0f1e2d3";
+const hex = (u) => u.replace(/-/g, "");
+const asUuid = (h) => `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+registerDerivedId({
+  id: "cnab.billing_control",
+  pattern: /^([0-9A-F]{25})$/,
+  toUuid: (m) => asUuid(CONTROL_PREFIX + m[1].toLowerCase()),
+  fromUuid: (u) => hex(u).slice(7).toUpperCase(),
+  columns: [
+    "erp_cnab__billing_title.control",
+    "erp_cnab__billing_title.snapshot",
+    "erp_cnab__remittance.snapshot",
+    "erp_cnab__remittance.manifest",
+    "erp_cnab__remittance_exclusion.snapshot",
+    "erp_cnab__remittance_exclusion.titles",
+  ],
+  keys: ["control"],
+});
 
 const cnpjDigits = (base) => {
   const digit = (s) => {
@@ -68,11 +94,11 @@ export async function cnabFixture() {
         p_user_id: f.users.financeiro,
         p_command_id: randomUUID(),
         p_action: "account_create",
-        p_data: { account_type: "checking", institution_code: "341", institution_name: "ItaÃº Unibanco", name, agency: "1", account_number: "2", account_digit: "3", start_on: "2020-01-01", opening_cents: "0" },
+        p_data: { account_type: "checking", institution_code: "341", institution_name: "Itaú Unibanco", name, agency: "1", account_number: "2", account_digit: "3", start_on: "2020-01-01", opening_cents: "0" },
       })
     ).record;
   }
-  /** erp_cnab_profile_save (homologaÃ§Ã£o; o perfil serve aos dois propÃ³sitos). */
+  /** erp_cnab_profile_save (homologação; o perfil serve aos dois propósitos). */
   async function profile({ bank = "341", simple = true } = {}) {
     const a = await account();
     const n = ++ordinal;
@@ -102,7 +128,7 @@ export async function cnabFixture() {
       p_command_id: randomUUID(),
       p_expected_approval: s.approval.approval_version,
       p_expected_profile: s.profile.version,
-      p_expected_identity: identity.version,
+      p_expected_identity: await f.scalar("select (select version from erp_company.identity where singleton) v"),
       p_enabled: allowed.length > 0,
       p_confirmed_on: today,
       p_reference: "SYNTHETIC HISTORICAL DECLARATION",
@@ -140,7 +166,7 @@ export async function cnabFixture() {
       p_zero_daily_title_ids: [],
     };
   }
-  /** Reserva operacional v2 (prÃ©via e reserva), no Postgres. */
+  /** Reserva operacional v2 (prévia e reserva), no Postgres. */
   async function reserveV2(args) {
     const preview = await f.rpc("erp_cnab_operational_reserve_v2", args);
     return f.rpc("erp_cnab_operational_reserve_v2", { ...args, p_preview: false, p_preview_hash: preview.preview_hash, p_confirm_operational: true, p_confirm_encoding_profile: true });
@@ -154,19 +180,23 @@ export async function cnabFixture() {
     [["application/octet-stream"]],
   );
   const files = new Map();
-  const ports = (userId) => ({
-    userId,
-    rpc: (name, args) => f.rpc(name, { p_user_id: userId, ...args }),
-    storeFile: async ({ bucket, path, bytes }) => {
-      if (files.has(`${bucket}/${path}`)) return;
-      files.set(`${bucket}/${path}`, bytes.slice());
-      await f.putObject(bucket, path, bytes.length, "application/octet-stream");
-    },
-    getFile: async ({ bucket, path }) => files.get(`${bucket}/${path}`)?.slice() ?? new Response(null, { status: 404 }),
-  });
-  async function app(path, body, user = f.users.financeiro) {
+  const storeFile = async ({ bucket, path, bytes }) => {
+    if (files.has(`${bucket}/${path}`)) return;
+    files.set(`${bucket}/${path}`, bytes.slice());
+    await f.putObject(bucket, path, bytes.length, "application/octet-stream");
+  };
+  const getFile = async ({ bucket, path }) => files.get(`${bucket}/${path}`)?.slice() ?? new Response(null, { status: 404 });
+  const ports = (userId, extra = {}) => ({ userId, rpc: (name, args) => f.rpc(name, { p_user_id: userId, ...args }), storeFile, getFile, ...extra });
+  /** Rota do app (cnab.mjs). Devolve o corpo; `raw` devolve o resultado inteiro (download). */
+  async function app(path, body, user = f.users.financeiro, extra = {}, raw = false) {
     const request = new Request("https://test.invalid/v1/cnab" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
-    return (await executeCnabRoute(await parseCnabRoute(request), ports(user))).body;
+    const result = await executeCnabRoute(await parseCnabRoute(request), ports(user, extra));
+    return raw ? result : result.body;
+  }
+  /** Rota do app operacional v1 (cnab-operational.mjs). Devolve o resultado inteiro ({body} ou download). */
+  async function op(path, body, user = f.users.financeiro, extra = {}) {
+    const request = new Request("https://test.invalid/v1/cobranca-operacional" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+    return executeCnabOperationalRoute(await parseCnabOperationalRoute(request), ports(user, extra));
   }
   /** Remessa de homologação gerada e finalizada pelo app (estado ready). */
   async function homologationRemittance(p, titles) {
@@ -176,7 +206,12 @@ export async function cnabFixture() {
       expected_version: current.version,
       command_id: randomUUID(),
       generated_on: today,
-      titles: titles.map((t) => ({ title_id: t.id, expected_version: t.version, document_number: "D" + String(++ordinal).padStart(8, "0") })),
+      titles: titles.map((t) => ({
+        title_id: t.id,
+        expected_version: t.version,
+        document_number: "D" + String(++ordinal).padStart(8, "0"),
+        ...(current.bank === "077" ? { payment_limit_days: 30 } : {}),
+      })),
     });
   }
   const ddmmyy = (d) => d.slice(8, 10) + d.slice(5, 7) + d.slice(2, 4);
@@ -190,5 +225,8 @@ export async function cnabFixture() {
       ...(obtained ? { obtained_from_bank: true, reference_id: "SYNTHETIC_DOWNLOAD" } : {}),
     });
   }
-  return { ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, homologationRemittance, homologationReturn };
+  return {
+    ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, op, homologationRemittance, homologationReturn,
+    files, storeFile, getFile,
+  };
 }

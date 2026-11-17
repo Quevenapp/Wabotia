@@ -1,5 +1,6 @@
 // Argumentos dos RPCs do CNAB. O motor (engine/args.ts, no callRpc) já
 // resolveu nomes, tipos e DEFAULTs; aqui só se lê.
+import { jsonbArg } from "../../engine/args.ts";
 import type { RpcArgs } from "../../engine/registry.ts";
 
 const read = (a: RpcArgs, name: string) => (a[name] === undefined ? null : a[name]);
@@ -12,3 +13,5 @@ export const int = (a: RpcArgs, name: string) => {
   return v === null ? null : Number(v);
 };
 export const textArray = (a: RpcArgs, name: string) => read(a, name) as (string | null)[] | null;
+/** jsonb: o valor JSON (o texto JSON, quando vier como texto; texto inválido é 22P02). */
+export const json = (a: RpcArgs, name: string): unknown => jsonbArg(read(a, name));
