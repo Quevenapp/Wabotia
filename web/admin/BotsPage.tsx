@@ -7,6 +7,7 @@ import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
 import { Badge, Button, CopyButton, Empty, Field, toast } from "../ui";
 import { BotLinesEditor } from "../ServicePanels";
+import { linkProps } from "../lib/routes";
 import { FormDialog } from "./shared";
 
 function CapabilityDialog({ onClose }: { onClose: () => void }) {
@@ -32,11 +33,11 @@ function CapabilityDialog({ onClose }: { onClose: () => void }) {
     >
       <Field label="Nome" value={form.name} onChange={change("name")} required />
       <Field
-        label="Especialista Hermes"
+        label="Especialista"
         value={form.bot_id}
         onChange={change("bot_id")}
-        options={app.bots.filter((bot) => bot.connection_kind !== "ai")}
-        help="Só bots do Hermes executam ações. Bots de provedor de IA só conversam."
+        options={app.bots}
+        help="Bot do Hermes: executa com as ferramentas e credenciais dele. Bot de provedor de IA: só consulta os dados do cliente da conversa (ferramentas de leitura dos módulos ligados) e não muda nada."
       />
       <Field
         label="Quando consultar este especialista"
@@ -64,20 +65,56 @@ export function BotsPage() {
   useEffect(() => setName(renaming?.name || ""), [renaming?.id]);
   const save = (fn: () => Promise<any>) =>
     run(fn, { success: "Salvo com sucesso." }).then(() => app.refresh());
+  const enabledBot = bots.find((bot) => bot.enabled);
   return (
     <>
+      <section className="card">
+        <h2>Comece aqui: o bot para a equipe</h2>
+        <p className="workspace-help">
+          Além de atender clientes no WhatsApp, cada bot conversa com a equipe em{" "}
+          <strong>Equipe › Bots</strong>: consulta o Wabotia e propõe ações em nome
+          de quem pede, com o acesso dessa pessoa. Nada muda antes de ela tocar
+          em Confirmar.
+        </p>
+        <ol className="workspace-help">
+          <li>
+            {bots.length ? (
+              "Conexão feita."
+            ) : (
+              <>
+                Conecte um provedor de IA ou o Hermes em{" "}
+                <a {...linkProps({ area: "admin", page: "connections" })}>
+                  Hermes e canais
+                </a>{" "}
+                e use Testar conexão: o bot aparece aqui.
+              </>
+            )}
+          </li>
+          <li>
+            {enabledBot
+              ? `Bot ligado: ${enabledBot.name}.`
+              : `Habilite o bot ${bots.length ? "abaixo" : "nesta tela"}. Ele nasce desligado, para não começar a responder sem você decidir.`}
+          </li>
+          <li>
+            Converse com ele em{" "}
+            <a {...linkProps({ area: "team", sub: "bots" })}>Equipe › Bots</a>.
+          </li>
+        </ol>
+      </section>
       <section className="card">
         <h2>O Atendente conversa. Os especialistas executam.</h2>
         <p className="workspace-help">
           Escolha um bot principal para receber o cliente. Em uma ação interna,
-          ele consulta outro bot do Hermes e recebe o resultado para responder.
-          Por exemplo: o especialista financeiro do Fagoo usa suas próprias
-          credenciais para buscar a segunda via de um boleto.
+          ele consulta outro bot e recebe o resultado para responder. Por
+          exemplo: o especialista financeiro do Fagoo, no Hermes, usa suas
+          próprias credenciais para buscar a segunda via de um boleto; um
+          especialista de provedor de IA só consulta os dados do cliente da
+          conversa.
         </p>
         <div className="service-flow">
           <span>Bot Atendente</span>
           <ArrowRight size={16} />
-          <span>Especialista no Hermes</span>
+          <span>Especialista</span>
           <ArrowRight size={16} />
           <span>API do sistema</span>
         </div>
@@ -103,9 +140,18 @@ export function BotsPage() {
             <h2>{bot.name}</h2>
             <p>
               {bot.connection_kind === "ai"
-                ? `Provedor de IA: ${bot.model || bot.provider || ""}. Conversa, sem ferramentas.`
+                ? `Provedor de IA: ${bot.model || bot.provider || ""}. ${
+                    bot.tools_unsupported
+                      ? "O provedor recusou as ferramentas: só conversa. Troque o modelo ou o provedor em Hermes e canais."
+                      : "Atende clientes com as ferramentas dos módulos e, na Equipe, consulta e propõe ações em nome de quem pede."
+                  }`
                 : `Atendimento Hermes: ${bot.remote_profile}`}
             </p>
+            {!bot.enabled && (
+              <p className="workspace-help">
+                Desligado: não atende nem conversa na Equipe até ser habilitado.
+              </p>
+            )}
             <div className="card-actions">
               <Button
                 secondary

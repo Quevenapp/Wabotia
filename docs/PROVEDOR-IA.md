@@ -4,22 +4,48 @@ Uma conexão **Provedor de IA** liga o Wabotia direto à API da Anthropic, da Op
 
 ## O que faz e o que não faz
 
-O bot de provedor de IA é um **atendente que conversa**. A cada mensagem, o Wabotia envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo, e recebe a decisão do Atendente (responder, perguntar, mostrar menu, consultar ou abrir protocolo, transferir). As regras são as mesmas do Atendente no Hermes, inclusive o JEV.
+O bot de provedor de IA atende o cliente no WhatsApp e conversa com a equipe.
+- **No atendimento ao cliente:**
+  - A cada mensagem, o Wabotia envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo.
+  - Recebe de volta a decisão do Atendente: responder, perguntar, mostrar menu, consultar ou abrir protocolo, ou transferir. As regras são as mesmas do Atendente no Hermes, inclusive o JEV.
+  - Usa as **ferramentas da conversa** que os módulos ligados declaram, como a situação da OS ou os horários da Agenda.
+  - Só alcança os dados desse cliente. O que muda algo vira um botão que o próprio cliente confirma.
+- **Na equipe:** é o bot da seção abaixo.
 
 | | Hermes | Provedor de IA |
 | --- | --- | --- |
 | Servidor próprio | VPS ou computador com o Hermes | nenhum |
 | Instalação | plugin ou túnel | chave de API no painel |
 | Custo | servidor + modelo | só o uso do modelo, cobrado pelo provedor |
-| Atendente, transferência, conversa com a equipe | sim | sim |
-| Especialista | sim | não |
+| Atendente, transferência | sim | sim |
+| Conversa com a equipe (Equipe › Bots) | sim | sim, consultando o Wabotia e propondo ações em nome de quem pede |
+| Especialista | sim, com as ferramentas do Hermes | sim, só consultando os dados do cliente da conversa |
 | Item de menu do tipo bot | executa a opção com ferramentas | assume a conversa a partir da opção |
-| Ferramentas, ações em outros sistemas | sim | não |
+| Ferramentas | as do Hermes e de outros sistemas | as dos módulos do Wabotia: na conversa do cliente, as declaradas para o cliente; na equipe, o catálogo de operações com o acesso da pessoa |
 | Arquivos gerados pelo bot | sim | não |
 | Áudio | transcrito pelo Hermes | aviso pedindo texto, ou equipe |
 | Imagens | conforme o modelo | Anthropic e OpenAI sim; DeepSeek não; compatível conforme a opção |
 
-Quem precisa que o bot consulte boletos, pedidos ou outros sistemas continua usando o Hermes como especialista. Um Atendente de provedor de IA pode consultar especialistas do Hermes.
+Quem precisa que o bot consulte sistemas de fora do Wabotia (o banco, outro ERP) continua usando o Hermes como especialista. Um Atendente de provedor de IA pode consultar especialistas do Hermes ou de outro provedor de IA.
+
+## O bot para a equipe
+
+Cada bot também conversa com as pessoas da equipe. Em **Equipe › Bots**, toque no bot para abrir a conversa interna.
+- **Ligar:** o bot nasce desligado, para não começar a responder sem alguém decidir. Um administrador liga pelo botão **Ligar** ali mesmo, ou em Gestão › Atendente e especialistas. Quem não é administrador vê o bot como "Desligado".
+- **O que ele faz:** consulta o Wabotia e propõe ações **em nome de quem pede, com o acesso dessa pessoa**. Ele busca a operação, lê e prepara um cartão com **Confirmar** e **Cancelar**. Nada muda antes de a pessoa tocar em Confirmar; operação financeira pede o segundo fator. Os dados pessoais vão mascarados ao modelo, salvo o administrador liberar em Sistema › Bot e dados pessoais.
+- **Ferramentas:** dependem de o provedor aceitá-las. Anthropic, OpenAI e DeepSeek aceitam. Uma API compatível que recusa ferramentas (HTTP 400) é tratada assim:
+  - o bot responde sem elas;
+  - **avisa a pessoa** junto da resposta;
+  - a conexão fica marcada **"O provedor recusou as ferramentas"** em Atendente e especialistas, e o bot aparece como "Só conversa" na Equipe. A marca some quando o administrador salva a conexão de novo (por exemplo, trocando o modelo).
+- **Onde está cada coisa:**
+  - Gestão › Atendente e especialistas tem o "Comece aqui", com os três passos: conectar, ligar e conversar;
+  - Equipe › Bots › Execuções recentes mostra o que cada bot fez.
+
+## Especialista de provedor de IA
+
+O Atendente pode encaminhar um pedido interno a outro bot de provedor de IA, como faz com o Hermes. Cada um pode ter o seu modelo, por exemplo um bot "Agenda" com instruções próprias.
+- O especialista de IA **só consulta**: recebe as ferramentas de leitura dos módulos ligados, presas à conversa do cliente.
+- Não muda nada e não fala com o cliente: devolve o resultado ao Atendente, que responde.
 
 ## Conectar
 
@@ -66,4 +92,5 @@ As respostas de uma área de atendimento são processadas em série. Com muitos 
 - Chamadas em [src/ai-provider.ts](../src/ai-provider.ts): formato OpenAI (`/chat/completions`, modo JSON na OpenAI e na DeepSeek, `reasoning_effort` quando escolhido) e SDK oficial da Anthropic (`@anthropic-ai/sdk`) com saída estruturada no formato do Atendente e `output_config.effort` (padrão `low`).
 - Execução em [src/engine.ts](../src/engine.ts) (`aiRun`): a resposta chega na mesma passada, sem consulta posterior. Sem efeito colateral no provedor, uma chamada interrompida é simplesmente repetida; o envio ao cliente não duplica, porque a mensagem é identificada pela execução.
 - Sem migração de banco, sem Durable Object novo, sem binding ou secret novo: chega pela atualização normal do painel.
-- Testes: `tests/ai-provider.test.ts`.
+- Ferramentas: modo equipe e modo cliente em [src/bot-actions](../src/bot-actions); o especialista recebe só as ferramentas de cliente sem escrita (`write` falso e `customer` diferente de `"propose"`). Provedor que recusa ferramentas: `tools_unsupported_at` na configuração da conexão, limpo ao salvar.
+- Testes: `tests/ai-provider.test.ts`, `tests/bot-actions-ai.test.ts`.

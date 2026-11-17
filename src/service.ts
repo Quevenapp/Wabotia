@@ -224,8 +224,10 @@ export async function settings(env: Env, profile: string) {
   return cfg;
 }
 /**
- * Especialistas e itens de menu do tipo bot executam ações em sistemas
- * externos. Um bot de provedor de IA direto só conversa, então fica de fora.
+ * Especialistas e itens de menu do tipo bot: o bot precisa ser da área. Um
+ * especialista do Hermes executa com as ferramentas dele; um de provedor de
+ * IA direto só consulta os dados do cliente da conversa (ferramentas de
+ * leitura dos módulos, src/engine.ts "Especialista"), sem escrita.
  */
 async function requireToolBot(
   env: Env,
@@ -245,13 +247,6 @@ async function requireToolBot(
       ? "Bot do menu não pertence à área de atendimento."
       : "Especialista não pertence à área de atendimento.",
   );
-  // A menu item hands the conversation to an AI bot, which then talks as the
-  // attendant; only a specialist has to run tools, which needs the Hermes.
-  if (use === "specialist")
-    requireValue(
-      bot.kind !== "ai",
-      "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
-    );
 }
 export async function conversation(
   env: Env,

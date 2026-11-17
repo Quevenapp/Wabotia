@@ -125,7 +125,7 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
   );
   const bots = await all(
     env,
-    "SELECT b.id,b.name,b.enabled,b.line_ids,c.kind,c.status,c.last_seen,p.checked_at,p.online FROM bots b JOIN connections c ON c.id=b.connection_id LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE b.profile_id=? ORDER BY b.name,b.id",
+    "SELECT b.id,b.name,b.enabled,b.line_ids,c.kind,c.status,c.last_seen,c.config,p.checked_at,p.online FROM bots b JOIN connections c ON c.id=b.connection_id LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE b.profile_id=? ORDER BY b.name,b.id",
     profile,
   );
   return {
@@ -153,9 +153,22 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
         enabled: !!b.enabled,
         last_seen: b.last_seen,
         line_ids: b.line_ids === null ? null : json(b.line_ids, []),
+        // Para a Equipe dizer o que o bot faz e por que está indisponível.
+        connection_kind: b.kind,
+        connection_status: b.status,
+        does: botDoes(b),
       })),
     ],
   };
+}
+/** Uma linha sobre o que o bot faz na conversa interna (Equipe → Bots). */
+export function botDoes(b: { kind: string; config?: unknown }) {
+  if (b.kind !== "ai")
+    return "Bot do Hermes: responde aqui com as ferramentas e permissões configuradas no Hermes.";
+  const cfg = json(b.config as any);
+  if (cfg.tools_unsupported_at)
+    return "Só conversa: o provedor de IA recusou as ferramentas, então ele não consulta o sistema.";
+  return "Consulta o Wabotia e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.";
 }
 export async function internalChat(
   env: Env,

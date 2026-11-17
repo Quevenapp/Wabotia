@@ -2256,6 +2256,9 @@ for (const [path, [table, scope]] of Object.entries(readLists))
           const cfg = json(connection.config);
           row.provider = cfg.provider;
           row.model = cfg.model;
+          // O provedor recusou as ferramentas numa execução (até salvar a
+          // conexão de novo): o painel avisa.
+          row.tools_unsupported = !!cfg.tools_unsupported_at;
         }
       }
     }

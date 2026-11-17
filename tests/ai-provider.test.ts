@@ -503,38 +503,90 @@ describe("cadastro da conexão de provedor de IA", () => {
     ).toBe(f.bot);
   });
 
-  it("bot de IA não pode ser especialista", async () => {
+  it("bot de IA pode ser especialista e só recebe as consultas da conversa", async () => {
     const f = await serviceFixture({ provider: "openai", model: "gpt-test" });
-    await expect(
-      perform(
-        env,
-        admin,
-        f.profile,
-        "settings",
-        {
-          capabilities: [
-            {
-              id: "c1",
-              name: "Boleto",
-              bot_id: f.bot,
-              condition: "x",
-              instructions: "y",
-              enabled: true,
-            },
-          ],
-        },
-        uid(),
-      ),
-    ).rejects.toThrow("Especialistas precisam de um bot Hermes");
-    // Como Atendente, o mesmo bot é aceito.
+    // Segundo bot de IA (outra conexão), como especialista.
+    const ai2 = uid(),
+      specialist = uid();
+    await exec(
+      env,
+      "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','direct','active',?,?)",
+      ai2,
+      f.profile,
+      "Fin",
+      JSON.stringify({
+        text_only: true,
+        verified_at: now(),
+        provider: "openai",
+        model: "gpt-test",
+      }),
+      now(),
+    );
+    await exec(
+      env,
+      "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,'default','Fin',1)",
+      specialist,
+      f.profile,
+      ai2,
+    );
+    await setSecret(env, `connection:${ai2}`, { api_key: "test-provider-key" });
+    await perform(
+      env,
+      admin,
+      f.profile,
+      "module.set",
+      { id: "agenda", enabled: true },
+      uid(),
+    );
+    // O servidor aceita (antes: "Especialistas precisam de um bot Hermes").
     await perform(
       env,
       admin,
       f.profile,
       "settings",
-      { attendant_bot: f.bot },
+      {
+        capabilities: [
+          {
+            id: "c1",
+            name: "Agenda",
+            bot_id: specialist,
+            condition: "Quando o cliente perguntar dos serviços",
+            instructions: "Consulte os serviços da agenda",
+            enabled: true,
+          },
+        ],
+      },
       uid(),
     );
+    const conversation = await receive(f, "Quais serviços vocês fazem?");
+    const attendant = (await runOf(conversation))!;
+    mockFetch(() =>
+      openaiMessage(
+        JSON.stringify({ ...answer, action: "consult", capability_id: "c1" }),
+      ),
+    );
+    await processRun(env, attendant);
+    const run = (await runOf(conversation))!;
+    expect(run).toMatchObject({ bot_id: specialist, phase: "specialist" });
+    const calls = mockFetch(() =>
+      openaiMessage(
+        JSON.stringify({ outcome: "resolved", text: "Corte e barba." }),
+      ),
+    );
+    await processRun(env, run);
+    // Só ferramentas de leitura dos módulos: nada que escreva ou proponha.
+    const tools = (calls[0].body.tools || []).map(
+      (tool: any) => tool.function.name,
+    );
+    expect(tools).toContain("agenda_servicos");
+    expect(tools).not.toContain("agenda_agendar");
+    expect(tools).not.toContain("agenda_cancelar");
+    expect(calls[0].body.messages[0].content).toContain(
+      "ferramentas de consulta da conversa",
+    );
+    // O resultado volta ao Atendente como fonte.
+    const back = (await runOf(conversation))!;
+    expect(back).toMatchObject({ bot_id: f.bot, phase: "answer" });
   });
 });
 

@@ -7,7 +7,8 @@ import { all, exec, one } from "../src/db";
 import { defaults, now, uid, type Actor, type Run } from "../src/types";
 import { setSecret } from "../src/security";
 import { inbound, perform } from "../src/service";
-import { processInbox, processRun } from "../src/engine";
+import { processInbox, processRun, TOOLS_UNSUPPORTED_NOTICE } from "../src/engine";
+import { teamDirectory } from "../src/team";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -99,6 +100,38 @@ describe("laço de ferramentas: modo equipe (Anthropic)", () => {
     const replies = await all(env, "SELECT kind,text FROM internal_messages WHERE chat_id=? AND author=? ORDER BY created,rowid", chat.id, `bot:${s.bot}`);
     expect(replies.map((r) => r.kind)).toEqual(["proposal", "text"]);
     expect(replies[1].text).toContain("toque em Confirmar");
+  });
+});
+
+describe("provedor que não aceita ferramentas", () => {
+  it("responde sem elas, avisa a pessoa e marca a conexão", async () => {
+    const s = await setup({ provider: "compatible", model: "llama", base_url: "https://ia.example.test/v1" });
+    const chat = await perform(env, s.actor, s.profile, "internal.create", { peer_id: `bot:${s.bot}` }, uid());
+    const message = await perform(env, s.actor, s.profile, "internal.send", { id: chat.id, text: "Quantas OS abertas?" }, uid());
+    const run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", message.run_id)) as Run;
+    const bodies: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: any, init: any = {}) => {
+        bodies.push(init.body ? JSON.parse(String(init.body)) : null);
+        // A primeira chamada leva ferramentas: a API recusa (HTTP 400).
+        return bodies.length === 1
+          ? Response.json({ error: { message: "tools not supported" } }, { status: 400 })
+          : Response.json(openai({ content: "Não consegui consultar agora." }));
+      }),
+    );
+    await processRun(env, run);
+    expect(bodies[0].tools?.length).toBeGreaterThan(0);
+    expect(bodies[1].tools).toBeUndefined();
+    const reply = await one(env, "SELECT text FROM internal_messages WHERE chat_id=? AND author=? ORDER BY created DESC,rowid DESC LIMIT 1", chat.id, `bot:${s.bot}`);
+    expect(reply.text).toContain("Não consegui consultar agora.");
+    expect(reply.text).toContain(TOOLS_UNSUPPORTED_NOTICE);
+    const conn = await one(env, "SELECT config FROM connections WHERE id=?", s.ai);
+    expect(JSON.parse(conn.config).tools_unsupported_at).toBeGreaterThan(0);
+    // A Equipe diz que o bot só conversa.
+    const directory = await teamDirectory(env, s.admin, s.profile);
+    const bot = directory.data.find((item: any) => item.id === `bot:${s.bot}`);
+    expect(bot.does).toContain("Só conversa");
   });
 });
 
