@@ -249,7 +249,7 @@ naquela área, já expandida e só com módulos ligados:
 - A aplicação entra no ERP como um usuário técnico, com identidade própria, como o agente do Fagoo. O ERP aplica o papel, as permissões e a auditoria, e a atividade mostra o nome da aplicação. Ela nunca usa o papel, a sessão ou o segundo fator de uma pessoa.
 - `erp:read`: papel de consulta, só `GET` e `HEAD` em `/profiles/{perfil}/erp/…`. Outro método dá `403 insufficient_scope`.
 - `erp:write`: o papel escolhido pelo administrador na aplicação (`erp_role` em `POST`/`PATCH /applications`): `consulta`, `vendas`, `estoque` ou `fiscal`. Sem papel, `403 erp_role_required`.
-  - `admin` e `financeiro` não são aceitos (`400`): quem movimenta dinheiro ou administra a empresa fica com pessoas, que confirmam o segundo fator (regra do agente do Fagoo).
+  - `admin` e `financeiro` não são aceitos: `400 erp_agent_role_not_allowed` ao gravar, e `403 erp_agent_role_not_allowed` numa requisição de aplicação com papel gravado fora da regra. Quem movimenta dinheiro ou administra a empresa fica com pessoas, que confirmam o segundo fator (regra do agente do Fagoo). Dentro do ERP, uma aplicação que receber permissão fina sensível também é recusada a cada chamada (`403 ERP_AGENT_ACCESS_DENIED`).
   - A troca de papel entra na auditoria (`application.erp_role:<papel>`).
 - Tirar o escopo ou desativar a aplicação a deixa inativa no ERP na requisição seguinte.
 

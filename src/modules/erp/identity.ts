@@ -29,35 +29,44 @@ export const ERP_PEOPLE_SQL =
   "SELECT u.id,u.name,u.email,u.role,u.access,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor FROM users u WHERE u.disabled=0 AND (u.role='admin' OR (u.access LIKE '%\"erp:%' AND EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?)))";
 
 /**
- * Identidades de sistema: o núcleo ou um módulo agindo no ERP sem pessoa
- * nem chave (a fila de saída, as projeções do núcleo no ERP). Cada uma vira
- * um membro técnico do ERP, como o agente do Fagoo: o motor aplica o papel,
- * as permissões e a auditoria de sempre. O id é fixo (derivado do nome) e
- * elas vão em `people` em toda requisição, para o motor não desativá-las
- * quando a chamada é de uma pessoa.
+ * Identidades de sistema: um módulo agindo no ERP sem pessoa nem chave (a
+ * fila de saída). Cada uma vira um membro técnico do ERP, como o agente do
+ * Fagoo, com a mesma regra da aplicação: só consulta, vendas, estoque ou
+ * fiscal (ERP_AGENT_ROLES). Módulo que precisa lançar título (Pedido pago,
+ * Mensalidade) não ganha financeiro: no Fagoo, lançar as contas de um
+ * documento (erp_document_finance_post) exige admin ou financeiro, e isso
+ * fica com pessoas em sessão com segundo fator; o caminho do lançamento
+ * vindo de módulo é desenho da fila de saída. O id é fixo (derivado do id
+ * do módulo) e elas vão em `people` em toda requisição, para o motor não
+ * desativá-las quando a chamada é de uma pessoa. O núcleo não tem
+ * identidade de sistema por enquanto: a projeção Empresa × Estabelecimento
+ * mexe nos dados da empresa (admin) e também é desenho da fila de saída.
  */
-export const ERP_SYSTEM_ACTORS: Record<
-  string,
-  { name: string; role: ErpRole }
-> = {
-  // Fila de saída do núcleo: Empresa × Estabelecimento e o que mais o
-  // núcleo projetar no ERP (dados da empresa: papel admin).
-  nucleo: { name: "Sistema · Wabotia", role: "admin" },
-};
-
-/**
- * Identidades de sistema ativas na área: a do núcleo e a de cada módulo
- * ligado que declara `erp_role` (src/modules/types.ts).
- */
-async function systemActors(env: Env, profile: string) {
-  const states = await moduleStates(env, profile);
-  const fromModules = modules
+export function systemActorsOf(
+  list: readonly {
+    id: string;
+    name: string;
+    erp_role?: string;
+  }[],
+  states: Record<string, boolean>,
+): [string, { name: string; role: ErpRole }][] {
+  return list
     .filter((m) => m.erp_role && states[m.id])
-    .map(
-      (m) =>
-        [m.id, { name: `Sistema · ${m.name}`, role: m.erp_role! }] as const,
-    );
-  return [...Object.entries(ERP_SYSTEM_ACTORS), ...fromModules];
+    .map((m) => {
+      if (!ERP_AGENT_ROLES.includes(m.erp_role as ErpRole))
+        throw new Error(
+          `erp_system_role_not_allowed:${m.id}:${m.erp_role} (só consulta, vendas, estoque ou fiscal)`,
+        );
+      return [
+        m.id,
+        { name: `Sistema · ${m.name}`, role: m.erp_role as ErpRole },
+      ];
+    });
+}
+
+/** Identidades de sistema ativas na área (módulos ligados com erp_role). */
+async function systemActors(env: Env, profile: string) {
+  return systemActorsOf(modules, await moduleStates(env, profile));
 }
 
 /** UUID fixo de uma identidade de sistema (SHA-256 do nome, formato v5). */
@@ -110,15 +119,18 @@ export const ERP_AGENT_ROLES: readonly ErpRole[] = [
   "fiscal",
 ];
 
+/** Papel fora da regra do agente: 400 ao gravar, 403 numa requisição. */
+const agentRoleNotAllowed = (status = 400) =>
+  new ApiError(
+    status,
+    "erp_agent_role_not_allowed",
+    "Aplicação só pode ter no ERP o papel de consulta, vendas, estoque ou fiscal. Administrador e financeiro ficam com pessoas, em sessão com segundo fator.",
+  );
+
 /** Papel do ERP enviado ao criar ou alterar uma aplicação (null: sem papel). */
 export function appErpRoleInput(value: unknown): ErpRole | null {
   if (value === null || value === undefined || value === "") return null;
-  if (!ERP_AGENT_ROLES.includes(value as ErpRole))
-    throw new ApiError(
-      400,
-      "validation_error",
-      "Papel do ERP inválido para aplicação: use consulta, vendas, estoque ou fiscal. Administrador e financeiro ficam só com pessoas (segundo fator).",
-    );
+  if (!ERP_AGENT_ROLES.includes(value as ErpRole)) throw agentRoleNotAllowed();
   return value as ErpRole;
 }
 
@@ -272,6 +284,17 @@ async function appIdentity(
   // ator da chave tem id "app:<uuid>"; no ERP vale o uuid da aplicação.
   const appId = appUserId(actor);
   const self = people.find((p) => p.user_id === appId);
+  // Papel gravado fora da regra (admin, financeiro): recusa clara, antes do
+  // objeto, em vez de "sem papel".
+  const row = (await cachedAll(env, ERP_APPS_SQL, profile)).find(
+    (a) => a.id === appId,
+  );
+  if (
+    actor.scopes.includes(ERP_WRITE) &&
+    row?.erp_role &&
+    !ERP_AGENT_ROLES.includes(row.erp_role)
+  )
+    throw agentRoleNotAllowed(403);
   if (!self?.erp_role)
     throw new ApiError(
       403,

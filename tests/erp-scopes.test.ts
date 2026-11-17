@@ -17,8 +17,10 @@ import { erpStub } from "../src/erp/hub";
 import {
   appErpRole,
   erpIdentity,
+  systemActorsOf,
   systemUserId,
 } from "../src/modules/erp/identity";
+import { modules } from "../src/modules/registry";
 import { application, bearer, fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 
@@ -105,7 +107,18 @@ describe("aplicações no ERP: escopos e papel", () => {
       for (const role of ["admin", "financeiro", "dono"])
         await expect(update(app.id, { erp_role: role })).rejects.toMatchObject({
           status: 400,
+          code: "erp_agent_role_not_allowed",
         });
+      // Papel gravado fora da regra (banco editado à mão): recusa clara no
+      // núcleo, antes do objeto.
+      await exec(
+        env,
+        "UPDATE applications SET erp_role='admin' WHERE id=?",
+        app.id,
+      );
+      const forced = await call(app.token, "/v1/me");
+      expect(forced.status).toBe(403);
+      expect(forced.body.error.code).toBe("erp_agent_role_not_allowed");
       await update(app.id, { erp_role: "vendas" });
       const sales = await call(app.token, "/v1/me");
       expect(sales.status, JSON.stringify(sales.body)).toBe(200);
@@ -190,29 +203,34 @@ describe("aplicações no ERP: escopos e papel", () => {
     },
   );
 
-  it(
-    "identidade de sistema do núcleo: membro admin fixo, sempre na lista",
-    { timeout: 120_000 },
-    async () => {
-      const { f, call, members } = await setup();
-      const admin = await bearer(f.admin);
-      await exec(
-        env,
-        "UPDATE sessions SET id=? WHERE hash=(SELECT hash FROM sessions WHERE user_id=? ORDER BY created DESC LIMIT 1)",
-        crypto.randomUUID(),
-        f.admin.id,
-      );
-      expect((await call(admin, "/v1/me")).status).toBe(200);
-      const id = await systemUserId("nucleo");
-      expect(id).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-      );
-      expect(await systemUserId("nucleo")).toBe(id);
-      expect((await members()).find((m) => m.user_id === id)).toMatchObject({
-        role: "admin",
-        active: 1,
-        name: "Sistema · Wabotia",
-      });
-    },
-  );
+  it("identidade de sistema por módulo: só papéis de agente, só com o módulo ligado", async () => {
+    const list = [
+      { id: "pedido", name: "Pedido", erp_role: "vendas" },
+      { id: "mesas", name: "Mesas", erp_role: "vendas" },
+      { id: "fila", name: "Fila" },
+    ];
+    expect(
+      systemActorsOf(list, { pedido: true, mesas: false, fila: true }),
+    ).toEqual([["pedido", { name: "Sistema · Pedido", role: "vendas" }]]);
+    // Módulo que precisa lançar título não ganha financeiro por atalho.
+    for (const role of ["financeiro", "admin"])
+      expect(() =>
+        systemActorsOf(
+          [{ id: "mensalidade", name: "Mensalidade", erp_role: role }],
+          {
+            mensalidade: true,
+          },
+        ),
+      ).toThrow(/erp_system_role_not_allowed/);
+    // Os módulos de verdade obedecem à regra (nenhum ligado quebra o envelope).
+    const allOn = Object.fromEntries(modules.map((m) => [m.id, true]));
+    expect(() => systemActorsOf(modules, allOn)).not.toThrow();
+    // Id fixo, derivado do id do módulo.
+    const id = await systemUserId("pedido");
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(await systemUserId("pedido")).toBe(id);
+    expect(await systemUserId("mesas")).not.toBe(id);
+  });
 });

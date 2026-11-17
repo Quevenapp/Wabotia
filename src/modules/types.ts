@@ -65,9 +65,10 @@ export interface ModuleDefinition {
    * lançando pedidos, por exemplo): o módulo vira um membro técnico do ERP,
    * "Sistema · <módulo>" (src/modules/erp/identity.ts, erpSystemIdentity).
    * Aparece na tela de Módulos. Sem este campo, o módulo não age no ERP.
+   * A regra é a da aplicação (agente do Fagoo): admin e financeiro ficam com
+   * pessoas, em sessão com segundo fator.
    */
-  erp_role?:
-    "consulta" | "vendas" | "estoque" | "fiscal" | "financeiro" | "admin";
+  erp_role?: "consulta" | "vendas" | "estoque" | "fiscal";
   /**
    * Módulos dos quais este depende ("mensalidade"). Não liga sem eles; com
    * um deles desligado, este conta como desligado. Do outro módulo, use só
