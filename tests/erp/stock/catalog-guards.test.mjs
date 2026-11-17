@@ -2,15 +2,15 @@
 // protect_default_warehouse (stock/public.ts; escritas pela P para o
 // Catálogo, dono: Estoque, sessão N) contra o oráculo, pela escrita do
 // catálogo (erp_catalog_save / erp_catalog_set_active nos dois motores).
-// A composição de kit (erp_stock.composition_apply_values) segue stub:
-// o save de produto com composição ligada e kit que usa o produto devolve
-// 0A000 no motor; o teste dela fica todo, pendente do Estoque.
+// A composição de kit (erp_stock.composition_apply_values, composition_totals,
+// composition_dto; stock/composition.ts): o save do componente recalcula o
+// kit nos dois motores.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { dualFixture } from "../harness/dual-fixture.mjs";
 import { inTransaction } from "../../../src/erp/engine/registry.ts";
-import { compositionSettings } from "../../../src/erp/domains/stock/public.ts";
+import { compositionDto, compositionSettings, compositionTotals } from "../../../src/erp/domains/stock/public.ts";
 
 let f;
 before(async () => {
@@ -84,7 +84,6 @@ test("protect_default_warehouse: o depósito padrão não é inativado", async (
 
 test(
   "composição ligada: preço do componente recalcula o kit",
-  { todo: "pendente do Estoque: erp_stock.composition_apply_values é stub; o save do componente com kit devolve 0A000 no motor" },
   async () => {
     const component = await f.catalog("products", { name: "Componente", unit: "UN", kind: "P", format: "S", price: "2.0000" });
     const kit = await f.catalog("products", { name: "Kit", unit: "UN", kind: "P", format: "E", price: "10.0000" });
@@ -99,5 +98,40 @@ test(
     } finally {
       await preference("produtos.composicao_preco", false);
     }
+    // 2 componentes de 3,00: o kit passa a 6,00 (erp_stock.composition_apply_values).
+    const price = (await f.db.query("select price::text v from erp_catalog.product where record_id=$1", [kit.id])).rows[0].v;
+    assert.equal(Number(price), 6);
   },
 );
+
+test("composition_totals e composition_dto contra o oráculo; o peso do kit acompanha os componentes", async () => {
+  const a = await f.catalog("products", { name: "Peça A", unit: "UN", kind: "P", format: "S", price: "1.2345678901", net_weight: "0.333333", gross_weight: "0.5" });
+  const b = await f.catalog("products", { name: "Peça B", unit: "UN", kind: "P", format: "S", price: "0.1" });
+  const kit = await f.catalog("products", { name: "Kit de peso", unit: "UN", kind: "P", format: "E", price: "1" });
+  await f.rpc("erp_stock_product_compose", {
+    p_user_id: f.users.admin, p_id: kit.id, p_expected_version: kit.version, p_command_id: randomUUID(), p_data: { name: "Kit de peso" }, p_acknowledged: null,
+    p_composition: { expected_version: 0, stock_type: "virtual", post_mode: "components", items: [{ component_id: a.id, quantity: "3.5" }, { component_id: b.id, quantity: "0.000001" }] },
+  });
+  const totals = (items) =>
+    f.dual(
+      "composition_totals",
+      async () => (await f.db.query("select erp_stock.composition_totals($1,$2::jsonb) v", [kit.id, items === null ? null : JSON.stringify(items)])).rows[0].v,
+      () => inTransaction(f.driver, (ctx) => compositionTotals(ctx.db, kit.id, items)),
+    );
+  const current = await totals(null);
+  assert.equal(current.items, 2);
+  await totals([{ component_id: a.id, quantity: "1.23456789" }, { component_id: randomUUID(), quantity: "1" }]);
+  await f.dual(
+    "composition_dto",
+    async () => (await f.db.query("select erp_stock.composition_dto($1) v", [kit.id])).rows[0].v,
+    () => inTransaction(f.driver, (ctx) => compositionDto(ctx.db, kit.id)),
+  );
+  await preference("produtos.composicao_peso", true);
+  try {
+    await save("products", a.id, (await f.db.query("select version v from erp_catalog.record where id=$1", [a.id])).rows[0].v, { net_weight: "0.25" });
+  } finally {
+    await preference("produtos.composicao_peso", false);
+  }
+  const row = (await f.db.query("select net_weight::text v from erp_catalog.product where record_id=$1", [kit.id])).rows[0].v;
+  assert.equal(row, "0.875000");
+});

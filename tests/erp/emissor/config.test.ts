@@ -176,7 +176,10 @@ describe("rotas /erp-emissor", () => {
     expect(error).toMatchObject({ status: 409, code: "module_disabled" });
   });
 
-  it("configura, testa, lê estado, séries e SEFAZ; erro fiscal com detalhes no corpo", async () => {
+  // Tempo-limite próprio: salvar, testar e remover passam pelo portão do ERP
+  // (uma ida ao objeto erp: cada) e o teste grava as pessoas no D1; sozinho
+  // fica perto de 5 s (o padrão).
+  it("configura, testa, lê estado, séries e SEFAZ; erro fiscal com detalhes no corpo", { timeout: 20_000 }, async () => {
     const profile = uid();
     await setModule(profile, "erp", true, "teste");
     await setModule(profile, "erp-fiscal", true, "teste");

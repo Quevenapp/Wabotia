@@ -71,7 +71,10 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(out.again).toMatchObject({ status: "current" });
   });
 
-  it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", async () => {
+  // Tempo-limite próprio: a primeira chamada aplica o DDL inteiro e a
+  // semeadura num objeto novo, e o teste faz mais 20 idas; fica perto dos
+  // 5 s padrão mesmo sozinho (B, 17/11).
+  it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", { timeout: 30_000 }, async () => {
     const profile = uid();
     const t0 = Date.now();
     const first = await erpFetch(env, profile, "/erp-ping");

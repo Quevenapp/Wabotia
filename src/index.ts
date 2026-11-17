@@ -162,6 +162,7 @@ import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
+import { wakeErpAreas } from "./erp/scheduler/cron";
 import { erpSignedDownload } from "./erp-storage";
 import {
   ERP_APPS_SQL,
@@ -3106,8 +3107,12 @@ app.post("/internal/v1/connectors/:id/status", async (c) => {
 });
 export default {
   fetch: app.fetch,
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(wake(env, "_admin"));
+    // Agendador do ERP (docs/ERP-AGENDADOR.md): rede de segurança do alarme
+    // de cada objeto erp:<área>. Só no primeiro disparo da hora e só nas
+    // áreas com o ERP ligado (src/erp/scheduler/cron.ts).
+    ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
     for (const profile of await all(env, "SELECT id FROM profiles"))
       ctx.waitUntil(wake(env, profile.id));
     ctx.waitUntil(
