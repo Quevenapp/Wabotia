@@ -11,14 +11,15 @@
 // Synthetic data only. 202610200287: lots of the items (Informar lotes), Garantia of the items of the OS, IPI % of the pedido de
 // compra, values of the campos customizados of the OS and the casas decimais of the quantity. PGlite with every migration and the
 // real Worker.
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f, lotted, other, lots;
 before(async () => {
-  f = await documentsFixture({ lane: 'E' });
+  f = await documentsLaneFixture('E');
   const product = async name => { const p = await f.catalog('products', { name, unit: 'UN', kind: 'P', format: 'S', price: '10' });
     await f.rpc('erp_catalog_product_save', { p_user_id: f.users.admin, p_id: p.id, p_expected_version: await f.recordVersion(p.id), p_command_id: randomUUID(), p_data: { name, lot_control: true }, p_acknowledged: null }); return p; };
   lotted = await product('Leite sintético G'); other = await product('Queijo sintético G');

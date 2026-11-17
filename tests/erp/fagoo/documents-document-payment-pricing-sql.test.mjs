@@ -18,11 +18,12 @@
 // Descartado, declarado: o teste "196 grants and hash guard" (só
 // has_function_privilege e prosecdef: papéis do Postgres, sem equivalente
 // no motor).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { normalizeDocument } from '../../../src/erp/fagoo/packages/erp-domain/src/index.mjs';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 // 202610200196 (Pagamento, Lista de preço, impostos, lançamento automático e Gerar venda pré-preenchido) on PGlite through the
 // real Worker. Synthetic data only.
@@ -37,7 +38,7 @@ const one = async (sql, args = []) => (await f.db.query(sql, args)).rows[0];
 const method = async (description, extra = {}) => (await one(`insert into erp_catalog.payment_method(description,payment_type,destination,applicable,created_by,updated_by,active,deleted_at)
   values($1,$2,'contas',$3,$4,$4,$5,null) returning id`, [description, extra.type ?? '15', extra.applicable ?? 'ambos', f.users.admin, extra.active ?? true])).id;
 before(async () => {
-  f = await documentsFixture({ lane: 'D' });
+  f = await documentsLaneFixture('D');
   cash = (await one("insert into erp_finance.account(name,kind) values('Caixa sintético','cash') returning id")).id;
   bank = (await one("insert into erp_finance.account(name,kind) values('Banco sintético','bank') returning id")).id;
   closed = (await one("insert into erp_finance.account(name,kind,active) values('Conta encerrada','bank',false) returning id")).id;

@@ -12,13 +12,14 @@
 // Documentos lane, wave E, migration 239 (PGlite with every migration and the real Worker): Sistema › Usuários › Permissões ›
 // Serviços › Ordem de Serviço enforced in the OS RPCs, and Preferências › Vendas "Situação para aprovação de descontos".
 // Synthetic data only.
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f;
-test.before(async () => { f = await documentsFixture({ lane: 'E' }); });
+test.before(async () => { f = await documentsLaneFixture('E'); });
 test.after(async () => { await f?.close(); });
 const ok = async (path, method = 'GET', body, user = f.users.admin) => { const r = await f.call(path, method, body, user); assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(r.value)}`); return r.value; };
 const OS = ['servicos.ordem_servico'];

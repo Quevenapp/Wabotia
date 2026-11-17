@@ -13,14 +13,15 @@
 // o dia de hoje: '100.00' até 15/11/2026 e '130.00' depois. Não é migração.
 // Descartado, declarado: o teste "169 grants" (has_function_privilege e
 // prosecdef: papéis do Postgres, sem equivalente no motor).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f, supplier;
 before(async () => {
-  f = await documentsFixture({ lane: 'C' });
+  f = await documentsLaneFixture('C');
   supplier = await f.catalog('contacts', { name: 'Fornecedor sintético' });
   const item = (description, extra = {}) => f.line({ product_id: f.product.id, description, code: null, ...extra });
   await f.create('sales_orders', { date: '2026-09-01', items: [item('Produto sintético C', { quantity: '2', unit_price: '9.5' }), f.line({ description: 'Serviço avulso', unit_price: '3' })] });

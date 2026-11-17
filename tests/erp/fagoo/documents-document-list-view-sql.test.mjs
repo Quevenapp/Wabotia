@@ -16,10 +16,11 @@
 // Descartado, declarado: a parte de has_function_privilege, prosecdef,
 // has_table_privilege e relrowsecurity do primeiro teste (papéis do
 // Postgres e RLS, sem equivalente no motor); o resto do teste fica.
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { before, after, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f, admin, viewer, seller, stock;
 const rpc = (name, args) => f.rpc(name, args);
@@ -28,7 +29,7 @@ const view = (kind, user) => call(`/v1/documentos/${kind}/preferencias-listagem`
 const save = (kind, body, user) => call(`/v1/documentos/${kind}/preferencias-listagem`, 'POST', { command_id: randomUUID(), expected_version: 0, custom_view: false, columns: [], default_statuses: [], ...body }, user);
 
 before(async () => {
-  f = await documentsFixture({ lane: 'B' });
+  f = await documentsLaneFixture('B');
   ({ admin, consulta: viewer, vendas: seller, estoque: stock } = f.users);
 });
 after(() => f?.close());
