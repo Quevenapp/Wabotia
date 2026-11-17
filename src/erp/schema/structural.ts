@@ -127,4 +127,14 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by:
       "Tabelas só do motor (schema/engine-tables.ts, versão 7): erp_fiscal_reform__nature_class (padrão e exceções por NCM, produto ou grupo de cada natureza; RPCs erp_fiscal_reform_nature_class_get e _save, só do motor) e erp_fiscal_reform__product_class (do produto, com NBS do serviço; a escrita é combinada com o Catálogo). Resolução: produto > exceção da natureza > padrão da natureza (domains/fiscal/reform.ts).",
   },
+  {
+    id: "certificado-a1-cofre",
+    oracle:
+      "erp_pos.certificate_state() lê erp_a1.head e erp_a1.credential (o A1 guardado no banco do Fagoo) e devolve missing, unknown, expired ou valid no contexto da frente de caixa (erp_pos_context.certificate)",
+    reason:
+      "O certificado A1 fica no cofre da NFapi, não no banco do ERP; o motor não chama o cofre dentro da transação (decisão 3 do plano do PDV, orquestração, 17/11/2026).",
+    replaced_by:
+      "erp_pos_context devolve certificate='missing' (src/erp/domains/pos/internal.ts, certificateState). Quando o Fiscal chegar ao bloco de emissão, o Worker leva o estado do cofre (GET /v1/cofre, certificado.validoAte) num envelope, como a identidade, e o motor troca o missing por ele. O aviso principal do certificado fica na tela do emissor fiscal.",
+    routes: ["GET /v1/frente-caixa"],
+  },
 ];

@@ -1,7 +1,8 @@
 // Prévia da conversão da proposta em pedido de venda ou ordem de serviço
 // (sessão L, bloco B0): public.erp_document_conversion_preview, com o mesmo
-// nome. Não grava nada: o corpo que o pedido teria. erp_document_mirror.
-// require_visible sai (Origin fora: docs/ERP-FASE0.md).
+// nome. Não grava nada: o corpo que o pedido teria. Abre com
+// erp_document_mirror.require_visible(…, true), como no oráculo: proposta do
+// espelho é só leitura (mirrorRequireVisible).
 import { one } from "../../../engine/driver.ts";
 import { boolIn } from "../../../engine/args.ts";
 import { compareDec, formatScaled, fromColumn } from "../../../engine/dec.ts";
@@ -11,7 +12,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgLeft } from "../../../engine/text.ts";
 import { unitPriceNumeric } from "../../catalog/public.ts";
 import { preference } from "../internal.ts";
-import { contactUsable, requireAccess } from "../public.ts";
+import { contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 import { saleBodyFromProposal } from "../views.ts";
 import { jsonPathText, richTextPlain } from "./reads-common.ts";
 
@@ -25,6 +26,7 @@ export function erpDocumentConversionPreview(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     proposal = str(a.p_proposal_id);
+  mirrorRequireVisible(db, user, proposal, true);
   if (kind === null || !["sales_orders", "service_orders"].includes(kind)) raise("22023", "erp_document_query_invalid");
   requireAccess(db, user, "sales_proposals", true);
   requireAccess(db, user, kind, true);

@@ -340,3 +340,20 @@ export function recordOccurrence(
     situation ? JSON.stringify(situationSnapshot(a.situationBefore)) : null, situation ? JSON.stringify(situationSnapshot(a.situationAfter)) : null,
   );
 }
+
+/** erp_documents.finance_category(kind, categoria) */
+export function financeCategory(db: SqlDriver, kind: string, category: string | null): string | null {
+  if (category !== null) return category;
+  const key = { sales_orders: "sale", service_orders: "service", purchase_orders: "purchase" }[kind];
+  if (key === undefined) return null;
+  return (one(db, 'SELECT d.category_id FROM "erp_finance__category_default" d JOIN "erp_finance__category" c ON c.id=d.category_id WHERE d.key=? AND c.active=1 AND c.deleted_at IS NULL', key)?.category_id as string | undefined) ?? null;
+}
+
+/** erp_documents.document_finance_category(documento, categoria) */
+export function documentFinanceCategory(db: SqlDriver, d: Data, category: string | null): string | null {
+  if (category !== null) return category;
+  const body = JSON.parse(String(d.body));
+  const own = fieldText(body, "category_id");
+  if (categoryUsable(db, String(d.kind), own)) return own;
+  return financeCategory(db, String(d.kind), null);
+}

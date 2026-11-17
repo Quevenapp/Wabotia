@@ -1,13 +1,12 @@
 // public.erp_document_transition: mudar a situação do documento, passo a passo como o original.
 // Sem situações adotadas (proposta): a transição do status pelas transitions(). Com situações
 // (pedidos e OS): a regra da transição (Preferências, sessão G), as ações configuradas
-// (estornar e lançar estoque, pela sessão N; estornar e lançar contas, B5) e a ocorrência.
-// Linha de corte do Origin: erp_document_mirror.require_visible não tem efeito.
-// Pendente (B5): as ações reverse_finance e post_finance e o auto_finance, quando há o que
-// lançar ou estornar, chamam os erp_document_finance_*, ainda não portados: 0A000.
+// (estornar e lançar estoque, pela sessão N; estornar e lançar contas, pelo Financeiro) e a ocorrência.
+// erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
-import { notPorted, raise } from "../../../engine/errors.ts";
+import { raise } from "../../../engine/errors.ts";
+import * as finance from "../../finance/public.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
@@ -17,10 +16,11 @@ import { erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse,
 import { approvalSituations, discountApprover, documentDto, documentView, situationAdopted, situationJson, situationKeyValid, textValue } from "../internal.ts";
 import { transitions } from "../preferences.ts";
 import { stockLaunchDate } from "../public.ts";
+import { requireVisible } from "../mirror.ts";
 import { contactUsable, requireRole } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
-import { categoryUsable, commandReplay, currentVersion, editable, fieldText, recordOccurrence, requireOsPermission } from "../save-checks.ts";
-import { autoFinance } from "./erp_document_save.ts";
+import { commandReplay, currentVersion, documentFinanceCategory, editable, fieldText, recordOccurrence, requireOsPermission } from "../save-checks.ts";
+import { autoFinance, transitionCommand } from "./erp_document_save.ts";
 
 type Data = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -51,29 +51,6 @@ export function checkSituationChange(db: SqlDriver, user: string, kind: string, 
   if (inSet(from) && !inSet(to ?? "") && !discountApprover(db, user, "sales_orders")) raise("42501", "erp_document_discount_approval_required");
 }
 
-/** erp_documents.transition_command(comando, ação): md5(...)::uuid */
-export function transitionCommand(command: string, action: string) {
-  const h = createHash("md5").update(`situation-transition:${action}:${command}`, "utf8").digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
-
-/** erp_documents.finance_category(kind, categoria) */
-export function financeCategory(db: SqlDriver, kind: string, category: string | null): string | null {
-  if (category !== null) return category;
-  const key = { sales_orders: "sale", service_orders: "service", purchase_orders: "purchase" }[kind];
-  if (key === undefined) return null;
-  return (one(db, 'SELECT d.category_id FROM "erp_finance__category_default" d JOIN "erp_finance__category" c ON c.id=d.category_id WHERE d.key=? AND c.active=1 AND c.deleted_at IS NULL', key)?.category_id as string | undefined) ?? null;
-}
-
-/** erp_documents.document_finance_category(documento, categoria) */
-export function documentFinanceCategory(db: SqlDriver, d: Data, category: string | null): string | null {
-  if (category !== null) return category;
-  const body = JSON.parse(String(d.body));
-  const own = fieldText(body, "category_id");
-  if (categoryUsable(db, String(d.kind), own)) return own;
-  return financeCategory(db, String(d.kind), null);
-}
-
 /** erp_documents.transition_action(usuário, kind, documento, comando, ação, rótulo) */
 function transitionAction(ctx: RpcContext, user: string, kind: string, id: string, command: string, action: string, label: string): Data {
   const db = ctx.db;
@@ -92,7 +69,13 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
   if (action === "reverse_finance") {
     const p = one(db, `SELECT id, version FROM "erp_finance__document_posting" WHERE document_id=? AND state='active'`, id);
     if (!p) return { action, outcome: "skipped" };
-    return notPorted("erp_document_finance_reverse (ação reverse_finance da transição)");
+    const preview = (finance.erpDocumentFinanceReversePreview(ctx, { ...scope(), p_posting_id: p.id, p_posting_version: p.version }) as Data).preview as Data;
+    const titles = ((preview.titles as Data[]) ?? []).map((t) => ({ id: fieldText(t, "id"), version: Number(fieldText(t, "version")) }));
+    finance.erpDocumentFinanceReverse(ctx, {
+      ...scope(), p_posting_id: p.id, p_posting_version: p.version, p_command_id: transitionCommand(command, action), p_preview_hash: fieldText(preview, "preview_hash"),
+      p_title_versions: titles, p_reason: reason,
+    });
+    return { action, outcome: "done", posting_id: p.id };
   }
   if (action === "post_stock") {
     if (one(db, `SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
@@ -107,8 +90,13 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
   if (action === "post_finance") {
     if (one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
     const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id)!;
-    if (documentFinanceCategory(db, d, null) === null) raise("22023", "erp_document_transition_category_required");
-    return notPorted("erp_document_finance_post (ação post_finance da transição)");
+    const category = documentFinanceCategory(db, d, null);
+    if (category === null) raise("22023", "erp_document_transition_category_required");
+    const preview = (finance.erpDocumentFinancePreview(ctx, { ...scope(), p_category_id: category, p_plan: null }) as Data).preview as Data;
+    const result = finance.erpDocumentFinancePost(ctx, {
+      ...scope(), p_command_id: transitionCommand(command, action), p_preview_hash: fieldText(preview, "preview_hash"), p_category_id: category, p_plan: null,
+    }) as Data;
+    return { action, outcome: "done", posting_id: fieldText(result.posting, "id") };
   }
   raise("22023", "erp_document_transition_action_invalid");
 }
@@ -131,6 +119,7 @@ export function erpDocumentTransition(ctx: RpcContext, a: RpcArgs) {
   const status = (a.p_status as string | null) ?? null;
   const reasonArg = (a.p_reason as string | null) ?? null;
   // 239: o perfil grava o tipo; a OS também pede "Gerenciar situações" (abaixo, com a regra de aprovação).
+  requireVisible(db, user, id, true);
   requireRole(db, user, kind, true);
   if (id === null || expected === null || expected < 1) raise("22023", "erp_document_version_invalid");
   const hash = sha256(jsonbText({ op: "transition", actor: user, kind, id, version: expected, status, reason: reasonArg }));

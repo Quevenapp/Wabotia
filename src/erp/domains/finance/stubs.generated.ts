@@ -75,8 +75,6 @@ export const documentReversePreviewData = (..._args: unknown[]): never => notPor
 export const documentSeller = (..._args: unknown[]): never => notPorted("erp_finance.document_seller");
 /** erp_finance.document_title_number() → trigger */
 export const documentTitleNumber = (..._args: unknown[]): never => notPorted("erp_finance.document_title_number");
-/** erp_finance.document_title_rows(p_posting uuid) → jsonb */
-export const documentTitleRows = (..._args: unknown[]): never => notPorted("erp_finance.document_title_rows");
 /** erp_finance.entry_movement_immutable() → trigger */
 export const entryMovementImmutable = (..._args: unknown[]): never => notPorted("erp_finance.entry_movement_immutable");
 /** erp_finance.find_or_create_category(p_name text, p_kind text) → uuid */
@@ -167,14 +165,6 @@ export const transferLegCheck = (..._args: unknown[]): never => notPorted("erp_f
 export const transferPairCheck = (..._args: unknown[]): never => notPorted("erp_finance.transfer_pair_check");
 /** erp_finance.utf16_length(p_text text) → integer */
 export const utf16Length = (..._args: unknown[]): never => notPorted("erp_finance.utf16_length");
-/** public.erp_document_finance_post(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_command_id uuid, p_preview_hash text, p_category_id uuid, p_plan jsonb) → jsonb */
-export const erpDocumentFinancePost = (..._args: unknown[]): never => notPorted("public.erp_document_finance_post");
-/** public.erp_document_finance_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_category_id uuid, p_plan jsonb) → jsonb */
-export const erpDocumentFinancePreview = (..._args: unknown[]): never => notPorted("public.erp_document_finance_preview");
-/** public.erp_document_finance_reverse(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_posting_id uuid, p_posting_version integer, p_command_id uuid, p_preview_hash text, p_title_versions jsonb, p_reason text) → jsonb */
-export const erpDocumentFinanceReverse = (..._args: unknown[]): never => notPorted("public.erp_document_finance_reverse");
-/** public.erp_document_finance_reverse_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_posting_id uuid, p_posting_version integer) → jsonb */
-export const erpDocumentFinanceReversePreview = (..._args: unknown[]): never => notPorted("public.erp_document_finance_reverse_preview");
 /** public.erp_finance_cash_execute(p_user_id uuid, p_command_id uuid, p_action text, p_data jsonb) → jsonb */
 export const erpFinanceCashExecute = (..._args: unknown[]): never => notPorted("public.erp_finance_cash_execute");
 /** public.erp_finance_execute(p_user_id uuid, p_command_id uuid, p_action text, p_data jsonb) → jsonb */

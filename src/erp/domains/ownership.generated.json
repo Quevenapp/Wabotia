@@ -933,7 +933,7 @@
    },
    "erp_documents.decimal_value": {
     "name": "decimalValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.delivery_address": {
     "name": "deliveryAddress",
@@ -945,7 +945,7 @@
    },
    "erp_documents.document_finance_category": {
     "name": "documentFinanceCategory",
-    "ported": false
+    "ported": true
    },
    "erp_documents.document_situation_json": {
     "name": "documentSituationJson",
@@ -1093,7 +1093,7 @@
    },
    "erp_documents.require_os_permission": {
     "name": "requireOsPermission",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_role": {
     "name": "requireRole",
@@ -1137,7 +1137,7 @@
    },
    "erp_documents.text_value": {
     "name": "textValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.transition_action": {
     "name": "transitionAction",
@@ -1636,7 +1636,7 @@
    },
    "erp_finance.document_title_rows": {
     "name": "documentTitleRows",
-    "ported": false
+    "ported": true
    },
    "erp_finance.dto": {
     "name": "dto",
@@ -1876,19 +1876,19 @@
    },
    "public.erp_document_finance_post": {
     "name": "erpDocumentFinancePost",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_preview": {
     "name": "erpDocumentFinancePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse": {
     "name": "erpDocumentFinanceReverse",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse_preview": {
     "name": "erpDocumentFinanceReversePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_finance_cash_execute": {
     "name": "erpFinanceCashExecute",
@@ -3511,7 +3511,7 @@
    },
    "erp_stock.guard_invoice_stock_delete": {
     "name": "guardInvoiceStockDelete",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_lot": {
     "name": "guardLot",
