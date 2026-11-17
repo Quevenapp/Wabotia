@@ -143,7 +143,7 @@ mesmo corpo devolve a mesma resposta (`Idempotency-Replayed: true`).
 | `POST /queue/tickets/{id}/transfer` | `queue.transfer` | `queue:operate` | `{queue_id}` ou `{counter_id}` |
 | `POST /queue/blocklist` | `queue.block` | pessoa (operador se permitido) | `{phone \| ticket_id \| conversation_id, days?: number\|null, note?}` |
 | `DELETE /queue/blocklist/{id}` | `queue.unblock` | admin | — |
-| `POST /queue/displays` | `queue.display.create` | admin | `{name, queue_ids?}` → `{id, token, url}` (token só aparece aqui) |
+| `POST /queue/displays` | `queue.display.create` | admin | `{name, queue_ids?}` → `{id, token, path}` (token só aparece aqui; `path` é `/painel#t=<token>`, relativo ao endereço da instalação) |
 | `DELETE /queue/displays/{id}` | `queue.display.revoke` | admin | — |
 
 `POST /queue/tickets` responde `Ticket` (com `ahead`, `wait_minutes`,
