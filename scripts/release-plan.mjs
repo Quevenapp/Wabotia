@@ -71,5 +71,104 @@ export function renewalNotice(index, at = Date.now()) {
   return null;
 }
 
-/** Última versão do formato 1: releases/latest.json fica parado nela. */
-export const LAST_FORMAT1 = "0.20.0";
+/**
+ * Última versão publicada só no formato 1 (a 0.21.0). A ponte vem depois dela
+ * e congela releases/latest.json em si mesma; sem o arquivo, vale esta.
+ */
+export const LAST_FORMAT1 = "0.21.0";
+
+// ---------------------------------------------------------------------------
+// Ponte (docs/ATUALIZACOES-FORMATO.md, "Versão ponte")
+//
+// A 0.21.0 só lê releases/latest.json (formato 1). A ponte é a última versão
+// com pacote de formato 1: ela leva o leitor do formato 2 e congela o índice
+// antigo em si mesma. Depois dela, toda versão sai só no formato 2.
+
+/**
+ * O que a publicação grava. `bridge`: esta é a ponte; `bridgeRecord`: o
+ * releases/v2/bridge.json já gravado (ou null); `minVersion`: o
+ * --min-version pedido (ou undefined).
+ */
+export function releaseOutputs({ bridge, version, bridgeRecord, minVersion }) {
+  if (bridge) {
+    if (bridgeRecord && bridgeRecord.version !== version)
+      throw Error(
+        `A ponte já foi publicada (${bridgeRecord.version}). As próximas versões saem sem --bridge.`,
+      );
+    if (minVersion && minVersion !== "0.0.0")
+      throw Error(
+        "A ponte não exige versão mínima: é ela que as instalações do formato 1 instalam.",
+      );
+    return { legacy: true, min_version: "0.0.0" };
+  }
+  if (!bridgeRecord)
+    throw Error(
+      "Publique antes a versão ponte (npm run release -- --bridge): sem ela, as instalações do formato 1 não chegam ao formato 2.",
+    );
+  // Depois da ponte, toda versão exige a ponte (ou mais) instalada.
+  const min = minVersion || bridgeRecord.version;
+  if (
+    min !== bridgeRecord.version &&
+    !versionGreater(min, bridgeRecord.version)
+  )
+    throw Error(
+      `--min-version ${min} é menor que a ponte (${bridgeRecord.version}).`,
+    );
+  return { legacy: false, min_version: min };
+}
+
+/** Teto do pacote de formato 1: MAX_PACKAGE do src/release.ts da 0.21.0. */
+export const LEGACY_MAX_PACKAGE = 24 * 1024 * 1024;
+
+/**
+ * Ponte enxuta (--slim): sem as telas do ERP do painel, só no pacote de
+ * formato 1. São chunks carregados sob demanda (o index.html não os cita):
+ * sem eles, só a tela do ERP deixa de abrir até a versão seguinte, de
+ * formato 2, que traz tudo de volta.
+ */
+export const slimAsset = (name) => /^\/assets\/erp-[^/]+$/.test(name);
+
+/**
+ * As travas do leitor do formato 1 da 0.21.0 (src/release.ts, parsePackage
+ * e validateIndex de fca4bb2) que dependem do conteúdo do pacote. O
+ * scripts/erp/check-candidate.mjs passa o pacote pelo próprio leitor; esta
+ * conferência para a publicação antes de gravar.
+ */
+export function legacyProblems(pkg, size) {
+  const problems = [];
+  if (size > LEGACY_MAX_PACKAGE)
+    problems.push(`pacote com ${size} bytes, acima de ${LEGACY_MAX_PACKAGE}`);
+  if (!(pkg.modules.length > 0 && pkg.modules.length < 64))
+    problems.push(`${pkg.modules.length} módulos (precisa de 1 a 63)`);
+  if (!(pkg.assets.length > 0 && pkg.assets.length <= 100))
+    problems.push(`${pkg.assets.length} estáticos (precisa de 1 a 100)`);
+  if (pkg.migrations.length > 100)
+    problems.push(`${pkg.migrations.length} migrações (máximo 100)`);
+  for (const f of pkg.modules)
+    if (!/^[a-zA-Z0-9_./-]+$/.test(f.name) || f.type.length >= 120)
+      problems.push(`módulo com nome ou tipo inválido: ${f.name}`);
+  for (const f of pkg.assets)
+    if (!/^\/[a-zA-Z0-9_./-]+$/.test(f.name) || f.type.length >= 120)
+      problems.push(`estático com nome ou tipo inválido: ${f.name}`);
+  for (const m of pkg.migrations)
+    if (
+      !/^\d{4}_[a-z0-9_]+\.sql$/.test(m.name) ||
+      !(m.statements.length > 0 && m.statements.length <= 100) ||
+      m.statements.some((s) => s.length >= 100000)
+    )
+      problems.push(`migração fora das travas: ${m.name}`);
+  if (
+    JSON.stringify(pkg.durable_migrations) !==
+    JSON.stringify([{ tag: "v1", new_sqlite_classes: ["Coordinator"] }])
+  )
+    problems.push("durable_migrations diferente de v1/Coordinator");
+  if (
+    pkg.assets_config?.not_found_handling !== "single-page-application" ||
+    JSON.stringify(pkg.assets_config?.run_worker_first) !==
+      JSON.stringify(["/api/*", "/webhooks/*", "/internal/*"])
+  )
+    problems.push("assets_config diferente do que a 0.21.0 aceita");
+  if (!pkg.modules.some((f) => f.name === pkg.main_module))
+    problems.push("módulo principal ausente");
+  return problems;
+}

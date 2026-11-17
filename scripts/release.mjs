@@ -9,6 +9,9 @@
 //   npm run release -- --test-origin <url>  build de teste: catálogo e Worker
 //                                           apontam para <url>; não publicar
 //   --workers-paid, --min-version x.y.z     condições do índice
+//   --bridge [--slim]                       a versão ponte: também o pacote de
+//                                           formato 1 que a 0.21.0 lê (--slim:
+//                                           sem as telas do ERP nesse pacote)
 //
 // A chave privada vem de WABOTIA_RELEASE_KEY (caminho do .pem) ou de
 // release-signing.local.json ({"key": "<caminho>"}), sempre fora do
@@ -34,7 +37,10 @@ import {
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
+  legacyProblems,
+  releaseOutputs,
   renewalNotice,
+  slimAsset,
 } from "./release-plan.mjs";
 import { signatureFile, signerFor, withValidity } from "./release-sign.mjs";
 
@@ -51,10 +57,15 @@ const option = (name) => {
 const candidate = args.includes("--candidate");
 const renew = args.includes("--renew");
 const testInstallation = option("--test-origin");
-const minVersion = option("--min-version") || "0.0.0";
+const minVersion = option("--min-version");
+const bridge = args.includes("--bridge");
+const slim = args.includes("--slim");
 if ([candidate, renew, !!testInstallation].filter(Boolean).length > 1)
   throw Error("Use só uma de --candidate, --renew e --test-origin.");
-if (!/^\d+\.\d+\.\d+$/.test(minVersion)) throw Error("--min-version inválida.");
+if (minVersion && !/^\d+\.\d+\.\d+$/.test(minVersion))
+  throw Error("--min-version inválida.");
+if (slim && !bridge) throw Error("--slim só vale com --bridge.");
+if (renew && bridge) throw Error("--renew não publica a ponte.");
 let testOrigin;
 if (testInstallation) {
   const url = new URL(testInstallation);
@@ -279,7 +290,13 @@ const migrations = readdirSync("migrations")
       readFileSync(join("migrations", name), "utf8"),
     );
     const raw = Buffer.from(JSON.stringify(statements));
-    return { name, type: "application/json", raw, sha256: hash(raw) };
+    return {
+      name,
+      statements,
+      type: "application/json",
+      raw,
+      sha256: hash(raw),
+    };
   });
 
 const ref = ({ name, type, raw, sha256 }) => ({
@@ -325,26 +342,102 @@ if (modules.length > 256 || assets.length > 2000 || migrations.length > 1000)
   throw Error("Arquivos demais para o formato 2.");
 const manifestSha = hash(manifestText);
 
-// Ordem das versões: maior que a publicada e que a última do formato 1.
-// Também vale para uma versão já publicada com outro manifesto.
+// O índice do formato 1 (releases/latest.json) e o registro da ponte. O
+// candidato confere contra o catálogo publicado.
+const catalog = (path) =>
+  read(`${root}/${path}`) ??
+  (candidate ? read(`public/releases/${path}`) : null);
+const frozen = catalog("latest.json");
+// Ordem das versões: maior que a publicada e que a última do formato 1 (na
+// ponte, a 0.21.0; depois dela, a própria ponte). Também vale para uma versão
+// já publicada com outro manifesto.
 const order = () =>
   checkVersionOrder({
     version: pkg.version,
     current: read(`${root}/v2/latest.json`),
-    frozen: read("public/releases/latest.json") || { version: LAST_FORMAT1 },
+    frozen: frozen || { version: LAST_FORMAT1 },
     manifestSha,
   });
 const published = read(`${root}/${pkg.version}/release-v2.json`);
+let plan;
 if (candidate) {
   try {
     order();
   } catch (e) {
     console.warn(`Aviso (candidato): ${e.message}`);
   }
+  try {
+    plan = releaseOutputs({
+      bridge,
+      version: pkg.version,
+      bridgeRecord: catalog("v2/bridge.json"),
+      minVersion,
+    });
+  } catch (e) {
+    console.warn(`Aviso (candidato): ${e.message}`);
+    plan = { legacy: bridge, min_version: minVersion || "0.0.0" };
+  }
 } else {
   order();
   if (published && published.manifest_sha256 !== manifestSha)
     throw Error("Use uma versão nova; não substitua uma publicação existente.");
+  plan = releaseOutputs({
+    bridge,
+    version: pkg.version,
+    bridgeRecord: read(`${root}/v2/bridge.json`),
+    minVersion,
+  });
+}
+
+// Formato 1, só na ponte: o pacote único que a 0.21.0 lê, com as travas do
+// leitor dela conferidas antes de gravar qualquer coisa.
+let legacy = null;
+if (plan.legacy) {
+  const encode = ({ name, type, raw, sha256 }) => ({
+    name,
+    type,
+    data: raw.toString("base64"),
+    sha256,
+  });
+  const legacyAssets = slim ? assets.filter((f) => !slimAsset(f.name)) : assets;
+  const legacyPackage = {
+    format: 1,
+    version: pkg.version,
+    commit,
+    main_module: manifest.main_module,
+    compatibility_date: manifest.compatibility_date,
+    compatibility_flags: manifest.compatibility_flags,
+    assets_config: manifest.assets_config,
+    durable_migrations: manifest.durable_migrations,
+    modules: modules.map(encode),
+    assets: legacyAssets.map(encode),
+    migrations: migrations.map(({ name, statements }) => ({
+      name,
+      statements,
+    })),
+  };
+  const content = JSON.stringify(legacyPackage);
+  const size = Buffer.byteLength(content);
+  const problems = legacyProblems(legacyPackage, size);
+  if (problems.length)
+    throw Error(
+      `O pacote de formato 1 da ponte não passa no leitor da 0.21.0: ${problems.join("; ")}.`,
+    );
+  const index = {
+    format: 1,
+    version: pkg.version,
+    commit,
+    package_sha256: hash(content),
+    package_size: size,
+  };
+  const old = read(`${root}/${pkg.version}/release.json`);
+  if (!candidate && old && old.package_sha256 !== index.package_sha256)
+    throw Error("Use uma versão nova; não substitua uma publicação existente.");
+  legacy = {
+    content,
+    index,
+    left: assets.length - legacyAssets.length,
+  };
 }
 
 const folder = `${root}/${pkg.version}`;
@@ -369,17 +462,32 @@ const index = withValidity({
   manifest_size: Buffer.byteLength(manifestText),
   total_size: total,
   requires: {
-    min_version: minVersion,
+    min_version: plan.min_version,
     workers_paid: args.includes("--workers-paid"),
   },
   ...(testOrigin ? { test_origin: testOrigin } : {}),
   ...(candidate ? { candidate: true } : {}),
 });
 writeIndex(index);
-// releases/latest.json (formato 1, parado na 0.20.0) nunca é escrito aqui.
+// releases/latest.json (formato 1) só é escrito pela ponte, que o congela em
+// si mesma e se registra em v2/bridge.json; nenhuma versão depois o muda.
+if (legacy) {
+  writeFileSync(`${folder}/package.json`, legacy.content);
+  const text = JSON.stringify(legacy.index, null, 2);
+  writeFileSync(`${folder}/release.json`, text);
+  writeFileSync(`${root}/latest.json`, text);
+  writeFileSync(
+    `${root}/v2/bridge.json`,
+    JSON.stringify({ version: pkg.version, commit }, null, 2),
+  );
+}
 if (!candidate && !testOrigin)
   cpSync("public/releases", "dist/releases", { recursive: true });
-const summary = `Versão ${pkg.version} (${commit}): manifesto ${index.manifest_size} bytes, ${unique.size} arquivos únicos, ${total} bytes (Worker ${modulesTotal}).`;
+const summary =
+  `Versão ${pkg.version} (${commit}): manifesto ${index.manifest_size} bytes, ${unique.size} arquivos únicos, ${total} bytes (Worker ${modulesTotal}).` +
+  (legacy
+    ? ` PONTE: pacote de formato 1 com ${legacy.index.package_size} bytes (teto ${24 * 1024 * 1024})${slim ? `, enxuta: ${legacy.left} estáticos do ERP fora dele` : ""}; releases/latest.json congelado nesta versão.`
+    : ` Exige a ${plan.min_version} instalada; releases/latest.json não muda.`);
 if (candidate)
   console.log(
     `${summary}\nCANDIDATO SEM ASSINATURA em ${root}: as instalações recusam. Não publicar.`,
