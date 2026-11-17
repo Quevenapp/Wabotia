@@ -79,7 +79,7 @@ test("Estoque (N): lotes das linhas do pedido espelhado", async () => {
 test("Documentos (O): leitura do pedido espelhado", { todo: "pendente da O: erp_document_mirror.detail sai 0A000 no motor; o oráculo devolve o pedido" }, async () => {
   await same("erp_document_get", { p_user_id: u.admin, p_kind: "sales_orders", p_id: mirrored });
 });
-test("Documentos (O): lista com o pedido espelhado", { todo: "pendente da O: erp_document_mirror.list_row sai 0A000 no motor; o oráculo lista (origin_totals com o espelho)" }, async () => {
+test("Documentos (O): lista com o pedido espelhado", async () => {
   await same("erp_document_list", { p_user_id: u.admin, p_kind: "sales_orders", p_limit: 25, p_origin: "all" });
 });
 
@@ -125,9 +125,6 @@ async function seedSourced() {
   );
 }
 
-const L_GUARD = "pendente da O: mirrorRequireVisible (reads-g.ts) só vale com o documents/mirror.ts dela (sobe com o B5); até lá o motor não recusa o espelho";
-const L_ROW = "pendente da L: list_row e metadata do espelho esperam o mirrorMetadata do documents/mirror.ts da O (sobe com o B5)";
-
 test("Documentos (L): histórico do contato com as linhas espelhadas (origin, quantidade e preço observados)", async () => {
   await seedSourced();
   const history = await same("erp_document_history", { p_user_id: u.admin, p_kind: "sales_orders", p_contact_id: contact.id, p_product_id: null, p_query: null, p_limit: 50 });
@@ -151,7 +148,7 @@ test("Documentos (L): checkout pelo número do espelho (só o nativo é achado)"
   await seedSourced();
   for (const number of ["9001", "9002"]) await same("erp_document_checkout_lookup", { p_user_id: u.admin, p_number: number });
 });
-test("Documentos (L): leituras de um documento espelhado passam pela guarda do espelho", { todo: L_GUARD }, async () => {
+test("Documentos (L): leituras de um documento espelhado passam pela guarda do espelho", async () => {
   await seedSourced();
   for (const id of [mirrored, sourced]) {
     for (const name of ["erp_document_copy_origin", "erp_document_structures", "erp_document_supplier_descriptions", "erp_document_commission_operation", "erp_document_occurrence_list", "erp_document_freight_paid_get"])
@@ -161,7 +158,7 @@ test("Documentos (L): leituras de um documento espelhado passam pela guarda do e
     await same("erp_document_conversion_preview", { p_user_id: u.admin, p_kind: "sales_orders", p_proposal_id: id });
   }
 });
-test("Documentos (L): lista com busca e total da fonte, e exportação com o espelho", { todo: L_ROW }, async () => {
+test("Documentos (L): lista com busca e total da fonte, e exportação com o espelho", async () => {
   await seedSourced();
   for (const q of [null, "pv-9002", "em andamento", "9002", "6"])
     await same("erp_document_list", { p_user_id: u.admin, p_kind: "sales_orders", p_limit: 25, p_origin: "all", p_query: q });
