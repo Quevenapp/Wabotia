@@ -47,7 +47,7 @@ function documentAccess(db: SqlDriver, user: string, kind: string | null) {
 }
 
 /** erp_stock.document_meta(p_day, p_reason) */
-function documentMeta(day: string | null, reason: string | null) {
+export function documentMeta(day: string | null, reason: string | null) {
   if (
     day === null || !validDate(day) || day < "1900-01-01" || day > todaySaoPaulo() ||
     reason === null || pgLength(pgBtrim(reason)) < 3 || pgLength(pgBtrim(reason)) > 500 || pgHasCntrl.test(reason)
@@ -132,7 +132,7 @@ function documentCommandFinish(ctx: RpcContext, actor: string, id: string, actio
 }
 
 /** erp_stock.document_lock: o documento na versão esperada. */
-function documentLock(db: SqlDriver, actor: string, kind: string | null, id: string | null, version: number | null): Row {
+export function documentLock(db: SqlDriver, actor: string, kind: string | null, id: string | null, version: number | null): Row {
   documentAccess(db, actor, kind);
   if (id === null || version === null || version < 1) raise("22023", "erp_document_stock_invalid_version");
   const d = one(db, `SELECT * FROM "${DOC}" WHERE id=? AND kind=?`, id, kind);
@@ -532,7 +532,7 @@ export function documentReversePreviewData(ctx: RpcContext, d: Row, postingId: s
 // Camada de linha (gatilhos das tabelas tocadas)
 
 /** INSERT em erp_stock.document_posting com os gatilhos BEFORE (ordem do nome) e o AFTER dos lotes. */
-function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
+export function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
   const db = ctx.db;
   // aa_mirror_authority (erp_document_mirror.guard_effect): sem documento do Origin, nada.
   documents.guardTrashChild(db, row.document_id); // guard_trash
@@ -595,7 +595,7 @@ function swallow(fn: () => void) {
  * com os gatilhos do documento. Local até a camada de linha do Documentos
  * (updateDocument, sessão O) chegar ao tronco.
  */
-function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
+export function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
   const db = ctx.db;
   const o = one(db, `SELECT * FROM "${DOC}" WHERE id=?`, id)!;
   const n: Row = { ...o, version: Number(o.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() };

@@ -9,4 +9,5 @@ import "./rpc/ledger.ts";
 import "./rpc/reports.ts";
 import "./rpc/dashboards.ts";
 import "./rpc/document-stock.ts";
+import "./rpc/reservations.ts";
 export {};
