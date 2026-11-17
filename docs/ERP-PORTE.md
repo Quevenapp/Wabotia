@@ -173,6 +173,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
      - Da sexta em diante, o plano é genérico e segue a ordem das colunas.
      - O motor segue a ordem das colunas. Nos geradores do diferencial, estrague **um campo por linha**; teste de dois campos inválidos na mesma linha não é estável no oráculo.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
+   - **FK `DEFERRABLE` (a linha aponta para outra que nasce depois na mesma transação): `deferForeignKeys(ctx, "<schema>__<tabela>")`** (`engine/fk.ts`). Liga o `PRAGMA defer_foreign_keys` e confere as tabelas com `foreign_key_check` antes do COMMIT, pela fila de adiados: violação vira 23503 e desfaz. Nunca ligue o PRAGMA sem a conferência: violação adiada que chega ao COMMIT reinicia o objeto (`schema/migrate.ts`, prova 1). Exemplo: a baixa da reserva (`consumed_command_id` → o movimento do lançamento).
    - **Gatilho `DEFERRABLE INITIALLY DEFERRED`: `defer(ctx, fn)`** (`engine/registry.ts`). Roda no fim da transação, antes do COMMIT, na ordem em que foi enfileirado (os da mesma linha, na ordem do nome do gatilho), incluindo o que a própria fila enfileira. Não deduplique: o Postgres enfileira um evento por linha escrita. Um erro no adiado desfaz a transação inteira.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:
