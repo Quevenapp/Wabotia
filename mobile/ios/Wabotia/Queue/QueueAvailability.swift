@@ -175,6 +175,10 @@ final class ModuleFeature: ObservableObject {
         let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).probe()
         apply(result.modules, profile: profile, access: result.access)
         if let features = result.features { self.features = features }
+        #if DEBUG
+        let areas = result.access?.areas.map { $0.sorted().joined(separator: ",") } ?? "sem restrição"
+        print("[Wabotia] acesso: \(container.user?.name ?? "?"), módulos \(result.modules.map { $0.sorted().joined(separator: ",") } ?? "?"), acesso \(areas), abas \((result.access ?? .all).tabs.map { "\($0)" }.joined(separator: ",")), sem tela \((result.access ?? .all).withoutScreen.joined(separator: ","))")
+        #endif
     }
 
     /// Recursos que o servidor anuncia em `/capabilities` (`mfa`, `person_access`…). Sem o recurso, o app age como antes.

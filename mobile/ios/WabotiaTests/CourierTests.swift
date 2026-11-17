@@ -214,7 +214,10 @@ final class FakeCourierAPI: CourierAPI {
 
     func delivery(_ g: CourierGrant) async throws -> CourierDelivery {
         if revoked.contains(g.deliveryId) { throw CourierError.revoked }
-        return deliveries[g.deliveryId]!
+        deliveryReads += 1
+        var d = deliveries[g.deliveryId]!
+        d.order = order
+        return d
     }
 
     func start(_ g: CourierGrant, destination: CourierCoordinate?) async throws -> CourierDelivery? {
@@ -223,7 +226,11 @@ final class FakeCourierAPI: CourierAPI {
         return deliveries[g.deliveryId]!
     }
 
-    func setDestination(_ g: CourierGrant, _ destination: CourierCoordinate) async throws {}
+    var destinations: [(String, CourierCoordinate)] = []
+    func setDestination(_ g: CourierGrant, _ destination: CourierCoordinate) async throws { destinations.append((g.deliveryId, destination)) }
+    /// Como o servidor: a troca e a saída respondem a entrega sem o pedido; só `…/courier` traz.
+    var order = CourierOrder(lines: [CourierOrder.Line(name: "X-Burger", quantity: 1, options: nil, note: nil)])
+    var deliveryReads = 0
 
     func positions(_ g: CourierGrant, points: [CourierPoint], battery: Int?) async throws -> CourierPositionsReply {
         batches.append(points)
@@ -278,14 +285,18 @@ final class CourierViewModelTests: XCTestCase {
     private var location = FakeCourierLocation()
     private var store = MemoryCourierGrantStore()
     private var accepted = false
-    private var geocoded = CourierCoordinate(lat: -23.56, lng: -46.65)
+    private var geocoded: CourierCoordinate? = CourierCoordinate(lat: -23.56, lng: -46.65)
+    private var geocodedNear: [CourierCoordinate] = []
 
     private func model() -> CourierViewModel {
         api = FakeCourierAPI()
         location = FakeCourierLocation()
         store = MemoryCourierGrantStore()
         accepted = false
-        let services = CourierServices(api: api, store: store, location: location, demo: false, geocode: { [unowned self] _ in self.geocoded },
+        let services = CourierServices(api: api, store: store, location: location, demo: false, geocode: { [unowned self] _, near in
+                                           self.geocodedNear.append(near)
+                                           return self.geocoded
+                                       },
                                        disclosureAccepted: { [unowned self] _ in self.accepted }, acceptDisclosure: { [unowned self] _ in self.accepted = true },
                                        loadName: { "Carlos Souza" }, saveName: { _ in }, device: "iPhone (iOS 16.7)")
         return CourierViewModel(services: services)
@@ -437,10 +448,63 @@ final class CourierViewModelTests: XCTestCase {
         vm.acceptDisclosure()
         await waitUntil { !api.started.isEmpty }
         XCTAssertEqual(location.authorization, .allowed)
-        XCTAssertEqual(api.started.first?.1, geocoded, "sem destino do servidor, o endereço é geocodificado no aparelho")
+        XCTAssertNil(api.started.first?.1 ?? nil, "sem posição ainda, a saída vai sem destino (o endereço não tem cidade nem país)")
         XCTAssertTrue(vm.deliveries["d1"]?.enRoute == true)
         XCTAssertTrue(location.running, "GPS ligado só com entrega na rua")
+        let here = CourierCoordinate(lat: -23.55, lng: -46.63)
+        location.onPoint?(CourierPoint(t: Int64(Date().timeIntervalSince1970 * 1000), lat: here.lat, lng: here.lng, accuracy: 10))
+        await waitUntil { !api.destinations.isEmpty }
+        XCTAssertEqual(geocodedNear, [here], "o endereço é procurado perto da primeira posição")
+        XCTAssertEqual(api.destinations.first?.1, geocoded, "e o destino vai ao servidor")
+        XCTAssertEqual(vm.deliveries["d1"]?.destination, geocoded)
         vm.close()
+    }
+
+    func testWithAPositionTheRouteStartsWithTheDestinationNearIt() async {
+        let vm = model()
+        await vm.scanAndConfirm(Q.a)
+        accepted = true
+        location.authorization = .allowed
+        let here = CourierCoordinate(lat: -23.55, lng: -46.63)
+        location.onPoint?(CourierPoint(t: Int64(Date().timeIntervalSince1970 * 1000), lat: here.lat, lng: here.lng, accuracy: 10))
+        vm.startRoute("d1")
+        await waitUntil { !api.started.isEmpty }
+        XCTAssertEqual(api.started.first?.1, geocoded)
+        XCTAssertEqual(geocodedNear, [here])
+        vm.close()
+    }
+
+    func testAFarAwayGeocodeIsDiscarded() {
+        let sp = CourierCoordinate(lat: -23.55, lng: -46.63)
+        let porto = CourierCoordinate(lat: 41.1444, lng: -8.6126)
+        let pinheiros = CourierCoordinate(lat: -23.566, lng: -46.69)
+        XCTAssertNil(CourierGeocode.pick([porto], near: sp), "\"Rua das Flores, 200\" no Porto, a 8 mil km: não serve")
+        XCTAssertEqual(CourierGeocode.pick([porto, pinheiros], near: sp), pinheiros)
+    }
+
+    func testTheOrderComesRightAfterTheClaimAndSurvivesTheRouteStart() async {
+        let vm = model()
+        await vm.scanAndConfirm(Q.a)
+        XCTAssertEqual(vm.deliveries["d1"]?.items, ["1× X-Burger"], "a troca não traz o pedido: o app lê a entrega logo depois")
+        accepted = true
+        location.authorization = .allowed
+        vm.startRoute("d1")
+        await waitUntil { vm.deliveries["d1"]?.enRoute == true }
+        XCTAssertEqual(vm.deliveries["d1"]?.items, ["1× X-Burger"], "a resposta da saída (sem o pedido) não apaga os itens")
+        vm.close()
+    }
+
+    func testTheCouriersOwnMessageIsNotRepeatedWhenTheChatIsRead() async {
+        let vm = model()
+        await vm.scanAndConfirm(Q.a)
+        let sent = await vm.send("d1", .store, "Saindo agora")
+        XCTAssertTrue(sent)
+        await vm.loadChat("d1")
+        XCTAssertEqual(vm.messages("d1", .store).map(\.text), ["Saindo agora"], "a resposta do envio e a leitura da conversa trazem a mesma mensagem")
+        api.post("d1", .store, "store", "Ok, o cliente já sabe")
+        await vm.loadChat("d1")
+        XCTAssertEqual(vm.messages("d1", .store).map(\.text), ["Saindo agora", "Ok, o cliente já sabe"])
+        XCTAssertEqual(vm.unread[vm.chatKey("d1", .store)], 1, "só a da loja conta como não lida")
     }
 
     func testPositionsGoInBatchesAndTheEndOfTheRouteRevokesAndCloses() async {

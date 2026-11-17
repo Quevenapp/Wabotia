@@ -75,6 +75,8 @@ final class AppContainer: ObservableObject {
         #if DEBUG
         // WABOTIA_DEMO=courier: o modo entregador da demonstração (WABOTIA_DEMO_ACTION=scan|two|route|chat|deliver).
         if DemoMode.launchScreen == "courier" { courierLaunch = CourierLaunch(demo: true) }
+        // WABOTIA_COURIER_QR: o modo entregador de verdade, lendo esse QR sem câmera.
+        if DemoMode.courierQR != nil { deviceLaunch = nil; courierLaunch = CourierLaunch(demo: false) }
         #endif
         #if DEBUG
         // WABOTIA_DEVICE_SERVER (só depuração): o modo aparelho contra esse servidor, para parear sem tocar na tela.
@@ -82,8 +84,17 @@ final class AppContainer: ObservableObject {
             deviceLaunch = DeviceLaunch(demo: false, serverURL: server)
         }
         // WABOTIA_LOGIN_* (só depuração): entra na conta de teste sem tocar na tela, se ainda não houver sessão.
-        if deviceLaunch == nil, !isLoggedIn, let login = DemoMode.debugLogin {
-            Task { await debugLogin(login) }
+        if deviceLaunch == nil, let login = DemoMode.debugLogin {
+            if !isLoggedIn {
+                Task { await debugLogin(login) }
+            } else if session.user?.email.lowercased() != login.email.lowercased() {
+                // Outra conta de teste pedida: sai da atual (avisando o servidor, como em Ajustes → Sair) e entra na pedida.
+                Task {
+                    _ = try? await api.logout()
+                    onLoggedOut(keepServer: true)
+                    await debugLogin(login)
+                }
+            }
         }
         #endif
     }

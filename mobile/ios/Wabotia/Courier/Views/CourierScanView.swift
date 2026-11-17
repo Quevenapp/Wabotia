@@ -12,13 +12,16 @@ struct CourierScanView: View {
     @State private var cameraProblem: String?
     @State private var handled = false
     @State private var askName = false
+    /// Depois de "Continuar" a confirmação fica na tela até a folha fechar: a troca limpa `pending`, e sem isso o leitor
+    /// (e a câmera) voltaria por um instante.
+    @State private var confirming: CourierPending?
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetHeader(title: vm.pending == nil ? "Escanear pedido" : "Confirmar a entrega", subtitle: vm.demo ? "Demonstração" : nil, onClose: onClose)
+            SheetHeader(title: (vm.pending ?? confirming) == nil ? "Escanear pedido" : "Confirmar a entrega", subtitle: vm.demo ? "Demonstração" : nil, onClose: onClose)
                 .padding(.horizontal, 16)
             ScrollView {
-                if let pending = vm.pending {
+                if let pending = vm.pending ?? confirming {
                     confirmation(pending).padding(16)
                 } else {
                     reader.padding(16)
@@ -26,7 +29,13 @@ struct CourierScanView: View {
             }
         }
         .background(Theme.background.ignoresSafeArea())
-        .onAppear { vm.scanError = nil; vm.cancelPending(); handled = false }
+        .onAppear {
+            #if DEBUG
+            // WABOTIA_COURIER_QR: a folha abre já com o QR lido, para mostrar a confirmação (sem câmera).
+            if DemoMode.courierQR != nil, vm.pending != nil { return }
+            #endif
+            vm.scanError = nil; vm.cancelPending(); handled = false
+        }
     }
 
     /// "Entrega da loja X, servidor Y": só depois de Continuar o código é gasto (e o nome pedido, se faltar).
@@ -52,10 +61,11 @@ struct CourierScanView: View {
             }
             if let error = vm.scanError { InlineError(text: error).accessibilityIdentifier("courier.scanError") }
             PrimaryButton(title: "Continuar", busy: vm.scanning, disabled: vm.needsName) {
-                Task { if await vm.confirmPending() { onClose() } }
+                confirming = p
+                Task { if await vm.confirmPending() { onClose() } else { confirming = nil } }
             }
             .accessibilityIdentifier("courier.confirm.continue")
-            Button("Cancelar") { vm.cancelPending(); handled = false }
+            Button("Cancelar") { confirming = nil; vm.cancelPending(); handled = false }
                 .font(Theme.font(15, .semibold)).foregroundStyle(Theme.danger)
                 .frame(maxWidth: .infinity, minHeight: Theme.touch)
         }

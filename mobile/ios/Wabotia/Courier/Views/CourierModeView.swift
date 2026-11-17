@@ -89,7 +89,12 @@ struct CourierModeView: View {
         .onAppear {
             vm.open()
             // Entrou para escanear: a câmera já abre.
+            #if DEBUG
+            // Leitura por WABOTIA_COURIER_QR: sem câmera (o pedido de permissão do sistema cobriria a tela).
+            if vm.grants.isEmpty, DemoMode.courierQR == nil { scanning = true }
+            #else
             if vm.grants.isEmpty { scanning = true }
+            #endif
             #if DEBUG
             runDebugAction()
             #endif
@@ -122,6 +127,7 @@ struct CourierModeView: View {
     /// entrega, `disclosure` mostra o aviso de localização, `route` sai para a rota (aceitando o aviso), `chat` sai e
     /// manda uma mensagem à loja, `deliver` sai e entrega depois de 15 s.
     private func runDebugAction() {
+        if !vm.demo, let qr = DemoMode.courierQR { runRealCourier(qr); return }
         guard vm.demo, let action = DemoMode.action, vm.grants.isEmpty else { return }
         Task { @MainActor in
             if action == "confirm" {
@@ -145,6 +151,71 @@ struct CourierModeView: View {
             if action == "deliver" {
                 try? await Task.sleep(nanoseconds: 15_000_000_000)
                 await vm.delivered(id)
+            }
+        }
+    }
+
+    /// `WABOTIA_COURIER_QR` + `WABOTIA_COURIER_STEPS`: o fluxo contra o servidor de verdade, sem tocar na tela, com cada
+    /// passo no console (sem o código do QR nem o token).
+    private func runRealCourier(_ qr: String) {
+        let steps = Set(DemoMode.courierSteps)
+        func log(_ s: String) { print("[Wabotia] entregador: \(s)") }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if let name = DemoMode.courierName { vm.courierName = name }
+            let read = await vm.scanned(qr)
+            log(read ? "leitura pública ok: loja \"\(vm.pending?.store ?? "")\", servidor \(vm.pending?.scan.host ?? "")" : "leitura recusada: \(vm.scanError ?? "")")
+            guard read else { return }
+            scanning = true  // a confirmação (loja e servidor), como depois da câmera
+            guard steps.contains("confirm") else { return }
+            try? await Task.sleep(nanoseconds: DemoMode.courierPause)
+            scanning = false  // fecha a folha antes da troca (como o "Continuar", sem o leitor voltar)
+            let ok = await vm.confirmPending()
+            log(ok ? "troca ok: \(vm.grants.count) entrega(s)" : "troca recusada: \(vm.scanError ?? "")")
+            guard ok, let id = vm.grants.last?.deliveryId else { return }
+            scanning = false
+            if let d = vm.deliveries[id] {
+                log("entrega \(d.displayLabel): \(d.statusText), cliente \(d.customerName ?? "?"), endereço \(d.addressText?.replacingOccurrences(of: "\n", with: " / ") ?? "?"), destino \(d.destination == nil ? "sem" : "com") coordenadas, itens \(d.items.count), pagamento \(d.paymentText ?? "-"), conversa last_seq \(d.chat?.lastSeq ?? -1)")
+            }
+            opened = id
+            if steps.contains("route") {
+                try? await Task.sleep(nanoseconds: DemoMode.courierPause)
+                vm.startRoute(id)
+                try? await Task.sleep(nanoseconds: DemoMode.courierPause)
+                vm.acceptDisclosure()
+                for _ in 0..<12 {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await vm.flush(id)
+                    let d = vm.deliveries[id]
+                    log("rota: \(d?.statusText ?? "?"), previsão \(d?.etaText ?? "sem"), destino \(d?.destination == nil ? "sem" : "com"), aviso \(vm.notice ?? "-")")
+                    if d?.etaText != nil { break }
+                }
+            }
+            if steps.contains("chat") {
+                let sent = await vm.send(id, .store, "Teste do app iOS: saindo para a entrega.")
+                log(sent ? "mensagem à loja enviada" : "mensagem à loja recusada: \(vm.chatError ?? vm.notice ?? "")")
+                await vm.loadChat(id)
+                log("conversa: \(vm.messages(id, .store).count) com a loja, \(vm.messages(id, .customer).count) com o cliente; cliente \(vm.customerOpen(id) ? "aberto" : "fechado (24 h)")")
+            }
+            if steps.contains("wait") {
+                // Sem "Entreguei": a loja responde e depois cancela (o acesso cai e o app volta à primeira tela).
+                for _ in 0..<18 {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    guard vm.grant(id) != nil else { log("acesso encerrado: \(vm.notice ?? ""); modo entregador \(vm.finished ? "fechado (volta à primeira tela)" : "aberto")"); return }
+                    await vm.loadChat(id)
+                    let d = vm.deliveries[id]
+                    log("na rua: \(d?.statusText ?? "?"), previsão \(d?.etaText ?? "sem"), itens \(d?.items.count ?? 0), loja: \(vm.messages(id, .store).map { "\($0.sender): \($0.text)" }.joined(separator: " | ")), não lidas \(vm.unread[vm.chatKey(id, .store)] ?? 0)")
+                }
+            }
+            if steps.contains("deliver") {
+                // Tempo para a loja responder (e para as capturas de tela) antes do "Entreguei".
+                for _ in 0..<4 {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    await vm.loadChat(id)
+                    log("conversa com a loja: \(vm.messages(id, .store).map { "\($0.sender): \($0.text)" }.joined(separator: " | "))")
+                }
+                await vm.delivered(id)
+                log("entreguei: \(vm.notice ?? ""); modo entregador \(vm.finished ? "fechado (volta à primeira tela)" : "aberto")")
             }
         }
     }

@@ -139,7 +139,12 @@ Só no build de depuração (`#if DEBUG`); o release não os tem. Passe como var
   sem mandar nada à impressora (o cupom sai no console), para testar a emissão sem imprimir.
 - `WABOTIA_LOGIN_SERVER`, `WABOTIA_LOGIN_EMAIL` e `WABOTIA_LOGIN_PASSWORD`: entra numa **conta de teste** pelo mesmo
   login da tela Entrar, sem o pedido de permissão de notificações. A senha nunca vai ao console. Use só com conta de
-  teste autorizada e nunca grave a senha em script, log ou commit.
+  teste autorizada e nunca grave a senha em script, log ou commit. Com outra conta já aberta no aparelho, sai dela
+  (avisando o servidor) e entra na pedida.
+- `WABOTIA_COURIER_QR=<link do QR>`: o modo entregador contra o servidor do QR, sem câmera; `WABOTIA_COURIER_NAME` é o
+  nome, `WABOTIA_COURIER_STEPS` os passos (`confirm`, `route`, `chat`, `wait`, `deliver`), `WABOTIA_COURIER_PAUSE` os
+  segundos entre eles e `WABOTIA_COURIER_SIMULATED=1` usa a posição simulada (sem o pedido de localização). Cada passo
+  vai ao console, sem o código do QR. O QR é de uso único: gere um para o teste e não o grave em commit ou relatório.
 - `WABOTIA_OPEN=<tela>` abre uma tela na sessão real: `counter`, `agenda`, `os`, `reserva`, `mensalidade`, `pedido`,
   `settings`, `os:<id>`, `appointment:<id>`, `pedido:<id>`, `subscription:<id>`, `installment:<id>`,
   `conversation:<id>`, `conversation-info:<id>`.

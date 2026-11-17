@@ -99,6 +99,16 @@ extension DemoMode {
     /// `WABOTIA_DEMO_ACCESS=caixa` ou `conversations,tickets`: a lista de acessos da pessoa na demonstração
     /// (`AppAccess`), para ver a barra e as telas montadas só com ela.
     static let accessOverride: [String]? = env("WABOTIA_DEMO_ACCESS")?.split(separator: ",").map { String($0) }
+    /// Modo entregador contra um servidor de verdade, sem câmera: `WABOTIA_COURIER_QR` (o link do QR) abre o modo
+    /// entregador e lê o QR; `WABOTIA_COURIER_NAME` é o nome; `WABOTIA_COURIER_STEPS` (`confirm,route,chat,deliver`) faz os
+    /// passos, registrando no console; `WABOTIA_COURIER_SIMULATED=1` usa a posição simulada (o pedido de permissão do
+    /// sistema pede um toque).
+    static let courierQR: String? = env("WABOTIA_COURIER_QR")
+    static let courierName: String? = env("WABOTIA_COURIER_NAME")
+    static let courierSteps: [String] = env("WABOTIA_COURIER_STEPS")?.split(separator: ",").map(String.init) ?? []
+    static let courierSimulated = env("WABOTIA_COURIER_SIMULATED") == "1"
+    /// Pausa entre os passos (s), para as capturas de tela pegarem cada tela.
+    static let courierPause: UInt64 = UInt64(env("WABOTIA_COURIER_PAUSE").flatMap(Double.init).map { $0 * 1_000_000_000 } ?? 2_000_000_000)
     static let anchor: String? = env("WABOTIA_DEMO_ANCHOR")
     /// Ação feita sozinha no modo aparelho e no guichê, para conferir por print: `choose`, `issue`, `settings`,
     /// `printer`, `pin`, `unpair` (aparelho), `call` (guichê 2 chama a próxima), `week` (agenda) e `quote` (ordem).

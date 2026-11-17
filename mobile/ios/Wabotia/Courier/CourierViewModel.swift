@@ -9,8 +9,9 @@ struct CourierServices {
     var store: CourierGrantStore
     var location: CourierLocating
     var demo: Bool
-    /// Destino do endereço em texto, no próprio aparelho (CLGeocoder), uma vez por entrega.
-    var geocode: (String) async -> CourierCoordinate?
+    /// Destino do endereço em texto, no próprio aparelho (CLGeocoder), uma vez por entrega, perto da posição do entregador
+    /// (o endereço da loja vem sem cidade nem país: sem essa referência, "Rua das Flores, 200" pode cair em outro país).
+    var geocode: (_ address: String, _ near: CourierCoordinate) async -> CourierCoordinate?
     var now: () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }
     /// O aviso de compartilhamento já foi aceito neste aparelho (mostrado antes de pedir a permissão).
     /// O aviso de compartilhamento já foi aceito para esta loja (o servidor da entrega): o aviso diz de qual loja é.
@@ -27,10 +28,18 @@ struct CourierServices {
     var device: String = "\(UIDevice.current.model) (iOS \(UIDevice.current.systemVersion))"
 
     static func live() -> CourierServices {
-        CourierServices(api: HTTPCourierAPI(), store: KeychainCourierGrantStore(), location: SystemCourierLocation(), demo: false,
-                        geocode: { address in
-                            let marks = try? await CLGeocoder().geocodeAddressString(address.replacingOccurrences(of: "\n", with: ", "))
-                            return marks?.first?.location.map { CourierCoordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) }
+        var location: CourierLocating = SystemCourierLocation()
+        #if DEBUG
+        if DemoMode.courierSimulated { location = SimulatedCourierLocation(step: 5, stride: 150) }
+        #endif
+        return CourierServices(api: HTTPCourierAPI(), store: KeychainCourierGrantStore(), location: location, demo: false,
+                        geocode: { address, near in
+                            let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: near.lat, longitude: near.lng),
+                                                          radius: CourierGeocode.searchRadius, identifier: "courier.destination")
+                            let marks = (try? await CLGeocoder().geocodeAddressString(address.replacingOccurrences(of: "\n", with: ", "),
+                                                                                       in: region, preferredLocale: nil)) ?? []
+                            let found = marks.compactMap { $0.location.map { CourierCoordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) } }
+                            return CourierGeocode.pick(found, near: near)
                         },
                         disclosureAccepted: { (UserDefaults.standard.stringArray(forKey: "courier.disclosure.stores") ?? []).contains($0) },
                         acceptDisclosure: { store in
@@ -44,8 +53,21 @@ struct CourierServices {
         var accepted: Set<String> = []
         var name = "Carlos"
         return CourierServices(api: DemoCourierAPI(), store: MemoryCourierGrantStore(), location: SimulatedCourierLocation(), demo: true,
-                               geocode: { _ in nil }, disclosureAccepted: { accepted.contains($0) }, acceptDisclosure: { accepted.insert($0) }, refreshSeconds: 5,
+                               // A demonstração já traz o destino de cada entrega.
+                               geocode: { _, _ in nil }, disclosureAccepted: { accepted.contains($0) }, acceptDisclosure: { accepted.insert($0) }, refreshSeconds: 5,
                                chatPollSeconds: 3, loadName: { name }, saveName: { name = $0 })
+    }
+}
+
+/// Escolha do destino geocodificado: só um resultado perto do entregador vale (o resto é outro lugar com o mesmo nome).
+enum CourierGeocode {
+    /// Raio da busca em volta do entregador.
+    static let searchRadius: CLLocationDistance = 50_000
+    /// Mais longe que isso do entregador, o resultado é descartado (sem destino, a loja informa ou o app tenta de novo).
+    static let maxDistance: Double = 150_000
+
+    nonisolated static func pick(_ found: [CourierCoordinate], near: CourierCoordinate) -> CourierCoordinate? {
+        found.first { $0.distance(to: near) <= maxDistance }
     }
 }
 
@@ -159,6 +181,10 @@ final class CourierViewModel: ObservableObject {
     private func apply(_ d: CourierDelivery) {
         var d = d
         if d.destination == nil { d.destination = deliveries[d.id]?.destination }
+        // A troca do QR e as ações (sair, destino) respondem a entrega sem o pedido e sem a conversa: ficam os da última
+        // leitura de `…/courier`.
+        if d.order == nil { d.order = deliveries[d.id]?.order }
+        if d.chat == nil { d.chat = deliveries[d.id]?.chat }
         deliveries[d.id] = d
         if let app = d.app { rhythm = app }
         if let seq = d.chat?.lastSeq { chatMoved(d.id, to: seq) }
@@ -237,7 +263,9 @@ final class CourierViewModel: ObservableObject {
                 grants = grants.map { $0.deliveryId == grant.deliveryId ? grant : $0 }
             }
             services.store.save(grants)
-            if let d = claim.delivery { apply(d) } else { await refresh(grant) }
+            if let d = claim.delivery { apply(d) }
+            // A resposta da troca não traz o pedido (itens, pagamento) nem a conversa: a leitura completa vem logo.
+            if claim.delivery?.order == nil { await refresh(grant) }
             self.pending = nil
             notice = nil
             return true
@@ -309,7 +337,10 @@ final class CourierViewModel: ObservableObject {
         busy.insert(id)
         defer { busy.remove(id) }
         var destination = deliveries[id]?.destination
-        if destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty { destination = await services.geocode(address) }
+        if destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty {
+            // Sem posição ainda (o GPS liga com a rota), o endereço é procurado no primeiro ponto.
+            if let near = lastPoint?.coordinate { destination = await services.geocode(address, near) } else { geocodeLater.insert(id) }
+        }
         do {
             if var d = try await services.api.start(grant, destination: destination) {
                 if d.destination == nil { d.destination = destination }
@@ -365,8 +396,23 @@ final class CourierViewModel: ObservableObject {
 
     // MARK: - Posições
 
+    /// Entregas na rua sem destino, esperando a primeira posição para procurar o endereço perto dela.
+    private var geocodeLater: Set<String> = []
+
+    private func locateDestination(_ id: String, near: CourierCoordinate) async {
+        guard let grant = grant(id), deliveries[id]?.destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty,
+              let target = await services.geocode(address, near), deliveries[id]?.destination == nil else { return }
+        deliveries[id]?.destination = target
+        do { try await services.api.setDestination(grant, target) } catch let error as CourierError { handle(error, id) } catch {}
+    }
+
     private func received(_ point: CourierPoint) {
         lastPoint = point
+        if !geocodeLater.isEmpty {
+            let ids = geocodeLater
+            geocodeLater = []
+            for id in ids.sorted() { Task { await locateDestination(id, near: point.coordinate) } }
+        }
         let now = services.now()
         for (id, d) in deliveries where d.enRoute { queues[id, default: PositionQueue()].add(point, now: now) }
         // Perto de um destino: alta precisão e envio mais curto.
@@ -465,10 +511,14 @@ final class CourierViewModel: ObservableObject {
                 let after = lastSeq[id] ?? 0
                 let page = try await services.api.messages(grant, after: after)
                 if let open = page.customerOpen { deliveries[id]?.chat = CourierChatState(lastSeq: page.lastSeq, customerOpen: open) }
-                let fresh = page.data.filter { $0.seq > after }
-                guard !fresh.isEmpty else { return }
+                let newer = page.data.filter { $0.seq > after }
+                guard !newer.isEmpty else { return }
+                lastSeq[id] = newer.map(\.seq).max() ?? after
+                // A mensagem que o entregador acabou de mandar já está na conversa (resposta do envio): não repete.
+                let known = Set((feeds[id] ?? []).map(\.seq))
+                let fresh = newer.filter { !known.contains($0.seq) }
                 feeds[id, default: []].append(contentsOf: fresh)
-                lastSeq[id] = fresh.map(\.seq).max() ?? after
+                feeds[id]?.sort { $0.seq < $1.seq }
                 for m in fresh where !m.mine {
                     let key = chatKey(id, m.peer)
                     if key != viewing { unread[key, default: 0] += 1 }
