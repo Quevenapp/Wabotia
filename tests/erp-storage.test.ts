@@ -27,6 +27,22 @@ import { fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 
 const LOCAL = "https://erp.wabotia.invalid";
+const hmacHex = async (secret: string, body: string) => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return [
+    ...new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)),
+    ),
+  ]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
 const KEY = "motor-local";
 const hex = async (bytes: Uint8Array) =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
@@ -93,8 +109,23 @@ describe("armazenamento do ERP no R2", () => {
     // Outra área não enxerga.
     expect((await pb.attachments.get(key)).status).toBe(404);
 
+    // CNAB: caminho da RPC sem mudança, prefixo da área posto pela camada,
+    // e só com o bloco erp-cobranca ligado.
     const rem = new TextEncoder().encode("0".repeat(240) + "\r\n");
     const path = `profiles/${a.profile}/remittances/${await hex(rem)}.rem`;
+    await expect(
+      pa.cnab.storeFile({
+        bucket: "brufap-cnab",
+        path,
+        bytes: rem,
+        upsert: false,
+      }),
+    ).rejects.toThrow();
+    expect(
+      await env.MEDIA.head(erpStorageKey(a.profile, "brufap-cnab", path)),
+    ).toBeNull();
+    await setModule(a.profile, "erp", true, a.admin.id);
+    await setModule(a.profile, "erp-cobranca", true, a.admin.id);
     await pa.cnab.storeFile({
       bucket: "brufap-cnab",
       path,
@@ -109,6 +140,37 @@ describe("armazenamento do ERP no R2", () => {
       upsert: false,
     });
     expect(await pa.cnab.getFile({ bucket: "brufap-cnab", path })).toEqual(rem);
+    expect(
+      await env.MEDIA.head(erpStorageKey(a.profile, "brufap-cnab", path)),
+    ).not.toBeNull();
+    // Nunca por link: assinar é recusado, e um link forjado também.
+    const signCnab = await storage(
+      a.profile,
+      "POST",
+      `sign/brufap-cnab/${path}`,
+      {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresIn: 120 }),
+      },
+    );
+    expect(signCnab.status).toBe(403);
+    await setModule(a.profile, "erp", true, a.admin.id);
+    expect(
+      (
+        await SELF.fetch(
+          `https://test/api/public/erp-storage/${a.profile}/cobranca/${path}?token=9999999999.00`,
+        )
+      ).status,
+    ).toBe(403);
+    // Bloco desligado: a leitura para também.
+    await setModule(a.profile, "erp-cobranca", false, a.admin.id);
+    await expect(
+      pa.cnab.getFile({ bucket: "brufap-cnab", path }),
+    ).rejects.toThrow();
+    expect(
+      (await storage(a.profile, "GET", `authenticated/brufap-cnab/${path}`))
+        .status,
+    ).toBe(403);
   });
 
   it("exportação: grava, assina, baixa pelo link público e apaga", async () => {
@@ -138,9 +200,21 @@ describe("armazenamento do ERP no R2", () => {
     ).url as string;
     expect(
       url.startsWith(
-        `https://test/api/public/erp-storage/${f.profile}/brufap-exports/${objectKey}?token=`,
+        `https://test/api/public/erp-storage/${f.profile}/exportacoes/${objectKey}?token=`,
       ),
     ).toBe(true);
+    // O nome do Fagoo nunca aparece no endereço público.
+    expect(url).not.toContain("brufap-exports");
+    // A chave do link é derivada: um HMAC com a MASTER_KEY direto não vale.
+    const [, expiresText, mac] = /token=(\d+)\.([0-9a-f]+)/.exec(url)!;
+    const direct = await hmacHex(
+      env.MASTER_KEY,
+      `erp-storage-sign:v1\n${f.profile}\nbrufap-exports\n${objectKey}\n${expiresText}`,
+    );
+    expect(mac).not.toBe(direct);
+    expect(
+      (await SELF.fetch(url.replace(`.${mac}`, `.${direct}`))).status,
+    ).toBe(403);
 
     const download = await SELF.fetch(url);
     expect(download.status).toBe(200);
@@ -163,6 +237,8 @@ describe("armazenamento do ERP no R2", () => {
       ),
       url.replace(`/exports/${id}/`, `/exports/${crypto.randomUUID()}/`),
       url.replace(/token=\d+\./, "token=99999999999."),
+      // O nome do Fagoo no lugar do apelido não é rota pública.
+      url.replace("/exportacoes/", "/brufap-exports/"),
     ];
     for (const bad of tampered)
       expect((await SELF.fetch(bad)).status).toBe(403);
@@ -186,15 +262,22 @@ describe("armazenamento do ERP no R2", () => {
     expect((await SELF.fetch(url)).status).toBe(404);
   });
 
-  it("recusa bucket desconhecido, caminho inválido, tipo, tamanho e escrita em bucket só de leitura", async () => {
+  it("recusa bucket desconhecido, caminho inválido, tipo, tamanho, bloco desligado e link fora da exportação", async () => {
     const f = await fixture();
     const xml = {
       headers: { "Content-Type": "application/xml" },
       body: "<a/>",
     };
-    expect(
-      (await storage(f.profile, "POST", "outro-bucket/a.xml", xml)).status,
-    ).toBe(404);
+    // Bucket fora da tabela, inclusive os do Origin (bloco externo).
+    for (const bucket of [
+      "outro-bucket",
+      "origin-backups",
+      "origin-fiscal-xml",
+    ])
+      expect(
+        (await storage(f.profile, "POST", `${bucket}/a.xml`, xml)).status,
+        bucket,
+      ).toBe(404);
     for (const path of [
       "erp-attachments/.upload/x/0",
       "erp-attachments/a//b",
@@ -215,6 +298,8 @@ describe("armazenamento do ERP no R2", () => {
         })
       ).status,
     ).toBe(415);
+    await setModule(f.profile, "erp", true, f.admin.id);
+    await setModule(f.profile, "erp-cobranca", true, f.admin.id);
     expect(
       (
         await storage(f.profile, "POST", "brufap-cnab/x.rem", {
@@ -223,38 +308,84 @@ describe("armazenamento do ERP no R2", () => {
         })
       ).status,
     ).toBe(413);
+    // Fiscal (notas recebidas, artefatos, certificado A1) com erp-fiscal
+    // desligado: nada entra nem sai.
+    const octet = {
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "x",
+    };
+    for (const bucket of ["brufap-received-dfe", "brufap-fiscal-artifacts"]) {
+      expect(
+        (await storage(f.profile, "POST", `${bucket}/objects/a`, octet)).status,
+        bucket,
+      ).toBe(403);
+      expect(
+        (await storage(f.profile, "GET", `authenticated/${bucket}/objects/a`))
+          .status,
+        bucket,
+      ).toBe(403);
+      expect(
+        (await storage(f.profile, "DELETE", `${bucket}/objects/a`)).status,
+        bucket,
+      ).toBe(403);
+    }
+    await setModule(f.profile, "erp-fiscal", true, f.admin.id);
+    expect(
+      (await storage(f.profile, "POST", "brufap-received-dfe/objects/a", octet))
+        .status,
+    ).toBe(200);
+    // Certificado A1: nunca no Wabotia (fica no cofre da NFapi). Mesmo com o
+    // erp-fiscal ligado, gravar, ler, apagar e assinar dão 404, e nada vai
+    // para o R2.
+    const vault = "brufap-a1-vault/certificates/a1.json";
+    const json = {
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    };
+    expect((await storage(f.profile, "POST", vault, json)).status).toBe(404);
+    expect((await storage(f.profile, "PUT", vault, json)).status).toBe(404);
+    expect(
+      (await storage(f.profile, "GET", `authenticated/${vault}`)).status,
+    ).toBe(404);
+    expect((await storage(f.profile, "DELETE", vault)).status).toBe(404);
     expect(
       (
-        await storage(
-          f.profile,
-          "POST",
-          "brufap-received-dfe/objects/a.xml",
-          xml,
-        )
+        await storage(f.profile, "POST", `sign/${vault}`, {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expiresIn: 60 }),
+        })
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
-      (await storage(f.profile, "DELETE", "brufap-received-dfe/objects/a.xml"))
-        .status,
-    ).toBe(403);
+      (
+        await env.MEDIA.list({
+          prefix: erpStorageKey(f.profile, "brufap-a1-vault", ""),
+        })
+      ).objects,
+    ).toEqual([]);
+    await expect(
+      createErpUpload(env, f.profile, "brufap-a1-vault", "application/json"),
+    ).rejects.toThrow();
     expect(
       (
         await storage(
           f.profile,
           "GET",
-          "authenticated/brufap-received-dfe/objects/a.xml",
+          "authenticated/brufap-received-dfe/objects/a",
         )
       ).status,
-    ).toBe(404);
-    // Assinar exige objeto existente e prazo de 1 s a 1 h.
-    const sign = (expiresIn: unknown) =>
-      storage(f.profile, "POST", "sign/erp-attachments/nada.pdf", {
+    ).toBe(200);
+    // Link só na exportação; nela, objeto existente e prazo de 1 s a 1 h.
+    const sign = (path: string, expiresIn: unknown) =>
+      storage(f.profile, "POST", `sign/${path}`, {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ expiresIn }),
       });
-    expect((await sign(120)).status).toBe(404);
-    expect((await sign(0)).status).toBe(400);
-    expect((await sign(3601)).status).toBe(400);
+    expect((await sign("brufap-received-dfe/objects/a", 120)).status).toBe(403);
+    expect((await sign("erp-attachments/nada.pdf", 120)).status).toBe(403);
+    expect((await sign("brufap-exports/nada.zip", 120)).status).toBe(404);
+    expect((await sign("brufap-exports/nada.zip", 0)).status).toBe(400);
+    expect((await sign("brufap-exports/nada.zip", 3601)).status).toBe(400);
   });
 });
 

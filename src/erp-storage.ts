@@ -6,7 +6,9 @@
 // - Chave no R2: erp-storage/<área>/<bucket>/<caminho>, o mesmo formato de
 //   erpObjectKey (src/erp/engine/rpc-endpoint.ts), que o objeto erp: consulta
 //   antes dos RPCs e soma no uso do armazenamento.
-// - Só os buckets da erp-api, cada um com o tamanho e os tipos do Fagoo.
+// - Bucket lógico do Fagoo → prefixo no MEDIA (ERP_BUCKETS), cada um com o
+//   tamanho e os tipos do Fagoo e o bloco do ERP que precisa estar ligado
+//   (CNAB: erp-cobranca; notas e certificado: erp-fiscal).
 // - Nada é público. A leitura é pela rota do Worker (a erp-api, com o
 //   envelope da pessoa) ou por URL assinada de curta duração
 //   (/api/public/erp-storage/…, HMAC com a MASTER_KEY).
@@ -17,15 +19,42 @@ import { equal, hmac, rate, sha } from "./security";
 import { ApiError, uid, type Env } from "./types";
 
 const MiB = 1024 * 1024;
-const XML = ["application/xml", "text/xml"];
+const OCTET = ["application/octet-stream"];
 
-/** Buckets do Supabase que a erp-api usa (CONFIGs do Fagoo), por nome. */
-export const ERP_BUCKETS: Record<
-  string,
-  { maxBytes: number; types: readonly string[]; write: boolean }
-> = {
-  // attachment-storage.mjs (ATTACHMENT_BUCKET_CONFIG)
+/** Um bucket lógico do Fagoo, que vira prefixo no MEDIA. */
+export interface ErpBucket {
+  /** Tamanho e tipos do storage.buckets do Fagoo (file_size_limit, allowed_mime_types). */
+  maxBytes: number;
+  types: readonly string[];
+  /**
+   * Bloco do ERP que precisa estar ligado na área (src/erp/blocks.ts). O
+   * `erp` já é conferido na rota; os opcionais são conferidos de novo aqui.
+   */
+  module: "erp" | "erp-fiscal" | "erp-cobranca";
+  /**
+   * Aceita URL assinada (/api/public/erp-storage/…). Só a exportação, que o
+   * Fagoo entrega por link; o resto sai só pela rota, com o envelope.
+   */
+  sign: boolean;
+  /**
+   * Nome no endereço público (/api/public/erp-storage/<área>/<apelido>/…):
+   * o nome do Fagoo (brufap-…) fica só por dentro, onde os adaptadores e o
+   * diferencial precisam dele.
+   */
+  alias: string;
+}
+
+/**
+ * Todos os buckets do storage.buckets do Fagoo, por nome (as migrações e os
+ * CONFIGs da erp-api). Ficam de fora origin-backups e origin-fiscal-xml, do
+ * Origin, que saiu da instalação principal (bloco "externo": a erp-api nem
+ * chega a chamá-los). Bucket fora da tabela dá 404.
+ */
+export const ERP_BUCKETS: Record<string, ErpBucket> = {
+  // attachment-storage.mjs (ATTACHMENT_BUCKET_CONFIG): anexos de documento,
+  // contato, produto, financeiro e funcionário; logotipo e arquivos da empresa.
   "erp-attachments": {
+    alias: "anexos",
     maxBytes: 10 * MiB,
     types: [
       "application/pdf",
@@ -34,23 +63,49 @@ export const ERP_BUCKETS: Record<
       "application/xml",
       "text/plain",
     ],
-    write: true,
+    module: "erp",
+    sign: false,
   },
-  // cnab.mjs (CNAB_BUCKET_CONFIG)
+  // cnab.mjs (CNAB_BUCKET_CONFIG): remessas e retornos, com dados de cobrança
+  // de clientes. Caminhos das RPCs: profiles/<perfil>/remittances/<hash>.rem e
+  // profiles/<perfil>/returns/<hash>.ret.
   "brufap-cnab": {
+    alias: "cobranca",
     maxBytes: 4_020_000,
-    types: ["application/octet-stream"],
-    write: true,
+    types: OCTET,
+    module: "erp-cobranca",
+    sign: false,
   },
-  // platform.mjs (EXPORT_BUCKET, EXPORT_MAX_BYTES)
+  // platform.mjs (EXPORT_BUCKET, EXPORT_MAX_BYTES; 202610210331_platform_exports)
   "brufap-exports": {
+    alias: "exportacoes",
     maxBytes: 50 * MiB,
     types: ["application/zip"],
-    write: true,
+    module: "erp",
+    sign: true,
   },
-  // dfe-distribution.mjs: a erp-api só lê; quem grava é a distribuição de
-  // DF-e, que ainda não foi portada.
-  "brufap-received-dfe": { maxBytes: 8 * MiB, types: XML, write: false },
+  // dfe-distribution.mjs e 202610160045_dfe_distribution: notas recebidas.
+  "brufap-received-dfe": {
+    alias: "dfe",
+    maxBytes: 8 * MiB,
+    types: OCTET,
+    module: "erp-fiscal",
+    sign: false,
+  },
+  // 202610160051_fiscal_wsdl e seguintes: XML assinado, recibos e respostas
+  // da SEFAZ.
+  "brufap-fiscal-artifacts": {
+    alias: "fiscal",
+    maxBytes: 8 * MiB,
+    types: OCTET,
+    module: "erp-fiscal",
+    sign: false,
+  },
+  // brufap-a1-vault (202610160041_a1_custody, custódia do certificado A1)
+  // fica de fora de propósito: o certificado nunca fica no Wabotia. Ele mora
+  // no cofre da NFapi, separado do sistema que tem bots e integrações
+  // (decisão do usuário; src/erp/emissor/README.md). Código portado do Fiscal
+  // que tente guardar ou ler o certificado aqui recebe 404.
 };
 
 /** Chave do objeto no R2 (formato de erpObjectKey, rpc-endpoint.ts). */
@@ -103,6 +158,16 @@ export async function erpStorage(
   if (!bucket) return storageError(404, "not_found", "Bucket not found");
   if (!validPath(path))
     return storageError(400, "invalid_key", "Invalid object key");
+  // Bloco opcional desligado na área (cobrança, fiscal): nada sai nem entra,
+  // mesmo que a rota da erp-api tenha passado.
+  if (bucket.module !== "erp") {
+    try {
+      await requireModule(env, profile, bucket.module);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      return storageError(403, "module_disabled", "Module disabled");
+    }
+  }
   const key = erpStorageKey(profile, bucketName, path);
   const method = request.method.toUpperCase();
 
@@ -128,6 +193,8 @@ export async function erpStorage(
   if (kind === "sign") {
     if (method !== "POST")
       return storageError(405, "method_not_allowed", "Method not allowed");
+    if (!bucket.sign)
+      return storageError(403, "not_signable", "Bucket has no signed URLs");
     const body = await request
       .json<{ expiresIn?: unknown }>()
       .catch(() => ({}));
@@ -148,16 +215,12 @@ export async function erpStorage(
   }
 
   if (method === "DELETE") {
-    if (!bucket.write)
-      return storageError(403, "read_only", "Bucket is read-only");
     if (!(await env.MEDIA.head(key))) return notFound();
     await env.MEDIA.delete(key);
     return Response.json({ message: "Successfully deleted" });
   }
 
   if (method === "POST" || method === "PUT") {
-    if (!bucket.write)
-      return storageError(403, "read_only", "Bucket is read-only");
     const type = baseType(request.headers.get("Content-Type"));
     if (!bucket.types.includes(type))
       return storageError(
@@ -190,19 +253,26 @@ const tooLarge = () =>
   );
 
 // ---------------------------------------------------------------------------
-// URL assinada: /api/public/erp-storage/<área>/<bucket>/<caminho>?token=…
-// O token é <expira em segundos>.<HMAC-SHA256> de área, bucket, caminho e
-// expiração, com a MASTER_KEY (separada por um prefixo próprio). Vale só até
-// expirar e só para aquele objeto daquela área.
+// URL assinada: /api/public/erp-storage/<área>/<apelido>/<caminho>?token=…
+// O token é <expira em segundos>.<HMAC-SHA256> de área, bucket (o nome do
+// Fagoo), caminho e expiração. Vale só até expirar e só para aquele objeto
+// daquela área. A chave do HMAC não é a MASTER_KEY: é derivada dela com um
+// rótulo próprio (linkKey), para o link nunca usar a chave que cifra os
+// segredos.
 
-function masterKey(env: Env) {
+const LINK_KEY_LABEL = "erp-storage-link/v1";
+async function linkKey(env: Env) {
   if (!env.MASTER_KEY || env.MASTER_KEY.length < 32)
     throw new ApiError(
       503,
       "setup_required",
       "Configure MASTER_KEY nos secrets do Worker.",
     );
-  return env.MASTER_KEY;
+  return hmac(env.MASTER_KEY, LINK_KEY_LABEL);
+}
+/** Bucket do Fagoo pelo apelido do endereço público. */
+function bucketByAlias(alias: string) {
+  return Object.entries(ERP_BUCKETS).find(([, b]) => b.alias === alias) ?? null;
 }
 const signedPayload = (
   profile: string,
@@ -219,7 +289,7 @@ async function signToken(
   expires: number,
 ) {
   const mac = await hmac(
-    masterKey(env),
+    await linkKey(env),
     signedPayload(profile, bucket, path, expires),
   );
   return `${expires}.${mac}`;
@@ -231,7 +301,8 @@ export const SIGNED_PATH = "/api/public/erp-storage/";
 /**
  * A URL que a erp-api monta com o endereço local da costura
  * (`<local>/storage/v1/object/sign/<bucket>/…`) vira a rota pública do
- * Worker, na mesma origem em que a pessoa chamou o ERP.
+ * Worker, na mesma origem em que a pessoa chamou o ERP, com o apelido do
+ * bucket no lugar do nome do Fagoo.
  */
 export function publicSignedUrls(
   text: string,
@@ -240,11 +311,13 @@ export function publicSignedUrls(
   profile: string,
 ) {
   const from = `${local}/storage/v1/object/sign/`;
-  return text.includes(from)
-    ? text
-        .split(from)
-        .join(`${origin}${SIGNED_PATH}${encodeURIComponent(profile)}/`)
-    : text;
+  if (!text.includes(from)) return text;
+  const to = `${origin}${SIGNED_PATH}${encodeURIComponent(profile)}/`;
+  let out = text;
+  for (const [name, bucket] of Object.entries(ERP_BUCKETS))
+    if (bucket.sign)
+      out = out.split(`${from}${name}/`).join(`${to}${bucket.alias}/`);
+  return out;
 }
 
 /** GET /api/public/erp-storage/<área>/<bucket>/<caminho>?token=…&download=… */
@@ -264,8 +337,11 @@ export async function erpSignedDownload(env: Env, request: Request) {
     new ApiError(403, "invalid_signature", "Link inválido ou vencido.");
   if (!match) throw denied();
   const profile = decodeURIComponent(match[1]);
-  const [, , bucketName, path] = match;
-  if (!bucketOf(bucketName) || !validPath(path)) throw denied();
+  const [, , alias, path] = match;
+  const found = bucketByAlias(alias);
+  // Só bucket que aceita link (a exportação): CNAB, fiscal e anexos nunca.
+  if (!found || !found[1].sign || !validPath(path)) throw denied();
+  const [bucketName, bucket] = found;
   const [expiresText, mac] = (url.searchParams.get("token") || "").split(".");
   const expires = Number(expiresText);
   if (
@@ -275,12 +351,13 @@ export async function erpSignedDownload(env: Env, request: Request) {
   )
     throw denied();
   const expected = await hmac(
-    masterKey(env),
+    await linkKey(env),
     signedPayload(profile, bucketName, path, expires),
   );
   if (!equal(mac, expected)) throw denied();
-  // Com o ERP desligado na área, os links param de valer.
+  // Com o ERP (ou o bloco do bucket) desligado na área, os links param de valer.
   await requireModule(env, profile, "erp");
+  if (bucket.module !== "erp") await requireModule(env, profile, bucket.module);
   const object = await env.MEDIA.get(erpStorageKey(profile, bucketName, path));
   if (!object) throw new ApiError(404, "not_found", "Arquivo não encontrado.");
   const name = (url.searchParams.get("download") || path.split("/").pop() || "")
@@ -343,7 +420,7 @@ export async function createErpUpload(
   contentType: string,
 ): Promise<ErpUpload> {
   const bucket = bucketOf(bucketName);
-  if (!bucket?.write || !bucket.types.includes(contentType))
+  if (!bucket || !bucket.types.includes(contentType))
     throw new ApiError(400, "erp_storage_invalid", "Bucket ou tipo inválido.");
   await sweepStaleUploads(env, profile, bucketName);
   const id = uid();
