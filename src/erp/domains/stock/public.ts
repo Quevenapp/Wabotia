@@ -34,6 +34,11 @@ export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
 export { compositionApplyValues, compositionDto, compositionTotals } from "./composition.ts";
 export { supplyPart } from "./internal.ts";
 export { reserveStatuses, settingsDto } from "./read.ts";
+// Para o Fiscal (sessão G, F7: confronto da nota recebida com o pedido de
+// compra): erp_purchase_receipts.current(p_id), o pedido e, por item, o pedido,
+// o recebido, o restante e a elegibilidade. Só leitura e sem conferir acesso:
+// quem chama confere o dele. Pedido já lançado pelo documento: items vazio.
+export { current as purchaseReceiptCurrent } from "./rpc/purchase-receipts.ts";
 
 // ---------------------------------------------------------------------------
 // compositionSettings, protectProductUnit e protectDefaultWarehouse: escritas
