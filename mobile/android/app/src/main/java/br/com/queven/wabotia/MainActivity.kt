@@ -57,6 +57,9 @@ class MainActivity : ComponentActivity() {
         val container = (application as WabotiaApp).container
         // Aparelho pareado como totem ou painel: abre direto no modo aparelho (o atalho de demonstração não conta).
         // Entrega em andamento (modo entregador): reabre nela.
+        // Depuração: `--es courier_link <endereço do QR>` abre o modo entregador com o QR lido, sem câmera (mesma leitura,
+        // mesma confirmação da loja).
+        if (savedInstanceState == null && openCourierLink(intent)) return
         if (savedInstanceState == null && intent?.getStringExtra("demo") == null && CourierActivity.hasDeliveries(this)) {
             startActivity(CourierActivity.withDebug(CourierActivity.intent(this), intent))
             finish()
@@ -111,6 +114,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (openCourierLink(intent)) return
         // Esta Activity é singleTask: uma intent entregue a ela (ícone aberto por outro caminho, notificação) limpa o
         // modo aparelho que estava por cima. Com um aparelho pareado, volta para ele, como na abertura do app.
         if (intent.getStringExtra("demo") == null && DeviceActivity.isPaired((application as WabotiaApp).container.deviceStore)) {
@@ -125,6 +129,15 @@ class MainActivity : ComponentActivity() {
      * Atalho de demonstração (só no build de depuração; [DeepLink.fromDemo] não lê o extra no release): entra na sessão
      * em memória (e recomeça os dados) antes de navegar.
      */
+    /** Só no build de depuração: o QR do entregador passado pelo adb vai ao modo entregador. */
+    private fun openCourierLink(intent: Intent?): Boolean {
+        if (!BuildConfig.DEBUG) return false
+        val link = intent?.getStringExtra("courier_link")?.takeIf { it.isNotBlank() } ?: return false
+        startActivity(CourierActivity.intent(this, link))
+        finish()
+        return true
+    }
+
     private fun accept(link: DeepLink?): DeepLink? {
         if (link?.type == DeepLink.DEMO) {
             if (!BuildConfig.DEBUG) return null
