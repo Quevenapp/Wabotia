@@ -21,6 +21,10 @@ const engine = () => (engineModule ??= import("./hub-engine.ts"));
 
 export const ERP_KIND = "erp";
 export const ERP_PROFILE_HEADER = "x-erp-profile";
+/** Blocos opcionais do ERP que o wake informa ao agendador. */
+export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
+/** Chave do KV do objeto com os blocos ligados (gravada pelo /erp-wake). */
+const ERP_BLOCKS_KEY = "erp_blocks";
 
 /** Stub da instância ERP da área (localização preferida: América do Sul). */
 export function erpStub(env: Env, profile: string) {
@@ -104,11 +108,8 @@ export class ErpHub {
         schema_version: ERP_SCHEMA_VERSION,
         database_size: this.ctx.storage.sql.databaseSize,
       });
-    // Acorda o alarme do ERP (fila de saída, tarefas). Também usado nos testes.
-    if (path === "/erp-wake") {
-      await this.ctx.storage.setAlarm(Date.now() + 1);
-      return Response.json({ ok: true });
-    }
+    // Acorda o agendador do ERP (docs/ERP-AGENDADOR.md): o mais cedo vence.
+    if (path === "/erp-wake") return this.wake(request);
     // Backup lógico no R2 e restauração (prova 8). Restaurar é só numa
     // instância nova ou para recuperar: troca o conteúdo inteiro.
     if (path === "/erp-backup") {
@@ -136,15 +137,56 @@ export class ErpHub {
   }
 
   /**
-   * Alarme da instância ERP. Fase 0: só registra a rodada (prova de que o
-   * pipeline da área não roda aqui). Depois: drena a fila de saída do ERP e as
-   * tarefas em fatias.
+   * POST /erp-wake {blocks?, at?}: guarda os blocos ligados no KV do objeto
+   * (o objeto nunca lê o D1) e antecipa o alarme para `at` (padrão: agora). O
+   * mais cedo vence: o wake nunca adia um alarme já agendado.
+   */
+  private async wake(request: Request) {
+    const invalid = () => fail(400, "erp_wake_invalid", "Corpo do wake inválido.");
+    const text = await request.text();
+    let body: { blocks?: unknown; at?: unknown } = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return invalid();
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) return invalid();
+    }
+    const { blocks, at } = body;
+    if (at !== undefined && (typeof at !== "number" || !Number.isFinite(at))) return invalid();
+    if (blocks !== undefined) {
+      if (!blocks || typeof blocks !== "object" || Array.isArray(blocks)) return invalid();
+      for (const [k, v] of Object.entries(blocks))
+        if (!(ERP_OPTIONAL_BLOCKS as readonly string[]).includes(k) || typeof v !== "boolean") return invalid();
+      await this.ctx.storage.put(ERP_BLOCKS_KEY, { blocks, at: Date.now() });
+    }
+    const now = Date.now();
+    const target = Math.max(now + 1, (at as number | undefined) ?? now + 1);
+    const current = await this.ctx.storage.getAlarm();
+    if (current !== null && current <= target) return Response.json({ ok: true, alarm: current });
+    await this.ctx.storage.setAlarm(target);
+    return Response.json({ ok: true, alarm: target });
+  }
+
+  /**
+   * Alarme da instância ERP: uma rodada do agendador (src/erp/scheduler/),
+   * cedendo a vez entre as unidades, e o próximo alarme. Nunca toca a área
+   * nem o D1.
    */
   async alarm() {
-    (await engine()).migrate(this.ctx.storage);
-    this.ctx.storage.sql.exec(
+    const { engineClock, migrate, runRound, storageDriver } = await engine();
+    const storage = this.ctx.storage;
+    if (migrate(storage).status === "newer") return;
+    const saved = await storage.get<{ blocks: Record<string, boolean> }>(ERP_BLOCKS_KEY);
+    const report = await runRound(storageDriver(storage), { blocks: saved?.blocks ?? {}, clock: engineClock(this.ctx) });
+    storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),
     );
+    // Um wake que chegou durante a rodada pode ter agendado mais cedo: fica o mais cedo.
+    const next = report.nextWake ?? Date.now() + 3_600_000;
+    const current = await storage.getAlarm();
+    if (current === null || current > next) await storage.setAlarm(next);
   }
 }

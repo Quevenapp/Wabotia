@@ -6,6 +6,24 @@ import { ERP_SEED } from "./seed.generated.ts";
 
 export const ERP_SCHEMA_VERSION = ERP_DDL_VERSION;
 
+/**
+ * Estado das rotinas do agendador (src/erp/scheduler/, docs/ERP-AGENDADOR.md):
+ * estrutura do Wabotia fora do DDL gerado (structural.ts, "agendador"), criada
+ * aqui como a erp_meta, para valer também em instância que já existe. Fora do
+ * backup (engine/dump.ts leva ERP_TABLES): numa restauração as rotinas vencem
+ * e rodam uma vez, sem efeito repetido.
+ */
+export const WB_ROUTINE_DDL = `CREATE TABLE IF NOT EXISTS wb_routine(
+  id TEXT PRIMARY KEY,
+  next_run_us INTEGER NOT NULL,
+  last_run_us INTEGER,
+  last_status TEXT CHECK (last_status IS NULL OR last_status IN ('ok','partial','error','skipped')),
+  last_error TEXT,
+  last_ms INTEGER,
+  runs INTEGER NOT NULL DEFAULT 0,
+  failures INTEGER NOT NULL DEFAULT 0
+) STRICT`;
+
 export type MigrateResult =
   | {
       status: "current" | "applied";
@@ -54,6 +72,7 @@ export function migrate(storage: DurableObjectStorage): MigrateResult {
   sql.exec(
     "CREATE TABLE IF NOT EXISTS erp_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT",
   );
+  sql.exec(WB_ROUTINE_DDL);
   const row = sql
     .exec("SELECT value FROM erp_meta WHERE key='schema_version'")
     .toArray()[0];
