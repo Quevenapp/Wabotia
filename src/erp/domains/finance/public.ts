@@ -67,5 +67,28 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
 export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
 export { dto } from "./titles.ts";
+export {
+  commissionConfirmed,
+  commissionOperationCapture,
+  commissionOperationSync,
+  guardPostedDocument,
+  guardPostedItem,
+  notesEditAllowed,
+  notesItemAllowed,
+} from "./document-effects.ts";
 export { categoryForFee, commandExists, execute, insertCnabCashPlan, settlementMovements, type CnabCashPlan } from "./cnab-plan.ts";
 export { requirePermission } from "./internal.ts";
+
+// categoryLabel e categoryActive: escritas pela P para o Catálogo
+// (erp_catalog.contact_dto e contact_check_full); dono: Financeiro (sessão O).
+
+/** (select left(c.name,200) from erp_finance.category c where c.id=…) */
+export function categoryLabel(db: SqlDriver, id: string | null): string | null {
+  if (id === null) return null;
+  const c = one(db, 'SELECT name FROM "erp_finance__category" WHERE id=?', id);
+  return c ? left(String(c.name), 200) : null;
+}
+
+/** exists(select 1 from erp_finance.category where id=… and active) */
+export const categoryActive = (db: SqlDriver, id: string) =>
+  !!one(db, 'SELECT 1 x FROM "erp_finance__category" WHERE id=? AND active=1', id);

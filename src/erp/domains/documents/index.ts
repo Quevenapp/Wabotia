@@ -13,4 +13,7 @@ import "./rpc/reads-reports.ts";
 import "./rpc/reads-b2.ts";
 import "./rpc/reads-list.ts";
 
+// Escritores do núcleo (sessão O).
+import "./rpc/erp_document_save.ts";
+
 export {};

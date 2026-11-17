@@ -30,6 +30,9 @@ export {
 export { post } from "./rpc/erp_stock_post.ts";
 export { balanceKept, derivedCommand, lotApply, reservationWriteAccess } from "./internal.ts";
 export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
+// Composição de kit: o Catálogo chama compositionApplyValues no composition_sync.
+export { compositionApplyValues, compositionDto, compositionTotals } from "./composition.ts";
+export { supplyPart } from "./internal.ts";
 export { reserveStatuses, settingsDto } from "./read.ts";
 
 // ---------------------------------------------------------------------------
