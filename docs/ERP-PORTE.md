@@ -275,6 +275,18 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - **Colunas de proveniência que ficam como constante:** `document.origin`/`authority` = 'brufap', `title.origin_zero_source_id` = NULL.
   - **Nomes com "origin" que são nativos e ficam:** `stock-origin.mjs`, `erp_document_copy_origin`, `product.origin` (ICMS).
   - **Mapa completo:** `sessao-N-origin-poda.md`, na pasta de notas.
+  - **Origin vivo, 0A000 visível (`rpc_not_ported`), Catálogo** (orquestração, 17/11/2026): são etapas da sincronização. Revisam e aplicam o que o coletor do Bling deixou em `origin_sync.raw_record`. A convivência com o Bling vira um componente externo que escreve pela API do ERP, e a funcionalidade equivalente fica com ele. O que cada um fazia, para o contrato de integração:
+    - `erp_catalog_import_sources`: lista paginada (cursor por `source_id`, busca em nome/código) dos registros de contatos ou produtos em `raw_record`.
+      Para cada um, traz o plano de revisão (`import_review_plan`) sem as mudanças campo a campo; só administrador (`require_import_admin`).
+    - `erp_catalog_import_preview`: para os `source_id` escolhidos, calcula o plano de importação (`import_review_plan`/`import_changes`, mapeamento `map_origin` do payload Bling para o cadastro).
+      Cada item sai como novo, vínculo, atualização ou conflito, com as mudanças campo a campo e o hash da fonte; não grava nada.
+    - `erp_catalog_import_apply`: aplica até 100 itens do plano revisado, conferindo o `preview_hash` da prévia (recibo `import_review_command`).
+      Cria ou atualiza o cadastro, grava `erp_catalog.origin` (vínculo, `applied_hash`), `source_snapshot` e o espelho `origin_mirror`.
+    - `erp_catalog_origin_categories_sync`: aplica as categorias de produto da fonte (`raw_record` 'product_categories') na taxonomia.
+      Usa `origin_category_apply`/`parent`/`inactive` e registra o vínculo e os problemas (pai ausente, ciclo, nome) em `erp_catalog.taxonomy_source`.
+    - `erp_catalog_origin_deletion_apply`: um produto por vez (versão esperada, ação `delete` ou `restore`): exclui logicamente o apagado na fonte ou restaura o que voltou (`origin_deletion_rows`).
+      Registra em `product_source_deletion` (quem, quando, `human_edited` anterior); recibo em `erp_catalog.command`; só administrador de importação.
+    - Ficam portadas, como leitura do espelho: `erp_catalog_origin_mirror_get`, `erp_catalog_origin_categories` e `erp_catalog_origin_deletions`.
 - **Desvios deliberados do Fagoo:** só valores semeados, em `src/erp/schema/deviations.ts`, com motivo; nunca regra de negócio. O diferencial aplica os mesmos valores nos dois motores.
 - **Blocos opcionais** (`erp-fiscal`, `erp-cobranca`, `erp-pdv`):
   - O portão é por rota, no Worker.
