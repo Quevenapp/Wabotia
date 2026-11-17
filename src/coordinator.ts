@@ -9,6 +9,7 @@ import {
   PROFILE_SETTINGS_SQL,
   PUBLIC_ORIGIN_SQL,
   seedRead,
+  seedPrefetch,
   WEBHOOK_SUBS_SQL,
   withReadCache,
   type Read,
@@ -34,6 +35,7 @@ import {
   overview as queueOverview,
   overviewData,
   overviewOf,
+  queuePrefetch,
 } from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import {
@@ -55,6 +57,11 @@ import {
 export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
+  /**
+   * Fechamentos de recibo em andamento (/command), por "escopo\nchave": a
+   * repetição com a mesma Idempotency-Key espera e devolve a mesma resposta.
+   */
+  private closing = new Map<string, Promise<{ value: any; status: number }>>();
   private link = new HermesLinkHub(this.env, this.ctx);
   private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
@@ -101,7 +108,14 @@ export class Coordinator extends DurableObject<Env> {
           throw error;
         }
       });
-    if (new URL(request.url).pathname === "/command")
+    if (new URL(request.url).pathname === "/command") {
+      // Repetição de um comando cujo recibo ainda está fechando (depois da
+      // resposta, abaixo): espera o fechamento aqui, fora do bloqueio, e
+      // segue; lá dentro, o recibo já tem a resposta e ela volta igual.
+      const pending = this.closing.get(
+        `${(body.actor as Actor).id}:${this.profile}:${body.operation}\n${body.key}`,
+      );
+      if (pending) await pending;
       return this.ctx.blockConcurrencyWhile(async () => {
         const actor: Actor = body.actor,
           scope = `${actor.id}:${this.profile}:${body.operation}`,
@@ -119,6 +133,22 @@ export class Coordinator extends DurableObject<Env> {
           { sql: WEBHOOK_SUBS_SQL, args: [this.profile] },
           { sql: PUBLIC_ORIGIN_SQL, args: [], first: true },
         ];
+        // Identificador da operação para as chaves derivadas (sourceKey, ids
+        // de registro): único por credencial, área, operação e
+        // Idempotency-Key, estável nas repetições e só com hexadecimais. A
+        // chave do cliente nunca vira id direto: outra credencial ou outra
+        // área com a mesma chave é outra operação, e "/" não quebra URL.
+        const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
+        // O começo da operação também vai neste lote (a emissão e a chamada
+        // da fila): o comando inteiro fica em duas idas ao D1, a abertura e
+        // a gravação. Os resultados valem uma vez só (src/db.ts).
+        const prefetch = queuePrefetch(
+          body.operation,
+          body.data,
+          actor,
+          this.profile,
+          operationId,
+        );
         const opening = await batch(
           env,
           [
@@ -131,11 +161,14 @@ export class Coordinator extends DurableObject<Env> {
               [scope, body.key, fingerprint, now()],
             ],
             ...warmReads.map((r) => [r.sql, r.args] as [string, any[]]),
+            ...prefetch,
           ],
-          // Repetir é seguro: a reserva só grava uma vez.
+          // Repetir é seguro: a reserva só grava uma vez (e o +1 do contador
+          // por minuto do totem pode contar uma repetição a mais).
           { retry: true },
         );
         warmReads.forEach((r, i) => seedRead(env, r, opening[i + 2].results));
+        seedPrefetch(env, prefetch, opening.slice(2 + warmReads.length));
         const old: any = opening[0].results[0];
         if (old) {
           if (old.fingerprint !== fingerprint)
@@ -148,7 +181,14 @@ export class Coordinator extends DurableObject<Env> {
               },
               { status: 409 },
             );
-          if (!old.response)
+          if (!old.response) {
+            // Recibo sem resposta: o fechamento ainda grava (a repetição
+            // entrou na fila antes de a primeira sair do bloqueio; esperar
+            // aqui dentro travaria o objeto, porque o bloqueio segura a
+            // resposta do D1 que o fechamento espera) ou o objeto reiniciou
+            // no meio. Nos dois casos, o código de sempre, que os apps já
+            // repetem com a mesma chave depois de 1,5 s (Senhapp, Android e
+            // iOS: operation_unknown); na repetição, o fechamento já acabou.
             return Response.json(
               {
                 error: {
@@ -157,8 +197,9 @@ export class Coordinator extends DurableObject<Env> {
                     "A operação anterior não concluiu o recibo. Reconcilie antes de repetir.",
                 },
               },
-              { status: 409 },
+              { status: 409, headers: { "Retry-After": "1" } },
             );
+          }
           return new Response(
             old.response.startsWith("sealed:")
               ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
@@ -175,12 +216,6 @@ export class Coordinator extends DurableObject<Env> {
         let status = 200,
           value: any,
           audited: [string, any[]] | null = null;
-        // Identificador da operação para as chaves derivadas (sourceKey, ids
-        // de registro): único por credencial, área, operação e
-        // Idempotency-Key, estável nas repetições e só com hexadecimais. A
-        // chave do cliente nunca vira id direto: outra credencial ou outra
-        // área com a mesma chave é outra operação, e "/" não quebra URL.
-        const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
         try {
           value = await perform(
             env,
@@ -211,19 +246,34 @@ export class Coordinator extends DurableObject<Env> {
             },
           };
         }
-        // Fechamento numa ida: a auditoria e o recibo com a resposta.
-        await batch(env, [
+        // Fechamento numa ida, fora do caminho da resposta: a auditoria e o
+        // recibo com a resposta. Enquanto grava, uma repetição com a mesma
+        // chave espera por ele (acima) e recebe a mesma resposta. Se falhar,
+        // o recibo fica sem resposta e a repetição recebe operation_unknown,
+        // como quando o objeto cai no meio de um comando.
+        const closingKey = `${scope}\n${body.key}`;
+        const response = { value, status };
+        const sealed = "sealed:" + (await seal(this.env, value));
+        const closing = batch(env, [
           ...(audited ? [audited] : []),
           [
             "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
-            [
-              "sealed:" + (await seal(this.env, value)),
-              status,
-              scope,
-              body.key,
-            ],
+            [sealed, status, scope, body.key],
           ],
-        ]);
+        ])
+          .then(() => response)
+          .catch((error) => {
+            console.error(
+              JSON.stringify({
+                component: "receipt",
+                error: String(error?.message ?? error).slice(0, 200),
+              }),
+            );
+            return response;
+          })
+          .finally(() => this.closing.delete(closingKey));
+        this.closing.set(closingKey, closing);
+        this.ctx.waitUntil(closing);
         await this.schedule();
         // "settings": o cupom da senha vai no snapshot dos aparelhos. Fora do
         // caminho da resposta: o totem e o painel não esperam o snapshot.
@@ -234,6 +284,7 @@ export class Coordinator extends DurableObject<Env> {
           headers: { "Server-Timing": serverTiming(timing) },
         });
       });
+    }
     // Passo web concluído pela página pública: a mensagem de retorno, o
     // protocolo e a nota entram na fila da área como o resto do atendimento.
     if (new URL(request.url).pathname === "/web-step") {

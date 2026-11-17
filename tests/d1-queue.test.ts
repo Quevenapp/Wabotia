@@ -20,13 +20,16 @@ import { countingEnv, type D1Count } from "./d1-counter";
 
 /** Idas ao D1 (um lote conta uma) de cada caminho. */
 const TRIPS: Record<string, number> = {
-  // Abertura (recibo + configurações), fila, gravação com evento e vista,
-  // fechamento (auditoria + recibo).
-  "emitir senha": 4,
-  "emitir senha preferencial": 4,
-  // Abertura, leituras do guichê, lote da chamada, fechamento.
-  "chamar a próxima": 4,
-  "chamar a próxima (encerra a atual)": 4,
+  // Até a resposta: a abertura (recibo, configurações e o começo da
+  // emissão: fila, chave de origem) e a gravação com evento e vista. O
+  // fechamento (auditoria + recibo) vai depois da resposta.
+  "emitir senha": 2,
+  "emitir senha preferencial": 2,
+  // Totem (aplicação): o +1 do contador por minuto vai na abertura também.
+  "emitir senha no totem": 2,
+  // A abertura (com guichê, filas, candidatas e em curso) e o lote da chamada.
+  "chamar a próxima": 2,
+  "chamar a próxima (encerra a atual)": 2,
   // Pré-rota e o panorama inteiro.
   "GET /queue": 2,
 };
@@ -68,10 +71,15 @@ async function setup() {
           }),
         );
         expect(response.status).toBe(200);
-        expect(response.headers.get("Server-Timing")).toMatch(
-          /^d1;desc="calls=\d+";dur=\d+/,
-        );
-        return { count, body: (await response.json()) as any };
+        const timing = response.headers.get("Server-Timing") || "";
+        expect(timing).toMatch(/^d1;desc="calls=\d+";dur=\d+/);
+        // As idas até a resposta (o Server-Timing é fixado na resposta): o
+        // fechamento do recibo vai depois, fora do caminho do cliente.
+        const calls = Number(/calls=(\d+)/.exec(timing)![1]);
+        return {
+          count: { ...count, calls },
+          body: (await response.json()) as any,
+        };
       } finally {
         instance.env = original;
       }
@@ -89,7 +97,24 @@ describe("idas ao D1 da fila", () => {
     report["emitir senha preferencial"] = (
       await command("queue.issue", { queue_id: queue.id, preferential: true })
     ).count;
-    await command("queue.issue", { queue_id: queue.id, preferential: false });
+    const totem = {
+      id: `app:${uid()}`,
+      kind: "app",
+      name: "Totem",
+      role: "service",
+      profiles: [f.profile],
+      scopes: ["queue:issue"],
+      bots: [],
+      rate: 60,
+      runLimit: 3,
+    };
+    report["emitir senha no totem"] = (
+      await command(
+        "queue.issue",
+        { queue_id: queue.id, preferential: false },
+        totem as any,
+      )
+    ).count;
     report["chamar a próxima"] = (
       await command("queue.call_next", { id: counter.id }, f.member)
     ).count;

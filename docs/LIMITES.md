@@ -126,15 +126,19 @@ as **idas** ao D1, que são o que custa tempo.
 
   | Caminho                      | Antes | Depois | Lotes                                                                                                   |
   | ---------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------- |
-  | Emitir senha (`/command`)    | 16    | **4**  | abertura · fila (e o +1 do totem) · senha + evento + vista · fechamento                                 |
-  | Chamar a próxima             | 17    | **4**  | abertura · guichê, filas, candidatas, em curso · encerra a atual, chama, evento, ciclo, "faltam N", vista · fechamento |
+  | Emitir senha (`/command`)    | 16    | **2**  | abertura com a fila, a chave de origem e o +1 do totem · senha + evento + vista (o fechamento vai depois da resposta) |
+  | Chamar a próxima             | 17    | **2**  | abertura com guichê, filas, candidatas e em curso · encerra a atual, chama, evento, ciclo, "faltam N", vista (o fechamento vai depois da resposta) |
   | Panorama (`GET /queue`)      | 13⁵   | **2**  | pré-rota · o panorama inteiro                                                                            |
   | Snapshot dos painéis         | 1 + 12⁵ por filtro | **2** | eventos novos · o panorama da área, montado para cada filtro                                   |
 
   ⁵ Com uma fila e um guichê; crescia 3 idas por fila e 1 por guichê. Agora não cresce.
 
   - **Abertura do `/command`** (`src/coordinator.ts`): a consulta e a gravação do recibo de idempotência, mais as leituras de configuração que o comando vai usar (estado dos módulos, configurações da área, assinaturas de webhook, endereço público), postas no cache da requisição (`seedRead`).
-  - **Fechamento:** a auditoria e o recibo num lote só (`auditStatement`).
+  - **Começo da operação na abertura:** a operação declara as instruções que vai fazer primeiro (`queuePrefetch` em `src/queue.ts`: a emissão e a chamada), e elas vão no lote da abertura. Os resultados valem uma vez só (`seedPrefetch`/`batchPrefetched` em `src/db.ts`): uma segunda tentativa dentro da operação, como a chamada que perdeu a corrida, vai ao banco de novo.
+  - **Fechamento depois da resposta:** a auditoria e o recibo com a resposta, num lote só (`auditStatement`), saem por `ctx.waitUntil`. O cliente não espera essa ida.
+    - Repetição com a mesma `Idempotency-Key` enquanto o fechamento grava: o objeto espera o fechamento antes de entrar no bloqueio do comando e devolve a mesma resposta (`Idempotency-Replayed`). Esperar dentro do bloqueio travaria o objeto: o `blockConcurrencyWhile` segura a resposta do D1 que o fechamento espera.
+    - Se o fechamento falhar, ou se a repetição já estava na fila antes de a primeira sair do bloqueio: `409 operation_unknown` com `Retry-After: 1`. É o código que o Senhapp e os apps Android e iOS já repetem com a mesma chave (uma vez, depois de 1,5 s). Nenhum app precisou mudar.
+    - Casos em `tests/command-receipt-closing.test.ts`.
   - **Eventos no lote da escrita:** `eventStatement` grava o evento junto com a mudança; `fanOut` cria as entregas de webhook depois (só gasta ida se houver assinatura).
   - **Chamada condicional:** se outra escrita pegou a senha antes, o `UPDATE … WHERE status='waiting' RETURNING *` não volta linha, e o evento e o ciclo da fila, no mesmo lote, só gravam se a senha estiver chamada neste guichê neste instante. O comando tenta de novo (até 5 vezes, como antes).
   - **Contas no banco:** quem está na frente dos avisos de "faltam N" (`AHEAD_SQL`), as médias de atendimento e as contagens do panorama por fila (`GROUP BY` e `row_number()`), em vez de uma consulta por senha ou por fila. `tests/d1-queue.test.ts` confere que dão o mesmo que a vista da senha e o `callFrame`.
